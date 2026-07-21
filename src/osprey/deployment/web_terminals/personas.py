@@ -7,7 +7,12 @@ resolved image/project/container-dir identity per user
 :mod:`osprey.deployment.web_terminals.ports`.
 """
 
+import os
+import re
 from typing import Any
+
+# Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
+_ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
 # Task 2.5: the only wired value for `modules.web_terminals.mcp.topology`. Every
 # other value (including the recognized-but-rejected `shared_http`) is
@@ -89,6 +94,27 @@ def effective_image_source(web_terminals: dict[str, Any]) -> str:
     return "local" if web_terminals.get("image_source") == "local" else "registry"
 
 
+def resolve_image_tag(web_terminals: dict[str, Any]) -> str:
+    """Resolve ``modules.web_terminals.image_tag`` to a literal registry tag.
+
+    Defaults to ``"latest"`` (unset or non-string), then expands any ``${VAR}``
+    / ``$VAR`` references against the **process environment at render time**, so
+    the rendered compose artifact self-carries a fixed literal tag rather than a
+    compose-side ``${...}`` the runtime would re-interpolate at ``up`` time. A
+    referenced variable that is unset expands to the empty string (unlike
+    :func:`os.path.expandvars`, which would leave the reference in place and leak
+    a ``${...}`` into the output); an image_tag that resolves entirely empty is a
+    lint warning (``_check_image_tag_empty``), never a silent bad tag.
+
+    This is the single source of that resolution — :func:`resolve_personas` and
+    lint both route through it so the tag is read and expanded identically.
+    """
+    raw = web_terminals.get("image_tag")
+    if not isinstance(raw, str):
+        raw = "latest"
+    return _ENV_REF_RE.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), raw)
+
+
 def _persona_ref_by_name(raw_users: Any) -> dict[str, str]:
     """Recover each roster entry's ``persona`` reference from the raw roster.
 
@@ -128,17 +154,21 @@ def resolve_personas(
     system in effect for this entry at all — every config predating persona
     catalogs resolves this way for every entry). Resolving against the catalog
     (``modules.web_terminals.personas.<name>: {project, project_path,
-    build_profile}``) then follows these naming rules:
+    build_profile}``) then follows these naming rules. In registry mode every
+    image carries the tag :func:`resolve_image_tag` resolves from
+    ``modules.web_terminals.image_tag`` (``<tag>`` below, default ``latest``);
+    local ``:local`` images are unaffected by that field:
 
     * **No persona in effect** (``persona`` is ``None``): today's exact values —
-      ``image`` is ``<registry_url>/web-terminal:latest`` (unsuffixed, same
-      string the compose template built directly before this function existed),
+      ``image`` is ``<registry_url>/web-terminal:<tag>`` (unsuffixed, the same
+      string the compose template built directly before this function existed
+      whenever ``<tag>`` is its ``latest`` default),
       ``project`` and ``container_project_dir`` are ``<facility_prefix>-assistant``
       / ``/app/<facility_prefix>-assistant``. This is the zero-migration path: a
       config with no ``personas`` catalog at all resolves every entry here.
     * **Default persona** (resolved ``persona`` equals ``default_persona``, and
       a catalog entry exists for it): registry mode keeps the same un-suffixed
-      ``<registry_url>/web-terminal:latest`` image (so the default persona's
+      ``<registry_url>/web-terminal:<tag>`` image (so the default persona's
       *image* never changes when a catalog is introduced); local mode still
       builds ``<persona.project>-<persona>:local`` like every other persona.
       ``container_project_dir`` stays pinned to ``/app/<facility_prefix>-assistant``
@@ -146,7 +176,7 @@ def resolve_personas(
       agent-data volume must keep resolving to the same in-container path it did
       before personas existed.
     * **Non-default persona**: registry mode uses
-      ``<registry_url>/web-terminal-<persona>:latest``; local mode uses
+      ``<registry_url>/web-terminal-<persona>:<tag>``; local mode uses
       ``<persona.project>-<persona>:local`` (same rule as the default persona);
       ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
@@ -190,6 +220,7 @@ def resolve_personas(
         default_persona_name = None
 
     image_source = effective_image_source(web_terminals)
+    image_tag = resolve_image_tag(web_terminals)
 
     registry_url = ""
     if isinstance(registry_cfg, dict):
@@ -212,7 +243,7 @@ def resolve_personas(
 
     default_project = f"{facility_prefix}-assistant"
     default_container_dir = f"/app/{facility_prefix}-assistant"
-    default_image = f"{registry_url}/web-terminal:latest"
+    default_image = f"{registry_url}/web-terminal:{image_tag}"
 
     def _zero_migration_entry(name: str, index: int, persona: str | None) -> dict[str, Any]:
         """The zero-migration resolution: today's exact pre-persona values, with
@@ -275,7 +306,7 @@ def resolve_personas(
         elif is_default:
             image = default_image
         else:
-            image = f"{registry_url}/web-terminal-{persona_ref}:latest"
+            image = f"{registry_url}/web-terminal-{persona_ref}:{image_tag}"
 
         container_project_dir = f"/app/{project}"
 

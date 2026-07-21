@@ -284,6 +284,7 @@ modules:
         persona: "analysis"                # optional; key into personas.<name> below
       - scleemann
     image_source: "registry"               # registry (default) | local — see note below
+    image_tag: "latest"                    # registry-mode image tag; ${VAR} expanded at render time — see note below
     default_persona: "assistant"           # required when image_source: local; see note below
     personas:                              # optional catalog — omit entirely for zero-migration behavior
       assistant:                           # persona name — matches users[].persona / default_persona
@@ -328,6 +329,7 @@ modules:
 | `okf_base_port` | int | no (default 9691) | First per-user OKF knowledge-panel port; binds `OSPREY_FACILITY_KNOWLEDGE_PORT` |
 | `users` | list of strings and/or objects | yes | May be empty when `enabled: true` (see validation rule below). See "User roster entries" below for the object form |
 | `image_source` | enum | no | `registry` (default — today's behavior: `deploy up` pulls a CI-built image) or `local` (`deploy up` builds each referenced persona's image itself from its `project_path`; no CI/registry needed). Fail-closed default; an unrecognized value is a lint ERROR. See "Personas" below |
+| `image_tag` | string | no (default `latest`) | Registry-mode tag baked into every pulled image ref (`web-terminal:<tag>`, `web-terminal-<persona>:<tag>`). `${VAR}`/`$VAR` references are expanded against the **process environment at render time** and emitted as a literal tag, so the rendered compose file self-carries a fixed pin (a pull-free re-`up` re-ups that exact tag rather than whatever `latest` points at locally) — there is no compose-side `${...}` interpolation. A referenced variable that is unset at render time expands to empty, which lint warns on (tagless `web-terminal:`). Ignored in `local` mode, where images are built as `:local` |
 | `default_persona` | string | required if `image_source: local`, or if any `personas` catalog is present and some `users[]` entry has no `persona:` of its own | The persona a roster entry resolves to when it declares no `persona:` key. See "Personas" below |
 | `personas.<name>` | map of objects | no | Catalog of heterogeneous personas — own project, own image, own permissions. Omit entirely (no `personas:` block, no `persona:` keys anywhere) for exactly today's behavior. See "Personas" below |
 | `mcp.topology` | enum | no | `per_container_stdio` (default — today's behavior) is the only accepted value. `shared_http` is a recognized but rejected value — lint ERROR and render `ValueError`. See "MCP topology" below and `references/modules/web-terminals.md` for the deferral rationale |

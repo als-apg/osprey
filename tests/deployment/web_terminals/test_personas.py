@@ -516,3 +516,73 @@ def test_resolve_personas_lenient_degrade_extra_mounts_empty() -> None:
 
     # Assert
     assert result[0]["extra_mounts"] == []
+
+
+# ---------------------------------------------------------------------------
+# image_tag seam
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_personas_image_tag_defaults_to_latest() -> None:
+    """No `image_tag` key resolves to the pre-seam `:latest` registry tag."""
+    # Arrange
+    web_terminals = {"users": ["alice"]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:latest"
+
+
+def test_resolve_personas_image_tag_explicit_literal_is_emitted_verbatim() -> None:
+    """A plain literal `image_tag` (no env reference) is baked into the image
+    ref exactly as written, for both default and non-default persona images."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice", {"name": "gmartino", "index": 1, "persona": "gui"}],
+        "default_persona": "cli",
+        "image_tag": "v2026.7.8",
+        "personas": {
+            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    images = {entry["name"]: entry["image"] for entry in result}
+    assert images == {
+        "alice": "registry.example.org/osprey/web-terminal:v2026.7.8",
+        "gmartino": "registry.example.org/osprey/web-terminal-gui:v2026.7.8",
+    }
+
+
+def test_resolve_personas_image_tag_expands_env_var_at_render_time(monkeypatch) -> None:
+    """A `${VAR}` reference in `image_tag` expands against the process
+    environment to a literal tag — no `${...}` survives into the image ref."""
+    # Arrange
+    monkeypatch.setenv("IMAGE_TAG", "v9.9.9")
+    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}"}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:v9.9.9"
+
+
+def test_resolve_personas_image_tag_unset_env_var_expands_to_empty(monkeypatch) -> None:
+    """An `image_tag` referencing an unset variable expands to the empty string
+    (not a surviving `${...}`), yielding a tagless ref that lint warns on."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}"}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:"

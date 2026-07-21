@@ -1426,3 +1426,51 @@ def test_lint_omitted_mcp_topology_reports_no_error() -> None:
     # Assert
     errors = _errors(findings)
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
+
+
+def test_lint_default_image_tag_reports_no_warning() -> None:
+    """The default (unset) `image_tag` resolves to `latest`, so the empty-tag
+    check stays silent for an ordinary registry-mode config."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.empty_image_tag" for f in findings)
+
+
+def test_lint_empty_expanded_image_tag_is_a_warning(monkeypatch) -> None:
+    """A registry-mode `image_tag` referencing an unset env var expands to empty
+    and must produce a (non-fatal) warning, never an error."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["image_tag"] = "${IMAGE_TAG}"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _errors(findings) == []
+    assert any(f.code == "web_terminals.empty_image_tag" for f in _warnings(findings))
+
+
+def test_lint_empty_image_tag_in_local_mode_reports_no_warning(monkeypatch) -> None:
+    """Local mode builds `:local` images and never reads `image_tag`, so an empty
+    tag there is not this check's concern."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["image_source"] = "local"
+    web_terminals["default_persona"] = "ops"
+    web_terminals["personas"] = {"ops": {"project": "ops-app", "project_path": "profiles/ops"}}
+    web_terminals["image_tag"] = "${IMAGE_TAG}"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.empty_image_tag" for f in findings)

@@ -21,6 +21,7 @@ from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     as_dict,
     effective_image_source,
+    resolve_image_tag,
     resolve_personas,
 )
 from osprey.deployment.web_terminals.ports import (
@@ -111,6 +112,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_unknown_persona_reference(root, web_terminals, users))
     findings.extend(_check_empty_facility_prefix(root, web_terminals, users))
     findings.extend(_check_unknown_image_source(web_terminals))
+    findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
     findings.extend(_check_persona_project_paths(web_terminals, users))
@@ -596,6 +598,32 @@ def _check_unknown_image_source(web_terminals: dict[str, Any]) -> list[Finding]:
             message=(
                 f"modules.web_terminals.image_source {value!r} is not a recognized "
                 f"value; expected one of {sorted(_VALID_IMAGE_SOURCES)}"
+            ),
+        )
+    ]
+
+
+def _check_image_tag_empty(web_terminals: dict[str, Any]) -> list[Finding]:
+    """Registry mode bakes ``modules.web_terminals.image_tag`` literally into
+    every pulled image ref (``web-terminal:<tag>``). When the field references a
+    ``${VAR}`` that is unset at lint/render time (or is otherwise empty), it
+    resolves to an empty string and the ref degrades to a tagless
+    ``web-terminal:`` no registry can pull. Warn so the misconfiguration
+    surfaces here rather than at ``deploy up``. Scoped to registry mode — local
+    mode builds ``:local`` images and never reads ``image_tag``."""
+    if effective_image_source(web_terminals) != "registry":
+        return []
+    if resolve_image_tag(web_terminals):
+        return []
+    return [
+        Finding(
+            severity="warn",
+            code="web_terminals.empty_image_tag",
+            message=(
+                "modules.web_terminals.image_tag resolves to an empty string "
+                "(likely a ${VAR} whose variable is unset at render time); the "
+                "rendered image ref would be a tagless 'web-terminal:' that no "
+                "registry can pull"
             ),
         )
     ]

@@ -179,6 +179,15 @@ persona, `deploy up` still only pulls, never builds.
    tag — and reconciles the heterogeneous set of per-user containers. No
    build ever runs in this mode.
 
+The image *tag* every ref carries (`web-terminal:<tag>`,
+`web-terminal-<persona>:<tag>`) comes from `modules.web_terminals.image_tag`
+(default `latest`). Any `${VAR}` in that field is expanded against the
+environment **at render time** and baked into the compose file as a literal —
+so a rendered artifact self-carries its pin and a pull-free re-`up` re-ups that
+exact tag rather than whatever `latest` resolves to locally (there is no
+compose-side `${...}` interpolation). This field is registry-mode only; local
+mode always builds `:local` images.
+
 ### Local-mode operator flow (no CI/registry required)
 
 Local mode is for facilities without a CI/registry pipeline: `deploy up`
