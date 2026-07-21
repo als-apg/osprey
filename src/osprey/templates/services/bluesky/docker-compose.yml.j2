@@ -8,7 +8,7 @@
 
 services:
   bluesky-bridge:
-    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default('osprey-bluesky-bridge:local') }}}
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_labels.project_name ~ '-bluesky-bridge:local') }}}
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
@@ -18,10 +18,14 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
+        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{% if dev_mode | default(false) %}
+        OSPREY_DEV: "1"
+{% endif %}
 {% if 'virtual_accelerator' in deployed_services %}
     # Only when the Virtual Accelerator (Task 4.1) is co-deployed: order the
     # bridge's startup after the VA's CA-readiness healthcheck, so the
-    # substrate scanner's ophyd-async connect (Task 2.3) doesn't race the
+    # substrate runner's ophyd-async connect (Task 2.3) doesn't race the
     # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
     # NOT get this — compose errors on depends_on naming an undefined service.
     depends_on:
@@ -51,11 +55,11 @@ services:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.port | default(8090) }}:{{ services.bluesky.port | default(8090) }}"
     environment:
       # No :-default — an unset token must stay EMPTY so the bridge's
-      # POST /runs/{id}/promote route fails closed (HTTP 503) rather than
+      # POST /runs/{id}/launch route fails closed (HTTP 503) rather than
       # booting with a guessable secret. `osprey deploy up` auto-generates a
       # strong random token into the project .env when unset (see
       # container_lifecycle.py's per-service token-mint map).
-      BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}
+      BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
       # The connector-backed bridge reads control_system.type/writes_enabled
       # and control_system.limits_checking.database_path from config.yml at
       # runtime (Task 3.2). CWD is the image WORKDIR (/app), not the project
@@ -64,6 +68,15 @@ services:
       # dispatch_worker's identical CONFIG_FILE convention.
       CONFIG_FILE: /app/project/config.yml
       TZ: {{ system.timezone }}
+{% if services.bluesky.plan_dir %}
+      # Facility plan directory (Task 1.4): the plan loader
+      # (plan_loader.py) reads BLUESKY_PLAN_DIRS as an os.pathsep-separated
+      # list of IN-CONTAINER paths and scans each as a "facility"-tier
+      # layer. This MUST be the mount target below, never the host path
+      # configured in services.bluesky.plan_dir — the container environment
+      # never sees the operator's host filesystem layout.
+      BLUESKY_PLAN_DIRS: /app/project/plans
+{% endif %}
 {% if 'virtual_accelerator' in deployed_services %}
       # Reach the co-deployed Virtual Accelerator (Task 4.1) over Channel
       # Access. Name-server TCP transport is the one host<->container CA
@@ -72,7 +85,7 @@ services:
       # operator override stays consistent between the two services.
       EPICS_CA_NAME_SERVERS: "virtual-accelerator:{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
       EPICS_CA_AUTO_ADDR_LIST: "NO"
-      # Substrate scanner wiring (Task 2.3, locked contract in app.py).
+      # Substrate runner wiring (Task 2.3, locked contract in app.py).
       # Passthrough only — the operator/deploy env chooses the actual PVs
       # (Task 5.1's e2e sets these), never hardcoded here. The :- empty
       # default makes an unset BLUESKY_EPICS_SUBSTRATE harmless: the bridge
@@ -81,14 +94,14 @@ services:
       BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
       BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
 {% endif %}
-{% if services.bluesky.demo_scanner | default(false) %}
+{% if services.bluesky.demo_runner | default(false) %}
       # Deploy-smoke-demo / tutorial only: tells app.py's guarded startup hook
       # (task 2.14a) to wire a real bluesky RunEngine against MOCK ophyd-async
-      # devices (devices/mock.py) instead of the Phase 1 no-op FakeScanner.
-      # NEVER set services.bluesky.demo_scanner for a facility wiring real
+      # devices (devices/mock.py) instead of the Phase 1 no-op FakePlanRunner.
+      # NEVER set services.bluesky.demo_runner for a facility wiring real
       # EPICS hardware — it would silently override real device/plan wiring
-      # with an in-memory mock scanner.
-      BLUESKY_DEMO_SCANNER: "true"
+      # with an in-memory mock runner.
+      BLUESKY_DEMO_RUNNER: "true"
 {% endif %}
 {% if services.bluesky.tiled_enabled | default(false) %}
       # Tiled persistence (Task 2.7): the bridge's TiledWriter connects to the
@@ -107,6 +120,17 @@ services:
       # config.yml to resolve control_system settings regardless of which
       # optional services are co-deployed (Task 3.2).
       - ./bluesky/config.yml:/app/project/config.yml:ro
+{% if services.bluesky.plan_dir %}
+      # Facility plan directory (Task 1.4): operator-supplied host path via
+      # services.bluesky.plan_dir in config.yml, mounted read-only — the
+      # bridge only discovers/execs plans from here, never writes into it.
+      # An absolute host path passes through unchanged; a relative one
+      # resolves against the compose project directory (build/services/),
+      # same rule as every other bind source in this file. The container
+      # target is fixed (matches BLUESKY_PLAN_DIRS above) so plan_loader.py
+      # never needs to know the host-side location.
+      - {{ services.bluesky.plan_dir }}:/app/project/plans:ro
+{% endif %}
 {% if (control_system | default({})).writes_enabled | default(false) %}
       # Channel limits DB (Task 3.2, CC-2): only meaningful once writes are
       # enabled — a read-only deploy never opens it. Mounted under the SAME
@@ -129,7 +153,7 @@ services:
       timeout: 5s
       retries: 5
       # Grace period before failed probes count — uvicorn/FastAPI startup and
-      # the first image build (which bakes in the bluesky-bridge extra's
+      # the first image build (which bakes in the bluesky stack's
       # dependencies at build time, not at container start) take a few seconds.
       start_period: 15s
 {% if services.bluesky.tiled_enabled | default(false) %}
@@ -137,7 +161,7 @@ services:
   # OPTIONAL: a local Tiled server for the bridge's TiledWriter subscription
   # (Task 2.7) to persist run documents to. Enabled by setting
   # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
-  # only, same as the bridge itself. Not required for Phase 2's FakeScanner path.
+  # only, same as the bridge itself. Not required for Phase 2's FakePlanRunner path.
   tiled:
     image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project

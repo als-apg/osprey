@@ -1,0 +1,186 @@
+{#
+  docker-compose.web.yml.j2 — multi-user web-terminal stack overlay.
+
+  Rendered by render_web_terminals() (Task 1.4, src/osprey/deployment/web_terminals/
+  render.py) with a Jinja2 Environment that has autoescape=False — this emits YAML,
+  not HTML, and autoescape would corrupt env values containing "&", "<", etc. Added
+  to `runtime.compose_files` alongside the base docker-compose.yml.
+
+  ----------------------------------------------------------------------------
+  TEMPLATE CONTRACT (variables render.py MUST supply)
+  ----------------------------------------------------------------------------
+
+    facility_prefix: str
+      facility.prefix from facility-config.yml (e.g. "als"). Used for
+      container_name (`<prefix>-web-<user>`, `<prefix>-nginx`) only — the
+      per-user agent-data mount path comes from each service's own
+      `container_project_dir` (below), not this field, so a persona-resolved
+      user's mount can differ from the facility-prefix default.
+
+    registry_url: str
+      registry.url from facility-config.yml. NOT read directly by this
+      template's per-user image line (that comes pre-resolved as `svc.image`,
+      below) — kept in the render context for the nginx/landing sibling
+      templates and any future use, per the same convention as the
+      `ariel-sync` service in templates/core/docker-compose.yml.
+
+    services: list[dict], required (may be empty — the 0-user case)
+      ONE entry per configured user, PRE-BUILT by render.py from
+      `resolve_personas()` (deployment/web_terminals/ports.py) +
+      `allocate_ports()` — persona resolution and port arithmetic both stay
+      in Python; this template only iterates. Each entry is
+      `{"user": str, "image": str, "project": str, "container_project_dir": str,
+      "panel_env": list, **allocate_ports(base_ports, index)}`:
+        {
+          "user": str,                  # bare username, e.g. "thellert"
+          "image": str,                 # resolved by resolve_personas() -> per-svc `image:`
+          "project": str,               # resolved by resolve_personas() (not read by this template)
+          "container_project_dir": str, # resolved by resolve_personas() -> agent-data mount root
+          "web": int,        # web_base_port + index -> OSPREY_WEB_PORT / OSPREY_TERMINAL_WEB_PORT
+          "panel_env": [     # ONE entry per FRAMEWORK_WEB_SERVERS companion family,
+            {"name": str,    #   derived by render.py from the registry's port_env_var
+             "port": int},   #   + `<family>_base_port + index` (ports.PANEL_ENV_VARS)
+            ...              #   — the template only iterates; hand-listing env vars
+          ],                 #   here is what once let a panel miss multi-user wiring
+        }
+      (allocate_ports() also merges each companion family's port under its
+      family name — e.g. "artifact": int — for callers/tests; this template
+      reads only "web" and "panel_env".)
+      A no-personas config (the zero-migration path) resolves every entry's
+      `image` to the same `<registry_url>/web-terminal:latest` this template
+      used to build directly, and every entry's `container_project_dir` to
+      `/app/<facility_prefix>-assistant` — byte-identical output to before
+      personas existed (see resolve_personas()'s docstring). render.py MUST
+      NOT include an entry whose "user" is "nginx" (reserved
+      service name; enforced by the lint (Task 1.5) against facility-config).
+      This template ALSO refuses to render such a `services` list (see the
+      loop below) — belt-and-suspenders, because a `services:` mapping with
+      two `nginx:` keys wouldn't fail loudly on its own: PyYAML silently
+      keeps the last duplicate key, so the whole nginx service would just
+      vanish with no error if the lint didn't run first.
+
+    nginx_port: int, required
+      Host port nginx publishes for the landing page + per-user redirects.
+
+    landing_url: str, required when `services` is non-empty
+      The fully-qualified origin browsers use to reach nginx, e.g.
+      "http://als-deploy.lbl.gov:9080" (scheme + deploy host + nginx_port, no
+      trailing slash). Passed to every per-user service as
+      OSPREY_TERMINAL_LANDING_URL so the in-app logout control has a target
+      (see the Task 3.3/4.1 contract in shared_context.md). This can't be
+      computed the way nginx.conf.j2 computes its redirect targets (from
+      request-time `$host`) — env vars are baked in at container start — so
+      render.py must resolve it once, typically from `deploy.host` + this
+      same `nginx_port`.
+
+    nginx_image: str, optional, default "nginx:1.27-alpine"
+    facility_timezone: str, optional, default "UTC" -> TZ
+
+    bind_host: str, required (Task 1.1)
+      Loopback address (always "127.0.0.1") baked into every per-user
+      service's OSPREY_TERMINAL_BIND_HOST. Not sourced from facility-config
+      — see render.py's `_LOOPBACK_BIND_HOST` for why this is a constant,
+      not a knob.
+
+  ----------------------------------------------------------------------------
+  NETWORKING
+
+  Every service (per-user AND nginx) runs `network_mode: host`. Per-user
+  services need it for EPICS CA UDP broadcast discovery; under host
+  networking there is no internal->host port map, so each per-user app's
+  OSPREY_WEB_PORT/etc. is a host port. Unlike the port, the *bind address* is
+  NOT the host's routable interface: every per-user app binds `bind_host`
+  ("127.0.0.1", via OSPREY_TERMINAL_BIND_HOST) only, so a per-user port is
+  unreachable from off-host even though it shares the host network
+  namespace. nginx (bind-nginx-reverse-proxy) is therefore the only intended
+  off-host path to a per-user app — it reverse-proxies to these loopback
+  upstreams rather than the redirect-to-distinct-origin scheme this template
+  used prior to Task 1.1. nginx itself still runs on host networking (so
+  `nginx_port` sits in the same reachability class the per-user ports used
+  to) and binds every interface, unrestricted — it is the one service
+  required to be reachable off-host, and it can always reach the per-user
+  loopback upstreams because loopback is visible to every process sharing
+  the same host netns.
+
+  MOUNT PATH: nginx.conf.j2's rendered output is a `server{}` FRAGMENT, not a
+  complete main config (no `events{}`/`http{}` wrapper — `server`/`listen`/
+  `location` are only valid inside `http{}`). It mounts to
+  `/etc/nginx/conf.d/default.conf`, NOT `/etc/nginx/nginx.conf` — the base
+  nginx image's own (untouched) main config already `include`s
+  `/etc/nginx/conf.d/*.conf` from inside its `http{}` block, and already
+  ships `events{}`. Mounting the fragment at the main-config path instead
+  would fail nginx's parse at startup ("server" directive is not allowed
+  there) and the whole stack would never come up.
+#}
+services:
+
+  nginx:
+    image: {{ nginx_image | default("nginx:1.27-alpine") }}
+    container_name: {{ facility_prefix }}-nginx
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ={{ facility_timezone | default("UTC") }}
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/landing.html:/usr/share/nginx/html/landing.html:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:{{ nginx_port }}/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+{% for svc in services %}
+{% if svc.user == "nginx" %}
+  {# HARD FAIL: a user literally named "nginx" would silently clobber the
+     nginx service key above (PyYAML keeps the last of two duplicate mapping
+     keys, so the whole nginx service — and the landing page — would just
+     vanish with no render error). The lint (Task 1.5) already rejects this
+     against facility-config; this is a second, independent guard that fires
+     even if render.py is ever called without going through the lint first. #}
+  {{ 1 / 0 }}
+{% endif %}
+
+  web-{{ svc.user }}:
+    image: {{ svc.image }}
+    container_name: {{ facility_prefix }}-web-{{ svc.user }}
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env.production
+    environment:
+      - CLAUDE_CONFIG_DIR=/data/claude-config
+      - HOME=/data/claude-config
+      - TZ={{ facility_timezone | default("UTC") }}
+      - OSPREY_TERMINAL_USER={{ svc.user }}
+      - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
+      - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
+      - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
+      - OSPREY_WEB_PORT={{ svc.web }}
+{%- for env in svc.panel_env %}
+      - {{ env.name }}={{ env.port }}
+{%- endfor %}
+    volumes:
+      - {{ svc.user }}-claude-config:/data/claude-config
+      - {{ svc.user }}-agent-data:{{ svc.container_project_dir }}/_agent_data
+    healthcheck:
+      # osprey web's own default listen port is the fixed constant 8087
+      # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
+      # OSPREY_WEB_PORT override. Every per-user container here sets
+      # OSPREY_WEB_PORT above, so the probe targets the ACTUAL bound port,
+      # never the bare 8087 default. Probed via bind_host itself (not a
+      # hardcoded "127.0.0.1" literal) since that's the same loopback
+      # address OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
+      test: ["CMD-SHELL", "curl -fsS http://{{ bind_host }}:{{ svc.web }}/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+{% endfor %}
+{% if services %}
+
+volumes:
+{% for svc in services %}
+  {{ svc.user }}-claude-config:
+  {{ svc.user }}-agent-data:
+{% endfor %}
+{% endif %}

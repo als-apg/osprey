@@ -58,14 +58,19 @@ OO_PROJECT = "proj"
 OO_CONTAINER = f"{OO_PROJECT}-openobserve"  # matches the rendered container_name
 
 # The named volume OpenObserve pins its root credentials into on FIRST init.
-# Its name is ``<compose-project>_openobserve_data`` where the compose project is
-# ``services`` (the compose files live under ``build/services/``) — so it is
-# HOST-GLOBAL, shared by every OSPREY project's openobserve on one host. Because
-# OpenObserve ignores new root creds once a volume is initialized, a volume left
-# behind by another deploy (now that telemetry is on by default) would make this
-# credential-sensitive test 401. The fixture removes it before deploy and on
-# teardown so the store always initializes with THIS test's credentials.
-OO_DATA_VOLUME = "services_openobserve_data"
+# Its name is ``<COMPOSE_PROJECT_NAME>_openobserve_data``; ``osprey deploy``
+# pins ``COMPOSE_PROJECT_NAME`` to the project name (see
+# ``runtime_helper.runtime_env``), so this test's volume is
+# ``proj_openobserve_data``. Because OpenObserve ignores new root creds once a
+# volume is initialized, a surviving volume from an earlier attempt (the
+# fixture's own reruns included — ``deploy down`` keeps volumes) would pin
+# whatever creds that attempt initialized with. The fixture removes it before
+# deploy and on teardown so the store always initializes with THIS test's
+# credentials. The pre-project-pinning deploys derived the compose project from
+# the compose files' directory (``services``), so the legacy host-global name
+# is removed too — a dev machine can still carry one.
+OO_DATA_VOLUME = f"{OO_PROJECT}_openobserve_data"
+OO_LEGACY_DATA_VOLUME = "services_openobserve_data"
 OO_ORG = "default"
 
 # Credentials the compose service and the telemetry resolver BOTH read from the
@@ -103,31 +108,48 @@ def _find_osprey_console_script() -> Path:
 
 
 def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
+    # ZO_ROOT_USER_* are pinned to this test's constants so compose interpolates
+    # the SAME credentials the computed Basic header uses, no matter what the
+    # inherited process env carries. An earlier test in the same pytest process
+    # can legitimately leave a foreign ZO_ROOT_USER_PASSWORD in os.environ
+    # (``inject_provider_env`` copies every project-.env key into os.environ by
+    # contract), and compose versions differ on whether the process env or the
+    # ``--env-file`` wins ${VAR} interpolation — pinning here makes first-init
+    # deterministic under either precedence.
     return subprocess.run(
         cmd,
         cwd=str(cwd),
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
+        env={
+            **os.environ,
+            "CLAUDECODE": "",
+            "ZO_ROOT_USER_EMAIL": OO_EMAIL,
+            "ZO_ROOT_USER_PASSWORD": OO_PASSWORD,
+        },
     )
 
 
 def _remove_oo_data_volume() -> None:
-    """Remove the host-global OpenObserve data volume by EXACT name, if present.
+    """Remove this project's OpenObserve data volume by EXACT name, if present.
 
     OpenObserve pins its root credentials on the volume's first init, so a volume
-    left behind by an earlier deploy would reject this test's credentials (401).
-    Removing it guarantees a clean init. Exact-named and failure-tolerant — never
-    a wildcard, never a prune; a missing/in-use volume is a no-op.
+    left behind by an earlier deploy (including this fixture's own prior rerun
+    attempt) would reject this test's credentials (401). Removing it guarantees a
+    clean init. Exact-named and failure-tolerant — never a wildcard, never a
+    prune; a missing/in-use volume is a no-op. The legacy directory-derived name
+    is removed alongside for dev machines that predate project-pinned compose
+    namespacing.
     """
-    subprocess.run(
-        ["docker", "volume", "rm", OO_DATA_VOLUME],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
+    for volume in (OO_DATA_VOLUME, OO_LEGACY_DATA_VOLUME):
+        subprocess.run(
+            ["docker", "volume", "rm", volume],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
 
 
 def _enable_openobserve(project_dir: Path) -> None:
@@ -214,6 +236,38 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
         _remove_oo_data_volume()
 
 
+def _container_cred_diagnosis() -> str:
+    """Report WHERE the deployed container's credentials came from, for 401
+    triage: this test's constants, the compose-template default, or a foreign
+    value (a leaked env var winning ``${VAR}`` interpolation over the
+    ``--env-file``). Booleans only — never the secret itself.
+    """
+    probe = subprocess.run(
+        [
+            "docker",
+            "exec",
+            OO_CONTAINER,
+            "printenv",
+            "ZO_ROOT_USER_EMAIL",
+            "ZO_ROOT_USER_PASSWORD",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if probe.returncode != 0:
+        return f"cred diagnosis unavailable (docker exec rc={probe.returncode}: {probe.stderr!r})"
+    lines = probe.stdout.splitlines()
+    email = lines[0] if lines else ""
+    password = lines[1] if len(lines) > 1 else ""
+    return (
+        f"container creds: email==test-constant {email == OO_EMAIL}, "
+        f"password==test-constant {password == OO_PASSWORD}, "
+        f"password==template-default {password == 'Complexpass#123'}"
+    )
+
+
 def _wait_for_health(url: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     last_err = "(no response yet)"
@@ -287,7 +341,14 @@ def _query(path: str, payload: dict | None, auth: str, method: str = "POST") -> 
         with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
             return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode() or "{}")
+        # Error bodies are not reliably JSON (e.g. a bare "Unauthorized Access"
+        # string on 401) — surface them as data instead of crashing the test
+        # with a JSONDecodeError that hides the real status code.
+        body = exc.read().decode()
+        try:
+            return exc.code, json.loads(body or "{}")
+        except json.JSONDecodeError:
+            return exc.code, {"_raw_error_body": body}
 
 
 def _synthetic_metric(now_ns: int) -> dict:
@@ -370,7 +431,9 @@ def test_synthetic_otlp_roundtrip_via_computed_header(deployed_openobserve: Path
     metric_status, metric_body = _otlp_post(
         f"/api/{OO_ORG}/v1/metrics", _synthetic_metric(now_ns), auth
     )
-    assert metric_status == 200, f"metric ingest rejected: {metric_status} {metric_body}"
+    assert metric_status == 200, (
+        f"metric ingest rejected: {metric_status} {metric_body} — {_container_cred_diagnosis()}"
+    )
     event_status, event_body = _otlp_post(f"/api/{OO_ORG}/v1/logs", _synthetic_event(now_ns), auth)
     assert event_status == 200, f"event ingest rejected: {event_status} {event_body}"
 

@@ -18,6 +18,7 @@
  */
 
 import { el as _el } from '/design-system/js/dom.js';
+import { withPrefix } from './api.js';
 import { _section } from './config-render-helpers.js';
 
 /**
@@ -188,7 +189,9 @@ function _clearChildren(el) {
  * @param {Record<string, HTMLElement>} cardMap
  */
 function _fetchAndEnrichCards(cardMap) {
-  fetch('/api/mcp-servers')
+  // Prefix-aware so this reaches the container under /u/<user>/ in
+  // multi-user deployments.
+  fetch(withPrefix('/api/mcp-servers'))
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(servers => {
       for (const server of servers) {

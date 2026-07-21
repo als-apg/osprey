@@ -1,8 +1,9 @@
 """Guards `app.py`'s `_BRIDGE_ONLY_MODULES` invariant (FR8): importing
 `osprey.services.bluesky_bridge.app` must never pull in `bluesky`, `ophyd`,
-`ophyd_async`, or `tiled`. A top-level import of any of those in `app.py`
-would 500 the bridge at import time in any deploy lacking the
-`bluesky-bridge` extra.
+`ophyd_async`, or `tiled`. The bluesky stack is a core dependency, so this is
+an import-hygiene boundary, not an install-size one: keeping those heavy
+imports out of the lifecycle core's import path keeps the bridge's startup
+import fast and the lifecycle/FakePlanRunner seam clean.
 
 This MUST run in a fresh subprocess. The dev venv has all four packages
 installed, and other tests in this suite legitimately import them, so by

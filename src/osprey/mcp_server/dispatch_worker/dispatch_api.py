@@ -37,7 +37,7 @@ from osprey.interfaces.artifacts.resolve import (
     load_run_record,
     resolve_single_run_artifact,
 )
-from osprey.mcp_server.dispatch_worker import sdk_runner
+from osprey.mcp_server.dispatch_worker import counters, failure_class, run_stats, sdk_runner
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -52,6 +52,12 @@ _QUEUE_TTL_SEC = 60  # discard unconsumed SSE queues after this many seconds pos
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
+
+# Boot nonce: the worker process's start timestamp, captured once at import.
+# Stable for the life of the process and different across restarts, so a poller
+# can detect a worker restart (and the accompanying reset of the process-lifetime
+# failure counters in ``counters``) by watching this value change.
+_BOOT_NONCE: float = time.time()
 
 # In-memory run store: run_id -> result dict (includes created_at, completed_at)
 _runs: dict[str, dict[str, Any]] = {}
@@ -204,6 +210,9 @@ async def _lifespan(app: FastAPI):
     startup, since they depend on the mounted ``config.yml`` and environment.
     """
     _inject_provider_env_once()
+    # Route every _stamp's per-class increment into the process-lifetime counters
+    # before any run can fail, so no early failure goes uncounted.
+    counters.install()
     _load_persisted_runs()
     task = asyncio.create_task(_stale_run_cleanup())
     yield
@@ -265,12 +274,22 @@ def _sweep_stale_runs() -> None:
                 logger.warning(
                     "Marking stale run %s as error (pending > %ds)", run_id, stale_cutoff
                 )
-                _runs[run_id] = {
+                swept = {
                     **run,
                     "status": "error",
                     "error": f"Timed out after {stale_cutoff}s",
                     "completed_at": now,
+                    "tool_calls": run.get("tool_calls", []),
                 }
+                # A stale run is a worker-side fault: stamp it infrastructure with
+                # the honest tool-call count and persist it as THE terminal record.
+                # When this run's orphaned coroutine later unwinds with
+                # CancelledError, that branch sees an already-terminal record and
+                # merges instead of stamping again — one terminal record, one count.
+                num_tool_calls = run_stats.get_run_stats(run_id)["num_tool_calls"]
+                failure_class._stamp(swept, failure_class.FAILURE_INFRASTRUCTURE, num_tool_calls)
+                _runs[run_id] = swept
+                _persist_run(run_id, swept)
                 # Cancel the orphaned task so its Claude CLI subprocess exits;
                 # marking the run error alone would leave it running.
                 task = _tasks.get(run_id)
@@ -345,6 +364,49 @@ class DispatchResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+# Statuses that mark a run's record as final. ``pending`` is the only
+# non-terminal state; the stale-run sweep and the task's own error branches all
+# transition it to one of these.
+_TERMINAL_STATUSES = frozenset({"completed", "error"})
+
+
+def _is_terminal(run: dict[str, Any]) -> bool:
+    """True when ``run`` already holds a final (completed/error) record."""
+    return run.get("status") in _TERMINAL_STATUSES
+
+
+def _build_stamped_error(
+    run_id: str,
+    error: str,
+    failure_cls: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a terminal error record for ``run_id`` and stamp its failure class.
+
+    Centralises the two things every ``_run_dispatch_task`` error branch must do
+    identically: read the honest tool-call count from the shared stats map
+    (while it is still live — before the ``finally`` pops it) and stamp the
+    class plus count. ``extra`` overrides defaults (e.g. the timeout branch's
+    ``duration_sec``).
+    """
+    result: dict[str, Any] = {
+        "status": "error",
+        "text_output": "",
+        "tool_calls": [],
+        "error": error,
+        "duration_sec": 0.0,
+        "cost_usd": None,
+        "num_turns": None,
+        "completed_at": time.time(),
+        "artifacts": [],
+    }
+    if extra:
+        result.update(extra)
+    num_tool_calls = run_stats.get_run_stats(run_id)["num_tool_calls"]
+    failure_class._stamp(result, failure_cls, num_tool_calls)
+    return result
+
+
 async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
     queue = asyncio.Queue()
     _queues[run_id] = queue
@@ -381,34 +443,41 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         logger.info("Dispatch %s completed: status=%s", run_id, result.get("status"))
     except TimeoutError:
         logger.error("Dispatch %s timed out after %ds", run_id, DISPATCH_TIMEOUT_SEC)
-        err_result = {
-            "status": "error",
-            "text_output": "",
-            "tool_calls": [],
-            "error": f"Timed out after {DISPATCH_TIMEOUT_SEC}s",
-            "duration_sec": DISPATCH_TIMEOUT_SEC,
-            "cost_usd": None,
-            "num_turns": None,
-            "completed_at": time.time(),
-            "artifacts": [],
-        }
+        err_result = _build_stamped_error(
+            run_id,
+            f"Timed out after {DISPATCH_TIMEOUT_SEC}s",
+            failure_class.FAILURE_INFRASTRUCTURE,
+            extra={"duration_sec": DISPATCH_TIMEOUT_SEC},
+        )
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
         await queue.put({"type": "error", "message": f"Timed out after {DISPATCH_TIMEOUT_SEC}s"})
     except asyncio.CancelledError:
+        existing = _runs.get(run_id)
+        if existing is not None and _is_terminal(existing):
+            # Race lost to the stale-run sweep: it already wrote and stamped the
+            # terminal record (infrastructure) and then cancelled this coroutine.
+            # Preserve that record — do not overwrite it with "cancelled by user"
+            # and do not stamp again — so the run keeps exactly one terminal
+            # record and one counter increment.
+            logger.warning(
+                "Dispatch %s cancelled after already terminal; preserving swept record (%s)",
+                run_id,
+                existing.get("error"),
+            )
+            try:
+                await queue.put({"type": "error", "message": existing.get("error", "cancelled")})
+            except Exception:
+                pass
+            raise
+        # Genuine user cancel of a still-pending run: a run-level terminal state.
         logger.warning("Dispatch %s cancelled by user", run_id)
-        err_result = {
-            "status": "error",
-            "text_output": "",
-            "tool_calls": [],
-            "error": "cancelled by user",
-            "cancelled": True,
-            "duration_sec": 0.0,
-            "cost_usd": None,
-            "num_turns": None,
-            "completed_at": time.time(),
-            "artifacts": [],
-        }
+        err_result = _build_stamped_error(
+            run_id,
+            "cancelled by user",
+            failure_class.FAILURE_RUN,
+            extra={"cancelled": True},
+        )
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
         try:
@@ -420,22 +489,18 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         raise
     except Exception as exc:
         logger.error("Dispatch %s failed: %s", run_id, exc, exc_info=True)
-        err_result = {
-            "status": "error",
-            "text_output": "",
-            "tool_calls": [],
-            "error": str(exc),
-            "duration_sec": 0.0,
-            "cost_usd": None,
-            "num_turns": None,
-            "completed_at": time.time(),
-            "artifacts": [],
-        }
+        # Reached only for faults in the worker's own orchestration around the
+        # run: run_dispatch handles provider/agent errors internally and returns
+        # them already stamped, so anything raised out to this layer is
+        # structurally an infrastructure fault (hence the literal class rather
+        # than routing through classify_exception).
+        err_result = _build_stamped_error(run_id, str(exc), failure_class.FAILURE_INFRASTRUCTURE)
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
         await queue.put({"type": "error", "message": str(exc)})
     finally:
         _tasks.pop(run_id, None)
+        run_stats.pop_run_stats(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -594,12 +659,19 @@ async def health() -> dict[str, Any]:
         s = run.get("status", "")
         if s in counts:
             counts[s] += 1
+    # Process-lifetime failure counters — monotonic and independent of the
+    # evictable _runs map above (see counters module docstring). The _runs-derived
+    # error_runs field is retained unchanged for compatibility.
+    lifetime = counters.get_counts()
     return {
         "status": "ok",
         "pending_runs": counts["pending"],
         "completed_runs": counts["completed"],
         "error_runs": counts["error"],
         "total_runs": len(_runs),
+        "provider_errors": lifetime[failure_class.FAILURE_PROVIDER],
+        "infrastructure_errors": lifetime[failure_class.FAILURE_INFRASTRUCTURE],
+        "boot_nonce": _BOOT_NONCE,
     }
 
 

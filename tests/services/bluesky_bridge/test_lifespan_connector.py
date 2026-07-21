@@ -1,19 +1,27 @@
-"""Tests for the bridge's single long-lived OSPREY connector (task 2.1).
+"""Tests for the bridge's single long-lived OSPREY connector (task 2.1, 3.4).
 
 `app.py`'s `_lifespan` hook constructs exactly one OSPREY connector — via
-`ConnectorFactory.create_control_system_connector` with a gateway-less
-``virtual_accelerator`` `type_config` — whenever the EPICS substrate is
-enabled (`_is_epics_substrate_enabled()`) and the bluesky-bridge extra is
-importable, holds it as the module-level `_connector` singleton for the
-process's whole lifetime, and disconnects it exactly once on shutdown. This
-task does NOT wire the connector into the scanner factory (`_epics_scanner_factory`
-still builds devices straight from `epics.build_devices`) — that is a later
-task; here we only prove construct/hold/disconnect.
+`ConnectorFactory.create_control_system_connector`, built from the project's
+`control_system.type` (task 3.4; fail-safe default `"mock"`) — whenever the
+EPICS substrate is enabled (`_is_epics_substrate_enabled()`) and the
+bluesky stack is importable, holds it as the module-level `_connector`
+singleton for the process's whole lifetime, and disconnects it exactly once
+on shutdown. The connector IS wired into the runner factory
+(`_epics_runner_factory` builds devices via `connector_devices.build_devices`,
+connector-mediated) — device construction is exercised here only insofar as
+it touches connector construct/hold/disconnect; the mock connector's
+readbacks do not track setpoints, so a scan does not run to completion
+against it (mock mode is for browsing/UI, not for running plans).
 
 Exercised here:
 
 - Lifespan constructs exactly one connector and disconnects it exactly once
   on shutdown (spy `ConnectorFactory.create_control_system_connector`).
+- With `control_system.type=virtual_accelerator`, the `type_config` passed is
+  the gateway-less recipe (no "gateways" key) — byte-identical to the
+  pre-task-3.4 hardcoded config.
+- With `control_system.type` unset/unreadable, the resolved type — and the
+  `type_config` built from it — is `"mock"` (fail-safe default).
 - The real factory path, with the exact gateway-less `type_config` from the
   validated construction recipe, yields an `isinstance(connector, EPICSConnector)`
   instance for the `virtual_accelerator` type — no CA server needed, since a
@@ -33,12 +41,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory
+from osprey.services.bluesky_bridge.app import app, set_runner_factory
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 _SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-_DEMO_ENV = "BLUESKY_DEMO_SCANNER"
+_DEMO_ENV = "BLUESKY_DEMO_RUNNER"
 _MOTORS_ENV = "BLUESKY_EPICS_MOTORS"
 _DETECTORS_ENV = "BLUESKY_EPICS_DETECTORS"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
@@ -47,7 +55,7 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean flag set, registry, scanner factory, and connector global."""
+    """Every test gets a clean flag set, registry, runner factory, and connector global."""
     for var in (
         _SUBSTRATE_ENV,
         _DEMO_ENV,
@@ -58,11 +66,11 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     ):
         monkeypatch.delenv(var, raising=False)
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     app_module._connector = None
     yield
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     app_module._connector = None
 
 
@@ -79,6 +87,26 @@ class _SpyConnector:
 
     async def disconnect(self) -> None:
         self.disconnect_calls += 1
+
+
+def _patch_control_system_type(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
+    """Patch `osprey.utils.config.get_config_value` so `control_system.type`
+    resolves to `value` (or falls through to the caller-supplied default when
+    `value` is `None`, simulating "key absent" / "no project config").
+
+    Same convention `test_startup_assertion.py`'s `_patch_config` uses:
+    `_resolve_control_system_type` does its own
+    `from osprey.utils.config import get_config_value` inside the function
+    body, so patching the underlying `osprey.utils.config` attribute takes
+    effect on the next call.
+    """
+
+    def fake_get_config_value(key: str, default=None):
+        if key == "control_system.type":
+            return value if value is not None else default
+        return default
+
+    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
 
 
 def test_lifespan_constructs_one_connector_and_disconnects_once_on_shutdown(
@@ -102,6 +130,10 @@ def test_lifespan_constructs_one_connector_and_disconnects_once_on_shutdown(
         fake_create_control_system_connector,
     )
 
+    # Task 3.4: the connector type now comes from `control_system.type` — set
+    # it explicitly to `virtual_accelerator` so this test still exercises the
+    # VA path (the bridge's fail-safe default, absent config, is `mock`).
+    _patch_control_system_type(monkeypatch, "virtual_accelerator")
     monkeypatch.setenv(_SUBSTRATE_ENV, "true")
     monkeypatch.setenv(_MOTORS_ENV, "mot1=TEST:MOTOR:01:SP")
 
@@ -120,7 +152,9 @@ def test_lifespan_constructs_one_connector_and_disconnects_once_on_shutdown(
 
     # The `type_config` used is gateway-less (no "gateways" key) — the
     # validated construction recipe from Task 0.2 that lets the
-    # compose-inherited EPICS_CA_NAME_SERVERS survive untouched.
+    # compose-inherited EPICS_CA_NAME_SERVERS survive untouched. This is
+    # byte-identical to the config the bridge always built before task 3.4
+    # made the type configurable.
     assert construct_calls == [
         {
             "type": "virtual_accelerator",
@@ -129,8 +163,91 @@ def test_lifespan_constructs_one_connector_and_disconnects_once_on_shutdown(
     ]
 
 
+def test_lifespan_builds_mock_connector_when_control_system_type_is_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Task 3.4: `control_system.type=mock` builds a minimal mock `type_config`
+    (no CA/gateways) instead of the `virtual_accelerator` config — the
+    connector-mediated devices are then constructed against the mock
+    connector using the real corrector/BPM channel names. This is
+    construction-only: the mock connector's readbacks do not track
+    setpoints, so a settle-verified scan would not complete against it
+    (mock mode is for browsing/UI, not for running plans).
+    """
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+
+    from osprey.connectors.factory import ConnectorFactory
+
+    construct_calls: list[dict] = []
+    spy_connector = _SpyConnector()
+
+    async def fake_create_control_system_connector(config):
+        construct_calls.append(config)
+        return spy_connector
+
+    monkeypatch.setattr(
+        ConnectorFactory,
+        "create_control_system_connector",
+        fake_create_control_system_connector,
+    )
+
+    _patch_control_system_type(monkeypatch, "mock")
+    monkeypatch.setenv(_SUBSTRATE_ENV, "true")
+    monkeypatch.setenv(_MOTORS_ENV, "mot1=TEST:MOTOR:01:SP")
+
+    with TestClient(app) as client:
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert app_module.get_connector() is spy_connector
+
+    assert construct_calls == [{"type": "mock", "connector": {"mock": {}}}]
+
+
+def test_lifespan_defaults_to_mock_connector_when_control_system_type_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Task 3.4: fail-SAFE default — no project config context at all (the
+    normal unit-test environment; `control_system.type` resolves via the
+    caller-supplied default) builds the mock `type_config`, never
+    `virtual_accelerator`/`epics`. This is the "unreadable config" case that
+    must never silently connect to real Channel Access.
+    """
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+
+    from osprey.connectors.factory import ConnectorFactory
+
+    construct_calls: list[dict] = []
+    spy_connector = _SpyConnector()
+
+    async def fake_create_control_system_connector(config):
+        construct_calls.append(config)
+        return spy_connector
+
+    monkeypatch.setattr(
+        ConnectorFactory,
+        "create_control_system_connector",
+        fake_create_control_system_connector,
+    )
+
+    # No `_patch_control_system_type` call: `get_config_value` runs for real
+    # against this (unconfigured) test environment, and — same as
+    # `_assert_limits_readable_if_writable`'s "no project config context"
+    # handling — falls through to the caller-supplied default ("mock").
+    monkeypatch.setenv(_SUBSTRATE_ENV, "true")
+    monkeypatch.setenv(_MOTORS_ENV, "mot1=TEST:MOTOR:01:SP")
+
+    with TestClient(app) as client:
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert app_module.get_connector() is spy_connector
+
+    assert construct_calls == [{"type": "mock", "connector": {"mock": {}}}]
+
+
 def test_lifespan_does_not_construct_connector_when_flag_unset() -> None:
-    """No EPICS substrate, no connector — mirrors the existing FakeScanner-default test."""
+    """No EPICS substrate, no connector — mirrors the existing FakePlanRunner-default test."""
     with TestClient(app) as client:
         resp = client.get("/health")
         assert resp.status_code == 200
@@ -142,8 +259,8 @@ def test_lifespan_does_not_construct_connector_when_flag_unset() -> None:
 def test_lifespan_does_not_construct_connector_when_extra_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Substrate flag set but the bluesky-bridge extra missing: fall back to
-    `FakeScanner` with no connector constructed at all (mirrors the existing
+    """Substrate flag set but the bluesky stack not importable: fall back to
+    `FakePlanRunner` with no connector constructed at all (mirrors the existing
     `test_flag_set_but_extra_absent_falls_back_to_fake_scanner` simulation).
     """
     purged = {
@@ -165,7 +282,7 @@ def test_lifespan_does_not_construct_connector_when_extra_absent(
             assert resp.status_code == 200
             assert app_module.get_connector() is None
 
-        assert app_module._scanner_factory is FakeScanner
+        assert app_module._runner_factory is FakePlanRunner
         assert app_module.get_connector() is None
     finally:
         for name, mod in purged.items():

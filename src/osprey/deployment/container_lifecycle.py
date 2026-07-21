@@ -14,13 +14,25 @@ from urllib.parse import unquote, urlsplit
 
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
+    _staged_dev_artifact_paths,
     clean_deployment,
     prepare_compose_files,
     resolve_project_name,
 )
+from osprey.deployment.facility_config import normalize_facility_config
+from osprey.deployment.host_ports import (
+    find_port_conflicts,
+    format_conflict_report,
+    parse_host_port_bindings,
+)
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
+    runtime_env,
     verify_runtime_is_running,
+)
+from osprey.deployment.web_terminals.provision import (
+    deploy_down_web_terminals,
+    deploy_up_web_terminals,
 )
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.dotenv import parse_dotenv_file
@@ -35,7 +47,7 @@ logger = get_logger("deployment.lifecycle")
 # and dispatch_worker both list the same pair because they share one .env:
 # the dispatcher forwards routed requests to workers using DISPATCH_WORKER_TOKEN,
 # so either service alone still needs both vars minted. bluesky needs its own
-# promote token (see ``security.require_armed`` in
+# launch token (see ``security.require_armed`` in
 # ``osprey.services.bluesky_bridge``) plus the API key the bridge presents to
 # the co-deployed Tiled catalog. The Tiled key hangs off "bluesky" rather than a
 # "tiled" key of its own because "tiled" is never a member of
@@ -58,7 +70,7 @@ logger = get_logger("deployment.lifecycle")
 _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
-    "bluesky": ("BLUESKY_PROMOTE_TOKEN", "BLUESKY_TILED_API_KEY"),
+    "bluesky": ("BLUESKY_LAUNCH_TOKEN", "BLUESKY_TILED_API_KEY"),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
 }
 
@@ -77,8 +89,8 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 # it grants no write-capable route the agent itself can walk. Under local exec,
 # agent-authored code can read any minted token straight out of .env/config.yml
 # and call the route it gates directly, bypassing the in-tool writes_enabled
-# re-check. BLUESKY_PROMOTE_TOKEN is therefore absent: it gates the bridge's
-# POST /runs/{id}/promote.
+# re-check. BLUESKY_LAUNCH_TOKEN is therefore absent: it gates the bridge's
+# POST /runs/{id}/launch.
 _LOCAL_EXEC_SAFE_VARS = {
     "BLUESKY_TILED_API_KEY",  # outbound credential to the Tiled catalog; gates no bridge route
     "EVENT_DISPATCHER_TOKEN",  # inbound webhook boundary, not a write path the agent walks
@@ -305,9 +317,8 @@ def _raise_invalid_var(var: str) -> None:
 # world (_SERVICE_TOKEN_VARS / find_service_config's compose templates) ever
 # requires it: ARIEL_DSN is provisioned by the separate osprey-build-deploy
 # skill's facility-scaffolding pipeline (its own generated
-# docker-compose.yml/.env.template, brought up by the facility's own
-# scripts/deploy.sh via a raw `docker compose`/`podman compose` call — never
-# through `osprey deploy up` or this module), so no _SERVICE_TOKEN_VARS entry
+# docker-compose.yml/.env.template for that facility's ARIEL stack) — not
+# minted by this deploy system's token path, so no _SERVICE_TOKEN_VARS entry
 # will ever declare it. This is defense-in-depth, not enforcement: if an
 # operator or other tooling nonetheless places ARIEL_DSN into *this*
 # project's effective env, it is validated like any other var — never
@@ -357,7 +368,7 @@ def _ensure_service_tokens(
     When ``_local_exec_arming_unsafe(config)`` — see that function's docstring —
     the mint is restricted to the ``_LOCAL_EXEC_SAFE_VARS`` allowlist: any other
     declared var is skipped (never minted; an existing value in .env/env is left
-    untouched but not read either). For the withheld ``BLUESKY_PROMOTE_TOKEN``
+    untouched but not read either). For the withheld ``BLUESKY_LAUNCH_TOKEN``
     the bridge's own ``require_armed()`` then keeps returning 503, i.e. this
     deploy never arms it, rather than arming it with a token any local
     agent-code execution can trivially read back out of ``.env``.
@@ -476,6 +487,117 @@ def _ensure_service_tokens(
             _raise_invalid_var(name)
 
 
+def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
+    """Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
+    VA-backed Bluesky stack, making ``osprey deploy up`` turn-key.
+
+    Additive and non-breaking, mirroring ``_ensure_service_tokens``'s
+    "existing value wins, append what's missing" convention: when the
+    deployed project is a VA-backed Bluesky stack (BOTH ``"bluesky"`` and
+    ``"virtual_accelerator"`` present in ``deployed_services``), derive
+    ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_MOTORS``/``_DETECTORS`` from
+    the built project's own ``data/channel_limits.json`` (the canonical
+    derivation lives in
+    ``osprey.services.bluesky_bridge.substrate_devices.derive_substrate_env``,
+    shared with ``tests/e2e/_orm_stack.py``) and append any of those keys not
+    already present in the project ``.env``. Any value already set — in the
+    process env or an existing ``.env`` — is left untouched, so an
+    operator-configured or e2e-harness-configured substrate env is always
+    preserved.
+
+    A no-op for any deploy that is not both bluesky- and
+    virtual-accelerator-backed (e.g. a plain agent deploy, or bluesky without
+    the VA): nothing is read or written. This makes the bridge substrate-mode
+    with real channel names available regardless of
+    ``control_system.type`` -- the bridge's own connector backend follows
+    that setting separately.
+
+    Never raises into a deploy: a missing/unreadable ``channel_limits.json``
+    or a derivation that yields no correctors/BPMs logs a warning and is
+    skipped, leaving the bridge to fall back to its own demo-runner default
+    (or a manually-set substrate env) exactly as before this function
+    existed.
+
+    :param config: Raw deploy config (``deployed_services`` membership).
+    :param env_path: Project ``.env`` path; defaults to ``Path(".env")``
+        (matching ``_ensure_service_tokens``), i.e. resolved against the
+        current working directory -- ``osprey deploy`` always chdirs into
+        the project directory first. Overridable for tests.
+    """
+    deployed_services = config.get("deployed_services")
+    services = {str(s) for s in (deployed_services or [])}
+    if "bluesky" not in services or "virtual_accelerator" not in services:
+        return
+
+    # The substrate runner drives real Channel Access devices, which only
+    # exist behind a real or virtual IOC. A ``mock`` control system speaks no
+    # CA, so a mock deploy must stay on the bridge's demo runner -- the
+    # documented "mock = safe browse/demo, virtual_accelerator = real run"
+    # contract. Arming substrate here would win over an explicit demo_runner
+    # (see ``bluesky_bridge.app``'s substrate-vs-demo precedence) and leave the
+    # bridge trying to resolve scan devices that only the mock demo provides.
+    # Only auto-configure substrate for a control system that actually speaks CA.
+    control_system_type = str(config.get("control_system", {}).get("type", "mock")).strip().lower()
+    if control_system_type == "mock":
+        logger.info(
+            "control_system.type is 'mock'; leaving the bluesky bridge on its demo "
+            "runner and skipping BLUESKY_EPICS_SUBSTRATE auto-configuration "
+            "(substrate mode needs a real or virtual IOC to speak CA to)."
+        )
+        return
+
+    if env_path is None:
+        env_path = Path(".env")
+    project_dir = env_path.resolve().parent
+
+    from osprey.services.bluesky_bridge.substrate_devices import derive_substrate_env
+
+    try:
+        derived = derive_substrate_env(project_dir)
+    except Exception:
+        logger.warning(
+            "Could not auto-configure bluesky bridge scan devices from %s "
+            "(derivation raised unexpectedly). Skipping BLUESKY_EPICS_SUBSTRATE "
+            "auto-configuration -- set BLUESKY_EPICS_MOTORS/_DETECTORS manually "
+            "if you want the bridge to run in EPICS-substrate mode.",
+            project_dir / "data" / "channel_limits.json",
+            exc_info=True,
+        )
+        return
+    if not derived:
+        logger.warning(
+            "Could not auto-configure bluesky bridge scan devices from %s "
+            "(missing, unreadable, or yields no SR correctors/BPMs). Skipping "
+            "BLUESKY_EPICS_SUBSTRATE auto-configuration -- set "
+            "BLUESKY_EPICS_MOTORS/_DETECTORS manually if you want the bridge "
+            "to run in EPICS-substrate mode.",
+            project_dir / "data" / "channel_limits.json",
+        )
+        return
+
+    existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    generated = {k: v for k, v in derived.items() if k not in os.environ and k not in existing}
+    if not generated:
+        return
+
+    prefix = ""
+    if env_path.is_file():
+        text = env_path.read_text(encoding="utf-8")
+        if text and not text.endswith("\n"):
+            prefix = "\n"
+    block = "".join(f"{k}={v}\n" for k, v in generated.items())
+    with env_path.open("a", encoding="utf-8") as fh:
+        fh.write(
+            f"{prefix}# Auto-configured bluesky bridge scan devices (osprey deploy up)\n{block}"
+        )
+    logger.key_info(
+        "Auto-configured bluesky bridge scan devices %s in %s from the project's "
+        "own channel_limits.json",
+        ", ".join(generated),
+        env_path.resolve(),
+    )
+
+
 def _resolve_claude_cli_version(config: dict) -> str:
     """The ``CLAUDE_CLI_VERSION`` build arg for the project image.
 
@@ -534,30 +656,70 @@ def _worker_image_target(config: dict, env: dict) -> str:
     return f"{resolve_project_name(config)}:local"
 
 
-def _project_image_build_cmd(config: dict, runtime: str, project_root: str) -> list[str]:
+def _project_image_build_cmd(
+    config: dict, runtime: str, project_root: str, dev_mode: bool = False
+) -> list[str]:
     """Construct the ``<runtime> build`` argv that produces ``<project>:local``.
+
+    Carries the same ``com.osprey.project`` label
+    :func:`osprey.deployment.web_terminals.persona_images._persona_image_build_cmd`
+    stamps on its persona images, so a later ``nuke`` can verify a tag belongs
+    to this deployment before removing it. Under ``dev_mode`` an
+    ``OSPREY_DEV=1`` build-arg is added (mirroring the persona dev path), so
+    the Dockerfile's dev branch can key off it.
 
     :param config: Raw deploy config (project name, ``claude_code.cli_version``).
     :param runtime: Base container command (``docker`` or ``podman``).
     :param project_root: Build context — the project root that holds the
         rendered ``Dockerfile`` (and, under ``--dev``, the staged wheel).
+    :param dev_mode: Whether ``--dev`` was passed (adds ``OSPREY_DEV=1``).
     :return: The full build command as an argv list.
     """
     project_name = resolve_project_name(config)
     dockerfile = os.path.join(project_root, "Dockerfile")
-    return [
+    cmd = [
         runtime,
         "build",
         "-t",
         f"{project_name}:local",
         "-f",
         dockerfile,
+        "--label",
+        f"com.osprey.project={project_name}",
         "--build-arg",
         f"CLAUDE_CLI_VERSION={_resolve_claude_cli_version(config)}",
         "--build-arg",
         f"OSPREY_PIP_SPEC={_resolve_pip_spec()}",
-        project_root,
     ]
+    if dev_mode:
+        cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    cmd.append(project_root)
+    return cmd
+
+
+def _warn_unignored_build_dir(project_root: str) -> None:
+    """Warn if a ``build/`` dir would bloat the ``--dev`` build context.
+
+    A rendered project accumulates a ``build/`` directory (compose files,
+    service contexts). When it isn't excluded via the project's
+    ``.dockerignore``, ``<runtime> build``'s context tar sweeps it up on every
+    ``--dev`` build — slow, and a foot-gun a one-line ``.dockerignore`` entry
+    fixes. Plain-text line check only (no docker introspection); a missing
+    ``.dockerignore`` counts as not-matching.
+    """
+    if not (Path(project_root) / "build").exists():
+        return
+    dockerignore = Path(project_root) / ".dockerignore"
+    lines = dockerignore.read_text(encoding="utf-8").splitlines() if dockerignore.is_file() else []
+    if any(line.strip().rstrip("/") == "build" for line in lines):
+        return
+    logger.warning(
+        "The project's build/ directory is not excluded from the --dev image "
+        "build context (no matching entry in %s), so it will be sent to the "
+        "container runtime on every build. Add a line 'build/' to .dockerignore, "
+        "or re-render the project with `osprey build --force`.",
+        dockerignore,
+    )
 
 
 def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
@@ -573,12 +735,15 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
     ``<project>:local`` tag: an ``OSPREY_WORKER_IMAGE`` override or a
     profile-pinned ``services.dispatch_worker.image`` means a prebuilt image is
     wanted, so there is nothing to build. The event-dispatcher's own
-    ``osprey-dispatch:local`` build (its compose ``build:`` block) is untouched.
+    ``<project>-dispatch:local`` build (its compose ``build:`` block) is untouched.
 
     Under ``dev_mode`` a wheel is built from the local osprey checkout and staged
     into the build context (mirroring the dispatch image's ``--dev`` convention);
     the Dockerfile's wheel-drop branch then installs it so unreleased code is
-    baked in. The staged wheel is removed afterward so it cannot poison a later
+    baked in. The ``OSPREY_DEV=1`` build-arg is passed only when that staging
+    actually succeeded — a failed wheel build keeps the pinned install
+    fail-loud instead of silently relaxing it to the latest published release.
+    The staged wheel is removed afterward so it cannot poison a later
     non-dev build (whose wheel-drop branch fires on any ``*.whl`` in the context).
 
     :param config: Raw deploy config.
@@ -604,27 +769,150 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
     runtime = get_runtime_command(config)[0]
     project_root = os.getcwd()
 
-    staged_wheels: list[Path] = []
+    # OSPREY_DEV=1 (the pin-relaxing build arg) is passed only when the wheel
+    # was actually staged: on a failed build/staging the Dockerfile must keep
+    # its fail-loud pinned install rather than silently falling back to the
+    # latest published release under a flag that means "run my local code".
+    staged_artifacts: list[Path] = []
+    wheel_staged = False
     if dev_mode:
-        before = set(Path(project_root).glob("*.whl"))
-        _copy_local_framework_for_override(project_root)
-        staged_wheels = list(set(Path(project_root).glob("*.whl")) - before)
+        _warn_unignored_build_dir(project_root)
+        before = _staged_dev_artifact_paths(project_root)
+        wheel_staged = bool(_copy_local_framework_for_override(project_root))
+        staged_artifacts = sorted(_staged_dev_artifact_paths(project_root) - before)
+        if not wheel_staged:
+            logger.warning(
+                "Dev-wheel staging failed for the project image build; building "
+                "without OSPREY_DEV so the Dockerfile keeps its pinned "
+                "osprey-framework install."
+            )
 
     try:
-        cmd = _project_image_build_cmd(config, runtime, project_root)
+        cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
         logger.key_info("Building dispatch worker project image %s:", project_image)
         logger.info("Running command:\n    %s", " ".join(cmd))
         subprocess.run(cmd, env=env, check=True)
     finally:
-        for whl in staged_wheels:
+        # Remove BOTH staged artifacts (wheel + requirements manifest) so
+        # neither can poison a later non-dev build in this context.
+        for artifact in staged_artifacts:
             try:
-                whl.unlink()
+                artifact.unlink()
             except OSError:
-                logger.warning("Could not remove staged dev wheel %s", whl)
+                logger.warning("Could not remove staged dev artifact %s", artifact)
+
+
+def _env_file_args() -> list[str]:
+    """``["--env-file", ".env"]`` if ``.env`` exists in the cwd, else ``[]``.
+
+    Shared by :func:`deploy_up`'s plain-services compose invocation and
+    :func:`osprey.deployment.web_terminals.provision.deploy_up_web_terminals`'s
+    two invocations (``deploy_up`` passes the result in), so the "no .env"
+    warning (and the fallback-to-defaults behavior it describes) is only
+    defined once.
+    """
+    if Path(".env").exists():
+        return ["--env-file", ".env"]
+    logger.warning(
+        "No .env file found - services will start with default/empty environment variables"
+    )
+    logger.info("To configure API keys: cp .env.example .env && edit .env")
+    return []
+
+
+def _check_shared_disk_preflight(config: dict) -> None:
+    """Abort before any compose invocation if a configured shared-disk host path is missing.
+
+    Ports the retired ``deploy.sh`` step-2b check (see the ``osprey-build-deploy``
+    skill's now-removed ``templates/core/scripts/deploy.sh``): a container that
+    bind-mounts a host path that doesn't exist still starts, then fails only at
+    first read/write with an obscure in-container error. Checking on the host,
+    before ``compose`` ever runs, turns that into an immediate, actionable
+    deploy-time error instead of a confusing runtime one.
+
+    Skipped entirely when ``modules.shared_disk`` is absent/disabled, or when
+    ``host_path`` isn't configured — there's nothing to check in either case,
+    mirroring the shell version's ``IF MODULE shared_disk.enabled`` guard.
+
+    :param config: Raw deploy config.
+    :raises RuntimeError: if ``modules.shared_disk.enabled`` is set and
+        ``host_path`` is configured but does not exist (or isn't a directory)
+        on this host.
+    """
+    shared_disk = (config.get("modules") or {}).get("shared_disk") or {}
+    if not shared_disk.get("enabled"):
+        return
+
+    host_path = shared_disk.get("host_path")
+    if not host_path:
+        return
+
+    if not Path(host_path).is_dir():
+        raise RuntimeError(
+            f"modules.shared_disk.host_path does not exist on this server: {host_path}\n"
+            "Mount the filesystem (check /etc/fstab) or correct modules.shared_disk.host_path."
+        )
+
+
+def _web_terminals_enabled(config: dict) -> bool:
+    """True if ``modules.web_terminals.enabled`` is set on ``config``.
+
+    Same read as :func:`osprey.deployment.web_terminals.lint.lint_web_terminals`'s
+    own enabled-gate — the one place ``deploy_up`` decides whether a
+    web-terminal reconcile is part of this deploy. Coerces a present-but-null
+    ``modules`` or ``modules.web_terminals`` stanza (e.g. a bare ``web_terminals:``
+    key in YAML, which parses to ``None``) to an empty dict rather than letting
+    ``.get`` on ``None`` raise ``AttributeError`` — mirroring lint's own
+    ``_as_dict`` coercion, which treats that same null stanza as disabled.
+    """
+    modules = config.get("modules") or {}
+    web_terminals = modules.get("web_terminals") or {}
+    return bool(web_terminals.get("enabled"))
+
+
+def _preflight_host_ports(config, compose_files):
+    """Abort the deploy if a published host port is already taken.
+
+    Parses the published bindings out of the rendered compose files and checks
+    them for intra-deploy duplicates and external listeners (see
+    :mod:`osprey.deployment.host_ports`). On any conflict the report is logged
+    and a :class:`RuntimeError` is raised so the caller aborts before running
+    a single container-touching command.
+
+    :param config: Loaded configuration dictionary
+    :type config: dict
+    :param compose_files: Rendered compose file paths for this deploy
+    :type compose_files: list[str]
+    :raises RuntimeError: If any host-port conflict is found
+    """
+    bindings = parse_host_port_bindings(compose_files)
+    conflicts = find_port_conflicts(bindings, resolve_project_name(config), config)
+    if not conflicts:
+        return
+    logger.error(format_conflict_report(conflicts))
+    raise RuntimeError(
+        f"host port preflight failed: {len(conflicts)} "
+        f"conflict{'' if len(conflicts) == 1 else 's'} (see report above)"
+    )
 
 
 def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False):
     """Start services using container runtime (Docker or Podman).
+
+    When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
+    reconciled too (rendering its artifacts and including
+    ``docker-compose.web.yml`` in the compose invocation) — see
+    :func:`osprey.deployment.web_terminals.provision.deploy_up_web_terminals`.
+    That reconcile always runs detached,
+    independent of ``detached``, and takes over from the plain services path
+    below.
+
+    Idempotent from any prior state: every path first clears this project's
+    own non-running containers (``compose rm -f`` — a wedged ``created``
+    container from an aborted deploy holds its published host ports on Docker
+    Desktop, blocking the next ``up``), and the plain path's ``up`` carries
+    ``--remove-orphans`` to reconcile away services dropped from the config.
+    Running containers and volumes are never touched by either measure.
 
     :param config_path: Path to the configuration file
     :type config_path: str
@@ -637,17 +925,36 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     """
     config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
-    if not config.get("deployed_services"):
+    web_terminals_enabled = _web_terminals_enabled(config)
+
+    # A web-terminals-only deploy (no backend services) is valid, so the
+    # early-return below must not fire on empty deployed_services in that case.
+    if not config.get("deployed_services") and not web_terminals_enabled:
         logger.key_info(
             "No services configured for this project — deployed_services is empty in "
             "config.yml. Skipping osprey deploy up."
         )
         return
 
+    # Shared-disk host path (if configured) must exist before either path
+    # below reaches a compose invocation -- see _check_shared_disk_preflight.
+    # Runs once, here, so it covers both the web-terminals branch and the
+    # plain services branch further down rather than duplicating the check
+    # in each.
+    _check_shared_disk_preflight(config)
+
     # Verify container runtime is actually running
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(error_msg)
+
+    # Fail fast on a host-port collision (a foreign stack, or a second project
+    # on the same host) with an actionable diagnosis, rather than letting
+    # `compose up` collapse mid-start on a bare "address already in use". Runs
+    # before any container-touching command below, so an abort here leaves the
+    # host untouched. A port held by this project's own container is not a
+    # conflict, so an idempotent redeploy stays green.
+    _preflight_host_ports(config, compose_files)
 
     # Self-provision fail-closed service tokens into .env (before the --env-file
     # check below) so a fresh deploy is secure by default. The dispatch worker
@@ -656,6 +963,11 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # the appended tokens, and a tokens-only .env carries no provider secret to
     # mount in the first place.
     _ensure_service_tokens(config, expose_network)
+
+    # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
+    # VA-backed Bluesky stack (additive; no-op unless both bluesky and
+    # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
+    _ensure_bluesky_substrate_env(config)
 
     # Set up environment for containers
     env = os.environ.copy()
@@ -670,39 +982,77 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # `compose up` (which, non-detached, os.execvpe-replaces this process).
     _build_project_image(config, dev_mode, env)
 
-    cmd = get_runtime_command(config)
+    if web_terminals_enabled:
+        deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args())
+        return
+
+    # Pin COMPOSE_PROJECT_NAME so this deploy owns its own compose project (and
+    # volume namespace); without it compose derives the project from the first
+    # -f file's directory, collapsing every deploy on the host into the shared
+    # "services" project whose up/down cross-adopts sibling stacks.
+    run_env = runtime_env(config, env)
+
+    base_cmd = get_runtime_command(config)
     for compose_file in compose_files:
-        cmd.extend(("-f", compose_file))
+        base_cmd.extend(("-f", compose_file))
+    base_cmd.extend(_env_file_args())
 
-    # Only add --env-file if .env exists, otherwise let docker-compose use defaults
-    env_file = Path(".env")
-    if env_file.exists():
-        cmd.extend(["--env-file", ".env"])
-    else:
-        logger.warning(
-            "No .env file found - services will start with default/empty environment variables"
-        )
-        logger.info("To configure API keys: cp .env.example .env && edit .env")
+    # Self-heal before reconciling: an aborted prior deploy can leave this
+    # project's containers wedged in created/exited state, and Docker Desktop
+    # reserves published host ports at container CREATE time — so a stale
+    # created container blocks the next `up` on its own port ("address already
+    # in use" with nothing listening). `rm -f` removes only non-running
+    # containers (running ones are untouched, and it exits 0 as a no-op when
+    # there is nothing stopped), so a healthy stack's reconcile stays
+    # zero-churn. Volumes are never touched — destroying state stays the job
+    # of clean/rebuild. Best-effort: if it fails, `up` surfaces the real error.
+    rm_cmd = base_cmd + ["rm", "-f"]
+    logger.info(f"Running command:\n    {' '.join(rm_cmd)}")
+    subprocess.run(rm_cmd, env=run_env)
 
-    cmd.append("up")
     if dev_mode:
         # `osprey deploy up --dev` re-bakes the local osprey checkout into a fresh
         # wheel on every run, but compose reuses the cached image tag (e.g.
-        # osprey-dispatch:local) unless a rebuild is forced — so without --build
-        # the container keeps running the stale code from the first build.
-        cmd.append("--build")
+        # <project>-dispatch:local) unless it is rebuilt — so a dev deploy must build.
+        # Build in its OWN step, then `up --no-build`: a single `up --build` can
+        # build a local-only tag and then fail container-create with
+        # "No such image" under Docker's containerd image store. Non-dev stays a
+        # plain `up` so compose's implicit build-on-up still covers a build-only
+        # service that has no published upstream tag to pull.
+        build_cmd = base_cmd + ["build"]
+        logger.info(f"Running command:\n    {' '.join(build_cmd)}")
+        subprocess.run(build_cmd, env=run_env, check=True)
+
+    # --remove-orphans reconciles away containers whose service left the
+    # config since the last deploy (including a formerly-enabled web-terminal
+    # stack). Safe here because this single invocation's -f list defines the
+    # ENTIRE compose project; the web path must never use it — its two
+    # invocations share one project name, so each would destroy the other
+    # stack's containers as "orphans".
+    cmd = base_cmd + ["up", "--remove-orphans"]
+    if dev_mode:
+        cmd.append("--no-build")
     if detached:
         cmd.append("-d")
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
     if detached:
-        subprocess.run(cmd, env=env, check=True)
+        subprocess.run(cmd, env=run_env, check=True)
     else:
-        os.execvpe(cmd[0], cmd, env)
+        os.execvpe(cmd[0], cmd, run_env)
 
 
 def deploy_down(config_path, dev_mode=False):
     """Stop services using container runtime (Docker or Podman).
+
+    When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
+    torn down first via its own compose invocation
+    (:func:`osprey.deployment.web_terminals.provision.deploy_down_web_terminals`)
+    — the services ``-f`` list below can never carry
+    ``docker-compose.web.yml`` (its relative paths are project-root-relative,
+    the services files' resolve against ``build/services/``), and the
+    services ``down`` execvpe-replaces this process, so the web ``down``
+    must happen before it.
 
     :param config_path: Path to the configuration file
     :type config_path: str
@@ -710,9 +1060,13 @@ def deploy_down(config_path, dev_mode=False):
     try:
         with quiet_logger(["registry", "CONFIG"]):
             config = ConfigBuilder(config_path)
-            config = config.raw_config
+            config = normalize_facility_config(config.raw_config)
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+
+    if _web_terminals_enabled(config):
+        env_file_args = ["--env-file", ".env"] if Path(".env").exists() else []
+        deploy_down_web_terminals(config, os.environ.copy(), env_file_args)
 
     deployed_services = config.get("deployed_services", [])
     deployed_service_names = (
@@ -745,7 +1099,10 @@ def deploy_down(config_path, dev_mode=False):
     cmd.append("down")
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
-    os.execvp(cmd[0], cmd)
+    # execvpe (not execvp) so the COMPOSE_PROJECT_NAME pin reaches compose:
+    # `down` must target the same project `up` created, or it either misses this
+    # deploy's containers or (unpinned) tears down the shared "services" project.
+    os.execvpe(cmd[0], cmd, runtime_env(config, os.environ.copy()))
 
 
 def deploy_restart(config_path, detached=False, expose_network=False):
@@ -775,7 +1132,7 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     cmd.extend(["--env-file", ".env", "restart"])
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
-    subprocess.run(cmd)
+    subprocess.run(cmd, env=runtime_env(config, os.environ.copy()))
 
     # If detached mode requested, detach after restart
     if detached:
@@ -784,6 +1141,17 @@ def deploy_restart(config_path, detached=False, expose_network=False):
 
 def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_network=False):
     """Rebuild deployment from scratch (clean + up).
+
+    Tears down this project's containers, volumes, and images via
+    :func:`clean_deployment`, then delegates the start-up to :func:`deploy_up`
+    so every up-path behavior — the web-terminals branch, the dev-mode
+    build/up split, the stale-container preflight — stays defined in exactly
+    one place. ``clean``'s ``down --rmi all`` removes the images, so the
+    delegated ``up`` rebuilds/pulls everything fresh via compose's own
+    build-on-up, no explicit ``build`` step needed here. The web-terminal
+    stack's per-user volumes are declared only in ``docker-compose.web.yml``
+    (never in the services compose files ``clean`` operates on), so a rebuild
+    recreates web containers but preserves user volumes.
 
     :param config_path: Path to the configuration file
     :type config_path: str
@@ -796,44 +1164,12 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
     """
     config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
-    # Verify container runtime is actually running (for the rebuild phase)
+    # Verify container runtime is actually running (for the clean phase;
+    # deploy_up re-verifies for its own).
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(error_msg)
 
-    # Self-provision fail-closed service tokens (see deploy_up) before rebuilding.
-    _ensure_service_tokens(config, expose_network)
-
-    # Clean first
     clean_deployment(compose_files, config)
 
-    # Set up environment for containers
-    env = os.environ.copy()
-    if dev_mode:
-        env["DEV_MODE"] = "true"
-        logger.key_info("Development mode: DEV_MODE environment variable set for containers")
-
-    # Rebuild the dispatch worker's <project>:local image too (see deploy_up).
-    _build_project_image(config, dev_mode, env)
-
-    # Then start up
-    cmd = get_runtime_command(config)
-    for compose_file in compose_files:
-        cmd.extend(("-f", compose_file))
-
-    # Only add --env-file if .env exists
-    env_file = Path(".env")
-    if env_file.exists():
-        cmd.extend(["--env-file", ".env"])
-    else:
-        logger.warning(
-            "No .env file found - services will start with default/empty environment variables"
-        )
-        logger.info("To configure API keys: cp .env.example .env && edit .env")
-
-    cmd.extend(["up", "--build"])
-    if detached:
-        cmd.append("-d")
-
-    logger.info(f"Running command:\n    {' '.join(cmd)}")
-    os.execvpe(cmd[0], cmd, env)
+    deploy_up(config_path, detached=detached, dev_mode=dev_mode, expose_network=expose_network)

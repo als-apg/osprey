@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from osprey import bluesky_tool_names as bsky
+
 logger = logging.getLogger(__name__)
 
 
@@ -219,6 +221,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "artifact_save",
             "artifact_delete",
             "artifact_delete_all",
+            "provenance_locator",
             "session_log",
             "session_summary",
             "archiver_downsample",
@@ -285,10 +288,10 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__osprey_facility_knowledge__.*")],
     ),
-    "scan": ServerDefinition(
-        name="scan",
-        module="osprey.mcp_server.scan",
-        # Off by default: only profiles that opt in (claude_code.servers.scan.enabled
+    "bluesky": ServerDefinition(
+        name="bluesky",
+        module="osprey.mcp_server.bluesky",
+        # Off by default: only profiles that opt in (claude_code.servers.bluesky.enabled
         # = true) get the Bluesky bridge client tools — running them requires a live
         # facility-side Bluesky bridge process (mirrors phoebus's opt-in reasoning).
         default_enabled=False,
@@ -296,29 +299,64 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "OSPREY_CONFIG": "{project_root}/config.yml",
             "CONFIG_FILE": "{project_root}/config.yml",
             "BLUESKY_BRIDGE_URL": "${BLUESKY_BRIDGE_URL:-http://127.0.0.1:8090}",
-            "BLUESKY_PROMOTE_TOKEN": "${BLUESKY_PROMOTE_TOKEN:-}",
+            "BLUESKY_LAUNCH_TOKEN": "${BLUESKY_LAUNCH_TOKEN:-}",
         },
+        # Tool names resolve from osprey.bluesky_tool_names (the single source of
+        # truth) so a rename there follows through every gate here by construction.
         permissions_allow=[
-            "create_scan_intent",
-            "scan_status",
-            "list_scan_plans",
-            "list_runs",
-            "read_scan_data",
+            bsky.GET_RUN,
+            bsky.LIST_PLANS,
+            bsky.LIST_RUNS,
+            bsky.GET_RUN_DATA,
+            # Draft tools (task 2.1) never touch hardware — editing the shared
+            # plan draft only stages what a future launch_run/Launch plan click
+            # might run, so like the read tools above they need no approval
+            # prompt and carry no _WRITES_CHECK hook. clear_draft is
+            # nonetheless auto-classified side-effecting by
+            # agent_runner.write_tools (matches bsky.DESTRUCTIVE_MARKERS'
+            # "clear") and blocked under the headless read-only floor
+            # regardless of this allow-listing — acceptable, expected
+            # posture; do not rename the tool to dodge it.
+            bsky.GET_DRAFT,
+            bsky.SET_DRAFT,
+            bsky.CLEAR_DRAFT,
         ],
-        # launch_scan starts a real scan (promote); stop_scan is the safe direction
+        # launch_run starts a real scan; stop_run is the safe direction
         # and must never be kill-switch-blocked, so it carries approval only.
-        permissions_ask=["launch_scan", "stop_scan"],
+        # write_plan/validate_plan (task 2.3) reach NO hardware
+        # either way: write_plan only writes a file (never imports/execs
+        # it), and validate_plan's dry run drives mock devices only, in a
+        # subprocess with EPICS_CA_* neutralized — both work identically whether
+        # control_system.writes_enabled is on or off, so like stop_run neither
+        # carries _WRITES_CHECK. They get their own (distinct, independently
+        # allowlistable) short-names rather than reusing launch_run/stop_run's
+        # tier, since an operator may want to permit authoring/validating plan
+        # bodies without also auto-approving launch_run/stop_run, or vice versa.
+        permissions_ask=[
+            bsky.LAUNCH_RUN,
+            bsky.STOP_RUN,
+            bsky.WRITE_PLAN,
+            bsky.VALIDATE_PLAN,
+        ],
         hooks_pre=[
             HookRule(
-                matcher="mcp__scan__launch_scan",
+                matcher=bsky.matcher(bsky.LAUNCH_RUN),
                 hooks=[_WRITES_CHECK, _APPROVAL],
             ),
             HookRule(
-                matcher="mcp__scan__stop_scan",
+                matcher=bsky.matcher(bsky.STOP_RUN),
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher=bsky.matcher(bsky.WRITE_PLAN),
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher=bsky.matcher(bsky.VALIDATE_PLAN),
                 hooks=[_APPROVAL],
             ),
         ],
-        hooks_post=[_post_error("mcp__scan__.*")],
+        hooks_post=[_post_error("mcp__bluesky__.*")],
     ),
     "channel-finder": ServerDefinition(
         name="channel-finder",

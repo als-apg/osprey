@@ -312,7 +312,13 @@ class TestHandleStructuredOutputWithChatRequest:
         )
 
         call_kwargs = mock_litellm.completion.call_args[1]
-        assert "response_format" in call_kwargs
+        # Verify the full native structured-output contract, not just key presence:
+        # type, the schema name (output_format.__name__), and that the model's
+        # field made it into the forwarded JSON schema.
+        response_format = call_kwargs["response_format"]
+        assert response_format["type"] == "json_schema"
+        assert response_format["json_schema"]["name"] == "TestModel"
+        assert "name" in response_format["json_schema"]["schema"]["properties"]
 
     @patch("osprey.models.providers.litellm_adapter.litellm")
     def test_prompt_fallback_appends_to_last_user_message(self, mock_litellm):

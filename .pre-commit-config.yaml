@@ -23,17 +23,21 @@ repos:
         # Vendored minified JS bundles (plotly) and generated channel-database
         # tier artifacts are produced by external tooling — formatting them
         # creates spurious diffs on the next re-vendor / regeneration.
+        # Golden render fixtures are byte-exact copies of renderer output;
+        # normalizing whitespace here breaks the byte-for-byte render tests.
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
-            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json
+            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json|
+            tests/deployment/web_terminals/golden/.*
           )$
       # Ensure files end with a newline
       - id: end-of-file-fixer
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
-            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json
+            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json|
+            tests/deployment/web_terminals/golden/.*
           )$
       # Check for merge conflict markers
       - id: check-merge-conflict

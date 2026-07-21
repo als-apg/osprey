@@ -1,13 +1,13 @@
 """End-to-end verification of the facility plan-injection contract (task 2.4)
-via `config.yml`'s `scan.plan_module` — no framework source changes here,
+via `config.yml`'s `bluesky.plan_module` — no framework source changes here,
 purely a test asserting the seam the framework already exposes.
 
 Unlike `test_plan_injection.py` (task 2.4's own contract test, which mostly
 drives `plan_loader.py` directly and via the `BLUESKY_PLAN_MODULE` env var),
-this test goes through the full `scan.plan_module` config.yml path — the
+this test goes through the full `bluesky.plan_module` config.yml path — the
 "local/dev convenience" resolution tier — mirroring how
-`tests/mcp_server/test_scan_context.py` verifies `scan.bridge_url`/
-`scan.promote_token` config fallback. A custom plan module living in a temp
+`tests/mcp_server/test_bridge_context.py` verifies `bluesky.bridge_url`/
+`bluesky.launch_token` config fallback. A custom plan module living in a temp
 dir (PLANS + get_devices, no bluesky import) is loaded purely from config,
 its plans show up over real HTTP via `GET /plans`, and its devices construct.
 """
@@ -25,7 +25,7 @@ from osprey.services.bluesky_bridge.app import app
 
 _FACILITY_MODULE_SOURCE = '''
 """A custom facility plan module — deliberately outside the osprey package,
-loaded purely via config.yml's `scan.plan_module`, no bluesky import."""
+loaded purely via config.yml's `bluesky.plan_module`, no bluesky import."""
 
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from pydantic import BaseModel
@@ -90,10 +90,10 @@ def client() -> TestClient:
 def test_facility_plan_module_loaded_via_config_yml_appears_in_get_plans(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    """The full config-only path: no env var, just `scan.plan_module` in config.yml."""
+    """The full config-only path: no env var, just `bluesky.plan_module` in config.yml."""
     monkeypatch.delenv("BLUESKY_PLAN_MODULE", raising=False)
     module_path = _write_facility_module(tmp_path)
-    _write_config(tmp_path, {"scan": {"plan_module": str(module_path)}})
+    _write_config(tmp_path, {"bluesky": {"plan_module": str(module_path)}})
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
 
     resp = client.get("/plans")
@@ -110,10 +110,18 @@ def test_facility_devices_construct_from_config_loaded_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`get_devices()` from the config-pointed module actually runs and its
-    result is what the bridge holds — not just that the plan schema shows up."""
+    result is what the bridge holds — not just that the plan schema shows up.
+
+    Isolates the aggregate from the shipped/facility directory layers (an
+    empty `_SHIPPED_PLANS_DIR`, no `BLUESKY_PLAN_DIRS`) so the exact-set
+    assertion below reflects only the config-loaded legacy module, not
+    whatever exemplar plans the real `plans_core/` dir happens to ship.
+    """
     monkeypatch.delenv("BLUESKY_PLAN_MODULE", raising=False)
+    monkeypatch.delenv("BLUESKY_PLAN_DIRS", raising=False)
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", tmp_path / "no_shipped_plans")
     module_path = _write_facility_module(tmp_path)
-    _write_config(tmp_path, {"scan": {"plan_module": str(module_path)}})
+    _write_config(tmp_path, {"bluesky": {"plan_module": str(module_path)}})
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
 
     facility = plan_loader.get_facility_plans()
@@ -125,11 +133,11 @@ def test_facility_devices_construct_from_config_loaded_module(
 def test_no_plan_module_configured_means_no_facility_plans(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    """A config.yml with no `scan.plan_module` key injects nothing — sanity
+    """A config.yml with no `bluesky.plan_module` key injects nothing — sanity
     check that the previous tests' plan really came from config, not a
     leftover default."""
     monkeypatch.delenv("BLUESKY_PLAN_MODULE", raising=False)
-    _write_config(tmp_path, {"scan": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
 
     resp = client.get("/plans")
@@ -141,10 +149,10 @@ def test_no_plan_module_configured_means_no_facility_plans(
 def test_env_var_still_wins_over_config_plan_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    """`BLUESKY_PLAN_MODULE` outranks `scan.plan_module`, mirroring
-    bridge_url/promote_token's env-wins-over-config precedent."""
+    """`BLUESKY_PLAN_MODULE` outranks `bluesky.plan_module`, mirroring
+    bridge_url/launch_token's env-wins-over-config precedent."""
     config_module_path = _write_facility_module(tmp_path)
-    _write_config(tmp_path, {"scan": {"plan_module": str(config_module_path)}})
+    _write_config(tmp_path, {"bluesky": {"plan_module": str(config_module_path)}})
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
 
     env_dir = tmp_path / "env_facility"

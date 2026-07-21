@@ -25,10 +25,10 @@ internal extension point, while ``StandardReadable``'s ``set``/``read``/
 ``describe``/``connect`` are the stable public device contract that plans
 and the RunEngine actually consume.
 
-Imports ophyd-async, so this module (like the rest of ``devices/``) lives
-behind the optional ``osprey-framework[bluesky-bridge]`` extra — keep it
-out of the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``scanner.py``, ``security.py``).
+Imports ophyd-async (a core dependency), so this module (like the rest of
+``devices/``) is kept out of the bridge lifecycle core's import path
+(``app.py``, ``runs.py``, ``plan_runner.py``, ``security.py``), which stays
+import-clean of ophyd.
 """
 
 from __future__ import annotations
@@ -219,7 +219,17 @@ async def build_devices(
 
     Returns:
         Mapping of device name to connected device instance.
+
+    Raises:
+        ValueError: If ``connector`` is None — failing here, at the
+            misconfiguration site, instead of as an ``AttributeError`` deep
+            inside a device's ``set()``/``read()`` at scan time.
     """
+    if connector is None:
+        raise ValueError(
+            "build_devices requires a connector — every built device delegates "
+            "its reads and writes to it"
+        )
     devices: dict[str, Any] = {}
     for settable_spec in settables:
         devices[settable_spec.name] = ConnectorSettable(

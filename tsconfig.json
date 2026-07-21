@@ -17,6 +17,7 @@
   "include": [
     "src/osprey/interfaces/vendor-globals.d.ts",
     "src/osprey/interfaces/**/static/js/**/*.js",
+    "src/osprey/services/bluesky_panels/panels/**/*.js",
     "tests/**/*.js",
     "tests/**/*.mjs"
   ],

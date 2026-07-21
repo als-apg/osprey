@@ -15,6 +15,7 @@ import httpx
 import yaml
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
@@ -22,17 +23,39 @@ from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, Wo
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
+from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
+    from jinja2.runtime import Context
+
     from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+
+@pass_context
+def _prefixed(ctx: Context, path: str) -> str:
+    """Jinja global: apply THE prefix contract to an HTML-parser-resolved URL.
+
+    Import maps (see the ``importmap`` block injected into every served HTML
+    document) only retarget module *specifiers* resolved inside already-
+    loaded module code — they do NOT touch ``<link href>``, a classic
+    ``<script src>``, or a module entrypoint's own ``src`` attribute. Those
+    are ordinary browser URL resolutions, so the per-user prefix must be
+    baked in explicitly at render time instead. Reads ``url_prefix`` off the
+    template context (see ``compute_url_prefix()``); absolute URLs (e.g. a
+    CDN URL from ``vendor_url()`` when not in offline mode) pass through
+    unchanged, and an empty prefix is a byte-identical no-op.
+    """
+    return apply_url_prefix(ctx.get("url_prefix", ""), path)
+
+
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
+templates.env.globals["prefixed"] = _prefixed
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -278,6 +301,14 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     "url": spec.get("url", ""),
                     "healthEndpoint": spec.get("health_endpoint"),
                     "path": spec.get("path", "/"),
+                    # Trust marker: this panel was declared in config (a trusted
+                    # input), not registered at runtime via POST /api/panels/register.
+                    # Only the config loader stamps it, so credential injection
+                    # (routes/proxy.py) and id reservation (routes/panels.py) can key
+                    # off panel *origin* rather than the forgeable id string. Set
+                    # explicitly here — GET /api/panels spreads this dict to the
+                    # browser, so only deliberately-placed fields are exposed.
+                    "configDefined": True,
                     # Path suffixes whose JSON responses get the proxy's
                     # root-absolute-literal rewrite (see routes/proxy.py) —
                     # for backends whose SPA bootstraps its API base from a
@@ -346,6 +377,60 @@ def _load_panel_runtime_config(
         runtime_panel_allowlist=runtime_panel_allowlist,
         visible_panels=visible_panels,
     )
+
+
+def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> list[dict]:
+    """Read ``web.presets`` and resolve each named layout against the live panel set.
+
+    A preset is a facility-curated, named list of panel ids a human applies in one
+    click (the "Layouts" section of the "+" popover). This resolves the raw config
+    into the shape the frontend consumes, mirroring how :func:`_load_panel_config`
+    turns ``web.panels`` into concrete ids.
+
+    Each preset's members are intersected with the set of known ids (enabled
+    built-ins plus custom panel ids); unknown members are dropped with a warning
+    (a typo or a disabled panel must not strand the user), and a preset that
+    resolves to no known members is dropped entirely. Config insertion order is
+    preserved (pyyaml keeps mapping order on 3.7+), so config order == menu order.
+
+    Args:
+        enabled_panels: Enabled built-in panel ids (from :func:`_load_panel_config`).
+        custom_panels: Custom panel dicts (from :func:`_load_panel_config`).
+
+    Returns:
+        A list of ``{"name": str, "panels": [id, ...]}`` dicts in config order — a
+        list (not a dict) so JSON serialization preserves ordering in the
+        ``GET /api/panels`` payload. Fails open to ``[]`` on any config-read error.
+    """
+    known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}
+    presets: list[dict] = []
+    try:
+        from osprey.utils.workspace import load_osprey_config
+
+        raw_presets = load_osprey_config().get("web", {}).get("presets", {})
+    except Exception:
+        return []
+
+    if not isinstance(raw_presets, dict):
+        return []
+
+    for name, members in raw_presets.items():
+        if not isinstance(members, list):
+            logger.warning("web.presets[%r] is not a list of panel ids; skipping.", name)
+            continue
+        resolved: list[str] = []
+        for member in members:
+            if member in known:
+                resolved.append(member)
+            else:
+                logger.warning(
+                    "web.presets[%r] references unknown panel id %r; dropping it.", name, member
+                )
+        if resolved:
+            presets.append({"name": str(name), "panels": resolved})
+        else:
+            logger.warning("web.presets[%r] has no known panel members; dropping the preset.", name)
+    return presets
 
 
 def _load_web_config(config_path: str | Path | None = None) -> dict:
@@ -435,6 +520,13 @@ def _create_lifespan(
             os.environ.get("OSPREY_WEB_APP_NAME", "").strip()
             or str((config.get("web") or {}).get("app_name") or "").strip()
         )
+        # Per-user deployment identity for multi-user compose stacks. No
+        # config key exists for either of these today, so the config-side
+        # fallback is always empty and ``OSPREY_TERMINAL_USER`` /
+        # ``OSPREY_TERMINAL_LANDING_URL`` are the sole source. Empty ⇒ no
+        # user badge / logout control is rendered.
+        app.state.terminal_user = os.environ.get("OSPREY_TERMINAL_USER", "").strip()
+        app.state.landing_url = os.environ.get("OSPREY_TERMINAL_LANDING_URL", "").strip()
 
         # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
         if "OSPREY_CONFIG" not in os.environ:
@@ -560,6 +652,13 @@ def _create_lifespan(
         app.state.allow_runtime_panels = panel_runtime.allow_runtime_panels
         app.state.runtime_panel_allowlist = panel_runtime.runtime_panel_allowlist
         app.state.visible_panels = panel_runtime.visible_panels
+
+        # Config-defined panel presets ("Layouts"): named sets of panel ids a
+        # human applies in one click. Immutable config-derived state — the only
+        # new server state this feature adds. Empty (the default) → the "+" menu
+        # renders exactly as before.
+        app.state.panel_presets = _load_panel_presets(enabled_panels, custom_panels)
+
         if panel_runtime.allow_runtime_panels and not panel_runtime.runtime_panel_allowlist:
             logger.warning(
                 "web.allow_runtime_panels is enabled without a runtime_panel_allowlist — "
@@ -640,12 +739,28 @@ def create_app(
     Returns:
         Configured FastAPI application.
     """
+    url_prefix = compute_url_prefix()
+
+    # root_path is deliberately NOT set to url_prefix. nginx strips the
+    # /u/<user> prefix before proxying (see nginx.conf.j2 / docker-compose.web),
+    # so this app always receives BARE paths (/static/…, /design-system/…,
+    # /api/…, /ws/…). A non-empty FastAPI(root_path=…) forces
+    # scope["root_path"] on every request, which makes Starlette's StaticFiles
+    # Mounts recompute their child scope as root_path + mount_path and expect
+    # the prefix to be present in the path — so every asset 404s on the bare
+    # path nginx actually forwards, silently loading the multi-user UI with no
+    # CSS/JS/fonts. The prefix is plumbed where it is genuinely needed instead:
+    # the window global + import map injected into each HTML document below,
+    # and routes/panels.py + routes/proxy.py (which read compute_url_prefix()
+    # directly). Guarded by test_prefix_injection.py's bare-path static assert
+    # and the tests/e2e/web_terminals/test_prefix_routing.py master e2e.
     app = FastAPI(
         title="OSPREY Web Terminal",
         description="Browser-based terminal with live workspace viewer",
         version="1.0.0",
         lifespan=_create_lifespan(config_path, shell_command, project_dir),
     )
+    app.state.url_prefix = url_prefix
 
     app.include_router(router)
 
@@ -653,9 +768,33 @@ def create_app(
     async def root(request: Request):
         app_name = getattr(request.app.state, "app_name", "")
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
+        terminal_user = getattr(request.app.state, "terminal_user", "")
+        landing_url = getattr(request.app.state, "landing_url", "")
         return templates.TemplateResponse(
-            request, "index.html", {"app_name": app_name, "web_theme_id": web_theme_id}
+            request,
+            "index.html",
+            {
+                "app_name": app_name,
+                "web_theme_id": web_theme_id,
+                "terminal_user": terminal_user,
+                "landing_url": landing_url,
+                "url_prefix": url_prefix,
+            },
         )
+
+    # session.html/safety.html are otherwise plain static files under
+    # STATIC_DIR (served verbatim by the /static mount below); these two
+    # routes shadow that mount for exactly those two paths so they, too, get
+    # the Jinja-rendered prefix injection. Must be registered before
+    # configure_interface_app() mounts /static (Starlette matches routes in
+    # registration order, so an explicit route ahead of a Mount wins).
+    @app.get("/static/session.html")
+    async def session_page(request: Request):
+        return templates.TemplateResponse(request, "session.html", {"url_prefix": url_prefix})
+
+    @app.get("/static/safety.html")
+    async def safety_page(request: Request):
+        return templates.TemplateResponse(request, "safety.html", {"url_prefix": url_prefix})
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 

@@ -21,7 +21,7 @@
  * @module scaffold/edit
  */
 
-import { fetchArtifactsShared, resetFetchCache } from './data.js';
+import { fetchArtifactsShared, resetFetchCache, withPrefix } from './data.js';
 
 /**
  * `detailContentEl` grows a `_settingsEditor` property when the
@@ -75,7 +75,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
     try {
       const resp = await fetch(
-        `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`,
+        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`), // prefix-aware
         { method: 'POST' }
       );
 
@@ -109,7 +109,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
     try {
       const resp = await fetch(
-        `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`,
+        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`), // prefix-aware
         { method: 'POST' }
       );
 
@@ -203,7 +203,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
       // Scaffold (claim) the file before writing the override
       const scaffoldResp = await fetch(
-        `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`,
+        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`), // prefix-aware
         { method: 'POST' }
       );
       if (!scaffoldResp.ok) {
@@ -218,7 +218,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
     try {
       const resp = await fetch(
-        `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override`,
+        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override`), // prefix-aware
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -319,7 +319,7 @@ export function createScaffoldGalleryEdit(gallery) {
 
     try {
       const resp = await fetch(
-        `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override?delete_file=true`,
+        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override?delete_file=true`), // prefix-aware
         { method: 'DELETE' }
       );
 

@@ -41,8 +41,8 @@
       background: var(--bg);
       color: var(--text);
       font-family: var(--font-mono);
-      font-size: 14px;
-      line-height: 1.7;
+      font-size: var(--text-xl);
+      line-height: var(--leading-loose);
       display: flex;
       justify-content: center;
       padding: 48px 24px;
@@ -55,7 +55,7 @@
       inset: 0;
       background: var(--wt-welcome-scanline-bg);
       pointer-events: none;
-      z-index: 100;
+      z-index: var(--z-dropdown);
       opacity: var(--wt-crt-scanline-opacity);
     }
 
@@ -65,7 +65,7 @@
       inset: 0;
       background: radial-gradient(ellipse at center, transparent 50%, var(--overlay-black-50) 100%);
       pointer-events: none;
-      z-index: 100;
+      z-index: var(--z-dropdown);
       opacity: var(--wt-crt-vignette-opacity);
     }
 
@@ -82,18 +82,18 @@
     }
 
     .header h1 {
-      font-size: 13px;
-      font-weight: normal;
+      font-size: var(--text-lg);
+      font-weight: var(--weight-regular);
       letter-spacing: 4px;
       text-transform: uppercase;
       color: var(--text-dim);
       text-shadow: var(--glow);
-      margin-bottom: 8px;
+      margin-bottom: var(--space-2);
     }
 
     .header .title {
-      font-size: 20px;
-      font-weight: bold;
+      font-size: 20px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
+      font-weight: var(--weight-bold);
       color: var(--accent);
       text-shadow: var(--glow-accent);
       letter-spacing: 2px;
@@ -116,9 +116,9 @@
 
     .preamble {
       color: var(--text-dim);
-      font-size: 13px;
-      margin-bottom: 32px;
-      padding: 16px;
+      font-size: var(--text-lg);
+      margin-bottom: var(--space-6);
+      padding: var(--space-4);
       border-left: 2px solid var(--accent);
     }
 
@@ -135,19 +135,19 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 12px;
+      margin-bottom: var(--space-3);
     }
 
     .section-number {
-      font-size: 11px;
+      font-size: var(--text-base);
       color: var(--text-dim);
       opacity: 0.6;
       min-width: 32px;
     }
 
     .section-title {
-      font-size: 15px;
-      font-weight: bold;
+      font-size: 15px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
+      font-weight: var(--weight-bold);
       color: var(--text-bright);
       text-shadow: var(--glow);
     }
@@ -155,25 +155,25 @@
     .section-body {
       padding-left: 42px;
       color: var(--text);
-      font-size: 13px;
+      font-size: var(--text-lg);
     }
 
     .section-body p {
-      margin-bottom: 12px;
+      margin-bottom: var(--space-3);
     }
 
     .warning-box {
       margin: 12px 0;
       padding: 12px 16px;
       border: 1px solid var(--danger);
-      border-radius: 2px;
+      border-radius: var(--radius-xs);
       background: var(--error-tint-08);
     }
 
     .warning-box .label {
       color: var(--danger);
       text-shadow: var(--glow-danger);
-      font-size: 11px;
+      font-size: var(--text-base);
       letter-spacing: 2px;
       text-transform: uppercase;
       margin-bottom: 6px;
@@ -181,7 +181,7 @@
 
     .warning-box p {
       color: var(--text-dim);
-      font-size: 12px;
+      font-size: var(--text-md);
       margin-bottom: 0;
     }
 
@@ -193,9 +193,9 @@
     .rule-list li {
       position: relative;
       padding-left: 20px;
-      margin-bottom: 8px;
+      margin-bottom: var(--space-2);
       color: var(--text);
-      font-size: 13px;
+      font-size: var(--text-lg);
     }
 
     .rule-list li::before {
@@ -216,7 +216,7 @@
     }
 
     .footer {
-      margin-top: 48px;
+      margin-top: var(--space-7);
       text-align: center;
     }
 
@@ -224,11 +224,11 @@
       display: inline-block;
       color: var(--text-dim);
       text-decoration: none;
-      font-size: 12px;
+      font-size: var(--text-md);
       padding: 8px 16px;
       border: 1px solid color-mix(in srgb, var(--text-dim) 30%, transparent);
-      border-radius: 2px;
-      transition: all 0.2s ease;
+      border-radius: var(--radius-xs);
+      transition: all var(--duration-base) ease;
     }
 
     .footer .back-link:hover {
@@ -239,8 +239,8 @@
 
     .footer .version {
       display: block;
-      margin-top: 16px;
-      font-size: 11px;
+      margin-top: var(--space-4);
+      font-size: var(--text-base);
       color: var(--text-dim);
       opacity: 0.4;
     }

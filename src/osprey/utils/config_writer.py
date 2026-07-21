@@ -61,6 +61,31 @@ def _save(path: Path, data: Any) -> None:
 # =============================================================================
 
 
+def _ensure_parent_node(data: Any, key_path: list[str]) -> Any:
+    """Walk *key_path*'s parent keys from *data*, creating empty maps for any missing.
+
+    Shared by every writer that needs to address a leaf under a key_path that
+    may not exist yet (:func:`config_add_to_list`, :func:`config_replace_list`)
+    — as opposed to :func:`config_remove_from_list`, which must NOT create
+    missing parents (removing from a list that was never there is a no-op,
+    not a reason to create the empty scaffolding for it).
+
+    Args:
+        data: The loaded YAML document (or any nested mapping within it).
+        key_path: List of nested keys; only ``key_path[:-1]`` (the parents)
+            are walked/created — the leaf itself is left for the caller.
+
+    Returns:
+        The parent node ``key_path[:-1]`` resolves to.
+    """
+    node = data
+    for key in key_path[:-1]:
+        if key not in node:
+            node[key] = {}
+        node = node[key]
+    return node
+
+
 def config_add_to_list(
     config_path: Path,
     key_path: list[str],
@@ -77,12 +102,7 @@ def config_add_to_list(
         True if the value was added, False if it was already present.
     """
     data = _load(config_path)
-
-    node = data
-    for key in key_path[:-1]:
-        if key not in node:
-            node[key] = {}
-        node = node[key]
+    node = _ensure_parent_node(data, key_path)
 
     leaf = key_path[-1]
     if leaf not in node:
@@ -152,6 +172,41 @@ def config_remove_from_list(
 # =============================================================================
 # Field Updates
 # =============================================================================
+
+
+def config_replace_list(
+    config_path: Path,
+    key_path: list[str],
+    new_list: list[Any],
+) -> None:
+    """Replace an entire YAML list at *key_path* with *new_list*, preserving comments.
+
+    :func:`config_add_to_list` and :func:`config_remove_from_list` mutate a list of
+    *scalars* in place via ``value in lst`` membership tests, which never match a
+    dict against a string — so neither can edit a list of *objects* (e.g. explicit
+    ``{"name": ..., "index": ...}`` roster entries). This function sidesteps that by
+    replacing the whole list value at once; the surrounding document (other keys,
+    comments) is untouched because only the addressed subtree is reassigned before
+    the round-trip save.
+
+    Args:
+        config_path: Path to the YAML file.
+        key_path: List of nested keys, e.g. ``["modules", "web_terminals", "users"]``.
+            Parent keys are created as empty maps if missing, matching
+            :func:`config_add_to_list`.
+        new_list: The full replacement list (scalars, or nested dicts/lists).
+    """
+    data = _load(config_path)
+    node = _ensure_parent_node(data, key_path)
+
+    node[key_path[-1]] = new_list
+    _save(config_path, data)
+    logger.info(
+        "config_replace_list: %s = <%d item(s)> in %s",
+        ".".join(key_path),
+        len(new_list),
+        config_path,
+    )
 
 
 def config_update_fields(

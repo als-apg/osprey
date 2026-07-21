@@ -1,0 +1,265 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo Light Source Web Terminals</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-primary: #0a0f1a;
+      --bg-panel: #0e1525;
+      --bg-elevated: #1a2332;
+      --text-primary: #f1f5f9;
+      --text-secondary: #8b9ab5;
+      --text-muted: #64748b;
+      --color-accent: #4fd1c5;
+      --border-default: rgba(148, 163, 184, 0.16);
+      --border-accent: rgba(79, 209, 197, 0.35);
+      --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        color-scheme: light;
+        --bg-primary: #f7f9fc;
+        --bg-panel: #ffffff;
+        --bg-elevated: #eef2f7;
+        --text-primary: #0c1322;
+        --text-secondary: #45526b;
+        --text-muted: #64748b;
+        --color-accent: #0a8f8c;
+        --border-default: #d9dfe8;
+        --border-accent: rgba(10, 143, 140, 0.35);
+        --shadow-card: 0 4px 16px rgba(15, 23, 42, 0.08);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .landing-header {
+      width: 100%;
+      max-width: 960px;
+      padding: 2.5rem 1.5rem 1rem;
+    }
+    .landing-title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 400;
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .landing-logo {
+      font-weight: 700;
+      font-size: 1.35rem;
+      letter-spacing: 0.06em;
+      color: var(--color-accent);
+    }
+    .landing-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+    }
+    .landing-main {
+      width: 100%;
+      max-width: 960px;
+      flex: 1;
+      padding: 0.5rem 1.5rem 3rem;
+    }
+    .landing-empty {
+      margin-top: 2rem;
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      text-align: center;
+    }
+    .landing-group {
+      margin-top: 2rem;
+    }
+    .landing-group-label {
+      margin: 0 0 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+    .landing-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+    .landing-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding: 1rem 1.1rem;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 10px;
+      box-shadow: var(--shadow-card);
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+      min-width: 0;
+    }
+    .landing-card:hover,
+    .landing-card:focus-visible {
+      border-color: var(--border-accent);
+      background: var(--bg-elevated);
+      transform: translateY(-1px);
+    }
+    .landing-card:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    .landing-card-inert {
+      cursor: not-allowed;
+      opacity: 0.6;
+      border-style: dashed;
+    }
+    .landing-card-inert:hover {
+      border-color: var(--border-default);
+      background: var(--bg-panel);
+      transform: none;
+    }
+    .landing-card-label {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .landing-card-sublabel {
+      align-self: flex-start;
+      max-width: 100%;
+      margin: 0.05rem 0 0.1rem;
+      padding: 0.12rem 0.55rem;
+      border: 1px solid var(--border-accent);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .landing-card-url {
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .landing-footer {
+      width: 100%;
+      max-width: 960px;
+      padding: 1rem 1.5rem 2rem;
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="landing-header">
+    <h1 class="landing-title">
+      <span class="landing-logo">OSPREY</span>
+      <span class="landing-subtitle">Demo Light Source</span>
+    </h1>
+  </header>
+
+  <main class="landing-main">
+    
+    
+      
+    
+      
+    
+
+    
+
+    
+      
+      <section class="landing-group">
+        <h2 class="landing-group-label">Terminals</h2>
+        <div class="landing-cards">
+          
+          
+          
+          
+          
+          
+          <a class="landing-card" href="/u/alice/">
+            <span class="landing-card-label">alice</span>
+            <span class="landing-card-url">/u/alice/</span>
+          </a>
+          
+          
+          
+          
+          
+          
+          
+          <a class="landing-card" href="/u/bob/">
+            <span class="landing-card-label">bob</span>
+            <span class="landing-card-url">/u/bob/</span>
+          </a>
+          
+          
+        </div>
+      </section>
+      
+    
+      
+      <section class="landing-group">
+        <h2 class="landing-group-label">Facility Tools</h2>
+        <div class="landing-cards">
+          
+          
+          
+          
+          
+          
+          <a class="landing-card" href="https://elog.dls.example.org">
+            <span class="landing-card-label">Elog</span>
+            <span class="landing-card-url">https://elog.dls.example.org</span>
+          </a>
+          
+          
+          
+          
+          
+          
+          
+          <a class="landing-card" href="https://status.dls.example.org">
+            <span class="landing-card-label">Status Page</span>
+            <span class="landing-card-url">https://status.dls.example.org</span>
+          </a>
+          
+          
+        </div>
+      </section>
+      
+    
+  </main>
+
+  <footer class="landing-footer">
+    OSPREY multi-user web terminal stack
+  </footer>
+
+</body>
+</html>

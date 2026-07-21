@@ -17,7 +17,7 @@ services:
   virtual-accelerator:
     # OSPREY_VA_IMAGE now inherits host-arch resolution too: a single-arch amd64
     # published image on an arm64 host must supply its own `platform` override (VA-8).
-    image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default('osprey-va:local') }}}
+    image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default(osprey_labels.project_name ~ '-va:local') }}}
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
@@ -27,6 +27,10 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
+        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{% if dev_mode | default(false) %}
+        OSPREY_DEV: "1"
+{% endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the VA on one host without colliding on
     # one name. In-network consumers reach this service by its compose service
@@ -52,9 +56,8 @@ services:
       # no fault. Quoted so a value is never YAML-coerced.
       VA_STUCK_SETPOINTS: "${VA_STUCK_SETPOINTS:-}"
       # FR4 physics-fault apply faults (entrypoint.py parses and bounds each):
-      # a seeded quad misalignment, per-BPM readout error, and per-corrector
-      # calibration gain. Passthrough from the project .env; unset -> no fault.
-      VA_QUAD_MISALIGN: "${VA_QUAD_MISALIGN:-}"
+      # a per-BPM readout error and per-corrector calibration gain.
+      # Passthrough from the project .env; unset -> no fault.
       VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"
       VA_CORR_GAIN: "${VA_CORR_GAIN:-}"
       TZ: {{ system.timezone }}

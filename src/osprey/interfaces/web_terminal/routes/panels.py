@@ -13,11 +13,22 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
+from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _prefix_path(path: str) -> str:
+    """Prepend the per-container URL prefix to a root-absolute path.
+
+    Thin wrapper over :func:`apply_url_prefix` (the shared prefix contract):
+    an already-absolute URL passes through unchanged so an external panel URL
+    is never corrupted, and an empty prefix is a no-op.
+    """
+    return apply_url_prefix(compute_url_prefix(), path)
 
 
 @router.get("/health")
@@ -38,7 +49,7 @@ async def health(request: Request):
 async def artifact_server_config(request: Request):
     """Return the artifact gallery server URL for iframe embedding."""
     url = getattr(request.app.state, "artifact_server_url", None)
-    proxy_url = "/panel/artifacts" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/artifacts" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -54,7 +65,7 @@ async def get_type_registry():
 async def ariel_server_config(request: Request):
     """Return the ARIEL logbook server URL for iframe embedding."""
     url = getattr(request.app.state, "ariel_server_url", None)
-    proxy_url = "/panel/ariel" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/ariel" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -62,7 +73,7 @@ async def ariel_server_config(request: Request):
 async def channel_finder_server_config(request: Request):
     """Return the Channel Finder server URL for iframe embedding."""
     url = getattr(request.app.state, "channel_finder_server_url", None)
-    proxy_url = "/panel/channel-finder" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/channel-finder" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -70,7 +81,7 @@ async def channel_finder_server_config(request: Request):
 async def lattice_server_config(request: Request):
     """Return the lattice dashboard server URL for iframe embedding."""
     url = getattr(request.app.state, "lattice_dashboard_server_url", None)
-    proxy_url = "/panel/lattice" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/lattice" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -78,36 +89,38 @@ async def lattice_server_config(request: Request):
 async def okf_server_config(request: Request):
     """Return the OKF knowledge panel server URL for iframe embedding."""
     url = getattr(request.app.state, "okf_server_url", None)
-    proxy_url = "/panel/okf" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/okf" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
 def _browser_panel_url(cp: dict) -> str:
-    """The browser-facing URL for a custom panel.
+    """The browser-facing URL for a custom panel, prefixed with ``compute_url_prefix()``.
 
     Keyed off the explicit ``discovered`` marker, not URL shape: a discovered
     static bundle is served same-origin from disk at its own ``/panel-static/{id}/``
-    URL, so that URL is used verbatim.  Every other custom panel is URL-backed
-    and routed through the reverse proxy at ``/panel/{id}`` so its raw upstream
-    origin never reaches the browser (this preserves the pre-discovery behavior
-    exactly, and avoids treating a protocol-relative ``//host`` URL as
-    same-origin).
+    URL, so that URL is used verbatim (beyond the prefix).  Every other custom
+    panel is URL-backed and routed through the reverse proxy at ``/panel/{id}``
+    so its raw upstream origin never reaches the browser (this preserves the
+    pre-discovery behavior exactly, and avoids treating a protocol-relative
+    ``//host`` URL as same-origin).
     """
+    prefix = compute_url_prefix()
     if cp.get("discovered"):
         url = cp.get("url")
         if isinstance(url, str) and url:
-            return url
-        return f"/panel-static/{cp['id']}/"
-    return f"/panel/{cp['id']}"
+            return f"{prefix}{url}"
+        return f"{prefix}/panel-static/{cp['id']}/"
+    return f"{prefix}/panel/{cp['id']}"
 
 
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.
 
-    All custom panel URLs are rewritten to ``/panel/{id}`` so the browser
-    routes through the reverse proxy.  The originals in ``app.state`` are
-    left untouched — the proxy reads those for forwarding.
+    All custom panel URLs are rewritten to ``<prefix>/panel/{id}`` so the
+    browser routes through the reverse proxy (``<prefix>`` is the empty string
+    outside multi-user deployments).  The originals in ``app.state`` are left
+    untouched — the proxy reads those for forwarding.
 
     Response shape::
 
@@ -118,7 +131,18 @@ async def get_panels(request: Request):
             "visible":  [...],          # enabled + custom ids minus hidden: true panels
             "active":   str|None,       # currently focused panel id
             "labels":   {id: label},    # display labels for enabled built-in panels
+            "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
+            "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
         }
+
+    ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
+    at startup against the live panel set and carried in config order. It is
+    empty unless a deployment opts in, so the "+" popover renders unchanged by
+    default. Each entry is ``{"name": <label>, "panels": [<member id>, ...]}``.
+
+    ``allow_runtime_panels`` mirrors the config gate the ``POST /api/panels/register``
+    route enforces, so the frontend can show or hide the "new panel from URL" input
+    without first attempting a registration that would 403.
 
     ``default`` is not validated here — the frontend falls back to
     ``DEFAULT_PANEL_FALLBACK`` when it is unknown so a typo doesn't leave the
@@ -137,6 +161,8 @@ async def get_panels(request: Request):
     visible = getattr(request.app.state, "visible_panels", enabled)
     active = getattr(request.app.state, "active_panel", None)
     labels = {pid: BUILTIN_PANEL_LABELS[pid] for pid in enabled if pid in BUILTIN_PANEL_LABELS}
+    allow_runtime = bool(getattr(request.app.state, "allow_runtime_panels", False))
+    presets = list(getattr(request.app.state, "panel_presets", []))
     return {
         "enabled": enabled,
         "custom": custom,
@@ -144,6 +170,8 @@ async def get_panels(request: Request):
         "visible": visible,
         "active": active,
         "labels": labels,
+        "allow_runtime_panels": allow_runtime,
+        "presets": presets,
     }
 
 
@@ -172,13 +200,19 @@ async def get_panel_focus(request: Request):
 
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
-    """Set the active panel and broadcast a focus event via SSE."""
+    """Set the active panel and broadcast a focus event via SSE.
+
+    ``body.url`` (e.g. from an agent-invoked ``switch_panel`` MCP call) is
+    run through ``_prefix_path()`` before broadcast so a root-absolute path
+    lands inside the user's own mount; an already-absolute URL is left
+    untouched.
+    """
     if body.panel not in _known_panel_ids(request):
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     request.app.state.active_panel = body.panel
     event: dict = {"type": "panel_focus", "panel": body.panel}
     if body.url:
-        event["url"] = body.url
+        event["url"] = _prefix_path(body.url)
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "active_panel": body.panel}
 
@@ -363,7 +397,8 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     is validated to reject loopback, link-local, and cloud-metadata targets,
     and is stored raw server-side so the proxy can forward to it.  The URL
     exposed to the browser (in broadcasts and ``GET /api/panels``) is rewritten
-    to ``/panel/{id}``.
+    to ``<prefix>/panel/{id}`` (``<prefix>`` is the empty string outside
+    multi-user deployments).
 
     If a custom panel with the same ``id`` already exists it is replaced
     atomically (remove-then-append) so the proxy always returns the first match.
@@ -374,7 +409,7 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
         request: Incoming FastAPI request carrying ``app.state``.
 
     Returns:
-        ``{"status": "ok", "id": <id>, "label": <label>, "url": "/panel/<id>"}``
+        ``{"status": "ok", "id": <id>, "label": <label>, "url": "<prefix>/panel/<id>"}``
 
     Raises:
         HTTPException: 403 when runtime panel registration is disabled.
@@ -387,10 +422,24 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
             detail="Runtime panel registration is disabled. Set web.allow_runtime_panels: true to enable.",
         )
 
-    if body.id in BUILTIN_PANELS:
+    # Reserve both built-in ids and config-defined panel ids. Config-defined ids
+    # are derived from the live custom-panel state (never a second stored field
+    # that could drift) via the ``configDefined`` marker the config loader stamps.
+    # Without this, a runtime registration could squat a config panel's id and the
+    # remove-then-append below would silently repoint it — e.g. redirecting the
+    # EVENTS panel (which the proxy credentials server-side) at an attacker URL.
+    config_panel_ids = {
+        cp["id"]
+        for cp in getattr(request.app.state, "custom_panels", [])
+        if cp.get("configDefined")
+    }
+    if body.id in BUILTIN_PANELS or body.id in config_panel_ids:
         raise HTTPException(
             status_code=422,
-            detail=f"Panel id {body.id!r} collides with a built-in panel; choose a different id.",
+            detail=(
+                f"Panel id {body.id!r} collides with a built-in or config-defined "
+                "panel; choose a different id."
+            ),
         )
 
     allowlist: list[str] | None = getattr(request.app.state, "runtime_panel_allowlist", None)
@@ -419,17 +468,18 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
         visible_panels.append(body.id)
     request.app.state.visible_panels = visible_panels
 
+    browser_url = f"{compute_url_prefix()}/panel/{body.id}"
     request.app.state.broadcaster.broadcast(
         {
             "type": "panel_register",
             "id": body.id,
             "label": body.label,
-            "url": f"/panel/{body.id}",  # rewritten for the browser
+            "url": browser_url,  # rewritten for the browser
             "healthEndpoint": body.health_endpoint,
             "path": body.path,
         }
     )
-    return {"status": "ok", "id": body.id, "label": body.label, "url": f"/panel/{body.id}"}
+    return {"status": "ok", "id": body.id, "label": body.label, "url": browser_url}
 
 
 @router.get("/panel-static/{panel_id}/{path:path}")

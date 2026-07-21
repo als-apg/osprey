@@ -15,12 +15,69 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import click
 
 PID_FILE = ".osprey-web.pid"
 LOG_FILE = ".osprey-web.log"
+DECLARED_BIND_ENV = "OSPREY_TERMINAL_BIND_HOST"
+DECLARED_WEB_PORT_ENV = "OSPREY_TERMINAL_WEB_PORT"
+
+
+def resolve_bind_host(
+    cli_host: str | None, config_host: str | None, env: Mapping[str, str] = os.environ
+) -> str:
+    """Single source of the address ``osprey web`` binds to. Enforces criterion C3.
+
+    SECURITY INVARIANT: when a deployment DECLARES a bind host via
+    ``OSPREY_TERMINAL_BIND_HOST`` (the multi-user compose sets it on every
+    per-user container so nginx is the ONLY off-host path), that declaration is
+    AUTHORITATIVE over ``--host`` and config. A stale or hostile image CMD
+    passing ``--host 0.0.0.0`` must NOT punch through the reverse-proxy
+    chokepoint. Single-user ``osprey web`` sets no such env, so ``--host`` is
+    honored verbatim (``0.0.0.0`` stays supported).
+
+    Do NOT collapse this into ``@click.option("--host", envvar=...)``: Click env
+    defaults LOSE to an explicit flag, which would silently re-open the
+    container to the network. This inversion is load-bearing and is pinned red
+    by ``test_multiuser_env_pins_loopback_reaches_run_web``.
+    """
+    declared = env.get(DECLARED_BIND_ENV)
+    if declared:
+        return declared
+    return cli_host or config_host or "127.0.0.1"
+
+
+def resolve_web_port(
+    cli_port: int | None, config_port: int | None, env: Mapping[str, str] = os.environ
+) -> int:
+    """Single source of the port ``osprey web`` binds to. Enforces criterion C3 for ports.
+
+    DECLARATION-ONLY INVARIANT: when a deployment DECLARES a port via
+    ``OSPREY_TERMINAL_WEB_PORT`` (the multi-user compose overlay sets it on
+    every per-user container so nginx's per-user upstream mapping always
+    matches the container's actual listener), that declaration is
+    AUTHORITATIVE over ``--port`` and config. A stale or hostile image CMD
+    passing a mismatched ``--port`` must NOT desync the container from the
+    reverse-proxy's routing table. Single-user ``osprey web`` sets no such
+    env, so ``--port`` (or the ``OSPREY_WEB_PORT`` click envvar fallback, or
+    config, or the 8087 default) is honored verbatim.
+
+    ``OSPREY_TERMINAL_WEB_PORT`` is a DECLARATION set by the compose overlay
+    for THIS container only — it is never re-exported to children, unlike
+    the child-facing ``OSPREY_WEB_PORT`` publication at the bottom of
+    ``web()``. Do NOT collapse this into ``@click.option("--port",
+    envvar=...)``: Click env defaults LOSE to an explicit flag, which is the
+    opposite of "declared wins" this function exists to provide — the same
+    reasoning that keeps ``resolve_bind_host`` a plain function rather than
+    a click envvar.
+    """
+    declared = env.get(DECLARED_WEB_PORT_ENV)
+    if declared:
+        return int(declared)
+    return cli_port or config_port or 8087
 
 
 def get_config_value(key: str, default=None):
@@ -293,6 +350,22 @@ def _wait_for_server(host: str, port: int, proc: subprocess.Popen, timeout: floa
     return False
 
 
+def _notice_declared_override(env_var: str, flag_name: str, flag_value: object, what: str) -> None:
+    """Print the NOTICE when a declared env var overrides a conflicting CLI flag.
+
+    Only the operator-facing message lives here — the declaration-wins
+    precedence itself is enforced by ``resolve_bind_host``/``resolve_web_port``
+    (C3), which run regardless of whether this notice fires.
+    """
+    declared = os.environ.get(env_var)
+    if declared and flag_value is not None and str(flag_value) != declared:
+        click.echo(
+            f"NOTICE: {env_var}={declared} is authoritative for the "
+            f"multi-user reverse-proxy {what}; ignoring {flag_name} {flag_value}.",
+            err=True,
+        )
+
+
 def _resolve_web_shell_command(
     cc_config: dict, shell_override: str | None, wt_config: dict
 ) -> list[str]:
@@ -329,7 +402,12 @@ def _resolve_web_shell_command(
 
 @click.group("web", invoke_without_command=True)
 @click.option(
-    "--port", "-p", type=int, default=None, help="Port to run on (default: from config or 8087)"
+    "--port",
+    "-p",
+    type=int,
+    default=None,
+    envvar="OSPREY_WEB_PORT",
+    help="Port to run on (default: from config or 8087)",
 )
 @click.option("--host", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
@@ -380,8 +458,15 @@ def web(
 
     wt_config = get_config_value("web_terminal", {})
     cc_config = get_config_value("claude_code", {})
-    host = host or wt_config.get("host", "127.0.0.1")
-    port = port or wt_config.get("port", 8087)
+    _notice_declared_override(DECLARED_BIND_ENV, "--host", host, "chokepoint")
+    host = resolve_bind_host(host, wt_config.get("host"))
+    _notice_declared_override(DECLARED_WEB_PORT_ENV, "--port", port, "port mapping")
+    # An explicitly chosen port must never be silently reassigned: a DECLARED
+    # port (multi-user compose — MUST match nginx's per-user upstream) or an
+    # explicit --port / OSPREY_WEB_PORT is authoritative. Only an unspecified
+    # port (config default or the 8087 fallback) may auto-move off a busy port.
+    port_pinned = os.environ.get(DECLARED_WEB_PORT_ENV) is not None or port is not None
+    port = resolve_web_port(port, wt_config.get("port"))
 
     user_shell_override = shell  # keep raw click value for the detached re-spawn
     try:
@@ -423,10 +508,20 @@ def web(
         try:
             s.bind((host, port))
         except OSError as exc:
-            click.echo(f"ERROR: Port {port} is already in use.", err=True)
-            click.echo(f"  Find the process:  lsof -i :{port}", err=True)
-            click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
-            raise SystemExit(1) from exc
+            if port_pinned:
+                click.echo(f"ERROR: Port {port} is already in use.", err=True)
+                click.echo(f"  Find the process:  lsof -i :{port}", err=True)
+                click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
+                raise SystemExit(1) from exc
+            # Port was left unspecified and the default is taken — let the OS
+            # assign a free one instead of hard-failing (single-user QoL). A
+            # pinned port never reaches here, so nginx's per-user routing table
+            # cannot be desynced by a silent move.
+            busy_port = port
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as free_sock:
+                free_sock.bind((host, 0))
+                port = free_sock.getsockname()[1]
+            click.echo(f"Port {busy_port} in use — using :{port} instead.")
 
     # Publish the ACTUAL port to every child process (PTY shells, their MCP
     # servers): web_terminal_url() resolves OSPREY_WEB_PORT first, and

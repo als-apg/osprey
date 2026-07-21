@@ -4,10 +4,9 @@ Both factories (``mock.py``, ``epics.py``) build a ``{name: device}`` mapping
 whose entries exist only as dict values, then connect them. That connect step
 is centralized here so its non-obvious rationale lives in exactly one place.
 
-Imports ophyd-async, so (like the rest of ``devices/``) this module lives
-behind the optional ``osprey-framework[bluesky-bridge]`` extra — keep it out of
-the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``scanner.py``, ``security.py``).
+Imports ophyd-async (a core dependency), so like the rest of ``devices/`` keep
+it out of the bridge lifecycle core's import path (``app.py``, ``runs.py``,
+``plan_runner.py``, ``security.py``), which stays import-clean of ophyd.
 """
 
 from __future__ import annotations

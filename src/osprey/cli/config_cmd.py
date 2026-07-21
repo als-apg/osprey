@@ -333,8 +333,8 @@ def set_control_system(system_type: str, project: str):
       # Switch to EPICS (production)
       osprey config set-control-system epics
 
-      # Switch to Tango
-      osprey config set-control-system tango
+      # Switch to the Virtual Accelerator soft-IOC
+      osprey config set-control-system virtual_accelerator
     """
     try:
         from osprey.utils.config_writer import set_control_system_type

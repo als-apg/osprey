@@ -3,10 +3,10 @@
 Builds the shipped deploy config that brings up the Virtual Accelerator +
 Bluesky bridge + co-deployed Tiled catalog with
 ``control_system.type=virtual_accelerator``, ``execution.execution_method=
-container`` (so ``BLUESKY_PROMOTE_TOKEN`` mints safely and the agent can arm
+container`` (so ``BLUESKY_LAUNCH_TOKEN`` mints safely and the agent can arm
 -- see ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``), and the
 ``scan`` MCP server enabled (``default_enabled=False`` in the framework
-registry; opted in here via ``claude_code.servers.scan.enabled``). Corrector
+registry; opted in here via ``claude_code.servers.bluesky.enabled``). Corrector
 setpoints and BPM readbacks are wired into ``BLUESKY_EPICS_MOTORS``/
 ``_DETECTORS`` from the *built* project's own ``channel_limits.json`` --
 never a hardcoded preset channel (mirrors
@@ -26,6 +26,14 @@ via ``build_project_subprocess`` + ``select_correctors``/``select_bpms``/
 Building this config never touches Docker by itself -- only a subsequent
 ``osprey deploy up`` does (left to each caller, since only the real
 e2e/agentic tests need a live stack).
+
+``select_correctors``/``select_bpms``/``write_scan_env`` delegate to the
+canonical derivation in
+``osprey.services.bluesky_bridge.substrate_devices`` (the single source of
+this logic, also used by ``osprey deploy up`` to auto-configure a VA-backed
+scan stack's ``.env`` -- see ``container_lifecycle._ensure_bluesky_substrate_env``).
+This module keeps its own public API/signatures/defaults unchanged so every
+existing e2e importer is unaffected.
 """
 
 from __future__ import annotations
@@ -51,18 +59,51 @@ if TYPE_CHECKING:
 VA_CA_PORT = 5064
 
 # Bluesky bridge HTTP port. Distinct from the other e2e modules' pinned
-# ports (test_scan_deploy.py's 18090, test_va_substrate_equivalence.py's
+# ports (test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
 # 18099, test_tiled_roundtrip.py's 18101) so all four can run concurrently on
 # a shared dev machine without a port collision.
 BRIDGE_PORT = 18102
 
-BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
-VA_IMAGE = "osprey-va:local"
-# Container names are intentionally NOT module constants here: a deployed
-# service's container_name is ``<project>-<service>``
-# (services/*/docker-compose.yml.j2), so it depends on the caller's
-# project_name. Derive it at the call site (e.g. ``f"{project_name}-bluesky-bridge"``)
-# rather than hardcode a host-global name that is wrong for any non-default project.
+# Locally-built service image tags are intentionally NOT module constants here:
+# each service compose template defaults its image to
+# ``{{ osprey_labels.project_name }}-<service>:local`` (rendered from
+# ``resolve_project_name``), and every caller of this module builds under a
+# DIFFERENT project name -- so the tag depends on the caller's project_name.
+# Derive it at the call site via the helpers below rather than hardcode a
+# host-global name that is wrong for any non-default project. Container names
+# follow the same ``<project>-<service>`` rule -- derive those at the call site
+# too (e.g. ``f"{project_name}-bluesky-bridge"``).
+
+
+def _service_image(project_name: str, service: str) -> str:
+    """Derive a locally-built ``<project>-<service>:local`` image tag the way
+    the service compose templates do.
+
+    The templates default their image to
+    ``{{ osprey_labels.project_name }}-<service>:local`` -- rendered from
+    :func:`osprey.deployment.compose_generator.resolve_project_name` -- so a
+    caller that force-rebuilds via ``docker rmi -f`` must target that SAME
+    project-prefixed tag, never a host-global name.
+    """
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    return f"{resolve_project_name({'project_name': project_name})}-{service}:local"
+
+
+def bridge_image(project_name: str) -> str:
+    """``<project>-bluesky-bridge:local`` for ``project_name``."""
+    return _service_image(project_name, "bluesky-bridge")
+
+
+def va_image(project_name: str) -> str:
+    """``<project>-va:local`` for ``project_name``."""
+    return _service_image(project_name, "va")
+
+
+def panels_image(project_name: str) -> str:
+    """``<project>-bluesky-panels:local`` for ``project_name``."""
+    return _service_image(project_name, "bluesky-panels")
+
 
 BUILD_TIMEOUT_SEC = 300
 
@@ -82,6 +123,17 @@ def override_yaml() -> str:
     slower to build than the VA/bridge images already are (mirrors
     test_va_substrate_equivalence.py / test_tiled_roundtrip.py).
 
+    ``modules.web_terminals.enabled: false`` drops the preset's per-persona
+    web-terminal stack (two persona images + nginx, all built locally) for
+    the same reason: nothing in the scan stack touches persona routing, and
+    that coverage lives in the dedicated web-terminals lanes
+    (control-assistant-demo-e2e, multi-user-deploy-lifecycle-e2e,
+    tests/e2e/web_terminals/). One dotted LEAF key on purpose -- the preset
+    sets the whole ``modules.web_terminals`` subtree as a single dotted key,
+    and overriding just ``.enabled`` leaves its siblings intact, whereas a
+    nested ``modules:`` mapping would wholesale-replace the subtree (see the
+    preset's own comment above its ``modules.web_terminals`` block).
+
     Written as flat dotted-string keys under ``config:`` (matching the
     preset's own convention), not a `--set config.control_system.type=...`
     CLI override -- `--set` builds a NESTED dict for every dotted segment,
@@ -92,7 +144,8 @@ def override_yaml() -> str:
         "config:\n"
         "  control_system.type: virtual_accelerator\n"
         "  execution.execution_method: container\n"
-        "  claude_code.servers.scan.enabled: true\n"
+        "  claude_code.servers.bluesky.enabled: true\n"
+        "  modules.web_terminals.enabled: false\n"
         "dispatch: null\n"
     )
 
@@ -190,7 +243,7 @@ def find_osprey_console_script() -> Path:
     Centralized here since every real-container e2e that builds this stack
     (task 5.2, and the agentic e2e in 5.3/5.4) needs it, mirroring the
     identical helper duplicated in test_va_substrate_equivalence.py /
-    test_tiled_roundtrip.py / test_scan_deploy.py.
+    test_tiled_roundtrip.py / test_bluesky_deploy.py.
     """
     candidate = Path(sys.executable).parent / "osprey"
     if candidate.exists():
@@ -259,13 +312,6 @@ def _channel_limits(project_dir: Path) -> dict[str, Any]:
     return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
-def _split_address(address: str) -> tuple[str, str, str, str, str, str] | None:
-    parts = address.split(":")
-    if len(parts) != 6:
-        return None
-    return parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
-
-
 def select_correctors(
     limits: dict[str, Any], count: int | None = DEFAULT_CORRECTOR_COUNT
 ) -> dict[str, tuple[str, str]]:
@@ -284,45 +330,18 @@ def select_correctors(
 
     Returns a dict of synthetic motor name -> ``(sp_address, rb_address)``,
     ready for ``write_scan_env``'s ``BLUESKY_EPICS_MOTORS`` wiring.
+
+    Thin wrapper: delegates to the canonical
+    ``osprey.services.bluesky_bridge.substrate_devices.select_correctors``
+    (same logic; this module keeps the ``DEFAULT_CORRECTOR_COUNT`` default
+    the e2e suite has always used, versus the product module's ``None``/
+    full-set default).
     """
-    from osprey.services.virtual_accelerator.manifest import (
-        PARTITION_PYAT_COUPLED,
-        classify_partition,
+    from osprey.services.bluesky_bridge.substrate_devices import (
+        select_correctors as _select_correctors,
     )
 
-    keys = {k for k in limits if not k.startswith("_") and k != "defaults"}
-
-    pairs: list[tuple[str, str]] = []
-    for sp in sorted(k for k in keys if k.endswith(":SP")):
-        split = _split_address(sp)
-        if split is None:
-            continue
-        ring, system, family, device, field, subfield = split
-        if ring != "SR" or system != "MAG" or family not in ("HCM", "VCM"):
-            continue
-        path = {
-            "ring": ring,
-            "system": system,
-            "family": family,
-            "device": device,
-            "field": field,
-            "subfield": subfield,
-        }
-        if classify_partition(path) != PARTITION_PYAT_COUPLED:
-            continue
-        rb = sp[:-3] + ":RB"
-        if rb in keys:
-            pairs.append((sp, rb))
-
-    if count is None:
-        return {f"corrector_{i + 1:02d}": pairs[i] for i in range(len(pairs))}
-
-    if len(pairs) < count:
-        raise AssertionError(
-            f"deployed project's channel_limits.json only yields {len(pairs)} SR "
-            f"corrector (HCM/VCM) pairs, need {count}"
-        )
-    return {f"corrector_{i + 1:02d}": pairs[i] for i in range(count)}
+    return _select_correctors(limits, count)
 
 
 def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -> dict[str, str]:
@@ -335,43 +354,15 @@ def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -
 
     Returns a dict of synthetic detector name -> readback address, ready for
     ``write_scan_env``'s ``BLUESKY_EPICS_DETECTORS`` wiring.
+
+    Thin wrapper: delegates to the canonical
+    ``osprey.services.bluesky_bridge.substrate_devices.select_bpms`` (same
+    logic; this module keeps the ``DEFAULT_BPM_COUNT`` default the e2e suite
+    has always used, versus the product module's ``None``/full-set default).
     """
-    from osprey.services.virtual_accelerator.manifest import (
-        PARTITION_PYAT_COUPLED,
-        classify_partition,
-    )
+    from osprey.services.bluesky_bridge.substrate_devices import select_bpms as _select_bpms
 
-    keys = {k for k in limits if not k.startswith("_") and k != "defaults"}
-
-    addresses: list[str] = []
-    for addr in sorted(keys):
-        split = _split_address(addr)
-        if split is None:
-            continue
-        ring, system, family, device, field, subfield = split
-        if ring != "SR" or system != "DIAG" or family != "BPM":
-            continue
-        path = {
-            "ring": ring,
-            "system": system,
-            "family": family,
-            "device": device,
-            "field": field,
-            "subfield": subfield,
-        }
-        if classify_partition(path) != PARTITION_PYAT_COUPLED:
-            continue
-        addresses.append(addr)
-
-    if count is None:
-        return {f"bpm_{i + 1:02d}": addresses[i] for i in range(len(addresses))}
-
-    if len(addresses) < count:
-        raise AssertionError(
-            f"deployed project's channel_limits.json only yields {len(addresses)} SR "
-            f"BPM readbacks, need {count}"
-        )
-    return {f"bpm_{i + 1:02d}": addresses[i] for i in range(count)}
+    return _select_bpms(limits, count)
 
 
 def write_scan_env(
@@ -379,29 +370,36 @@ def write_scan_env(
     *,
     correctors: dict[str, tuple[str, str]],
     bpms: dict[str, str],
-    promote_token: str | None = None,
+    launch_token: str | None = None,
 ) -> None:
     """Wire correctors + BPMs into ``BLUESKY_EPICS_MOTORS``/``_DETECTORS``
     and set ``BLUESKY_EPICS_SUBSTRATE=1``, appended to the project ``.env``
     BEFORE ``osprey deploy up`` (the bridge compose template passes these
     through from the project ``.env``, same mechanism as
-    ``BLUESKY_PROMOTE_TOKEN``).
+    ``BLUESKY_LAUNCH_TOKEN``).
 
-    ``promote_token``, if given, is also written. The container-exec path
+    ``launch_token``, if given, is also written. The container-exec path
     normally auto-mints one on ``deploy up``; callers that need a
-    deterministic value for a scripted promote call supply their own (the
+    deterministic value for a scripted launch call supply their own (the
     same operator-provides-a-token path used elsewhere in this e2e suite).
+
+    Formatting delegates to the canonical
+    ``osprey.services.bluesky_bridge.substrate_devices`` formatters (same
+    ``name=SP|RB`` / ``name=RB`` syntax the product deploy-time producer
+    uses -- one source of the wire format).
     """
-    motors = ",".join(f"{name}={sp}|{rb}" for name, (sp, rb) in correctors.items())
-    detectors = ",".join(f"{name}={rb}" for name, rb in bpms.items())
+    from osprey.services.bluesky_bridge.substrate_devices import (
+        format_detectors_env,
+        format_motors_env,
+    )
 
     values = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": motors,
-        "BLUESKY_EPICS_DETECTORS": detectors,
+        "BLUESKY_EPICS_MOTORS": format_motors_env(correctors),
+        "BLUESKY_EPICS_DETECTORS": format_detectors_env(bpms),
     }
-    if promote_token:
-        values["BLUESKY_PROMOTE_TOKEN"] = promote_token
+    if launch_token:
+        values["BLUESKY_LAUNCH_TOKEN"] = launch_token
 
     env_path = project_dir / ".env"
     existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""

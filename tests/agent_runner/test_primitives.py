@@ -186,3 +186,53 @@ def test_native_provider_env_block_unchanged(
 
     for key, value in direct.env_block.items():
         assert env[key] == value
+
+
+# ---------------------------------------------------------------------------
+# OSPREY_E2E_FORCE_MODEL — derived force-key set (#350 / #357)
+# ---------------------------------------------------------------------------
+
+
+def test_e2e_force_derives_forced_keys_from_single_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_apply_e2e_overrides`` forces exactly ``{ANTHROPIC_MODEL} ∪
+    TIER_MODEL_ENV_VARS.values()`` (derived, not a literal tuple) and stays
+    consistent with the resolved env_block.
+
+    Guards the #350 drift: a model var present in env_block but absent from the
+    force list left the matrix sending the wrong model on background calls.
+    """
+    from osprey.agent_runner.primitives import _apply_e2e_overrides
+    from osprey.cli.claude_code_resolver import (
+        TIER_MODEL_ENV_VARS,
+        ClaudeCodeModelResolver,
+    )
+
+    monkeypatch.setenv("OSPREY_E2E_FORCE_MODEL", "forced-model-x")
+    spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+
+    forced = _apply_e2e_overrides(spec)
+
+    derived = {"ANTHROPIC_MODEL"} | set(TIER_MODEL_ENV_VARS.values())
+    # Every derived key present in env_block is rewritten to the forced model.
+    for key in derived:
+        if key in forced.env_block:
+            assert forced.env_block[key] == "forced-model-x"
+    # The forced-key set is a subset of what resolve() can produce — no key is
+    # forced that env_block could never carry (the drift guard).
+    assert derived <= set(forced.env_block) | {"ANTHROPIC_MODEL"}
+    # Every tier collapses onto the single forced model.
+    assert set(forced.tier_to_model.values()) == {"forced-model-x"}
+
+
+def test_e2e_force_inert_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With neither override env var set, the spec is returned unchanged."""
+    from osprey.agent_runner.primitives import _apply_e2e_overrides
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+
+    monkeypatch.delenv("OSPREY_E2E_FORCE_MODEL", raising=False)
+    monkeypatch.delenv("OSPREY_E2E_PROXY_BASE_URL", raising=False)
+    spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+
+    assert _apply_e2e_overrides(spec) is spec

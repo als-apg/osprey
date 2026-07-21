@@ -7,6 +7,7 @@ and chat command env scrubbing.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from unittest.mock import patch
 
@@ -16,28 +17,36 @@ from click.testing import CliRunner
 from osprey.cli.claude_cmd import chat_claude
 from osprey.cli.claude_code_resolver import (
     MANAGED_ENV_VARS,
+    TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
     detect_managed_policy_conflicts,
     inject_provider_env,
 )
+from osprey.models.tiers import VALID_TIERS
 
 # ── MANAGED_ENV_VARS ─────────────────────────────────────────────
 
 
 class TestManagedEnvVars:
-    """MANAGED_ENV_VARS contains the right vars."""
+    """MANAGED_ENV_VARS contains the right vars.
+
+    ``EXPECTED`` is the *single* human-readable review-gate pin for the managed
+    set — changing what OSPREY scrubs should require one conscious edit here (in
+    lockstep with the source frozenset), never a third hand-list. The per-tier
+    ``ANTHROPIC_DEFAULT_*_MODEL`` names are therefore spliced in from the single
+    ``TIER_MODEL_ENV_VARS`` source rather than re-typed, so a tier added there
+    cannot silently disagree with this pin (#357).
+    """
 
     EXPECTED = {
         # Auth + endpoint
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
-        # Model selectors
+        # Model selectors — the tier vars derive from the single source
         "ANTHROPIC_MODEL",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        *TIER_MODEL_ENV_VARS.values(),
         "ANTHROPIC_DEFAULT_FABLE_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
         "CLAUDE_CODE_SUBAGENT_MODEL",
@@ -59,6 +68,11 @@ class TestManagedEnvVars:
 
     def test_contains_expected(self):
         assert MANAGED_ENV_VARS == self.EXPECTED
+
+    def test_tier_model_vars_are_managed(self):
+        """The tier-model env vars are always a subset of the scrub set, derived
+        from the single source (not re-listed) — guards the #350 drift class."""
+        assert set(TIER_MODEL_ENV_VARS.values()) <= MANAGED_ENV_VARS
 
     def test_excludes_secret_keys(self):
         """Provider-specific secret keys should NOT be in the managed set."""
@@ -447,3 +461,329 @@ class TestChatProviderIsolation:
         assert "Refusing to launch" in result.output
         assert "ANTHROPIC_BASE_URL" in result.output
         mock_run.assert_not_called()
+
+
+# ── Single-source list agreement (#357) ──────────────────────────
+
+
+class TestManagedListsAgree:
+    """The scrub (MANAGED_ENV_VARS), inject (resolve env_block), and e2e-force
+    lists all derive from one declaration and cannot silently drift.
+
+    Regression guard for the #350 failure class: a model var reaching one list
+    but not the others (there, a fifth model var reached env_block but not the
+    e2e force-tuple, so the matrix sent the wrong model on background calls).
+    """
+
+    def test_lists_agree_tier_map_keys_equal_valid_tiers(self):
+        assert set(TIER_MODEL_ENV_VARS) == VALID_TIERS
+
+    def test_lists_agree_injectable_model_keys_are_managed(self):
+        """Every model/endpoint key resolve() can inject is in the scrub set —
+        so a stale copy is always cleared before the provider value is set."""
+        injectable = {"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"} | set(TIER_MODEL_ENV_VARS.values())
+        assert injectable <= MANAGED_ENV_VARS
+
+    @pytest.mark.parametrize("provider", ["anthropic", "cborg", "als-apg"])
+    def test_lists_agree_resolve_env_block_subset_of_managed(self, provider):
+        spec = ClaudeCodeModelResolver.resolve({"provider": provider})
+        leaked = set(spec.env_block) - MANAGED_ENV_VARS
+        assert not leaked, (
+            f"{provider} env_block escapes MANAGED_ENV_VARS (would survive a "
+            f"stale shell export uncleared): {sorted(leaked)}"
+        )
+
+
+# ── inject_provider_env .env branch (previously blind) ───────────
+
+
+class TestInjectDotenvPassthrough:
+    """Covers ``inject_provider_env``'s ``.env`` branch — the spot the autouse
+    ``_no_dotenv`` fixture on ``TestChatProviderIsolation`` blinds.
+
+    This class deliberately does NOT inherit that fixture, so ``.env`` loading
+    is exercised for real (``tmp_path`` + a written ``.env`` + importorskip,
+    the idiom from ``test_primitives.py``). Asserts the #357 contract: the full
+    project ``.env`` crosses into ``environ`` (host propagation for ``.mcp.json``
+    ``${VAR}`` refs), ``.env`` beats a stale shell export, and the raw
+    ``auth_secret_env`` is carried for proxy providers (FR5).
+    """
+
+    def test_dotenv_nonsecret_key_passes_through(self, tmp_path):
+        """A non-secret .env key (EPICS_CA_ADDR_LIST) reaches environ — the host
+        propagation contract the claude CLI relies on for .mcp.json ${VAR}."""
+        pytest.importorskip("dotenv")
+        (tmp_path / ".env").write_text("EPICS_CA_ADDR_LIST=192.168.1.10:5064\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        environ = {"CBORG_API_KEY": "sk-secret"}
+
+        inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["EPICS_CA_ADDR_LIST"] == "192.168.1.10:5064"
+
+    def test_dotenv_secret_beats_stale_shell_export(self, tmp_path):
+        """A .env value for the provider's auth secret overrides a stale shell
+        export (freshly-configured key wins)."""
+        pytest.importorskip("dotenv")
+        (tmp_path / ".env").write_text("CBORG_API_KEY=sk-fresh-from-dotenv\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        environ = {"CBORG_API_KEY": "sk-stale-shell"}
+
+        inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["ANTHROPIC_AUTH_TOKEN"] == "sk-fresh-from-dotenv"
+
+    def test_dotenv_proxy_raw_secret_carried(self, tmp_path):
+        """For a proxy provider the raw auth_secret_env (CBORG_API_KEY) is
+        carried into environ alongside the CLI auth var — the in-context
+        channel-finder MCP subprocess expands ${CBORG_API_KEY} from it (FR5)."""
+        pytest.importorskip("dotenv")
+        (tmp_path / ".env").write_text("CBORG_API_KEY=sk-fresh\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        environ: dict[str, str] = {}
+
+        inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["CBORG_API_KEY"] == "sk-fresh"  # raw secret (FR5)
+        assert environ["ANTHROPIC_AUTH_TOKEN"] == "sk-fresh"  # CLI auth var
+
+
+# ── resolve() env_block characterization (#357, Task 1.2) ────────
+
+
+class TestResolveEnvBlockRegression:
+    """Characterization pin: ``resolve().env_block`` is byte-identical to main
+    for every provider, proving the map-driven rewrite (Task 1.2) is a pure
+    refactor (exact key set, order, and values unchanged). If a provider's
+    default model IDs are updated, update the snapshot in the same edit.
+    """
+
+    def test_env_block_regression_anthropic(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        assert spec.env_block == {
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5-20250929",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_MODEL": "claude-sonnet-4-5-20250929",
+        }
+
+    def test_env_block_regression_cborg(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        assert spec.env_block == {
+            "ANTHROPIC_BASE_URL": "https://api.cborg.lbl.gov",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-7",
+            "ANTHROPIC_MODEL": "claude-haiku-4-5",
+        }
+
+    def test_env_block_regression_als_apg(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.env_block == {
+            "ANTHROPIC_BASE_URL": "https://llm.gianlucamartino.com",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_MODEL": "claude-haiku-4-5-20251001",
+        }
+
+    def test_env_block_regression_custom_provider(self):
+        """A custom api.providers entry (proxy base_url with a trailing /v1
+        stripped for the Claude-Code-facing var, issue #312)."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "my-lab"},
+            {"my-lab": {"base_url": "https://proxy.example.com/v1"}},
+        )
+        assert spec.env_block == {
+            "ANTHROPIC_BASE_URL": "https://proxy.example.com",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5-20250929",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_MODEL": "claude-opus-4-6",
+        }
+
+    def test_env_block_regression_key_order_is_map_order(self):
+        """The tier-var keys appear in TIER_MODEL_ENV_VARS insertion order
+        (haiku→sonnet→opus) — the property the loop rewrite could have broken."""
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        tier_keys = [k for k in spec.env_block if k in set(TIER_MODEL_ENV_VARS.values())]
+        assert tier_keys == list(TIER_MODEL_ENV_VARS.values())
+
+
+# ── Proxy env var warning ────────────────────────────────────────
+
+
+class TestProxyEnvWarning:
+    """``inject_provider_env`` warns on proxy values Claude Code cannot parse.
+
+    Claude Code's runtime rejects any ``*_PROXY`` value lacking a scheme and a
+    host and refuses to start; it accepts any parseable URL, including
+    non-http schemes like ``socks5://``. The warning must match that contract
+    exactly — no false positive on a working SOCKS proxy, no false negative on
+    a placeholder — and must never rewrite the value: other consumers of the
+    proxy vars (httpx, requests, DuckDB) read the same environment, and
+    blanking it would hide the misconfiguration instead of reporting it.
+
+    Every no-warning test also asserts the value landed in ``environ`` — that
+    proves the ``.env`` load actually executed, so a silently-skipped code path
+    cannot masquerade as a passing negative assertion.
+    """
+
+    LOGGER = "osprey.cli.claude_code_resolver"
+
+    def _records(self, caplog):
+        return [r for r in caplog.records if r.name == self.LOGGER]
+
+    @pytest.mark.parametrize("var", ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"])
+    def test_placeholder_from_env_file_warns(self, tmp_path, caplog, var):
+        (tmp_path / ".env").write_text(f"{var}=http-proxy\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert any(var in r.getMessage() for r in self._records(caplog))
+        # Pass-through contract: warned about, never rewritten.
+        assert environ[var] == "http-proxy"
+
+    def test_schemeless_host_warns(self, tmp_path, caplog):
+        # urlsplit reads "proxy.corp:3128" as scheme "proxy.corp" with no
+        # netloc — exactly the shape Claude Code rejects.
+        (tmp_path / ".env").write_text("HTTP_PROXY=proxy.corp:3128\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert any("proxy.corp:3128" in r.getMessage() for r in self._records(caplog))
+
+    def test_unsplittable_value_warns(self, tmp_path, caplog):
+        # urlsplit raises ValueError on a malformed IPv6 literal; that must
+        # count as invalid, not crash the launch path.
+        (tmp_path / ".env").write_text("HTTP_PROXY=http://[bad\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert any("HTTP_PROXY" in r.getMessage() for r in self._records(caplog))
+
+    def test_shell_export_warns_without_env_file(self, caplog):
+        # The check reads environ, not the .env file — a bad value exported in
+        # the shell must be reported even with no project .env at all.
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123", "HTTP_PROXY": "http-proxy"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec)
+
+        assert any("HTTP_PROXY" in r.getMessage() for r in self._records(caplog))
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # Empty host — WHATWG rejects; urlsplit alone yields a truthy netloc.
+            "http://:8080",
+            # Non-numeric port — urlsplit defers this until .port is accessed.
+            "http://host:notaport",
+            # Whitespace in the URL — urlsplit tolerates it, the runtime does not.
+            "http://a b.com:8080",
+            "http://proxy:8080 trailing garbage",
+            # NO_PROXY-style comma list left in a single-URL var.
+            "http://proxy:8080,http://other:9090",
+            # Protocol-relative — netloc without a scheme; measured rejected
+            # ('Invalid proxy URL in HTTPS_PROXY: "//proxy.corp:3128"'), so the
+            # scheme half of the predicate must fire even when a netloc exists.
+            "//proxy.corp:3128",
+        ],
+    )
+    def test_whatwg_rejected_shapes_warn(self, tmp_path, caplog, value):
+        # Each of these makes Claude Code (2.1.214) exit immediately with
+        # 'Invalid proxy URL', yet plain urlsplit parses them without complaint
+        # — the predicate must stay pinned to the measured runtime behavior.
+        (tmp_path / ".env").write_text(f"HTTP_PROXY={value}\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert any("HTTP_PROXY" in r.getMessage() for r in self._records(caplog))
+        # Pass-through contract: warned about, never rewritten.
+        assert environ["HTTP_PROXY"] == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # Userinfo and IPv6 literals are accepted by the runtime and must
+            # stay silent — .port must not choke on either netloc shape.
+            "http://user:pass@host:8080",
+            "http://[::1]:8080",
+            # Scheme-agnostic: the runtime accepts any well-formed URL.
+            "ftp://bogus",
+        ],
+    )
+    def test_whatwg_accepted_shapes_no_warning(self, tmp_path, caplog, value):
+        (tmp_path / ".env").write_text(f"HTTP_PROXY={value}\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["HTTP_PROXY"] == value  # load ran
+        assert self._records(caplog) == []
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # Leading/trailing space — WHATWG strips space/C0 controls before
+            # parsing; a realistic copy-paste artifact in a shell export.
+            " http://proxy:8080",
+            "http://proxy:8080 ",
+            # Internal tab — WHATWG removes tab/CR/LF anywhere before parsing.
+            "http://pro\txy:8080",
+            # Space in the path — WHATWG percent-encodes it; only whitespace
+            # in the scheme/authority is fatal to the runtime.
+            "http://proxy:8080/a b",
+        ],
+    )
+    def test_whatwg_whitespace_tolerated_shapes_no_warning(self, caplog, value):
+        # Set via environ (shell-export style) so the dotenv parser's own
+        # whitespace handling cannot mask what the predicate sees.
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123", "HTTP_PROXY": value}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec)
+
+        assert environ["HTTP_PROXY"] == value  # pass-through, never rewritten
+        assert self._records(caplog) == []
+
+    def test_valid_http_url_no_warning(self, tmp_path, caplog):
+        (tmp_path / ".env").write_text("HTTP_PROXY=http://proxy.example.com:8080\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["HTTP_PROXY"] == "http://proxy.example.com:8080"  # load ran
+        assert self._records(caplog) == []
+
+    def test_socks5_proxy_no_warning(self, tmp_path, caplog):
+        # Claude Code starts fine with a SOCKS proxy; warning on it would tell
+        # a site with a real socks5 proxy, on every launch, that their agent
+        # will refuse to start.
+        (tmp_path / ".env").write_text("HTTPS_PROXY=socks5://127.0.0.1:1080\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["HTTPS_PROXY"] == "socks5://127.0.0.1:1080"  # load ran
+        assert self._records(caplog) == []

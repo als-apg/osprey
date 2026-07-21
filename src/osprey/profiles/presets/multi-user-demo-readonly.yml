@@ -1,0 +1,36 @@
+# multi-user-demo-readonly.yml
+# Read-only persona — the observation tier of the multi-user demo.
+#
+# This preset inherits everything from `multi-user-demo` and pins the write
+# switch off. `control_system.writes_enabled: false` is enforced at every
+# write surface: channel-write tools land in the rendered settings.json deny
+# list, the writes-check hook refuses with a clean "writes disabled" message,
+# and the connector's reference monitor blocks any write that somehow reaches
+# it. Reads, the channel finder, the archiver, and logbook search all work
+# unchanged.
+#
+# The write-capable counterpart is `multi-user-demo-readwrite`.
+
+name: Multi-User Demo (Read-Only)
+
+extends: multi-user-demo
+
+# Attached project: the persona builds per-user terminal images only and
+# connects to the shared web tier another OSPREY project deploys on the same
+# host. No services are scaffolded (empty `deployed_services`, no services/).
+deploy_services: false
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY: each entry is a literal `key.path` written into config.yml
+# after the template renders. Nested YAML under `config:` would deep-merge into
+# and clobber the base's rendered config subtree, so keep every override flat.
+config:
+  # The single axis this persona differs on. Inherited false from the base, but
+  # pinned explicitly here: this key IS the tier boundary, so it must not drift
+  # silently if the base's default ever changes.
+  control_system.writes_enabled: false
+  # Attached persona: the hosting project owns the web-terminal tier (nginx,
+  # landing, per-user containers). Without this override the inherited roster
+  # would make a persona-dir deploy try to host a second web tier on the same
+  # host ports.
+  modules.web_terminals.enabled: false

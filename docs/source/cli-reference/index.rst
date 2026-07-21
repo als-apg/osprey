@@ -107,7 +107,8 @@ Manage Docker/Podman services for Osprey projects.
 
    osprey deploy ACTION [OPTIONS]
 
-**Actions:** ``up``, ``down``, ``restart``, ``status``, ``build``, ``clean``, ``rebuild``.
+**Actions:** ``up``, ``down``, ``restart``, ``status``, ``build``, ``clean``, ``rebuild``,
+``decommission``, ``prune``, ``nuke``, ``seed``.
 
 - ``up`` -- Start all configured services.
 - ``down`` -- Stop all services.
@@ -116,6 +117,11 @@ Manage Docker/Podman services for Osprey projects.
 - ``build`` -- Build/prepare compose files without starting services.
 - ``clean`` -- Remove containers and volumes (destructive).
 - ``rebuild`` -- Clean, rebuild, and restart services.
+- ``decommission USER`` -- Remove a single user's web-terminal workspace.
+- ``prune`` -- Remove workspaces for users no longer in the user index.
+- ``nuke`` -- Tear down the entire multi-user web-terminal stack (destructive).
+- ``seed [USER]`` -- (Re)seed web-terminal workspaces from the user index;
+  ``USER`` targets one user, omit to reseed all.
 
 **Options (apply to all actions):**
 
@@ -129,12 +135,25 @@ Manage Docker/Podman services for Osprey projects.
 
 ``--expose`` -- Expose services on all network interfaces (``0.0.0.0``).
 
+**Lifecycle flags (multi-user web-terminal actions):**
+
+``--archive`` -- Archive a user's workspace before removing it (``decommission``/``prune`` only; mutually exclusive with ``--purge``).
+
+``--purge`` -- Permanently delete a user's workspace without archiving (``decommission``/``prune`` only; mutually exclusive with ``--archive``).
+
+``-y, --yes`` -- Assume yes to confirmation prompts (``decommission``/``prune``/``nuke``).
+
+``--dry-run`` -- Show what would happen without making changes (``prune`` only).
+
 .. code-block:: bash
 
    osprey deploy up -d
    osprey deploy status
    osprey deploy rebuild --dev
    osprey deploy down
+   osprey deploy decommission alice --archive
+   osprey deploy prune --dry-run
+   osprey deploy nuke --yes
 
 osprey health
 =============
@@ -402,12 +421,25 @@ All subcommands accept a common flag:
    Release ownership and restore framework management. The next
    ``osprey claude regen`` will overwrite the file with the framework template.
 
+``osprey scaffold web-terminals lint --config PATH``
+   Validate the ``modules.web_terminals`` stanza of a facility config
+   (port-family allocation, reserved service names, duplicate users, persona
+   references). Exits non-zero on error-severity findings; warnings do not
+   fail the check, so it is safe to wire into a CI gate.
+
+``osprey scaffold web-terminals render --config PATH -o DIRECTORY``
+   Render the multi-user deployment artifacts (docker-compose overlay, nginx
+   routing fragment, static landing page) into ``-o/--output``. Lints first by
+   default and aborts on errors; ``--no-lint`` skips the pre-check.
+
 .. code-block:: bash
 
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold diff agents/channel-finder     # Compare yours vs framework
    osprey scaffold unclaim rules/safety           # Restore framework management
+   osprey scaffold web-terminals lint --config facility-config.yml
+   osprey scaffold web-terminals render --config facility-config.yml -o deploy/
 
 osprey skills
 =============

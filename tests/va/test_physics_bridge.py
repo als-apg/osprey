@@ -360,7 +360,7 @@ class TestElementMisalignment:
     """FR3/FR4/FR12: a seeded element misalignment (errors.apply_misalignment)
     distorts the closed orbit, and an unstable seed fails boot diagnosably."""
 
-    def test_seeded_quad_misalignment_induces_nonzero_orbit_shift(self):
+    def test_seeded_element_misalignment_induces_nonzero_orbit_shift(self):
         misaligned = PhysicsBridge(element_misalignments={"QF01": {"dx": 300e-6}})
         actual = misaligned.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
         assert actual != pytest.approx(0.0, abs=1e-9)

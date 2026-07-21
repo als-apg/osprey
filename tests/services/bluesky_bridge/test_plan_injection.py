@@ -11,9 +11,7 @@ works in a bluesky-less bridge process.
 
 from __future__ import annotations
 
-import logging
 import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -170,7 +168,16 @@ def test_load_facility_plans_does_not_leave_module_in_sys_modules_on_exec_failur
 def test_get_plans_serves_facility_injected_plan_via_http(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    """End-to-end: GET /plans includes the facility's plan, with its schema."""
+    """End-to-end: GET /plans includes the facility's plan, with its schema.
+
+    Also asserts every plan carries `metadata`/`provenance` keys (task 1.3):
+    the legacy contract's `wiggle` plan never set `PlanSpec.metadata`, so it
+    stays `None`, but its `provenance` is loader-normalized to `"facility"`
+    regardless of what the module declared (see `load_facility_plans`). A
+    shipped plan (`orm`) is the other half of the contract: `provenance ==
+    "shipped"` with real authored `PLAN_METADATA` — see
+    `test_plan_loader_layered.py` for the directory-layer case in isolation.
+    """
     module_path = _write_facility_module(tmp_path)
     monkeypatch.setenv(_ENV_VAR, str(module_path))
 
@@ -182,6 +189,12 @@ def test_get_plans_serves_facility_injected_plan_via_http(
     wiggle = plans_by_name["wiggle"]
     assert wiggle["description"] == "A facility-specific plan not in the built-in set."
     assert wiggle["schema"]["properties"]["amplitude"]["default"] == 1.0
+    assert wiggle["metadata"] is None
+    assert wiggle["provenance"] == "facility"
+
+    orm = plans_by_name["orm"]
+    assert orm["metadata"] is not None
+    assert orm["provenance"] == "shipped"
 
 
 def test_get_facility_plans_constructs_devices_once_and_caches(
@@ -198,59 +211,38 @@ def test_get_facility_plans_constructs_devices_once_and_caches(
     assert first.devices == {"wiggler": "fake-wiggler-device"}
 
 
-def test_load_facility_plans_warns_when_a_plan_shadows_a_builtin(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_get_plans_serves_directory_layer_metadata_via_http(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    """A facility plan reusing a built-in's name (e.g. `count`) logs a warning
-    at load time — silent shadowing would otherwise be a surprising way to
-    lose a built-in without any trace. Injects a fake `plans` module into
-    `sys.modules` so this is testable without bluesky installed: relative
-    imports resolve against `sys.modules` first, so `plan_loader`'s guarded
-    `from .plans import BUILTIN_PLANS` picks up the fake instead of trying
-    (and failing) to import the real bluesky-backed module.
-    """
-    fake_plans_module = types.ModuleType("osprey.services.bluesky_bridge.plans")
-    fake_plans_module.BUILTIN_PLANS = {"count": object()}  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "osprey.services.bluesky_bridge.plans", fake_plans_module)
-
-    facility_dir = tmp_path / "shadowing_facility"
+    """A directory-layer plan (task 1.2's `BLUESKY_PLAN_DIRS`, `facility` tier)
+    authors real `PLAN_METADATA` — unlike the legacy single-module contract
+    above, `GET /plans` must surface it verbatim, not just `provenance`."""
+    facility_dir = tmp_path / "facility_layer"
     facility_dir.mkdir()
-    module_path = facility_dir / "shadow_plans.py"
-    module_path.write_text(
-        "from osprey.services.bluesky_bridge.plan_types import PlanSpec\n"
-        "from pydantic import BaseModel\n\n"
-        "class P(BaseModel):\n"
-        "    pass\n\n"
-        "PLANS = {'count': PlanSpec(name='count', plan=lambda d, p: None, schema=P, "
-        "description='facility count')}\n\n"
-        "def get_devices():\n"
-        "    return {}\n"
+    (facility_dir / "sniff.py").write_text(
+        "from pydantic import BaseModel\n\n\n"
+        "PLAN_METADATA = {\n"
+        '    "name": "sniff",\n'
+        '    "description": "A directory-layer test plan.",\n'
+        '    "category": "accelerator",\n'
+        '    "required_devices": ["sniffer"],\n'
+        '    "writes": False,\n'
+        "}\n\n\n"
+        "def build_plan(devices, params):\n"
+        '    return {"plan": "sniff"}\n'
     )
+    monkeypatch.setenv("BLUESKY_PLAN_DIRS", str(facility_dir))
 
-    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
-        result = plan_loader.load_facility_plans(str(module_path))
+    resp = client.get("/plans")
 
-    assert "count" in result.plans
-    assert any(
-        record.levelno == logging.WARNING and "count" in record.message for record in caplog.records
-    )
-
-
-def test_get_plans_reraises_a_non_bridge_import_error_from_builtins(
-    monkeypatch: pytest.MonkeyPatch, client: TestClient
-) -> None:
-    """`GET /plans` must only swallow an ImportError caused by a missing
-    bridge dependency (bluesky/ophyd/ophyd_async/tiled) — anything else (e.g.
-    `plans.py` itself missing an expected attribute) is a genuine bug and
-    must propagate, not silently degrade to an empty/facility-only list.
-
-    Injects a fake, attribute-less `plans` module into `sys.modules` so
-    `from .plans import BUILTIN_PLANS` raises "cannot import name", whose
-    `ImportError.name` is the `plans` module itself — not a bridge dependency
-    — so the route's allow-list must re-raise rather than swallow it.
-    """
-    broken_plans_module = types.ModuleType("osprey.services.bluesky_bridge.plans")
-    monkeypatch.setitem(sys.modules, "osprey.services.bluesky_bridge.plans", broken_plans_module)
-
-    with pytest.raises(ImportError):
-        client.get("/plans")
+    assert resp.status_code == 200
+    plans_by_name = {p["name"]: p for p in resp.json()}
+    sniff = plans_by_name["sniff"]
+    assert sniff["provenance"] == "facility"
+    assert sniff["metadata"] == {
+        "name": "sniff",
+        "description": "A directory-layer test plan.",
+        "category": "accelerator",
+        "required_devices": ["sniffer"],
+        "writes": False,
+    }

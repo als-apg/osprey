@@ -1,10 +1,9 @@
 /* OSPREY Web Terminal — Hook Debug Toggle & Log Viewer */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, withPrefix } from './api.js';
 
 /**
- * One row of the hook activity log, as returned by
- * `/api/hooks/debug-log`. All fields are optional because older log
+ * One row of the hook activity log, as returned by `/api/hooks/debug-log` (prefix-aware). All fields are optional because older log
  * records used alternate key names (e.g. `timestamp`, `hook_event`).
  * @typedef {object} HookEvent
  * @property {string} [ts]
@@ -38,7 +37,9 @@ export function initHookDebug() {
   toggle.addEventListener('change', async () => {
     const enabled = toggle.checked;
     try {
-      const res = await fetch('/api/config', {
+      // Prefix-aware so this reaches the container under /u/<user>/ in
+      // multi-user deployments.
+      const res = await fetch(withPrefix('/api/config'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates: { 'hooks.debug': enabled } }),
@@ -85,7 +86,7 @@ export function initHookDebug() {
   // ---- Tab Activation ----
   safetyPanel.addEventListener('drawer:tab-activate', async () => {
     try {
-      const data = await fetchJSON('/api/hooks/debug-status');
+      const data = await fetchJSON('/api/hooks/debug-status'); // fetchJSON prefixes this internally
       toggle.checked = data.enabled;
     } catch {
       toggle.checked = false;
@@ -161,7 +162,7 @@ async function _loadLogEntries(logBody) {
   while (logBody.firstChild) logBody.removeChild(logBody.firstChild);
 
   try {
-    const data = await fetchJSON('/api/hooks/debug-log?limit=50');
+    const data = await fetchJSON('/api/hooks/debug-log?limit=50'); // fetchJSON prefixes this internally
     if (!data.entries || data.entries.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'hook-debug-log-empty';

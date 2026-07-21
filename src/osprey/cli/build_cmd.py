@@ -35,7 +35,12 @@ from osprey.utils.logger import get_logger
 from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
-    from osprey.cli.build_profile import BlueskyConfig, DispatchConfig, VAConfig
+    from osprey.cli.build_profile import (
+        BlueskyConfig,
+        BlueskyPanelsConfig,
+        DispatchConfig,
+        VAConfig,
+    )
 
 logger = get_logger("build")
 
@@ -346,6 +351,11 @@ def build(
 
         # 6. Build context from profile fields
         context: dict[str, Any] = {}
+        # Gates the rendered config.yml's `services:`/`deployed_services:`
+        # sections. An attached project (deploy_services: false) renders an
+        # empty `services: {}` and `deployed_services: []` so `osprey deploy`
+        # finds an explicit empty list and scaffolds nothing.
+        context["deploy_services"] = build_profile.deploy_services
         if build_profile.provider:
             context["default_provider"] = build_profile.provider
         if build_profile.model:
@@ -354,6 +364,8 @@ def build(
             context["channel_finder_mode"] = build_profile.channel_finder_mode
         if build_profile.default_panel:
             context["default_panel"] = build_profile.default_panel
+        if build_profile.panel_presets:
+            context["panel_presets"] = build_profile.panel_presets
         if build_profile.claude_md_template:
             context["claude_md_template"] = build_profile.claude_md_template
 
@@ -416,27 +428,48 @@ def build(
             _apply_config_overrides(project_path, build_profile.config)
             logger.info("  ✓ Applied %d config override(s)", len(build_profile.config))
 
-        # 9. Copy service templates for `osprey deploy up`
-        svc_count = _copy_service_templates(project_path)
-        if svc_count:
-            logger.info("  ✓ Copied %d service template(s) for deploy", svc_count)
+        # 9-10d. Service scaffolding + injection. Skipped wholesale for an
+        # attached project (deploy_services: false): its service sections were
+        # parsed and validated, but it deploys nothing of its own and instead
+        # connects to a services stack another OSPREY project deployed on the
+        # same host. The rendered config.yml already carries an empty
+        # `deployed_services: []` (config.yml.j2 gates on `deploy_services`), so
+        # nothing below needs to run.
+        if build_profile.deploy_services:
+            # 9. Copy service templates for `osprey deploy up`
+            svc_count = _copy_service_templates(project_path)
+            if svc_count:
+                logger.info("  ✓ Copied %d service template(s) for deploy", svc_count)
 
-        # 10. Inject profile-defined services (facility containers)
-        if build_profile.services:
-            psvc_count = _inject_profile_services(profile_dir, project_path, build_profile.services)
-            logger.info("  ✓ Injected %d profile service(s) for deploy", psvc_count)
+            # 10. Inject profile-defined services (facility containers)
+            if build_profile.services:
+                psvc_count = _inject_profile_services(
+                    profile_dir, project_path, build_profile.services
+                )
+                logger.info("  ✓ Injected %d profile service(s) for deploy", psvc_count)
 
-        # 10b. Inject event-dispatch services + triggers
-        if build_profile.dispatch is not None:
-            _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
+            # 10b. Inject event-dispatch services + triggers
+            if build_profile.dispatch is not None:
+                _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
 
-        # 10c. Inject the Bluesky scan-bridge service
-        if build_profile.bluesky is not None:
-            _inject_bluesky(build_profile.bluesky, project_path)
+            # 10c. Inject the Bluesky scan-bridge service
+            if build_profile.bluesky is not None:
+                _inject_bluesky(build_profile.bluesky, project_path)
 
-        # 10d. Inject the Virtual Accelerator soft-IOC service
-        if build_profile.virtual_accelerator is not None:
-            _inject_va(build_profile.virtual_accelerator, project_path)
+            # 10c2. Inject the bluesky-panels sidecar + its three web panels (depends
+            # on bluesky — the sidecar read-proxies the bridge — so this must run
+            # after step 10c).
+            if build_profile.bluesky_panels is not None:
+                _inject_bluesky_panels(build_profile.bluesky_panels, project_path)
+
+            # 10d. Inject the Virtual Accelerator soft-IOC service
+            if build_profile.virtual_accelerator is not None:
+                _inject_va(build_profile.virtual_accelerator, project_path)
+        else:
+            logger.info(
+                "deploy_services: false — attached project; no services scaffolded "
+                "(connects to a shared OSPREY services stack)"
+            )
 
         # 11. Copy overlay files
         if build_profile.overlay:
@@ -1330,8 +1363,8 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         config = yaml.load(fh)
 
     # No ``image`` key on either service, so each falls to its compose default:
-    # the event-dispatcher builds the shared osprey-dispatch:local image (its own
-    # compose ``build:`` block), and the dispatch worker runs <project>:local —
+    # the event-dispatcher builds the project's <project>-dispatch:local image (its
+    # own compose ``build:`` block), and the dispatch worker runs <project>:local —
     # the project image ``osprey deploy up`` builds from the project Dockerfile
     # (the worker has no build block of its own, to avoid racing the dispatcher).
     # Override with OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE, or set
@@ -1413,12 +1446,12 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
        ``<project>/services/bluesky/``.
     2. Write ``services.bluesky`` config + register it in ``deployed_services``
        (so ``find_service_config`` resolves it, mirroring ``_inject_dispatch``).
-    3. Print a post-build hint (promote-token env var + image prerequisite).
+    3. Print a post-build hint (launch-token env var + image prerequisite).
 
     Simpler than ``_inject_dispatch``: no triggers file to resolve and no
     multi-instance worker loop — a project deploys exactly one bluesky-bridge
     process. The ``scan`` MCP server itself is a separate, always-available
-    framework server (see ``osprey.mcp_server.scan``); this step only wires
+    framework server (see ``osprey.mcp_server.bluesky``); this step only wires
     the *deploy-time* container that server talks to over HTTP.
 
     Args:
@@ -1462,8 +1495,15 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         "port": bluesky.port,
         "tiled_enabled": bluesky.tiled_enabled,
         "tiled_port": bluesky.tiled_port,
-        "demo_scanner": bluesky.demo_scanner,
+        "demo_runner": bluesky.demo_runner,
     }
+    if bluesky.plan_dir:
+        # Only written when configured — its absence is what keeps a
+        # bridge-only deploy (no facility plan directory) rendering exactly
+        # as before: the compose template's {% if %} guard reads this same
+        # key, so an unset plan_dir means no mount and no BLUESKY_PLAN_DIRS
+        # env var at all (Task 1.4).
+        config["services"]["bluesky"]["plan_dir"] = bluesky.plan_dir
     deployed = config.get("deployed_services", []) or []
     if "bluesky" not in [str(s) for s in deployed]:
         deployed.append("bluesky")
@@ -1475,8 +1515,8 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     # 3. Post-build hint.
     logger.info("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
     logger.info(
-        "    Token:      `osprey deploy up` writes BLUESKY_PROMOTE_TOKEN to .env; "
-        "the `scan` MCP server's launch_scan tool reads it automatically."
+        "    Token:      `osprey deploy up` writes BLUESKY_LAUNCH_TOKEN to .env; "
+        "the `scan` MCP server's launch_run tool reads it automatically."
     )
     logger.info(
         "    Images:     `osprey deploy up` builds the bluesky-bridge image locally "
@@ -1485,9 +1525,15 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     )
     if bluesky.tiled_enabled:
         logger.info("    Tiled:      enabled on port %d", bluesky.tiled_port)
-    if bluesky.demo_scanner:
+    if bluesky.plan_dir:
+        logger.info(
+            "    Plan dir:   %s mounted read-only into the bridge; its plans "
+            "load as the 'facility' trust tier (BLUESKY_PLAN_DIRS)",
+            bluesky.plan_dir,
+        )
+    if bluesky.demo_runner:
         logger.warning(
-            "    Demo mode:  BLUESKY_DEMO_SCANNER is set — the bridge runs a real "
+            "    Demo mode:  BLUESKY_DEMO_RUNNER is set — the bridge runs a real "
             "bluesky RunEngine against MOCK devices only. Never enable this for a "
             "facility wiring real EPICS hardware."
         )
@@ -1566,6 +1612,113 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
         "PyAT/softioc are compiled from source, so no prebuilt aarch64 wheels are "
         "needed). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_VA_IMAGE to use a published image."
+    )
+
+
+def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Path) -> None:
+    """Wire the bluesky-panels sidecar + its three web panels into a built project.
+
+    1. Copy the bundled ``templates/services/bluesky_panels/`` compose template
+       into ``<project>/services/bluesky_panels/``.
+    2. Write ``services.bluesky_panels`` config + register it in
+       ``deployed_services`` (so ``find_service_config`` resolves it,
+       mirroring ``_inject_bluesky``).
+    3. Register the three ``web.panels.<id>`` entries (``plan``,
+       ``results``, ``health``) pointing at the sidecar's root URL,
+       mirroring ``_inject_dispatch``'s ``events`` panel registration: each
+       panel points the proxy at the sidecar ROOT and uses ``path`` to select
+       the panel's static mount, so the panel HTML loads there while its
+       prefix-relative API fetches reach the sidecar root.
+    4. Print a post-build hint (image prerequisite).
+
+    Thin mirror of :func:`_inject_va`/:func:`_inject_bluesky` for the compose
+    + config wiring, plus :func:`_inject_dispatch`'s ``web.panels`` setdefault
+    idiom for the panel registration.
+
+    Args:
+        bluesky_panels: Validated bluesky-panels configuration from the build profile.
+        project_path: Root of the built project.
+    """
+    from ruamel.yaml import YAML
+
+    # 1. Copy the bundled compose template (located the same way as service templates).
+    pkg_services = _locate_pkg_services()
+
+    src_dir = pkg_services / "bluesky_panels"
+    if not src_dir.is_dir():
+        logger.warning("No package template for bluesky_panels service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    dest_dir = dest_services_root / "bluesky_panels"
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    shutil.copytree(src_dir, dest_dir)
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found — skipping bluesky_panels config registration")
+        return
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    # No ``image`` key: the service builds the local bluesky-panels image on
+    # first ``osprey deploy up``. Override with OSPREY_BLUESKY_PANELS_IMAGE, or
+    # set ``services.bluesky_panels.image`` here, to use a prebuilt/published image.
+    config.setdefault("services", {})
+    config["services"]["bluesky_panels"] = {
+        "path": "./services/bluesky_panels",
+        "port": bluesky_panels.port,
+    }
+    deployed = config.get("deployed_services", []) or []
+    if "bluesky_panels" not in [str(s) for s in deployed]:
+        deployed.append("bluesky_panels")
+    config["deployed_services"] = deployed
+
+    # 3. Register the three web.panels.<id> entries. Derive each url from
+    # bluesky_panels.port so the port is a single source of truth (mirroring the
+    # events-panel comment in _inject_dispatch), but write only when the
+    # profile has not already set an explicit `web.panels.<id>.url` via a
+    # config override (merged earlier in the build); explicit overrides take
+    # precedence. Emit a bare sidecar-root `url` plus a per-panel `path`
+    # (rather than baking the panel path into `url`) to match the
+    # custom-panel proxy convention: the web terminal composes
+    # `url.rstrip('/') + '/' + path`, so a path baked into `url` would
+    # double-prefix sub-routes. `setdefault` on `path`/`label`
+    # (`health_endpoint` for health) honors a facility override.
+    default_url = f"${{BLUESKY_PANELS_URL:-http://localhost:{bluesky_panels.port}}}"
+    panel_specs = (
+        ("plan", "/plan/", "PLAN", None),
+        ("results", "/results/", "RESULTS", None),
+        ("health", "/health-panel/", "HEALTH", "/health"),
+    )
+    for panel_id, panel_path, label, health_endpoint in panel_specs:
+        panel_cfg = config.setdefault("web", {}).setdefault("panels", {}).setdefault(panel_id, {})
+        if not panel_cfg.get("url"):
+            panel_cfg["url"] = default_url
+        panel_cfg.setdefault("path", panel_path)
+        panel_cfg.setdefault("label", label)
+        if health_endpoint:
+            panel_cfg.setdefault("health_endpoint", health_endpoint)
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    # 4. Post-build hint.
+    logger.info("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
+    logger.info(
+        "    Panels:     PLAN, RESULTS, HEALTH — reached through the "
+        "web-terminal proxy at /panel/{plan,results,health}."
+    )
+    logger.info(
+        "    Images:     `osprey deploy up` builds the bluesky-panels image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_BLUESKY_PANELS_IMAGE to use a published image."
     )
 
 

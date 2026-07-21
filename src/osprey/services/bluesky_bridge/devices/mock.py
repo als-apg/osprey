@@ -7,10 +7,10 @@ there is no shared substrate two callers could observe each other mutating.
 That makes this module suitable ONLY for:
 
 - lifecycle/contract unit tests (e.g. task 2.7's RunEngine integration test),
-  where the point is to exercise the bridge's own plumbing (``do_promote``,
+  where the point is to exercise the bridge's own plumbing (``do_launch``,
   the live-row buffer, plan resolution) against *some* bluesky-shaped device,
   not to validate real device behavior; and
-- the ``osprey deploy`` smoke demo, where the goal is "does a scan run at
+- the ``osprey deploy`` smoke demo, where the goal is "does a run at
   all" rather than "does it read a real instrument".
 
 It must NEVER be the substrate for the Phase 3 scenario benchmark — that
@@ -25,13 +25,13 @@ Reimplements the shape of ``ophyd_async.sim.SimMotor``/``SimPointDetector``
 (soft position signal with instant "move"; a triggerable soft readout) rather
 than importing ``ophyd_async.sim`` directly: that package's ``__init__``
 eagerly imports ``SimBlobDetector``, which pulls in ``h5py`` — a dependency
-this bridge's ``bluesky-bridge`` extra does not declare and does not need for
+OSPREY's core dependencies do not declare and this bridge does not need for
 a plain motor + detector.
 
-Imports ophyd-async, so this module (like the rest of ``devices/``) lives
-behind the optional ``osprey-framework[bluesky-bridge]`` extra — keep it out
-of the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``scanner.py``, ``security.py``).
+Imports ophyd-async (a core dependency), so this module (like the rest of
+``devices/``) is kept out of the bridge lifecycle core's import path
+(``app.py``, ``runs.py``, ``plan_runner.py``, ``security.py``), which stays
+import-clean of ophyd.
 """
 
 from __future__ import annotations

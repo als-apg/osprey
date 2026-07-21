@@ -8,6 +8,7 @@ overlay files, config overrides, and MCP server definitions.
 from __future__ import annotations
 
 import importlib.resources
+import logging
 import re
 import warnings
 from dataclasses import dataclass, field
@@ -17,6 +18,9 @@ from typing import Any, Literal
 import yaml
 
 from osprey.errors import BuildProfileError
+from osprey.profiles.web_panels import BUILTIN_PANELS
+
+_LOGGER = logging.getLogger("osprey.cli.build_profile")
 
 VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
     "in_context",
@@ -136,21 +140,28 @@ class BlueskyConfig:
 
     Consumed by the build pipeline's bluesky-injection step to deploy the
     single ``bluesky_bridge`` service (see NAMING-ADDENDUM.md: deploy key
-    ``bluesky``, env var ``BLUESKY_PROMOTE_TOKEN``, MCP server name ``scan``).
+    ``bluesky``, env var ``BLUESKY_LAUNCH_TOKEN``, MCP server name ``scan``).
     Ports are validated by :meth:`BuildProfile.validate`.
     """
 
     port: int = 8090
     tiled_enabled: bool = False
     tiled_port: int = 8091
-    demo_scanner: bool = False
+    demo_runner: bool = False
     """Opt-in only for the deploy-smoke-demo / tutorial case: wires the
     container's bridge process to a real bluesky RunEngine against mock
     ophyd-async devices (``devices/mock.py``) via app.py's guarded startup
-    hook (task 2.14a), instead of the Phase 1 no-op ``FakeScanner`` default.
+    hook (task 2.14a), instead of the Phase 1 no-op ``FakePlanRunner`` default.
     MUST stay False for any facility wiring real EPICS hardware — turning
     this on would silently override real device/plan wiring with an
-    in-memory mock scanner.
+    in-memory mock runner.
+    """
+    plan_dir: str | None = None
+    """Optional host directory of facility plan files (Task 1.4),
+    bind-mounted read-only into the bridge container and surfaced to the
+    plan loader as a ``BLUESKY_PLAN_DIRS`` (facility-tier) layer — see
+    ``plan_loader.py``. ``None`` (default) deploys the bridge with no
+    facility plan directory, matching every prior bluesky-only build.
     """
 
 
@@ -168,6 +179,24 @@ class VAConfig:
     port: int = 5064
     """Channel Access TCP port the soft-IOC serves PVs on (see
     src/osprey/services/virtual_accelerator/entrypoint.py's run contract)."""
+
+
+@dataclass
+class BlueskyPanelsConfig:
+    """Scan-panels sidecar configuration for a build profile (opt-in via the
+    ``bluesky_panels:`` key).
+
+    Consumed by the build pipeline's bluesky-panels-injection step
+    (``_inject_bluesky_panels`` in ``build_cmd.py``) to deploy the single
+    ``bluesky_panels`` FastAPI sidecar (compose service ``bluesky-panels``) that
+    serves the three operator web panels (``plan``, ``results``,
+    ``health``) and read-proxies the bluesky bridge. Port is validated
+    by :meth:`BuildProfile.validate`.
+    """
+
+    port: int = 8095
+    """Host/container port the sidecar's uvicorn process binds and publishes
+    (see ``templates/services/bluesky_panels/docker-compose.yml.j2``)."""
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -215,6 +244,64 @@ def _deep_merge(base: dict, child: dict) -> dict:
     return merged
 
 
+# String-list profile fields that ``exclude:`` may subtract from. Deliberately
+# excludes dict-shaped fields (config, overlay, mcp_servers, services, ...) —
+# list subtraction only makes sense for the plain string collections a child
+# inherits via ``extends``.
+_EXCLUDABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "skills",
+        "rules",
+        "hooks",
+        "agents",
+        "output_styles",
+        "web_panels",
+        "dependencies",
+    }
+)
+
+
+def _apply_exclude(merged: dict[str, Any], exclude: Any) -> None:
+    """Subtract ``exclude`` entries from the string-list fields of ``merged`` in place.
+
+    ``exclude`` is a mapping of field name (one of :data:`_EXCLUDABLE_FIELDS`) to a
+    list of entries to remove. Excluding an entry that is not present is a silent
+    no-op. Because this runs after each ``_deep_merge`` in :func:`_resolve_extends`,
+    a deeper ``extends`` layer that re-adds an entry merges in afterwards and wins;
+    an entry re-added by an override file or ``--set`` merges *before* extends
+    resolution and is stripped again here, so it cannot win.
+
+    Args:
+        merged: The merged raw profile dict (mutated in place).
+        exclude: The raw ``exclude`` value from a profile layer.
+
+    Raises:
+        BuildProfileError: If ``exclude`` is not a mapping, names an unknown or
+            non-list-shaped field, or maps a field to a non-list value.
+    """
+    if not isinstance(exclude, dict):
+        raise BuildProfileError(
+            f"Profile 'exclude' must be a mapping of field name to list "
+            f"(got {type(exclude).__name__})"
+        )
+    for field_name, entries in exclude.items():
+        if field_name not in _EXCLUDABLE_FIELDS:
+            raise BuildProfileError(
+                f"exclude: unknown or non-list field {field_name!r} "
+                f"(must be one of {sorted(_EXCLUDABLE_FIELDS)})"
+            )
+        if not isinstance(entries, list):
+            raise BuildProfileError(
+                f"exclude.{field_name} must be a list of entries to remove "
+                f"(got {type(entries).__name__})"
+            )
+        current = merged.get(field_name)
+        if not isinstance(current, list):
+            continue
+        removal = set(entries)
+        merged[field_name] = [item for item in current if item not in removal]
+
+
 def _resolve_extends(
     raw: dict[str, Any], profile_path: Path, chain: list[Path] | None = None
 ) -> dict[str, Any]:
@@ -242,6 +329,18 @@ def _resolve_extends(
 
     extends_value = raw.pop("extends", None)
     if extends_value is None:
+        # No base to subtract from — ``exclude`` here can only touch this file's
+        # own declarations, which is an author mistake. Apply-to-self (a no-op in
+        # practice) and log so it's discoverable, matching the recursive path's
+        # "pop exclude before returning" contract.
+        exclude_value = raw.pop("exclude", None)
+        if exclude_value is not None:
+            _LOGGER.debug(
+                "Profile %s declares 'exclude' without 'extends'; it can only "
+                "affect its own declarations (no inherited entries to remove).",
+                resolved,
+            )
+            _apply_exclude(raw, exclude_value)
         return raw
 
     # Try a bundled preset by name first; fall through to filesystem-path
@@ -272,7 +371,14 @@ def _resolve_extends(
     # Recurse: the base may itself extend another profile
     base_raw = _resolve_extends(base_raw, base_path, chain)
 
-    return _deep_merge(base_raw, raw)
+    merged = _deep_merge(base_raw, raw)
+    # Apply this layer's ``exclude`` to the merged result and consume it. The
+    # recursively-resolved ``base_raw`` has already had its own ``exclude``
+    # popped, so the only ``exclude`` present here is this layer's own.
+    exclude_value = merged.pop("exclude", None)
+    if exclude_value is not None:
+        _apply_exclude(merged, exclude_value)
+    return merged
 
 
 @dataclass
@@ -281,6 +387,20 @@ class BuildProfile:
 
     name: str
     data_bundle: str = "control_assistant"
+    deploy_services: bool = True
+    """Whether this project scaffolds its own container-services stack.
+
+    ``True`` (default) builds a self-contained, deployable project: service
+    templates are copied and ``services.*``/``deployed_services`` config is
+    written for every declared/injected service.
+
+    ``False`` marks an *attached* project — one that connects to a services
+    stack deployed by another OSPREY project on the same host. Service sections
+    in the profile (own or inherited) are parsed and validated but scaffold
+    nothing: no ``services/`` directory, no ``services.*`` blocks, and an empty
+    ``deployed_services`` list. Its terminal images reach the shared stack via
+    client config (e.g. ``bluesky.bridge_url``) over host networking.
+    """
     provider: str | None = None
     model: str | None = None
     channel_finder_mode: str | None = None
@@ -316,6 +436,14 @@ class BuildProfile:
     output_styles: list[str] = field(default_factory=list)
     web_panels: list[str] = field(default_factory=list)
     default_panel: str | None = None
+    panel_presets: dict[str, list[str]] = field(default_factory=dict)
+    """Named panel layouts ("presets") rendered into ``web.presets``. Each key is
+    the display label, each value a list of member panel ids (built-ins or
+    custom ``web.panels.<id>.url``-backed ids). A human applies one from the
+    Web Terminal "+" popover's "Layouts" section. Empty (the default) renders no
+    ``web.presets`` block. Members are typo-validated at build time, mirroring
+    :attr:`default_panel`.
+    """
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
     (default: "CLAUDE.md.j2"). Lets a preset pick an alternate persona
@@ -327,6 +455,7 @@ class BuildProfile:
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
+    bluesky_panels: BlueskyPanelsConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -340,12 +469,33 @@ class BuildProfile:
             return self.tier
         return default_tier_for_mode(self.channel_finder_mode)
 
+    def _is_known_panel_id(self, pid: str) -> bool:
+        """Return True if ``pid`` names a panel this profile could render.
+
+        A panel id is known when it is a framework built-in, a declared
+        ``web_panels`` entry, or a custom panel backed by a
+        ``web.panels.<id>.url`` config override. Shared by the ``default_panel``
+        and ``panel_presets`` member validation so both reject the same typos
+        with the same predicate (a single source of truth, not two drifting
+        membership checks).
+        """
+        if pid in BUILTIN_PANELS:
+            return True
+        if pid in self.web_panels:
+            return True
+        return f"web.panels.{pid}.url" in self.config
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
 
         if not self.name:
             errors.append("Profile 'name' is required")
+
+        if not isinstance(self.deploy_services, bool):
+            errors.append(
+                f"deploy_services must be a boolean (got {type(self.deploy_services).__name__})"
+            )
 
         if self.tier is not None and self.tier not in (1, 3):
             errors.append(f"tier must be 1 or 3 (got {self.tier!r})")
@@ -451,8 +601,6 @@ class BuildProfile:
         # by the framework) or a custom panel backed by a ``web.panels.<id>.url``
         # config override (rendered as an iframe by the web terminal). Catches
         # typos in shipped presets and missing URL backing for facility panels.
-        from osprey.profiles.web_panels import BUILTIN_PANELS
-
         for panel in self.web_panels:
             if panel in BUILTIN_PANELS:
                 continue
@@ -465,6 +613,12 @@ class BuildProfile:
             # url-less here — accept it rather than aborting the build.
             if panel == "events" and self.dispatch is not None:
                 continue
+            # The three panel ids' URLs are likewise derived post-build
+            # (``_inject_bluesky_panels`` in build_cmd.py, which runs after this
+            # validator) from the bluesky_panels sidecar's port — so they are
+            # legitimately url-less here when a bluesky_panels block is present.
+            if panel in ("plan", "results", "health") and self.bluesky_panels is not None:
+                continue
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
                 f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
@@ -474,22 +628,31 @@ class BuildProfile:
         # entry, or a custom panel backed by a `web.panels.<id>.url` override.
         # Catches typos like `default_panel: areil` that would otherwise
         # silently fall back to the frontend DEFAULT_PANEL_FALLBACK at runtime.
-        if self.default_panel is not None:
-            known_custom_urls = {
-                key.split(".")[2]
-                for key in self.config
-                if key.startswith("web.panels.") and key.endswith(".url")
-            }
-            if (
-                self.default_panel not in BUILTIN_PANELS
-                and self.default_panel not in self.web_panels
-                and self.default_panel not in known_custom_urls
-            ):
+        if self.default_panel is not None and not self._is_known_panel_id(self.default_panel):
+            errors.append(
+                f"Unknown default_panel {self.default_panel!r}: not in BUILTIN_PANELS "
+                f"({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
+                f"'web.panels.{self.default_panel}.url' config override"
+            )
+
+        # Validate panel_presets: each member id must resolve the same way a
+        # default_panel does (built-in, declared web_panels, or url-backed
+        # custom). Catches typos in a preset's member list at build time so a
+        # facility author gets the same fail-fast feedback as default_panel.
+        for preset_name, members in self.panel_presets.items():
+            if not isinstance(members, list):
                 errors.append(
-                    f"Unknown default_panel {self.default_panel!r}: not in BUILTIN_PANELS "
-                    f"({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
-                    f"'web.panels.{self.default_panel}.url' config override"
+                    f"panel_presets[{preset_name!r}] must be a list of panel ids "
+                    f"(got {type(members).__name__})"
                 )
+                continue
+            for member in members:
+                if not self._is_known_panel_id(member):
+                    errors.append(
+                        f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
+                        f"BUILTIN_PANELS ({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
+                        f"'web.panels.{member}.url' config override"
+                    )
 
         # Validate custom category definitions
         import re
@@ -579,6 +742,12 @@ class BuildProfile:
             if not (1 <= va.port <= 65535):
                 errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
 
+        # Validate bluesky_panels configuration
+        if self.bluesky_panels is not None:
+            sp = self.bluesky_panels
+            if not (1 <= sp.port <= 65535):
+                errors.append(f"bluesky_panels.port must be in 1..65535 (got {sp.port})")
+
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
@@ -623,7 +792,9 @@ _KNOWN_PROFILE_KEYS = frozenset(
     {
         "name",
         "extends",
+        "exclude",
         "data_bundle",
+        "deploy_services",
         "provider",
         "model",
         "channel_finder_mode",
@@ -645,11 +816,13 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "output_styles",
         "web_panels",
         "default_panel",
+        "panel_presets",
         "claude_md_template",
         "categories",
         "dispatch",
         "bluesky",
         "virtual_accelerator",
+        "bluesky_panels",
     }
 )
 
@@ -768,7 +941,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
             tiled_port=bluesky_raw.get("tiled_port", 8091),
-            demo_scanner=bluesky_raw.get("demo_scanner", False),
+            demo_runner=bluesky_raw.get("demo_runner", False),
+            plan_dir=bluesky_raw.get("plan_dir"),
         )
 
     va_raw = raw.get("virtual_accelerator")
@@ -780,9 +954,19 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=va_raw.get("port", 5064),
         )
 
+    bluesky_panels_raw = raw.get("bluesky_panels")
+    bluesky_panels = None
+    if bluesky_panels_raw is not None:
+        if not isinstance(bluesky_panels_raw, dict):
+            raise BuildProfileError("Profile 'bluesky_panels' must be a mapping")
+        bluesky_panels = BlueskyPanelsConfig(
+            port=bluesky_panels_raw.get("port", 8095),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
+        deploy_services=raw.get("deploy_services", True),
         provider=raw.get("provider"),
         model=raw.get("model"),
         channel_finder_mode=raw.get("channel_finder_mode"),
@@ -804,11 +988,13 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         output_styles=raw.get("output_styles", []),
         web_panels=raw.get("web_panels", []),
         default_panel=raw.get("default_panel"),
+        panel_presets=raw.get("panel_presets", {}),
         claude_md_template=raw.get("claude_md_template"),
         categories=raw.get("categories", {}),
         dispatch=dispatch,
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
+        bluesky_panels=bluesky_panels,
     )
 
 

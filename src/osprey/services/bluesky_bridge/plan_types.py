@@ -7,9 +7,10 @@ injection seam stay on the right side of the import-clean boundary:
 - ``plan_loader.py`` (task 2.4) loads a facility module exposing
   ``PLANS: dict[str, PlanSpec]`` from a config-pointed path *without* itself
   importing bluesky — only the loaded module needs it.
-- ``plans.py`` (this task, 2.3) builds the v1 built-in ``PlanSpec`` set by
-  wrapping ``bluesky.plans`` callables; it imports bluesky, but doing so here
-  in the shared type would force that import onto the loader too.
+- the shipped plan files under ``plans_core/`` (e.g. ``orm.py``, ``grid_scan.py``)
+  build their ``PlanSpec`` by wrapping ``bluesky.plans`` callables; they import
+  bluesky, but doing so here in the shared type would force that import onto the
+  loader too.
 
 A plan's ``plan`` callable is intentionally opaque: ``(devices, params) ->
 Any``, where ``devices`` is whatever ``get_devices()`` returned and ``params``
@@ -22,16 +23,25 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel
 
+from .plan_metadata import PlanMetadata
+
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
+
+Provenance = Literal["shipped", "preset", "facility", "session", "unreviewed"]
+"""Trust/origin tier, in ascending ephemerality order (``shipped`` is the trust
+floor; ``session``/``unreviewed`` is agent-authored and least trusted).
+Assigned by the loader based on which layer a plan file came from — never
+self-declared in a plan's own ``PLAN_METADATA``.
+"""
 
 
 @dataclass
 class PlanSpec(Generic[SchemaT]):
-    """One registered scan plan: its name, parameter schema, and implementation.
+    """One registered plan: its name, parameter schema, and implementation.
 
     Generic over its own ``schema`` type so each concrete plan's ``plan``
     callable can be typed against its own pydantic model (e.g. ``CountParams``)
@@ -43,11 +53,15 @@ class PlanSpec(Generic[SchemaT]):
     plan: Callable[[dict[str, Any], SchemaT], Any]
     schema: type[SchemaT]
     description: str = ""
+    metadata: PlanMetadata | None = None
+    provenance: Provenance = "shipped"
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for `GET /plans`: name, description, and the JSON parameter schema."""
+        """Serialize for `GET /plans`: name, description, schema, metadata, provenance."""
         return {
             "name": self.name,
             "description": self.description,
             "schema": self.schema.model_json_schema(),
+            "metadata": self.metadata.model_dump() if self.metadata is not None else None,
+            "provenance": self.provenance,
         }

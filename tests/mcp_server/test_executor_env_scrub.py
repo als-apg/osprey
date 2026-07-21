@@ -3,9 +3,9 @@
 Covers ``scrub_sensitive_env`` (the pure filtering function) and the
 ``_execute_via_local`` subprocess-spawn seam that must use it. The scrub
 prevents agent-generated code running in the local-execution sandbox from
-reading write-arming secrets (e.g. ``BLUESKY_PROMOTE_TOKEN``) and calling a
+reading write-arming secrets (e.g. ``BLUESKY_LAUNCH_TOKEN``) and calling a
 write-gated endpoint directly, bypassing the ``writes_enabled`` re-check
-inside ``launch_scan``.
+inside ``launch_run``.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -57,11 +57,11 @@ def _write_local_config(tmp_path):
 
 
 @pytest.mark.unit
-def test_scrub_removes_bluesky_promote_token():
-    """BLUESKY_PROMOTE_TOKEN is dropped via the *_PROMOTE_TOKEN suffix rule."""
-    env = {"BLUESKY_PROMOTE_TOKEN": "secret", "PATH": "/usr/bin"}
+def test_scrub_removes_bluesky_launch_token():
+    """BLUESKY_LAUNCH_TOKEN is dropped via the *_LAUNCH_TOKEN suffix rule."""
+    env = {"BLUESKY_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
     scrubbed = scrub_sensitive_env(env)
-    assert "BLUESKY_PROMOTE_TOKEN" not in scrubbed
+    assert "BLUESKY_LAUNCH_TOKEN" not in scrubbed
     assert scrubbed["PATH"] == "/usr/bin"
 
 
@@ -75,11 +75,11 @@ def test_scrub_removes_event_dispatcher_token():
 
 
 @pytest.mark.unit
-def test_scrub_generalizes_to_future_promote_tokens():
-    """Any future *_PROMOTE_TOKEN name is scrubbed without a code change."""
-    env = {"SOME_OTHER_BRIDGE_PROMOTE_TOKEN": "secret", "PATH": "/usr/bin"}
+def test_scrub_generalizes_to_future_launch_tokens():
+    """Any future *_LAUNCH_TOKEN name is scrubbed without a code change."""
+    env = {"SOME_OTHER_BRIDGE_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
     scrubbed = scrub_sensitive_env(env)
-    assert "SOME_OTHER_BRIDGE_PROMOTE_TOKEN" not in scrubbed
+    assert "SOME_OTHER_BRIDGE_LAUNCH_TOKEN" not in scrubbed
 
 
 @pytest.mark.unit
@@ -100,7 +100,7 @@ def test_scrub_preserves_unrelated_env():
 @pytest.mark.unit
 def test_scrub_does_not_mutate_input():
     """scrub_sensitive_env returns a copy; it must not mutate the caller's dict."""
-    env = {"BLUESKY_PROMOTE_TOKEN": "secret", "PATH": "/usr/bin"}
+    env = {"BLUESKY_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
     original = dict(env)
     scrub_sensitive_env(env)
     assert env == original
@@ -117,7 +117,7 @@ def test_sensitive_env_constants_are_tuples():
     assert isinstance(_SENSITIVE_ENV_EXACT, tuple)
     assert isinstance(_SENSITIVE_ENV_SUFFIXES, tuple)
     assert "EVENT_DISPATCHER_TOKEN" in _SENSITIVE_ENV_EXACT
-    assert "_PROMOTE_TOKEN" in _SENSITIVE_ENV_SUFFIXES
+    assert "_LAUNCH_TOKEN" in _SENSITIVE_ENV_SUFFIXES
 
 
 # ---------------------------------------------------------------------------
@@ -126,10 +126,10 @@ def test_sensitive_env_constants_are_tuples():
 
 
 @pytest.mark.unit
-async def test_local_subprocess_env_excludes_promote_token(tmp_path, monkeypatch):
+async def test_local_subprocess_env_excludes_launch_token(tmp_path, monkeypatch):
     """The local-exec subprocess is spawned with an env that excludes the token."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "super-secret-value")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
     _write_local_config(tmp_path)
 
     mock_proc = AsyncMock()
@@ -147,7 +147,7 @@ async def test_local_subprocess_env_excludes_promote_token(tmp_path, monkeypatch
 
     assert mock_spawn.await_count == 1
     passed_env = mock_spawn.await_args.kwargs["env"]
-    assert "BLUESKY_PROMOTE_TOKEN" not in passed_env
+    assert "BLUESKY_LAUNCH_TOKEN" not in passed_env
 
 
 @pytest.mark.unit
@@ -178,7 +178,7 @@ async def test_local_subprocess_env_excludes_event_dispatcher_token(tmp_path, mo
 async def test_local_subprocess_env_keeps_config_file(tmp_path, monkeypatch):
     """Non-sensitive vars the sandbox legitimately needs (e.g. CONFIG_FILE) survive."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "super-secret-value")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
     _write_local_config(tmp_path)
 

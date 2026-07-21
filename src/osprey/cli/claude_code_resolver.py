@@ -16,10 +16,12 @@ design.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from osprey.cli.claude_code_telemetry import (
     TELEMETRY_ENV_VARS,
@@ -28,6 +30,8 @@ from osprey.cli.claude_code_telemetry import (
     _running_in_container,
 )
 from osprey.models.tiers import VALID_TIERS
+
+logger = logging.getLogger("osprey.cli.claude_code_resolver")
 
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
@@ -72,6 +76,28 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     },
 }
 
+
+def provider_auth_secret_env(provider_name: str, api_providers: dict | None = None) -> str | None:
+    """Name of the shell env var holding ``provider_name``'s auth secret.
+
+    The single source of the secret-var naming rule, shared by
+    :meth:`ClaudeCodeModelResolver.resolve` (which injects the secret at
+    launch) and the web-terminal ``.env.production`` generator (which must
+    ship the same var into per-user containers): built-in providers declare
+    ``auth_secret_env`` in :data:`CLAUDE_CODE_PROVIDERS`; a custom proxy
+    defined under ``api.providers`` derives ``<NAME>_API_KEY``. Returns
+    ``None`` for a provider known to neither — the caller decides whether
+    that's an error (:meth:`~ClaudeCodeModelResolver.resolve` raises) or a
+    skip (the generator leaves unknown providers to the resolver's own
+    validation).
+    """
+    if provider_name in CLAUDE_CODE_PROVIDERS:
+        return CLAUDE_CODE_PROVIDERS[provider_name]["auth_secret_env"]
+    if api_providers and provider_name in api_providers:
+        return f"{provider_name.upper().replace('-', '_')}_API_KEY"
+    return None
+
+
 AGENT_DEFAULT_TIERS: dict[str, str] = {
     "channel-finder": "haiku",
     "logbook-search": "sonnet",
@@ -79,6 +105,27 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "data-visualizer": "sonnet",
     "pyat-specialist": "sonnet",
 }
+
+# Single source of truth for the Claude Code tier→model env vars.
+#
+# MANAGED_ENV_VARS (scrub, below), resolve() (inject), and
+# _apply_e2e_overrides() (e2e-force) all derive the model-tier env-var names
+# from this one map, so adding a tier is a one-line change here that cannot
+# desync those sites — the drift class behind #350 (a fifth model var reached
+# env_block but not the e2e force-tuple).
+TIER_MODEL_ENV_VARS: dict[str, str] = {
+    "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "sonnet": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "opus": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+}
+
+# Invariant: the tier map covers exactly the canonical tiers. A drift (a tier
+# added to models/tiers.py but not mirrored here, or vice versa) is a module-
+# load error, not a silently partial env block.
+assert set(TIER_MODEL_ENV_VARS) == VALID_TIERS, (
+    "TIER_MODEL_ENV_VARS keys must equal VALID_TIERS "
+    f"({sorted(TIER_MODEL_ENV_VARS)} != {sorted(VALID_TIERS)})"
+)
 
 # Env vars that settings.json controls — scrubbed from shell before launch
 # so runtime-injected provider vars are authoritative.
@@ -98,12 +145,13 @@ MANAGED_ENV_VARS = frozenset(
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
-        # Model selectors (ANTHROPIC_SMALL_FAST_MODEL is deprecated upstream
-        # but still honored; CLAUDE_CODE_SUBAGENT_MODEL overrides AGENT_DEFAULT_TIERS)
+        # Model selectors. The per-tier ANTHROPIC_DEFAULT_*_MODEL names derive
+        # from the single TIER_MODEL_ENV_VARS source above, so the scrub set
+        # cannot drift from what resolve() injects. (ANTHROPIC_SMALL_FAST_MODEL
+        # is deprecated upstream but still honored; CLAUDE_CODE_SUBAGENT_MODEL
+        # overrides AGENT_DEFAULT_TIERS.)
         "ANTHROPIC_MODEL",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        *TIER_MODEL_ENV_VARS.values(),
         "ANTHROPIC_DEFAULT_FABLE_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
         "CLAUDE_CODE_SUBAGENT_MODEL",
@@ -212,35 +260,138 @@ def format_managed_policy_conflicts(conflicts: dict[str, tuple[str, str]]) -> st
     return "\n".join(lines)
 
 
+def _load_dotenv(project_dir: Path) -> dict[str, str]:
+    """Load a project ``.env`` into a plain dict — the shared raw loader.
+
+    Returns the non-``None`` entries of ``dotenv_values(project_dir/.env)``, or
+    ``{}`` when the file is absent or ``python-dotenv`` is not importable. Pure:
+    it never touches ``os.environ``, expands no ``${VAR}`` refs, and applies no
+    secret or precedence logic — callers own the overlay, expansion, and auth
+    handling. Deduplicates the identical load formerly inlined in
+    :func:`inject_provider_env`, ``provider_env_for_project``, and
+    :func:`load_provider_spec`.
+    """
+    env_file = Path(project_dir) / ".env"
+    if not env_file.is_file():
+        return {}
+    try:
+        from dotenv import dotenv_values
+    except ImportError:
+        return {}
+    return {key: value for key, value in dotenv_values(env_file).items() if value is not None}
+
+
+def _env_lookup(project_dir: Path) -> dict[str, str]:
+    """Return ``os.environ`` overlaid with the project ``.env`` (``.env`` wins).
+
+    Never mutates global ``os.environ``. Shared by :func:`load_provider_spec`
+    and ``osprey.agent_runner.primitives.provider_env_for_project`` — both need
+    this same merged view for ``${VAR}``/secret lookups, previously built via
+    an identical inline dict-merge in each.
+    """
+    return {**os.environ, **_load_dotenv(project_dir)}
+
+
+_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+
+# WHATWG URL preprocessing: leading/trailing C0 controls (U+0000–U+001F) and
+# space are stripped before parsing. Mirrored here so the predicate matches
+# the runtime's parser instead of flagging copy-paste whitespace artifacts.
+_C0_AND_SPACE = "".join(map(chr, range(0x21)))
+
+
+def _warn_on_invalid_proxy_env(environ: dict[str, str]) -> None:
+    """Warn (never rewrite) when a proxy env var cannot be parsed as a URL.
+
+    Claude Code's runtime rejects any ``*_PROXY`` value its WHATWG URL parser
+    cannot handle (``Invalid proxy URL``) and refuses to start: no scheme, no
+    host, a non-numeric port, whitespace, or a comma-joined list all crash it.
+    It accepts any WHATWG-parseable URL, including non-http schemes like
+    ``socks5://``, so the predicate here must be scheme-agnostic — a bare
+    ``startswith("http")`` check would false-positive on a working SOCKS proxy
+    at every launch. ``urlsplit`` alone is more lenient than the runtime (it
+    permits empty hosts and whitespace, and defers port validation until
+    ``.port`` is accessed), so the check forces ``.port`` and rejects
+    remaining whitespace in the scheme/authority. It is also *stricter* than a
+    WHATWG parser in two ways, mirrored/accepted here: WHATWG preprocessing
+    strips leading/trailing space/C0 controls and removes tab/CR/LF before
+    parsing (mirrored — such values are validated after the same cleanup, and
+    spaces in the path are fine since WHATWG percent-encodes them), and WHATWG
+    normalizes slash-elided special-scheme forms like ``http:proxy.corp:3128``
+    to ``http://proxy.corp:3128/`` (a known, accepted over-warn: ``urlsplit``
+    yields no host there, so this rare typo shape is flagged even though the
+    runtime would start — the warning is advisory). On the CLI path the
+    runtime's own error is visible, but on the web-terminal and dispatch-worker
+    paths a startup crash is opaque — this warning is the only surface that
+    names the cause there. The value is deliberately left in place: blanking it
+    would break other consumers of the proxy vars (httpx, requests, DuckDB) in
+    a quieter way and hide the misconfiguration instead of reporting it.
+    """
+    for var in _PROXY_ENV_VARS:
+        value = environ.get(var, "")
+        if not value:
+            continue
+        # Validate what a WHATWG parser would see, not the raw value: strip
+        # leading/trailing space/C0 controls, remove tab/CR/LF anywhere.
+        cleaned = value.strip(_C0_AND_SPACE)
+        cleaned = cleaned.replace("\t", "").replace("\n", "").replace("\r", "")
+        try:
+            parts = urlsplit(cleaned)
+            _ = parts.port  # raises ValueError on a non-numeric/malformed port
+            # Whitespace in the path is percent-encoded by WHATWG, so only
+            # scheme/authority whitespace is fatal to the runtime.
+            valid = bool(parts.scheme and parts.hostname) and not any(
+                c.isspace() for c in parts.scheme + parts.netloc
+            )
+        except ValueError:
+            valid = False
+        if not valid:
+            logger.warning(
+                "%s=%r is not a valid proxy URL — Claude Code will refuse to "
+                "start ('Invalid proxy URL'). Fix or unset it in your shell "
+                "environment or the project .env.",
+                var,
+                value,
+            )
+
+
 def inject_provider_env(
     environ: dict[str, str],
     spec: ClaudeCodeModelSpec,
     project_dir: Path | None = None,
 ) -> list[str]:
-    """Scrub managed vars, inject provider env block and auth into environ.
+    """Scrub managed vars, then overlay the project ``.env``, provider env
+    block, and auth into ``environ``.
 
     Mutates environ in-place. Returns list of injected var names for logging.
+
+    The ``.env`` step copies **every** project ``.env`` key into ``environ``,
+    not just API keys: on the host launch paths the ``claude`` CLI expands
+    ``.mcp.json`` ``${VAR}`` references (``EPICS_CA_ADDR_LIST``,
+    ``PHOEBUS_BRIDGE_URL``, ``BLUESKY_*``) from ``os.environ``, so this is a
+    full host-propagation contract — narrowing it would silently break control-
+    system MCP addressing. ``.env`` wins over a stale shell export. An
+    unparseable ``HTTP_PROXY`` (from ``.env`` or the shell) is carried straight
+    through but reported via :func:`_warn_on_invalid_proxy_env` — #352.
 
     Args:
         environ: Environment dict to mutate (typically os.environ).
         spec: Resolved provider specification.
-        project_dir: Project directory containing .env file. If provided,
-            loads .env values into environ before reading the auth secret,
-            so project-level API keys take precedence over stale shell exports.
+        project_dir: Project directory containing .env file. If provided, the
+            full ``.env`` is copied into ``environ`` (see above) before the auth
+            secret is read, so project-level values take precedence over stale
+            shell exports.
     """
-    # Load project .env so API keys configured there override shell env.
-    # This is critical: users update .env but may have stale shell exports.
+    # Overlay the full project .env onto environ (host-propagation contract —
+    # see docstring). .env wins over stale shell exports.
     if project_dir is not None:
-        env_file = Path(project_dir) / ".env"
-        if env_file.is_file():
-            try:
-                from dotenv import dotenv_values
+        for key, value in _load_dotenv(project_dir).items():
+            environ[key] = value
 
-                for key, value in dotenv_values(env_file).items():
-                    if value is not None:
-                        environ[key] = value
-            except ImportError:
-                pass
+    # After the overlay, so it sees the effective value regardless of whether
+    # it came from .env or a shell export. This is the chokepoint shared by all
+    # launch paths (CLI, web terminal, dispatch worker).
+    _warn_on_invalid_proxy_env(environ)
 
     # Read auth secret BEFORE scrubbing — auth_secret_env may be in MANAGED_ENV_VARS
     # (e.g. ANTHROPIC_API_KEY for the anthropic provider)
@@ -256,9 +407,14 @@ def inject_provider_env(
     for key, value in spec.env_block.items():
         environ[key] = value
 
-    # Inject auth
+    # Inject auth. Set the CLI's auth var, and — for proxy providers, where the
+    # names differ (e.g. ANTHROPIC_AUTH_TOKEN vs CBORG_API_KEY) — re-assert the
+    # raw auth_secret_env too, so the in-context channel-finder MCP subprocess
+    # can expand config.yml's ${SECRET} from it. Mirrors provider_env_for_project.
     if spec.auth_secret_env and secret:
         environ[spec.auth_env_var] = secret
+        if spec.auth_secret_env != spec.auth_env_var:
+            environ[spec.auth_secret_env] = secret
 
     return sorted(spec.env_block.keys())
 
@@ -308,17 +464,7 @@ def load_provider_spec(
     raw = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
 
     # Build an os.environ + .env overlay (.env wins) WITHOUT mutating os.environ.
-    lookup: dict[str, str] = dict(os.environ)
-    env_file = project_dir / ".env"
-    if env_file.is_file():
-        try:
-            from dotenv import dotenv_values
-
-            for key, value in dotenv_values(env_file).items():
-                if value is not None:
-                    lookup[key] = value
-        except ImportError:
-            pass
+    lookup: dict[str, str] = _env_lookup(project_dir)
 
     cfg = resolve_env_vars(raw, environ=lookup)
     cc_config = cfg.get("claude_code", {})
@@ -444,7 +590,7 @@ class ClaudeCodeModelResolver:
             provider_entry = api_providers[provider_name]
             provider_def = {
                 "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
-                "auth_secret_env": f"{provider_name.upper().replace('-', '_')}_API_KEY",
+                "auth_secret_env": provider_auth_secret_env(provider_name, api_providers),
                 "base_url": provider_entry.get("base_url"),
                 "default_model_tier": "opus",
                 "models": {},
@@ -471,14 +617,10 @@ class ClaudeCodeModelResolver:
             if tier in VALID_TIERS:
                 tier_to_model[tier] = model_id
 
-        # Ensure all three tiers are present — use Anthropic direct IDs as
+        # Ensure all three tiers are present — use Anthropic direct IDs (the
+        # built-in "anthropic" provider's own models, not a re-typed copy) as
         # last resort so env block generation never crashes.
-        _last_resort = {
-            "haiku": "claude-haiku-4-5-20251001",
-            "sonnet": "claude-sonnet-4-5-20250929",
-            "opus": "claude-opus-4-6",
-        }
-        for tier, fallback_id in _last_resort.items():
+        for tier, fallback_id in CLAUDE_CODE_PROVIDERS["anthropic"]["models"].items():
             tier_to_model.setdefault(tier, fallback_id)
 
         # ── Build env block (literals only — no ${VAR} refs) ────
@@ -499,10 +641,14 @@ class ClaudeCodeModelResolver:
                 provider_def["base_url"].rstrip("/").removesuffix("/v1")
             )
 
-        # Tier model env vars (all providers)
-        env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = tier_to_model["haiku"]
-        env_block["ANTHROPIC_DEFAULT_SONNET_MODEL"] = tier_to_model["sonnet"]
-        env_block["ANTHROPIC_DEFAULT_OPUS_MODEL"] = tier_to_model["opus"]
+        # Tier model env vars (all providers) — derived from the single
+        # TIER_MODEL_ENV_VARS declaration so this key set can never drift from
+        # the e2e-force and scrub-agreement paths (#357). tier_to_model always
+        # carries all three tiers (the last-resort setdefault loop above), and the
+        # map's insertion order is haiku→sonnet→opus, so both the key set and
+        # the insertion order are byte-identical to the prior literal block.
+        for tier, env_var in TIER_MODEL_ENV_VARS.items():
+            env_block[env_var] = tier_to_model[tier]
 
         # ── Shell exports (auth key — must be set in user's profile) ──
         auth_env_var = provider_def["auth_env_var"]

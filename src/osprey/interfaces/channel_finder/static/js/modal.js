@@ -123,7 +123,7 @@ export function formModal({ title, fields, submitLabel = 'Save' }) {
 export function confirmModal({ title, message, impact, confirmLabel = 'Delete', danger = false }) {
   return new Promise(resolve => {
     const body = `
-      <p style="color: var(--text-secondary); margin: 0 0 var(--space-3);">${esc(message)}</p>
+      <p style="color: var(--text-secondary); margin: 0 0 var(--cf-space-3);">${esc(message)}</p>
       ${impact ? `<div class="modal-impact">${esc(impact)}</div>` : ''}
     `;
     const actions = `

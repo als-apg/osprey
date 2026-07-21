@@ -16,7 +16,7 @@
  *   DELETE /api/claude-memory/{filename}   -> delete file
  */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, withPrefix } from './api.js';
 import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
 
 // ---- Constants ---- //
@@ -30,7 +30,7 @@ const TRUNCATION_WARNING = 180;
 let _fetchPromise = null;
 
 async function fetchMemoryFilesShared() {
-  if (!_fetchPromise) _fetchPromise = fetchJSON('/api/claude-memory');
+  if (!_fetchPromise) _fetchPromise = fetchJSON('/api/claude-memory'); // fetchJSON prefixes this internally
   return _fetchPromise;
 }
 
@@ -390,7 +390,7 @@ class MemoryGallery {
     this.detailContentEl.innerHTML = '<div class="memory-loading-inline">Loading...</div>';
 
     try {
-      const data = await fetchJSON(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`);
+      const data = await fetchJSON(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`); // fetchJSON prefixes internally
       this.detailContentEl.innerHTML = '';
 
       const textarea = document.createElement('textarea');
@@ -437,7 +437,7 @@ class MemoryGallery {
     if (!textarea) return;
 
     try {
-      const resp = await fetch(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
+      const resp = await fetch(withPrefix(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`), { // prefix-aware
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: textarea.value }),
@@ -474,7 +474,7 @@ class MemoryGallery {
     if (!confirm(`Delete "${this.selectedFile.filename}"? This cannot be undone.`)) return;
 
     try {
-      const resp = await fetch(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
+      const resp = await fetch(withPrefix(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`), { // prefix-aware
         method: 'DELETE',
       });
 
@@ -503,7 +503,7 @@ class MemoryGallery {
     }
 
     try {
-      const resp = await fetch('/api/claude-memory', {
+      const resp = await fetch(withPrefix('/api/claude-memory'), { // prefix-aware
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename, content: `# ${filename.replace('.md', '')}\n\n` }),

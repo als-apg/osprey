@@ -4,7 +4,7 @@ Functionality criteria for FR1/FR2/FR10/FR11).
 Deploys the turn-key scan-stack config (task 4.3, ``tests/e2e/_orm_stack.py``
 -- the single source of this deploy shape, also reused by the agentic
 discovery e2e in 5.3/5.4), drives the real ``orm`` plan over the bridge's
-HTTP API (``POST /runs`` -> promote -> poll -> ``GET /runs/{id}/data``), and
+HTTP API (``POST /runs`` -> launch -> poll -> ``GET /runs/{id}/data``), and
 proves two things end to end:
 
   (a) the measured response matrix -- built via the SAME
@@ -14,16 +14,17 @@ proves two things end to end:
       HTTP+container stack rather than a direct ``PhysicsBridge`` call).
   (b) the scan reaches a terminal "completed" status within a bounded
       timeout -- i.e. no corrector step ever hangs the bridge's
-      ``EpicsMotor.set()`` settle-wait. A corrector readback that never
-      leaves 0.0 (the FR10 regression this deploy config's
-      ``echo-pyat-coupled-sp-to-rb`` fix addresses) blocks exactly there, so
-      a fixture-level timeout on this assertion IS the regression signature,
-      not an incidentally slow test.
+      ``ConnectorSettable.set()`` settle-wait (``devices/connector.py`` --
+      the connector-mediated device layer replacing the old direct-CA
+      ``EpicsMotor``). A corrector readback that never leaves 0.0 (the FR10
+      regression this deploy config's ``echo-pyat-coupled-sp-to-rb`` fix
+      addresses) blocks exactly there, so a fixture-level timeout on this
+      assertion IS the regression signature, not an incidentally slow test.
 
-No physics fault is seeded on this stack (no ``VA_QUAD_MISALIGN``/
-``VA_BPM_ERRORS``/``VA_CORR_GAIN`` in the written ``.env`` -- see
-``_orm_stack.write_scan_env``), so every BPM/corrector carries the identity
-error state (``PhysicsBridge.__init__``'s default). The measured/model
+No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/
+``VA_CORR_GAIN`` in the written ``.env`` -- see ``_orm_stack.write_scan_env``),
+so every BPM/corrector carries the identity error state
+(``PhysicsBridge.__init__``'s default). The measured/model
 agreement is therefore bounded only by AT numerical-solve reproducibility and
 the JSON/HTTP round trip, not a physical noise floor -- see ``MATCH_ATOL``.
 
@@ -67,6 +68,11 @@ from tests.e2e import _orm_stack
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.slow,
+    # dockerbuild: full VA/bridge/Tiled image build + deploy -- runs in the
+    # dedicated orm-roundtrip-e2e CI job, never the shared e2e-tests lane
+    # (the marker->--ignore pairing is enforced by
+    # tests/deployment/test_ci_workflow_wiring.py).
+    pytest.mark.dockerbuild,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
 
@@ -87,8 +93,8 @@ SCAN_TIMEOUT_SEC = 240.0
 SPAN_A = 5.0
 NUM_POINTS = 5
 
-# No VA_QUAD_MISALIGN/VA_BPM_ERRORS/VA_CORR_GAIN are seeded on this stack (see
-# module docstring) -- every device carries PhysicsBridge's identity error
+# No VA_BPM_ERRORS/VA_CORR_GAIN are seeded on this stack (see module
+# docstring) -- every device carries PhysicsBridge's identity error
 # state, so there is no physical noise floor to size this against. The bound
 # below is float round-trip/AT numerical-solve reproducibility margin, kept
 # generous relative to task 5.1's probed in-process figure (4.9e-15 relative)
@@ -107,9 +113,9 @@ def _minted_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
     assert token, (
-        "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env — the arming-safe "
+        "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env — the arming-safe "
         "execution.execution_method: container config (FR11) should auto-mint it"
     )
     return token
@@ -188,9 +194,15 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
     # E2E_REUSE_IMAGES=1 skips this for fast local iteration on the test
     # itself when the osprey source is unchanged; never set it in CI.
     if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(["docker", "rmi", "-f", _orm_stack.VA_IMAGE], capture_output=True, text=True)
         subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.BRIDGE_IMAGE], capture_output=True, text=True
+            ["docker", "rmi", "-f", _orm_stack.va_image("orm-roundtrip")],
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["docker", "rmi", "-f", _orm_stack.bridge_image("orm-roundtrip")],
+            capture_output=True,
+            text=True,
         )
 
     try:
@@ -293,14 +305,14 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     run_id = body["id"]
 
     token = _minted_token(deployed_orm_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"launch failed: {status} {body}"
 
     # (b) no corrector-step hang: poll to a terminal status within a bounded
     # deadline. A corrector whose :RB never echoes its :SP (the FR10
-    # regression) blocks the bridge's EpicsMotor.set() settle-wait forever --
-    # so a non-"completed" status here, after the deadline, IS the failure
-    # this proves absent, not merely a slow run.
+    # regression) blocks the bridge's ConnectorSettable.set() settle-wait
+    # forever -- so a non-"completed" status here, after the deadline, IS the
+    # failure this proves absent, not merely a slow run.
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     status_body: dict = {}
     while time.monotonic() < deadline:
@@ -311,7 +323,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     assert status_body.get("status") == "completed", (
         f"orm scan did not complete within {SCAN_TIMEOUT_SEC:.0f}s (status={status_body}) -- "
         "a corrector step whose :RB never echoes its :SP (the FR10 echo regression) hangs "
-        "exactly here, at the bridge's EpicsMotor.set() settle-wait"
+        "exactly here, at the bridge's ConnectorSettable.set() settle-wait"
     )
 
     status, data = _get(f"/runs/{run_id}/data")

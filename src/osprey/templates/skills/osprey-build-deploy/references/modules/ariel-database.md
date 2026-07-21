@@ -120,7 +120,7 @@ Plus a one-shot `ariel-sync` service that runs `osprey ariel sync` on every depl
 ariel-sync:
   image: ${config.registry.url}/web-terminal:latest   # or the sync image, if separate
   command: osprey ariel sync
-  env_file: .env.production
+  env_file: .env
   networks: [ ${config.facility.prefix}-net ]
   depends_on:
     ariel-postgres: { condition: service_healthy }
@@ -128,15 +128,15 @@ ariel-sync:
 
 If `deployment: external`, only the `ariel-sync` service is added; `ariel-postgres` is omitted, and `ariel-sync` is given the external DSN via env.
 
-A named volume `ariel_postgres_data` is added to the compose `volumes:` section. **A `--nuke` deploy destroys this volume** and the next sync performs a full re-ingest.
+A named volume `ariel_postgres_data` is added to the compose `volumes:` section. **`osprey deploy nuke` destroys this volume** and the next sync performs a full re-ingest.
 
 ### .gitlab-ci.yml
 
 Nothing specific. The sync container reuses the web-terminal image (which already has OSPREY + the baked project), so no new build job.
 
-### scripts/deploy.sh
+### `osprey deploy`
 
-After `compose up -d`, the `ariel-sync` one-shot runs to completion and exits. Its output (entries-ingested count, warnings, errors) is captured in the deploy log. `deploy.sh` does not block waiting for sync to finish if the sync is long; the `--clean` and `--nuke` modes both ensure a fresh sync attempt happens.
+After `compose up -d` (inside `osprey deploy up`), the `ariel-sync` one-shot runs to completion and exits. Its output (entries-ingested count, warnings, errors) is captured in the deploy log. `osprey deploy up` does not block waiting for sync to finish if the sync is long; `osprey deploy down && osprey deploy up` and `osprey deploy nuke` both ensure a fresh sync attempt happens.
 
 ### scripts/verify.sh
 
@@ -165,7 +165,7 @@ ARIEL uses standard libpq URI syntax:
 postgresql://<user>:<password>@<host>:<port>/<database>?<options>
 ```
 
-For container mode, the default `postgresql://ariel:ariel@ariel-postgres:5432/ariel` is plumbed end-to-end (the container's `POSTGRES_USER`/`POSTGRES_PASSWORD` match, and `ariel-postgres` is the compose service key). The credentials are weak by design — Postgres is bound to `127.0.0.1:5432` on the host, so it isn't reachable from off-server. If your facility's threat model requires stronger creds even on loopback, override `POSTGRES_PASSWORD` in `.env.production` and update the DSN in `facility-config.yml` to match.
+For container mode, the default `postgresql://ariel:ariel@ariel-postgres:5432/ariel` is plumbed end-to-end (the container's `POSTGRES_USER`/`POSTGRES_PASSWORD` match, and `ariel-postgres` is the compose service key). The credentials are weak by design — Postgres is bound to `127.0.0.1:5432` on the host, so it isn't reachable from off-server. If your facility's threat model requires stronger creds even on loopback, override `POSTGRES_PASSWORD` in `.env` and update the DSN in `facility-config.yml` to match.
 
 For external mode, the DSN comes from the DBA. Make sure the user has at least: `CREATE`, `INSERT`, `UPDATE`, `DELETE`, `SELECT` on the schema, plus the right to create the `vector` extension (or have the DBA do it ahead of time).
 
@@ -184,7 +184,7 @@ Running the sync manually inside the deployed environment:
 ```bash
 ssh ${config.deploy.host} "${config.runtime.engine} run --rm \
   --network ${config.facility.prefix}-net \
-  --env-file ${config.deploy.project_path}/.env.production \
+  --env-file ${config.deploy.project_path}/.env \
   ${config.registry.url}/web-terminal:latest \
   osprey ariel sync"
 ```
@@ -249,7 +249,7 @@ psql ${env.ARIEL_DSN} -c "SELECT source, MAX(created_at) FROM sync_state GROUP B
 ```bash
 ssh ${config.deploy.host} "${config.runtime.engine} run --rm \
   --network ${config.facility.prefix}-net \
-  --env-file ${config.deploy.project_path}/.env.production \
+  --env-file ${config.deploy.project_path}/.env \
   ${config.registry.url}/web-terminal:latest \
   osprey ariel sync --full"
 ```
@@ -289,7 +289,7 @@ When you change `embeddings_provider`:
    ```bash
    ssh ${config.deploy.host} "${config.runtime.engine} run --rm \
      --network ${config.facility.prefix}-net \
-     --env-file ${config.deploy.project_path}/.env.production \
+     --env-file ${config.deploy.project_path}/.env \
      ${config.registry.url}/web-terminal:latest \
      osprey ariel reembed --all"
    ```
@@ -313,14 +313,14 @@ Plan the switch around a low-traffic window or do it incrementally if the CLI su
 
 ## Disabling
 
-**Heads-up: disabling drops the embeddings.** The Postgres volume is removed by a `--nuke` deploy and orphaned by a regular disable + redeploy (the volume sticks around in the engine's storage but nothing mounts it).
+**Heads-up: disabling drops the embeddings.** The Postgres volume is removed by `osprey deploy nuke` and orphaned by a regular disable + redeploy (the volume sticks around in the engine's storage but nothing mounts it).
 
 Recommended sequence:
 
 1. **Dump first.** Run `pg_dump` (see "Backup" above) and save the file off the deploy server. Re-ingest is possible from the upstream source, but local enrichment (summaries, manual annotations) is not.
 2. Set `modules.ariel.enabled: false` in `facility-config.yml`.
 3. Re-scaffold — `postgresql` and `ariel-sync` services drop out of compose; verify checks drop out.
-4. `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh --clean"` to stop the running Postgres.
+4. `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy down && osprey deploy up"` to stop the running Postgres and reconcile the rest of the stack without it.
 5. To reclaim disk: `${config.runtime.engine} volume rm ariel_postgres_data`. Skip this if you might re-enable.
 6. Remove the ARIEL MCP server's tool permissions and `.mcp.json` entry from the facility profile YAML(s) — otherwise the assistant will keep trying to call tools that no longer exist.
 

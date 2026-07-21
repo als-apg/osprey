@@ -1,10 +1,11 @@
 """Orbit-response-matrix (ORM) analysis: pure numpy, bluesky-free.
 
 Consumes the plain `dict` rows an `orm` plan run emits (bluesky's event
-document `data`, one dict per point — see `plans.py`'s `_orm_plan`), never a
+document `data`, one dict per point — see `plans_core/orm.py`'s `build_plan`), never a
 live-buffer or Tiled-specific shape, so this module has no dependency on
-`bluesky`/`ophyd-async`/`tiled` and imports cleanly on the MCP side (where the
-`bluesky-bridge` extra is not installed).
+`bluesky`/`ophyd-async`/`tiled` and imports cleanly on the MCP side without
+loading the bluesky stack (a core dependency, but heavier than this pure-numpy
+analysis needs).
 
 Three pieces:
 
@@ -15,7 +16,7 @@ Three pieces:
   of the machine is required.
 
 `build_response_matrix`'s fit depends on an invariant the real `orm` plan
-upholds (see `plans.py`'s `_orm_plan` docstring): every emitted row carries
+upholds (see `plans_core/orm.py`'s `build_plan` docstring): every emitted row carries
 EVERY corrector's current, not just the one being swept — a non-swept
 corrector simply reads back its idle (~0 A) value in that row. The fit still
 recovers the right slope only because each corrector's own sweep is
@@ -81,7 +82,7 @@ def build_response_matrix(
 
     A real `orm` plan run emits one row per (corrector, current) point, and
     every row carries a value for EVERY corrector in `correctors` — not just
-    the one currently being swept (see `plans.py`'s `_orm_plan` docstring) —
+    the one currently being swept (see `plans_core/orm.py`'s `build_plan` docstring) —
     plus a reading for every detector. For each corrector, every row where
     that corrector's key is present (in practice: every row) forms one
     (current, BPM reading) sample; `numpy.polyfit` (degree 1) over those

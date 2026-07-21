@@ -2,7 +2,7 @@
 
 A deploy completed without errors, but something is wrong with the running stack. This reference is the playbook for finding and fixing it without making things worse.
 
-The cardinal mistake in post-deploy diagnosis is **changing config before reproducing the symptom**. Most "broken deploys" are diagnosed in five minutes by reading container status and logs; the rest take longer because someone restarted, re-pulled, or `--clean`'d before observing what was actually wrong, destroying the evidence.
+The cardinal mistake in post-deploy diagnosis is **changing config before reproducing the symptom**. Most "broken deploys" are diagnosed in five minutes by reading container status and logs; the rest take longer because someone restarted, re-pulled, or `nuke`'d before observing what was actually wrong, destroying the evidence.
 
 ---
 
@@ -123,31 +123,31 @@ A short table covering the recurring failure modes. Match the **signature** colu
 | Signature | Root cause | Fix |
 |-----------|-----------|-----|
 | All Python MCP servers down inside web terminals; their `command` paths show `/builds/...` | Container path-regen step failed during image build | Inspect the regen layer in `docker/Dockerfile.web-terminal`. The `osprey claude regen --project /app/...` step must succeed; usually a missing volume or a permission issue. Rebuild the web-terminal image |
-| Sidecars and MCP servers all healthy individually, but unreachable from web terminals (DNS resolution fails) | The compose network was recreated, leaving some containers attached to the previous network | `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh --clean"` — `--clean` does `compose down` + `up`, which recreates the network and reattaches all services |
+| Sidecars and MCP servers all healthy individually, but unreachable from web terminals (DNS resolution fails) | The compose network was recreated, leaving some containers attached to the previous network | `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy down && osprey deploy up"` — recreates the network and reattaches all services |
 | One service down, all others fine | Single-container crash on startup or during a request | `${config.runtime.engine} logs ${config.facility.prefix}-<name>` — fix the underlying error before restarting. Restart loops without log inspection just hide the problem |
 | `verify.sh` shows everything OK, but Claude says a tool is "not available" | MCP `tools/list` mismatch — server healthy, tools missing | Run the `mcp_servers.<name>.tools` check explicitly (see `references/integration-tests.md` § EXPECTED_TOOLS Consistency). Likely cause: a `@mcp.tool()` decorator has an import error that doesn't kill the server |
-| `deploy.sh` fails at `${config.runtime.engine} login ${config.registry.url}` | Expired GitLab registry token | Rotate the value referenced by `${config.gitlab.token_env_var}` in `.env` (the `*_env_var` field in config tells you the name; the value lives in `.env`, never in config) |
-| `deploy.sh` fails at `${config.runtime.engine} pull` for an external project image | Expired external deploy token (separate from the main GitLab token) | Update the relevant `${config.registry.external_projects[*].token_env_var}` value in `.env`. Each external project has its own token; main project token does not grant cross-project pulls |
+| `osprey deploy up` fails at `${config.runtime.engine} login ${config.registry.url}` | The operator's pre-deploy registry login (an env-prep step, not part of `osprey deploy` itself) was skipped or the token expired | Rotate the value referenced by `${config.ci.token_env_var}` in `.env` (the `*_env_var` field in config tells you the name; the value lives in `.env`, never in config), then re-run `${config.runtime.engine} login` before `osprey deploy up` |
+| `osprey deploy up` fails to pull an external project image | Expired external deploy token (separate from the main GitLab token), or the operator's pre-deploy external-registry pull was skipped — `osprey deploy` only pulls from `${config.registry.url}` | Update the relevant `${config.registry.external_projects[*].token_env_var}` value in `.env`, then re-run the external `podman/docker pull --creds` step manually before `osprey deploy up`. Each external project has its own token; main project token does not grant cross-project pulls |
 | Container starts, exits in <5 seconds, restart loop | Missing required env var or invalid mount | Logs first — usually a clear `KeyError` or `FileNotFoundError`. If the env var is missing, check `.env` against `.env.template` (the template lists every var the deploy needs) |
 | `services.proxy` ERROR on the deploy server but fine locally | Container's `${env.HTTP_PROXY}`/`${env.NO_PROXY}` not propagated | Verify compose `environment:` block lists the proxy vars. The `network.*` block in `facility-config.yml` is the source — regenerate compose if you changed it |
-| Health check works on host, fails inside web terminal | Web-terminal container is on a different network than the MCP services | `${config.runtime.engine} network inspect ${config.facility.prefix}-profiles_${config.facility.prefix}-net` — every web-terminal container should appear. If not, `--clean` deploy |
-| Newly deployed image still shows old behavior | Compose pulled a stale tag (cached locally) | `${config.runtime.engine} pull <image>` explicitly, or `deploy.sh --clean`. Avoid `--nuke` unless you're sure — it deletes named volumes |
+| Health check works on host, fails inside web terminal | Web-terminal container is on a different network than the MCP services | `${config.runtime.engine} network inspect ${config.facility.prefix}-profiles_${config.facility.prefix}-net` — every web-terminal container should appear. If not, `osprey deploy down && osprey deploy up` |
+| Newly deployed image still shows old behavior | Compose pulled a stale tag (cached locally) | `${config.runtime.engine} pull <image>` explicitly, or `osprey deploy down && osprey deploy up`. Avoid `osprey deploy nuke` unless you're sure — it deletes named volumes |
 
 ---
 
 ## Deploy modes — when to use which
 
-`scripts/deploy.sh` has three modes (see `SKILL.md` § Deploy Pipeline). They escalate in destructiveness:
+`osprey deploy` verbs escalate in destructiveness (see `SKILL.md` § Deploy Pipeline):
 
-| Mode | When to use | What dies |
+| Verb | When to use | What dies |
 |------|-------------|-----------|
-| (no flag) | Default; nothing is obviously broken | Only changed containers restart |
-| `--clean` | Network seems broken, sidecar DNS failing, weird routing issues | All containers stop and restart; network is recreated |
-| `--nuke` | "Make it as fresh as possible" — unrecoverable state, tag confusion, registry image cache poisoning | All containers, images, volumes, *and the project network* are removed; full re-pull from registry |
+| `up` | Default; nothing is obviously broken | Only changed containers restart; per-user web-terminal reconcile + seed always runs |
+| `down` followed by `up` | Network seems broken, sidecar DNS failing, weird routing issues | All containers stop and restart; network is recreated |
+| `nuke` | "Make it as fresh as possible" — unrecoverable state, tag confusion, registry image cache poisoning | All containers, images, volumes, and networks belonging to this project are removed; full re-pull from registry on the next `up` |
 
-**Reach for `--nuke` rarely.** It deletes named volumes, which means anything stored only in a container volume (a dev-only Postgres dump, a built MML index that takes 20 minutes to rebuild, etc.) is gone. Always check what's volume-mounted before nuking.
+**Reach for `nuke` rarely.** It deletes named volumes, which means anything stored only in a container volume (a dev-only Postgres dump, a built MML index that takes 20 minutes to rebuild, etc.) is gone. Always check what's volume-mounted before nuking. It also gates on a typed confirmation (or `--yes`) precisely because of this.
 
-If `--clean` doesn't fix it, prefer **hand-debugging** over `--nuke`. The reason `--clean` didn't help is information; nuking erases that information.
+If `down && up` doesn't fix it, prefer **hand-debugging** over `nuke`. The reason `down && up` didn't help is information; nuking erases that information.
 
 ---
 
@@ -181,7 +181,7 @@ When the table above doesn't match and the logs aren't conclusive:
    ```
    These three artifacts are usually enough for a second pair of eyes.
 
-2. **Try `--clean`** (not `--nuke`) once. If the problem clears, document the failure mode — recurring `--clean` need is itself a bug worth fixing.
+2. **Try `osprey deploy down && osprey deploy up`** (not `nuke`) once. If the problem clears, document the failure mode — a recurring need for it is itself a bug worth fixing.
 
 3. **Inspect the image directly:**
    ```bash
@@ -195,7 +195,7 @@ When the table above doesn't match and the logs aren't conclusive:
    ${config.runtime.engine} pull ${config.registry.url}/<image>:latest
    ```
 
-5. **Last resort:** `deploy.sh --nuke` and re-deploy. After this works, immediately investigate what was wedged — `--nuke` working when nothing else did is itself a bug.
+5. **Last resort:** `osprey deploy nuke` (typed confirmation, or `--yes`) followed by `osprey deploy up`. After this works, immediately investigate what was wedged — `nuke` working when nothing else did is itself a bug.
 
 ---
 
@@ -204,5 +204,5 @@ When the table above doesn't match and the logs aren't conclusive:
 - Don't `${config.runtime.engine} system prune -a` to "clean things up." It deletes images other projects on the same host depend on.
 - Don't restart a container in a tight loop hoping it stabilizes. If it crashed once it will crash again until the cause is fixed.
 - Don't edit `config.yml` or `.mcp.json` *inside* a container as a "quick fix." Those files are regenerated; your edit will be lost on the next deploy and the underlying template will still be wrong.
-- Don't bypass `deploy.sh` with raw `compose up` commands. The script handles registry login, external project pulls, and verify steps — skipping it leaves a partially-deployed stack.
+- Don't bypass `osprey deploy up` with raw `compose up` commands. It handles the web-terminal reconcile and per-user seed step — skipping it leaves web terminals unseeded even though the containers look up.
 - Don't change `facility-config.yml` *and* re-deploy in the same step. Change the config, regenerate the affected files via scaffolding, review the diff, *then* deploy.

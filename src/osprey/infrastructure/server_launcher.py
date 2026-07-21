@@ -249,11 +249,12 @@ class ServerLauncher:
 def _make_config_reader(defn: WebServerDefinition) -> Callable[[], tuple[str, int]]:
     """Return a callable that reads (host, port) from config for *defn*.
 
-    Port can be overridden via environment variable
-    ``OSPREY_{CONFIG_KEY}_PORT`` (upper-cased), e.g.
+    Port can be overridden via the environment variable
+    ``defn.port_env_var`` (``OSPREY_{CONFIG_KEY}_PORT``), e.g.
     ``OSPREY_ARTIFACT_SERVER_PORT=8186``.  This is needed for
     ``--network host`` deployments where multiple containers share the
-    host network and must avoid port collisions.
+    host network and must avoid port collisions — the multi-user compose
+    render sets these per user from the same ``port_env_var`` derivation.
     """
 
     def _reader() -> tuple[str, int]:
@@ -267,8 +268,7 @@ def _make_config_reader(defn: WebServerDefinition) -> Callable[[], tuple[str, in
         port = section.get("port", defn.port_default)
 
         # Environment override — useful for host-network multi-container deploys
-        env_key = f"OSPREY_{defn.config_key.upper()}_PORT"
-        env_val = os.environ.get(env_key)
+        env_val = os.environ.get(defn.port_env_var)
         if env_val:
             port = int(env_val)
 

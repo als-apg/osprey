@@ -10,8 +10,12 @@ import asyncio
 import logging
 import os
 import time
+import uuid
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any
+
+from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
 
@@ -137,17 +141,30 @@ async def run_dispatch(
             duration_sec: wall-clock seconds
             cost_usd: API cost (from ResultMessage, if available)
             num_turns: agentic turn count (from ResultMessage, if available)
+            session_id: the forced telemetry session UUID for this run — the
+                value the OTEL emitter tags records with as session.id, so a
+                consumer can locate this run's full provenance in the telemetry
+                store (None if the SDK was unavailable and no run started).
+            failure_class: (error results only) the class this failure was
+                stamped with — one of ``failure_class.FAILURE_*``.
+            num_tool_calls: (error results only) truthful count of tool calls
+                the run made before failing (survives the retained-list cap).
     """
     if not HAS_SDK:
-        return {
-            "status": "error",
-            "text_output": "",
-            "tool_calls": [],
-            "error": "claude_agent_sdk is not installed",
-            "duration_sec": 0.0,
-            "cost_usd": None,
-            "num_turns": None,
-        }
+        return failure_class._stamp(
+            {
+                "status": "error",
+                "text_output": "",
+                "tool_calls": [],
+                "error": "claude_agent_sdk is not installed",
+                "duration_sec": 0.0,
+                "cost_usd": None,
+                "num_turns": None,
+                "session_id": None,
+            },
+            failure_class.FAILURE_INFRASTRUCTURE,
+            0,
+        )
 
     project_dir = os.environ.get("OSPREY_PROJECT_DIR", _DEFAULT_PROJECT_DIR)
     stderr_lines: list[str] = []
@@ -196,6 +213,18 @@ async def run_dispatch(
     if run_id:
         sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id
 
+    # Force a known session UUID for THIS run and hand it to the workspace
+    # provenance_locator tool via env, so a filed issue can point back to this
+    # run's telemetry. build_clean_env() strips CLAUDE_CODE_* (so the harness's
+    # own session id never reaches the MCP subprocess headless); instead OSPREY
+    # owns the id: the same value is forced onto the SDK session below
+    # (ClaudeAgentOptions.session_id) so the OTEL emitter tags records with it,
+    # making the returned locator resolve. Race-free — fixed per run at spawn,
+    # never a shared-directory mtime pick.
+    telemetry_session_id = str(uuid.uuid4())
+    sdk_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
+    sdk_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
+
     # Declared subagent tool surfaces from the provisioned .claude/agents/ —
     # each subagent is held to exactly its declared tools (web-terminal parity)
     # without the trigger having to enumerate them.
@@ -242,6 +271,9 @@ async def run_dispatch(
         max_turns=max_turns,
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
+        # Force the session id = the value injected above so the OTEL emitter's
+        # session.id matches what provenance_locator returns for this run.
+        session_id=telemetry_session_id,
     )
 
     text_parts: list[str] = []
@@ -250,9 +282,23 @@ async def run_dispatch(
     pending_tools: dict[str, int] = {}
     cost_usd: float | None = None
     num_turns: int | None = None
+    # Terminal error state read off the ResultMessage. Captured in the handler
+    # below and consulted once the generator drains, so the completed branch can
+    # flip a failed run to status "error" from a single decision point (poll
+    # body, SSE stream, persisted record, and counters all follow from it).
+    result_is_error = False
+    result_subtype: str | None = None
+    result_error_text: str | None = None
+    result_api_error_status: Any = None
     # Snapshot secret values once so we can scrub them from anything we persist
     # or return (the SDK env carries provider/auth tokens).
     secret_values = _secret_values()
+
+    def _num_calls() -> int:
+        """Truthful tool-call count for this run (survives the retained cap)."""
+        if run_id:
+            return run_stats.get_run_stats(run_id)["num_tool_calls"]
+        return len(tool_calls)
 
     def _finalize(result: dict[str, Any]) -> dict[str, Any]:
         """Scrub secrets and cap oversized fields before persist/return."""
@@ -302,17 +348,23 @@ async def run_dispatch(
                 )
                 logger.error("Dispatch aborted after %.1fs: %s", duration_sec, msg)
                 await _push({"type": "error", "message": msg})
-                return _finalize(
-                    {
-                        "status": "error",
-                        "text_output": "".join(text_parts),
-                        "tool_calls": tool_calls,
-                        "error": msg,
-                        "stderr": "\n".join(stderr_lines) if stderr_lines else None,
-                        "duration_sec": round(duration_sec, 2),
-                        "cost_usd": cost_usd,
-                        "num_turns": num_turns,
-                    }
+                # No bytes from the provider within the window — a provider fault.
+                return failure_class._stamp(
+                    _finalize(
+                        {
+                            "status": "error",
+                            "text_output": "".join(text_parts),
+                            "tool_calls": tool_calls,
+                            "error": msg,
+                            "stderr": "\n".join(stderr_lines) if stderr_lines else None,
+                            "duration_sec": round(duration_sec, 2),
+                            "cost_usd": cost_usd,
+                            "num_turns": num_turns,
+                            "session_id": telemetry_session_id,
+                        }
+                    ),
+                    failure_class.FAILURE_PROVIDER,
+                    _num_calls(),
                 )
 
             # Tool RESULTS arrive as ToolResultBlock inside UserMessage (the
@@ -327,6 +379,11 @@ async def run_dispatch(
                         text_parts.append(block.text)
                         await _push({"type": "text", "content": block.text})
                     elif isinstance(block, ToolUseBlock):
+                        # Count every tool call for a truthful total, even beyond
+                        # the retained-list cap below, so the stamp sites can
+                        # report the real number rather than len(tool_calls).
+                        if run_id:
+                            run_stats.increment_tool_calls(run_id)
                         # Bound the retained tool-call list; excess calls still
                         # stream as events but are not accumulated in memory.
                         if len(tool_calls) < _MAX_TOOL_CALLS:
@@ -375,12 +432,56 @@ async def run_dispatch(
             elif isinstance(message, ResultMessage):
                 cost_usd = getattr(message, "cost_usd", None)
                 num_turns = getattr(message, "num_turns", None)
+                result_is_error = bool(getattr(message, "is_error", False))
+                result_subtype = getattr(message, "subtype", None)
+                result_error_text = getattr(message, "result", None)
+                result_api_error_status = getattr(message, "api_error_status", None)
                 await _push({"type": "result", "cost_usd": cost_usd, "num_turns": num_turns})
 
             elif isinstance(message, SystemMessage):
                 logger.debug("SystemMessage: %s", message)
 
         duration_sec = time.monotonic() - t0
+
+        # The SDK reported a terminal error (``is_error`` or a resource-cap
+        # subtype): flip the run to status "error" here rather than reporting a
+        # false "completed". Doing it at this one point keeps the poll body, SSE
+        # stream, persisted record, and per-class counters mutually consistent.
+        if result_is_error or failure_class.is_budget_subtype(result_subtype):
+            error_text = result_error_text or f"Agent run ended in error (subtype={result_subtype})"
+            if result_api_error_status and str(result_api_error_status) not in error_text:
+                error_text = f"{error_text} (api_error_status={result_api_error_status})"
+            # Resource caps (max_turns / max_budget) are a run-level terminal
+            # state; any other reported error is classified from its text so a
+            # provider fault surfaced as a result (e.g. a 429) is still tagged
+            # provider and therefore stays retryable downstream.
+            if failure_class.is_budget_subtype(result_subtype):
+                cls = failure_class.FAILURE_RUN
+            else:
+                cls = failure_class.classify_exception(Exception(error_text))
+            logger.info(
+                "Dispatch ended in error after %.1fs: subtype=%s class=%s",
+                duration_sec,
+                result_subtype,
+                cls,
+            )
+            await _push({"type": "error", "message": error_text})
+            return failure_class._stamp(
+                _finalize(
+                    {
+                        "status": "error",
+                        "text_output": "".join(text_parts),
+                        "tool_calls": tool_calls,
+                        "error": error_text,
+                        "duration_sec": round(duration_sec, 2),
+                        "cost_usd": cost_usd,
+                        "num_turns": num_turns,
+                    }
+                ),
+                cls,
+                _num_calls(),
+            )
+
         logger.info(
             "Dispatch completed: %d text blocks, %d tool calls, %.1fs",
             len(text_parts),
@@ -397,6 +498,7 @@ async def run_dispatch(
                 "duration_sec": round(duration_sec, 2),
                 "cost_usd": cost_usd,
                 "num_turns": num_turns,
+                "session_id": telemetry_session_id,
             }
         )
 
@@ -419,15 +521,22 @@ async def run_dispatch(
             exc_info=True,
         )
         await _push({"type": "error", "message": _scrub(str(exc), secret_values)})
-        return _finalize(
-            {
-                "status": "error",
-                "text_output": "".join(text_parts),
-                "tool_calls": tool_calls,
-                "error": str(exc),
-                "stderr": stderr_output,
-                "duration_sec": round(duration_sec, 2),
-                "cost_usd": cost_usd,
-                "num_turns": num_turns,
-            }
+        # Cause is not known from this catch-all site — let the table-driven
+        # classifier decide provider-vs-run from the exception and its chain.
+        return failure_class._stamp(
+            _finalize(
+                {
+                    "status": "error",
+                    "text_output": "".join(text_parts),
+                    "tool_calls": tool_calls,
+                    "error": str(exc),
+                    "stderr": stderr_output,
+                    "duration_sec": round(duration_sec, 2),
+                    "cost_usd": cost_usd,
+                    "num_turns": num_turns,
+                    "session_id": telemetry_session_id,
+                }
+            ),
+            failure_class.classify_exception(exc),
+            _num_calls(),
         )

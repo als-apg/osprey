@@ -1,4 +1,4 @@
-"""Tests for `_from_tiled` (task 3.2) — the durable read source `read_run_data`
+"""Tests for `_from_tiled` (task 3.2) — the durable read source `get_run_data`
 
 falls back to once a run's live buffer is gone (post-restart, or evicted past
 `live_rows._MAX_RUNS`). This environment has `tiled[client]` but not
