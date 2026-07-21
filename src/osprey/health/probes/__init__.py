@@ -1,8 +1,8 @@
 """Declarative health probes and their lazy registry.
 
 A *probe* is the async worker behind one declarative check type (``http``,
-``mcp``, ``container``, ``channel_read``, ``provider_canary``). Every probe
-conforms to a single interface::
+``mcp``, ``container``, ``channel_read``, ``provider_canary``,
+``archiver_freshness``). Every probe conforms to a single interface::
 
     async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult
 
@@ -67,6 +67,7 @@ _PROBE_MODULES: dict[str, tuple[str, str]] = {
     "container": ("container", "run"),
     "channel_read": ("channel_read", "run"),
     "provider_canary": ("provider_canary", "run"),
+    "archiver_freshness": ("archiver_freshness", "run"),
 }
 
 #: The set of known probe type names, for config validation without importing

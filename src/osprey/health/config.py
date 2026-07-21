@@ -57,6 +57,7 @@ DEFAULT_PROBE_TIMEOUTS: dict[str, float] = {
     "container": 10.0,
     "channel_read": 5.0,
     "provider_canary": 5.0,
+    "archiver_freshness": 10.0,
 }
 
 #: Canonical names of the built-in (core) categories, single-sourced from the
