@@ -42,7 +42,9 @@ def _no_dev_wheel_staging(monkeypatch):
     real wheel build. Reports SUCCESS (True) — the OSPREY_DEV build-arg is
     keyed on staging success, so simulating a successful staging keeps the
     dev-path assertions meaningful; the failure path has its own test."""
-    monkeypatch.setattr(persona_images, "_copy_local_framework_for_override", lambda project_root: True)
+    monkeypatch.setattr(
+        persona_images, "_copy_local_framework_for_override", lambda project_root: True
+    )
 
 
 def test_build_persona_images_noop_in_registry_mode(monkeypatch, tmp_path):
@@ -285,7 +287,9 @@ def test_build_persona_images_dev_mode_omits_osprey_dev_when_staging_fails(monke
     }
     resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
 
-    monkeypatch.setattr(persona_images, "_copy_local_framework_for_override", lambda project_root: False)
+    monkeypatch.setattr(
+        persona_images, "_copy_local_framework_for_override", lambda project_root: False
+    )
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
     monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
