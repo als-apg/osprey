@@ -3,7 +3,8 @@ Configure Health Checks
 
 ``osprey health`` runs a suite of diagnostics over an OSPREY installation —
 configuration validity, file-system layout, Python environment, container
-infrastructure, telemetry store, API providers, and the agent CLI — and prints a
+infrastructure, telemetry store, API providers, the agent CLI, and any
+configured framework services (ARIEL, channel finder) — and prints a
 categorized report. The built-in checks always run; the ``health:`` block in
 ``config.yml`` lets a facility *add* its own checks (HTTP endpoints, MCP servers,
 deployed containers, control-system channels, model providers) and tune the
@@ -74,7 +75,7 @@ Probe checks
 A **declarative category** is a named entry under ``health.categories`` with a
 ``checks:`` list. Each check names a probe ``type`` and its parameters; the
 suite runs the checks and grades each result ``ok`` / ``warning`` / ``error`` /
-``skip``. Five probe types ship:
+``skip``. Six probe types ship:
 
 .. list-table::
    :header-rows: 1
@@ -109,6 +110,15 @@ suite runs the checks and grades each result ``ok`` / ``warning`` / ``error`` /
        (optional, ``${VAR}`` allowed; fall back to
        ``api.providers.<provider>``); ``model_id`` (optional). A canary never
        emits ``error`` — an unreachable provider is a ``warning``.
+   * - ``archiver_freshness``
+     - Verify the deployment's archiver is reachable **and actually
+       accumulating data**: query the newest archived sample of a canary
+       channel through the ``archiver:`` connector. ``channel`` (required);
+       ``max_age_s`` (default 600) — a newest sample older than this is a
+       ``warning``, as is an empty query window. An unreachable archiver, or an
+       ``archiver_freshness`` check declared with no ``archiver:`` configured,
+       is an ``error``. A reachable archiver UI does not prove data is flowing
+       — this probe checks the data.
 
 .. note::
 
@@ -122,6 +132,58 @@ suite runs the checks and grades each result ``ok`` / ``warning`` / ``error`` /
 Every check also accepts the reserved keys ``name`` (required, unique within its
 category), ``timeout_s``, ``timeout_status``, and ``requires:`` (below). Any
 other key becomes a probe parameter.
+
+Recipe: a control-system smoke test
+------------------------------------
+
+The single most useful facility check is a canary read of a channel that is
+always live on a healthy machine — a beam-current or RF-frequency readback.
+Declare it once and it appears as its own category in the CLI report and as a
+tile on the web dashboard, graded against the bands you choose:
+
+.. code-block:: yaml
+
+   health:
+     categories:
+       control_system:
+         checks:
+           - name: beam_current
+             type: channel_read
+             address: SR:DCCT
+             ok_range: [1.0, 500.0]     # mA — below 1 mA warns (no stored beam)
+           - name: rf_frequency
+             type: channel_read
+             address: SR:RF:FREQ
+           - name: archiver_data
+             type: archiver_freshness
+             channel: SR:DCCT
+             max_age_s: 300             # the archiver must have a sample < 5 min old
+
+Reads go through the suite's control-system connector — the same connector,
+selected by ``control_system.type``, the agent itself uses — so a green canary
+also proves the connector configuration end to end.
+
+Built-in service categories
+---------------------------
+
+Beyond the always-on framework checks, two built-in categories are
+**presence-gated on their config blocks**: they contribute rows only when the
+corresponding service is configured, so a minimal build shows no empty tiles.
+
+- ``ariel`` — appears when a top-level ``ariel:`` block is configured. Probes
+  the ARIEL interface's status endpoint and reports: reachability, logbook
+  entry count, last ingestion time, and the registered search and enhancement
+  modules. The interface sidecar runs with ``osprey web``, so a CLI-only run
+  on a stopped stack reports the interface as unreachable (a ``warning``).
+- ``channel_finder`` — appears when a top-level ``channel_finder:`` block is
+  configured. Reports the active pipeline mode, verifies the pipeline's
+  channel-database file exists (a configured-but-missing database is an
+  ``error``), shows the database's age, and — for the ``middle_layer``
+  pipeline — the channel count from the materialized DuckDB.
+
+Both are ordinary categories: valid under ``--category``, tunable via a
+metadata-only override, and rendered as dashboard tiles with no extra
+configuration.
 
 Timeouts
 --------
@@ -145,6 +207,8 @@ applies:
      - 5
    * - ``provider_canary``
      - 5
+   * - ``archiver_freshness``
+     - 10
    * - callable category (poll)
      - ``suite_timeout_s``
    * - callable category (on_demand)
