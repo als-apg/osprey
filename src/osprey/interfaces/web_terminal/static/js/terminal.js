@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Terminal Module */
 
-import { createWebSocket, withPrefix, wsUrl } from './api.js';
+import { createWebSocket, wsUrl, withPrefix } from './api.js';
 import { subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
 /** @type {any} */
@@ -207,13 +207,7 @@ export function startTerminal(sessionId = null, mode = 'new') {
       }
       hasConnectedBefore = true;
 
-      // Update session LED
-      const led = document.getElementById('session-led');
-      if (led) led.classList.add('active');
-
-      // Activate terminal body glow
-      const body = document.querySelector('.terminal-body');
-      if (body) body.classList.add('active');
+      setConnectionIndicator(true);
 
       // Send initial size FIRST — the server waits for this before
       // spawning the PTY, so the shell starts with correct dimensions.
@@ -267,16 +261,14 @@ export function startTerminal(sessionId = null, mode = 'new') {
             } else {
               storeSessionId(msg.session_id);
             }
-            const label = document.getElementById('terminal-label');
-            if (label) label.textContent = `Session ${msg.session_id.slice(0, 8)}`;
+            setSessionLabel(msg.session_id);
             notifySessionChange(msg.session_id);
           } else if (msg.type === 'session_switched') {
             term.reset();
             currentSessionId = msg.session_id;
             autoResumeFailoverId = null;
             storeSessionId(msg.session_id);
-            const label = document.getElementById('terminal-label');
-            if (label) label.textContent = `Session ${msg.session_id.slice(0, 8)}`;
+            setSessionLabel(msg.session_id);
             notifySessionChange(msg.session_id);
             // Update reconnect URL so auto-reconnect targets the correct session
             if (wsConnection) {
@@ -297,10 +289,7 @@ export function startTerminal(sessionId = null, mode = 'new') {
       }
     },
     onClose() {
-      const led = document.getElementById('session-led');
-      if (led) led.classList.remove('active');
-      const body = document.querySelector('.terminal-body');
-      if (body) body.classList.remove('active');
+      setConnectionIndicator(false);
     },
   });
   wsConnection = socket;
@@ -355,10 +344,34 @@ export function stopTerminal() {
 
   currentSessionId = null;
 
+  setConnectionIndicator(false);
+}
+
+/**
+ * Single owner of the connection-status indicators: the header LED
+ * (`#session-led`) and the terminal-body glow track PTY WebSocket
+ * connectedness together. (The process-exit branch in onMessage
+ * deliberately dims only the LED — the chrome keeps its glow until the
+ * connection itself closes.)
+ * @param {boolean} connected
+ */
+function setConnectionIndicator(connected) {
   const led = document.getElementById('session-led');
-  if (led) led.classList.remove('active');
+  if (led) led.classList.toggle('active', connected);
   const body = document.querySelector('.terminal-body');
-  if (body) body.classList.remove('active');
+  if (body) body.classList.toggle('active', connected);
+}
+
+/**
+ * Single owner of the header session label (`#terminal-label`) — exported
+ * so sessions.js updates it through terminal.js instead of reaching into
+ * terminal-owned DOM. Pass null for the generic placeholder shown before a
+ * session id is known.
+ * @param {string|null} sessionId
+ */
+export function setSessionLabel(sessionId) {
+  const label = document.getElementById('terminal-label');
+  if (label) label.textContent = sessionId ? `Session ${sessionId.slice(0, 8)}` : 'Session';
 }
 
 /**

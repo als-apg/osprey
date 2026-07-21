@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Agent Settings Panel */
 
-import { fetchJSON, withPrefix } from './api.js';
+import { fetchJSON, apiRequest } from './api.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 
 /**
@@ -552,15 +552,11 @@ async function applySettings() {
       // Raw mode: send the full YAML text as-is (user is responsible for content)
       const textarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('settings-raw-editor'));
       const yamlContent = textarea ? textarea.value : '';
-      const saveResp = await fetch(withPrefix('/api/config'), { // prefix-aware
+      await apiRequest('/api/config', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw: yamlContent }),
+        json: { raw: yamlContent },
+        errorPrefix: 'Save failed',
       });
-      if (!saveResp.ok) {
-        const detail = await saveResp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Save failed (HTTP ${saveResp.status})`);
-      }
     } else {
       // Form mode: send only changed fields via PATCH — server uses ruamel.yaml
       // to apply them without stripping comments or reordering the file.
@@ -570,15 +566,11 @@ async function applySettings() {
         if (applyBtn) applyBtn.disabled = false;
         return;
       }
-      const patchResp = await fetch(withPrefix('/api/config'), { // prefix-aware
+      await apiRequest('/api/config', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
+        json: { updates },
+        errorPrefix: 'Patch failed',
       });
-      if (!patchResp.ok) {
-        const detail = await patchResp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Patch failed (HTTP ${patchResp.status})`);
-      }
     }
     configSaved = true;
 

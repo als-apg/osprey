@@ -37,11 +37,6 @@ import { serverClass, ts, fmtBytes, emptyState, typeIcon } from './session-helpe
  * }} RenderCtx
  */
 
-// Shared formatting/lookup helpers (serverClass, ts, fmtBytes, emptyState,
-// typeIcon) live in session-helpers.js -- re-exported so existing importers
-// of this module keep working unchanged.
-export { serverClass, ts, fmtBytes, emptyState, typeIcon };
-
 // ---- Agents View ----
 
 /**

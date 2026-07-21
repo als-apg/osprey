@@ -5,14 +5,14 @@
  * drag-and-drop permission editor (ALLOW / ASK / DENY). A sibling of
  * config-renderers.js, which re-exports `renderSettingsJsonEditor` so
  * import sites use one path. The shared `_section`/`_groupPermissions`/
- * `_countHooks` helpers live in the neutral config-render-helpers.js, so
- * importing them creates no circular dependency.
+ * `_renderHookEvents` helpers live in the neutral config-render-helpers.js,
+ * so importing them creates no circular dependency.
  *
  * @module settings-editor
  */
 
 import { el as _el } from '/design-system/js/dom.js';
-import { _section, _groupPermissions, _countHooks } from './config-render-helpers.js';
+import { _section, _groupPermissions, _renderHookEvents } from './config-render-helpers.js';
 
 /** Monotonically increasing ID for drag-and-drop element identification. */
 let _nextDragId = 1;
@@ -111,56 +111,7 @@ export function renderSettingsJsonEditor(jsonString, onDirtyChange) {
     const note = _el('div', 'config-edit-note');
     note.textContent = 'Hooks are managed by OSPREY and cannot be edited here.';
     section.appendChild(note);
-
-    for (const [eventName, hookGroups] of Object.entries(data.hooks)) {
-      const eventSection = _el('div', 'config-hook-event');
-      const eventHeader = _el('div', 'config-hook-event-header');
-
-      const chevron = _el('span', 'config-hook-chevron');
-      chevron.textContent = '\u25B6';
-      eventHeader.appendChild(chevron);
-
-      const nameSpan = _el('span', '');
-      nameSpan.textContent = eventName;
-      eventHeader.appendChild(nameSpan);
-
-      const countSpan = _el('span', 'config-hook-count');
-      countSpan.textContent = String(_countHooks(hookGroups));
-      eventHeader.appendChild(countSpan);
-
-      eventHeader.addEventListener('click', () => eventSection.classList.toggle('expanded'));
-      eventSection.appendChild(eventHeader);
-
-      const eventBody = _el('div', 'config-hook-event-body');
-      for (const group of hookGroups) {
-        const matcher = group.matcher || '*';
-        const matcherEl = _el('div', 'config-hook-matcher');
-        const matcherLabel = _el('span', 'config-hook-matcher-label');
-        matcherLabel.textContent = matcher;
-        matcherEl.appendChild(matcherLabel);
-
-        for (const hook of (group.hooks || [])) {
-          const hookEl = _el('div', 'config-hook-entry');
-          const cmd = hook.command || '';
-          const scriptName = cmd.split('/').pop().replace(/"/g, '').replace(/\.py$/, '');
-
-          const scriptSpan = _el('span', 'config-hook-script');
-          scriptSpan.textContent = scriptName;
-          hookEl.appendChild(scriptSpan);
-
-          if (hook.timeout) {
-            const timeoutSpan = _el('span', 'config-hook-timeout');
-            timeoutSpan.textContent = hook.timeout + 's';
-            hookEl.appendChild(timeoutSpan);
-          }
-          matcherEl.appendChild(hookEl);
-        }
-        eventBody.appendChild(matcherEl);
-      }
-      eventSection.appendChild(eventBody);
-      section.appendChild(eventSection);
-    }
-
+    section.appendChild(_renderHookEvents(data.hooks));
     container.appendChild(section);
   }
 
