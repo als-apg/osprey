@@ -40,7 +40,7 @@ from osprey.services.virtual_accelerator.manifest.loaders import (
     load_machine_json_channels,
 )
 
-from .response import AMPS_PER_RADIAN_KICK
+from .calibration import AMPS_PER_RADIAN_KICK
 
 # Families dispatched by formula (see module docstring). Every magnet/
 # corrector family the facility spec declares must appear in exactly one of
@@ -56,8 +56,18 @@ _CORRECTOR_PLANE = {"HCM": 0, "VCM": 1}
 _FAM_NAME_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
-def _split_fam_name(fam_name: str) -> tuple[str, str]:
-    """Split a flat element name (e.g. ``"QF01"``) into ``("QF", "01")``."""
+def split_fam_name(fam_name: str) -> tuple[str, str]:
+    """Split a flat element name (e.g. ``"QF01"``) into ``("QF", "01")``.
+
+    The single grammar for the ``{FAMILY}{DD}`` flat-name convention every
+    ring element's ``FamName`` follows (letters then digits); consumers that
+    accept only a subset of families (e.g. :mod:`.response`'s correctors)
+    layer their own allow-list check on top rather than re-parsing.
+
+    Raises:
+        ValueError: if ``fam_name`` doesn't match the letters-then-digits
+            grammar.
+    """
     match = _FAM_NAME_RE.match(fam_name)
     if match is None:
         raise ValueError(f"cannot parse family/device-id from FamName {fam_name!r}")
@@ -126,7 +136,7 @@ class StrengthMap:
         self._baked: dict[str, float] = {}
         for element in ring:
             try:
-                family, _device_id = _split_fam_name(element.FamName)
+                family, _device_id = split_fam_name(element.FamName)
             except ValueError:
                 continue
             if family in QUADRUPOLE_FAMILIES:

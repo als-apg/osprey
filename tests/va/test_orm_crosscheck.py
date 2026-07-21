@@ -22,7 +22,7 @@ nonlinear (sextupole-bearing) closed-orbit response, a two-point
 finite-difference slope and a 5-point polyfit slope over the same sweep are
 different numbers, so anything less than an identical estimator on both
 sides would make the <=1e-9 agreement below meaningless; see `test_lattice.py`
-and `response.py`'s `AMPS_PER_RADIAN_KICK` docstring for why the ring is
+and `calibration.py`'s `AMPS_PER_RADIAN_KICK` comment for why the ring is
 nonlinear enough for this to matter.
 """
 
@@ -143,8 +143,8 @@ def _model_matrix(correctors: list[str], bpms: list[str], currents: list[float])
     degree-1 `numpy.polyfit` that `build_response_matrix` fits over the
     measured rows -- estimator identity, not just data-source independence.
     This matters because the estimators are no longer interchangeable: the
-    real AR lattice's sextupoles (see `response.py`'s `AMPS_PER_RADIAN_KICK`
-    docstring) make the closed-orbit response mildly nonlinear in kick angle,
+    real AR lattice's sextupoles (see `calibration.py`'s `AMPS_PER_RADIAN_KICK`
+    comment) make the closed-orbit response mildly nonlinear in kick angle,
     so a two-point finite-difference slope and a 5-point polyfit slope over
     the same sweep are two different numbers, not two estimates of the same
     one. Using anything but the identical estimator on both sides would

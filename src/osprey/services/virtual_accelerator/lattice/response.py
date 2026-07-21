@@ -12,12 +12,6 @@ code path with the bridge is deliberate: it is what lets the ORM crosscheck
 (task 4.3) prove this oracle and the live IOC agree because they run the same
 model, not two independently-written ones.
 
-``AMPS_PER_RADIAN_KICK`` is defined in this module and imported by
-``strengths`` (its docstring and formula reference it); ``StrengthMap`` is
-therefore imported back into this module lazily, inside
-:func:`_get_strength_map`, rather than at module scope, to avoid a load-order
-cycle between the two modules.
-
 ``solve_orbit`` guards against the unstable-lattice failure mode described in
 `solve.py`'s docstring (non-finite/unstable closed orbit surfaces as
 `OrbitSolveError`, not a silently-returned garbage orbit); this oracle lets
@@ -27,31 +21,11 @@ destabilizes the ring has no valid model-oracle answer.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import at
 
 from .ring import build_ring
-from .solve import solve_orbit
-
-if TYPE_CHECKING:
-    from .strengths import StrengthMap
-
-# Current-to-kick calibration shared with ioc.physics_bridge via
-# strengths.StrengthMap: KickAngle[plane] = I / AMPS_PER_RADIAN_KICK.
-#
-# This is still a deterministic, sign-correct calibration constant, not a
-# claim of physical realism -- but its magnitude matters now in a way it
-# didn't on the toy ring: the real AR lattice carries much stronger
-# sextupoles (low-emittance MBA design), so a corrector kick large enough to
-# move the closed orbit by several mm picks up measurable *nonlinear*
-# sextupole feed-down (the +I/-I response stops being antisymmetric). Kept
-# at 1e6 (rather than the toy ring's 1e4) so a corrector's typical +-10 A
-# range stays in the small-signal/quasi-linear regime (tens of microns of
-# orbit shift, not millimeters) -- see test_lattice.py's antisymmetry check.
-AMPS_PER_RADIAN_KICK = 1_000_000.0
-
-_CORRECTOR_FAMILIES = ("HCM", "VCM")
+from .solve import monitor_xy, solve_orbit
+from .strengths import CORRECTOR_FAMILIES, StrengthMap, split_fam_name
 
 _RING: at.Lattice | None = None
 _STRENGTH_MAP: StrengthMap | None = None
@@ -66,28 +40,30 @@ def _get_ring() -> at.Lattice:
 
 
 def _get_strength_map(ring: at.Lattice) -> StrengthMap:
-    """Return the (lazily-built, process-wide cached) StrengthMap for `ring`.
-
-    Imported locally rather than at module scope: `strengths` imports
-    `AMPS_PER_RADIAN_KICK` from this module, so importing `StrengthMap` back
-    at this module's top level would create a load-order cycle.
-    """
+    """Return the (lazily-built, process-wide cached) StrengthMap for `ring`."""
     global _STRENGTH_MAP
     if _STRENGTH_MAP is None:
-        from .strengths import StrengthMap
-
         _STRENGTH_MAP = StrengthMap(ring)
     return _STRENGTH_MAP
 
 
 def _split_corrector_name(corrector_name: str) -> tuple[str, str]:
-    """Split a corrector's FamName (e.g. "HCM01") into ("HCM", "01")."""
-    for family in _CORRECTOR_FAMILIES:
-        if corrector_name.startswith(family):
-            return family, corrector_name[len(family) :]
-    raise ValueError(
+    """Split a corrector's FamName (e.g. "HCM01") into ("HCM", "01").
+
+    Parses with the package-wide flat-name grammar (:func:`.strengths.
+    split_fam_name`) and layers the corrector family allow-list on top,
+    rather than re-implementing the ``{FAMILY}{DD}`` convention here.
+    """
+    unrecognized = ValueError(
         f"unrecognized corrector name '{corrector_name}' (expected 'HCM..' or 'VCM..')"
     )
+    try:
+        family, device_id = split_fam_name(corrector_name)
+    except ValueError as exc:
+        raise unrecognized from exc
+    if family not in CORRECTOR_FAMILIES:
+        raise unrecognized
+    return family, device_id
 
 
 def _corrector_index(ring: at.Lattice, corrector_name: str) -> int:
@@ -128,8 +104,4 @@ def orbit_response(corrector_name: str, current: float) -> dict[str, tuple[float
     finally:
         ring[idx].KickAngle = [0.0, 0.0]
 
-    monitor_indices = ring.get_refpts(at.Monitor)
-    return {
-        ring[el_idx].FamName: (float(orbit_at_monitors[row, 0]), float(orbit_at_monitors[row, 2]))
-        for row, el_idx in enumerate(monitor_indices)
-    }
+    return {fam_name: (x, y) for fam_name, x, y in monitor_xy(ring, orbit_at_monitors)}

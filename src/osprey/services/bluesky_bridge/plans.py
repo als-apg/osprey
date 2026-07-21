@@ -93,7 +93,7 @@ class ORMParams(BaseModel):
     ``span_a`` is double-bounded: within the corrector ``channel_limits``
     band (±12 A, see ``channel_limits.json``'s ``SR:MAG:{HCM,VCM}:*:CURRENT:SP``
     entries) *and* within the response model's "typical ±10 A range" that
-    ``lattice/response.py``'s ``AMPS_PER_RADIAN_KICK`` comment documents as
+    ``lattice/calibration.py``'s ``AMPS_PER_RADIAN_KICK`` comment documents as
     giving a plausible, still-linear kick — the tighter of the two. The
     ``DRVH``/``DRVL`` clamp newly set on the corrector ``:SP`` record (FR10)
     is a second, independent bound below this schema's own, applying to any

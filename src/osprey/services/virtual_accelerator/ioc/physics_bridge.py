@@ -33,7 +33,11 @@ from osprey.services.virtual_accelerator.lattice.errors import (
     bpm_read,
     magnet_cal,
 )
-from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError, solve_orbit
+from osprey.services.virtual_accelerator.lattice.solve import (
+    OrbitSolveError,
+    monitor_xy,
+    solve_orbit,
+)
 from osprey.services.virtual_accelerator.lattice.strengths import (
     ElementState,
     StrengthMap,
@@ -250,26 +254,24 @@ class PhysicsBridge:
         # `numpy.linalg.LinAlgError`/`ValueError` on LAPACK/pyAT-internal
         # non-convergence. All three are the same failure from this bridge's
         # perspective (no orbit can be trusted), so they are folded into
-        # OrbitSolveError here, ahead of both the constructor's and
-        # `on_setpoint`'s single `except OrbitSolveError` rollback paths --
-        # any exception besides OrbitSolveError itself must not escape this
-        # method uncaught, or a failed write would skip the rollback path.
+        # OrbitSolveError here (solve_orbit's own OrbitSolveError is not a
+        # subclass of any of them and propagates untouched), keeping both the
+        # constructor's and `on_setpoint`'s single `except OrbitSolveError`
+        # rollback paths sufficient -- any exception besides OrbitSolveError
+        # itself must not escape this method uncaught, or a failed write
+        # would skip the rollback path.
         try:
             orbit_at_monitors = solve_orbit(self._ring)
-        except OrbitSolveError:
-            raise
         except (at.AtError, np.linalg.LinAlgError, ValueError) as exc:
             raise OrbitSolveError(f"closed orbit solve raised {type(exc).__name__}: {exc}") from exc
 
-        monitor_indices = self._ring.get_refpts(at.Monitor)
         positions: dict[str, float] = {}
         device_ids: list[str] = []
-        for row, el_idx in enumerate(monitor_indices):
-            fam_name = self._ring[el_idx].FamName  # e.g. "BPM05"
-            device = fam_name[len("BPM") :]
+        for fam_name, x, y in monitor_xy(self._ring, orbit_at_monitors):
+            device = fam_name[len("BPM") :]  # e.g. "BPM05" -> "05"
             device_ids.append(device)
-            positions[_bpm_address(device, "X")] = float(orbit_at_monitors[row, 0])
-            positions[_bpm_address(device, "Y")] = float(orbit_at_monitors[row, 2])
+            positions[_bpm_address(device, "X")] = x
+            positions[_bpm_address(device, "Y")] = y
 
         self._bpm_positions = positions
         self._bpm_device_ids = device_ids

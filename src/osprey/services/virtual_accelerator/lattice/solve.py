@@ -51,6 +51,32 @@ def _monitor_refpts(ring: at.Lattice) -> np.ndarray:
     return np.array([i for i, element in enumerate(ring) if isinstance(element, at.Monitor)])
 
 
+def monitor_xy(ring: at.Lattice, orbit_at_monitors: np.ndarray) -> list[tuple[str, float, float]]:
+    """Per-monitor ``(FamName, x, y)`` readout of a :func:`solve_orbit` result.
+
+    The single shared "read the solved orbit at the BPMs" primitive: both the
+    live IOC bridge (`ioc.physics_bridge`) and the model oracle
+    (`lattice.response`) key their BPM readings off this, which is what keeps
+    their row -> element alignment identical by construction --
+    `orbit_at_monitors` rows are ordered by the same :func:`_monitor_refpts`
+    selection :func:`solve_orbit` solved at.
+
+    Args:
+        ring: The lattice `orbit_at_monitors` was solved on.
+        orbit_at_monitors: A :func:`solve_orbit` result for `ring`, shape
+            `(n_monitors, 6)`.
+
+    Returns:
+        One ``(FamName, x_m, y_m)`` tuple per `at.Monitor` element, in ring
+        order (e.g. ``("BPM01", 1.2e-6, -3.4e-6)``), with x/y taken from
+        orbit coordinates 0 and 2.
+    """
+    return [
+        (ring[el_idx].FamName, float(orbit_at_monitors[row, 0]), float(orbit_at_monitors[row, 2]))
+        for row, el_idx in enumerate(_monitor_refpts(ring))
+    ]
+
+
 def solve_orbit(ring: at.Lattice) -> np.ndarray:
     """Guarded 4D closed-orbit solve at every `at.Monitor` refpt in `ring`.
 

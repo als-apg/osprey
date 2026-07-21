@@ -102,7 +102,7 @@ class TestClosedOrbitStability:
 
 class TestOrbitResponse:
     """orbit_response's current->kick calibration (AMPS_PER_RADIAN_KICK,
-    see lattice/response.py) is chosen so a corrector's typical +-10 A range
+    see lattice/calibration.py) is chosen so a corrector's typical +-10 A range
     stays in the small-signal/quasi-linear regime on the real AR lattice
     (tens of microns of orbit shift). What's tested here is the physically
     required shape of that response -- nonzero, linear to a measured
