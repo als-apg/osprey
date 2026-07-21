@@ -22,6 +22,10 @@
  * intentionally NOT provided here — that surface is deferred until a second
  * consumer actually needs it.
  *
+ * Beyond query params, this module also owns the receive side of the host's
+ * runtime `osprey-mode-change` postMessage broadcast — see
+ * {@link onModeChange}.
+ *
  * @module frame-params
  */
 
@@ -45,4 +49,30 @@ export function applyEmbedded() {
   if (embedded) {
     document.body.classList.add('embedded');
   }
+}
+
+/**
+ * Subscribe to the host's live Expert/Simple UI-mode broadcasts.
+ *
+ * The runtime half of the mode contract (the pre-paint half is
+ * mode-boot.js): the web-terminal hub posts
+ * `{type: 'osprey-mode-change', mode}` to every embedded frame when the
+ * operator flips the header toggle. This helper owns the receive side
+ * once — it checks the message origin, normalizes the mode (`'simple'`,
+ * anything else → `'expert'`), stamps `data-ui-mode` on `<html>`, then
+ * invokes `callback(mode)` for the page's own follow-up (re-render, tab
+ * fixup, ...). Pages whose Simple/Expert deltas are pure CSS pass no
+ * callback.
+ *
+ * @param {(mode: 'expert'|'simple') => void} [callback]
+ * @returns {void}
+ */
+export function onModeChange(callback) {
+  window.addEventListener('message', (e) => {
+    if (e.origin !== window.location.origin) return;
+    if (!e.data || e.data.type !== 'osprey-mode-change' || !e.data.mode) return;
+    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    if (callback) callback(mode);
+  });
 }

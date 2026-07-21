@@ -35,6 +35,7 @@ from osprey.interfaces.design_system.generator.validate import (
     assert_valid,
     check_alias_resolution,
     check_color_syntax,
+    check_default_flag,
     check_interface_mode_completeness,
     check_namespace_collisions,
     check_promoted_primitive_collisions,
@@ -438,6 +439,83 @@ def test_check_theme_metadata_accepts_well_formed_family() -> None:
     )
 
     assert check_theme_metadata(tree) == []
+
+
+# --- check_default_flag -----------------------------------------------------------
+
+
+def _flag_metadata(mode: str, default: object) -> dict[str, object]:
+    return {"mode": mode, "id": "x", "label": "X", "family": "osprey", "default": default}
+
+
+def test_check_default_flag_accepts_single_dark_default() -> None:
+    tree = _tree(
+        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={"dark": _flag_metadata("dark", True)},
+    )
+
+    assert check_default_flag(tree) == []
+
+
+def test_check_default_flag_accepts_explicit_false_and_absent_flags() -> None:
+    tree = _tree(
+        themes={
+            "dark": {"bg.primary": _token("bg.primary", "#000")},
+            "light": {"bg.primary": _token("bg.primary", "#fff")},
+        },
+        theme_metadata={
+            "dark": _flag_metadata("dark", False),
+            "light": {"mode": "light", "id": "l", "label": "L", "family": "osprey"},
+        },
+    )
+
+    assert check_default_flag(tree) == []
+
+
+def test_check_default_flag_rejects_non_boolean_value() -> None:
+    tree = _tree(
+        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={"dark": _flag_metadata("dark", "yes")},
+    )
+
+    errors = check_default_flag(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
+    assert "boolean" in errors[0].message
+
+
+def test_check_default_flag_rejects_light_theme_default() -> None:
+    tree = _tree(
+        themes={"light": {"bg.primary": _token("bg.primary", "#fff")}},
+        theme_metadata={"light": _flag_metadata("light", True)},
+    )
+
+    errors = check_default_flag(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
+    assert "dark theme" in errors[0].message
+
+
+def test_check_default_flag_rejects_duplicate_defaults() -> None:
+    tree = _tree(
+        themes={
+            "dark": {"bg.primary": _token("bg.primary", "#000")},
+            "apex-dark": {"bg.primary": _token("bg.primary", "#111")},
+        },
+        theme_metadata={
+            "dark": _flag_metadata("dark", True),
+            "apex-dark": _flag_metadata("dark", True),
+        },
+    )
+
+    errors = check_default_flag(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
+    assert "at most one" in errors[0].message
+    assert "apex-dark" in errors[0].message and "dark" in errors[0].message
 
 
 # --- check_interface_mode_completeness --------------------------------------------
