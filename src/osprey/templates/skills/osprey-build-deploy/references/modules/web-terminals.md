@@ -72,7 +72,9 @@ modules:
     lattice_base_port: 9491             # first per-user lattice-dashboard port → OSPREY_LATTICE_DASHBOARD_PORT
     users:                              # one container per user
       - alice
-      - bob
+      - name: "bob"                     # object form — needed to set per-user fields
+        index: 1
+        display_name: "Operations"      # optional window/tab title → OSPREY_WEB_APP_NAME
       - carol
     landing:                            # grouped landing page served at nginx_port
       groups:
@@ -85,6 +87,16 @@ modules:
 ```
 
 **Port allocation rule**: each user's four services bind host port `<family>_base_port + index` (where `index` is the zero-based position in the `users:` list, and `family` is one of `web`, `artifact`, `ariel`, `lattice`). With the values above and three users, `alice` (index 0) gets `9091`/`9291`/`9391`/`9491`, `bob` (index 1) gets `9092`/`9292`/`9392`/`9492`, and so on. This arithmetic is implemented once, in `deployment/web_terminals/ports.py`'s `allocate_ports()` — the renderer and the lint both call it rather than reimplementing it. The interview enforces no collision across all four families, `${config.ports.*}`, and the event-dispatcher sidecar range (see validation rule 11 in `facility-config-schema.md`). When `modules.web_terminals.tls.enabled: true`, the lint also reserves port `443` (the TLS listener) against that same overlap set, so a facility can't independently assign `443` to something else in `${config.ports.*}`.
+
+**Per-user window title** (`display_name`, optional). Because the Claude Code
+project is baked into a shared image, `config.yml`'s `web.app_name` — the browser
+window/tab title — is the same for every user on that image. Setting an object-form
+entry's `display_name` emits `OSPREY_WEB_APP_NAME=<value>` into just that user's
+container, which `osprey web` treats as authoritative over `web.app_name`, so each
+user can carry a distinct title (e.g. `"Operations"` vs `"Physics"`) without a
+per-user image. Omitting it emits no env line and inherits `web.app_name`. See the
+full field reference in `references/facility-config-schema.md` § "User roster
+entries".
 
 **The per-user list is durable**. Adding a user appends to the list (re-run the interview, or hand-edit then re-scaffold) without disturbing existing users' state. Removing a user from the list does **not** delete their named volume by default — the volume sticks around and can be reattached if the user comes back. To actually wipe a user's state, use `osprey deploy decommission <user> --purge` (see "Operating the module" below), or run `${config.runtime.engine} volume rm ${config.facility.prefix}-${user}-claude-config` by hand.
 

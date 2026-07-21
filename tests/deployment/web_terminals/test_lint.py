@@ -370,6 +370,39 @@ def test_lint_valid_object_form_users_report_no_index_errors() -> None:
     assert not any(f.code == "web_terminals.duplicate_index" for f in errors)
 
 
+def test_lint_non_string_display_name_is_an_error() -> None:
+    """A non-string `display_name` (a config typo) is rejected — the renderer would
+    otherwise drop it silently."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "display_name": ["not", "a", "string"]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_display_name" for f in errors)
+
+
+def test_lint_string_display_name_reports_no_error() -> None:
+    """A well-formed string `display_name` is accepted."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "display_name": "Operations"},
+        {"name": "gmartino", "index": 1},  # no display_name at all is equally fine
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_display_name" for f in findings)
+
+
 def test_lint_bare_multi_user_list_warns_about_port_drift_risk() -> None:
     """A legacy bare list with >1 user risks positional port drift on decommission."""
     # Arrange

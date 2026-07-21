@@ -101,6 +101,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_duplicate_users(users))
     findings.extend(_check_reserved_names(users))
     findings.extend(_check_username_charset(users))
+    findings.extend(_check_display_name(users))
     findings.extend(_check_invalid_index(users))
     findings.extend(_check_duplicate_index(users))
     findings.extend(_check_bare_list_port_drift_risk(users))
@@ -236,6 +237,37 @@ def _check_username_charset(users: list[Any]) -> list[Finding]:
                     ),
                 )
             )
+    return findings
+
+
+def _check_display_name(users: list[Any]) -> list[Finding]:
+    """An object-form entry's optional ``display_name`` (the per-user window/tab
+    title emitted as ``OSPREY_WEB_APP_NAME``) must be a string when present.
+
+    The renderer reads it defensively (:func:`resolve_personas` drops a non-string
+    one rather than emitting a broken env line), so a bad value degrades silently
+    at render time; this check pulls that config typo forward to lint/build time
+    as an ERROR. An empty string is a well-formed (if inert) value — the template
+    guards on truthiness and simply emits no env line — so it is not flagged here.
+    """
+    findings: list[Finding] = []
+    for user in users:
+        if not isinstance(user, dict) or "display_name" not in user:
+            continue
+        display_name = user.get("display_name")
+        if isinstance(display_name, str):
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_display_name",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} has a non-string "
+                    f"display_name {display_name!r}; display_name must be a string"
+                ),
+            )
+        )
     return findings
 
 

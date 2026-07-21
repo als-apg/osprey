@@ -30,7 +30,8 @@
       `allocate_ports()` — persona resolution and port arithmetic both stay
       in Python; this template only iterates. Each entry is
       `{"user": str, "image": str, "project": str, "container_project_dir": str,
-      "extra_mounts": list, "panel_env": list, **allocate_ports(base_ports, index)}`:
+      "extra_mounts": list, "display_name": str | None, "panel_env": list,
+      **allocate_ports(base_ports, index)}`:
         {
           "user": str,                  # bare username, e.g. "thellert"
           "image": str,                 # resolved by resolve_personas() -> per-svc `image:`
@@ -40,6 +41,8 @@
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
                                         #   Empty list (the zero-migration default) emits none.
+          "display_name": str | None,   # optional window/tab title -> OSPREY_WEB_APP_NAME;
+                                        #   None (the default) emits NO env line — see below
           "web": int,        # web_base_port + index -> OSPREY_WEB_PORT / OSPREY_TERMINAL_WEB_PORT
           "panel_env": [     # ONE entry per FRAMEWORK_WEB_SERVERS companion family,
             {"name": str,    #   derived by render.py from the registry's port_env_var
@@ -160,6 +163,15 @@ services:
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
       - OSPREY_WEB_PORT={{ svc.web }}
+{%- if svc.display_name %}
+      {#- Human-facing window/tab title. tojson quotes the WHOLE `KEY=value` as
+         one double-quoted YAML scalar (never just the value — the compose
+         `- KEY=value` list form has no per-value quoting), so a display_name
+         containing spaces or a `": "` can't derail YAML parsing; compose then
+         splits the parsed string on the first `=`. app.py reads
+         OSPREY_WEB_APP_NAME in preference to config web.app_name. #}
+      - {{ ("OSPREY_WEB_APP_NAME=" ~ svc.display_name) | tojson }}
+{%- endif %}
 {%- for env in svc.panel_env %}
       - {{ env.name }}={{ env.port }}
 {%- endfor %}

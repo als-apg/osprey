@@ -99,6 +99,12 @@ def render_web_terminals(config: Any) -> dict[str, str]:
                 "project": entry["project"],
                 "container_project_dir": entry["container_project_dir"],
                 "extra_mounts": entry["extra_mounts"],
+                # Optional per-user window/tab title -> OSPREY_WEB_APP_NAME. None
+                # (the common case: resolve_personas omits the key unless a
+                # non-empty string was set) leaves the template's `{% if
+                # svc.display_name %}` guard false, so no env line is emitted and
+                # the app falls back to config web.app_name.
+                "display_name": entry.get("display_name"),
                 **user_ports,
                 # One env line per companion family, derived from the web-server
                 # registry (PANEL_ENV_VARS) so a newly registered companion is

@@ -569,6 +569,80 @@ def test_malformed_user_entries_are_dropped() -> None:
     assert int(bob_env["OSPREY_WEB_PORT"]) == allocate_ports(_BASE_PORTS, 4)["web"]
 
 
+# ---------------------------------------------------------------------------
+# display_name -> OSPREY_WEB_APP_NAME (per-user window/tab title seam)
+# ---------------------------------------------------------------------------
+
+
+def _service_env(compose: dict, service: str) -> dict[str, str]:
+    """Parse a compose service's `- KEY=value` environment list into a dict."""
+    return dict(
+        item.split("=", 1) for item in compose["services"][service]["environment"] if "=" in item
+    )
+
+
+def test_display_name_emits_app_name_env_line_only_for_the_user_that_sets_it() -> None:
+    """A user's `display_name` renders an `OSPREY_WEB_APP_NAME` env line for that
+    service; a user without one omits the line entirely (app falls back to config
+    web.app_name)."""
+    # Arrange
+    config = copy.deepcopy(
+        _config([{"name": "alice", "index": 0, "display_name": "Operations"}, "bob"])
+    )
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    assert _service_env(compose, "web-alice")["OSPREY_WEB_APP_NAME"] == "Operations"
+    assert "OSPREY_WEB_APP_NAME" not in _service_env(compose, "web-bob")
+
+
+def test_no_display_name_anywhere_emits_no_app_name_env_line() -> None:
+    """The common (bare-string) roster emits no OSPREY_WEB_APP_NAME line at all —
+    the seam is inert until a user opts in."""
+    # Act
+    artifacts = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    assert "OSPREY_WEB_APP_NAME" not in artifacts["docker-compose.web.yml"]
+
+
+def test_display_name_with_spaces_and_colon_is_yaml_quoted_and_round_trips() -> None:
+    """A `display_name` containing spaces and a `": "` (which would derail an
+    unquoted compose `- KEY=value` scalar into a mapping) is safely quoted so the
+    parsed env value is the exact original string."""
+    # Arrange
+    tricky = "Operations: Control Room"
+    config = copy.deepcopy(_config([{"name": "alice", "index": 0, "display_name": tricky}]))
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose_text = artifacts["docker-compose.web.yml"]
+    compose = yaml.safe_load(compose_text)
+
+    # Assert — the whole KEY=value is a single double-quoted YAML scalar, and it
+    # parses back to the exact display_name (no embedded quotes, no split mapping).
+    assert '- "OSPREY_WEB_APP_NAME=Operations: Control Room"' in compose_text
+    assert _service_env(compose, "web-alice")["OSPREY_WEB_APP_NAME"] == tricky
+
+
+def test_display_name_with_double_quote_is_escaped_and_round_trips() -> None:
+    """A `display_name` containing a double quote is escaped inside the quoted YAML
+    scalar rather than prematurely closing it."""
+    # Arrange
+    tricky = 'The "Main" Console'
+    config = copy.deepcopy(_config([{"name": "alice", "index": 0, "display_name": tricky}]))
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    assert _service_env(compose, "web-alice")["OSPREY_WEB_APP_NAME"] == tricky
+
+
 def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_and_mount() -> None:
     """A `personas` catalog can exist without moving any user off the default persona
     (no roster entry sets `persona:`, so every entry falls back to `default_persona`).

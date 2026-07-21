@@ -86,6 +86,38 @@ def test_normalize_users_drops_malformed_entries() -> None:
     assert result == [{"name": "alice", "index": 0}]
 
 
+def test_normalize_users_carries_string_display_name_through() -> None:
+    """An object entry's string `display_name` is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": "Operations"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "display_name": "Operations"}]
+
+
+def test_normalize_users_omits_display_name_key_when_absent() -> None:
+    """An entry with no `display_name` keeps the plain two-key shape (no None key)."""
+    # Act / Assert — bare string and object-without-display_name both stay two-key
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+def test_normalize_users_drops_non_string_display_name() -> None:
+    """A non-string `display_name` (a config typo) is dropped defensively; the rest
+    of a well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": 123}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), display_name omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
 def test_normalize_users_empty_list_returns_empty_list() -> None:
     """An empty users list normalizes to an empty list."""
     # Act / Assert
@@ -388,6 +420,74 @@ def test_resolve_personas_preserves_normalize_users_index_freezing() -> None:
 
     # Assert
     assert result[0]["index"] == 5
+
+
+def test_resolve_personas_exposes_display_name_when_set() -> None:
+    """A roster entry's `display_name` is threaded onto the resolved svc dict as a
+    `display_name` key (here on the no-persona zero-migration path)."""
+    # Arrange
+    web_terminals = {"users": [{"name": "alice", "index": 0, "display_name": "Operations"}]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result == [
+        {
+            "name": "alice",
+            "index": 0,
+            "persona": None,
+            "image": "registry.example.org/osprey/web-terminal:latest",
+            "project": "als-assistant",
+            "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
+            "display_name": "Operations",
+        }
+    ]
+
+
+def test_resolve_personas_display_name_threads_through_persona_branch() -> None:
+    """`display_name` is orthogonal to persona resolution — it rides through a
+    fully-resolved non-default persona entry too, not only the zero-migration path."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "gmartino", "index": 0, "persona": "gui", "display_name": "Control GUI"}
+        ],
+        "default_persona": "cli",
+        "personas": {
+            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["persona"] == "gui"
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal-gui:latest"
+    assert result[0]["display_name"] == "Control GUI"
+
+
+def test_resolve_personas_omits_display_name_key_when_unset_or_empty() -> None:
+    """No `display_name` (or an empty-string one) omits the key entirely, so the
+    resolved entry stays byte-identical to a pre-`display_name` resolution."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            "alice",  # bare string — never carries one
+            {"name": "bob", "index": 1},  # object form, no display_name
+            {"name": "carol", "index": 2, "display_name": ""},  # empty is inert
+        ]
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert — no entry carries a display_name key
+    assert all("display_name" not in entry for entry in result)
 
 
 def test_resolve_personas_empty_users_returns_empty_list() -> None:
