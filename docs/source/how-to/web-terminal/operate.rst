@@ -32,7 +32,8 @@ The window has three working areas plus a header:
 - **Workspace** (left) — a live view of your project files. New artifacts,
   plots, and data files appear as the agent creates them, with no refresh.
 - **Side panels** — your control-system tools (Channel Finder, ARIEL, the
-  lattice dashboard, and so on) as tabs beside the chat. See :doc:`panels`.
+  lattice dashboard, and so on), opened from the icon rail and arranged as
+  dockable tiles. See :doc:`panels`.
 - **Header** — the theme switcher (:doc:`theming`), a settings drawer, and an
   optional name badge to tell one deployment from another.
 

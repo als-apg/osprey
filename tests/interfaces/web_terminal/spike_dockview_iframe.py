@@ -1,4 +1,4 @@
-"""Dockview iframe-reload spike (TaskList #67 / dock-spike).
+"""Dockview iframe-reload spike (dock-spike).
 
 QUESTION
 --------
@@ -6,15 +6,16 @@ When a dockview panel whose content is an ``<iframe>`` is moved between groups
 by a real drag (and when a splitter is dragged), does the browser preserve the
 iframe's live document -- its mutable JS state and its single ``load`` -- or does
 dockview re-parent the ``<iframe>`` DOM node and force a reload?  The answer
-selects the implementation path for #70 (dock-iframe-adapter):
+selects the implementation path for the dock iframe adapter
+(static/js/dock-iframe.js):
 
-  * PASS -> native dockview panels are safe hosts for iframes; #70 mounts each
-    iframe directly as a dockview panel component.
+  * PASS -> native dockview panels are safe hosts for iframes; the adapter
+    mounts each iframe directly as a dockview panel component.
   * FAIL -> dockview re-parents the panel content on regroup, which reloads the
-    iframe and destroys its state; #70 must instead keep the iframes in a
-    fixed, un-reparented overlay layer and sync each iframe's geometry to its
+    iframe and destroys its state; the adapter must instead keep the iframes in
+    a fixed, un-reparented overlay layer and sync each iframe's geometry to its
     dockview panel's rectangle on layout/resize events (iframe panels only;
-    floating/maximize out of scope), per the PROPOSAL bounds.
+    floating/maximize out of scope).
 
 METHOD
 ------
@@ -73,7 +74,8 @@ Interpretation:
   * PASS required counter==42 AND loadCount==1 after ALL THREE. Observed
     counter==0 and loadCount==3. => FAIL.
 
-CONSEQUENCE FOR #70 (dock-iframe-adapter): take the overlay-fallback path.
+CONSEQUENCE for the dock iframe adapter (dock-iframe.js): take the
+overlay-fallback path.
 Keep iframes in a fixed overlay layer that is never re-parented by dockview;
 mount an empty placeholder panel per iframe in dockview and, on dockview
 layout/resize events, copy the placeholder panel's bounding rectangle onto the

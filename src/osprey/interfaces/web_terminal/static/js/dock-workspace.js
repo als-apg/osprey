@@ -479,7 +479,7 @@ function stashExpertLayout(api) {
  * tabs in one group on the left, the terminal/chat card on the right (the chat
  * keeps the right-hand column in both modes, mirroring the expert default).
  * The registered set is captured from the live api BEFORE clearing, so any iframe
- * placeholder panels (#70) are carried across by their own ids — re-created with
+ * placeholder panels (see dock-iframe.js) are carried across by their own ids — re-created with
  * the same ids, which is what lets the iframe adapter re-find and re-overlay them
  * (it resolves placeholders by id on every settle). Locks last so every group and
  * sash the rebuild created is covered.
