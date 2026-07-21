@@ -278,9 +278,7 @@ def _in_context_channel(fam: str, device_id: int, field: str, subfield: str) -> 
     )
 
 
-def _in_context_description(
-    fam: str, device_id: int, field: str, subfield_desc: str
-) -> str:
+def _in_context_description(fam: str, device_id: int, field: str, subfield_desc: str) -> str:
     return (
         f"Storage ring {_IN_CONTEXT_NOUN[fam]} {device_id:02d} "
         f"{_FIELD_PHRASE[field]} {subfield_desc}"

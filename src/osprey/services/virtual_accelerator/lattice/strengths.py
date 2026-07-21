@@ -168,7 +168,9 @@ class StrengthMap:
             ValueError: if ``family`` isn't a recognized magnet/corrector
                 family, or no matching element exists in ``ring``.
         """
-        is_magnet = family in QUADRUPOLE_FAMILIES or family == DIPOLE_FAMILY or family in SEXTUPOLE_FAMILIES
+        is_magnet = (
+            family in QUADRUPOLE_FAMILIES or family == DIPOLE_FAMILY or family in SEXTUPOLE_FAMILIES
+        )
         if not is_magnet and family not in CORRECTOR_FAMILIES:
             raise ValueError(f"unrecognized family {family!r}")
 

@@ -127,8 +127,7 @@ class TestOrbitResponse:
         for bpm_name in positive:
             resid = positive[bpm_name][0] + negative[bpm_name][0]
             assert abs(resid) < ANTISYMMETRY_TOLERANCE_M, (
-                f"{bpm_name}: antisymmetry residual {resid} exceeds "
-                f"{ANTISYMMETRY_TOLERANCE_M}"
+                f"{bpm_name}: antisymmetry residual {resid} exceeds {ANTISYMMETRY_TOLERANCE_M}"
             )
 
     def test_response_is_linear_in_current(self):

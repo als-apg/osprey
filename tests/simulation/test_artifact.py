@@ -71,9 +71,7 @@ def _assert_rings_equal(a, b):
     a_cor, b_cor = _correctors(a), _correctors(b)
     assert len(a_cor) == len(b_cor)
     for ea, eb in zip(a_cor, b_cor, strict=True):
-        assert np.allclose(
-            np.asarray(ea.KickAngle).ravel(), np.asarray(eb.KickAngle).ravel()
-        )
+        assert np.allclose(np.asarray(ea.KickAngle).ravel(), np.asarray(eb.KickAngle).ravel())
 
     # Dipoles: entrance/exit edge angles.
     a_dip, b_dip = _dipoles(a), _dipoles(b)
@@ -86,9 +84,7 @@ def _assert_rings_equal(a, b):
     a_mag, b_mag = _ar_magnets(a), _ar_magnets(b)
     assert len(a_mag) == len(b_mag)
     for ea, eb in zip(a_mag, b_mag, strict=True):
-        assert np.allclose(
-            np.asarray(ea.PolynomB).ravel(), np.asarray(eb.PolynomB).ravel()
-        )
+        assert np.allclose(np.asarray(ea.PolynomB).ravel(), np.asarray(eb.PolynomB).ravel())
 
 
 def test_canonical_mat_roundtrip(tmp_path):
@@ -113,9 +109,7 @@ def test_canonical_mat_roundtrip(tmp_path):
     assert len(reloaded_cor) == 144
     assert len(ring_cor) == 144
     for ea, eb in zip(ring_cor, reloaded_cor, strict=True):
-        assert np.allclose(
-            np.asarray(ea.KickAngle).ravel(), np.asarray(eb.KickAngle).ravel()
-        )
+        assert np.allclose(np.asarray(ea.KickAngle).ravel(), np.asarray(eb.KickAngle).ravel())
 
     ring_dip, reloaded_dip = _dipoles(ring), _dipoles(reloaded)
     assert len(reloaded_dip) == 36
@@ -128,9 +122,7 @@ def test_canonical_mat_roundtrip(tmp_path):
     assert len(reloaded_mag) == len(ring_mag)
     assert ring_mag  # non-empty guard
     for ea, eb in zip(ring_mag, reloaded_mag, strict=True):
-        assert np.allclose(
-            np.asarray(ea.PolynomB).ravel(), np.asarray(eb.PolynomB).ravel()
-        )
+        assert np.allclose(np.asarray(ea.PolynomB).ravel(), np.asarray(eb.PolynomB).ravel())
 
 
 def test_committed_artifact_matches_fresh_build(tmp_path):

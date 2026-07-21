@@ -48,9 +48,7 @@ from osprey.simulation.channel_schema import CHANNEL_SCHEMA
 from osprey.simulation.facility_spec import ALS_U_AR
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-_CHANNEL_DB_DIR = (
-    REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/channel_databases"
-)
+_CHANNEL_DB_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/channel_databases"
 COMMITTED_TIER3_DIR = _CHANNEL_DB_DIR / "tiers/tier3"
 COMMITTED_TIER1_DIR = _CHANNEL_DB_DIR / "tiers/tier1"
 
@@ -124,9 +122,7 @@ class TestTier1IsFilterOfTier3:
 
         # Count is derived from both sides, never pinned.
         assert len(filtered) == len(committed_tier1)
-        assert {c["address"]: c for c in filtered} == {
-            c["address"]: c for c in committed_tier1
-        }
+        assert {c["address"]: c for c in filtered} == {c["address"]: c for c in committed_tier1}
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +139,9 @@ def _from_scratch_spec_leaves() -> dict[str, tuple[str, str]]:
         for device_id in range(1, family.count + 1):
             for field, subs in schema.fields.items():
                 for subfield, subschema in subs.items():
-                    address = f"{RING}:{schema.system}:{family.name}:{device_id:02d}:{field}:{subfield}"
+                    address = (
+                        f"{RING}:{schema.system}:{family.name}:{device_id:02d}:{field}:{subfield}"
+                    )
                     expected[address] = (subschema.data_type, subschema.hw_units)
     return expected
 

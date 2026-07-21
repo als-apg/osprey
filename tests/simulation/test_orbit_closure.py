@@ -28,9 +28,7 @@ def _fresh_4d_ring():
 
 
 def _monitor_refpts(ring):
-    return np.array(
-        [i for i, e in enumerate(ring) if isinstance(e, at.Monitor)]
-    )
+    return np.array([i for i, e in enumerate(ring) if isinstance(e, at.Monitor)])
 
 
 def test_orbit4_closes_at_monitors():
@@ -47,8 +45,7 @@ def test_orbit4_closes_at_monitors():
 
     x, y = orbit_at_refpts[:, 0], orbit_at_refpts[:, 2]
     max_abs_x, max_abs_y = np.max(np.abs(x)), np.max(np.abs(y))
-    print(f"closed orbit at monitors: max|x| = {max_abs_x:.3e} m, "
-          f"max|y| = {max_abs_y:.3e} m")
+    print(f"closed orbit at monitors: max|x| = {max_abs_x:.3e} m, max|y| = {max_abs_y:.3e} m")
     # Evidence (ideal ring, no errors -> orbit is machine-precision zero):
     # max|x| = 0.000e+00 m, max|y| = 0.000e+00 m.
     assert max_abs_x < 1e-6
@@ -97,9 +94,11 @@ def test_corrector_kick_bounded_and_odd():
     # should never produce a meter-scale orbit on a real accelerator lattice;
     # 0.1 m is many orders of magnitude above the observed ~1e-4 m response.
     max_abs_x = max(np.max(np.abs(x_plus)), np.max(np.abs(x_minus)))
-    print(f"corrector kick response: max|x| = {max_abs_x:.3e} m at "
-          f"theta = {theta:.1e} rad "
-          f"({max_abs_x / theta:.3e} m/rad per unit kick)")
+    print(
+        f"corrector kick response: max|x| = {max_abs_x:.3e} m at "
+        f"theta = {theta:.1e} rad "
+        f"({max_abs_x / theta:.3e} m/rad per unit kick)"
+    )
     # Evidence: max|x| ~= 1.176e-04 m at theta = 1.0e-05 rad
     # (~1.176e+01 m/rad per unit kick).
     assert max_abs_x < 0.1

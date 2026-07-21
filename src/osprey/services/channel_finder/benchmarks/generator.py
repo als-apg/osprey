@@ -17,19 +17,13 @@ from osprey.services.channel_finder.tools.generate_from_spec import TIER1_FILTER
 # canonical template DB and the tier subsets, so consumers derive their paths
 # from here rather than walking ``parents[]`` off TEMPLATE_DB_PATH.
 TEMPLATE_DATA_DIR = (
-    Path(__file__).resolve().parents[3]
-    / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
+    Path(__file__).resolve().parents[3] / "templates" / "apps" / "control_assistant" / "data"
 )
 
 # Path to the canonical hierarchical template database — the full ~2900-channel
 # structural superset. It is the tier-3 hierarchical view (tier 3 is unfiltered),
 # and every tier subset / paradigm is generated from the same content.
-TEMPLATE_DB_PATH = (
-    TEMPLATE_DATA_DIR / "channel_databases" / "tiers" / "tier3" / "hierarchical.json"
-)
+TEMPLATE_DB_PATH = TEMPLATE_DATA_DIR / "channel_databases" / "tiers" / "tier3" / "hierarchical.json"
 
 
 def load_template(source_path: Path | None = None) -> tuple[dict, list[dict]]:
@@ -748,9 +742,7 @@ def _validate_tier(
         Tuple of (missing_entries, missing_database_paths).
     """
     paradigms = TIER_PARADIGMS.get(tier_num, tuple(_PARADIGM_FILENAMES))
-    db_files: list[tuple[str, str]] = [
-        (name, _PARADIGM_FILENAMES[name]) for name in paradigms
-    ]
+    db_files: list[tuple[str, str]] = [(name, _PARADIGM_FILENAMES[name]) for name in paradigms]
     missing: list[dict] = []
     missing_databases: list[str] = []
 

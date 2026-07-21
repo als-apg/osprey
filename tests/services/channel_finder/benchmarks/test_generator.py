@@ -292,8 +292,7 @@ class TestFormatInContext:
 
             # Count must match the live filter
             assert len(result["channels"]) == expected_count, (
-                f"{tier_spec.name}: expected {expected_count}, "
-                f"got {len(result['channels'])}"
+                f"{tier_spec.name}: expected {expected_count}, got {len(result['channels'])}"
             )
 
     def test_in_context_round_trip(self, all_channels: list[dict], tmp_path) -> None:

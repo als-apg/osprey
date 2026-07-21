@@ -131,9 +131,7 @@ def _family_pattern(family: str) -> re.Pattern[str]:
     )
 
 
-def _family_designator_violations(
-    text: str, family_valid_ids: dict[str, set[int]]
-) -> list[str]:
+def _family_designator_violations(text: str, family_valid_ids: dict[str, set[int]]) -> list[str]:
     """Return the non-canonical / out-of-range family references in ``text``.
 
     A reference is clean iff the whole matched token equals ``f"{FAM}{id:02d}"``

@@ -54,7 +54,7 @@ AMPS_PER_RADIAN_KICK = 1_000_000.0
 _CORRECTOR_FAMILIES = ("HCM", "VCM")
 
 _RING: at.Lattice | None = None
-_STRENGTH_MAP: "StrengthMap | None" = None
+_STRENGTH_MAP: StrengthMap | None = None
 
 
 def _get_ring() -> at.Lattice:
@@ -65,7 +65,7 @@ def _get_ring() -> at.Lattice:
     return _RING
 
 
-def _get_strength_map(ring: at.Lattice) -> "StrengthMap":
+def _get_strength_map(ring: at.Lattice) -> StrengthMap:
     """Return the (lazily-built, process-wide cached) StrengthMap for `ring`.
 
     Imported locally rather than at module scope: `strengths` imports

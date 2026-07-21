@@ -113,8 +113,7 @@ class TestJoinIsNonEmptyAndCoversExpectedClasses:
 
     def test_join_size_matches_the_derived_expectation(self, joined_addresses):
         assert len(joined_addresses) == self.EXPECTED_JOIN_SIZE, (
-            f"join size drifted: expected {self.EXPECTED_JOIN_SIZE}, "
-            f"got {len(joined_addresses)}"
+            f"join size drifted: expected {self.EXPECTED_JOIN_SIZE}, got {len(joined_addresses)}"
         )
 
     def test_join_covers_every_sr_quad_and_dipole_setpoint(
@@ -152,7 +151,9 @@ class TestBootValueFallsInsideItsOwnBand:
     +-12 A band, an sp-echo nominal outside its band) must fail this test.
     """
 
-    def test_every_boot_value_is_within_its_band(self, joined_addresses, drive_limits, machine_channels):
+    def test_every_boot_value_is_within_its_band(
+        self, joined_addresses, drive_limits, machine_channels
+    ):
         violations = []
         for address in joined_addresses:
             boot_value = machine_channels[address]["value"]

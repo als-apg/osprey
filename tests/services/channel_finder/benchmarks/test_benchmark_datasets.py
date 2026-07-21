@@ -74,9 +74,8 @@ class TestUnifiedQueriesValidateAgainstTierDbs:
             for n in _TIER_NUMS
             if (QUERIES_DIR / f"tier{n}_queries.json").exists()
         }
-        assert tier_queries, (
-            "No tier query files found — expected "
-            + ", ".join(f"tier{n}_queries.json" for n in _TIER_NUMS)
+        assert tier_queries, "No tier query files found — expected " + ", ".join(
+            f"tier{n}_queries.json" for n in _TIER_NUMS
         )
 
         result = validate_queries(tier_queries=tier_queries, output_dir=TIERS_ROOT)

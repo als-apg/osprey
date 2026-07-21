@@ -144,9 +144,7 @@ class TestNewFamiliesStructuralClone:
                 assert subschema.data_type == analog_subschema.data_type
                 assert subschema.hw_units == analog_subschema.hw_units
 
-    def test_new_family_channels_parse_through_all_three_formats(
-        self, generated: Path
-    ):
+    def test_new_family_channels_parse_through_all_three_formats(self, generated: Path):
         hier = HierarchicalChannelDatabase(str(generated / "hierarchical.json"))
         ctx = ChannelDatabase(str(generated / "in_context.json"))
         ml = MiddleLayerDatabase(str(generated / "middle_layer.json"))
@@ -203,14 +201,12 @@ class TestIdempotent:
     def test_rerunning_generator_is_byte_identical(self, tier3_copy: Path):
         generate(tier3_copy)
         first_pass = {
-            filename: (tier3_copy / filename).read_bytes()
-            for filename in TIER3_FILENAMES.values()
+            filename: (tier3_copy / filename).read_bytes() for filename in TIER3_FILENAMES.values()
         }
 
         generate(tier3_copy)
         second_pass = {
-            filename: (tier3_copy / filename).read_bytes()
-            for filename in TIER3_FILENAMES.values()
+            filename: (tier3_copy / filename).read_bytes() for filename in TIER3_FILENAMES.values()
         }
 
         assert first_pass == second_pass
@@ -353,9 +349,7 @@ class TestGenerateEmitsTier1:
 
         filtered = apply_tier1_filter(tier3_channels)
         assert len(tier1_channels) == len(filtered)
-        assert {c["address"]: c for c in tier1_channels} == {
-            c["address"]: c for c in filtered
-        }
+        assert {c["address"]: c for c in tier1_channels} == {c["address"]: c for c in filtered}
 
     def test_tier1_metadata_total_channels_is_computed(self, tiers_copy: Path):
         generate(tiers_copy / "tier3")
@@ -364,15 +358,9 @@ class TestGenerateEmitsTier1:
 
     def test_generate_is_byte_idempotent_over_both_tiers(self, tiers_copy: Path):
         generate(tiers_copy / "tier3")
-        first = {
-            p.relative_to(tiers_copy): p.read_bytes()
-            for p in tiers_copy.rglob("*.json")
-        }
+        first = {p.relative_to(tiers_copy): p.read_bytes() for p in tiers_copy.rglob("*.json")}
         generate(tiers_copy / "tier3")
-        second = {
-            p.relative_to(tiers_copy): p.read_bytes()
-            for p in tiers_copy.rglob("*.json")
-        }
+        second = {p.relative_to(tiers_copy): p.read_bytes() for p in tiers_copy.rglob("*.json")}
         assert first == second
 
     def test_generate_skips_tier1_when_sibling_absent(self, tier3_copy: Path):

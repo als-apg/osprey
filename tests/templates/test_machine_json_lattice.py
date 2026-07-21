@@ -156,9 +156,7 @@ class TestSrCorrectorsAreZeroed:
     """SR HCM/VCM CURRENT SP/RB were calibrated to a zeroed baseline (value
     0.0) with a physical current limit (min -12.0 A)."""
 
-    def test_sr_correctors_zeroed_with_current_limit(
-        self, pyat_coupled_channels, machine_channels
-    ):
+    def test_sr_correctors_zeroed_with_current_limit(self, pyat_coupled_channels, machine_channels):
         corrector_families = {f.name for f in ALS_U_AR.families if f.kind == "corrector"}
         correctors = [
             c

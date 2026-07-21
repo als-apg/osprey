@@ -93,12 +93,8 @@ def test_ring_spec_consistency():
             tally[match.group(1)] += 1
         if isinstance(element, at.Monitor):
             monitors += 1
-            assert match is not None, (
-                f"Monitor {element.FamName!r} is not scheme-named"
-            )
-            assert match.group(1) == "BPM", (
-                f"Monitor {element.FamName!r} is not a BPM"
-            )
+            assert match is not None, f"Monitor {element.FamName!r} is not scheme-named"
+            assert match.group(1) == "BPM", f"Monitor {element.FamName!r} is not a BPM"
 
     assert dict(tally) == ALS_U_AR.counts()
     assert monitors == 72

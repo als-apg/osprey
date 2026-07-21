@@ -152,8 +152,12 @@ class DeviceBand:
     i_nom: float
     lo_edge: DirectionEdge
     hi_edge: DirectionEdge
-    band: tuple[float, float]  # committed [min, max] (== derived edges except for DIPOLE/unipolar floor)
-    band_lo_reason: str  # lo_edge.reason, "unipolar_floor", or the DIPOLE policy's own lo_edge.reason
+    band: tuple[
+        float, float
+    ]  # committed [min, max] (== derived edges except for DIPOLE/unipolar floor)
+    band_lo_reason: (
+        str  # lo_edge.reason, "unipolar_floor", or the DIPOLE policy's own lo_edge.reason
+    )
 
 
 def _max_plane_trace(m44: np.ndarray) -> float | None:
@@ -215,12 +219,16 @@ def _sweep_direction(
         trace = _solve_trace(ring)
 
         if trace is None:
-            return DirectionEdge(current=last_current, reason="last_finite", trace_at_edge=last_trace)
+            return DirectionEdge(
+                current=last_current, reason="last_finite", trace_at_edge=last_trace
+            )
 
         if trace >= TRACE_EDGE:
             frac = (TRACE_EDGE - last_trace) / (trace - last_trace)
             edge_current = last_current + frac * (current - last_current)
-            return DirectionEdge(current=edge_current, reason="trace_crossing", trace_at_edge=TRACE_EDGE)
+            return DirectionEdge(
+                current=edge_current, reason="trace_crossing", trace_at_edge=TRACE_EDGE
+            )
 
         last_current, last_trace = current, trace
         n += 1
@@ -311,7 +319,11 @@ def derive_device_band(
 def _all_devices() -> list[tuple[str, str]]:
     """Every (family, device_id) pair this script derives bands for."""
     inventory = pyat_coupled_device_ids()
-    return [(family, device_id) for family in DERIVED_FAMILIES for device_id in inventory.get(family, [])]
+    return [
+        (family, device_id)
+        for family in DERIVED_FAMILIES
+        for device_id in inventory.get(family, [])
+    ]
 
 
 def derive_bands(
@@ -361,12 +373,16 @@ def _run_check(ring: at.Lattice, strength_map: StrengthMap, **sweep_kwargs) -> i
 
     for address, device_band in results.items():
         lo, hi = device_band.band
-        assert lo < device_band.i_nom < hi, f"{address}: nominal current not inside derived band [{lo}, {hi}]"
+        assert lo < device_band.i_nom < hi, (
+            f"{address}: nominal current not inside derived band [{lo}, {hi}]"
+        )
 
     # Unipolar-floor invariant: QD01's real stability edge is negative, so the
     # floor must govern and the committed min must be exactly 0.0 A.
     qd01_band = results[current_address("QD", "01")]
-    assert qd01_band.band[0] == 0.0, f"QD01: expected unipolar floor at 0.0 A, got {qd01_band.band[0]}"
+    assert qd01_band.band[0] == 0.0, (
+        f"QD01: expected unipolar floor at 0.0 A, got {qd01_band.band[0]}"
+    )
     assert qd01_band.band_lo_reason == "unipolar_floor", (
         f"QD01: expected band_lo_reason 'unipolar_floor', got {qd01_band.band_lo_reason!r}"
     )
@@ -388,7 +404,9 @@ def _run_check(ring: at.Lattice, strength_map: StrengthMap, **sweep_kwargs) -> i
     return 0
 
 
-def _run_derive_all(ring: at.Lattice, strength_map: StrengthMap, output: str | None, **sweep_kwargs) -> int:
+def _run_derive_all(
+    ring: at.Lattice, strength_map: StrengthMap, output: str | None, **sweep_kwargs
+) -> int:
     results = derive_bands(ring, strength_map, _all_devices(), **sweep_kwargs)
     text = json.dumps(_bands_to_json(results), indent=2, sort_keys=True)
     if output:
@@ -398,7 +416,9 @@ def _run_derive_all(ring: at.Lattice, strength_map: StrengthMap, output: str | N
     return 0
 
 
-def _run_verify(ring: at.Lattice, strength_map: StrengthMap, committed_path: Path, *, tol: float, **sweep_kwargs) -> int:
+def _run_verify(
+    ring: at.Lattice, strength_map: StrengthMap, committed_path: Path, *, tol: float, **sweep_kwargs
+) -> int:
     committed = json.loads(committed_path.read_text())
     results = derive_bands(ring, strength_map, _all_devices(), **sweep_kwargs)
 
