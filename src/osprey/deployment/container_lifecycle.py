@@ -662,7 +662,7 @@ def _project_image_build_cmd(
     """Construct the ``<runtime> build`` argv that produces ``<project>:local``.
 
     Carries the same ``com.osprey.project`` label
-    :func:`osprey.deployment.web_terminals.provision._persona_image_build_cmd`
+    :func:`osprey.deployment.web_terminals.persona_images._persona_image_build_cmd`
     stamps on its persona images, so a later ``nuke`` can verify a tag belongs
     to this deployment before removing it. Under ``dev_mode`` an
     ``OSPREY_DEV=1`` build-arg is added (mirroring the persona dev path), so

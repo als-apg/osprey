@@ -70,7 +70,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_user_volume_names
-from osprey.deployment.web_terminals.ports import normalize_users
+from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.utils import config_writer
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
@@ -954,7 +954,7 @@ def _write_persona_project(root: Path, project_name: str, container_project_dir:
     reconcile needs: a ``dispatch`` user and the two mount-point directories
     the compose template declares volumes onto) but parametrized per persona,
     since each persona has its own ``container_project_dir``
-    (:func:`osprey.deployment.web_terminals.ports.resolve_personas`'s contract).
+    (:func:`osprey.deployment.web_terminals.personas.resolve_personas`'s contract).
     ``config.yml`` only needs ``project_name`` -- nothing in the local-mode
     build path (:func:`osprey.deployment.web_terminals.provision.build_persona_images`)
     reads anything else from a persona project's own config.

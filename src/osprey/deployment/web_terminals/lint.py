@@ -17,14 +17,16 @@ from typing import Any, Literal
 
 import yaml
 
-from osprey.deployment.web_terminals.ports import (
-    FAMILY_BASE_FIELDS,
+from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
-    allocate_ports,
     as_dict,
-    base_ports_from_config,
     effective_image_source,
     resolve_personas,
+)
+from osprey.deployment.web_terminals.ports import (
+    FAMILY_BASE_FIELDS,
+    allocate_ports,
+    base_ports_from_config,
 )
 
 # Rule 12's closed set of reserved compose service keys. "dispatch-sidecar-*" is a
@@ -605,7 +607,7 @@ def _check_registry_url_coherence(
 
     Only evaluated once a persona catalog is actually configured. A config
     with no ``personas:`` block at all resolves every user through
-    :func:`~osprey.deployment.web_terminals.ports.resolve_personas`'s
+    :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
     zero-migration path exactly as it did before catalogs/mode-coherence
     existed — this check does not retroactively demand a ``registry.url`` from
     deployments that never opted into the persona system.
@@ -644,7 +646,7 @@ def _check_registry_url_coherence(
 
 def _check_local_mode_requires_catalog(web_terminals: dict[str, Any]) -> list[Finding]:
     """Rule 14: the lint-side mirror of
-    :func:`~osprey.deployment.web_terminals.ports.resolve_personas`'s
+    :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
     ``strict=True`` ``ValueError`` guard. ``deploy up`` never runs the lint
     pass, so both guards must independently fail closed on ``image_source:
     local`` without a catalog + ``default_persona``."""
