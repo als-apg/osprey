@@ -1,0 +1,38 @@
+# control-assistant-operator.yml
+# Write-capable persona — the operations tier of the control-assistant
+# multi-user stack.
+#
+# This preset inherits everything from `control-assistant` and keeps the
+# write gate armed. `control_system.writes_enabled: true` does NOT mean
+# unguarded writes: every channel write still passes the writes-check hook,
+# per-channel min/max limits, and the mandatory human approval prompt before
+# the connector executes it. The tier difference is whether the write path
+# exists at all, not whether it is supervised.
+#
+# The read-only counterpart is `control-assistant-physicist`.
+
+name: Control Assistant (Operator)
+
+extends: control-assistant
+
+# Attached project: the persona builds per-user terminal images only and
+# connects to the shared web tier + scan services the hosting control-assistant
+# project deploys on the same host. No services are scaffolded (empty
+# `deployed_services`, no services/) — the bluesky/VA/panels/dispatch injector
+# blocks inherited from the base are all gated on this flag and skip cleanly.
+deploy_services: false
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY: each entry is a literal `key.path` written into config.yml
+# after the template renders. Nested YAML under `config:` would deep-merge into
+# and clobber the base's rendered config subtree, so keep every override flat.
+config:
+  # The single axis this persona differs on. Inherited true from the tutorial
+  # base's template default, but pinned explicitly here: this key IS the tier
+  # boundary, so it must not drift silently if the base's default ever changes.
+  control_system.writes_enabled: true
+  # Attached persona: the hosting project owns the web-terminal tier (nginx,
+  # landing, per-user containers). Without this override the inherited roster
+  # would make a persona-dir deploy try to host a second web tier on the same
+  # host ports.
+  modules.web_terminals.enabled: false

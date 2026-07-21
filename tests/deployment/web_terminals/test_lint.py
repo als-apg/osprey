@@ -370,6 +370,39 @@ def test_lint_valid_object_form_users_report_no_index_errors() -> None:
     assert not any(f.code == "web_terminals.duplicate_index" for f in errors)
 
 
+def test_lint_non_string_display_name_is_an_error() -> None:
+    """A non-string `display_name` (a config typo) is rejected — the renderer would
+    otherwise drop it silently."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "display_name": ["not", "a", "string"]}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_display_name" for f in errors)
+
+
+def test_lint_string_display_name_reports_no_error() -> None:
+    """A well-formed string `display_name` is accepted."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "display_name": "Operations"},
+        {"name": "gmartino", "index": 1},  # no display_name at all is equally fine
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_display_name" for f in findings)
+
+
 def test_lint_bare_multi_user_list_warns_about_port_drift_risk() -> None:
     """A legacy bare list with >1 user risks positional port drift on decommission."""
     # Arrange
@@ -629,6 +662,56 @@ def test_lint_persona_catalog_reserved_name_is_an_error() -> None:
     assert any(f.code == "web_terminals.persona_reserved_name" for f in errors)
 
 
+def test_lint_persona_seed_base_non_bool_is_an_error() -> None:
+    """A persona `seed_base` that isn't a boolean (e.g. the YAML string
+    "false", which is truthy and would silently defeat the opt-out) is an
+    error."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {
+        "standalone": {"project": "als-x", "seed_base": "false"}
+    }
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_invalid_seed_base" for f in errors)
+
+
+def test_lint_persona_seed_base_bool_is_accepted() -> None:
+    """A boolean `seed_base` (either value) trips no seed_base finding."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {
+        "keep": {"project": "als-keep", "seed_base": True},
+        "drop": {"project": "als-drop", "seed_base": False},
+    }
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_invalid_seed_base" for f in findings)
+
+
+def test_lint_persona_seed_base_absent_is_accepted() -> None:
+    """A persona entry with no `seed_base` key at all trips no seed_base finding."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"plain": {"project": "als-x"}}
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_invalid_seed_base" for f in findings)
+
+
 def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
     """A config predating persona catalogs (no `personas:` block, no `persona:`
     keys, no `default_persona`) must resolve every entry as zero-migration and
@@ -643,6 +726,7 @@ def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
     persona_codes = {
         "web_terminals.invalid_persona_charset",
         "web_terminals.persona_reserved_name",
+        "web_terminals.persona_invalid_seed_base",
         "web_terminals.unknown_default_persona",
         "web_terminals.unknown_persona_reference",
     }
@@ -1238,6 +1322,91 @@ def test_lint_registry_mode_non_default_persona_with_build_profile_reports_no_er
     assert not any(f.code == "web_terminals.persona_missing_build_profile" for f in errors)
 
 
+# --- persona extra_mounts syntax ---------------------------------------------
+
+
+def test_lint_valid_persona_extra_mounts_reports_no_error() -> None:
+    """Well-formed compose volume strings (2 or 3 non-empty colon parts) pass."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "extra_mounts": ["/opt/site-data:/app/site-data:ro", "cache:/app/cache"],
+                },
+            },
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code.startswith("web_terminals.persona_") for f in errors)
+    assert not any("extra_mount" in f.code for f in errors)
+
+
+def test_lint_malformed_persona_extra_mount_string_is_an_error() -> None:
+    """An entry that isn't a 2-or-3-part colon string renders a broken volume line."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    # no colon at all, empty part, and too many parts
+                    "extra_mounts": ["no-colon", "/a::ro", "/a:/b:ro:extra"],
+                },
+            },
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.persona_invalid_extra_mount"]
+    assert len(errors) == 3
+    assert any("no-colon" in f.message for f in errors)
+
+
+def test_lint_non_list_persona_extra_mounts_is_an_error() -> None:
+    """`extra_mounts` must be a list; a scalar is a distinct, reported error."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {"project": "als-assistant", "extra_mounts": "/a:/b:ro"},
+            },
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_extra_mounts_not_list" for f in errors)
+
+
+def test_lint_absent_persona_extra_mounts_reports_no_error() -> None:
+    """A persona that omits `extra_mounts` is never flagged — the key is optional."""
+    # Arrange
+    config = _persona_config(registry={"url": "registry.example.org:5050"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any("extra_mount" in f.code for f in errors)
+
+
 def test_lint_unknown_mcp_topology_is_an_error() -> None:
     """`shared_http` (and any other unrecognized value) is fail-closed at lint
     time too — the lint-side mirror of render.py's ValueError."""
@@ -1341,3 +1510,113 @@ def test_lint_omitted_mcp_topology_reports_no_error() -> None:
     # Assert
     errors = _errors(findings)
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
+
+
+def test_lint_default_image_tag_reports_no_warning() -> None:
+    """The default (unset) `image_tag` resolves to `latest`, so the empty-tag
+    check stays silent for an ordinary registry-mode config."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.empty_image_tag" for f in findings)
+
+
+def test_lint_empty_expanded_image_tag_is_a_warning(monkeypatch) -> None:
+    """A registry-mode `image_tag` referencing an unset env var expands to empty
+    and must produce a (non-fatal) warning, never an error."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["image_tag"] = "${IMAGE_TAG}"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _errors(findings) == []
+    assert any(f.code == "web_terminals.empty_image_tag" for f in _warnings(findings))
+
+
+def test_lint_empty_image_tag_in_local_mode_reports_no_warning(monkeypatch) -> None:
+    """Local mode builds `:local` images and never reads `image_tag`, so an empty
+    tag there is not this check's concern."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["image_source"] = "local"
+    web_terminals["default_persona"] = "ops"
+    web_terminals["personas"] = {"ops": {"project": "ops-app", "project_path": "profiles/ops"}}
+    web_terminals["image_tag"] = "${IMAGE_TAG}"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.empty_image_tag" for f in findings)
+
+
+# --- nginx_image override -----------------------------------------------------
+
+
+def test_lint_omitted_nginx_image_reports_nothing() -> None:
+    """No `nginx_image` key (the common case) applies the render-time default and
+    must never be flagged."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    assert "nginx_image" not in config["modules"]["web_terminals"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any("nginx_image" in f.code for f in findings)
+
+
+def test_lint_valid_nginx_image_string_reports_nothing() -> None:
+    """A non-empty string image reference is accepted silently."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["nginx_image"] = (
+        "registry.example.com:5050/mirrors/nginx:1.27-alpine"
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any("nginx_image" in f.code for f in findings)
+
+
+def test_lint_non_string_nginx_image_is_an_error() -> None:
+    """A non-string `nginx_image` cannot be an image reference — fail closed."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["nginx_image"] = 1234
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_nginx_image" for f in errors)
+
+
+def test_lint_empty_nginx_image_is_a_warning() -> None:
+    """An empty/whitespace-only `nginx_image` is inert (the default applies) but
+    almost certainly a mistake — a non-fatal warning."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["nginx_image"] = "   "
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    warnings = _warnings(findings)
+    assert any(f.code == "web_terminals.empty_nginx_image" for f in warnings)
+    assert not any(f.code == "web_terminals.invalid_nginx_image" for f in _errors(findings))

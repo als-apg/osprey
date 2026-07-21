@@ -51,6 +51,11 @@ _LANDING_OUTPUT = "nginx/landing.html"
 # provide.
 _LOOPBACK_BIND_HOST = "127.0.0.1"
 
+# Default nginx image when `modules.web_terminals.nginx_image` is unset. Kept
+# byte-identical to docker-compose.web.yml.j2's own `| default(...)` fallback so
+# an absent config value renders exactly as before this seam existed.
+_DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
+
 
 def render_web_terminals(config: Any) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
@@ -98,6 +103,13 @@ def render_web_terminals(config: Any) -> dict[str, str]:
                 "image": entry["image"],
                 "project": entry["project"],
                 "container_project_dir": entry["container_project_dir"],
+                "extra_mounts": entry["extra_mounts"],
+                # Optional per-user window/tab title -> OSPREY_WEB_APP_NAME. None
+                # (the common case: resolve_personas omits the key unless a
+                # non-empty string was set) leaves the template's `{% if
+                # svc.display_name %}` guard false, so no env line is emitted and
+                # the app falls back to config web.app_name.
+                "display_name": entry.get("display_name"),
                 **user_ports,
                 # One env line per companion family, derived from the web-server
                 # registry (PANEL_ENV_VARS) so a newly registered companion is
@@ -128,6 +140,11 @@ def render_web_terminals(config: Any) -> dict[str, str]:
         "landing_url": landing_url,
         "facility_timezone": facility.get("timezone") or "UTC",
         "bind_host": _LOOPBACK_BIND_HOST,
+        # Read defensively (as everywhere else in this module); the template
+        # carries the same default, so an absent/blank value still renders the
+        # public tag. Facilities whose images all come from a private registry
+        # override this so the nginx image is pullable too.
+        "nginx_image": web_terminals.get("nginx_image") or _DEFAULT_NGINX_IMAGE,
     }
     auth_tls_ctx = _auth_tls_context(web_terminals)
     if auth_tls_ctx["tls_enabled"] and not (auth_tls_ctx["tls_cert"] and auth_tls_ctx["tls_key"]):

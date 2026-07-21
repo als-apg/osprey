@@ -221,8 +221,8 @@ class TestPersonaAttachment:
 WEB_TERMINALS_KEY = "modules.web_terminals"
 
 
-def _render_config_overrides(tmp_path: Path, seed: dict) -> dict:
-    """Render the base preset's ``config:`` overrides onto ``seed`` exactly as
+def _render_config_overrides(tmp_path: Path, seed: dict, preset: str = "multi-user-demo") -> dict:
+    """Render a hosting preset's ``config:`` overrides onto ``seed`` exactly as
     the build pipeline does — via :func:`config_update_fields`, the same
     dot-notation writer ``_apply_config_overrides`` calls — and reload the
     result as a plain dict.
@@ -230,14 +230,15 @@ def _render_config_overrides(tmp_path: Path, seed: dict) -> dict:
     Args:
         tmp_path: Per-test temp directory (pytest fixture).
         seed: Pre-existing config contents to render the overrides onto.
+        preset: Hosting preset whose overrides to render.
 
     Returns:
-        The reloaded config after applying the base preset's overrides.
+        The reloaded config after applying the preset's overrides.
     """
     config_path = tmp_path / "config.yml"
     with config_path.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(seed, fh)
-    overrides = resolve_preset("multi-user-demo").config
+    overrides = resolve_preset(preset).config
     config_update_fields(config_path, overrides)
     with config_path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -343,14 +344,15 @@ class TestBaseWebTerminals:
         assert "channel-finder" in base.web_panels
         assert "ariel" in base.web_panels
 
-    def test_control_assistant_no_longer_hosts_the_web_tier(self) -> None:
-        """The multi-user roster moved out of ``control-assistant`` into this
-        family — the scan tutorial preset must not carry a web-terminals block
-        (or its web-tier-only companion keys) referencing deleted personas."""
+    def test_control_assistant_hosts_its_own_web_tier(self) -> None:
+        """The scan tutorial preset ships natively multi-user: it carries its
+        own web-terminals block (plus the web-tier companion keys) alongside
+        the full scan stack. Its persona family is tested in its own sections
+        below; this asserts the hosting posture exists at all."""
         base = resolve_preset("control-assistant")
-        assert WEB_TERMINALS_KEY not in base.config
-        assert "facility.prefix" not in base.config
-        assert "deploy.fqdn" not in base.config
+        assert WEB_TERMINALS_KEY in base.config
+        assert "facility.prefix" in base.config
+        assert "deploy.fqdn" in base.config
 
 
 # ---------------------------------------------------------------------------
@@ -463,3 +465,165 @@ class TestWebTerminalContextShipped:
         base_md = project_dir / seeding._CONTEXT_DIR / "base.md"
         assert base_md.is_file()
         assert base_md.read_text(encoding="utf-8").strip() != ""
+
+
+# ---------------------------------------------------------------------------
+# Control-assistant multi-user family (built-in web tier + persona pair)
+# ---------------------------------------------------------------------------
+
+# The control-assistant tutorial ships natively multi-user: the same hosting
+# pattern as the demo family above, but alongside the full scan stack, with the
+# tiers named for control-room roles — physicist (read-only, the default) and
+# operator (write-capable through the ordinary safety chain).
+
+
+class TestControlAssistantWebTier:
+    """The tutorial preset hosts its own web tier: block shape, port families
+    clear of the tutorial's own service ports, and a lint-clean render."""
+
+    def test_web_terminals_is_one_literal_dotted_key(self) -> None:
+        """Same flat-key invariant as the demo base: a nested ``modules:``
+        mapping would clobber sibling modules in the rendered config."""
+        base = resolve_preset("control-assistant")
+        assert WEB_TERMINALS_KEY in base.config
+        assert "modules" not in base.config
+        assert "facility" not in base.config
+        assert "deploy" not in base.config
+
+    def test_rendered_web_terminals_shape(self, tmp_path: Path) -> None:
+        """The rendered subtree matches the two-persona tutorial shape: local
+        image source, physicist default, a physicist/operator catalog whose
+        ``project`` equals its ``project_path`` basename, and a roster mapping
+        alice→physicist (via default) and bob→operator."""
+        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
+        wt = rendered["modules"]["web_terminals"]
+
+        assert wt["enabled"] is True
+        assert wt["image_source"] == "local"
+        assert wt["default_persona"] == "physicist"
+        assert wt["nginx_port"] == 9080
+
+        assert wt["users"][0] == "alice"
+        assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "operator"}
+
+        personas = wt["personas"]
+        assert set(personas) == {"physicist", "operator"}
+        for name, profile in (
+            ("physicist", "control-assistant-physicist"),
+            ("operator", "control-assistant-operator"),
+        ):
+            entry = personas[name]
+            # Name invariant: project == basename(project_path).
+            assert entry["project"] == os.path.basename(entry["project_path"])
+            assert entry["build_profile"] == profile
+
+    def test_port_families_clear_tutorial_service_ports(self, tmp_path: Path) -> None:
+        """Every per-user port family sits above the tutorial's own published
+        service ports (VA 5064, dispatcher 8020, bluesky 8090/8091, panels
+        8095) — the containers share the host network namespace, so a family
+        landing on a service port would collide at deploy time."""
+        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
+        wt = rendered["modules"]["web_terminals"]
+        service_ports = {5064, 8020, 8090, 8091, 8095}
+        n_users = len(wt["users"])
+        for family in (
+            "nginx_port",
+            "web_base_port",
+            "artifact_base_port",
+            "ariel_base_port",
+            "lattice_base_port",
+            "channel_finder_base_port",
+        ):
+            base_port = wt[family]
+            spread = 1 if family == "nginx_port" else n_users
+            for offset in range(spread):
+                assert base_port + offset not in service_ports, (
+                    f"{family} collides with a tutorial service port"
+                )
+
+    def test_rendered_config_lints_without_errors(self, tmp_path: Path) -> None:
+        """``lint_web_terminals`` on the freshly-rendered tutorial config
+        reports zero ERROR findings pre-deploy — the persona projects don't
+        exist yet, but each catalog entry carries a ``build_profile`` deploy up
+        auto-renders from, which the lint demotes to informational."""
+        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
+        assert _errors(lint_web_terminals(rendered)) == []
+
+    def test_derived_web_container_names_are_valid_docker_names(self, tmp_path: Path) -> None:
+        """``<prefix>-nginx`` and ``<prefix>-web-<user>`` for the tutorial
+        roster all match the Docker name grammar."""
+        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
+        prefix = rendered["facility"]["prefix"]
+        for name in (f"{prefix}-nginx", f"{prefix}-web-alice", f"{prefix}-web-bob"):
+            assert DOCKER_NAME_RE.match(name), f"invalid Docker container name: {name!r}"
+
+    def test_rendered_config_satisfies_landing_url(self, tmp_path: Path) -> None:
+        """The rendered config passes the exact check ``deploy up`` runs."""
+        from osprey.deployment.web_terminals.render import _landing_url
+
+        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
+        fqdn = rendered["deploy"]["fqdn"]
+        nginx_port = rendered["modules"]["web_terminals"]["nginx_port"]
+        assert _landing_url(rendered, nginx_port) == f"http://{fqdn}:{nginx_port}"
+
+
+class TestControlAssistantPersonas:
+    """The physicist/operator pair: same single-axis contract as the demo
+    family — identical projects except ``control_system.writes_enabled``."""
+
+    def test_physicist_extends_base_and_disables_writes(self) -> None:
+        profile = resolve_preset("control-assistant-physicist")
+        assert profile.name == "Control Assistant (Physicist)"
+        assert profile.data_bundle == "control_assistant"
+        assert profile.config.get(WRITES_KEY) is False
+        # Flat dotted key, never nested YAML under config:.
+        assert "control_system" not in profile.config
+
+    def test_operator_extends_base_and_enables_writes(self) -> None:
+        profile = resolve_preset("control-assistant-operator")
+        assert profile.name == "Control Assistant (Operator)"
+        assert profile.data_bundle == "control_assistant"
+        assert profile.config.get(WRITES_KEY) is True
+        assert "control_system" not in profile.config
+
+    def test_personas_differ_only_on_writes_enabled(self) -> None:
+        physicist = resolve_preset("control-assistant-physicist")
+        operator = resolve_preset("control-assistant-operator")
+
+        ph_cfg = dict(physicist.config)
+        op_cfg = dict(operator.config)
+        assert ph_cfg.pop(WRITES_KEY) is False
+        assert op_cfg.pop(WRITES_KEY) is True
+        # With the axis key removed, the rendered config overrides are identical.
+        assert ph_cfg == op_cfg
+
+    def test_personas_share_every_artifact_list(self) -> None:
+        """No tier is defined by artifact removal — both inherit the tutorial's
+        full artifact set verbatim, scan skills and panels included (the
+        boundary is enforcement, not absence)."""
+        physicist = resolve_preset("control-assistant-physicist")
+        operator = resolve_preset("control-assistant-operator")
+        base = resolve_preset("control-assistant")
+        for persona in (physicist, operator):
+            assert persona.skills == base.skills
+            assert persona.rules == base.rules
+            assert persona.hooks == base.hooks
+            assert persona.agents == base.agents
+            assert persona.output_styles == base.output_styles
+            assert persona.web_panels == base.web_panels
+
+    def test_personas_are_attached(self) -> None:
+        """Both personas set ``deploy_services: false`` — they build terminal
+        images only, and the scan/VA/dispatch injector blocks inherited from
+        the base are gated on this flag and skip cleanly. The hosting base
+        keeps the default self-contained posture."""
+        assert resolve_preset("control-assistant").deploy_services is True
+        assert resolve_preset("control-assistant-physicist").deploy_services is False
+        assert resolve_preset("control-assistant-operator").deploy_services is False
+
+    def test_personas_do_not_host_a_second_web_tier(self) -> None:
+        """Each persona pins ``modules.web_terminals.enabled: false`` so a
+        persona-dir deploy never races the hosting project for the web ports."""
+        for name in ("control-assistant-physicist", "control-assistant-operator"):
+            profile = resolve_preset(name)
+            assert profile.config.get("modules.web_terminals.enabled") is False

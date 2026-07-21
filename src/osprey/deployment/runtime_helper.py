@@ -264,3 +264,44 @@ def get_ps_command(config: dict | None = None, all_containers: bool = False) -> 
     ps_cmd.extend(["--format", "json"])
 
     return ps_cmd
+
+
+def _inspect_image_id(cmd: list[str], env: dict[str, str] | None) -> str | None:
+    """Run an inspect ``cmd`` that prints one image ID; normalize or return None.
+
+    A non-zero exit (missing image/container) or empty output yields ``None`` so
+    callers can treat an absent target as "nothing to reconcile" rather than
+    raising. The ``sha256:`` prefix is stripped so IDs from an image inspect and
+    a container inspect compare equal regardless of which form the runtime emits.
+    """
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        return None
+    image_id = result.stdout.strip()
+    if not image_id:
+        return None
+    return image_id.removeprefix("sha256:")
+
+
+def get_image_id(runtime: str, image: str, env: dict[str, str] | None = None) -> str | None:
+    """Image ID a local image reference currently resolves to, or ``None``.
+
+    Runs ``<runtime> image inspect --format {{.Id}} <image>``. A reference not
+    present locally (e.g. a tag that was never pulled) returns ``None`` instead
+    of raising, so a caller reconciling image drift can skip it.
+    """
+    return _inspect_image_id([runtime, "image", "inspect", "--format", "{{.Id}}", image], env)
+
+
+def get_container_image_id(
+    runtime: str, container: str, env: dict[str, str] | None = None
+) -> str | None:
+    """Image ID a container was created from, or ``None`` if it doesn't exist.
+
+    Runs ``<runtime> container inspect --format {{.Image}} <container>``. A
+    missing container returns ``None`` (a no-op for the caller), so reconciling
+    a service whose container hasn't been created yet is harmless.
+    """
+    return _inspect_image_id(
+        [runtime, "container", "inspect", "--format", "{{.Image}}", container], env
+    )

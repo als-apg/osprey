@@ -64,6 +64,7 @@ modules:
   web_terminals:
     enabled: true
     nginx_port: 9080                    # ${config.modules.web_terminals.nginx_port}
+    nginx_image: "nginx:1.27-alpine"    # OPTIONAL — reverse-proxy image (default shown); point at a private mirror on hosts that can't pull docker.io
     web_base_port: 9091                 # first per-user web-terminal port      → OSPREY_WEB_PORT (required)
     # Companion families are optional — omitted ones use registry defaults
     # (artifact 9291, ariel 9391, lattice 9491, channel_finder 9591, okf 9691).
@@ -72,7 +73,9 @@ modules:
     lattice_base_port: 9491             # first per-user lattice-dashboard port → OSPREY_LATTICE_DASHBOARD_PORT
     users:                              # one container per user
       - alice
-      - bob
+      - name: "bob"                     # object form — needed to set per-user fields
+        index: 1
+        display_name: "Operations"      # optional window/tab title → OSPREY_WEB_APP_NAME
       - carol
     landing:                            # grouped landing page served at nginx_port
       groups:
@@ -85,6 +88,16 @@ modules:
 ```
 
 **Port allocation rule**: each user's four services bind host port `<family>_base_port + index` (where `index` is the zero-based position in the `users:` list, and `family` is one of `web`, `artifact`, `ariel`, `lattice`). With the values above and three users, `alice` (index 0) gets `9091`/`9291`/`9391`/`9491`, `bob` (index 1) gets `9092`/`9292`/`9392`/`9492`, and so on. This arithmetic is implemented once, in `deployment/web_terminals/ports.py`'s `allocate_ports()` — the renderer and the lint both call it rather than reimplementing it. The interview enforces no collision across all four families, `${config.ports.*}`, and the event-dispatcher sidecar range (see validation rule 11 in `facility-config-schema.md`). When `modules.web_terminals.tls.enabled: true`, the lint also reserves port `443` (the TLS listener) against that same overlap set, so a facility can't independently assign `443` to something else in `${config.ports.*}`.
+
+**Per-user window title** (`display_name`, optional). Because the Claude Code
+project is baked into a shared image, `config.yml`'s `web.app_name` — the browser
+window/tab title — is the same for every user on that image. Setting an object-form
+entry's `display_name` emits `OSPREY_WEB_APP_NAME=<value>` into just that user's
+container, which `osprey web` treats as authoritative over `web.app_name`, so each
+user can carry a distinct title (e.g. `"Operations"` vs `"Physics"`) without a
+per-user image. Omitting it emits no env line and inherits `web.app_name`. See the
+full field reference in `references/facility-config-schema.md` § "User roster
+entries".
 
 **The per-user list is durable**. Adding a user appends to the list (re-run the interview, or hand-edit then re-scaffold) without disturbing existing users' state. Removing a user from the list does **not** delete their named volume by default — the volume sticks around and can be reattached if the user comes back. To actually wipe a user's state, use `osprey deploy decommission <user> --purge` (see "Operating the module" below), or run `${config.runtime.engine} volume rm ${config.facility.prefix}-${user}-claude-config` by hand.
 
@@ -137,12 +150,31 @@ modules:
         project: "als-analysis"
         project_path: "../als-analysis"
         build_profile: "profiles/analysis.yml"
+        extra_mounts:                            # optional per-persona host mounts
+          - "/opt/site-data:/app/site-data:ro"
+        seed_base: false                   # optional (default true) — seed from this persona's extra.md alone, no base.md prepend
     users:
       - alice                              # no persona: → resolves to default_persona
       - name: "bob"
         index: 1                           # required for object-form entries
         persona: "analysis"                # explicit persona reference
 ```
+
+### Persona-level extra mounts
+
+A persona may declare `extra_mounts` — a list of compose volume strings appended
+to the `volumes:` block of **every** user resolving to that persona, after the two
+managed per-user mounts (the `<user>-claude-config` and `<user>-agent-data` named
+volumes). Each entry is a plain compose volume string: a host-path bind
+(`/opt/site-data:/app/site-data:ro`) or a named volume
+(`shared-cache:/app/cache`), with 2 or 3 non-empty colon-separated parts. It is
+persona-scoped, not per-user — mounts shared by a whole persona (a read-only
+reference dataset, a shared cache) belong here, so they attach identically to
+every user of that persona without repeating them on each roster entry. A
+malformed entry (wrong colon count, or a non-list `extra_mounts` value) is a lint
+ERROR. Omitting the key is the zero-migration default (no extra mounts). The
+un-personaed roster (no `personas:` catalog at all) never gains an extra mount —
+there is no catalog entry to read them from.
 
 ### Registry-mode operator flow (CI-built images, the default)
 
@@ -160,6 +192,24 @@ persona, `deploy up` still only pulls, never builds.
    default persona's unsuffixed tag, and each non-default persona's suffixed
    tag — and reconciles the heterogeneous set of per-user containers. No
    build ever runs in this mode.
+
+The image *tag* every ref carries (`web-terminal:<tag>`,
+`web-terminal-<persona>:<tag>`) comes from `modules.web_terminals.image_tag`
+(default `latest`). Any `${VAR}` in that field is expanded against the
+environment **at render time** and baked into the compose file as a literal —
+so a rendered artifact self-carries its pin and a pull-free re-`up` re-ups that
+exact tag rather than whatever `latest` resolves to locally (there is no
+compose-side `${...}` interpolation). This field is registry-mode only; local
+mode always builds `:local` images.
+
+After `up -d`, on podman only, `deploy up` reconciles image drift: it
+force-recreates just those web-stack services whose running container was
+created from a different image ID than their tag now resolves to. This closes
+a `podman-compose` 1.0.6 gap where a re-pulled moving tag (`:latest`) with a
+new digest leaves the previous image's container running, since the service
+definition itself is unchanged. `docker compose` already recreates a service
+after re-pull, so the step is skipped there; inspection failures skip the
+affected service without aborting the deploy.
 
 ### Local-mode operator flow (no CI/registry required)
 
@@ -240,7 +290,7 @@ a schema change; until then, `shared_http` is deliberately inert.
 
 A compose overlay (`docker-compose.web.yml` by default; added to `${config.runtime.compose_files}` after the base) with:
 
-- One `nginx` service (container name `${config.facility.prefix}-nginx`) listening on `0.0.0.0:${config.modules.web_terminals.nginx_port}`. Mounts `./nginx/nginx.conf` and `./nginx/landing.html` read-only.
+- One `nginx` service (container name `${config.facility.prefix}-nginx`) listening on `0.0.0.0:${config.modules.web_terminals.nginx_port}`, from image `${config.modules.web_terminals.nginx_image}` (default `nginx:1.27-alpine`). This is the one image in the stack pulled from a public registry rather than built from the facility's own project, so on hosts locked to a private mirror set `nginx_image` to the mirrored reference or the service is unpullable. Mounts `./nginx/nginx.conf` and `./nginx/landing.html` read-only.
 - An anchor `&web-terminal` block holding image, restart policy, env_file, network — extended by every per-user service.
 - One service per user, each publishing all four `*_base_port + index` host ports (per the Architecture table above) with `OSPREY_TERMINAL_USER=<user>` and the other three `OSPREY_*_PORT` env vars set alongside it — plus a paired `<user>-claude-config` / `<user>-agent-data` named volume per user, living on the container engine's local graphroot, **not** on any NFS mount. (Deliberate: rootless container UIDs don't survive NFS write paths reliably, but Claude Code writes to its config dir continuously during a session.)
 
@@ -265,7 +315,7 @@ This reads `modules.web_terminals` straight from `facility-config.yml` and write
 Per-user seeding is implemented in Python (`osprey.deployment.web_terminals.seeding`), not a shell script. `osprey deploy up` runs it automatically as the last step of its web-terminal reconcile, right after `compose up -d`; `osprey deploy seed [user]` runs the same logic standalone (one user, or the whole roster) without touching containers otherwise. For every user in `${config.modules.web_terminals.users}` (or just the named one, for `seed <user>`):
 
 1. Skips the user if their container isn't up yet (a `${config.runtime.engine} container exists` check) — logged, not fatal, so the rest of the roster still seeds.
-2. **Seeds CLAUDE.md** by streaming the concatenation of `docker/web-terminal-context/base.md` and the user's overlay into the user's `claude-config` volume at `/data/claude-config/CLAUDE.md`. The overlay is `docker/web-terminal-context/<user>/extra.md`; for facilities that haven't migrated off the old flat layout, the legacy `docker/web-terminal-context/<user>.md` is read as a fallback when `<user>/extra.md` is absent. This runs on every `osprey deploy up` (and every `osprey deploy seed`) so per-user memory updates land without rebuilding the image.
+2. **Seeds CLAUDE.md** by streaming the concatenation of `docker/web-terminal-context/base.md` and the user's overlay into the user's `claude-config` volume at `/data/claude-config/CLAUDE.md`. The overlay is `docker/web-terminal-context/<user>/extra.md`; for facilities that haven't migrated off the old flat layout, the legacy `docker/web-terminal-context/<user>.md` is read as a fallback when `<user>/extra.md` is absent. This runs on every `osprey deploy up` (and every `osprey deploy seed`) so per-user memory updates land without rebuilding the image. A user whose resolved persona sets `seed_base: false` (see "Personas" above) is seeded from its `extra.md` **alone** — no `base.md` prepend — so a persona's shipped identity is never silently altered by a base-context change. `base.md` is required only while at least one seeded user keeps `seed_base: true` (the default); if every seeded user opts out, a missing `base.md` is not an error.
 3. **Seeds `skills/`** by tar-piping `docker/web-terminal-context/<user>/skills/` into the user's **project-scope** skills directory inside the container — `/app/${config.facility.prefix}-assistant/.claude/skills/` for a user with no persona in effect (or resolved to a persona with `project == "${config.facility.prefix}-assistant"`), or `/app/<persona.project>/.claude/skills/` for a user resolved to a different persona (`<project_cwd>/.claude/skills/`, since the web terminal launches `claude` with `cwd` set to the resolved project directory — see "Personas" above for how that directory is derived) — **not** the user-scope `CLAUDE_CONFIG_DIR/skills/` (`/data/claude-config/skills/`). This is deliberate, and easy to get wrong by intuition: the web terminal launches Claude Code with `--setting-sources project`, and that flag gates skill *discovery* itself, not just `settings.json` loading — skills placed under `CLAUDE_CONFIG_DIR/skills/` are silently never picked up under `--setting-sources project`, while the same skills under the project's `.claude/skills/` are. Only the project-scope path is live; seed there. That directory is also where a running Claude Code session keeps live, user-installed skills (e.g. anything added interactively with `osprey skills install`), so this step never blanket-replaces it: every skill directory the overlay writes gets a `.deploy-managed` sentinel, and only sentinel-bearing directories are ever touched — refreshed on each deploy, removed if the overlay stops shipping them, and left alone if they lack the sentinel. (This `--setting-sources` gating applies only to `skills/`; the CLAUDE.md seeding in step 2 above is plain user-scope auto-discovery, unrelated to `--setting-sources`, and is unaffected.)
 
 Neither `osprey deploy up` nor `osprey deploy seed` HTTP-probes the per-user services after seeding; the post-deploy health check is `scripts/verify.sh` (below) and `osprey deploy status`, run separately.
