@@ -1,0 +1,240 @@
+/*
+  System Health dashboard — panel-local styles.
+
+  Ported from the ALS integration-status dashboard, re-themed entirely
+  through design-system tokens: every color, surface, border, glow, and
+  font resolves through a design-token custom property from tokens.css, so the
+  panel renders correctly under every family in both light and dark with no
+  raw color literals (the panel validator enforces this).
+
+  The :root block below keeps the dashboard's short, local variable names
+  (--ok, --warn, --err, --bg-0 and friends) but binds each to a design token, so the
+  rules that follow read almost verbatim from the original while staying
+  token-only.
+
+  STATUS CLASSES (JS contract): the original dashboard set a few colors
+  inline from JS (badge dots, ring segments, the beam, the ring score, and
+  each card header's accent border). Inline hex is not allowed here, so the
+  JS port instead toggles a status-modifier class on those elements. The
+  mapping the JS must use is:
+
+      ok → s-ok    warning → s-wn    error → s-er    skip → s-sk
+
+  Each modifier is defined per element below (it colors whichever property
+  that element needs: background / stroke / fill / color / border-color).
+  For the beam, s-ok resolves to the accent (beam) color.
+*/
+
+:root {
+  --bg-0: var(--bg-primary);
+  --bg-1: var(--bg-panel);
+  --bg-2: var(--bg-elevated);
+  --border-0: var(--border-default);
+  --border-1: var(--neutral-tint-20);
+  --text-0: var(--text-primary);
+  --text-1: var(--text-secondary);
+  --text-2: var(--text-muted);
+  --ok: var(--color-success);
+  --ok-glow: var(--success-tint-40);
+  --warn: var(--color-warning);
+  --warn-glow: var(--amber-tint-25);
+  --err: var(--color-error);
+  --err-glow: var(--error-tint-30);
+  --skip: var(--text-muted);
+  --beam: var(--color-accent-light);
+  --beam-glow: var(--accent-tint-30);
+  --font-d: var(--font-display);
+  --font-m: var(--font-mono);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+body {
+  font-family: var(--font-m); font-size: 12px;
+  background: radial-gradient(ellipse at 50% 12%, var(--accent-tint-04) 0%, transparent 50%), var(--bg-0);
+  color: var(--text-0); min-height: 100vh; overflow-x: hidden; line-height: 1.6;
+  display: flex; flex-direction: column;
+}
+
+/* ---- Sweep bar ---- */
+.sweep { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 100; overflow: hidden; }
+.sweep.on::after {
+  content: ''; position: absolute; top: 0; left: 0; width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, var(--beam), transparent);
+  animation: sweep 1.5s ease-in-out infinite;
+}
+@keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+
+/* ---- Header ---- */
+.hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px 10px; border-bottom: 1px solid var(--border-0);
+}
+.hdr-t { display: flex; align-items: baseline; gap: 10px; }
+.hdr-t h1 { font-family: var(--font-d); font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+.hdr-sub { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--text-2); }
+.hdr-r { display: flex; align-items: center; gap: 12px; }
+.hdr-time { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.btn-ref {
+  background: none; border: 1px solid var(--border-0); color: var(--text-1);
+  width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all .2s;
+}
+.btn-ref:hover { border-color: var(--beam); color: var(--beam); background: var(--accent-tint-08); }
+.btn-ref.spin svg { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Hero: ring + summary ---- */
+.hero { display: flex; flex-direction: column; align-items: center; padding: 24px 16px 16px; gap: 16px; }
+.ring-w { position: relative; width: 180px; height: 180px; }
+.ring-svg { width: 100%; height: 100%; }
+.ring-bg { fill: none; stroke: var(--border-0); stroke-width: 14; opacity: .3; }
+.ring-orbit { fill: none; stroke: var(--beam); stroke-width: .5; opacity: .12; }
+.ring-seg { fill: none; stroke-width: 14; stroke-linecap: butt; transition: stroke .6s ease, opacity .6s ease; }
+.ring-seg.s-ok { stroke: var(--ok); }
+.ring-seg.s-wn { stroke: var(--warn); }
+.ring-seg.s-er { stroke: var(--err); }
+.ring-seg.s-sk { stroke: var(--skip); }
+.beam { fill: var(--beam); transition: fill .6s ease; }
+.beam.s-ok { fill: var(--beam); }
+.beam.s-wn { fill: var(--warn); }
+.beam.s-er { fill: var(--err); }
+.ring-c {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; pointer-events: none;
+}
+.ring-sc { font-family: var(--font-d); font-weight: 700; font-size: 32px; line-height: 1; transition: color .6s ease; }
+.ring-sc.s-ok { color: var(--ok); }
+.ring-sc.s-wn { color: var(--warn); }
+.ring-sc.s-er { color: var(--err); }
+.ring-sc.s-sk { color: var(--skip); }
+.ring-sc .tot { font-size: 18px; color: var(--text-2); font-weight: 400; }
+.ring-lb { font-size: 9px; letter-spacing: 2.5px; color: var(--text-2); margin-top: 4px; text-transform: uppercase; }
+
+/* ---- Summary badges ---- */
+.summ { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border: 1px solid var(--border-0); border-radius: 5px;
+  font-size: 11px; cursor: pointer; transition: all .2s; user-select: none;
+}
+.badge:hover { border-color: var(--border-1); background: var(--bg-2); }
+.badge.on { border-color: var(--beam); background: var(--accent-tint-08); }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dot.s-ok { background: var(--ok); }
+.dot.s-wn { background: var(--warn); }
+.dot.s-er { background: var(--err); }
+.dot.s-sk { background: var(--skip); }
+
+/* ---- Grid ---- */
+.grid {
+  flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px; padding: 12px 16px 80px;
+}
+
+/* ---- Loading / Error / Warming ---- */
+.ld {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: center;
+  gap: 12px; padding: 48px; color: var(--text-2);
+}
+.ld-spin {
+  width: 16px; height: 16px; border: 2px solid var(--border-1);
+  border-top-color: var(--beam); border-radius: 50%; animation: spin 1s linear infinite;
+}
+.err-s { grid-column: 1 / -1; text-align: center; padding: 48px 24px; color: var(--text-1); }
+.err-s .em { color: var(--err); margin-bottom: 16px; font-size: 13px; }
+.err-s button {
+  background: var(--bg-2); border: 1px solid var(--border-1); color: var(--text-0);
+  padding: 6px 16px; border-radius: 6px; cursor: pointer; font-family: var(--font-m); font-size: 12px;
+}
+
+/* ---- Card ---- */
+.card {
+  background: var(--bg-1); border: 1px solid var(--border-0); border-radius: 10px;
+  overflow: hidden; transition: border-color .3s, box-shadow .3s, transform .2s;
+  animation: fadeUp .4s ease both;
+}
+.card:hover { border-color: var(--border-1); transform: translateY(-1px); }
+.card.c-err { border-color: var(--error-tint-25); box-shadow: 0 0 20px var(--error-tint-08); }
+.card.c-wrn { border-color: var(--amber-tint-15); }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.c-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px 8px; border-left: 3px solid var(--border-1); transition: border-color .6s;
+}
+.c-hd.s-ok { border-color: var(--ok); }
+.c-hd.s-wn { border-color: var(--warn); }
+.c-hd.s-er { border-color: var(--err); }
+.c-hd.s-sk { border-color: var(--skip); }
+.c-nm { font-family: var(--font-d); font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-1); }
+.c-ct { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.c-bar { display: flex; height: 2px; background: var(--border-0); margin: 0 14px; }
+.c-bar > div { transition: width .6s ease; }
+.b-ok { background: var(--ok); }
+.b-wn { background: var(--warn); }
+.b-er { background: var(--err); }
+.b-sk { background: var(--skip); }
+.c-bd { padding: 6px 0; }
+
+/* ---- Check row ---- */
+.ck { display: flex; align-items: center; gap: 8px; padding: 4px 14px; font-size: 12px; transition: background .15s; }
+.ck:hover { background: var(--neutral-tint-03); }
+.led { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; transition: background .6s, box-shadow .6s; }
+.led-ok { background: var(--ok); box-shadow: 0 0 4px var(--ok-glow); }
+.led-wn { background: var(--warn); box-shadow: 0 0 4px var(--warn-glow); }
+.led-er { background: var(--err); box-shadow: 0 0 6px var(--err-glow); animation: pulse 2s ease-in-out infinite; }
+.led-sk { background: var(--skip); opacity: .5; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--err-glow); }
+  50% { opacity: .5; box-shadow: 0 0 2px var(--err-glow); }
+}
+.ck-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-nm.sk { color: var(--text-2); }
+.ck-val { font-weight: 700; white-space: nowrap; color: var(--text-1); max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.ck-ms { font-size: 10px; color: var(--text-2); white-space: nowrap; min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.ck-ms.ms-f { color: var(--ok); }
+.ck-ms.ms-m { color: var(--warn); }
+.ck-ms.ms-s { color: var(--err); }
+.dt-btn {
+  background: none; border: none; color: var(--text-2); cursor: pointer;
+  font-size: 10px; padding: 0 2px; transition: transform .2s;
+}
+.dt-btn.open { transform: rotate(90deg); }
+.dt-box {
+  display: none; font-size: 11px; color: var(--text-2); white-space: pre-wrap; word-break: break-word;
+  background: var(--bg-0); margin: 0 14px 4px; border-radius: 4px; padding: 6px 10px; border-left: 2px solid var(--border-1);
+}
+/* Status-gated accent: the JS toggles a status class on the box (s-er/s-wn)
+   so an error detail draws red and a warning notice amber, while a healthy
+   ok/skip row's expandable text keeps the neutral border above. */
+.dt-box.s-wn { border-left-color: var(--warn); }
+.dt-box.s-er { border-left-color: var(--err); }
+.dt-box.show { display: block; }
+
+/* ---- Footer ---- */
+.ftr {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px 16px; font-size: 11px; color: var(--text-2);
+  background: linear-gradient(transparent, var(--bg-0) 30%);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.ftr-d { opacity: .3; }
+
+/* ---- Responsive ---- */
+@media (max-width: 640px) {
+  .hdr-t h1 { font-size: 18px; }
+  .hdr-sub { font-size: 9px; letter-spacing: 2px; }
+  .ring-w { width: 150px; height: 150px; }
+  .ring-sc { font-size: 26px; }
+  .ring-sc .tot { font-size: 15px; }
+  .grid { grid-template-columns: 1fr; gap: 10px; padding: 10px 12px 80px; }
+}
+@media (max-width: 380px) {
+  .ring-w { width: 130px; height: 130px; }
+  .hdr { padding: 12px 12px 6px; }
+  .hero { padding: 16px 12px 12px; }
+}
