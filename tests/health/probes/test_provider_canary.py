@@ -26,9 +26,13 @@ from osprey.health.probes.provider_canary import run
 from osprey.health.runtime import HealthRuntime
 
 
-def _ctx() -> ProbeContext:
-    """A probe context with a real (never-constructed) runtime; canary ignores it."""
-    return ProbeContext(runtime=HealthRuntime({}))
+def _ctx(config: Any = None) -> ProbeContext:
+    """A probe context with a real (never-constructed) runtime; canary ignores it.
+
+    ``config`` populates ``ctx.config`` — the per-run config the canary reads
+    ``api.providers.<name>`` from when a spec omits ``api_key``/``base_url``.
+    """
+    return ProbeContext(runtime=HealthRuntime({}), config=config)
 
 
 class _StubRegistry:
@@ -215,6 +219,83 @@ async def test_api_key_falls_back_to_config_block(monkeypatch: Any) -> None:
     assert result.status is Status.OK
     assert captured[0]["api_key"] == "cfg-secret"
     assert captured[0]["base_url"] == "https://cfg"
+
+
+async def test_reads_block_from_ctx_config() -> None:
+    """When ``ctx.config`` is set, the canary reads ``api.providers.<name>`` from
+    it (not the global singleton) for a spec that omits ``api_key``/``base_url``."""
+    import os
+
+    os.environ["OSPREY_TEST_CANARY_CTX"] = "ctx-secret"
+    try:
+        captured: list[dict[str, Any]] = []
+        cls = _capturing_provider(captured, (True, "ok"))
+        config = {
+            "api": {
+                "providers": {
+                    "cborg": {
+                        "api_key": "${OSPREY_TEST_CANARY_CTX}",
+                        "base_url": "https://ctx",
+                    }
+                }
+            }
+        }
+        result = await run(
+            {"name": "cborg"},  # no api_key/base_url → ctx.config block
+            _ctx(config),
+            registry=_registry("cborg", cls),
+        )
+    finally:
+        del os.environ["OSPREY_TEST_CANARY_CTX"]
+
+    assert result.status is Status.OK
+    assert captured[0]["api_key"] == "ctx-secret"
+    assert captured[0]["base_url"] == "https://ctx"
+
+
+async def test_ctx_config_takes_precedence_over_singleton(monkeypatch: Any) -> None:
+    """An explicit ``ctx.config`` is authoritative: the global singleton is never
+    consulted (``get_config_value`` would raise if it were)."""
+
+    def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("get_config_value must not be called when ctx.config is set")
+
+    monkeypatch.setattr(provider_canary, "get_config_value", _boom)
+
+    captured: list[dict[str, Any]] = []
+    cls = _capturing_provider(captured, (True, "ok"))
+    config = {"api": {"providers": {"cborg": {"api_key": "ctx-key", "base_url": "https://ctx"}}}}
+    result = await run(
+        {"name": "cborg"},
+        _ctx(config),
+        registry=_registry("cborg", cls),
+    )
+
+    assert result.status is Status.OK
+    assert captured[0]["api_key"] == "ctx-key"
+    assert captured[0]["base_url"] == "https://ctx"
+
+
+async def test_ctx_config_without_provider_block_yields_empty(monkeypatch: Any) -> None:
+    """A set ``ctx.config`` lacking the provider block resolves to empty keys and
+    still never falls through to the global singleton."""
+
+    def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("get_config_value must not be called when ctx.config is set")
+
+    monkeypatch.setattr(provider_canary, "get_config_value", _boom)
+
+    captured: list[dict[str, Any]] = []
+    cls = _capturing_provider(captured, (False, "no key"))
+    result = await run(
+        {"name": "cborg"},
+        _ctx({"api": {"providers": {}}}),
+        registry=_registry("cborg", cls),
+    )
+
+    assert result.status is Status.WARNING
+    assert captured[0]["api_key"] is None
+    assert captured[0]["base_url"] is None
 
 
 async def test_provider_param_distinct_from_result_name() -> None:

@@ -20,7 +20,9 @@ produces an ``error`` row:
 The API key and base URL come from the ``api.providers.<name>`` config block:
 ``api_key`` and ``base_url`` may be supplied directly in ``spec`` (as the
 core ``providers`` category does when it composes this probe per provider), and
-fall back to the global config singleton otherwise. Both are passed through
+fall back to the ``api.providers.<name>`` block resolved with this precedence:
+``ctx.config`` when the runner was handed an explicit config (the web surface),
+else the global config singleton (CLI/standalone). Both are passed through
 ``${VAR}`` resolution against :data:`os.environ` so a placeholder such as
 ``${CBORG_API_KEY}`` is expanded at check time (after the project ``.env`` load);
 an unresolved lone placeholder collapses to an empty key, matching the connector
@@ -73,13 +75,25 @@ def _resolve_secret(value: str | None) -> str | None:
     return resolved
 
 
-def _provider_block(provider_name: str) -> Mapping[str, Any]:
+def _provider_block(provider_name: str, config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     """Return the ``api.providers.<name>`` config block, or ``{}`` if unavailable.
+
+    Resolution precedence for the block: an explicit per-run *config* (from
+    ``ctx.config``, e.g. the web surface) is authoritative when present — the
+    global config singleton is never consulted in that case, keeping a
+    config-driven run free of process-default side effects; otherwise the block
+    falls back to the global singleton via :func:`get_config_value` (the
+    CLI/standalone path).
 
     Any failure to load config (no ``config.yml``, unparseable YAML) is
     swallowed to an empty block: a canary must never crash on a missing config,
     and a spec that already carries ``api_key``/``base_url`` never needs it.
     """
+    if config is not None:
+        block = config.get("api")
+        for key in ("providers", provider_name):
+            block = block.get(key) if isinstance(block, Mapping) else None
+        return block if isinstance(block, Mapping) else {}
     try:
         block = get_config_value(f"api.providers.{provider_name}", {})
     except Exception:  # noqa: BLE001 - config unavailability degrades to no block
@@ -105,16 +119,18 @@ async def run(
               check's identity); defaults to ``provider``.
             * ``category`` (str): result category (default ``"providers"``).
             * ``api_key`` (str | None): API key; may contain ``${VAR}``. Falls
-              back to ``api.providers.<provider>.api_key`` when absent from
-              ``spec``.
+              back to ``api.providers.<provider>.api_key`` (resolved from
+              ``ctx.config`` when present, else the global singleton) when absent
+              from ``spec``.
             * ``base_url`` (str | None): custom endpoint; may contain ``${VAR}``.
-              Falls back to ``api.providers.<provider>.base_url`` when absent.
+              Falls back to ``api.providers.<provider>.base_url`` (same
+              precedence) when absent.
             * ``model_id`` (str | None): optional model to probe (provider picks
               its cheapest when ``None``).
             * ``timeout_s`` (float): provider request timeout in seconds
               (default ``5.0``); also bounds the off-loaded call.
-        ctx: Shared per-run context. Unused by this probe (a canary needs no
-            control-system connector) but part of the uniform probe interface.
+        ctx: Shared per-run context. The canary needs no control-system
+            connector but reads ``ctx.config`` (when set) for the provider block.
         registry: Optional provider registry for dependency injection in tests;
             ``None`` uses the global :func:`get_provider_registry` singleton.
 
@@ -143,7 +159,7 @@ async def run(
     # so a fully spec-driven call never touches the global config singleton.
     block: Mapping[str, Any] = {}
     if "api_key" not in spec or "base_url" not in spec:
-        block = _provider_block(provider_name)
+        block = _provider_block(provider_name, ctx.config)
     api_key = _resolve_secret(spec["api_key"] if "api_key" in spec else block.get("api_key"))
     base_url = _resolve_secret(spec["base_url"] if "base_url" in spec else block.get("base_url"))
 

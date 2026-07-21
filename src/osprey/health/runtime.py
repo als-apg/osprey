@@ -48,6 +48,28 @@ class HealthRuntime:
     def __init__(self, control_system_config: dict[str, Any]) -> None:
         self._config = control_system_config
         self._connector: ControlSystemConnector | None = None
+        self._ever_constructed = False
+        self._closed = False
+
+    @property
+    def ever_constructed(self) -> bool:
+        """Whether a connector was ever successfully constructed.
+
+        Becomes ``True`` at the first successful :meth:`get_connector` and
+        stays ``True`` thereafter. Unlike ``_connector is None`` — which
+        :meth:`shutdown` also produces — this records construction *history*,
+        letting callers distinguish "never built a connector" from "built one
+        and then tore it down".
+        """
+        return self._ever_constructed
+
+    @property
+    def closed(self) -> bool:
+        """Whether :meth:`shutdown` has run (via explicit call or context exit).
+
+        Once ``True``, :meth:`get_connector` refuses rather than reconstructing.
+        """
+        return self._closed
 
     async def __aenter__(self) -> HealthRuntime:
         return self
@@ -65,8 +87,15 @@ class HealthRuntime:
 
         The first call registers the built-in connector types (idempotent) and
         creates the control-system connector from the configured section. Later
-        calls return the same cached instance.
+        calls return the same cached instance. After :meth:`shutdown` the
+        runtime is closed and this refuses with :class:`RuntimeError` rather
+        than reconstructing a connector the suite already tore down.
         """
+        if self._closed:
+            raise RuntimeError(
+                "HealthRuntime is closed; get_connector() cannot reconstruct "
+                "a connector after shutdown()"
+            )
         if self._connector is None:
             from osprey.connectors.factory import (
                 ConnectorFactory,
@@ -75,6 +104,7 @@ class HealthRuntime:
 
             register_builtin_connectors()  # idempotent; must run before create
             self._connector = await ConnectorFactory.create_control_system_connector(self._config)
+            self._ever_constructed = True
             logger.info(
                 "HealthRuntime: constructed control-system connector (%s)",
                 type(self._connector).__name__,
@@ -84,10 +114,12 @@ class HealthRuntime:
     async def shutdown(self) -> None:
         """Disconnect the connector exactly once, iff one was constructed.
 
-        A never-constructed runtime is a no-op. Disconnect exceptions are
-        swallowed (best-effort teardown), and the cached instance is cleared so
-        a repeated call disconnects nothing.
+        A never-constructed runtime disconnects nothing but still marks the
+        runtime closed. Disconnect exceptions are swallowed (best-effort
+        teardown), and the cached instance is cleared so a repeated call
+        disconnects nothing.
         """
+        self._closed = True
         if self._connector is None:
             return
         try:

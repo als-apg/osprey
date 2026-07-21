@@ -7,6 +7,7 @@ import pytest
 from osprey.errors import ConfigurationError
 from osprey.health.config import (
     CORE_CATEGORY_NAMES,
+    DEFAULT_HEALTH_TITLE,
     DEFAULT_ON_DEMAND_CALLABLE_TIMEOUT_S,
     DEFAULT_PROBE_TIMEOUTS,
     DEFAULT_SUITE_TIMEOUT_S,
@@ -30,6 +31,7 @@ def test_parse_none_yields_defaults() -> None:
     assert s.suite_timeout_s == DEFAULT_SUITE_TIMEOUT_S
     assert s.on_demand_timeout_s is None
     assert s.interval_s == 60.0  # max(60, 2*30)
+    assert s.title == DEFAULT_HEALTH_TITLE
     assert s.categories == {}
     assert s.overrides == {}
     assert s.plugins == []
@@ -105,6 +107,38 @@ def test_plugins_not_list_raises() -> None:
 def test_plugins_non_string_items_raise() -> None:
     with pytest.raises(ConfigurationError):
         parse_health_config({"plugins": ["ok", 3]})
+
+
+# --- title ------------------------------------------------------------------
+
+
+def test_title_absent_defaults() -> None:
+    assert parse_health_config({}).title == DEFAULT_HEALTH_TITLE == "System Health"
+
+
+def test_title_present_used() -> None:
+    assert parse_health_config({"title": "ALS Booster Health"}).title == "ALS Booster Health"
+
+
+def test_title_explicit_none_defaults() -> None:
+    # An explicit null in YAML falls back to the default rather than raising.
+    assert parse_health_config({"title": None}).title == DEFAULT_HEALTH_TITLE
+
+
+def test_title_non_string_raises() -> None:
+    with pytest.raises(ConfigurationError):
+        parse_health_config({"title": 123})
+
+
+def test_title_does_not_affect_other_parsing() -> None:
+    # Adding the key must not perturb any sibling parsing behaviour.
+    s = parse_health_config({"title": "Custom", "suite_timeout_s": 40})
+    assert s.title == "Custom"
+    assert s.suite_timeout_s == 40.0
+    assert s.interval_s == 80.0  # max(60, 2*40) — unchanged by title
+    assert s.categories == {}
+    assert s.overrides == {}
+    assert s.plugins == []
 
 
 # --- YAML declarative categories --------------------------------------------

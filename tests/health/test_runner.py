@@ -314,3 +314,37 @@ async def test_report_has_elapsed_and_deadline_false(runtime) -> None:
     report = await run_health_suite([_decl("c", [_check("a")])], runtime=runtime)
     assert report.elapsed_ms >= 0.0
     assert report.deadline_hit is False
+
+
+# --- config conduit ---------------------------------------------------------
+
+
+async def test_config_forwarded_to_probe_context(runtime, monkeypatch) -> None:
+    """An explicit ``config=`` reaches every probe via ``ctx.config`` verbatim."""
+    seen: dict[str, object] = {}
+
+    async def _capture(spec, ctx):
+        seen["config"] = ctx.config
+        return CheckResult(spec["name"], spec["category"], Status.OK, "ok")
+
+    monkeypatch.setattr("osprey.health.runner.get_probe", lambda _t: _capture)
+    cfg = {"api": {"providers": {"cborg": {"api_key": "k"}}}}
+
+    await run_health_suite([_decl("c", [_check("a")])], runtime=runtime, config=cfg)
+
+    assert seen["config"] is cfg
+
+
+async def test_config_defaults_to_none_on_probe_context(runtime, monkeypatch) -> None:
+    """Omitting ``config`` leaves ``ctx.config`` ``None`` (CLI/standalone default)."""
+    seen: dict[str, object] = {}
+
+    async def _capture(spec, ctx):
+        seen["config"] = ctx.config
+        return CheckResult(spec["name"], spec["category"], Status.OK, "ok")
+
+    monkeypatch.setattr("osprey.health.runner.get_probe", lambda _t: _capture)
+
+    await run_health_suite([_decl("c", [_check("a")])], runtime=runtime)
+
+    assert seen["config"] is None

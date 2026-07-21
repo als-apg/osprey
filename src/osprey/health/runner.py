@@ -43,8 +43,9 @@ Execution model
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from time import perf_counter
+from typing import Any
 
 from .config import DEFAULT_SUITE_TIMEOUT_S, CategoryRecord, Cost
 from .models import CheckReport, CheckResult, Status
@@ -275,6 +276,7 @@ async def run_health_suite(
     records: Sequence[CategoryRecord],
     *,
     runtime: HealthRuntime,
+    config: Mapping[str, Any] | None = None,
     full: bool = False,
     categories: Iterable[str] | None = None,
     suite_timeout_s: float = DEFAULT_SUITE_TIMEOUT_S,
@@ -287,6 +289,11 @@ async def run_health_suite(
             resolved to :class:`~osprey.health.config.CategoryRecord`\\ s.
         runtime: The suite's :class:`~osprey.health.runtime.HealthRuntime`,
             passed to every probe via :class:`~osprey.health.probes.ProbeContext`.
+        config: Optional per-run configuration mapping forwarded to every probe
+            via :class:`~osprey.health.probes.ProbeContext`. When ``None`` (the
+            CLI/standalone default) probes fall back to the global config
+            singleton; a caller supplies it to drive the suite against an
+            explicit config without touching process-default singletons.
         full: When ``True`` on_demand categories execute; otherwise they emit
             ``skip`` rows. ``--category`` selection never elevates cost class.
         categories: Optional set of category names to run; ``None`` runs all.
@@ -308,7 +315,7 @@ async def run_health_suite(
         wanted = set(categories)
         selected = [r for r in records if r.name in wanted]
 
-    ctx = ProbeContext(runtime=runtime)
+    ctx = ProbeContext(runtime=runtime, config=config)
     suite_deadline = t0 + suite_timeout_s
 
     on_demand_deadline: float | None = None

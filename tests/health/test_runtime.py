@@ -141,3 +141,102 @@ async def test_explicit_shutdown_disconnects_once_and_is_idempotent(
     await runtime.shutdown()  # second call disconnects nothing
 
     assert spy.disconnect_calls == 1
+
+
+async def test_get_connector_refuses_after_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    register_calls: list[bool] = []
+    spy = _SpyConnector()
+    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+
+    runtime = HealthRuntime({"type": "mock"})
+    await runtime.get_connector()
+    await runtime.shutdown()
+
+    # A closed runtime refuses rather than reconstructing a torn-down connector.
+    with pytest.raises(RuntimeError):
+        await runtime.get_connector()
+
+    # The refusal built nothing new: still a single construction, no re-register.
+    assert construct_calls == [{"type": "mock"}]
+    assert register_calls == [True]
+
+
+async def test_get_connector_refuses_after_shutdown_without_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    register_calls: list[bool] = []
+    spy = _SpyConnector()
+    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+
+    # shutdown() closes the runtime even when a connector was never built.
+    runtime = HealthRuntime({"type": "mock"})
+    await runtime.shutdown()
+
+    with pytest.raises(RuntimeError):
+        await runtime.get_connector()
+
+    assert construct_calls == []
+    assert register_calls == []
+
+
+async def test_flag_transitions_across_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    register_calls: list[bool] = []
+    spy = _SpyConnector()
+    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+
+    runtime = HealthRuntime({"type": "mock"})
+    # Freshly built: nothing constructed, not closed.
+    assert runtime.ever_constructed is False
+    assert runtime.closed is False
+
+    await runtime.get_connector()
+    # Construction history recorded; still open.
+    assert runtime.ever_constructed is True
+    assert runtime.closed is False
+
+    await runtime.shutdown()
+    # Closed, but construction history is sticky (unlike `_connector is None`).
+    assert runtime.closed is True
+    assert runtime.ever_constructed is True
+
+
+async def test_ever_constructed_stays_false_when_get_connector_unused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    register_calls: list[bool] = []
+    spy = _SpyConnector()
+    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+
+    async with HealthRuntime({"type": "mock"}) as runtime:
+        assert runtime.ever_constructed is False
+        assert runtime.closed is False
+
+    # Context exit closes the runtime; nothing was ever constructed.
+    assert runtime.ever_constructed is False
+    assert runtime.closed is True
+
+
+async def test_double_shutdown_is_safe_after_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    register_calls: list[bool] = []
+    spy = _SpyConnector()
+    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+
+    runtime = HealthRuntime({"type": "mock"})
+    await runtime.get_connector()
+    await runtime.shutdown()
+    await runtime.shutdown()  # idempotent: still closed, disconnected once
+
+    assert runtime.closed is True
+    assert runtime.ever_constructed is True
+    assert spy.disconnect_calls == 1

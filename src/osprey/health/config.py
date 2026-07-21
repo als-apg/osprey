@@ -39,6 +39,9 @@ from .models import Status
 
 # --- Policy constants -------------------------------------------------------
 
+#: Default display title for the health report when ``health.title`` is unset.
+DEFAULT_HEALTH_TITLE: str = "System Health"
+
 #: Default suite (poll-class) deadline in seconds when not configured.
 DEFAULT_SUITE_TIMEOUT_S: float = 30.0
 
@@ -140,6 +143,7 @@ class HealthSettings:
             enforced in P1).
         on_demand_timeout_s: Explicit on_demand budget, or ``None`` to derive it
             at merge time as the sum of resolved on_demand category budgets.
+        title: Human-readable display title for the health report.
         categories: Declarative (YAML) categories keyed by name.
         overrides: Metadata-only overrides for core/plugin category names.
         plugins: Dotted plugin module paths exposing category callables.
@@ -148,6 +152,7 @@ class HealthSettings:
     suite_timeout_s: float
     interval_s: float
     on_demand_timeout_s: float | None
+    title: str = DEFAULT_HEALTH_TITLE
     categories: dict[str, CategoryRecord] = field(default_factory=dict)
     overrides: dict[str, CategoryOverride] = field(default_factory=dict)
     plugins: list[str] = field(default_factory=list)
@@ -385,6 +390,8 @@ def parse_health_config(health: Mapping[str, Any] | None) -> HealthSettings:
     else:
         interval_s = max(60.0, 2 * suite_timeout_s)
 
+    title = _parse_title(health.get("title"))
+
     plugins = _parse_plugins(health.get("plugins"))
 
     categories: dict[str, CategoryRecord] = {}
@@ -403,10 +410,19 @@ def parse_health_config(health: Mapping[str, Any] | None) -> HealthSettings:
         suite_timeout_s=suite_timeout_s,
         interval_s=interval_s,
         on_demand_timeout_s=on_demand_timeout_s,
+        title=title,
         categories=categories,
         overrides=overrides,
         plugins=plugins,
     )
+
+
+def _parse_title(value: Any) -> str:
+    if value is None:
+        return DEFAULT_HEALTH_TITLE
+    if not isinstance(value, str):
+        raise ConfigurationError(f"health.title must be a string, got {value!r}")
+    return value
 
 
 def _parse_plugins(value: Any) -> list[str]:

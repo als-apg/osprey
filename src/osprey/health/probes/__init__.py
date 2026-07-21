@@ -40,9 +40,17 @@ class ProbeContext:
             the single lazy owner of the control-system connector. Probes that
             need a connection acquire it via ``await ctx.runtime.get_connector()``;
             probes that do not (e.g. ``http``) simply ignore it.
+        config: Optional per-run configuration mapping (the parsed ``config.yml``
+            tree). When present it is the authoritative source for config a probe
+            consults — e.g. ``provider_canary`` reads ``api.providers.<name>``
+            from it — so a caller (the web surface) can drive a suite against an
+            explicit config without touching the process-default config
+            singletons. ``None`` (the CLI/standalone default) leaves probes to
+            their global :func:`~osprey.utils.config.get_config_value` fallback.
     """
 
     runtime: HealthRuntime
+    config: Mapping[str, Any] | None = None
 
 
 #: An async probe worker: ``(spec, ctx) -> CheckResult``.
