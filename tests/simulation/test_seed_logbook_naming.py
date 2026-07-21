@@ -1,6 +1,6 @@
 """Standing drift guard for the harmonized ARIEL seed-logbook prose.
 
-The five shipped seed logbooks (four control_assistant scenario bundles plus the
+The four shipped seed logbooks (three control_assistant scenario bundles plus the
 ariel_standalone demo seed) narrate device activity in prose. Phase 3 harmonized
 that prose onto the flat ``^{FAM}{NN}$`` naming of the one ring
 (:data:`osprey.simulation.facility_spec.ALS_U_AR`): ``DIPOLE-07`` became
@@ -13,7 +13,7 @@ regressing. It is hermetic: it reads only committed repo files (the seed globs
 and the committed tier-3 channel DB), never a database or the network. Every
 assertion is a deterministic, case-insensitive regex scan:
 
-* the glob resolves to exactly the five known seed files (an empty or shrunken
+* the glob resolves to exactly the four known seed files (an empty or shrunken
   glob fails loudly, so a moved/renamed seed cannot slip the guard);
 * every family-token + designator reference (over the spec families *and* the
   non-spec tier-3 families) is the canonical ``FAM`` + two-digit id, with the id
@@ -48,12 +48,11 @@ _SEED_GLOBS = (
 
 # The exact seed set the sweep MUST resolve to. Pinned by name so an empty or
 # shrunken glob (a moved/renamed/deleted seed) fails loudly instead of vacuously
-# passing. Note: scenarios/vacuum-burst is telemetry-only (no logbook.json) and
-# is intentionally absent.
+# passing. Note: scenarios/vacuum-burst and scenarios/orm-dual-fault are
+# telemetry-only (no logbook.json) and are intentionally absent.
 _EXPECTED_SEEDS = frozenset(
     {
         "src/osprey/templates/apps/control_assistant/data/simulation/scenarios/bpm-polarity/logbook.json",
-        "src/osprey/templates/apps/control_assistant/data/simulation/scenarios/errant-quad/logbook.json",
         "src/osprey/templates/apps/control_assistant/data/simulation/scenarios/nominal/logbook.json",
         "src/osprey/templates/apps/control_assistant/data/simulation/scenarios/rf-thermal/logbook.json",
         "src/osprey/templates/apps/ariel_standalone/data/logbook_seed/demo_logbook.json",
@@ -176,10 +175,10 @@ def seed_files() -> list[Path]:
 
 
 def test_glob_resolves_to_exact_seed_set(seed_files: list[Path]) -> None:
-    """The sweep must cover exactly the five known seed files, by name."""
+    """The sweep must cover exactly the four known seed files, by name."""
     resolved = {_relative(p) for p in seed_files}
     assert resolved == set(_EXPECTED_SEEDS), (
-        "seed glob drifted from the pinned five-file set: "
+        "seed glob drifted from the pinned four-file set: "
         f"missing={set(_EXPECTED_SEEDS) - resolved}, unexpected={resolved - set(_EXPECTED_SEEDS)}"
     )
     # Redundant with the equality above, but pins the intent: never vacuous.
