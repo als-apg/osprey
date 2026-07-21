@@ -24,13 +24,16 @@ trace and an orbit-response summary — not a generic demo.
 artifacts backend serving the seeded store, and the real web-terminal hub wired
 to it with a canned PTY (no live agent, no provider, no hardware).
 :func:`capture_contact_sheet` drives a headless browser over that stack once per
-entry in :data:`VARIANTS`, then boots every supported subpanel standalone
+entry in :data:`VARIANTS`, then boots every supported subpanel's real app
 (:data:`PANEL_SURFACES` — ARIEL, channels, lattice, knowledge, events, and the
 three Bluesky scan panels) and captures each in the full dark/light ×
-expert/simple matrix, writing one viewport PNG per card.
+expert/simple matrix — always through the hub's own iframe URL shape
+(``embedded=true`` + theme + mode), so each card is the panel exactly as the
+terminal embeds it — writing one viewport PNG per card.
 :func:`compose_contact_sheet` folds them into a single self-contained
-``contact-sheet.html`` — one section per surface, hub first — the one-click
-artifact the user reviews. ``python -m docs.screenshots.contact_sheet --out DIR``
+``contact-sheet.html`` — a tab strip with one tab per surface (hub first), each
+tab holding that surface's 2×2 matrix — the one-click artifact the user
+reviews. ``python -m docs.screenshots.contact_sheet --out DIR``
 runs it end to end and prints the sheet path; ``--accents`` additionally renders
 each hub variant under both accent candidates (blue vs teal) so the pending
 accent decision can be made from real output. This
@@ -619,7 +622,13 @@ def _read_fitted_cols(page) -> int | None:
     """Read the terminal's fitted column count from the ``#term-dims`` readout.
 
     The status bar shows ``<cols>×<rows>`` (updated by app.js); returns the column
-    count, or ``None`` if the readout hasn't populated (e.g. Simple mode hides it).
+    count, or ``None`` when the terminal is not the visible surface so the wrap
+    guard is skipped. In Simple mode the terminal card hosts the operator CHAT
+    (the xterm container is CSS-hidden), so ``.xterm`` measures zero wide and
+    xterm reports its ``10×4`` zero-container fallback rather than a real fitted
+    width — reading that as a fit would spuriously fail the guard. Expert mode
+    renders the terminal at its real (narrow) width and still enforces the guard,
+    so the transcript width stays protected where it is actually shown.
     """
     try:
         page.wait_for_function(
@@ -628,6 +637,15 @@ def _read_fitted_cols(page) -> int | None:
             timeout=10_000,
         )
     except Exception:
+        return None
+    # A zero-width .xterm means the terminal isn't laid out as the visible surface
+    # (Simple mode's inactive stacked tab); its dims are xterm's fallback, not a
+    # real fit — skip the guard rather than measure a collapsed card.
+    term_width = page.evaluate(
+        "() => { const t = document.querySelector('.xterm');"
+        " return t ? Math.round(t.getBoundingClientRect().width) : 0; }"
+    )
+    if not term_width:
         return None
     text = page.locator("#term-dims").inner_text()
     match = re.match(r"\s*(\d+)", text)
@@ -978,16 +996,13 @@ _PANEL_BOOTS = {
     "bluesky": _boot_bluesky_panels,
 }
 
-#: The supported subpanels, in sheet order. The channels panel is captured in
-#: its embedded form — that is how the terminal shows it.
+#: The supported subpanels, in sheet order. Every surface is captured with
+#: ``embedded=true`` (see :func:`_capture_panel_variant`) — the exact URL shape
+#: the hub's panel-manager gives its iframes — so each card shows the panel as
+#: the terminal actually presents it, not its standalone chrome.
 PANEL_SURFACES: list[PanelSurface] = [
     PanelSurface("ariel", "ARIEL — logbook search", "/", "ariel"),
-    PanelSurface(
-        "channels",
-        "Channels — channel finder (embedded)",
-        "/?embedded=true",
-        "channel_finder",
-    ),
+    PanelSurface("channels", "Channels — channel finder", "/", "channel_finder"),
     PanelSurface("lattice", "Lattice — machine dashboard", "/", "lattice"),
     PanelSurface("knowledge", "Knowledge — OKF browser", "/", "okf", wait_selector="#tree"),
     PanelSurface("events", "Events — dispatch dashboard", "/", "dispatch"),
@@ -1019,9 +1034,14 @@ def _capture_panel_variant(
     mode: str,
     out_dir: Path,
 ) -> CapturedVariant:
-    """Capture one subpanel surface in one theme/mode cell."""
+    """Capture one subpanel surface in one theme/mode cell.
+
+    The query string mirrors panel-manager.js's iframe URL construction
+    (``embedded=true`` + ``theme`` + ``mode``), so every card shows the panel
+    exactly as the hub embeds it — same app, same chrome-stripped variant.
+    """
     separator = "&" if "?" in surface.path else "?"
-    url = f"{base_url}{surface.path}{separator}theme={theme}&mode={mode}"
+    url = f"{base_url}{surface.path}{separator}embedded=true&theme={theme}&mode={mode}"
 
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
@@ -1142,42 +1162,41 @@ def _variant_label(cv: CapturedVariant) -> str:
     return " · ".join(parts)
 
 
-def compose_contact_sheet(out_dir: Path, captured: list[CapturedVariant]) -> Path:
-    """Write a single self-contained ``contact-sheet.html`` grid; return its path.
+def _tab_label(surface_id: str, title: str) -> str:
+    """Short tab-strip label for a surface: the part before the ``" — "`` dash."""
+    if surface_id == "hub":
+        return "Hub"
+    return title.split(" — ", 1)[0]
 
-    One card per captured variant — a plain ``<img>`` of the local PNG plus a
-    label listing theme, mode, and accent candidate. The page is fully
-    self-contained (inline CSS, no external assets, sibling PNGs only) so it opens
-    with one click, and is theme-aware so it reads in light or dark. A header
-    stamps the capture time and git revision for provenance.
+
+def compose_contact_sheet(out_dir: Path, captured: list[CapturedVariant]) -> Path:
+    """Write a single self-contained ``contact-sheet.html``; return its path.
+
+    One TAB per surface (hub first, then each subpanel in :data:`PANEL_SURFACES`
+    order), each tab holding that surface's fixed dark/light × expert/simple 2×2
+    card grid — click through the tab strip instead of scrolling a long page.
+    The tabs are pure CSS (hidden radio inputs + labels), so the page stays fully
+    self-contained (inline CSS, no JS, no external assets, sibling PNGs only) and
+    theme-aware so it reads in light or dark. A header stamps the capture time
+    and git revision for provenance.
     """
     out_dir = Path(out_dir)
     generated_utc = datetime.now(UTC).isoformat(timespec="seconds")
     git_rev = _git_rev()
 
     def _card(cv: CapturedVariant) -> str:
-        rows = "".join(
-            f"<div class='meta'><span>{html.escape(k)}</span><span>{html.escape(v)}</span></div>"
-            for k, v in (
-                ("theme", cv.theme),
-                ("mode", cv.mode or "default"),
-                ("accent", cv.accent or "—"),
-            )
-        )
         return f"""      <figure class="card">
         <figcaption class="label">{html.escape(_variant_label(cv))}</figcaption>
-        <div class="metas">{rows}</div>
         <a href="{html.escape(cv.filename)}" target="_blank" rel="noopener">
           <img src="{html.escape(cv.filename)}" alt="{html.escape(_variant_label(cv))}"
                loading="lazy" width="1280" height="800">
         </a>
       </figure>"""
 
-    # One section per surface, in first-seen order (hub first, then each
+    # Group cards per surface, in first-seen order (hub first, then each
     # subpanel in PANEL_SURFACES order — the capture loops guarantee this).
     section_titles = {"hub": "Web terminal — hub shell (seeded workspace)"}
     section_titles.update({s.id: s.title for s in PANEL_SURFACES})
-    sections: list[str] = []
     seen_order: list[str] = []
     by_surface: dict[str, list[CapturedVariant]] = {}
     for cv in captured:
@@ -1185,19 +1204,39 @@ def compose_contact_sheet(out_dir: Path, captured: list[CapturedVariant]) -> Pat
             seen_order.append(cv.surface)
             by_surface[cv.surface] = []
         by_surface[cv.surface].append(cv)
-    for surface_id in seen_order:
+
+    radios: list[str] = []
+    tabs: list[str] = []
+    sections: list[str] = []
+    tab_css: list[str] = []
+    for index, surface_id in enumerate(seen_order):
         title = section_titles.get(surface_id, surface_id)
+        checked = " checked" if index == 0 else ""
+        radios.append(
+            f'  <input class="tab-radio" type="radio" name="surface" '
+            f'id="tab-{html.escape(surface_id)}"{checked}>'
+        )
+        tabs.append(
+            f'    <label for="tab-{html.escape(surface_id)}">'
+            f"{html.escape(_tab_label(surface_id, title))}</label>"
+        )
         cards = "\n".join(_card(cv) for cv in by_surface[surface_id])
         sections.append(
-            f"""  <section>
+            f"""  <section class="surface" id="sec-{html.escape(surface_id)}">
     <h2>{html.escape(title)}</h2>
     <div class="grid">
 {cards}
     </div>
   </section>"""
         )
+        # Per-surface tab wiring: show the checked surface, highlight its label.
+        tab_css.append(
+            f"#tab-{surface_id}:checked ~ #sec-{surface_id} {{ display: block; }}\n"
+            f'#tab-{surface_id}:checked ~ .tabs label[for="tab-{surface_id}"] {{\n'
+            f"  background: #1f62c4; border-color: #1f62c4; color: #fafbfc;\n"
+            f"}}"
+        )
 
-    grid = "\n".join(sections)
     doc = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1212,14 +1251,26 @@ def compose_contact_sheet(out_dir: Path, captured: list[CapturedVariant]) -> Pat
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     background: #f4f5f5; color: #1a1c1f;
   }}
-  header {{ margin-bottom: 20px; }}
+  header {{ margin-bottom: 16px; }}
   h1 {{ font-size: 18px; margin: 0 0 4px; }}
-  section {{ margin-bottom: 32px; }}
+  .prov {{ font-size: 12px; opacity: 0.7; }}
+  .tab-radio {{ position: absolute; opacity: 0; pointer-events: none; }}
+  .tabs {{
+    position: sticky; top: 0; z-index: 2;
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 8px 0 12px; background: #f4f5f5;
+  }}
+  .tabs label {{
+    padding: 5px 14px; border-radius: 999px; cursor: pointer;
+    font-size: 13px; font-weight: 600;
+    background: #fafbfc; border: 1px solid #d8d9da;
+  }}
+  .tabs label:hover {{ border-color: #1f62c4; }}
+  .surface {{ display: none; }}
   h2 {{
-    font-size: 15px; margin: 0 0 12px;
+    font-size: 15px; margin: 4px 0 12px;
     padding-bottom: 6px; border-bottom: 1px solid #d8d9da;
   }}
-  .prov {{ font-size: 12px; opacity: 0.7; }}
   .grid {{
     display: grid; gap: 20px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1231,16 +1282,16 @@ def compose_contact_sheet(out_dir: Path, captured: list[CapturedVariant]) -> Pat
     margin: 0; padding: 12px; border-radius: 6px;
     background: #fafbfc; border: 1px solid #d8d9da;
   }}
-  .label {{ font-weight: 600; margin-bottom: 6px; }}
-  .metas {{ display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; }}
-  .meta {{ font-size: 12px; opacity: 0.75; }}
-  .meta span:first-child {{ opacity: 0.6; margin-right: 4px; }}
+  .label {{ font-weight: 600; margin-bottom: 8px; }}
   .card img {{
     display: block; width: 100%; height: auto;
     border-radius: 4px; border: 1px solid #d8d9da;
   }}
+  {chr(10).join(tab_css)}
   @media (prefers-color-scheme: dark) {{
     body {{ background: #111217; color: #e6e7e8; }}
+    .tabs {{ background: #111217; }}
+    .tabs label {{ background: #181b1f; border-color: #2c3235; }}
     h2 {{ border-color: #2c3235; }}
     .card {{ background: #181b1f; border-color: #2c3235; }}
     .card img {{ border-color: #2c3235; }}
@@ -1252,7 +1303,11 @@ def compose_contact_sheet(out_dir: Path, captured: list[CapturedVariant]) -> Pat
     <h1>OSPREY Web Terminal — contact sheet</h1>
     <div class="prov">{len(captured)} variant(s) · captured {html.escape(generated_utc)} · rev {html.escape(git_rev)}</div>
   </header>
-{grid}
+{chr(10).join(radios)}
+  <nav class="tabs">
+{chr(10).join(tabs)}
+  </nav>
+{chr(10).join(sections)}
 </body>
 </html>
 """
