@@ -7,12 +7,14 @@ separating project containers from other Osprey containers.
 import json
 import os
 import subprocess
+from pathlib import Path
 
 from rich.table import Table
 
 from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
+from osprey.deployment.staleness import staleness_reasons
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.log_filter import quiet_logger
@@ -111,6 +113,14 @@ def show_status(config_path, *, console=None, styles=None):
             config = normalize_facility_config(config.raw_config)
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+
+    # Advisory render-provenance note: a stale project deploys an out-of-date
+    # service set that looks perfectly healthy here, so status is the other
+    # place (besides deploy up) the drift must be visible.
+    for reason in staleness_reasons(Path(config_path).resolve().parent):
+        console.print(
+            f"[yellow]⚠ Project render is stale: {reason} — re-run osprey build --force[/yellow]"
+        )
 
     # Get deployed services and current project name
     deployed_services = config.get("deployed_services", [])

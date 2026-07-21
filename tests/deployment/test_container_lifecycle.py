@@ -1674,3 +1674,78 @@ def test_warn_unignored_build_dir_silent_when_dockerignore_excludes_build(
     (tmp_path / ".dockerignore").write_text(f"*.whl\n{ignore_line}\n", encoding="utf-8")
     container_lifecycle._warn_unignored_build_dir(str(tmp_path))
     assert _captured_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Staleness advisory + endpoint summary wiring
+#
+# Both features are advisory modules that only matter if deploy_up actually
+# invokes them — an unwired check reproduces the silent-stale-deploy failure
+# they exist to prevent, so the wiring itself is under test.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _wiring_calls(monkeypatch, tmp_path):
+    """Stub deploy_up collaborators; record staleness/summary invocations."""
+    calls: dict = {}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "warn_if_project_stale",
+        lambda project_dir: calls.setdefault("stale", []).append(project_dir),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "log_endpoint_summary",
+        lambda config, compose_files: calls.setdefault("summary", []).append(compose_files),
+    )
+    return calls
+
+
+def test_deploy_up_runs_staleness_check(_wiring_calls, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    assert _wiring_calls["stale"] == [tmp_path.resolve()]
+
+
+def test_deploy_up_prints_endpoint_summary_detached(_wiring_calls, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    assert _wiring_calls["summary"] == [["docker-compose.yml"]]
+
+
+def test_deploy_up_prints_endpoint_summary_on_web_path(_wiring_calls, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {"modules": {"web_terminals": {"enabled": True, "nginx_port": 9080}}},
+            ["docker-compose.yml"],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: None)
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    assert _wiring_calls["summary"] == [["docker-compose.yml"]]
+
+
+def test_deploy_up_summarizes_even_when_nothing_deploys(_wiring_calls, monkeypatch, tmp_path):
+    """The maximally-stale shape: no services, no web tier. The early return
+    must still emit the summary so 'web terminal (not configured)' is seen."""
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": []}, ["docker-compose.yml"]),
+    )
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    assert _wiring_calls["stale"] == [tmp_path.resolve()]
+    assert _wiring_calls["summary"] == [["docker-compose.yml"]]
