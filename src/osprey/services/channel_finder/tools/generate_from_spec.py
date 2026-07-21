@@ -59,6 +59,13 @@ from typing import Any
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 from osprey.services.channel_finder.databases.template import ChannelDatabase
+from osprey.services.channel_finder.naming import (
+    FAMILY_PHRASES,
+    FAMILY_TOKENS,
+    FIELD_PHRASES,
+    FIELD_TOKENS,
+    SUBFIELD_TOKENS,
+)
 from osprey.simulation.channel_schema import CHANNEL_SCHEMA, FamilyChannelSchema
 from osprey.simulation.facility_spec import ALS_U_AR
 
@@ -81,66 +88,11 @@ TIER1_IN_CONTEXT_FILENAME = "in_context.json"
 # structural analog's packing.
 _DEVICES_PER_SECTOR: dict[str, int] = {"SF": 1, "SD": 1, "SHF": 1, "SHD": 1}
 
-# in_context.json PascalCase channel-name token and lowercase noun phrase
-# per family, sourced verbatim from the shipped SR entries where a shipped
-# precedent exists (e.g. "QuadFocus" / "focusing quadrupole" for QF).
-# QFA/SHF/SHD have no shipped precedent; their tokens extend the convention
-# established by their structural analog (QF, SF, SD).
-_IN_CONTEXT_TOKEN: dict[str, str] = {
-    "DIPOLE": "Dipole",
-    "QD": "QuadDefocus",
-    "QF": "QuadFocus",
-    "QFA": "QuadFocusAchromat",
-    "SF": "SextFocus",
-    "SD": "SextDefocus",
-    "SHF": "SextHarmFocus",
-    "SHD": "SextHarmDefocus",
-    "HCM": "HorizCorr",
-    "VCM": "VertCorr",
-    "BPM": "BPM",
-}
-_IN_CONTEXT_NOUN: dict[str, str] = {
-    "DIPOLE": "dipole bending magnet",
-    "QD": "defocusing quadrupole",
-    "QF": "focusing quadrupole",
-    "QFA": "achromat focusing quadrupole",
-    "SF": "sextupole (focusing)",
-    "SD": "sextupole (defocusing)",
-    "SHF": "harmonic sextupole (focusing)",
-    "SHD": "harmonic sextupole (defocusing)",
-    "HCM": "horizontal corrector",
-    "VCM": "vertical corrector",
-    "BPM": "beam position monitor",
-}
-# FIELD-level channel-name token / description phrase. "GOLDEN" here is the
-# BPM top-level field (golden orbit), distinct from magnets' CURRENT:GOLDEN
-# *subfield* (see _SUBFIELD_TOKEN below).
-_FIELD_TOKEN: dict[str, str] = {
-    "CURRENT": "Current",
-    "STATUS": "Status",
-    "POSITION": "Position",
-    "OFFSET": "Offset",
-    "GOLDEN": "GoldenOrbit",
-}
-_FIELD_PHRASE: dict[str, str] = {
-    "CURRENT": "current",
-    "STATUS": "status",
-    "POSITION": "position",
-    "OFFSET": "offset",
-    "GOLDEN": "golden orbit",
-}
-_SUBFIELD_TOKEN: dict[str, str] = {
-    "SP": "Setpoint",
-    "RB": "Readback",
-    "GOLDEN": "Golden",
-    "READY": "Ready",
-    "ON": "On",
-    "FAULT": "Fault",
-    "VALID": "Valid",
-    "CONNECTED": "Connected",
-    "X": "X",
-    "Y": "Y",
-}
+# The in_context.json PascalCase tokens and lowercase noun phrases come from
+# the canonical vocabulary in :mod:`osprey.services.channel_finder.naming`
+# (see that module's docstring for spelling provenance). Lookups here are
+# strict ([] not .get): every spec family/field/subfield must be in the
+# vocabulary, and a KeyError means the spec/schema wiring is broken.
 
 
 def _address(fam: str, system: str, device_id: int, field: str, subfield: str) -> str:
@@ -273,15 +225,14 @@ def _grow_hierarchical(data: dict[str, Any]) -> dict[str, Any]:
 
 def _in_context_channel(fam: str, device_id: int, field: str, subfield: str) -> str:
     return (
-        f"StorageRing_{_IN_CONTEXT_TOKEN[fam]}_{device_id:02d}_"
-        f"{_FIELD_TOKEN[field]}_{_SUBFIELD_TOKEN[subfield]}"
+        f"StorageRing_{FAMILY_TOKENS[fam]}_{device_id:02d}_"
+        f"{FIELD_TOKENS[field]}_{SUBFIELD_TOKENS[subfield]}"
     )
 
 
 def _in_context_description(fam: str, device_id: int, field: str, subfield_desc: str) -> str:
     return (
-        f"Storage ring {_IN_CONTEXT_NOUN[fam]} {device_id:02d} "
-        f"{_FIELD_PHRASE[field]} {subfield_desc}"
+        f"Storage ring {FAMILY_PHRASES[fam]} {device_id:02d} {FIELD_PHRASES[field]} {subfield_desc}"
     )
 
 

@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from osprey.services.channel_finder import naming
 from osprey.services.channel_finder.tools.generate_from_spec import TIER1_FILTER
 
 # Root of the control_assistant preset's shipped data tree. It anchors both the
@@ -42,149 +43,37 @@ def load_template(source_path: Path | None = None) -> tuple[dict, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# Abbreviation maps for description generation
+# Description-phrase and alias-token maps
 # ---------------------------------------------------------------------------
+#
+# The vocabulary itself lives in :mod:`osprey.services.channel_finder.naming`
+# (shared with the tier-DB generator). The names below are this module's
+# long-standing public API, kept as thin views of the canonical maps.
+#
+# The three spec families with no pre-unification precedent (QFA/SHF/SHD)
+# are excluded here even though the template database now contains them:
+# benchmark aliases/descriptions for those families have always rendered the
+# raw family token (e.g. ``StorageRing_QFA_01_Current_Setpoint``) via the
+# ``.get`` fallback, and this module preserves that output byte-for-byte.
+# Dropping the exclusion would align benchmark prose with the shipped tier-3
+# ``in_context.json`` (``QuadFocusAchromat`` ...) but changes generated
+# benchmark DB content -- a deliberate decision, not a refactor.
+_UNMAPPED_SPEC_FAMILIES = frozenset({"QFA", "SHF", "SHD"})
 
-RING_NAMES: dict[str, str] = {
-    "SR": "storage ring",
-    "BR": "booster ring",
-    "BTS": "booster-to-storage transfer line",
-}
-
+RING_NAMES: dict[str, str] = naming.RING_PHRASES
+FIELD_NAMES: dict[str, str] = naming.FIELD_PHRASES
+SUBFIELD_NAMES: dict[str, str] = naming.SUBFIELD_PHRASES
 FAMILY_NAMES: dict[str, str] = {
-    "DIPOLE": "dipole bending magnet",
-    "QF": "focusing quadrupole",
-    "QD": "defocusing quadrupole",
-    "HCM": "horizontal corrector",
-    "VCM": "vertical corrector",
-    "SF": "sextupole (focusing)",
-    "SD": "sextupole (defocusing)",
-    "BPM": "beam position monitor",
-    "DCCT": "DC current transformer",
-    "ION-PUMP": "ion pump",
-    "GAUGE": "vacuum gauge",
-    "VALVE": "gate valve",
-    "CAVITY": "RF cavity",
-    "KLYSTRON": "klystron",
-    "NEUTRON": "neutron detector",
-    "GAMMA": "gamma detector",
+    fam: phrase
+    for fam, phrase in naming.FAMILY_PHRASES.items()
+    if fam not in _UNMAPPED_SPEC_FAMILIES
 }
 
-FIELD_NAMES: dict[str, str] = {
-    "CURRENT": "current",
-    "STATUS": "status",
-    "POSITION": "position",
-    "PRESSURE": "pressure",
-    "VOLTAGE": "voltage",
-    "POWER": "power",
-    "FREQUENCY": "frequency",
-    "TEMPERATURE": "temperature",
-    "TUNER": "tuner",
-    "LIFETIME": "lifetime",
-    "SIGNAL": "signal",
-    "GOLDEN": "golden orbit",
-    "OFFSET": "offset",
-    "DOSE_RATE": "dose rate",
-    "CONTROL": "control",
-}
-
-SUBFIELD_NAMES: dict[str, str] = {
-    "SP": "setpoint",
-    "RB": "readback",
-    "GOLDEN": "golden setpoint",
-    "X": "horizontal",
-    "Y": "vertical",
-    "SUM": "sum",
-    "FWD": "forward",
-    "REV": "reverse",
-    "NET": "net",
-    "INST": "instantaneous",
-    "AVG_1MIN": "1-minute average",
-    "AVG_1HR": "1-hour average",
-    "READY": "ready",
-    "ON": "on",
-    "FAULT": "fault",
-    "VALID": "valid",
-    "CONNECTED": "connected",
-    "INTERLOCK": "interlock",
-    "ALARM": "alarm",
-    "OPEN": "open",
-    "CLOSED": "closed",
-    "CLOSE": "close",
-    "MAIN": "main",
-}
-
-# ---------------------------------------------------------------------------
-# Short-name alias maps for alias generation
-# ---------------------------------------------------------------------------
-
-ALIAS_RING_NAMES: dict[str, str] = {
-    "SR": "StorageRing",
-    "BR": "BoosterRing",
-    "BTS": "BoosterToStorageRing",
-}
-
+ALIAS_RING_NAMES: dict[str, str] = naming.RING_TOKENS
+ALIAS_FIELD_NAMES: dict[str, str] = naming.FIELD_TOKENS
+ALIAS_SUBFIELD_NAMES: dict[str, str] = naming.SUBFIELD_TOKENS
 ALIAS_FAMILY_NAMES: dict[str, str] = {
-    "DIPOLE": "Dipole",
-    "QF": "QuadFocus",
-    "QD": "QuadDefocus",
-    "HCM": "HorizCorr",
-    "VCM": "VertCorr",
-    "SF": "SextFocus",
-    "SD": "SextDefocus",
-    "BPM": "BPM",
-    "DCCT": "DCCT",
-    "ION-PUMP": "IonPump",
-    "GAUGE": "VacGauge",
-    "VALVE": "GateValve",
-    "CAVITY": "Cavity",
-    "KLYSTRON": "Klystron",
-    "NEUTRON": "NeutronDet",
-    "GAMMA": "GammaDet",
-}
-
-ALIAS_FIELD_NAMES: dict[str, str] = {
-    "CURRENT": "Current",
-    "STATUS": "Status",
-    "POSITION": "Position",
-    "PRESSURE": "Pressure",
-    "VOLTAGE": "Voltage",
-    "POWER": "Power",
-    "FREQUENCY": "Frequency",
-    "TEMPERATURE": "Temperature",
-    "TUNER": "Tuner",
-    "LIFETIME": "Lifetime",
-    "SIGNAL": "Signal",
-    "GOLDEN": "GoldenOrbit",
-    "OFFSET": "Offset",
-    "DOSE_RATE": "DoseRate",
-    "CONTROL": "Control",
-}
-
-ALIAS_SUBFIELD_NAMES: dict[str, str] = {
-    "SP": "Setpoint",
-    "RB": "Readback",
-    "GOLDEN": "Golden",
-    "X": "X",
-    "Y": "Y",
-    "SUM": "Sum",
-    "FWD": "Forward",
-    "REV": "Reverse",
-    "NET": "Net",
-    "INST": "Instantaneous",
-    "AVG_1MIN": "Avg1Min",
-    "AVG_1HR": "Avg1Hr",
-    "READY": "Ready",
-    "ON": "On",
-    "FAULT": "Fault",
-    "VALID": "Valid",
-    "CONNECTED": "Connected",
-    "INTERLOCK": "Interlock",
-    "ALARM": "Alarm",
-    "OPEN": "Open",
-    "CLOSED": "Closed",
-    "CLOSE": "Close",
-    "MAIN": "Main",
+    fam: token for fam, token in naming.FAMILY_TOKENS.items() if fam not in _UNMAPPED_SPEC_FAMILIES
 }
 
 
