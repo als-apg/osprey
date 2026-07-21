@@ -1702,8 +1702,17 @@ def _write_tier_profile(profile_dir: Path, paradigm: str, tier: int | None = Non
 _PARADIGMS_FOR_BUILD: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
 
 
-@pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
-@pytest.mark.parametrize("tier", [1, 2, 3])
+# Tier selection is restricted to {1, 3}, and tier 1 is in_context-only
+# (it ships no hierarchical/middle_layer DB). Only these combos are buildable.
+_VALID_TIER_PARADIGMS: tuple[tuple[int, str], ...] = (
+    (1, "in_context"),
+    (3, "in_context"),
+    (3, "hierarchical"),
+    (3, "middle_layer"),
+)
+
+
+@pytest.mark.parametrize("tier,paradigm", _VALID_TIER_PARADIGMS)
 def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
     """`osprey build --tier N` materializes the active paradigm's DB at the
     flat path and removes the ``tiers/`` subtree.
@@ -1778,7 +1787,8 @@ def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
     )
 
 
-@pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
+# Re-tiering 1 → 3 only applies to in_context; tier 1 is in_context-only.
+@pytest.mark.parametrize("paradigm", ["in_context"])
 def test_build_force_retier(tmp_path: Path, paradigm: str) -> None:
     """Rebuilding with --force --tier 3 over a tier-1 project re-materializes
     the active paradigm's DB (byte-equals preset tier3 source)."""
@@ -1837,13 +1847,13 @@ def test_build_force_retier(tmp_path: Path, paradigm: str) -> None:
 
 @pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
 def test_build_profile_only_tier(tmp_path: Path, paradigm: str) -> None:
-    """When the profile sets ``tier: 2`` and no --tier is passed on the CLI,
+    """When the profile sets ``tier: 3`` and no --tier is passed on the CLI,
     the profile value drives materialization."""
     from click.testing import CliRunner
 
     from osprey.cli.main import cli
 
-    profile_path = _write_tier_profile(tmp_path, paradigm, tier=2)
+    profile_path = _write_tier_profile(tmp_path, paradigm, tier=3)
     output_dir = tmp_path / "out"
     output_dir.mkdir()
 
@@ -1866,9 +1876,9 @@ def test_build_profile_only_tier(tmp_path: Path, paradigm: str) -> None:
 
     project_dir = output_dir / "profile-tier-proj"
     flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
-    src = _preset_tier_source(2, paradigm)
+    src = _preset_tier_source(3, paradigm)
     assert flat_path.read_bytes() == src.read_bytes(), (
-        f"profile tier=2 not honored for {paradigm}.json"
+        f"profile tier=3 not honored for {paradigm}.json"
     )
 
 

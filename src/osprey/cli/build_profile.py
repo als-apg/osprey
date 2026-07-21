@@ -29,6 +29,34 @@ VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
 )
 
 
+def default_tier_for_mode(channel_finder_mode: str | None) -> int:
+    """Paradigm-aware default tier: ``in_context`` → 1, otherwise → 3.
+
+    The single source of truth for the tier a build lands on when no explicit
+    ``tier`` is pinned. Every code path that needs a concrete tier from a
+    channel-finder paradigm (the build pipeline, the project materializer)
+    MUST derive it here so the rule cannot drift between callers.
+    """
+    return 1 if channel_finder_mode == "in_context" else 3
+
+
+def tier_mode_conflict(tier: int | None, channel_finder_mode: str | None) -> str | None:
+    """Return a rule-naming error message if ``tier``/paradigm conflict, else None.
+
+    Tier 1 ships only the ``in_context`` paradigm DB. Pairing an explicit
+    ``tier: 1`` with a ``hierarchical``/``middle_layer`` paradigm would
+    otherwise fail deep in :func:`materialize_tier_artifacts` as an opaque
+    ``FileNotFoundError`` (``tier1/<paradigm>.json`` does not exist). Callers
+    surface this message so the failure is legible on every configuration path.
+    """
+    if tier == 1 and channel_finder_mode not in (None, "in_context"):
+        return (
+            "tier 1 requires channel_finder_mode: in_context "
+            f"(got channel_finder_mode: {channel_finder_mode!r})"
+        )
+    return None
+
+
 @dataclass
 class McpServerDef:
     """Definition of an MCP server to inject into a built project."""
@@ -377,9 +405,10 @@ class BuildProfile:
     model: str | None = None
     channel_finder_mode: str | None = None
     tier: int | None = None
-    """Channel-database tier (1|2|3) selecting which preset `tiers/tier{N}` DB
+    """Channel-database tier (1|3) selecting which preset `tiers/tier{N}` DB
     is materialized at build time to the flat `data/channel_databases/<name>.json`
-    location. When ``None``, the build resolves a paradigm-aware default via
+    location. Tier 1 is in_context-only; tier 3 carries all three paradigms.
+    When ``None``, the build resolves a paradigm-aware default via
     :meth:`resolved_tier` (in_context → 1, hierarchical/middle_layer → 3).
     This is build-time only and is NOT rendered into `config.yml`; the runtime
     config carries no tier knob. Facility profiles can ignore it because the
@@ -438,7 +467,7 @@ class BuildProfile:
         """
         if self.tier is not None:
             return self.tier
-        return 1 if self.channel_finder_mode == "in_context" else 3
+        return default_tier_for_mode(self.channel_finder_mode)
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a panel this profile could render.
@@ -468,8 +497,16 @@ class BuildProfile:
                 f"deploy_services must be a boolean (got {type(self.deploy_services).__name__})"
             )
 
-        if self.tier is not None and self.tier not in (1, 2, 3):
-            errors.append(f"tier must be 1, 2, or 3 (got {self.tier!r})")
+        if self.tier is not None and self.tier not in (1, 3):
+            errors.append(f"tier must be 1 or 3 (got {self.tier!r})")
+
+        # Tier 1 ships only the in_context paradigm DB; reject a tier/paradigm
+        # mismatch here with a rule-naming message (see tier_mode_conflict) so
+        # the failure is legible on every configuration path rather than an
+        # opaque FileNotFoundError deep in materialize_tier_artifacts.
+        conflict = tier_mode_conflict(self.tier, self.channel_finder_mode)
+        if conflict:
+            errors.append(conflict)
 
         if (
             self.channel_finder_mode is not None

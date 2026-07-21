@@ -347,9 +347,9 @@ def web(ctx, host: str, port: int):
 )
 @click.option(
     "--tier",
-    type=click.Choice(["1", "2", "3", "none"]),
+    type=click.Choice(["1", "3", "none"]),
     default="none",
-    help="Tier filter: 1, 2, 3, or none for all channels (default: none)",
+    help="Tier filter: 1 (in_context only), 3, or none for all channels (default: none)",
 )
 @click.option(
     "--validate",
@@ -383,7 +383,6 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
 
     from osprey.services.channel_finder.benchmarks.generator import (
         TIER_1,
-        TIER_2,
         TIER_3,
         TierSpec,
         format_hierarchical,
@@ -405,10 +404,9 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
             rings=all_rings,
             families=None,
             allowed_subfields=None,
-            target_count=len(channels),
         )
     else:
-        tier_spec = {"1": TIER_1, "2": TIER_2, "3": TIER_3}[tier]
+        tier_spec = {"1": TIER_1, "3": TIER_3}[tier]
 
     format_map = {
         "in_context.json": lambda: format_in_context(channels, tier_spec),
@@ -416,7 +414,15 @@ def generate(output_dir: str, source: str | None, fmt: str, tier: str, do_valida
         "middle_layer.json": lambda: format_middle_layer(channels, tier_spec),
     }
 
-    if fmt != "all":
+    # Tier 1 is published as the flat in_context view only.
+    if tier == "1":
+        if fmt not in ("in_context", "all"):
+            raise click.ClickException(
+                f"tier 1 is published in the in_context format only; "
+                f"cannot generate --format {fmt}."
+            )
+        format_map = {"in_context.json": format_map["in_context.json"]}
+    elif fmt != "all":
         filename = f"{fmt}.json"
         format_map = {filename: format_map[filename]}
 

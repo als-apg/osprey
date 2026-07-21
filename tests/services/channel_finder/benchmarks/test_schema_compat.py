@@ -11,6 +11,7 @@ from osprey.services.channel_finder.benchmarks.generator import (
     TIER_1,
     TIER_3,
     expand_hierarchy,
+    filter_channels,
     format_hierarchical,
     format_in_context,
     format_middle_layer,
@@ -38,6 +39,8 @@ def generated_dbs(tmp_path_factory):
     ml_path.write_text(json.dumps(ml_data))
 
     return {
+        "tier1_count": len(filter_channels(channels, TIER_1)),
+        "tier3_count": len(filter_channels(channels, TIER_3)),
         "in_context": (ic_path, ic_data),
         "hierarchical": (hier_path, hier_data),
         "middle_layer": (ml_path, ml_data),
@@ -67,7 +70,7 @@ class TestInContextCompat:
         db = ChannelDatabase(str(path))
         db.load_database()
         stats = db.get_statistics()
-        assert stats["total_channels"] == TIER_1.target_count
+        assert stats["total_channels"] == generated_dbs["tier1_count"]
 
 
 class TestHierarchicalCompat:
@@ -130,7 +133,7 @@ class TestHierarchicalCompat:
         db = HierarchicalChannelDatabase(str(path))
         db.load_database()
         stats = db.get_statistics()
-        assert stats["total_channels"] == TIER_3.target_count
+        assert stats["total_channels"] == generated_dbs["tier3_count"]
 
 
 class TestMiddleLayerCompat:
@@ -175,4 +178,4 @@ class TestMiddleLayerCompat:
         db = MiddleLayerDatabase(str(path))
         db.load_database()
         stats = db.get_statistics()
-        assert stats["total_channels"] == TIER_3.target_count
+        assert stats["total_channels"] == generated_dbs["tier3_count"]

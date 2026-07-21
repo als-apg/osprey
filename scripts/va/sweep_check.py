@@ -70,22 +70,34 @@ def sweep(
     start = time.monotonic()
     pvs = {addr: epics.PV(addr, auto_monitor=True) for addr in addresses}
 
-    deadline = start + timeout
-    pending = set(pvs)
-    while pending and time.monotonic() < deadline:
-        pending = {addr for addr in pending if not pvs[addr].connected}
-        if pending:
-            time.sleep(0.05)
+    try:
+        deadline = start + timeout
+        pending = set(pvs)
+        while pending and time.monotonic() < deadline:
+            pending = {addr for addr in pending if not pvs[addr].connected}
+            if pending:
+                time.sleep(0.05)
 
-    missing_connect = sorted(addr for addr in pvs if not pvs[addr].connected)
+        missing_connect = sorted(addr for addr in pvs if not pvs[addr].connected)
 
-    missing_value = []
-    for addr, pv in pvs.items():
-        if addr in missing_connect:
-            continue
-        value = pv.get(timeout=value_timeout)
-        if value is None:
-            missing_value.append(addr)
+        missing_value = []
+        for addr, pv in pvs.items():
+            if addr in missing_connect:
+                continue
+            value = pv.get(timeout=value_timeout)
+            if value is None:
+                missing_value.append(addr)
+    finally:
+        # Deterministic teardown: a monitoring PV left to die by garbage
+        # collection clears its subscription from PV.__del__ at an arbitrary
+        # later moment, which segfaults libca when it lands mid-callback (an
+        # in-process caller runs more tests after this returns; the CLI path
+        # never noticed because process exit reclaimed everything).
+        for pv in pvs.values():
+            try:
+                pv.disconnect()
+            except Exception:
+                pass
 
     elapsed = time.monotonic() - start
     return SweepResult(

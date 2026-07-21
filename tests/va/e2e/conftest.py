@@ -30,6 +30,7 @@ conftest instead of each re-doing the ``importlib.util`` load.
 
 from __future__ import annotations
 
+import gc
 import importlib.util
 import json
 import os
@@ -134,16 +135,50 @@ def patched_config(**overrides: Any) -> Iterator[None]:
         yield
 
 
+# Connectors handed out by connect_va(), pending deterministic teardown. A
+# pyepics PV whose subscription is still live segfaults libca if it is
+# finalized by a garbage-collection cycle at an arbitrary point (observed
+# reproducibly: GC triggered inside a later test's json.load collects a prior
+# test's PVs -> PV.__del__ -> ca.clear_subscription -> SIGSEGV). Tests must
+# never leave connector PVs to die by GC.
+_LIVE_CONNECTORS: list[Any] = []
+
+
 async def connect_va(**config_overrides: Any):
     """Create + connect a VirtualAcceleratorConnector via the real ConnectorFactory.
 
     Must be called from inside a ``with patched_config(...):`` block that
     stays open for as long as the returned connector is used to write.
+
+    The connector is registered for automatic disconnect after the test (see
+    ``_disconnect_va_connectors``); callers need no try/finally of their own.
     """
     from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
 
     register_builtin_connectors()
-    return await ConnectorFactory.create_control_system_connector(CONNECTOR_CONFIG)
+    connector = await ConnectorFactory.create_control_system_connector(CONNECTOR_CONFIG)
+    _LIVE_CONNECTORS.append(connector)
+    return connector
+
+
+@pytest.fixture(autouse=True)
+async def _disconnect_va_connectors() -> Any:
+    """Disconnect every connector a test created, then collect finalizers.
+
+    Runs in the test's own event loop while the CA context is healthy, so PV
+    subscriptions are cleared on the supported path; the explicit
+    ``gc.collect()`` then runs any remaining ``PV.__del__`` on
+    already-disconnected PVs (a no-op for subscriptions) at a controlled
+    moment instead of mid-test.
+    """
+    yield
+    while _LIVE_CONNECTORS:
+        connector = _LIVE_CONNECTORS.pop()
+        try:
+            await connector.disconnect()
+        except Exception:
+            pass  # best-effort: teardown must never mask a test result
+    gc.collect()
 
 
 @dataclass

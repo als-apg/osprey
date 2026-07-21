@@ -249,7 +249,7 @@ Options: ``-p, --project PATH``, ``-v, --verbose``
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
 
-``osprey channel-finder generate [--output-dir DIR] [--source PATH] [--format in_context|hierarchical|middle_layer|all] [--tier 1|2|3|none] [--validate]``
+``osprey channel-finder generate [--output-dir DIR] [--source PATH] [--format in_context|hierarchical|middle_layer|all] [--tier 1|3|none] [--validate]``
    Generate channel databases from a hierarchical template. Produces one
    or more pipeline formats (default: all three) with optional tier filtering.
 

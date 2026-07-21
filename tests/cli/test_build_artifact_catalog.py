@@ -68,6 +68,7 @@ class TestBuildArtifactCatalogDefault:
             "agents/data-visualizer",
             "agents/logbook-search",
             "agents/logbook-deep-research",
+            "agents/pyat-specialist",
             "rules/safety",
             "rules/error-handling",
             "rules/artifacts",

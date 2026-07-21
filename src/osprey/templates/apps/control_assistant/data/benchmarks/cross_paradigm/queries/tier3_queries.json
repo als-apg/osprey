@@ -21,7 +21,59 @@
       "SR:DIAG:BPM:17:GOLDEN:X",
       "SR:DIAG:BPM:18:GOLDEN:X",
       "SR:DIAG:BPM:19:GOLDEN:X",
-      "SR:DIAG:BPM:20:GOLDEN:X"
+      "SR:DIAG:BPM:20:GOLDEN:X",
+      "SR:DIAG:BPM:21:GOLDEN:X",
+      "SR:DIAG:BPM:22:GOLDEN:X",
+      "SR:DIAG:BPM:23:GOLDEN:X",
+      "SR:DIAG:BPM:24:GOLDEN:X",
+      "SR:DIAG:BPM:25:GOLDEN:X",
+      "SR:DIAG:BPM:26:GOLDEN:X",
+      "SR:DIAG:BPM:27:GOLDEN:X",
+      "SR:DIAG:BPM:28:GOLDEN:X",
+      "SR:DIAG:BPM:29:GOLDEN:X",
+      "SR:DIAG:BPM:30:GOLDEN:X",
+      "SR:DIAG:BPM:31:GOLDEN:X",
+      "SR:DIAG:BPM:32:GOLDEN:X",
+      "SR:DIAG:BPM:33:GOLDEN:X",
+      "SR:DIAG:BPM:34:GOLDEN:X",
+      "SR:DIAG:BPM:35:GOLDEN:X",
+      "SR:DIAG:BPM:36:GOLDEN:X",
+      "SR:DIAG:BPM:37:GOLDEN:X",
+      "SR:DIAG:BPM:38:GOLDEN:X",
+      "SR:DIAG:BPM:39:GOLDEN:X",
+      "SR:DIAG:BPM:40:GOLDEN:X",
+      "SR:DIAG:BPM:41:GOLDEN:X",
+      "SR:DIAG:BPM:42:GOLDEN:X",
+      "SR:DIAG:BPM:43:GOLDEN:X",
+      "SR:DIAG:BPM:44:GOLDEN:X",
+      "SR:DIAG:BPM:45:GOLDEN:X",
+      "SR:DIAG:BPM:46:GOLDEN:X",
+      "SR:DIAG:BPM:47:GOLDEN:X",
+      "SR:DIAG:BPM:48:GOLDEN:X",
+      "SR:DIAG:BPM:49:GOLDEN:X",
+      "SR:DIAG:BPM:50:GOLDEN:X",
+      "SR:DIAG:BPM:51:GOLDEN:X",
+      "SR:DIAG:BPM:52:GOLDEN:X",
+      "SR:DIAG:BPM:53:GOLDEN:X",
+      "SR:DIAG:BPM:54:GOLDEN:X",
+      "SR:DIAG:BPM:55:GOLDEN:X",
+      "SR:DIAG:BPM:56:GOLDEN:X",
+      "SR:DIAG:BPM:57:GOLDEN:X",
+      "SR:DIAG:BPM:58:GOLDEN:X",
+      "SR:DIAG:BPM:59:GOLDEN:X",
+      "SR:DIAG:BPM:60:GOLDEN:X",
+      "SR:DIAG:BPM:61:GOLDEN:X",
+      "SR:DIAG:BPM:62:GOLDEN:X",
+      "SR:DIAG:BPM:63:GOLDEN:X",
+      "SR:DIAG:BPM:64:GOLDEN:X",
+      "SR:DIAG:BPM:65:GOLDEN:X",
+      "SR:DIAG:BPM:66:GOLDEN:X",
+      "SR:DIAG:BPM:67:GOLDEN:X",
+      "SR:DIAG:BPM:68:GOLDEN:X",
+      "SR:DIAG:BPM:69:GOLDEN:X",
+      "SR:DIAG:BPM:70:GOLDEN:X",
+      "SR:DIAG:BPM:71:GOLDEN:X",
+      "SR:DIAG:BPM:72:GOLDEN:X"
     ],
     "category": "aggregate"
   },
@@ -51,16 +103,28 @@
       "SR:MAG:DIPOLE:21:CURRENT:RB",
       "SR:MAG:DIPOLE:22:CURRENT:RB",
       "SR:MAG:DIPOLE:23:CURRENT:RB",
-      "SR:MAG:DIPOLE:24:CURRENT:RB"
+      "SR:MAG:DIPOLE:24:CURRENT:RB",
+      "SR:MAG:DIPOLE:25:CURRENT:RB",
+      "SR:MAG:DIPOLE:26:CURRENT:RB",
+      "SR:MAG:DIPOLE:27:CURRENT:RB",
+      "SR:MAG:DIPOLE:28:CURRENT:RB",
+      "SR:MAG:DIPOLE:29:CURRENT:RB",
+      "SR:MAG:DIPOLE:30:CURRENT:RB",
+      "SR:MAG:DIPOLE:31:CURRENT:RB",
+      "SR:MAG:DIPOLE:32:CURRENT:RB",
+      "SR:MAG:DIPOLE:33:CURRENT:RB",
+      "SR:MAG:DIPOLE:34:CURRENT:RB",
+      "SR:MAG:DIPOLE:35:CURRENT:RB",
+      "SR:MAG:DIPOLE:36:CURRENT:RB"
     ],
     "category": "aggregate"
   },
   {
     "user_query": "What are the last three horizontal corrector current setpoints?",
     "targeted_pv": [
-      "SR:MAG:HCM:18:CURRENT:SP",
-      "SR:MAG:HCM:19:CURRENT:SP",
-      "SR:MAG:HCM:20:CURRENT:SP"
+      "SR:MAG:HCM:70:CURRENT:SP",
+      "SR:MAG:HCM:71:CURRENT:SP",
+      "SR:MAG:HCM:72:CURRENT:SP"
     ],
     "category": "aggregate"
   },
@@ -341,18 +405,18 @@
   {
     "user_query": "Show the last six SR BPM positions in both planes",
     "targeted_pv": [
-      "SR:DIAG:BPM:15:POSITION:X",
-      "SR:DIAG:BPM:15:POSITION:Y",
-      "SR:DIAG:BPM:16:POSITION:X",
-      "SR:DIAG:BPM:16:POSITION:Y",
-      "SR:DIAG:BPM:17:POSITION:X",
-      "SR:DIAG:BPM:17:POSITION:Y",
-      "SR:DIAG:BPM:18:POSITION:X",
-      "SR:DIAG:BPM:18:POSITION:Y",
-      "SR:DIAG:BPM:19:POSITION:X",
-      "SR:DIAG:BPM:19:POSITION:Y",
-      "SR:DIAG:BPM:20:POSITION:X",
-      "SR:DIAG:BPM:20:POSITION:Y"
+      "SR:DIAG:BPM:67:POSITION:X",
+      "SR:DIAG:BPM:67:POSITION:Y",
+      "SR:DIAG:BPM:68:POSITION:X",
+      "SR:DIAG:BPM:68:POSITION:Y",
+      "SR:DIAG:BPM:69:POSITION:X",
+      "SR:DIAG:BPM:69:POSITION:Y",
+      "SR:DIAG:BPM:70:POSITION:X",
+      "SR:DIAG:BPM:70:POSITION:Y",
+      "SR:DIAG:BPM:71:POSITION:X",
+      "SR:DIAG:BPM:71:POSITION:Y",
+      "SR:DIAG:BPM:72:POSITION:X",
+      "SR:DIAG:BPM:72:POSITION:Y"
     ],
     "category": "range"
   },
@@ -519,5 +583,61 @@
       "SR:DIAG:NEUTRON:02:DOSE_RATE:INST"
     ],
     "category": "tier-boundary"
+  },
+  {
+    "user_query": "What's the current setpoint for the fourth achromat-arc focusing quadrupole?",
+    "targeted_pv": [
+      "SR:MAG:QFA:04:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "Give me the readback current on achromat-arc focusing quad 9.",
+    "targeted_pv": [
+      "SR:MAG:QFA:09:CURRENT:RB"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "Read back the current on the second harmonic focusing sextupole.",
+    "targeted_pv": [
+      "SR:MAG:SHF:02:CURRENT:RB"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "What is the setpoint of harmonic focusing sextupole 11?",
+    "targeted_pv": [
+      "SR:MAG:SHF:11:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "What's the setpoint for the third harmonic defocusing sextupole?",
+    "targeted_pv": [
+      "SR:MAG:SHD:03:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "Give me the readback for harmonic defocusing sextupole 8.",
+    "targeted_pv": [
+      "SR:MAG:SHD:08:CURRENT:RB"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "What's the current setpoint on the fifth defocusing sextupole?",
+    "targeted_pv": [
+      "SR:MAG:SD:05:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "Read the current on defocusing sextupole 10.",
+    "targeted_pv": [
+      "SR:MAG:SD:10:CURRENT:RB"
+    ],
+    "category": "near-miss"
   }
 ]

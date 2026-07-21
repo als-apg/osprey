@@ -117,12 +117,13 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
 )
 @click.option(
     "--tier",
-    type=click.IntRange(1, 3),
+    type=click.Choice(["1", "3"]),
     default=None,
-    help="Channel-database tier (1|2|3). Selects which "
+    help="Channel-database tier (1|3). Selects which "
     "data/channel_databases/tiers/tier{N}/ DB the rendered config points at. "
     "Advanced: override the paradigm-derived default "
-    "(in_context → tier 1, hierarchical/middle_layer → tier 3).",
+    "(in_context → tier 1, hierarchical/middle_layer → tier 3). "
+    "Tier 1 is in_context-only.",
 )
 @click.option(
     "--emit-profile",
@@ -146,7 +147,7 @@ def build(
     skip_lifecycle: bool,
     skip_deps: bool,
     runtime_root: str | None,
-    tier: int | None,
+    tier: str | None,
     emit_profile: Path | None,
 ) -> None:
     """Build a facility-specific assistant from a profile or bundled preset.
@@ -246,9 +247,15 @@ def build(
             raise
 
         # CLI --tier overrides any value coming from the profile/preset/overrides.
-        # Equivalent to --set tier=N but more discoverable in --help.
+        # Equivalent to --set tier=N but more discoverable in --help. click
+        # constrains the choice to {1, 3}; convert the string form to the int
+        # the profile model carries. Re-run validation so the tier rule (tier 1
+        # requires channel_finder_mode: in_context) fails here with a
+        # rule-naming error rather than downstream as a scaffolding
+        # FileNotFoundError.
         if tier is not None:
-            build_profile.tier = tier
+            build_profile.tier = int(tier)
+            build_profile.validate(profile_dir)
 
         # Provider is required — no implicit fallback. Each provider has
         # different auth gating (CBORG: LBLnet; als-apg: ALS_APG_API_KEY;

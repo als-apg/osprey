@@ -238,6 +238,21 @@ def build_claude_code_context(
         facility_perms = dict(ctx["facility_permissions"])
         deny = list(facility_perms.get("deny", []))
         remove_ask = list(facility_perms.get("remove_ask", []))
+        allow = list(facility_perms.get("allow", []))
+        # Approval-gated tools an enabled agent hard-requires (e.g. the
+        # pyat-specialist's only compute path, mcp__python__execute) must stay
+        # reachable even with writes off, or the agent declares a tool absent
+        # from permissions and build validation fails. They are still pulled
+        # from `ask` below -- a static ask entry drives even a read-write
+        # execute to the SDK's can_use_tool prompt, bypassing the kill switch
+        # (see tests/cli/test_claude_regen.py::...covers_python_execute) -- and
+        # re-granted via `allow` instead: no approval-prompt path to bypass,
+        # while the PreToolUse writes-check hook still hard-denies write-access
+        # kernels and permits only read-only ones. Net: read-only compute works,
+        # control-system writes stay blocked.
+        required_ask = {
+            tool for a in ctx["agents"] if a["enabled"] for tool in a.get("requires_ask_tools", [])
+        }
         # Cover extends clones too, not just the literal template names: the
         # runtime hook templates (osprey_writes_check.py, osprey_approval.py)
         # exact-match template tool names and are clone-unaware — they are the
@@ -262,8 +277,18 @@ def build_claude_code_context(
                         remove_ask.append(matcher)
                 elif matcher not in deny:
                     deny.append(matcher)
+        # Re-grant, via `allow`, any mixed read/write tool an enabled agent
+        # hard-requires that the kill-switch just pulled from `ask`. `allow`
+        # (not `ask`) keeps it off the approval-prompt path the writes-check
+        # kill switch guards, so the read-only agent keeps its compute without
+        # reopening a write-access bypass. A required *pure-write* tool would be
+        # in `deny`, not `remove_ask`, and is deliberately NOT rescued here.
+        for tool in sorted(required_ask):
+            if tool in remove_ask and tool not in allow:
+                allow.append(tool)
         facility_perms["deny"] = deny
         facility_perms["remove_ask"] = remove_ask
+        facility_perms["allow"] = allow
         ctx["facility_permissions"] = facility_perms
 
     return ctx

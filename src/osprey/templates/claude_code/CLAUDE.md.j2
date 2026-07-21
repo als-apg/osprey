@@ -18,7 +18,8 @@ default first action, not an afterthought.
 {% set logbook_deep_enabled = agents | selectattr("name", "equalto", "logbook-deep-research") | selectattr("enabled") | list | length > 0 -%}
 {% set data_visualizer_enabled = agents | selectattr("name", "equalto", "data-visualizer") | selectattr("enabled") | list | length > 0 -%}
 {% set facility_knowledge_enabled = agents | selectattr("name", "equalto", "facility-knowledge") | selectattr("enabled") | list | length > 0 -%}
-{% set in_core_agents = ["channel-finder", "logbook-search", "logbook-deep-research", "data-visualizer", "facility-knowledge"] -%}
+{% set pyat_specialist_enabled = agents | selectattr("name", "equalto", "pyat-specialist") | selectattr("enabled") | list | length > 0 -%}
+{% set in_core_agents = ["channel-finder", "logbook-search", "logbook-deep-research", "data-visualizer", "facility-knowledge", "pyat-specialist"] -%}
 ## Agents
 
 Your specialized agents handle domain-specific tasks. Delegate to them —
@@ -44,6 +45,14 @@ do not attempt their work with your own tools.
 {%- if facility_knowledge_enabled %}
 - **facility-knowledge** — Looks up facility-specific documented knowledge: subsystem descriptions, device specifications, operational procedures, safety rules, physics references, and terminology.
   For ANY question about documented facility content — procedures, subsystem descriptions, device specs, safety rules, or facility-specific terminology — delegate to **facility-knowledge**. Do NOT call `list_concepts`, `read_concept`, or `search` yourself; use **facility-knowledge** to retrieve and synthesize bundle content.
+{%- if pyat_specialist_enabled %}
+  Documented vs. computed: a *documented* design fact or piece of terminology — a nominal value, a naming convention, "what does X mean" — comes from **facility-knowledge** (it wins whenever the knowledge bundle carries the value). Anything that requires *computing* on the lattice model — orbit, tunes, optics functions, response matrices — goes to **pyat-specialist**, not here.
+{%- endif %}
+{% endif -%}
+{%- if pyat_specialist_enabled %}
+- **pyat-specialist** — Computes lattice/optics quantities on the accelerator model (pyAT): orbit, tunes, optics functions (beta/dispersion/phase), response matrices, and related lattice calculations.
+  For ANY lattice/optics computation — delegate to **pyat-specialist**; do NOT compute lattice quantities (orbit, tunes, optics functions, response matrices) via `mcp__python__execute` yourself. This carve-out is narrow: ordinary, non-lattice Python analysis — arithmetic on channel readings, statistics, unit conversions, ad-hoc data crunching — remains your own job via `mcp__python__execute` as usual. Only *model-based lattice/optics* work is delegated.
+  Documented vs. computed: a value that is simply *documented* — a nominal tune, a design beta, terminology — comes from **facility-knowledge** (it wins when the knowledge bundle has the value). Anything that must be *computed* on the lattice model goes to **pyat-specialist**.
 {% endif -%}
 {%- for a in agents if a.enabled and a.name not in in_core_agents %}
 - **{{ a.name }}** — {{ a.description }}

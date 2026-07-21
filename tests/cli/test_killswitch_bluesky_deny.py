@@ -149,6 +149,29 @@ def test_python_execute_still_removed_from_ask_when_writes_off(tmp_path):
     assert "mcp__python__execute" not in perms.get("deny", [])
 
 
+def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off(tmp_path):
+    """A writes-off persona keeps a python-requiring agent's compute path.
+
+    ``mcp__python__execute`` is pulled from ``ask`` under writes-off (the kill
+    switch that stops a read-write execute from reaching the ``can_use_tool``
+    prompt), but the pyat-specialist agent hard-requires it. It must therefore
+    be re-granted via ``allow`` — reachable by the agent, off the approval-prompt
+    path, still hook-guarded against write-access kernels. This is the read-only
+    (physicist) persona case where an inherited compute agent meets writes-off.
+    """
+    ctx = _build_ctx(tmp_path, writes_enabled=False)
+    assert any(a["name"] == "pyat-specialist" and a["enabled"] for a in ctx["agents"]), (
+        "guard assumes pyat-specialist (a python-requiring agent) is enabled"
+    )
+    perms = ctx["facility_permissions"]
+    # Off the ask/can_use_tool path (kill-switch preserved) …
+    assert "mcp__python__execute" in perms["remove_ask"]
+    assert "mcp__python__execute" not in perms.get("ask", [])
+    # … but re-granted via allow so the agent still has it, and never denied.
+    assert "mcp__python__execute" in perms.get("allow", [])
+    assert "mcp__python__execute" not in perms.get("deny", [])
+
+
 def test_nothing_added_when_writes_enabled(tmp_path):
     ctx = _build_ctx(tmp_path, writes_enabled=True)
     perms = ctx["facility_permissions"]

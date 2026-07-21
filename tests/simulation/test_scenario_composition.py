@@ -16,7 +16,7 @@ import pytest
 from osprey.simulation import SimulationEngine
 
 GAUGE07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
-C1_TEMP = "SR:RF:CAVITY:01:TEMPERATURE:RB"
+CAVITY01_TEMP = "SR:RF:CAVITY:01:TEMPERATURE:RB"
 RF_SERIES_N = 2016  # 7-day window at 5-minute resolution
 
 
@@ -42,7 +42,7 @@ def _vacuum_spike_present(engine: SimulationEngine) -> bool:
 
 
 def _rf_excursion_present(engine: SimulationEngine) -> bool:
-    series = np.array(engine.synthesize_series(C1_TEMP, _seven_day_window()))
+    series = np.array(engine.synthesize_series(CAVITY01_TEMP, _seven_day_window()))
     # Nominal cavity body temp ~27 degC; excursions exceed 31 degC.
     return series.max() > 31.0
 

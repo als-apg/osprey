@@ -1,6 +1,6 @@
 {
-  "_comment": "Channel Limits Database - safety limits and verification for runtime write validation. This file is a pure projection of the namespace-union manifest (osprey.services.virtual_accelerator.manifest): it carries exactly one entry per manifest address, and the write-safety contract is a single rule -- a channel is writable if and only if it is a setpoint (:SP). The 168 :SP addresses are writable with min/max bounds (family-banded from the SR lattice model's device inventory and machine.json nominal values); every other manifest address (readbacks :RB / :X / :Y, status and fault flags, golden references, telemetry) is writable:false so the software safety layer -- not just the IOC -- refuses writes to it. Regenerate with the manifest; tests/templates/test_channel_limits_va.py guards the projection.",
-  "_version": "3.0",
+  "_comment": "Channel Limits Database - safety limits and verification for runtime write validation. This file is a pure projection of the namespace-union manifest (osprey.services.virtual_accelerator.manifest): it carries exactly one entry per manifest address, and the write-safety contract is a single rule -- a channel is writable if and only if it is a setpoint (:SP). The 396 :SP addresses are writable with min/max bounds (family-banded from the SR lattice model's device inventory and machine.json nominal values); every other manifest address (readbacks :RB / :X / :Y, status and fault flags, golden references, telemetry) is writable:false so the software safety layer -- not just the IOC -- refuses writes to it. QF/QD/QFA/DIPOLE bands are calibrated: derived by scripts/va/derive_bands.py by sweeping each device on the real ALS-U AR ring built from osprey.services.virtual_accelerator.lattice.build_ring and locating the one-turn-map stability edge (|max-plane trace| = 1.8) in both directions from nominal. QF/QD/QFA additionally apply a unipolar-supply floor (min clamped to 0.0 A; only QD's derived lower edge is negative, so only QD is floored). DIPOLE's committed band is the +/-0.5% policy trim window around nominal, asserted to sit with at least 2x headroom inside its own derived stability boundary. Regenerate with the manifest; scripts/va/derive_bands.py --verify re-checks these bands against the real ring; tests/templates/test_channel_limits_va.py guards the projection.",
+  "_version": "4.0",
   "_description": "This database configures automatic limits validation and verification for channel writes. The connector reads it automatically - capabilities need not know these details. max_step is intentionally NOT set on any entry: LimitsValidator's max_step check reads the current value via a direct pyepics caget regardless of connector type (not connector-abstracted), which would block every write under the default mock control-system type (no live EPICS server behind mock addresses). min/max bounds plus readback verification already enforce 'a value must fit inside its own limits' without that failure mode.",
   "defaults": {
     "_comment": "Default settings inherited by all channels unless overridden",
@@ -283,192 +283,288 @@
     }
   },
   "SR:MAG:DIPOLE:01:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 908.78126,
+    "max_value": 917.9147399999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:02:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 918.555145,
+    "max_value": 927.7868550000001,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:03:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 918.895435,
+    "max_value": 928.130565,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:04:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 909.67477,
+    "max_value": 918.81723,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:05:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 894.3259,
+    "max_value": 903.3141,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:06:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 878.562115,
+    "max_value": 887.391885,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:07:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 868.251925,
+    "max_value": 876.978075,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:08:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 867.2320500000001,
+    "max_value": 875.94795,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:09:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 875.883575,
+    "max_value": 884.686425,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:10:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 890.98469,
+    "max_value": 899.93931,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:11:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 906.915635,
+    "max_value": 916.030365,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:12:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 917.74422,
+    "max_value": 926.96778,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:13:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 919.440695,
+    "max_value": 928.6813050000001,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:14:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 911.3742299999999,
+    "max_value": 920.53377,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:15:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 896.54674,
+    "max_value": 905.55726,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:16:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 880.47749,
+    "max_value": 889.3265100000001,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:17:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 869.14842,
+    "max_value": 877.8835799999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:18:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 866.77634,
+    "max_value": 875.4876599999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:19:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 874.24481,
+    "max_value": 883.03119,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:20:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 888.7738,
+    "max_value": 897.7062,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:21:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 904.95449,
+    "max_value": 914.0495099999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:22:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 916.764145,
+    "max_value": 925.977855,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:23:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 919.80586,
+    "max_value": 929.0501399999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:24:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 912.94832,
+    "max_value": 922.1236799999999,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:25:CURRENT:SP": {
+    "min_value": 908.78126,
+    "max_value": 917.9147399999999,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:26:CURRENT:SP": {
+    "min_value": 918.555145,
+    "max_value": 927.7868550000001,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:27:CURRENT:SP": {
+    "min_value": 918.895435,
+    "max_value": 928.130565,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:28:CURRENT:SP": {
+    "min_value": 909.67477,
+    "max_value": 918.81723,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:29:CURRENT:SP": {
+    "min_value": 894.3259,
+    "max_value": 903.3141,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:30:CURRENT:SP": {
+    "min_value": 878.562115,
+    "max_value": 887.391885,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:31:CURRENT:SP": {
+    "min_value": 868.251925,
+    "max_value": 876.978075,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:32:CURRENT:SP": {
+    "min_value": 867.2320500000001,
+    "max_value": 875.94795,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:33:CURRENT:SP": {
+    "min_value": 875.883575,
+    "max_value": 884.686425,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:34:CURRENT:SP": {
+    "min_value": 890.98469,
+    "max_value": 899.93931,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:35:CURRENT:SP": {
+    "min_value": 906.915635,
+    "max_value": 916.030365,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:36:CURRENT:SP": {
+    "min_value": 917.74422,
+    "max_value": 926.96778,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
@@ -634,257 +730,993 @@
       "tolerance_percent": 0.5
     }
   },
+  "SR:MAG:HCM:21:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:22:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:23:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:24:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:25:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:26:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:27:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:28:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:29:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:30:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:31:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:32:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:33:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:34:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:35:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:36:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:37:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:38:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:39:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:40:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:41:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:42:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:43:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:44:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:45:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:46:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:47:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:48:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:49:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:50:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:51:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:52:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:53:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:54:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:55:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:56:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:57:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:58:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:59:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:60:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:61:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:62:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:63:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:64:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:65:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:66:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:67:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:68:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:69:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:70:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:71:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:72:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
   "SR:MAG:QD:01:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 489.68070704352203,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:02:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 494.9474032658239,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:03:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 495.1296062142683,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:04:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 490.16199783115263,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:05:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 481.8906720344365,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:06:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 473.3976087085204,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:07:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 467.8421380190366,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:08:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 467.2920914157158,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:09:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 471.95373638002224,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:10:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 480.090988311255,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:11:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 488.67515310139333,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:12:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 494.5090848822952,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:13:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 495.423537361384,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:14:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 491.0781691989663,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:15:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 483.08702339528884,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:16:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 0.0,
+    "max_value": 474.4289460880618,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:17:CURRENT:SP": {
+    "min_value": 0.0,
+    "max_value": 489.68070705045636,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:18:CURRENT:SP": {
+    "min_value": 0.0,
+    "max_value": 494.9474032722717,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:19:CURRENT:SP": {
+    "min_value": 0.0,
+    "max_value": 495.1296062041379,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:20:CURRENT:SP": {
+    "min_value": 0.0,
+    "max_value": 490.16199782302704,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:21:CURRENT:SP": {
+    "min_value": 0.0,
+    "max_value": 481.89067203644584,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:22:CURRENT:SP": {
+    "min_value": 0.0,
+    "max_value": 473.3976087092345,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:23:CURRENT:SP": {
+    "min_value": 0.0,
+    "max_value": 467.8421380214792,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:24:CURRENT:SP": {
+    "min_value": 0.0,
+    "max_value": 467.29209141987025,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:01:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 306.23530136209473,
+    "max_value": 432.5174125907713,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:02:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 309.52897704791906,
+    "max_value": 437.16929980209505,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:03:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 309.6433527306404,
+    "max_value": 437.3308405346014,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:04:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 306.53629000345455,
+    "max_value": 432.9425197764403,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:05:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 301.36444521131864,
+    "max_value": 425.637963704547,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:06:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 296.0524257086588,
+    "max_value": 418.1354291573549,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:07:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 292.5781568403561,
+    "max_value": 413.2284776266926,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:08:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 292.2341698274152,
+    "max_value": 412.7426408386793,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:09:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 295.1494597916999,
+    "max_value": 416.8601075950442,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:10:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 300.2387477005588,
+    "max_value": 424.0480628296764,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:11:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 305.60666509216685,
+    "max_value": 431.6295458559352,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:12:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 309.2555073668847,
+    "max_value": 436.78305956305036,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:13:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 309.8273857806553,
+    "max_value": 437.5907632169563,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:14:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 307.10902838597275,
+    "max_value": 433.7514380237696,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:15:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 302.11261697183625,
+    "max_value": 426.6946587197693,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:16:CURRENT:SP": {
-    "min_value": 80.0,
-    "max_value": 120.0,
+    "min_value": 296.69740136559176,
+    "max_value": 419.0463731267701,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:17:CURRENT:SP": {
+    "min_value": 306.23530136425876,
+    "max_value": 432.517412584914,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:18:CURRENT:SP": {
+    "min_value": 309.52897704575446,
+    "max_value": 437.1692998060848,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:19:CURRENT:SP": {
+    "min_value": 309.6433527286124,
+    "max_value": 437.33084053558474,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:20:CURRENT:SP": {
+    "min_value": 306.53629000361406,
+    "max_value": 432.9425197768821,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:21:CURRENT:SP": {
+    "min_value": 301.3644452111431,
+    "max_value": 425.63796371170287,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:22:CURRENT:SP": {
+    "min_value": 296.0524257090924,
+    "max_value": 418.1354291574087,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:23:CURRENT:SP": {
+    "min_value": 292.5781568432366,
+    "max_value": 413.22847762615766,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:24:CURRENT:SP": {
+    "min_value": 292.23416982779406,
+    "max_value": 412.742640840378,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:01:CURRENT:SP": {
+    "min_value": 317.60144060247995,
+    "max_value": 416.11257988047765,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:02:CURRENT:SP": {
+    "min_value": 321.0173633818431,
+    "max_value": 420.5880269570767,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:03:CURRENT:SP": {
+    "min_value": 321.13598419847705,
+    "max_value": 420.7434406541732,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:04:CURRENT:SP": {
+    "min_value": 317.9136006458859,
+    "max_value": 416.5215632926087,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:05:CURRENT:SP": {
+    "min_value": 312.5497991849612,
+    "max_value": 409.4940597070722,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:06:CURRENT:SP": {
+    "min_value": 307.04062033241604,
+    "max_value": 402.27608669982004,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:07:CURRENT:SP": {
+    "min_value": 303.43740152795624,
+    "max_value": 397.5552495698441,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:08:CURRENT:SP": {
+    "min_value": 303.08064719161035,
+    "max_value": 397.0878399520477,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:09:CURRENT:SP": {
+    "min_value": 306.1041401995206,
+    "max_value": 401.04913645300087,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:10:CURRENT:SP": {
+    "min_value": 311.38232061865006,
+    "max_value": 407.9644617333038,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:11:CURRENT:SP": {
+    "min_value": 316.949472050469,
+    "max_value": 415.2583888062574,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:12:CURRENT:SP": {
+    "min_value": 320.73374368134944,
+    "max_value": 420.21643631649187,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:13:CURRENT:SP": {
+    "min_value": 321.3268477681929,
+    "max_value": 420.9935048040205,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:14:CURRENT:SP": {
+    "min_value": 318.5075966189499,
+    "max_value": 417.2998003072741,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:15:CURRENT:SP": {
+    "min_value": 313.3257398708271,
+    "max_value": 410.5106756228348,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:16:CURRENT:SP": {
+    "min_value": 307.70953471714853,
+    "max_value": 403.15247973000015,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:17:CURRENT:SP": {
+    "min_value": 317.6014406023421,
+    "max_value": 416.11257988140244,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:18:CURRENT:SP": {
+    "min_value": 321.0173633805726,
+    "max_value": 420.5880269606544,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:19:CURRENT:SP": {
+    "min_value": 321.13598419873495,
+    "max_value": 420.7434406589308,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:20:CURRENT:SP": {
+    "min_value": 317.91360064746794,
+    "max_value": 416.5215632951104,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:21:CURRENT:SP": {
+    "min_value": 312.5497991873297,
+    "max_value": 409.49405970663946,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:22:CURRENT:SP": {
+    "min_value": 307.04062033454653,
+    "max_value": 402.276086699638,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:23:CURRENT:SP": {
+    "min_value": 303.43740152834755,
+    "max_value": 397.555249570955,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QFA:24:CURRENT:SP": {
+    "min_value": 303.0806471911603,
+    "max_value": 397.0878399517678,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
@@ -986,6 +1818,102 @@
       "tolerance_percent": 1.0
     }
   },
+  "SR:MAG:SD:13:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:14:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:15:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:16:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:17:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:18:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:19:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:20:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:21:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:22:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:23:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:24:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
   "SR:MAG:SF:01:CURRENT:SP": {
     "min_value": 100.0,
     "max_value": 140.0,
@@ -1075,6 +2003,486 @@
     }
   },
   "SR:MAG:SF:12:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:13:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:14:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:15:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:16:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:17:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:18:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:19:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:20:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:21:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:22:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:23:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:24:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:01:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:02:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:03:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:04:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:05:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:06:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:07:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:08:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:09:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:10:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:11:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:12:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:13:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:14:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:15:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:16:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:17:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:18:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:19:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:20:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:21:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:22:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:23:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHD:24:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:01:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:02:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:03:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:04:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:05:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:06:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:07:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:08:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:09:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:10:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:11:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:12:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:13:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:14:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:15:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:16:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:17:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:18:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:19:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:20:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:21:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:22:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:23:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SHF:24:CURRENT:SP": {
     "min_value": 100.0,
     "max_value": 140.0,
     "verification": {
@@ -1235,6 +2643,422 @@
     }
   },
   "SR:MAG:VCM:20:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:21:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:22:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:23:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:24:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:25:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:26:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:27:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:28:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:29:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:30:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:31:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:32:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:33:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:34:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:35:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:36:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:37:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:38:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:39:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:40:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:41:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:42:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:43:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:44:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:45:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:46:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:47:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:48:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:49:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:50:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:51:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:52:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:53:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:54:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:55:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:56:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:57:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:58:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:59:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:60:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:61:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:62:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:63:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:64:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:65:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:66:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:67:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:68:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:69:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:70:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:71:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:72:CURRENT:SP": {
     "min_value": -12.0,
     "max_value": 12.0,
     "verification": {
@@ -2218,6 +4042,1254 @@
   "SR:DIAG:BPM:20:STATUS:VALID": {
     "writable": false
   },
+  "SR:DIAG:BPM:21:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:21:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:21:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:21:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:21:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:21:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:21:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:21:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:22:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:22:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:22:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:22:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:22:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:22:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:22:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:22:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:23:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:23:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:23:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:23:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:23:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:23:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:23:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:23:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:24:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:24:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:24:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:24:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:24:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:24:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:24:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:24:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:25:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:25:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:25:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:25:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:25:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:25:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:25:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:25:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:26:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:26:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:26:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:26:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:26:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:26:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:26:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:26:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:27:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:27:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:27:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:27:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:27:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:27:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:27:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:27:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:28:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:28:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:28:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:28:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:28:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:28:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:28:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:28:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:29:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:29:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:29:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:29:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:29:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:29:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:29:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:29:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:30:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:30:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:30:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:30:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:30:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:30:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:30:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:30:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:31:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:31:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:31:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:31:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:31:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:31:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:31:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:31:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:32:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:32:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:32:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:32:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:32:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:32:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:32:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:32:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:33:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:33:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:33:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:33:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:33:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:33:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:33:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:33:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:34:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:34:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:34:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:34:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:34:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:34:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:34:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:34:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:35:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:35:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:35:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:35:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:35:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:35:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:35:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:35:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:36:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:36:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:36:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:36:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:36:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:36:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:36:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:36:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:37:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:37:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:37:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:37:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:37:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:37:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:37:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:37:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:38:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:38:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:38:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:38:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:38:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:38:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:38:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:38:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:39:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:39:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:39:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:39:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:39:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:39:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:39:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:39:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:40:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:40:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:40:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:40:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:40:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:40:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:40:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:40:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:41:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:41:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:41:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:41:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:41:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:41:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:41:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:41:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:42:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:42:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:42:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:42:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:42:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:42:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:42:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:42:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:43:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:43:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:43:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:43:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:43:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:43:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:43:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:43:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:44:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:44:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:44:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:44:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:44:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:44:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:44:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:44:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:45:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:45:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:45:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:45:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:45:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:45:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:45:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:45:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:46:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:46:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:46:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:46:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:46:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:46:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:46:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:46:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:47:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:47:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:47:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:47:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:47:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:47:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:47:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:47:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:48:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:48:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:48:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:48:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:48:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:48:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:48:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:48:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:49:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:49:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:49:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:49:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:49:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:49:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:49:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:49:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:50:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:50:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:50:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:50:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:50:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:50:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:50:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:50:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:51:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:51:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:51:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:51:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:51:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:51:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:51:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:51:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:52:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:52:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:52:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:52:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:52:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:52:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:52:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:52:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:53:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:53:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:53:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:53:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:53:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:53:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:53:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:53:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:54:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:54:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:54:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:54:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:54:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:54:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:54:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:54:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:55:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:55:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:55:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:55:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:55:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:55:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:55:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:55:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:56:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:56:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:56:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:56:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:56:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:56:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:56:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:56:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:57:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:57:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:57:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:57:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:57:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:57:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:57:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:57:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:58:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:58:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:58:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:58:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:58:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:58:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:58:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:58:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:59:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:59:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:59:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:59:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:59:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:59:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:59:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:59:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:60:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:60:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:60:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:60:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:60:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:60:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:60:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:60:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:61:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:61:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:61:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:61:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:61:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:61:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:61:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:61:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:62:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:62:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:62:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:62:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:62:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:62:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:62:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:62:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:63:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:63:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:63:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:63:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:63:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:63:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:63:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:63:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:64:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:64:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:64:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:64:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:64:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:64:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:64:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:64:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:65:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:65:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:65:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:65:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:65:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:65:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:65:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:65:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:66:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:66:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:66:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:66:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:66:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:66:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:66:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:66:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:67:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:67:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:67:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:67:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:67:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:67:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:67:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:67:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:68:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:68:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:68:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:68:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:68:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:68:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:68:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:68:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:69:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:69:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:69:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:69:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:69:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:69:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:69:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:69:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:70:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:70:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:70:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:70:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:70:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:70:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:70:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:70:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:71:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:71:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:71:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:71:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:71:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:71:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:71:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:71:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:72:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:72:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:72:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:72:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:72:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:72:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:72:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:72:STATUS:VALID": {
+    "writable": false
+  },
   "SR:DIAG:DCCT:01:CURRENT:RB": {
     "writable": false
   },
@@ -2704,6 +5776,186 @@
   "SR:MAG:DIPOLE:24:STATUS:READY": {
     "writable": false
   },
+  "SR:MAG:DIPOLE:25:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:25:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:25:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:25:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:25:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:26:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:26:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:26:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:26:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:26:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:27:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:27:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:27:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:27:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:27:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:28:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:28:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:28:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:28:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:28:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:29:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:29:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:29:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:29:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:29:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:30:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:30:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:30:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:30:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:30:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:31:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:31:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:31:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:31:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:31:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:32:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:32:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:32:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:32:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:32:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:33:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:33:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:33:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:33:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:33:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:34:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:34:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:34:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:34:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:34:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:35:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:35:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:35:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:35:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:35:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:36:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:36:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:36:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:36:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:36:STATUS:READY": {
+    "writable": false
+  },
   "SR:MAG:HCM:01:CURRENT:GOLDEN": {
     "writable": false
   },
@@ -2942,6 +6194,630 @@
     "writable": false
   },
   "SR:MAG:HCM:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:24:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:25:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:25:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:25:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:25:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:26:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:26:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:26:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:26:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:27:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:27:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:27:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:27:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:28:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:28:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:28:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:28:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:29:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:29:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:29:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:29:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:30:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:30:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:30:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:30:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:31:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:31:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:31:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:31:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:32:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:32:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:32:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:32:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:33:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:33:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:33:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:33:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:34:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:34:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:34:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:34:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:35:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:35:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:35:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:35:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:36:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:36:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:36:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:36:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:37:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:37:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:37:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:37:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:38:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:38:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:38:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:38:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:39:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:39:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:39:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:39:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:40:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:40:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:40:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:40:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:41:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:41:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:41:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:41:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:42:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:42:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:42:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:42:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:43:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:43:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:43:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:43:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:44:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:44:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:44:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:44:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:45:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:45:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:45:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:45:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:46:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:46:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:46:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:46:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:47:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:47:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:47:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:47:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:48:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:48:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:48:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:48:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:49:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:49:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:49:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:49:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:50:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:50:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:50:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:50:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:51:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:51:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:51:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:51:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:52:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:52:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:52:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:52:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:53:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:53:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:53:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:53:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:54:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:54:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:54:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:54:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:55:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:55:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:55:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:55:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:56:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:56:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:56:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:56:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:57:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:57:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:57:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:57:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:58:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:58:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:58:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:58:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:59:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:59:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:59:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:59:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:60:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:60:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:60:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:60:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:61:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:61:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:61:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:61:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:62:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:62:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:62:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:62:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:63:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:63:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:63:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:63:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:64:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:64:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:64:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:64:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:65:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:65:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:65:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:65:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:66:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:66:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:66:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:66:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:67:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:67:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:67:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:67:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:68:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:68:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:68:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:68:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:69:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:69:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:69:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:69:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:70:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:70:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:70:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:70:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:71:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:71:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:71:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:71:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:72:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:72:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:72:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:72:STATUS:READY": {
     "writable": false
   },
   "SR:MAG:QD:01:CURRENT:GOLDEN": {
@@ -3184,6 +7060,126 @@
   "SR:MAG:QD:16:STATUS:READY": {
     "writable": false
   },
+  "SR:MAG:QD:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:17:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:18:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:19:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:20:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:21:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:22:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:23:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:24:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:24:STATUS:READY": {
+    "writable": false
+  },
   "SR:MAG:QF:01:CURRENT:GOLDEN": {
     "writable": false
   },
@@ -3424,6 +7420,486 @@
   "SR:MAG:QF:16:STATUS:READY": {
     "writable": false
   },
+  "SR:MAG:QF:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:17:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:18:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:19:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:20:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:21:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:22:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:23:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:24:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:24:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:13:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:14:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:15:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:16:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:17:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:18:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:19:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:20:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:21:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:22:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:23:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QFA:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QFA:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QFA:24:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QFA:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QFA:24:STATUS:READY": {
+    "writable": false
+  },
   "SR:MAG:SD:01:CURRENT:GOLDEN": {
     "writable": false
   },
@@ -3604,6 +8080,186 @@
   "SR:MAG:SD:12:STATUS:READY": {
     "writable": false
   },
+  "SR:MAG:SD:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:13:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:14:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:15:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:16:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:17:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:18:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:19:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:20:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:21:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:22:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:23:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:24:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:24:STATUS:READY": {
+    "writable": false
+  },
   "SR:MAG:SF:01:CURRENT:GOLDEN": {
     "writable": false
   },
@@ -3782,6 +8438,906 @@
     "writable": false
   },
   "SR:MAG:SF:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:13:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:14:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:15:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:16:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:17:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:18:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:19:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:20:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:21:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:22:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:23:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:24:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:24:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:13:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:14:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:15:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:16:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:17:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:18:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:19:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:20:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:21:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:22:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:23:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHD:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHD:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHD:24:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHD:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHD:24:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:13:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:14:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:15:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:16:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:17:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:18:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:19:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:20:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:21:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:22:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:23:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SHF:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SHF:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SHF:24:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SHF:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SHF:24:STATUS:READY": {
     "writable": false
   },
   "SR:MAG:VCM:01:CURRENT:GOLDEN": {
@@ -4022,6 +9578,630 @@
     "writable": false
   },
   "SR:MAG:VCM:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:24:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:25:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:25:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:25:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:25:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:26:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:26:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:26:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:26:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:27:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:27:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:27:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:27:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:28:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:28:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:28:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:28:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:29:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:29:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:29:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:29:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:30:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:30:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:30:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:30:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:31:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:31:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:31:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:31:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:32:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:32:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:32:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:32:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:33:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:33:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:33:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:33:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:34:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:34:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:34:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:34:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:35:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:35:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:35:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:35:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:36:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:36:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:36:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:36:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:37:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:37:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:37:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:37:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:38:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:38:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:38:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:38:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:39:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:39:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:39:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:39:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:40:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:40:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:40:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:40:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:41:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:41:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:41:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:41:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:42:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:42:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:42:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:42:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:43:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:43:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:43:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:43:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:44:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:44:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:44:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:44:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:45:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:45:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:45:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:45:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:46:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:46:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:46:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:46:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:47:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:47:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:47:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:47:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:48:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:48:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:48:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:48:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:49:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:49:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:49:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:49:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:50:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:50:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:50:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:50:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:51:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:51:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:51:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:51:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:52:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:52:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:52:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:52:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:53:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:53:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:53:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:53:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:54:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:54:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:54:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:54:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:55:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:55:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:55:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:55:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:56:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:56:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:56:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:56:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:57:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:57:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:57:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:57:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:58:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:58:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:58:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:58:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:59:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:59:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:59:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:59:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:60:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:60:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:60:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:60:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:61:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:61:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:61:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:61:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:62:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:62:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:62:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:62:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:63:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:63:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:63:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:63:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:64:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:64:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:64:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:64:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:65:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:65:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:65:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:65:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:66:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:66:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:66:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:66:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:67:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:67:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:67:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:67:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:68:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:68:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:68:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:68:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:69:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:69:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:69:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:69:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:70:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:70:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:70:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:70:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:71:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:71:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:71:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:71:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:72:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:72:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:72:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:72:STATUS:READY": {
     "writable": false
   },
   "SR:RF:CAVITY:01:FREQUENCY:RB": {

@@ -22,7 +22,11 @@ explicit rule below; everything else falls through to `static-noisy`.
 
 from __future__ import annotations
 
-MAG_FAMILIES = frozenset({"HCM", "VCM", "QF", "QD", "SF", "SD", "DIPOLE"})
+from osprey.simulation.facility_spec import ALS_U_AR
+
+# Spec-derived: every magnet/corrector family declared by the facility spec
+# (excludes the BPM monitor family, which is gated separately below).
+MAG_FAMILIES = frozenset(f.name for f in ALS_U_AR.families if f.kind in ("magnet", "corrector"))
 
 PARTITION_PYAT_COUPLED = "pyat-coupled"
 PARTITION_SP_ECHO = "sp-echo"

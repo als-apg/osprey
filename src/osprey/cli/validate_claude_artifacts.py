@@ -5,8 +5,13 @@ Catches two classes of drift between profile inputs and rendered ``.claude/`` ou
 1. **Wildcard tools in agent frontmatter** — every agent must list its MCP tools
    explicitly so the lockdown is auditable. ``mcp__<server>__*`` is rejected.
 2. **Unbacked tool declarations** — every ``mcp__`` tool entry in an agent's
-   ``tools:`` allowlist must have a matching entry in the project's
-   ``.claude/settings.json`` ``permissions.allow``. Otherwise the agent thinks
+   ``tools:`` allowlist must be *backed*: present in the project's
+   ``.claude/settings.json`` ``permissions.allow`` **or** ``permissions.ask``.
+   Approval-gated tools (e.g. ``mcp__python__execute``) render into
+   ``permissions.ask`` by design — they are available to the agent, just
+   subject to an approval prompt. An exact-literal ``permissions.deny`` entry
+   removes a tool from the backed set (deny wins at runtime). A tool in neither
+   allow nor ask — or one explicitly denied — is a real drift: the agent thinks
    it has a tool the MCP gateway will refuse.
 """
 
@@ -50,7 +55,11 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
       - Wildcards in agent ``tools:`` (``mcp__<server>__*``) are rejected —
         list MCP tools explicitly so the lockdown is auditable.
       - Each literal ``mcp__<server>__<tool>`` must appear in
-        ``.claude/settings.json`` ``permissions.allow``.
+        ``.claude/settings.json`` ``permissions.allow`` **or** ``permissions.ask``
+        (the latter covers approval-gated tools, which are backed but prompt on
+        use), and must not appear as an exact-literal ``permissions.deny`` entry
+        (deny wins at runtime). A tool that is unbacked or explicitly denied is
+        reported.
     """
     project_dir = Path(project_dir)
     settings_path = project_dir / ".claude" / "settings.json"
@@ -64,11 +73,24 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
     except json.JSONDecodeError as e:
         return [f"{settings_path}: invalid JSON ({e})"]
 
-    allow_set: set[str] = {
+    permissions = settings.get("permissions", {})
+    # A tool is "backed" if it renders into either allow (auto-approved) or ask
+    # (approval-gated). Approval-gated tools like mcp__python__execute are still
+    # available to the agent — they just prompt on use — so both lists count.
+    backed_set: set[str] = {
         str(entry)
-        for entry in settings.get("permissions", {}).get("allow", [])
+        for key in ("allow", "ask")
+        for entry in permissions.get(key, [])
         if isinstance(entry, str)
     }
+    # deny wins at runtime, so a tool explicitly denied is not actually backed —
+    # remove exact-literal deny entries. Matching is string equality only; we do
+    # not expand wildcard deny patterns (e.g. ``mcp__plugin_playwright_*``), which
+    # never coincide with the explicit literals agents are required to declare.
+    deny_set: set[str] = {
+        str(entry) for entry in permissions.get("deny", []) if isinstance(entry, str)
+    }
+    backed_set -= deny_set
 
     errors: list[str] = []
     for md_file in sorted(agents_dir.glob("*.md")):
@@ -86,10 +108,10 @@ def validate_agent_tools_against_permissions(project_dir: Path) -> list[str]:
                     "list MCP tools explicitly so the lockdown is auditable"
                 )
                 continue
-            if entry not in allow_set:
+            if entry not in backed_set:
                 errors.append(
                     f"agent {agent_name}: tool '{entry}' not present in "
-                    ".claude/settings.json permissions.allow"
+                    ".claude/settings.json permissions.allow or permissions.ask"
                 )
 
     return errors

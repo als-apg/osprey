@@ -18,9 +18,9 @@ from osprey.services.virtual_accelerator.manifest import (
 # Measured tier-3 expansion counts (see
 # src/osprey/services/virtual_accelerator/manifest/paths.py for why tier 3
 # is the build-resolved default for this preset).
-EXPECTED_RING_COUNTS = {"SR": 1066, "BR": 90, "BTS": 72}
-EXPECTED_TOTAL = 1228
-EXPECTED_SETPOINTS = 168
+EXPECTED_RING_COUNTS = {"SR": 2746, "BR": 90, "BTS": 72}
+EXPECTED_TOTAL = 2908
+EXPECTED_SETPOINTS = 396
 
 
 @pytest.fixture(scope="module")
@@ -58,7 +58,7 @@ class TestRingCounts:
 
 
 class TestSetpointCount:
-    def test_exactly_168_setpoint_writables(self, manifest):
+    def test_exactly_396_setpoint_writables(self, manifest):
         assert manifest["_metadata"]["setpoint_count"] == EXPECTED_SETPOINTS
 
     def test_setpoint_count_matches_actual_channel_tally(self, manifest):

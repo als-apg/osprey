@@ -11,18 +11,20 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Path to the canonical hierarchical template database — the full ~1210-channel
-# structural superset. Tier-filtered subsets and other paradigms (in_context,
-# middle_layer) are generated from this file by scripts/generate_tier_databases.py.
-TEMPLATE_DB_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
-    / "channel_databases"
-    / "hierarchical.json"
+from osprey.services.channel_finder import naming
+from osprey.services.channel_finder.tools.generate_from_spec import TIER1_FILTER
+
+# Root of the control_assistant preset's shipped data tree. It anchors both the
+# canonical template DB and the tier subsets, so consumers derive their paths
+# from here rather than walking ``parents[]`` off TEMPLATE_DB_PATH.
+TEMPLATE_DATA_DIR = (
+    Path(__file__).resolve().parents[3] / "templates" / "apps" / "control_assistant" / "data"
 )
+
+# Path to the canonical hierarchical template database — the full ~2900-channel
+# structural superset. It is the tier-3 hierarchical view (tier 3 is unfiltered),
+# and every tier subset / paradigm is generated from the same content.
+TEMPLATE_DB_PATH = TEMPLATE_DATA_DIR / "channel_databases" / "tiers" / "tier3" / "hierarchical.json"
 
 
 def load_template(source_path: Path | None = None) -> tuple[dict, list[dict]]:
@@ -41,150 +43,22 @@ def load_template(source_path: Path | None = None) -> tuple[dict, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# Abbreviation maps for description generation
+# Description-phrase and alias-token maps
 # ---------------------------------------------------------------------------
+#
+# The vocabulary itself lives in :mod:`osprey.services.channel_finder.naming`
+# (shared with the tier-DB generator). The names below are this module's
+# long-standing public API, kept as thin views of the canonical maps.
 
-RING_NAMES: dict[str, str] = {
-    "SR": "storage ring",
-    "BR": "booster ring",
-    "BTS": "booster-to-storage transfer line",
-}
+RING_NAMES: dict[str, str] = naming.RING_PHRASES
+FIELD_NAMES: dict[str, str] = naming.FIELD_PHRASES
+SUBFIELD_NAMES: dict[str, str] = naming.SUBFIELD_PHRASES
+FAMILY_NAMES: dict[str, str] = naming.FAMILY_PHRASES
 
-FAMILY_NAMES: dict[str, str] = {
-    "DIPOLE": "dipole bending magnet",
-    "QF": "focusing quadrupole",
-    "QD": "defocusing quadrupole",
-    "HCM": "horizontal corrector",
-    "VCM": "vertical corrector",
-    "SF": "sextupole (focusing)",
-    "SD": "sextupole (defocusing)",
-    "BPM": "beam position monitor",
-    "DCCT": "DC current transformer",
-    "ION-PUMP": "ion pump",
-    "GAUGE": "vacuum gauge",
-    "VALVE": "gate valve",
-    "CAVITY": "RF cavity",
-    "KLYSTRON": "klystron",
-    "NEUTRON": "neutron detector",
-    "GAMMA": "gamma detector",
-}
-
-FIELD_NAMES: dict[str, str] = {
-    "CURRENT": "current",
-    "STATUS": "status",
-    "POSITION": "position",
-    "PRESSURE": "pressure",
-    "VOLTAGE": "voltage",
-    "POWER": "power",
-    "FREQUENCY": "frequency",
-    "TEMPERATURE": "temperature",
-    "TUNER": "tuner",
-    "LIFETIME": "lifetime",
-    "SIGNAL": "signal",
-    "GOLDEN": "golden orbit",
-    "OFFSET": "offset",
-    "DOSE_RATE": "dose rate",
-    "CONTROL": "control",
-}
-
-SUBFIELD_NAMES: dict[str, str] = {
-    "SP": "setpoint",
-    "RB": "readback",
-    "GOLDEN": "golden setpoint",
-    "X": "horizontal",
-    "Y": "vertical",
-    "SUM": "sum",
-    "FWD": "forward",
-    "REV": "reverse",
-    "NET": "net",
-    "INST": "instantaneous",
-    "AVG_1MIN": "1-minute average",
-    "AVG_1HR": "1-hour average",
-    "READY": "ready",
-    "ON": "on",
-    "FAULT": "fault",
-    "VALID": "valid",
-    "CONNECTED": "connected",
-    "INTERLOCK": "interlock",
-    "ALARM": "alarm",
-    "OPEN": "open",
-    "CLOSED": "closed",
-    "CLOSE": "close",
-    "MAIN": "main",
-}
-
-# ---------------------------------------------------------------------------
-# Short-name alias maps for alias generation
-# ---------------------------------------------------------------------------
-
-ALIAS_RING_NAMES: dict[str, str] = {
-    "SR": "StorageRing",
-    "BR": "BoosterRing",
-    "BTS": "BoosterToStorageRing",
-}
-
-ALIAS_FAMILY_NAMES: dict[str, str] = {
-    "DIPOLE": "Dipole",
-    "QF": "QuadFocus",
-    "QD": "QuadDefocus",
-    "HCM": "HorizCorr",
-    "VCM": "VertCorr",
-    "SF": "SextFocus",
-    "SD": "SextDefocus",
-    "BPM": "BPM",
-    "DCCT": "DCCT",
-    "ION-PUMP": "IonPump",
-    "GAUGE": "VacGauge",
-    "VALVE": "GateValve",
-    "CAVITY": "Cavity",
-    "KLYSTRON": "Klystron",
-    "NEUTRON": "NeutronDet",
-    "GAMMA": "GammaDet",
-}
-
-ALIAS_FIELD_NAMES: dict[str, str] = {
-    "CURRENT": "Current",
-    "STATUS": "Status",
-    "POSITION": "Position",
-    "PRESSURE": "Pressure",
-    "VOLTAGE": "Voltage",
-    "POWER": "Power",
-    "FREQUENCY": "Frequency",
-    "TEMPERATURE": "Temperature",
-    "TUNER": "Tuner",
-    "LIFETIME": "Lifetime",
-    "SIGNAL": "Signal",
-    "GOLDEN": "GoldenOrbit",
-    "OFFSET": "Offset",
-    "DOSE_RATE": "DoseRate",
-    "CONTROL": "Control",
-}
-
-ALIAS_SUBFIELD_NAMES: dict[str, str] = {
-    "SP": "Setpoint",
-    "RB": "Readback",
-    "GOLDEN": "Golden",
-    "X": "X",
-    "Y": "Y",
-    "SUM": "Sum",
-    "FWD": "Forward",
-    "REV": "Reverse",
-    "NET": "Net",
-    "INST": "Instantaneous",
-    "AVG_1MIN": "Avg1Min",
-    "AVG_1HR": "Avg1Hr",
-    "READY": "Ready",
-    "ON": "On",
-    "FAULT": "Fault",
-    "VALID": "Valid",
-    "CONNECTED": "Connected",
-    "INTERLOCK": "Interlock",
-    "ALARM": "Alarm",
-    "OPEN": "Open",
-    "CLOSED": "Closed",
-    "CLOSE": "Close",
-    "MAIN": "Main",
-}
+ALIAS_RING_NAMES: dict[str, str] = naming.RING_TOKENS
+ALIAS_FIELD_NAMES: dict[str, str] = naming.FIELD_TOKENS
+ALIAS_SUBFIELD_NAMES: dict[str, str] = naming.SUBFIELD_TOKENS
+ALIAS_FAMILY_NAMES: dict[str, str] = naming.FAMILY_TOKENS
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +78,6 @@ class TierSpec:
         allowed_fields_by_family: Per-family field restrictions. Maps
             family name to frozenset of allowed field names.
             ``None`` means all fields are allowed for all families.
-        target_count: Expected total channel count for validation.
     """
 
     name: str
@@ -212,33 +85,21 @@ class TierSpec:
     families: frozenset[str] | None = None
     allowed_subfields: frozenset[str] | None = None
     allowed_fields_by_family: dict[str, frozenset[str]] | None = field(default=None, hash=False)
-    target_count: int = 0
 
 
+# Tier 1 is a declared subset of tier 3; its ring/family/field/subfield
+# allow-lists come from the single canonical :data:`TIER1_FILTER` definition
+# rather than being restated here. Expected channel counts are computed from
+# the live filter at use sites, never pinned as literals.
 TIER_1 = TierSpec(
     name="tier1",
-    rings=frozenset({"SR"}),
-    families=frozenset({"DIPOLE", "QF", "HCM", "VCM", "BPM", "DCCT", "CAVITY", "GAUGE"}),
-    allowed_subfields=frozenset({"SP", "RB", "X", "Y"}),
+    rings=TIER1_FILTER.rings,
+    families=TIER1_FILTER.families,
+    allowed_subfields=TIER1_FILTER.subfields,
     allowed_fields_by_family={
-        "DIPOLE": frozenset({"CURRENT"}),
-        "QF": frozenset({"CURRENT"}),
-        "HCM": frozenset({"CURRENT"}),
-        "VCM": frozenset({"CURRENT"}),
-        "BPM": frozenset({"POSITION"}),
-        "DCCT": frozenset({"CURRENT"}),
-        "CAVITY": frozenset({"VOLTAGE"}),
-        "GAUGE": frozenset({"PRESSURE"}),
+        family: frozenset({field_name})
+        for family, field_name in TIER1_FILTER.field_by_family.items()
     },
-    target_count=217,
-)
-
-TIER_2 = TierSpec(
-    name="tier2",
-    rings=frozenset({"SR"}),
-    families=None,  # all SR families
-    allowed_subfields=frozenset({"SP", "RB", "GOLDEN", "X", "Y", "FWD", "REV", "NET", "INST"}),
-    target_count=553,
 )
 
 TIER_3 = TierSpec(
@@ -246,7 +107,6 @@ TIER_3 = TierSpec(
     rings=frozenset({"SR", "BR", "BTS"}),
     families=None,  # all families
     allowed_subfields=None,  # all subfields
-    target_count=1228,
 )
 
 
@@ -708,6 +568,22 @@ def format_middle_layer(channels: list[dict], tier_spec: TierSpec) -> dict:
 # Query validation
 # ---------------------------------------------------------------------------
 
+# Paradigms published per tier. Tier 1 ships the flat ``in_context`` view only;
+# tier 3 ships all three cross-paradigm views. Query validation checks each
+# tier's targeted PVs against exactly the paradigms declared here, and callers
+# iterating "all tiers" iterate these keys (tier 2 is retired).
+TIER_PARADIGMS: dict[int, tuple[str, ...]] = {
+    1: ("in_context",),
+    3: ("in_context", "hierarchical", "middle_layer"),
+}
+
+# Filename each paradigm view is stored under within a tier directory.
+_PARADIGM_FILENAMES: dict[str, str] = {
+    "in_context": "in_context.json",
+    "hierarchical": "hierarchical.json",
+    "middle_layer": "middle_layer.json",
+}
+
 
 def collect_middle_layer_pvs(data: dict) -> set[str]:
     """Recursively collect all PVs from ``ChannelNames`` arrays in a middle-layer DB."""
@@ -731,17 +607,15 @@ def _validate_tier(
 
     Args:
         queries: List of query dicts, each with an optional ``targeted_pv`` list.
-        tier_num: Tier number (1, 2, or 3) for reporting.
-        tier_dir: Path to the tier directory containing the three database files.
+        tier_num: Tier number (1 or 3) for reporting; selects the paradigms
+            validated via :data:`TIER_PARADIGMS`.
+        tier_dir: Path to the tier directory containing the tier's database files.
 
     Returns:
         Tuple of (missing_entries, missing_database_paths).
     """
-    db_files: list[tuple[str, str]] = [
-        ("in_context", "in_context.json"),
-        ("hierarchical", "hierarchical.json"),
-        ("middle_layer", "middle_layer.json"),
-    ]
+    paradigms = TIER_PARADIGMS.get(tier_num, tuple(_PARADIGM_FILENAMES))
+    db_files: list[tuple[str, str]] = [(name, _PARADIGM_FILENAMES[name]) for name in paradigms]
     missing: list[dict] = []
     missing_databases: list[str] = []
 
@@ -799,12 +673,14 @@ def validate_queries(
     that tier's databases in ``output_dir / f"tier{tier_num}"/``.
 
     **Legacy mode** (backward-compatible): Pass ``queries_path`` and
-    ``db_dir``.  A single query file is validated against all 9 databases
-    (3 tiers x 3 formats) under ``db_dir``.
+    ``db_dir``.  A single query file is validated against each tier's
+    databases under ``db_dir``, using the per-tier paradigms declared in
+    :data:`TIER_PARADIGMS`.
 
     Args:
         queries_path: Path to a single benchmark_queries.json (legacy mode).
-        db_dir: Directory containing tier1/, tier2/, tier3/ subdirs (legacy mode).
+        db_dir: Directory containing per-tier subdirs (``tier1/``, ``tier3/``)
+            for the tiers in :data:`TIER_PARADIGMS` (legacy mode).
         tier_queries: Mapping of ``{tier_num: query_file_path}`` (per-tier mode).
         output_dir: Base output directory containing tier subdirs (per-tier mode).
 
@@ -842,7 +718,7 @@ def validate_queries(
         total_queries = len(queries)
         for q in queries:
             all_pvs.update(q.get("targeted_pv", []))
-        for tier_num in (1, 2, 3):
+        for tier_num in TIER_PARADIGMS:
             tier_dir = db_dir / f"tier{tier_num}"
             missing, missing_dbs = _validate_tier(queries, tier_num, tier_dir)
             all_missing.extend(missing)

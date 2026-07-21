@@ -52,7 +52,7 @@ class TestEntryFields:
         engine = engine_factory("nominal")
         demo026 = next(e for e in engine.scenario_logbook("rf-thermal") if e.entry_id == "DEMO-026")
         assert demo026.author == "M. Chen"
-        assert "RF cavity C1" in demo026.title
+        assert "CAVITY01" in demo026.title
         assert "reflected power" in demo026.text.lower()
         assert "rf" in demo026.tags
         assert demo026.categories == ("Operations",)
