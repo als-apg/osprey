@@ -60,6 +60,7 @@ from osprey.deployment.runtime_helper import (
     verify_runtime_is_running,
 )
 from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
+from osprey.deployment.web_terminals.naming import web_container_name, web_container_prefix
 from osprey.deployment.web_terminals.ports import as_dict, normalize_users, resolve_personas
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.config_writer import config_replace_list
@@ -168,7 +169,7 @@ def decommission_user(
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
-    remove_container(runtime, f"{facility_prefix}-web-{user}", env=env)
+    remove_container(runtime, web_container_name(facility_prefix, user), env=env)
 
     _apply_volume_policy(runtime, volumes, archive=archive, purge=purge, env=env)
 
@@ -534,7 +535,7 @@ def _discover_orphan_containers(
         text=True,
         env=env,
     )
-    prefix = f"{facility_prefix}-web-"
+    prefix = web_container_prefix(facility_prefix)
     orphans: dict[str, str] = {}
     for line in result.stdout.splitlines():
         name = line.strip()

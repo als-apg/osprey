@@ -35,6 +35,7 @@ from typing import Any
 
 from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
+from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.ports import as_dict, normalize_users, resolve_personas
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.logger import get_logger
@@ -249,7 +250,7 @@ def _seed_one_user(
         the caller's systemic-failure check); ``True`` if the seed succeeded;
         ``False`` if the container was ready but the seed failed.
     """
-    container = f"{facility_prefix}-web-{user}"
+    container = web_container_name(facility_prefix, user)
     if not _container_exists(runtime, container, env=env):
         logger.info(f"  (skipped {user}: container not ready)")
         return None
