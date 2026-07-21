@@ -22,6 +22,7 @@
  */
 
 import { escapeHtml, panelApiPrefix } from '/design-system/js/dom.js';
+import { onModeChange } from '/design-system/js/frame-params.js';
 
 /** How often to re-poll the full-health endpoint, in milliseconds. */
 const POLL_INTERVAL_MS = 5000;
@@ -205,13 +206,7 @@ async function poll() {
 // is CSS-only (both the plain rollup line and the per-card simple status word
 // are always in the DOM, gated by html[data-ui-mode]), so stamping the
 // attribute is all that's needed — no re-poll or re-render.
-window.addEventListener('message', (e) => {
-  if (e.origin !== window.location.origin) return;
-  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
-    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
-    document.documentElement.setAttribute('data-ui-mode', mode);
-  }
-});
+onModeChange();
 
 poll();
 setInterval(poll, POLL_INTERVAL_MS);

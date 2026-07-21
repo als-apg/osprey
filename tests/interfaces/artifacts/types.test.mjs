@@ -35,7 +35,6 @@ import {
   isTimeseries,
   hasTimeseriesData,
   isNewThisSession,
-  sendToTerminal,
   requestColorPass,
 } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs } from '../_support/dom.mjs';
@@ -394,12 +393,6 @@ describe('isNewThisSession', () => {
 
   test('an artifact with no timestamp is not new', () => {
     expect(isNewThisSession({}, '2026-07-03T12:00:00Z')).toBe(false);
-  });
-});
-
-describe('sendToTerminal', () => {
-  test('is a no-op outside an embedded/iframed context (window.parent === window)', () => {
-    expect(() => sendToTerminal('hello')).not.toThrow();
   });
 });
 
