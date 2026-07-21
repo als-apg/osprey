@@ -12,7 +12,10 @@
  * boundary completes a frame.
  */
 
-/** Base path for the chat REST + streaming endpoint. */
+import { withPrefix } from './api.js';
+
+/** Base path for the chat REST + streaming endpoint (prefixed per-call via
+ * `withPrefix` so multi-user `/u/<user>/` deployments reach this container). */
 const CHAT_ENDPOINT = '/api/chat';
 
 /**
@@ -161,7 +164,7 @@ export function sendPrompt(chatId, prompt, callbacks = {}) {
     /** @type {ReadableStreamDefaultReader<Uint8Array> | undefined} */
     let reader;
     try {
-      const res = await fetch(`${CHAT_ENDPOINT}?stream=true`, {
+      const res = await fetch(withPrefix(`${CHAT_ENDPOINT}?stream=true`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, chat_id: chatId }),
@@ -202,7 +205,7 @@ export function sendPrompt(chatId, prompt, callbacks = {}) {
  * @returns {Promise<Response>}
  */
 export async function interrupt(chatId) {
-  const res = await fetch(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/interrupt`, {
+  const res = await fetch(withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/interrupt`), {
     method: 'POST',
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -217,7 +220,7 @@ export async function interrupt(chatId) {
  * @returns {Promise<Response>}
  */
 export function deleteChat(chatId) {
-  return fetch(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}`, {
+  return fetch(withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}`), {
     method: 'DELETE',
     keepalive: true,
   });
