@@ -73,6 +73,7 @@ _PANEL_STATE_MAP = {
     "channel-finder": "channel_finder_server_url",
     "lattice": "lattice_dashboard_server_url",
     "okf": "okf_server_url",
+    "system-health": "system_health_server_url",
 }
 
 
