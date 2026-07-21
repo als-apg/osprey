@@ -17,6 +17,7 @@ import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 
+from osprey.interfaces.web_terminal.url_prefix import compute_url_prefix
 from osprey.utils.http_proxy import HOP_BY_HOP
 
 logger = logging.getLogger(__name__)
@@ -163,10 +164,6 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             content=f"Panel '{panel_id}' is not available",
             status_code=404,
         )
-
-    # Deferred import: ``app`` imports this module's router at package-init
-    # time, so a top-level import here would be circular.
-    from osprey.interfaces.web_terminal.app import compute_url_prefix
 
     outer_prefix = compute_url_prefix()
 

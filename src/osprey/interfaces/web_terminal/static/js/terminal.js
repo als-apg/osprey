@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Terminal Module */
 
-import { createWebSocket, wsUrl } from './api.js';
+import { createWebSocket, withPrefix, wsUrl } from './api.js';
 import { subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
 /** @type {any} */
@@ -340,11 +340,8 @@ export async function restartTerminal() {
   }
 
   // Hit the restart endpoint (kill old PTY on backend). Prefix-aware so it
-  // reaches this container under /u/<user>/ in multi-user deployments (see
-  // api.js's withPrefix -- fetch() has no equivalent helper for a bare POST,
-  // so the prefix is prepended inline here, same as app.js's logout POST).
-  const prefix = window.__OSPREY_PREFIX__ || '';
-  await fetch(`${prefix}/api/terminal/restart`, { method: 'POST' });
+  // reaches this container under /u/<user>/ in multi-user deployments.
+  await fetch(withPrefix('/api/terminal/restart'), { method: 'POST' });
 }
 
 /**

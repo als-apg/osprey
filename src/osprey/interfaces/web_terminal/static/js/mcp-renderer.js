@@ -18,6 +18,7 @@
  */
 
 import { el as _el } from '/design-system/js/dom.js';
+import { withPrefix } from './api.js';
 import { _section } from './config-render-helpers.js';
 
 /**
@@ -189,9 +190,8 @@ function _clearChildren(el) {
  */
 function _fetchAndEnrichCards(cardMap) {
   // Prefix-aware so this reaches the container under /u/<user>/ in
-  // multi-user deployments (see api.js's withPrefix).
-  const prefix = window.__OSPREY_PREFIX__ || '';
-  fetch(`${prefix}/api/mcp-servers`)
+  // multi-user deployments.
+  fetch(withPrefix('/api/mcp-servers'))
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(servers => {
       for (const server of servers) {

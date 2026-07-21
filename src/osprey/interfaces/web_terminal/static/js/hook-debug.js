@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Hook Debug Toggle & Log Viewer */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, withPrefix } from './api.js';
 
 /**
  * One row of the hook activity log, as returned by `/api/hooks/debug-log` (prefix-aware). All fields are optional because older log
@@ -38,9 +38,8 @@ export function initHookDebug() {
     const enabled = toggle.checked;
     try {
       // Prefix-aware so this reaches the container under /u/<user>/ in
-      // multi-user deployments (see api.js's withPrefix).
-      const prefix = window.__OSPREY_PREFIX__ || '';
-      const res = await fetch(`${prefix}/api/config`, {
+      // multi-user deployments.
+      const res = await fetch(withPrefix('/api/config'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates: { 'hooks.debug': enabled } }),

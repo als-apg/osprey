@@ -8,12 +8,12 @@
  *     fetch, both via fetchJSON (prefixed internally)
  *   - the /api/files/events EventSource, via createEventSource (prefixed
  *     internally)
- *   - the /api/panel-focus POST on a user-initiated tab switch (prefixed
- *     inline — fetchJSON doesn't support POST bodies)
+ *   - the /api/panel-focus POST on a user-initiated tab switch (via
+ *     panel-commands.js, prefixed with withPrefix)
  *   - the iframe-src builders in navigatePanel()/createIframe(): state.url
  *     arrives from the server ALREADY prefixed (routes/panels.py's
- *     _url_prefix()), so `new URL(path, origin)` must preserve it as-is,
- *     never re-strip or double-add window.__OSPREY_PREFIX__
+ *     compute_url_prefix()), so `new URL(path, origin)` must preserve it
+ *     as-is, never re-strip or double-add window.__OSPREY_PREFIX__
  *
  * Every prefix case is paired with an empty-prefix case asserting
  * byte-identical (unprefixed) behavior, per the prefix contract.
