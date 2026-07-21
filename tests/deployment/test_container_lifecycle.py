@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment import container_lifecycle
-from osprey.deployment.web_terminals import provision
+from osprey.deployment.web_terminals import postup_hooks, provision
 
 
 @pytest.fixture
@@ -199,6 +199,7 @@ def captured_web_runs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
 
     def _fake_write_artifacts(config, dest_dir="."):
         written.append(config)
@@ -395,6 +396,7 @@ def captured_combined_runs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
 
     def _fake_build(config, dev_mode, env):
@@ -501,7 +503,7 @@ def test_combined_deploy_services_up_never_pulls(captured_combined_runs, tmp_pat
 
 
 # ---------------------------------------------------------------------------
-# _enable_linger (task 2.3) -- rootless-podman persistence via loginctl
+# enable_linger (task 2.3) -- rootless-podman persistence via loginctl
 # ---------------------------------------------------------------------------
 
 
@@ -523,8 +525,8 @@ def test_web_deploy_docker_runtime_linger_adds_no_subprocess_calls(captured_web_
     assert len(captured_web_runs["calls"]) == 4
 
 
-def test_web_deploy_calls_enable_linger_in_post_up_hook(monkeypatch, tmp_path):
-    """The post-up hook wires _enable_linger(config, run_env) -- the same
+def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
+    """The post-up hook wires enable_linger(config, run_env) -- the same
     COMPOSE_PROJECT_NAME-pinned env the compose calls around it use."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env.production").write_text("", encoding="utf-8")
@@ -538,6 +540,7 @@ def test_web_deploy_calls_enable_linger_in_post_up_hook(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["podman", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -548,7 +551,7 @@ def test_web_deploy_calls_enable_linger_in_post_up_hook(monkeypatch, tmp_path):
     linger_calls = []
     monkeypatch.setattr(
         provision,
-        "_enable_linger",
+        "enable_linger",
         lambda config, run_env: linger_calls.append(run_env),
     )
 
@@ -601,7 +604,7 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     """Collaborator stubs shared by the mode-wiring tests: chdir,
     verify_runtime_is_running, get_runtime_command, write_web_terminal_artifacts,
     and a captured subprocess.run that returns a 0-exit CompletedProcess stand-in
-    (needed because _run_verify_script inspects .returncode on every call it
+    (needed because run_verify_script inspects .returncode on every call it
     makes, not just compose's). Deliberately does NOT pre-write .env.production
     or .env -- each test supplies exactly what its mode needs to exercise
     ensure_env_production's own branches.
@@ -610,13 +613,14 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     # Auto-render is a separate concern with its own dedicated tests below;
     # keep it inert here so the mode-wiring tests exercise only the local/
     # registry step ordering, never a real `osprey build` subprocess.
     monkeypatch.setattr(
         provision,
-        "_auto_render_missing_personas",
+        "auto_render_missing_personas",
         lambda config, resolved_users, env: None,
     )
 
@@ -732,7 +736,7 @@ def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then
     then compose. ensure_env_production's claude_code credential sweep reads
     each rendered persona's config.yml, so on a first deploy it must run
     after auto-render (and still before any compose call). A spy on
-    _auto_render_missing_personas (overriding the fixture's inert stub)
+    auto_render_missing_personas (overriding the fixture's inert stub)
     proves the wiring line actually runs it -- and runs it BEFORE
     build_persona_images, which needs the rendered context to exist."""
     order: list[str] = []
@@ -745,7 +749,7 @@ def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then
     )
     monkeypatch.setattr(
         provision,
-        "_auto_render_missing_personas",
+        "auto_render_missing_personas",
         lambda cfg, resolved_users, env: order.append("auto_render"),
     )
 
@@ -835,7 +839,7 @@ def test_registry_mode_never_calls_auto_render(monkeypatch, tmp_path, _mode_wiri
     render_calls = []
     monkeypatch.setattr(
         provision,
-        "_auto_render_missing_personas",
+        "auto_render_missing_personas",
         lambda *a, **k: render_calls.append(a),
     )
 
@@ -880,14 +884,14 @@ def test_post_up_hook_order_is_linger_then_seed_then_verify(
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
     order: list[str] = []
-    monkeypatch.setattr(provision, "_enable_linger", lambda cfg, run_env: order.append("linger"))
+    monkeypatch.setattr(provision, "enable_linger", lambda cfg, run_env: order.append("linger"))
     monkeypatch.setattr(
         provision,
         "seed_user_containers",
         lambda cfg, env=None: order.append("seed"),
     )
     monkeypatch.setattr(
-        provision, "_run_verify_script", lambda root, run_env: order.append("verify")
+        provision, "run_verify_script", lambda root, run_env: order.append("verify")
     )
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
@@ -899,7 +903,7 @@ def test_deploy_up_runs_verify_script_when_present_ignoring_exit_code(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
     """A nonzero verify.sh exit must not propagate out of `osprey deploy up` --
-    advisory only, per the script's own convention and _run_verify_script's
+    advisory only, per the script's own convention and run_verify_script's
     contract."""
     (tmp_path / ".env.production").write_text("", encoding="utf-8")
     scripts_dir = tmp_path / "scripts"
@@ -1352,6 +1356,7 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     calls: list = []
 
@@ -1479,10 +1484,11 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda *a, **k: [])
-    monkeypatch.setattr(provision, "_enable_linger", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "enable_linger", lambda *a, **k: None)
     monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **k: None)
-    monkeypatch.setattr(provision, "_run_verify_script", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "run_verify_script", lambda *a, **k: None)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     runs: list = []
 
     def _fake_run(cmd, env=None, **k):

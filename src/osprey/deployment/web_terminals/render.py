@@ -14,14 +14,16 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.deployment.web_terminals.ports import (
-    PANEL_ENV_VARS,
+from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
-    allocate_ports,
     as_dict,
-    base_ports_from_config,
     effective_image_source,
     resolve_personas,
+)
+from osprey.deployment.web_terminals.ports import (
+    PANEL_ENV_VARS,
+    allocate_ports,
+    base_ports_from_config,
 )
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
@@ -71,7 +73,7 @@ def render_web_terminals(config: Any) -> dict[str, str]:
             ``deploy.fqdn`` is missing while at least one user is configured (the
             landing-origin host baked into ``OSPREY_TERMINAL_LANDING_URL``), if
             a roster entry's persona reference can't be resolved (see
-            :func:`osprey.deployment.web_terminals.ports.resolve_personas`'s
+            :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
             ``strict`` contract — render always resolves strictly), or if
             ``modules.web_terminals.mcp.topology`` is set to anything other than
             ``per_container_stdio`` (see :func:`_check_mcp_topology`).
@@ -195,7 +197,7 @@ def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
     producing exactly the same two-key items landing.html.j2 rendered before.
 
     Args:
-        resolved_user: One :func:`osprey.deployment.web_terminals.ports.resolve_personas`
+        resolved_user: One :func:`osprey.deployment.web_terminals.personas.resolve_personas`
             entry (``name`` and ``persona`` are read).
 
     Returns:
@@ -235,7 +237,7 @@ def _build_groups(
     Args:
         landing_cfg: The already-dict-coerced ``modules.web_terminals.landing``
             section (only ``groups`` is read).
-        resolved_users: :func:`osprey.deployment.web_terminals.ports.resolve_personas`
+        resolved_users: :func:`osprey.deployment.web_terminals.personas.resolve_personas`
             output, in roster order — each entry's ``name`` becomes the card label
             and ``/u/<name>/`` url, and its ``persona`` (when not ``None``) the
             optional ``sublabel``.

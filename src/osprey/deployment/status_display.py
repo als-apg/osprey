@@ -13,6 +13,7 @@ from rich.table import Table
 from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
+from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
@@ -370,7 +371,7 @@ def show_status(config_path, *, console=None, styles=None):
         console.print("\n[bold]Web Terminal Users:[/bold]")
         user_table = _create_user_status_table()
         for user in user_names:
-            container_name = f"{facility_prefix}-web-{user}"
+            container_name = web_container_name(facility_prefix, user)
             container = _find_container_by_name(container_name)
             claude_config_volume, agent_data_volume = resolve_user_volume_names(config, user)
             user_table.add_row(

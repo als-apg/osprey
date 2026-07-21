@@ -528,7 +528,7 @@ async function pollHealth(panel) {
     // Use the panel's configured health endpoint — hardcoding /health only
     // worked while every panel happened to use it (tiled's is /api/v1/).
     // state.url is already the server-prefixed `<prefix>/panel/<id>` (routes/
-    // panels.py's _url_prefix()) — a root-relative path — so this string
+    // panels.py's compute_url_prefix()) — a root-relative path — so this string
     // concat is safe: fetch() resolves it against the current origin,
     // preserving the prefix as-is. Do not re-derive or re-prefix it here.
     const resp = await fetch(`${state.url}${panel.healthEndpoint || '/health'}`, {

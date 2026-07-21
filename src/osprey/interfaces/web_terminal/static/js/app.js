@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
 import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
-import { onConnectionStateChange, fetchJSON } from './api.js';
+import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
 import { initPanelManager } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
@@ -93,8 +93,7 @@ export function initLogoutButton() {
     btn.disabled = true;
     btn.setAttribute('aria-busy', 'true');
     try {
-      const prefix = window.__OSPREY_PREFIX__ || '';
-      await fetch(`${prefix}/api/terminal/logout`, { method: 'POST' });
+      await fetch(withPrefix('/api/terminal/logout'), { method: 'POST' });
     } catch (err) {
       console.error('Logout request failed:', err);
     }

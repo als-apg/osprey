@@ -39,7 +39,7 @@ label-filtered *listing* equivalent to ``ps -a``/``volume ls`` for this (image
 tags aren't compose-project-scoped), so each candidate tag is instead
 individually verified with ``image inspect`` against its own
 ``com.osprey.project`` label (stamped by the local-mode image build,
-:func:`osprey.deployment.web_terminals.provision.build_persona_images`) before it
+:func:`osprey.deployment.web_terminals.persona_images.build_persona_images`) before it
 is ever considered for removal — a missing or mismatched label means the tag
 is skipped with a warning, not removed, since it may belong to a sibling
 deployment.
@@ -60,7 +60,8 @@ from osprey.deployment.runtime_helper import (
     verify_runtime_is_running,
 )
 from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
-from osprey.deployment.web_terminals.ports import as_dict, normalize_users, resolve_personas
+from osprey.deployment.web_terminals.naming import web_container_name, web_container_prefix
+from osprey.deployment.web_terminals.personas import as_dict, normalize_users, resolve_personas
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.config_writer import config_replace_list
 
@@ -168,7 +169,7 @@ def decommission_user(
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
-    remove_container(runtime, f"{facility_prefix}-web-{user}", env=env)
+    remove_container(runtime, web_container_name(facility_prefix, user), env=env)
 
     _apply_volume_policy(runtime, volumes, archive=archive, purge=purge, env=env)
 
@@ -332,7 +333,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
        with the default retain policy, or hand-edited out of ``config.yml``,
        still gets their volumes torn down by ``nuke``.
     3. Compute the image teardown set: resolve the roster's personas leniently
-       (:func:`osprey.deployment.web_terminals.ports.resolve_personas` with
+       (:func:`osprey.deployment.web_terminals.personas.resolve_personas` with
        ``strict=False`` — a stale/bad persona reference never blocks ``nuke``),
        collect the distinct ``:local``-suffixed image tags (registry-mode
        images and lenient-degraded entries never resolve to a ``:local`` tag,
@@ -534,7 +535,7 @@ def _discover_orphan_containers(
         text=True,
         env=env,
     )
-    prefix = f"{facility_prefix}-web-"
+    prefix = web_container_prefix(facility_prefix)
     orphans: dict[str, str] = {}
     for line in result.stdout.splitlines():
         name = line.strip()

@@ -182,7 +182,10 @@ from osprey.deployment import (  # noqa: E402
     container_lifecycle,
     status_display,
 )
+from osprey.deployment.web_terminals import env_production as wt_env_production  # noqa: E402
 from osprey.deployment.web_terminals import lifecycle as wt_lifecycle  # noqa: E402
+from osprey.deployment.web_terminals import persona_images as wt_persona_images  # noqa: E402
+from osprey.deployment.web_terminals import postup_hooks as wt_postup_hooks  # noqa: E402
 from osprey.deployment.web_terminals import provision as wt_provision  # noqa: E402
 from osprey.deployment.web_terminals import seeding as wt_seeding  # noqa: E402
 
@@ -209,7 +212,10 @@ _SCANNED_MODULES = [
     compose_generator,
     container_lifecycle,
     status_display,
+    wt_env_production,
     wt_lifecycle,
+    wt_persona_images,
+    wt_postup_hooks,
     wt_provision,
     wt_seeding,
 ]
@@ -218,7 +224,7 @@ _SCANNED_MODULES = [
 # calling normalize_facility_config() — each is a considered exception, not an
 # oversight, and must justify itself here.
 _ALLOWED_UNWRAPPED_LINES = {
-    # web_terminals.provision._resolve_persona_claude_cli_version reads a
+    # web_terminals.persona_images._resolve_persona_claude_cli_version reads a
     # PERSONA project's own config.yml (never the facility config being deployed) —
     # see that function's docstring. It only reads claude_code.cli_version,
     # so it never needs the gitlab/ci/registry normalization.

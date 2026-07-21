@@ -35,7 +35,8 @@ from typing import Any
 
 from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
-from osprey.deployment.web_terminals.ports import as_dict, normalize_users, resolve_personas
+from osprey.deployment.web_terminals.naming import web_container_name
+from osprey.deployment.web_terminals.personas import as_dict, normalize_users, resolve_personas
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.logger import get_logger
 
@@ -143,7 +144,7 @@ def seed_user_containers(
     are disabled or the roster is empty (and ``user`` was not given).
 
     Each user's skills target directory is derived from their resolved
-    persona's ``container_project_dir`` (via :func:`ports.resolve_personas`,
+    persona's ``container_project_dir`` (via :func:`personas.resolve_personas`,
     ``strict=True``) rather than a hardcoded ``<facility_prefix>-assistant``
     path, so a user on a non-default persona gets skills seeded into their
     own project's ``.claude/skills``. ``CLAUDE.md`` seeding is unaffected by
@@ -168,7 +169,7 @@ def seed_user_containers(
             ``modules.web_terminals.users``, or if a roster entry's persona
             reference cannot be resolved against
             ``modules.web_terminals.personas`` (see
-            :func:`ports.resolve_personas`).
+            :func:`personas.resolve_personas`).
     """
     modules = as_dict(config.get("modules"))
     web_terminals = as_dict(modules.get("web_terminals"))
@@ -249,7 +250,7 @@ def _seed_one_user(
         the caller's systemic-failure check); ``True`` if the seed succeeded;
         ``False`` if the container was ready but the seed failed.
     """
-    container = f"{facility_prefix}-web-{user}"
+    container = web_container_name(facility_prefix, user)
     if not _container_exists(runtime, container, env=env):
         logger.info(f"  (skipped {user}: container not ready)")
         return None

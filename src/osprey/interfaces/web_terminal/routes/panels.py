@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
+from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 
 logger = logging.getLogger(__name__)
@@ -20,30 +21,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _url_prefix() -> str:
-    """The per-container URL prefix (``/u/<user>`` or ``""``), for panel URLs.
-
-    Imports ``compute_url_prefix()`` locally to avoid a circular import:
-    ``app.py`` imports this module (via the routes package) at module load
-    time, so a top-level import back into ``app`` would fail.
-    """
-    from osprey.interfaces.web_terminal.app import compute_url_prefix
-
-    return compute_url_prefix()
-
-
 def _prefix_path(path: str) -> str:
     """Prepend the per-container URL prefix to a root-absolute path.
 
-    Mirrors ``app._prefixed()``'s handling of externally resolved URLs: an
-    already-absolute URL (``http://``, ``https://``, protocol-relative
-    ``//``) passes through unchanged so an external panel URL is never
-    corrupted, and an empty prefix is a no-op.
+    Thin wrapper over :func:`apply_url_prefix` (the shared prefix contract):
+    an already-absolute URL passes through unchanged so an external panel URL
+    is never corrupted, and an empty prefix is a no-op.
     """
-    prefix = _url_prefix()
-    if not prefix or path.startswith(("http://", "https://", "//")):
-        return path
-    return f"{prefix}{path}"
+    return apply_url_prefix(compute_url_prefix(), path)
 
 
 @router.get("/health")
@@ -64,7 +49,7 @@ async def health(request: Request):
 async def artifact_server_config(request: Request):
     """Return the artifact gallery server URL for iframe embedding."""
     url = getattr(request.app.state, "artifact_server_url", None)
-    proxy_url = f"{_url_prefix()}/panel/artifacts" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/artifacts" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -80,7 +65,7 @@ async def get_type_registry():
 async def ariel_server_config(request: Request):
     """Return the ARIEL logbook server URL for iframe embedding."""
     url = getattr(request.app.state, "ariel_server_url", None)
-    proxy_url = f"{_url_prefix()}/panel/ariel" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/ariel" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -88,7 +73,7 @@ async def ariel_server_config(request: Request):
 async def channel_finder_server_config(request: Request):
     """Return the Channel Finder server URL for iframe embedding."""
     url = getattr(request.app.state, "channel_finder_server_url", None)
-    proxy_url = f"{_url_prefix()}/panel/channel-finder" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/channel-finder" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -96,7 +81,7 @@ async def channel_finder_server_config(request: Request):
 async def lattice_server_config(request: Request):
     """Return the lattice dashboard server URL for iframe embedding."""
     url = getattr(request.app.state, "lattice_dashboard_server_url", None)
-    proxy_url = f"{_url_prefix()}/panel/lattice" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/lattice" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -104,12 +89,12 @@ async def lattice_server_config(request: Request):
 async def okf_server_config(request: Request):
     """Return the OKF knowledge panel server URL for iframe embedding."""
     url = getattr(request.app.state, "okf_server_url", None)
-    proxy_url = f"{_url_prefix()}/panel/okf" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/okf" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
 def _browser_panel_url(cp: dict) -> str:
-    """The browser-facing URL for a custom panel, prefixed with ``_url_prefix()``.
+    """The browser-facing URL for a custom panel, prefixed with ``compute_url_prefix()``.
 
     Keyed off the explicit ``discovered`` marker, not URL shape: a discovered
     static bundle is served same-origin from disk at its own ``/panel-static/{id}/``
@@ -119,7 +104,7 @@ def _browser_panel_url(cp: dict) -> str:
     pre-discovery behavior exactly, and avoids treating a protocol-relative
     ``//host`` URL as same-origin).
     """
-    prefix = _url_prefix()
+    prefix = compute_url_prefix()
     if cp.get("discovered"):
         url = cp.get("url")
         if isinstance(url, str) and url:
@@ -483,7 +468,7 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
         visible_panels.append(body.id)
     request.app.state.visible_panels = visible_panels
 
-    browser_url = f"{_url_prefix()}/panel/{body.id}"
+    browser_url = f"{compute_url_prefix()}/panel/{body.id}"
     request.app.state.broadcaster.broadcast(
         {
             "type": "panel_register",

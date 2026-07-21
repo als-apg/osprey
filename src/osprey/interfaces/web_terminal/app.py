@@ -23,6 +23,7 @@ from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, Wo
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
+from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
 if TYPE_CHECKING:
@@ -49,10 +50,7 @@ def _prefixed(ctx: Context, path: str) -> str:
     CDN URL from ``vendor_url()`` when not in offline mode) pass through
     unchanged, and an empty prefix is a byte-identical no-op.
     """
-    prefix = ctx.get("url_prefix", "")
-    if not prefix or path.startswith(("http://", "https://", "//")):
-        return path
-    return f"{prefix}{path}"
+    return apply_url_prefix(ctx.get("url_prefix", ""), path)
 
 
 templates = Jinja2Templates(directory=str(STATIC_DIR))
@@ -723,27 +721,6 @@ def _create_lifespan(
         await app.state.operator_registry.cleanup_all()
 
     return lifespan
-
-
-def compute_url_prefix() -> str:
-    """Compute the per-container URL path prefix for multi-user deployments.
-
-    Multi-user deployments run one Web Terminal container per user behind a
-    shared nginx front door, each mounted at ``/u/<user>/``. This is the
-    single source of truth for that prefix — shared by ``create_app()``
-    (the ``window.__OSPREY_PREFIX__``/import-map injection into every served
-    HTML document) and downstream server-side prefixing (``routes/panels.py``,
-    ``routes/proxy.py``). It is deliberately NOT fed to
-    ``FastAPI(root_path=…)`` — nginx strips the prefix before proxying, so the
-    app serves bare paths and a non-empty ``root_path`` would 404 every static
-    Mount (see the note in ``create_app()``).
-
-    Returns:
-        ``"/u/<user>"`` when ``OSPREY_TERMINAL_USER`` is set and non-empty;
-        otherwise ``""``, preserving single-origin/dev behavior unchanged.
-    """
-    user = os.environ.get("OSPREY_TERMINAL_USER", "").strip()
-    return f"/u/{user}" if user else ""
 
 
 def create_app(

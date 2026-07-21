@@ -189,7 +189,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
         # the same one _runtime_cli asserts against. PATH is prepended with this
         # interpreter's own bin dir so that `deploy up`'s persona auto-render —
         # which spawns a BARE `osprey build ...` subprocess
-        # (web_terminals.provision._auto_render_missing_personas) inheriting this
+        # (web_terminals.persona_images.auto_render_missing_personas) inheriting this
         # env — resolves the SAME osprey the test drives (the venv's, which
         # knows the persona presets), not a stale `osprey` earlier on the
         # ambient PATH. Equivalent to running under an activated venv.
