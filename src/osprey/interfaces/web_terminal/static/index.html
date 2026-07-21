@@ -24,7 +24,7 @@
   <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
 
   <!-- FOUC prevention: applies data-ui-mode (expert/simple) before any CSS loads -->
-  <script src="/design-system/js/mode-boot.js"></script>
+  <script src="{{ prefixed('/design-system/js/mode-boot.js') }}"></script>
 
   <!-- Design system tokens -->
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
@@ -55,15 +55,15 @@
   <script src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
 
   <!-- DOMPurify: sanitizes marked's HTML output before it reaches the DOM -->
-  <script src="{{ vendor_url('DOMPurify', '/static/vendor/purify.min.js') }}"></script>
+  <script src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
 
   <!-- dockview: docking workspace. UMD global window['dockview-core']. CSS before
        the OSPREY styles below so our theming can override the base dockview rules. -->
-  <link rel="stylesheet" href="{{ vendor_url('dockview-core css', '/static/vendor/dockview.css') }}">
+  <link rel="stylesheet" href="{{ prefixed(vendor_url('dockview-core css', '/static/vendor/dockview.css')) }}">
   <!-- OSPREY theme bridge: remaps dockview's --dv-* onto design tokens. Must load
        AFTER dockview.css so these overrides win the cascade. -->
-  <link rel="stylesheet" href="/static/css/dockview-overrides.css">
-  <script src="{{ vendor_url('dockview-core', '/static/vendor/dockview-core.min.js') }}"></script>
+  <link rel="stylesheet" href="{{ prefixed('/static/css/dockview-overrides.css') }}">
+  <script src="{{ prefixed(vendor_url('dockview-core', '/static/vendor/dockview-core.min.js')) }}"></script>
 
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
@@ -109,7 +109,7 @@
         <!-- Simple-mode help chip (frame 2b). CSS-gated off html[data-ui-mode]:
              hidden in expert, shown in simple. An anchor to the safety guide so
              it needs no JS and reacts to live mode flips purely through CSS. -->
-        <a class="header-icon-btn header-help-chip" href="/static/safety.html"
+        <a class="header-icon-btn header-help-chip" href="{{ prefixed('/static/safety.html') }}"
            target="_blank" rel="noopener" title="Help" aria-label="Help">?</a>
         {% if landing_url %}<button class="header-icon-btn" id="logout-btn" data-landing-url="{{ landing_url }}" title="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page" aria-label="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page"><span aria-hidden="true">&#128682;</span></button>{% endif %}
       </div>
