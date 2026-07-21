@@ -49,32 +49,16 @@ def load_template(source_path: Path | None = None) -> tuple[dict, list[dict]]:
 # The vocabulary itself lives in :mod:`osprey.services.channel_finder.naming`
 # (shared with the tier-DB generator). The names below are this module's
 # long-standing public API, kept as thin views of the canonical maps.
-#
-# The three spec families with no pre-unification precedent (QFA/SHF/SHD)
-# are excluded here even though the template database now contains them:
-# benchmark aliases/descriptions for those families have always rendered the
-# raw family token (e.g. ``StorageRing_QFA_01_Current_Setpoint``) via the
-# ``.get`` fallback, and this module preserves that output byte-for-byte.
-# Dropping the exclusion would align benchmark prose with the shipped tier-3
-# ``in_context.json`` (``QuadFocusAchromat`` ...) but changes generated
-# benchmark DB content -- a deliberate decision, not a refactor.
-_UNMAPPED_SPEC_FAMILIES = frozenset({"QFA", "SHF", "SHD"})
 
 RING_NAMES: dict[str, str] = naming.RING_PHRASES
 FIELD_NAMES: dict[str, str] = naming.FIELD_PHRASES
 SUBFIELD_NAMES: dict[str, str] = naming.SUBFIELD_PHRASES
-FAMILY_NAMES: dict[str, str] = {
-    fam: phrase
-    for fam, phrase in naming.FAMILY_PHRASES.items()
-    if fam not in _UNMAPPED_SPEC_FAMILIES
-}
+FAMILY_NAMES: dict[str, str] = naming.FAMILY_PHRASES
 
 ALIAS_RING_NAMES: dict[str, str] = naming.RING_TOKENS
 ALIAS_FIELD_NAMES: dict[str, str] = naming.FIELD_TOKENS
 ALIAS_SUBFIELD_NAMES: dict[str, str] = naming.SUBFIELD_TOKENS
-ALIAS_FAMILY_NAMES: dict[str, str] = {
-    fam: token for fam, token in naming.FAMILY_TOKENS.items() if fam not in _UNMAPPED_SPEC_FAMILIES
-}
+ALIAS_FAMILY_NAMES: dict[str, str] = naming.FAMILY_TOKENS
 
 
 # ---------------------------------------------------------------------------

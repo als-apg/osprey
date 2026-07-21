@@ -4320,336 +4320,336 @@
       "value": 356.101,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 01 current readback (nominal ~356.101 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 01 current readback (nominal ~356.101 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:01:CURRENT:SP": {
       "value": 356.101,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 01 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 01 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:02:CURRENT:RB": {
       "value": 359.931,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 02 current readback (nominal ~359.931 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 02 current readback (nominal ~359.931 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:02:CURRENT:SP": {
       "value": 359.931,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 02 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 02 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:03:CURRENT:RB": {
       "value": 360.064,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 03 current readback (nominal ~360.064 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 03 current readback (nominal ~360.064 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:03:CURRENT:SP": {
       "value": 360.064,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 03 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 03 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:04:CURRENT:RB": {
       "value": 356.451,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 04 current readback (nominal ~356.451 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 04 current readback (nominal ~356.451 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:04:CURRENT:SP": {
       "value": 356.451,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 04 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 04 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:05:CURRENT:RB": {
       "value": 350.437,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 05 current readback (nominal ~350.437 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 05 current readback (nominal ~350.437 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:05:CURRENT:SP": {
       "value": 350.437,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 05 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 05 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:06:CURRENT:RB": {
       "value": 344.26,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 06 current readback (nominal ~344.26 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 06 current readback (nominal ~344.26 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:06:CURRENT:SP": {
       "value": 344.26,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 06 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 06 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:07:CURRENT:RB": {
       "value": 340.22,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 07 current readback (nominal ~340.22 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 07 current readback (nominal ~340.22 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:07:CURRENT:SP": {
       "value": 340.22,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 07 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 07 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:08:CURRENT:RB": {
       "value": 339.82,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 08 current readback (nominal ~339.82 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 08 current readback (nominal ~339.82 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:08:CURRENT:SP": {
       "value": 339.82,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 08 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 08 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:09:CURRENT:RB": {
       "value": 343.21,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 09 current readback (nominal ~343.21 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 09 current readback (nominal ~343.21 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:09:CURRENT:SP": {
       "value": 343.21,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 09 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 09 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:10:CURRENT:RB": {
       "value": 349.128,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 10 current readback (nominal ~349.128 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 10 current readback (nominal ~349.128 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:10:CURRENT:SP": {
       "value": 349.128,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 10 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 10 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:11:CURRENT:RB": {
       "value": 355.37,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 11 current readback (nominal ~355.37 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 11 current readback (nominal ~355.37 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:11:CURRENT:SP": {
       "value": 355.37,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 11 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 11 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:12:CURRENT:RB": {
       "value": 359.613,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 12 current readback (nominal ~359.613 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 12 current readback (nominal ~359.613 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:12:CURRENT:SP": {
       "value": 359.613,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 12 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 12 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:13:CURRENT:RB": {
       "value": 360.278,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 13 current readback (nominal ~360.278 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 13 current readback (nominal ~360.278 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:13:CURRENT:SP": {
       "value": 360.278,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 13 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 13 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:14:CURRENT:RB": {
       "value": 357.117,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 14 current readback (nominal ~357.117 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 14 current readback (nominal ~357.117 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:14:CURRENT:SP": {
       "value": 357.117,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 14 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 14 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:15:CURRENT:RB": {
       "value": 351.307,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 15 current readback (nominal ~351.307 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 15 current readback (nominal ~351.307 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:15:CURRENT:SP": {
       "value": 351.307,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 15 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 15 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:16:CURRENT:RB": {
       "value": 345.01,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 16 current readback (nominal ~345.01 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 16 current readback (nominal ~345.01 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:16:CURRENT:SP": {
       "value": 345.01,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 16 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 16 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:17:CURRENT:RB": {
       "value": 356.101,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 17 current readback (nominal ~356.101 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 17 current readback (nominal ~356.101 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:17:CURRENT:SP": {
       "value": 356.101,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 17 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 17 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:18:CURRENT:RB": {
       "value": 359.931,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 18 current readback (nominal ~359.931 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 18 current readback (nominal ~359.931 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:18:CURRENT:SP": {
       "value": 359.931,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 18 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 18 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:19:CURRENT:RB": {
       "value": 360.064,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 19 current readback (nominal ~360.064 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 19 current readback (nominal ~360.064 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:19:CURRENT:SP": {
       "value": 360.064,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 19 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 19 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:20:CURRENT:RB": {
       "value": 356.451,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 20 current readback (nominal ~356.451 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 20 current readback (nominal ~356.451 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:20:CURRENT:SP": {
       "value": 356.451,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 20 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 20 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:21:CURRENT:RB": {
       "value": 350.437,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 21 current readback (nominal ~350.437 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 21 current readback (nominal ~350.437 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:21:CURRENT:SP": {
       "value": 350.437,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 21 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 21 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:22:CURRENT:RB": {
       "value": 344.26,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 22 current readback (nominal ~344.26 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 22 current readback (nominal ~344.26 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:22:CURRENT:SP": {
       "value": 344.26,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 22 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 22 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:23:CURRENT:RB": {
       "value": 340.22,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 23 current readback (nominal ~340.22 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 23 current readback (nominal ~340.22 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:23:CURRENT:SP": {
       "value": 340.22,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 23 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 23 current setpoint",
       "min": 0.0
     },
     "SR:MAG:QFA:24:CURRENT:RB": {
       "value": 339.82,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 24 current readback (nominal ~339.82 A)",
+      "description": "Storage-ring achromat-arc focusing quadrupole 24 current readback (nominal ~339.82 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:24:CURRENT:SP": {
       "value": 339.82,
       "noise": 0,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 24 current setpoint",
+      "description": "Storage-ring achromat-arc focusing quadrupole 24 current setpoint",
       "min": 0.0
     },
     "SR:MAG:SHF:01:CURRENT:RB": {

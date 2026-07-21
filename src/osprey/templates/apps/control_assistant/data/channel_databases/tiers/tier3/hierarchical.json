@@ -288,7 +288,7 @@
           }
         },
         "QFA": {
-          "_description": "Achromat Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat focusing quadrupole magnets.",
+          "_description": "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets.",
           "DEVICE": {
             "_expansion": {
               "_type": "range",
@@ -299,7 +299,7 @@
               ]
             },
             "CURRENT": {
-              "_description": "Achromat Focusing Quadrupole Current (Amperes): current through QFA coil windings.",
+              "_description": "Achromat-Arc Focusing Quadrupole Current (Amperes): current through QFA coil windings.",
               "SP": {
                 "_description": "setpoint"
               },
@@ -311,7 +311,7 @@
               }
             },
             "STATUS": {
-              "_description": "Operational status for achromat focusing quadrupole.",
+              "_description": "Operational status for achromat-arc focusing quadrupole.",
               "READY": {
                 "_description": "ready"
               },

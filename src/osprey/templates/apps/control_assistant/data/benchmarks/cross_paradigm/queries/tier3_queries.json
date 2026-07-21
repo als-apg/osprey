@@ -585,14 +585,14 @@
     "category": "tier-boundary"
   },
   {
-    "user_query": "What's the current setpoint for the fourth achromat focusing quadrupole?",
+    "user_query": "What's the current setpoint for the fourth achromat-arc focusing quadrupole?",
     "targeted_pv": [
       "SR:MAG:QFA:04:CURRENT:SP"
     ],
     "category": "near-miss"
   },
   {
-    "user_query": "Give me the readback current on achromat focusing quad 9.",
+    "user_query": "Give me the readback current on achromat-arc focusing quad 9.",
     "targeted_pv": [
       "SR:MAG:QFA:09:CURRENT:RB"
     ],

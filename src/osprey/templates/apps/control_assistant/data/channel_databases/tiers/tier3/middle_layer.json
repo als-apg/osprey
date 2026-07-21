@@ -6447,7 +6447,7 @@
       }
     },
     "QFA": {
-      "_description": "achromat focusing quadrupole",
+      "_description": "achromat-arc focusing quadrupole",
       "CURRENT": {
         "_description": "current",
         "SP": {

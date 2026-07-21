@@ -203,8 +203,8 @@ CHANNEL_SCHEMA: dict[str, FamilyChannelSchema] = {
     # module docstring) -- same fields/subfields/metadata shape, only the
     # token and display/description prose differ.
     "QFA": _magnet_schema(
-        "Achromat Focusing Quadrupole",
-        "ALS-U Accumulator Ring achromat focusing quadrupole {id:02d}",
+        "Achromat-Arc Focusing Quadrupole",
+        "ALS-U Accumulator Ring achromat-arc focusing quadrupole {id:02d}",
         "QFA {id:02d}",
         has_fault=True,
     ),

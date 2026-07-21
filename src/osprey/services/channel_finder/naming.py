@@ -15,8 +15,12 @@ Spellings are sourced verbatim from the shipped SR ``in_context`` entries
 where a shipped precedent exists (e.g. ``"QuadFocus"`` / ``"focusing
 quadrupole"`` for QF). The three spec families with no shipped precedent
 (QFA/SHF/SHD) extend the convention established by their structural analog
-(QF, SF, SD respectively). This module is a leaf: it must not import anything
-from ``channel_finder``, so both generators can depend on it without cycles.
+(QF, SF, SD respectively). QFA's ``A`` is the ALS convention for the family
+placed inside the triple-bend achromat arc (between the dipoles, vs QF/QD at
+the straights) — a position label, not an achromaticity claim: the AR runs
+with distributed dispersion, so the phrase says "achromat-arc". This module
+is a leaf: it must not import anything from ``channel_finder``, so both
+generators can depend on it without cycles.
 """
 
 from __future__ import annotations
@@ -59,7 +63,7 @@ FAMILY_PHRASES: dict[str, str] = {
     "DIPOLE": "dipole bending magnet",
     "QF": "focusing quadrupole",
     "QD": "defocusing quadrupole",
-    "QFA": "achromat focusing quadrupole",
+    "QFA": "achromat-arc focusing quadrupole",
     "SF": "sextupole (focusing)",
     "SD": "sextupole (defocusing)",
     "SHF": "harmonic sextupole (focusing)",

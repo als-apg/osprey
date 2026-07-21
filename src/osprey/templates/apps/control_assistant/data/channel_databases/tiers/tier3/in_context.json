@@ -6629,722 +6629,722 @@
     {
       "channel": "StorageRing_QuadFocusAchromat_01_Current_Setpoint",
       "address": "SR:MAG:QFA:01:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 01 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 01 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_01_Current_Readback",
       "address": "SR:MAG:QFA:01:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 01 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 01 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_01_Current_Golden",
       "address": "SR:MAG:QFA:01:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 01 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 01 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_01_Status_Ready",
       "address": "SR:MAG:QFA:01:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 01 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 01 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_01_Status_On",
       "address": "SR:MAG:QFA:01:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 01 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 01 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_01_Status_Fault",
       "address": "SR:MAG:QFA:01:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 01 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 01 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_02_Current_Setpoint",
       "address": "SR:MAG:QFA:02:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 02 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 02 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_02_Current_Readback",
       "address": "SR:MAG:QFA:02:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 02 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 02 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_02_Current_Golden",
       "address": "SR:MAG:QFA:02:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 02 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 02 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_02_Status_Ready",
       "address": "SR:MAG:QFA:02:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 02 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 02 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_02_Status_On",
       "address": "SR:MAG:QFA:02:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 02 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 02 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_02_Status_Fault",
       "address": "SR:MAG:QFA:02:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 02 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 02 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_03_Current_Setpoint",
       "address": "SR:MAG:QFA:03:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 03 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 03 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_03_Current_Readback",
       "address": "SR:MAG:QFA:03:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 03 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 03 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_03_Current_Golden",
       "address": "SR:MAG:QFA:03:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 03 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 03 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_03_Status_Ready",
       "address": "SR:MAG:QFA:03:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 03 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 03 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_03_Status_On",
       "address": "SR:MAG:QFA:03:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 03 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 03 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_03_Status_Fault",
       "address": "SR:MAG:QFA:03:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 03 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 03 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_04_Current_Setpoint",
       "address": "SR:MAG:QFA:04:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 04 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 04 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_04_Current_Readback",
       "address": "SR:MAG:QFA:04:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 04 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 04 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_04_Current_Golden",
       "address": "SR:MAG:QFA:04:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 04 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 04 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_04_Status_Ready",
       "address": "SR:MAG:QFA:04:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 04 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 04 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_04_Status_On",
       "address": "SR:MAG:QFA:04:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 04 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 04 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_04_Status_Fault",
       "address": "SR:MAG:QFA:04:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 04 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 04 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_05_Current_Setpoint",
       "address": "SR:MAG:QFA:05:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 05 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 05 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_05_Current_Readback",
       "address": "SR:MAG:QFA:05:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 05 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 05 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_05_Current_Golden",
       "address": "SR:MAG:QFA:05:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 05 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 05 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_05_Status_Ready",
       "address": "SR:MAG:QFA:05:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 05 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 05 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_05_Status_On",
       "address": "SR:MAG:QFA:05:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 05 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 05 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_05_Status_Fault",
       "address": "SR:MAG:QFA:05:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 05 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 05 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_06_Current_Setpoint",
       "address": "SR:MAG:QFA:06:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 06 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 06 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_06_Current_Readback",
       "address": "SR:MAG:QFA:06:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 06 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 06 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_06_Current_Golden",
       "address": "SR:MAG:QFA:06:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 06 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 06 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_06_Status_Ready",
       "address": "SR:MAG:QFA:06:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 06 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 06 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_06_Status_On",
       "address": "SR:MAG:QFA:06:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 06 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 06 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_06_Status_Fault",
       "address": "SR:MAG:QFA:06:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 06 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 06 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_07_Current_Setpoint",
       "address": "SR:MAG:QFA:07:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 07 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 07 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_07_Current_Readback",
       "address": "SR:MAG:QFA:07:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 07 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 07 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_07_Current_Golden",
       "address": "SR:MAG:QFA:07:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 07 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 07 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_07_Status_Ready",
       "address": "SR:MAG:QFA:07:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 07 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 07 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_07_Status_On",
       "address": "SR:MAG:QFA:07:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 07 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 07 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_07_Status_Fault",
       "address": "SR:MAG:QFA:07:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 07 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 07 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_08_Current_Setpoint",
       "address": "SR:MAG:QFA:08:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 08 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 08 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_08_Current_Readback",
       "address": "SR:MAG:QFA:08:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 08 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 08 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_08_Current_Golden",
       "address": "SR:MAG:QFA:08:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 08 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 08 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_08_Status_Ready",
       "address": "SR:MAG:QFA:08:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 08 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 08 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_08_Status_On",
       "address": "SR:MAG:QFA:08:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 08 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 08 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_08_Status_Fault",
       "address": "SR:MAG:QFA:08:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 08 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 08 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_09_Current_Setpoint",
       "address": "SR:MAG:QFA:09:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 09 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 09 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_09_Current_Readback",
       "address": "SR:MAG:QFA:09:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 09 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 09 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_09_Current_Golden",
       "address": "SR:MAG:QFA:09:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 09 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 09 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_09_Status_Ready",
       "address": "SR:MAG:QFA:09:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 09 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 09 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_09_Status_On",
       "address": "SR:MAG:QFA:09:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 09 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 09 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_09_Status_Fault",
       "address": "SR:MAG:QFA:09:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 09 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 09 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_10_Current_Setpoint",
       "address": "SR:MAG:QFA:10:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 10 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 10 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_10_Current_Readback",
       "address": "SR:MAG:QFA:10:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 10 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 10 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_10_Current_Golden",
       "address": "SR:MAG:QFA:10:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 10 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 10 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_10_Status_Ready",
       "address": "SR:MAG:QFA:10:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 10 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 10 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_10_Status_On",
       "address": "SR:MAG:QFA:10:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 10 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 10 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_10_Status_Fault",
       "address": "SR:MAG:QFA:10:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 10 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 10 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_11_Current_Setpoint",
       "address": "SR:MAG:QFA:11:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 11 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 11 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_11_Current_Readback",
       "address": "SR:MAG:QFA:11:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 11 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 11 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_11_Current_Golden",
       "address": "SR:MAG:QFA:11:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 11 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 11 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_11_Status_Ready",
       "address": "SR:MAG:QFA:11:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 11 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 11 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_11_Status_On",
       "address": "SR:MAG:QFA:11:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 11 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 11 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_11_Status_Fault",
       "address": "SR:MAG:QFA:11:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 11 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 11 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_12_Current_Setpoint",
       "address": "SR:MAG:QFA:12:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 12 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 12 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_12_Current_Readback",
       "address": "SR:MAG:QFA:12:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 12 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 12 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_12_Current_Golden",
       "address": "SR:MAG:QFA:12:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 12 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 12 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_12_Status_Ready",
       "address": "SR:MAG:QFA:12:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 12 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 12 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_12_Status_On",
       "address": "SR:MAG:QFA:12:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 12 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 12 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_12_Status_Fault",
       "address": "SR:MAG:QFA:12:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 12 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 12 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_13_Current_Setpoint",
       "address": "SR:MAG:QFA:13:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 13 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 13 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_13_Current_Readback",
       "address": "SR:MAG:QFA:13:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 13 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 13 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_13_Current_Golden",
       "address": "SR:MAG:QFA:13:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 13 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 13 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_13_Status_Ready",
       "address": "SR:MAG:QFA:13:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 13 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 13 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_13_Status_On",
       "address": "SR:MAG:QFA:13:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 13 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 13 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_13_Status_Fault",
       "address": "SR:MAG:QFA:13:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 13 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 13 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_14_Current_Setpoint",
       "address": "SR:MAG:QFA:14:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 14 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 14 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_14_Current_Readback",
       "address": "SR:MAG:QFA:14:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 14 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 14 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_14_Current_Golden",
       "address": "SR:MAG:QFA:14:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 14 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 14 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_14_Status_Ready",
       "address": "SR:MAG:QFA:14:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 14 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 14 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_14_Status_On",
       "address": "SR:MAG:QFA:14:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 14 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 14 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_14_Status_Fault",
       "address": "SR:MAG:QFA:14:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 14 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 14 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_15_Current_Setpoint",
       "address": "SR:MAG:QFA:15:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 15 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 15 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_15_Current_Readback",
       "address": "SR:MAG:QFA:15:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 15 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 15 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_15_Current_Golden",
       "address": "SR:MAG:QFA:15:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 15 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 15 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_15_Status_Ready",
       "address": "SR:MAG:QFA:15:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 15 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 15 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_15_Status_On",
       "address": "SR:MAG:QFA:15:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 15 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 15 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_15_Status_Fault",
       "address": "SR:MAG:QFA:15:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 15 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 15 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_16_Current_Setpoint",
       "address": "SR:MAG:QFA:16:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 16 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 16 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_16_Current_Readback",
       "address": "SR:MAG:QFA:16:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 16 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 16 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_16_Current_Golden",
       "address": "SR:MAG:QFA:16:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 16 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 16 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_16_Status_Ready",
       "address": "SR:MAG:QFA:16:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 16 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 16 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_16_Status_On",
       "address": "SR:MAG:QFA:16:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 16 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 16 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_16_Status_Fault",
       "address": "SR:MAG:QFA:16:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 16 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 16 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_17_Current_Setpoint",
       "address": "SR:MAG:QFA:17:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 17 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 17 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_17_Current_Readback",
       "address": "SR:MAG:QFA:17:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 17 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 17 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_17_Current_Golden",
       "address": "SR:MAG:QFA:17:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 17 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 17 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_17_Status_Ready",
       "address": "SR:MAG:QFA:17:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 17 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 17 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_17_Status_On",
       "address": "SR:MAG:QFA:17:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 17 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 17 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_17_Status_Fault",
       "address": "SR:MAG:QFA:17:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 17 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 17 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_18_Current_Setpoint",
       "address": "SR:MAG:QFA:18:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 18 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 18 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_18_Current_Readback",
       "address": "SR:MAG:QFA:18:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 18 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 18 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_18_Current_Golden",
       "address": "SR:MAG:QFA:18:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 18 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 18 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_18_Status_Ready",
       "address": "SR:MAG:QFA:18:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 18 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 18 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_18_Status_On",
       "address": "SR:MAG:QFA:18:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 18 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 18 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_18_Status_Fault",
       "address": "SR:MAG:QFA:18:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 18 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 18 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_19_Current_Setpoint",
       "address": "SR:MAG:QFA:19:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 19 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 19 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_19_Current_Readback",
       "address": "SR:MAG:QFA:19:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 19 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 19 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_19_Current_Golden",
       "address": "SR:MAG:QFA:19:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 19 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 19 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_19_Status_Ready",
       "address": "SR:MAG:QFA:19:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 19 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 19 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_19_Status_On",
       "address": "SR:MAG:QFA:19:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 19 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 19 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_19_Status_Fault",
       "address": "SR:MAG:QFA:19:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 19 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 19 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_20_Current_Setpoint",
       "address": "SR:MAG:QFA:20:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 20 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 20 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_20_Current_Readback",
       "address": "SR:MAG:QFA:20:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 20 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 20 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_20_Current_Golden",
       "address": "SR:MAG:QFA:20:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 20 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 20 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_20_Status_Ready",
       "address": "SR:MAG:QFA:20:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 20 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 20 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_20_Status_On",
       "address": "SR:MAG:QFA:20:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 20 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 20 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_20_Status_Fault",
       "address": "SR:MAG:QFA:20:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 20 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 20 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_21_Current_Setpoint",
       "address": "SR:MAG:QFA:21:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 21 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 21 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_21_Current_Readback",
       "address": "SR:MAG:QFA:21:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 21 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 21 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_21_Current_Golden",
       "address": "SR:MAG:QFA:21:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 21 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 21 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_21_Status_Ready",
       "address": "SR:MAG:QFA:21:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 21 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 21 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_21_Status_On",
       "address": "SR:MAG:QFA:21:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 21 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 21 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_21_Status_Fault",
       "address": "SR:MAG:QFA:21:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 21 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 21 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_22_Current_Setpoint",
       "address": "SR:MAG:QFA:22:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 22 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 22 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_22_Current_Readback",
       "address": "SR:MAG:QFA:22:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 22 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 22 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_22_Current_Golden",
       "address": "SR:MAG:QFA:22:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 22 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 22 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_22_Status_Ready",
       "address": "SR:MAG:QFA:22:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 22 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 22 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_22_Status_On",
       "address": "SR:MAG:QFA:22:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 22 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 22 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_22_Status_Fault",
       "address": "SR:MAG:QFA:22:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 22 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 22 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_23_Current_Setpoint",
       "address": "SR:MAG:QFA:23:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 23 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 23 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_23_Current_Readback",
       "address": "SR:MAG:QFA:23:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 23 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 23 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_23_Current_Golden",
       "address": "SR:MAG:QFA:23:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 23 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 23 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_23_Status_Ready",
       "address": "SR:MAG:QFA:23:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 23 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 23 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_23_Status_On",
       "address": "SR:MAG:QFA:23:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 23 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 23 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_23_Status_Fault",
       "address": "SR:MAG:QFA:23:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 23 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 23 status fault"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_24_Current_Setpoint",
       "address": "SR:MAG:QFA:24:CURRENT:SP",
-      "description": "Storage ring achromat focusing quadrupole 24 current setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 24 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_24_Current_Readback",
       "address": "SR:MAG:QFA:24:CURRENT:RB",
-      "description": "Storage ring achromat focusing quadrupole 24 current readback"
+      "description": "Storage ring achromat-arc focusing quadrupole 24 current readback"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_24_Current_Golden",
       "address": "SR:MAG:QFA:24:CURRENT:GOLDEN",
-      "description": "Storage ring achromat focusing quadrupole 24 current golden setpoint"
+      "description": "Storage ring achromat-arc focusing quadrupole 24 current golden setpoint"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_24_Status_Ready",
       "address": "SR:MAG:QFA:24:STATUS:READY",
-      "description": "Storage ring achromat focusing quadrupole 24 status ready"
+      "description": "Storage ring achromat-arc focusing quadrupole 24 status ready"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_24_Status_On",
       "address": "SR:MAG:QFA:24:STATUS:ON",
-      "description": "Storage ring achromat focusing quadrupole 24 status on"
+      "description": "Storage ring achromat-arc focusing quadrupole 24 status on"
     },
     {
       "channel": "StorageRing_QuadFocusAchromat_24_Status_Fault",
       "address": "SR:MAG:QFA:24:STATUS:FAULT",
-      "description": "Storage ring achromat focusing quadrupole 24 status fault"
+      "description": "Storage ring achromat-arc focusing quadrupole 24 status fault"
     },
     {
       "channel": "StorageRing_Dipole_25_Current_Setpoint",
