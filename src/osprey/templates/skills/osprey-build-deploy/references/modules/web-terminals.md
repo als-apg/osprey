@@ -201,6 +201,15 @@ exact tag rather than whatever `latest` resolves to locally (there is no
 compose-side `${...}` interpolation). This field is registry-mode only; local
 mode always builds `:local` images.
 
+After `up -d`, on podman only, `deploy up` reconciles image drift: it
+force-recreates just those web-stack services whose running container was
+created from a different image ID than their tag now resolves to. This closes
+a `podman-compose` 1.0.6 gap where a re-pulled moving tag (`:latest`) with a
+new digest leaves the previous image's container running, since the service
+definition itself is unchanged. `docker compose` already recreates a service
+after re-pull, so the step is skipped there; inspection failures skip the
+affected service without aborting the deploy.
+
 ### Local-mode operator flow (no CI/registry required)
 
 Local mode is for facilities without a CI/registry pipeline: `deploy up`
