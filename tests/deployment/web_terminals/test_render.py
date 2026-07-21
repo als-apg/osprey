@@ -101,6 +101,36 @@ def test_compose_parses_as_yaml_with_one_service_and_one_volume_pair_per_user() 
     }
 
 
+def test_nginx_image_defaults_when_config_omits_it() -> None:
+    """With no `nginx_image` in config, the nginx service uses the public default tag."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    assert "nginx_image" not in config["modules"]["web_terminals"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    assert compose["services"]["nginx"]["image"] == "nginx:1.27-alpine"
+
+
+def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
+    """A configured `nginx_image` overrides the nginx service image; hosts that pull
+    only from a private mirror point it at their own registry."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    custom = "registry.example.com:5050/mirrors/nginx:1.27-alpine"
+    config["modules"]["web_terminals"]["nginx_image"] = custom
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    assert compose["services"]["nginx"]["image"] == custom
+
+
 def test_compose_service_env_has_terminal_user_and_8087_constant_per_service() -> None:
     """Each per-user service sets OSPREY_TERMINAL_USER, and the 8087 web-internal
     default is referenced (in the healthcheck commentary) once per service."""

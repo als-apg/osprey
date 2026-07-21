@@ -64,6 +64,7 @@ modules:
   web_terminals:
     enabled: true
     nginx_port: 9080                    # ${config.modules.web_terminals.nginx_port}
+    nginx_image: "nginx:1.27-alpine"    # OPTIONAL — reverse-proxy image (default shown); point at a private mirror on hosts that can't pull docker.io
     web_base_port: 9091                 # first per-user web-terminal port      → OSPREY_WEB_PORT (required)
     # Companion families are optional — omitted ones use registry defaults
     # (artifact 9291, ariel 9391, lattice 9491, channel_finder 9591, okf 9691).
@@ -289,7 +290,7 @@ a schema change; until then, `shared_http` is deliberately inert.
 
 A compose overlay (`docker-compose.web.yml` by default; added to `${config.runtime.compose_files}` after the base) with:
 
-- One `nginx` service (container name `${config.facility.prefix}-nginx`) listening on `0.0.0.0:${config.modules.web_terminals.nginx_port}`. Mounts `./nginx/nginx.conf` and `./nginx/landing.html` read-only.
+- One `nginx` service (container name `${config.facility.prefix}-nginx`) listening on `0.0.0.0:${config.modules.web_terminals.nginx_port}`, from image `${config.modules.web_terminals.nginx_image}` (default `nginx:1.27-alpine`). This is the one image in the stack pulled from a public registry rather than built from the facility's own project, so on hosts locked to a private mirror set `nginx_image` to the mirrored reference or the service is unpullable. Mounts `./nginx/nginx.conf` and `./nginx/landing.html` read-only.
 - An anchor `&web-terminal` block holding image, restart policy, env_file, network — extended by every per-user service.
 - One service per user, each publishing all four `*_base_port + index` host ports (per the Architecture table above) with `OSPREY_TERMINAL_USER=<user>` and the other three `OSPREY_*_PORT` env vars set alongside it — plus a paired `<user>-claude-config` / `<user>-agent-data` named volume per user, living on the container engine's local graphroot, **not** on any NFS mount. (Deliberate: rootless container UIDs don't survive NFS write paths reliably, but Claude Code writes to its config dir continuously during a session.)
 

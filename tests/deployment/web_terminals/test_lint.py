@@ -1558,3 +1558,65 @@ def test_lint_empty_image_tag_in_local_mode_reports_no_warning(monkeypatch) -> N
 
     # Assert
     assert not any(f.code == "web_terminals.empty_image_tag" for f in findings)
+
+
+# --- nginx_image override -----------------------------------------------------
+
+
+def test_lint_omitted_nginx_image_reports_nothing() -> None:
+    """No `nginx_image` key (the common case) applies the render-time default and
+    must never be flagged."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    assert "nginx_image" not in config["modules"]["web_terminals"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any("nginx_image" in f.code for f in findings)
+
+
+def test_lint_valid_nginx_image_string_reports_nothing() -> None:
+    """A non-empty string image reference is accepted silently."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["nginx_image"] = (
+        "registry.example.com:5050/mirrors/nginx:1.27-alpine"
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any("nginx_image" in f.code for f in findings)
+
+
+def test_lint_non_string_nginx_image_is_an_error() -> None:
+    """A non-string `nginx_image` cannot be an image reference — fail closed."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["nginx_image"] = 1234
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_nginx_image" for f in errors)
+
+
+def test_lint_empty_nginx_image_is_a_warning() -> None:
+    """An empty/whitespace-only `nginx_image` is inert (the default applies) but
+    almost certainly a mistake — a non-fatal warning."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["nginx_image"] = "   "
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    warnings = _warnings(findings)
+    assert any(f.code == "web_terminals.empty_nginx_image" for f in warnings)
+    assert not any(f.code == "web_terminals.invalid_nginx_image" for f in _errors(findings))

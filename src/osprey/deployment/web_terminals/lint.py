@@ -121,6 +121,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
+    findings.extend(_check_nginx_image(web_terminals))
     return findings
 
 
@@ -1061,3 +1062,40 @@ def _check_unknown_mcp_topology(web_terminals: dict[str, Any]) -> list[Finding]:
             ),
         )
     ]
+
+
+def _check_nginx_image(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``nginx_image``, when set, overrides the nginx service's image reference —
+    the one image in the web stack not built from the facility's own project, so
+    a facility whose hosts pull only from a private registry mirror points it
+    there. Absent is fine (the render-time default applies); a non-string is an
+    ERROR, and an empty/whitespace-only string is a WARN (it would fall back to
+    the default via the template's ``| default(...)``, so it is inert but almost
+    certainly a mistake)."""
+    if "nginx_image" not in web_terminals:
+        return []
+    value = web_terminals.get("nginx_image")
+    if not isinstance(value, str):
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_nginx_image",
+                message=(
+                    f"modules.web_terminals.nginx_image {value!r} is not a string; "
+                    "it must be an image reference, e.g. "
+                    "'registry.example.com:5050/mirrors/nginx:1.27-alpine'"
+                ),
+            )
+        ]
+    if not value.strip():
+        return [
+            Finding(
+                severity="warn",
+                code="web_terminals.empty_nginx_image",
+                message=(
+                    "modules.web_terminals.nginx_image is set but empty; the default "
+                    "nginx image applies. Remove the key or set a real image reference"
+                ),
+            )
+        ]
+    return []

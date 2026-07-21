@@ -269,6 +269,7 @@ modules:
   web_terminals:
     enabled: true
     nginx_port: 9080                       # public-facing reverse proxy / landing page
+    nginx_image: "nginx:1.27-alpine"       # OPTIONAL — reverse-proxy image; default shown. Point at a private mirror on hosts that can't pull docker.io
     web_base_port: 9091                    # first per-user web-terminal port      → OSPREY_WEB_PORT (required)
     # Companion-panel families — OPTIONAL; each falls back to its registry
     # default (shown) when omitted. Every FRAMEWORK_WEB_SERVERS panel has one.
@@ -322,6 +323,7 @@ modules:
 |-------|------|----------|-------|
 | `enabled` | bool | yes | Off by default |
 | `nginx_port` | int | yes | Reverse proxy + landing page port; must be unique across `ports.*` |
+| `nginx_image` | string | no (default `nginx:1.27-alpine`) | Image reference for the reverse-proxy service — the one image in the web stack not built from the facility's own project. The default pulls from docker.io; hosts locked to a private registry mirror must point this at their mirror (e.g. `registry.example.com:5050/mirrors/nginx:1.27-alpine`), or the nginx service is unpullable. A non-string is a lint ERROR; an empty string is a lint WARN (the default applies) |
 | `web_base_port` | int | yes | First per-user web-terminal port. The compose overlay declares it into each per-user container as `OSPREY_TERMINAL_WEB_PORT`, which `osprey web`'s `resolve_web_port()` treats as authoritative over `--port`/`OSPREY_WEB_PORT`/config (exact parallel to `OSPREY_TERMINAL_BIND_HOST` below) |
 | `artifact_base_port` | int | no (default 9291) | First per-user artifact-gallery port; binds `OSPREY_ARTIFACT_SERVER_PORT` |
 | `ariel_base_port` | int | no (default 9391) | First per-user ARIEL search port; binds `OSPREY_ARIEL_PORT` |
