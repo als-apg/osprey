@@ -36,8 +36,9 @@ decidable, and every check *fails closed*: :func:`assert_valid_panel`
 raises a bundled :class:`PanelValidationError` if *any* check fails; no
 check is weakened to let a panel pass.
 
-The idiom mirrors the token validator (``generator/validate.py``) and the
-sibling manifest validator (``panels/manifest.py``): a :class:`StrEnum` of
+The idiom is the design system's shared fail-closed one
+(``design_system/errors.py``, also used by ``generator/validate.py`` and
+the sibling ``panels/manifest.py``): a :class:`StrEnum` of
 machine-readable rule ids, a frozen :class:`PanelError` rendering
 ``"{source}: {message}"``, a :class:`PanelValidationError` bundling
 *every* failure, and a :func:`validate_panel` that runs every check
@@ -56,6 +57,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from osprey.interfaces.design_system.errors import BundledValidationError, SourcedError
 from osprey.interfaces.design_system.panels.manifest import (
     ManifestError,
     PanelManifestError,
@@ -150,7 +152,7 @@ class PanelRule(StrEnum):
 
 
 @dataclass(frozen=True)
-class PanelError:
+class PanelError(SourcedError):
     """A single, located panel validation failure.
 
     Attributes:
@@ -163,23 +165,14 @@ class PanelError:
     """
 
     rule: PanelRule
-    message: str
-    source: str
-
-    def __str__(self) -> str:
-        return f"{self.source}: {self.message}"
 
 
-class PanelValidationError(ValueError):
+class PanelValidationError(BundledValidationError[PanelError]):
     """Raised by :func:`assert_valid_panel`, bundling every :class:`PanelError`.
 
     Attributes:
         errors: Every panel failure, in the order they were found.
     """
-
-    def __init__(self, errors: Sequence[PanelError]) -> None:
-        self.errors = list(errors)
-        super().__init__("\n".join(str(error) for error in self.errors))
 
 
 def _from_manifest_error(error: ManifestError) -> PanelError:
