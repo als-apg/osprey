@@ -19,15 +19,14 @@
  * rectangle onto the overlay iframe via inline geometry. Dragging a placeholder
  * to a new dock position therefore only moves the (empty) placeholder; dockview
  * reloads nothing, and the overlay iframe simply re-follows the new rectangle.
- * Scope, per the PROPOSAL: iframe panels only; geometry synced on layout/resize
- * events only; floating groups and maximize are out of scope for the overlay
- * bound.
+ * Scope: iframe panels only; geometry synced on layout/resize events only;
+ * floating groups and maximize are out of scope for the overlay bound.
  *
  * SETTLE-ONLY SYNC (deliberate bound, not a gap): geometry re-syncs only on
  * dockview's settle events — onDidLayoutChange (panel add/move/close and
  * sash-END), onDidActivePanelChange, and window resize. dockview emits no
- * per-frame layout event during a live sash drag, and the PROPOSAL forbids a
- * per-pointer-frame/rAF follow, so during a sash drag an overlay iframe holds
+ * per-frame layout event during a live sash drag, and a per-pointer-frame/rAF
+ * follow is deliberately excluded, so during a sash drag an overlay iframe holds
  * its last rectangle and lags the sash, then SNAPS to the correct geometry the
  * instant the drag ends. (The terminal's own continuous refit is separate — it
  * rides terminal.js's ResizeObserver, not this adapter.)
@@ -430,4 +429,3 @@ export function hidePanel(panelId) {
     syncGeometry();
   }
 }
-

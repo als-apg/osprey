@@ -1,58 +1,5 @@
 /* OSPREY Web Terminal — Files Panel + Layout */
 
-/* ---- Resize Handle ---- */
-
-.resize-handle {
-  width: 5px;
-  cursor: col-resize;
-  background: var(--border-default);
-  position: relative;
-  flex-shrink: 0;
-  z-index: 10;
-  transition: background var(--wt-transition-fast);
-}
-
-.resize-handle:hover,
-.resize-handle.dragging {
-  background: var(--color-accent);
-}
-
-.resize-handle-grip {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  opacity: 0;
-  transition: opacity var(--wt-transition-fast);
-}
-
-.resize-handle:hover .resize-handle-grip,
-.resize-handle.dragging .resize-handle-grip {
-  opacity: 1;
-}
-
-.resize-handle-grip::before,
-.resize-handle-grip::after {
-  content: '';
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--color-accent-light);
-}
-
-body.resizing {
-  cursor: col-resize !important;
-  user-select: none !important;
-  -webkit-user-select: none !important;
-}
-
-body.resizing iframe {
-  pointer-events: none !important;
-}
-
 /* ---- Files Panel ---- */
 
 .files-panel {
@@ -433,9 +380,5 @@ html[data-ui-mode="simple"] #term-dims {
     width: 100% !important;
     min-width: unset;
     border-left: none;
-  }
-
-  .resize-handle {
-    display: none;
   }
 }
