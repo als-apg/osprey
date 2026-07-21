@@ -268,3 +268,75 @@ At a cost-class deadline, unfinished checks are not dropped — every configured
 check still produces a row (an eligible pending check becomes an ``error``
 "suite deadline exceeded"; a pending check whose dependency failed becomes a
 ``skip``), so the report always accounts for every declared check.
+
+The web dashboard (``SYSTEM`` panel)
+------------------------------------
+
+In a Web Terminal build that ships panels, the health suite is also served as a
+read-only browser dashboard — the ``SYSTEM`` tab. A lightweight sidecar renders
+the same **poll-class** results the CLI produces; it never runs ``on_demand``
+checks, so a browser can never trigger a costly or externally-visible probe.
+
+Hosting keys
+~~~~~~~~~~~~~
+
+The dashboard's title, host, port, and auto-launch live under ``health.title``
+and ``health.web``:
+
+.. code-block:: yaml
+
+   health:
+     title: "Beamline Health"   # dashboard heading (default "System Health")
+     web:
+       host: 127.0.0.1          # default 127.0.0.1
+       port: 8094               # default 8094
+       auto_launch: true        # default true
+
+All are optional; an absent ``health.web`` block serves the dashboard on
+``127.0.0.1:8094``.
+
+Enabling the ``SYSTEM`` tab
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The tab appears only when ``system-health`` is in the build's ``web_panels``
+list — panel-shipping presets (for example ``control-assistant``) include it; a
+panel-free preset (``hello-world``) does not. Setting ``auto_launch: false``
+keeps the tab but does not start the sidecar behind it, so the tab reads as down.
+
+.. note::
+
+   The tab's LED reflects **sidecar liveness only** — green when the health
+   sidecar is reachable, red when it is stopped. It is *not* an aggregate status
+   light: a check going ``error`` does not turn the LED red. The pass/warn/fail
+   status of the suite lives inside the panel, on the ring and the per-category
+   cards.
+
+Dashboard behavior
+~~~~~~~~~~~~~~~~~~~~
+
+The dashboard polls the sidecar on a cadence derived from ``interval_s``, with a
+countdown and a manual refresh. On first open it shows a brief "first scan in
+progress" state rather than an error; once the data is behind schedule (older
+than ``interval_s``) it surfaces a staleness indicator. ``on_demand`` categories
+render as informational cards carrying a copyable ``osprey health --full
+--category <name>`` hint — the dashboard has no run buttons, because it never
+executes ``on_demand`` work.
+
+Config and ``.env`` edits
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The sidecar re-reads ``config.yml`` and the project ``.env`` (the one beside
+``config.yml``, exactly as the CLI resolves it) on each refresh, so an edit to
+``health.title``, a category timeout, or an ``.env`` value referenced via
+``${VAR}`` is picked up on the next poll without a restart — a changed ``.env``
+value overrides the previous one, matching CLI semantics.
+
+.. warning::
+
+   Changing ``control_system`` is the exception. Once the sidecar has opened a
+   control-system connector (the first time a ``channel_read`` check runs), a
+   later ``control_system`` change is **not** applied live: the dashboard shows a
+   notice row ("control_system config changed; restart the web terminal to
+   apply") and keeps using the original connector. Restart ``osprey web`` to pick
+   up the new control system — swapping the connector inside a running process is
+   unsafe, so the change is surfaced rather than done silently.
