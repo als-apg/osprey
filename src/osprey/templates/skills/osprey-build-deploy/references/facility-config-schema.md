@@ -395,6 +395,7 @@ personas:
     extra_mounts:                         # optional — extra volume lines for every user of this persona
       - "/opt/site-data:/app/site-data:ro"
       - "shared-cache:/app/cache"
+    seed_base: true                       # optional (default true); false → seed from this persona's extra.md alone, no base prepend
 ```
 
 | Field | Type | Required | Notes |
@@ -403,6 +404,7 @@ personas:
 | `project_path` | path | required if `image_source: local` | Path to the persona's rendered project directory (the local-mode build context). In local mode, `deploy up` **auto-renders** this project from `build_profile` when the directory is absent (see `build_profile` below), so pre-building each persona by hand is optional. An existing render is user-owned and never overwritten; a *partial* render (missing `Dockerfile` or `config.yml`) is an ERROR; a missing directory with no usable `build_profile` cannot be auto-rendered |
 | `build_profile` | path or preset name | see Notes | The source the persona's project is rendered from — consumed differently per mode. **Registry mode:** a path to the persona's committed build-profile YAML, fed as the positional profile to the one `.gitlab-ci.yml` build job generated per non-default persona (required for a non-default persona; lint ERROR if missing). **Local mode:** a **bundled preset name**, passed to `osprey build --preset <build_profile>` by `deploy up`'s auto-render — so it must name a bundled preset (see `--list-presets`), not a file path. Required in local mode for any persona whose `project_path` is not already rendered |
 | `extra_mounts` | list of strings | no | Extra compose volume strings appended to the `volumes:` block of **every** user resolving to this persona, after the two managed per-user mounts (claude-config, agent-data). Each entry is a plain compose volume string — a host-path bind (`/opt/site-data:/app/site-data:ro`) or a named volume (`shared-cache:/app/cache`) — with 2 or 3 non-empty colon-separated parts (`source:target` or `source:target:mode`); a malformed entry is a lint ERROR. Persona-level, not per-user: mounts common to a whole persona live here, not on individual roster entries. Omit entirely (the default `[]`) for no extra mounts — zero-migration |
+| `seed_base` | bool | no (default `true`) | Whether this persona's users are seeded with the shared `docker/web-terminal-context/base.md` prepended ahead of their own `extra.md` at `deploy up`/`deploy seed` time. `true` (default) is the historical behavior. Set `false` to seed such a user from its `extra.md` **alone**, with no base prepend — for a persona whose shipped identity must not be silently altered by a base-context change. When every seeded user opts out, `base.md` may be absent entirely; if any seeded user keeps `seed_base: true`, `base.md` is still required. A non-boolean value is a lint ERROR (the opt-out is otherwise silently ignored). Seeding only — has no effect on the rendered image or compose output |
 
 **Image naming** is derived deterministically — never set by hand:
 

@@ -206,6 +206,134 @@ def test_missing_extra_md_seeds_base_only(tmp_path, monkeypatch, fake_runtime):
 
 
 # =============================================================================
+# CLAUDE.md — per-persona base-prepend opt-out (seed_base)
+# =============================================================================
+
+
+def _write_extra_md(tmp_path, user, content):
+    overlay = tmp_path / "docker" / "web-terminal-context" / user
+    overlay.mkdir(parents=True, exist_ok=True)
+    (overlay / "extra.md").write_text(content, encoding="utf-8")
+
+
+def _optout_config(users, personas, **kw):
+    """A config whose personas may set `seed_base`, reusing the base `_config` shape."""
+    return _config(users, web_terminals_extra={"personas": personas}, **kw)
+
+
+def test_seed_base_true_default_is_byte_identical(tmp_path, monkeypatch, fake_runtime):
+    """A persona that keeps seed_base (default true) seeds the exact historical
+    `base_content + extra_content` concatenation — byte for byte."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path, "BASE\n")
+    _write_extra_md(tmp_path, "alice", "EXTRA\n")
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+
+    config = _optout_config(
+        [{"name": "alice", "index": 0, "persona": "gui"}],
+        {"gui": {"project": "gui-app"}},  # no seed_base key → default true
+    )
+    seeding.seed_user_containers(config)
+
+    (md_call,) = _claude_md_calls(calls)
+    idx = calls.index(md_call)
+    assert inputs[idx] == b"BASE\nEXTRA\n"
+
+
+def test_seed_base_false_seeds_extra_alone(tmp_path, monkeypatch, fake_runtime):
+    """seed_base: false → the user's CLAUDE.md is its extra.md alone, no base prepend."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path, "BASE\n")
+    _write_extra_md(tmp_path, "alice", "EXTRA ONLY\n")
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+
+    config = _optout_config(
+        [{"name": "alice", "index": 0, "persona": "standalone"}],
+        {"standalone": {"project": "standalone-app", "seed_base": False}},
+    )
+    seeding.seed_user_containers(config)
+
+    (md_call,) = _claude_md_calls(calls)
+    idx = calls.index(md_call)
+    assert inputs[idx] == b"EXTRA ONLY\n"
+
+
+def test_seed_base_false_tolerates_missing_base_md(tmp_path, monkeypatch, fake_runtime):
+    """When every seeded user opts out, a missing base.md is not an error — the
+    seed runs from each user's extra.md alone."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    # base.md deliberately NOT written; only the per-user overlay dir exists.
+    _write_extra_md(tmp_path, "alice", "EXTRA ONLY\n")
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+
+    config = _optout_config(
+        [{"name": "alice", "index": 0, "persona": "standalone"}],
+        {"standalone": {"project": "standalone-app", "seed_base": False}},
+    )
+    seeding.seed_user_containers(config)  # must not raise despite missing base.md
+
+    (md_call,) = _claude_md_calls(calls)
+    idx = calls.index(md_call)
+    assert inputs[idx] == b"EXTRA ONLY\n"
+
+
+def test_mixed_roster_base_user_and_optout_user(tmp_path, monkeypatch, fake_runtime):
+    """A roster mixing a seed_base=true user and a seed_base=false user: the
+    former gets base+extra, the latter gets extra alone, in one run."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path, "BASE\n")
+    _write_extra_md(tmp_path, "alice", "ALICE EXTRA\n")
+    _write_extra_md(tmp_path, "bob", "BOB EXTRA\n")
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+    ready.add(f"{_FACILITY_PREFIX}-web-bob")
+
+    config = _optout_config(
+        [
+            {"name": "alice", "index": 0, "persona": "gui"},
+            {"name": "bob", "index": 1, "persona": "standalone"},
+        ],
+        {
+            "gui": {"project": "gui-app"},  # default seed_base true
+            "standalone": {"project": "standalone-app", "seed_base": False},
+        },
+    )
+    seeding.seed_user_containers(config)
+
+    payload_by_container = {c[5]: inputs[calls.index(c)] for c in _claude_md_calls(calls)}
+    assert payload_by_container[f"{_FACILITY_PREFIX}-web-alice"] == b"BASE\nALICE EXTRA\n"
+    assert payload_by_container[f"{_FACILITY_PREFIX}-web-bob"] == b"BOB EXTRA\n"
+
+
+def test_mixed_roster_missing_base_md_still_raises(tmp_path, monkeypatch, fake_runtime):
+    """If even one seeded user keeps seed_base=true, a missing base.md still aborts
+    the whole seed up front — before any container is touched."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    # base.md deliberately NOT written.
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+    ready.add(f"{_FACILITY_PREFIX}-web-bob")
+
+    config = _optout_config(
+        [
+            {"name": "alice", "index": 0, "persona": "gui"},  # keeps base
+            {"name": "bob", "index": 1, "persona": "standalone"},  # opts out
+        ],
+        {
+            "gui": {"project": "gui-app"},
+            "standalone": {"project": "standalone-app", "seed_base": False},
+        },
+    )
+    with pytest.raises(RuntimeError, match="base.md"):
+        seeding.seed_user_containers(config)
+
+    assert calls == []  # aborted before any runtime call
+
+
+# =============================================================================
 # skills sentinel reconcile
 # =============================================================================
 

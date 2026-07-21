@@ -141,6 +141,7 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
             "extra_mounts": [],
+            "seed_base": True,
         },
         {
             "name": "bob",
@@ -150,6 +151,7 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
             "extra_mounts": [],
+            "seed_base": True,
         },
     ]
 
@@ -192,6 +194,7 @@ def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> N
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
             "extra_mounts": [],
+            "seed_base": True,
         }
     ]
 
@@ -243,6 +246,7 @@ def test_resolve_personas_non_default_persona_registry_mode_suffixes_image() -> 
             "project": "als-gui-assistant",
             "container_project_dir": "/app/als-gui-assistant",
             "extra_mounts": [],
+            "seed_base": True,
         }
     ]
 
@@ -324,6 +328,7 @@ def test_resolve_personas_local_mode_without_catalog_lenient_degrades() -> None:
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
             "extra_mounts": [],
+            "seed_base": True,
         }
     ]
 
@@ -364,6 +369,7 @@ def test_resolve_personas_unknown_persona_ref_lenient_degrades() -> None:
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
             "extra_mounts": [],
+            "seed_base": True,
         }
     ]
 
@@ -586,3 +592,64 @@ def test_resolve_personas_image_tag_unset_env_var_expands_to_empty(monkeypatch) 
 
     # Assert
     assert result[0]["image"] == "registry.example.org/osprey/web-terminal:"
+
+
+# ---------------------------------------------------------------------------
+# resolve_personas() — seed_base opt-out
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_personas_seed_base_defaults_true_for_catalog_entry() -> None:
+    """A catalog entry with no `seed_base` key resolves to the default, True."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "gui"}],
+        "personas": {"gui": {"project": "als-gui"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["seed_base"] is True
+
+
+def test_resolve_personas_seed_base_false_is_carried_through() -> None:
+    """`seed_base: false` on a catalog entry resolves to False for its users."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "gui"}],
+        "personas": {"gui": {"project": "als-gui", "seed_base": False}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["seed_base"] is False
+
+
+def test_resolve_personas_seed_base_non_bool_coerces_to_true() -> None:
+    """A non-bool `seed_base` (a config typo lint reports separately) must not
+    propagate — it defensively coerces to the safe default, True."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "gui"}],
+        "personas": {"gui": {"project": "als-gui", "seed_base": "false"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["seed_base"] is True
+
+
+def test_resolve_personas_no_persona_entry_is_seed_base_true() -> None:
+    """The zero-migration path (no persona in effect) always keeps the base
+    prepend — seed_base is only opt-out-able through a catalog entry."""
+    # Act
+    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["seed_base"] is True

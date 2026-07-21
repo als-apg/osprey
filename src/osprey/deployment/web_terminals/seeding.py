@@ -10,7 +10,9 @@ Contract:
 * ``CLAUDE.md`` is REPLACED every run: ``docker/web-terminal-context/base.md``
   concatenated with the user's ``extra.md`` (or the legacy flat ``<user>.md``),
   piped into the container's ``/data/claude-config/CLAUDE.md`` (user scope —
-  not gated by ``--setting-sources``, unlike skills).
+  not gated by ``--setting-sources``, unlike skills). A user whose resolved
+  persona sets ``seed_base: false`` is seeded from its ``extra.md`` alone, with
+  no base prepend — the shared base is opt-out per persona (default on).
 * ``skills/`` is idempotent and non-destructive via a ``.deploy-managed``
   sentinel dropped inside the container: only sentinel-bearing skill dirs are
   ever touched. A user's live-installed skill (e.g. ``osprey skills install``,
@@ -19,9 +21,11 @@ Contract:
   removed.
 * A user whose container isn't up yet is skipped (logged), not fatal — the
   rest of the roster is still seeded.
-* ``docker/web-terminal-context/base.md`` is required; its absence aborts the
-  whole seed up front (a misconfiguration, not a per-user issue) — mirroring
-  the bash source's ``exit 1``.
+* ``docker/web-terminal-context/base.md`` is required whenever at least one
+  to-be-seeded user's persona keeps the base prepend (``seed_base: true``, the
+  default); its absence then aborts the whole seed up front (a misconfiguration,
+  not a per-user issue) — mirroring the bash source's ``exit 1``. When every
+  seeded user opts out (``seed_base: false``), a missing base.md is not an error.
 """
 
 from __future__ import annotations
@@ -109,8 +113,9 @@ def seed_web_terminals(config_path: str | Path, user: str | None = None) -> None
             seed every user currently on the roster.
 
     Raises:
-        RuntimeError: If ``docker/web-terminal-context/base.md`` is missing, or
-            if every ready container's seed failed (see
+        RuntimeError: If ``docker/web-terminal-context/base.md`` is missing while
+            some to-be-seeded user's persona keeps ``seed_base`` (the default),
+            or if every ready container's seed failed (see
             :func:`seed_user_containers`).
         ValueError: If ``user`` is given but not present in
             ``modules.web_terminals.users``.
@@ -140,8 +145,12 @@ def seed_user_containers(
     surfaces it instead of silently reporting success with nothing seeded.
 
     A missing ``base.md`` is a misconfiguration too, and not a per-user
-    problem, so it aborts before any user is touched. No-op if web terminals
-    are disabled or the roster is empty (and ``user`` was not given).
+    problem, so it aborts before any user is touched — but only when at least
+    one to-be-seeded user's persona keeps the base prepend (``seed_base: true``,
+    the default). When every seeded user opts out (``seed_base: false``), each
+    is seeded from its ``extra.md`` alone and a missing base.md is tolerated.
+    No-op if web terminals are disabled or the roster is empty (and ``user``
+    was not given).
 
     Each user's skills target directory is derived from their resolved
     persona's ``container_project_dir`` (via :func:`personas.resolve_personas`,
@@ -162,8 +171,9 @@ def seed_user_containers(
             ``COMPOSE_PROJECT_NAME``).
 
     Raises:
-        RuntimeError: If ``docker/web-terminal-context/base.md`` is missing, or
-            if at least one container was ready and every ready container's
+        RuntimeError: If ``docker/web-terminal-context/base.md`` is missing while
+            some to-be-seeded user's persona keeps ``seed_base`` (the default),
+            or if at least one container was ready and every ready container's
             seed failed.
         ValueError: If ``user`` is given but not present in
             ``modules.web_terminals.users``, or if a roster entry's persona
@@ -188,36 +198,52 @@ def seed_user_containers(
             return
         targets = roster
 
-    base_md_path = _CONTEXT_DIR / "base.md"
-    if not base_md_path.is_file():
-        raise RuntimeError(
-            f"{base_md_path} not found — cannot seed CLAUDE.md. Every web-terminal "
-            "deploy requires a base.md context file."
-        )
-    base_content = base_md_path.read_text(encoding="utf-8")
-
     runtime = get_runtime_command(config)[0]
     run_env = env if env is not None else runtime_env(config)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(config.get("registry"))
     # strict=True: an unresolvable persona reference is a misconfiguration, not a
     # per-user issue, so it raises here — before any container is touched — same
-    # as the base.md check above.
+    # as the base.md check below.
     resolved_by_name = {
         entry["name"]: entry
         for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
     }
 
+    # base.md is required only when at least one to-be-seeded user's persona
+    # keeps the base prepend (seed_base=True, the default). If every seeded user
+    # opts out (seed_base=False), the seed uses each user's extra.md alone and a
+    # missing base.md is not an error. This resolves after persona resolution so
+    # the requirement follows the actual roster — but still before any container
+    # is touched, keeping the missing-base.md abort a pre-flight misconfiguration
+    # rather than a per-user failure.
+    base_md_path = _CONTEXT_DIR / "base.md"
+    base_md_exists = base_md_path.is_file()
+    needs_base = any(resolved_by_name[entry["name"]]["seed_base"] for entry in targets)
+    if needs_base and not base_md_exists:
+        raise RuntimeError(
+            f"{base_md_path} not found — cannot seed CLAUDE.md. Every seeded "
+            "web-terminal user whose persona keeps seed_base (the default) "
+            "requires a base.md context file."
+        )
+    base_content = base_md_path.read_text(encoding="utf-8") if base_md_exists else ""
+
     logger.info("Seeding per-user CLAUDE.md and skills into claude-config volumes...")
     attempted = 0
     failed = 0
     for entry in targets:
-        container_project_dir = resolved_by_name[entry["name"]]["container_project_dir"]
+        resolved = resolved_by_name[entry["name"]]
         # Project scope, not $CLAUDE_CONFIG_DIR — the launcher runs the CLI with
         # --setting-sources project, which makes $CLAUDE_CONFIG_DIR/skills/ inert.
-        project_skills_dir = f"{container_project_dir}/.claude/skills"
+        project_skills_dir = f"{resolved['container_project_dir']}/.claude/skills"
         outcome = _seed_one_user(
-            runtime, entry["name"], facility_prefix, base_content, project_skills_dir, env=run_env
+            runtime,
+            entry["name"],
+            facility_prefix,
+            base_content,
+            project_skills_dir,
+            seed_base=resolved["seed_base"],
+            env=run_env,
         )
         if outcome is None:
             continue  # container not ready — never counts toward the systemic check
@@ -241,9 +267,16 @@ def _seed_one_user(
     base_content: str,
     project_skills_dir: str,
     *,
+    seed_base: bool = True,
     env: dict[str, str] | None,
 ) -> bool | None:
     """Seed one user's container; never raise.
+
+    ``seed_base`` (default ``True``) controls whether ``base_content`` is
+    prepended ahead of the user's ``extra.md``. When ``False``, the user's
+    ``CLAUDE.md`` payload is its ``extra.md`` alone — the per-persona base
+    opt-out. With ``seed_base=True`` the payload is byte-for-byte the historical
+    ``base_content + extra_content`` concatenation.
 
     Returns:
         ``None`` if the container isn't ready (skipped, doesn't count toward
@@ -257,7 +290,8 @@ def _seed_one_user(
     try:
         owner = _container_seed_owner(runtime, container, env=env)
         extra_content = _resolve_extra_md(user)
-        _seed_claude_md(runtime, container, base_content + extra_content, owner, env=env)
+        payload = base_content + extra_content if seed_base else extra_content
+        _seed_claude_md(runtime, container, payload, owner, env=env)
         skills_src = _CONTEXT_DIR / user / "skills"
         _seed_skills(runtime, container, skills_src, project_skills_dir, owner, env=env)
         logger.info(f"  seeded {user}")

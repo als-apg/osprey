@@ -199,13 +199,17 @@ def resolve_personas(
 
     Returns:
         One ``{"name", "index", "persona", "image", "project",
-        "container_project_dir", "extra_mounts"}`` dict per surviving
-        :func:`normalize_users` entry, in the same order. ``persona`` is the
-        resolved catalog key, or ``None`` when no persona is in effect for that
-        entry. ``extra_mounts`` is the persona's ``extra_mounts`` list (compose
-        volume strings applied to every user of that persona), defaulting to
-        ``[]`` — both when no persona is in effect and when the catalog entry
-        sets none.
+        "container_project_dir", "extra_mounts", "seed_base"}`` dict per
+        surviving :func:`normalize_users` entry, in the same order. ``persona``
+        is the resolved catalog key, or ``None`` when no persona is in effect for
+        that entry. ``extra_mounts`` is the persona's ``extra_mounts`` list
+        (compose volume strings applied to every user of that persona),
+        defaulting to ``[]`` — both when no persona is in effect and when the
+        catalog entry sets none. ``seed_base`` is the catalog entry's
+        ``seed_base`` (a bool; anything else is defensively coerced to
+        ``True``), and always ``True`` for the zero-migration / lenient-degrade
+        paths — it controls whether the shared base context is prepended when
+        seeding this entry's ``CLAUDE.md``.
 
     Raises:
         ValueError: See ``strict`` above.
@@ -250,7 +254,10 @@ def resolve_personas(
         ``persona`` carried through for logging (``None`` when no persona is in
         effect, or the unresolvable reference on the lenient degrade path).
         ``extra_mounts`` is empty here — the zero-migration path has no catalog
-        entry to read persona-level host mounts from."""
+        entry to read persona-level host mounts from. ``seed_base`` is ``True`` —
+        the shared base-context prepend has always been mandatory for a
+        no-persona/zero-migration entry, and opting out is only expressible
+        through a catalog entry."""
         return {
             "name": name,
             "index": index,
@@ -259,6 +266,7 @@ def resolve_personas(
             "project": default_project,
             "container_project_dir": default_container_dir,
             "extra_mounts": [],
+            "seed_base": True,
         }
 
     resolved: list[dict[str, Any]] = []
@@ -299,6 +307,15 @@ def resolve_personas(
             else []
         )
 
+        # seed_base: whether this persona's users get the shared base context
+        # prepended ahead of their own extra context at seed time. Defaults to
+        # True (the historical, always-prepend behavior); a non-bool value is a
+        # config typo that lint reports separately, so coerce it back to the
+        # safe default here rather than propagating garbage.
+        seed_base = catalog_entry.get("seed_base")
+        if not isinstance(seed_base, bool):
+            seed_base = True
+
         is_default = persona_ref == default_persona_name
 
         if image_source == "local":
@@ -319,6 +336,7 @@ def resolve_personas(
                 "project": project,
                 "container_project_dir": container_project_dir,
                 "extra_mounts": extra_mounts,
+                "seed_base": seed_base,
             }
         )
 

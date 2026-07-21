@@ -629,6 +629,56 @@ def test_lint_persona_catalog_reserved_name_is_an_error() -> None:
     assert any(f.code == "web_terminals.persona_reserved_name" for f in errors)
 
 
+def test_lint_persona_seed_base_non_bool_is_an_error() -> None:
+    """A persona `seed_base` that isn't a boolean (e.g. the YAML string
+    "false", which is truthy and would silently defeat the opt-out) is an
+    error."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {
+        "standalone": {"project": "als-x", "seed_base": "false"}
+    }
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_invalid_seed_base" for f in errors)
+
+
+def test_lint_persona_seed_base_bool_is_accepted() -> None:
+    """A boolean `seed_base` (either value) trips no seed_base finding."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {
+        "keep": {"project": "als-keep", "seed_base": True},
+        "drop": {"project": "als-drop", "seed_base": False},
+    }
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_invalid_seed_base" for f in findings)
+
+
+def test_lint_persona_seed_base_absent_is_accepted() -> None:
+    """A persona entry with no `seed_base` key at all trips no seed_base finding."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"plain": {"project": "als-x"}}
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_invalid_seed_base" for f in findings)
+
+
 def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
     """A config predating persona catalogs (no `personas:` block, no `persona:`
     keys, no `default_persona`) must resolve every entry as zero-migration and
@@ -643,6 +693,7 @@ def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
     persona_codes = {
         "web_terminals.invalid_persona_charset",
         "web_terminals.persona_reserved_name",
+        "web_terminals.persona_invalid_seed_base",
         "web_terminals.unknown_default_persona",
         "web_terminals.unknown_persona_reference",
     }

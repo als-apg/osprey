@@ -108,6 +108,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_port_overlap(root, web_terminals, users))
     findings.extend(_check_persona_charset(web_terminals))
     findings.extend(_check_persona_reserved_names(web_terminals))
+    findings.extend(_check_persona_seed_base(web_terminals))
     findings.extend(_check_default_persona_exists(web_terminals))
     findings.extend(_check_unknown_persona_reference(root, web_terminals, users))
     findings.extend(_check_empty_facility_prefix(root, web_terminals, users))
@@ -484,6 +485,33 @@ def _check_persona_reserved_names(web_terminals: dict[str, Any]) -> list[Finding
                     message=(
                         f"modules.web_terminals.personas key {persona_name!r} collides "
                         "with a reserved service name"
+                    ),
+                )
+            )
+    return findings
+
+
+def _check_persona_seed_base(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A persona catalog entry's ``seed_base``, when present, must be a boolean.
+
+    ``seed_base`` opts a persona's users out of the mandatory shared base-context
+    prepend at seed time (default ``true``). A non-boolean value (e.g. a YAML
+    string ``"false"``) is a config typo — ``resolve_personas`` defensively
+    coerces it back to ``True``, so without this check the opt-out would silently
+    not take effect. Reported here so the mistake fails the config instead."""
+    findings: list[Finding] = []
+    for persona_name, entry in _persona_catalog(web_terminals).items():
+        if not isinstance(entry, dict) or "seed_base" not in entry:
+            continue
+        value = entry["seed_base"]
+        if not isinstance(value, bool):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_invalid_seed_base",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}].seed_base "
+                        f"{value!r} is not a boolean; seed_base must be true or false"
                     ),
                 )
             )
