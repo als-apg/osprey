@@ -415,6 +415,12 @@ class AgentDefinition:
     default_enabled: bool = True
     description: str = ""
     is_custom: bool = False
+    # Approval-gated (permissions.ask) tools this agent hard-requires. These
+    # must survive the writes-disabled kill-switch that otherwise pulls
+    # read/write tools like mcp__python__execute out of ask (see
+    # cli/templates/claude_code.py) -- an enabled agent declaring a tool that
+    # is neither in allow nor ask fails build validation.
+    requires_ask_tools: frozenset[str] = frozenset()
 
 
 FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
@@ -457,6 +463,9 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "dispersion, response matrices) — it writes and executes pyAT code "
             "against the simulated ALS-U AR ring."
         ),
+        # Its only compute path is mcp__python__execute (read-only kernels), so
+        # it must keep that tool even in a writes-disabled (read-only) persona.
+        requires_ask_tools=frozenset({"mcp__python__execute"}),
     ),
 }
 
@@ -895,6 +904,7 @@ def _agent_to_dict(adef: AgentDefinition) -> dict:
         "enabled": adef.default_enabled,
         "description": adef.description,
         "is_custom": adef.is_custom,
+        "requires_ask_tools": sorted(adef.requires_ask_tools),
     }
 
 
