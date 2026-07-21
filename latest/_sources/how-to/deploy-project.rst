@@ -116,6 +116,43 @@ When ``osprey deploy up`` runs:
 9. Write a flattened ``config.yml`` per service. ``${VAR}`` placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).
 10. Shell out to ``docker compose`` / ``podman compose``.
 
+Keeping a Rendered Project Up to Date
+=====================================
+
+A project directory is a *rendered artifact*: ``osprey build`` writes its
+``config.yml`` and service scaffolding from the preset at build time, and
+``osprey deploy up`` deploys exactly what that rendered config describes. If
+the framework or preset gains features after the render, the stale project
+still deploys "successfully" — just without them.
+
+To update an existing project, re-run the build with ``--force``::
+
+   osprey build my-project --preset my-preset --force
+   cd my-project && osprey deploy up -d
+
+``--force`` re-renders everything framework-owned and preserves what you
+own: ``.env`` values (secrets, and the service tokens/passwords your
+existing docker volumes were initialized with), ``_agent_data/``, and the
+project's ``.git`` history. ``data/`` is re-materialized from the preset.
+Avoid guarding the build behind a directory-existence check
+(``[ -d my-project ] || osprey build ...``) — "exists" is not "current",
+and the guard silently skips exactly the re-render that an updated preset
+needs.
+
+Two guards make render drift visible:
+
+* **Staleness advisory** — ``osprey deploy up`` and ``osprey deploy status``
+  compare the project's recorded provenance (osprey version and a content
+  hash of the resolved preset, stamped into ``.osprey-manifest.json`` at
+  build time) against the installed framework, and warn with the exact
+  rebuild command when the render is out of date. The warning never blocks
+  a deploy; projects built before the hash existed get the version
+  comparison only.
+* **Endpoint summary** — every ``osprey deploy up`` ends with a summary of
+  the published service endpoints, including an explicit ``web terminal
+  (not configured in this project)`` line when the config declares no web
+  tier, so a missing service is a stated fact rather than a silent absence.
+
 Docker Compose Templates
 ========================
 

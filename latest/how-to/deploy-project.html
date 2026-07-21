@@ -584,6 +584,41 @@ preferred, otherwise Podman is used. Force a specific runtime with the
 <li><p>Shell out to <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span></code> / <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span></code>.</p></li>
 </ol>
 </section>
+<section id="keeping-a-rendered-project-up-to-date">
+<h2>Keeping a Rendered Project Up to Date<a class="headerlink" href="#keeping-a-rendered-project-up-to-date" title="Link to this heading">#</a></h2>
+<p>A project directory is a <em>rendered artifact</em>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes its
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and service scaffolding from the preset at build time, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> deploys exactly what that rendered config describes. If
+the framework or preset gains features after the render, the stale project
+still deploys “successfully” — just without them.</p>
+<p>To update an existing project, re-run the build with <code class="docutils literal notranslate"><span class="pre">--force</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span> <span class="n">build</span> <span class="n">my</span><span class="o">-</span><span class="n">project</span> <span class="o">--</span><span class="n">preset</span> <span class="n">my</span><span class="o">-</span><span class="n">preset</span> <span class="o">--</span><span class="n">force</span>
+<span class="n">cd</span> <span class="n">my</span><span class="o">-</span><span class="n">project</span> <span class="o">&amp;&amp;</span> <span class="n">osprey</span> <span class="n">deploy</span> <span class="n">up</span> <span class="o">-</span><span class="n">d</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> re-renders everything framework-owned and preserves what you
+own: <code class="docutils literal notranslate"><span class="pre">.env</span></code> values (secrets, and the service tokens/passwords your
+existing docker volumes were initialized with), <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and the
+project’s <code class="docutils literal notranslate"><span class="pre">.git</span></code> history. <code class="docutils literal notranslate"><span class="pre">data/</span></code> is re-materialized from the preset.
+Avoid guarding the build behind a directory-existence check
+(<code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">-d</span> <span class="pre">my-project</span> <span class="pre">]</span> <span class="pre">||</span> <span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">...</span></code>) — “exists” is not “current”,
+and the guard silently skips exactly the re-render that an updated preset
+needs.</p>
+<p>Two guards make render drift visible:</p>
+<ul class="simple">
+<li><p><strong>Staleness advisory</strong> — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span></code>
+compare the project’s recorded provenance (osprey version and a content
+hash of the resolved preset, stamped into <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code> at
+build time) against the installed framework, and warn with the exact
+rebuild command when the render is out of date. The warning never blocks
+a deploy; projects built before the hash existed get the version
+comparison only.</p></li>
+<li><p><strong>Endpoint summary</strong> — every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> ends with a summary of
+the published service endpoints, including an explicit <code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">terminal</span>
+<span class="pre">(not</span> <span class="pre">configured</span> <span class="pre">in</span> <span class="pre">this</span> <span class="pre">project)</span></code> line when the config declares no web
+tier, so a missing service is a stated fact rather than a silent absence.</p></li>
+</ul>
+</section>
 <section id="docker-compose-templates">
 <h2>Docker Compose Templates<a class="headerlink" href="#docker-compose-templates" title="Link to this heading">#</a></h2>
 <p>Each service needs a <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template in its service
@@ -741,6 +776,7 @@ containers this page covers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-commands">CLI Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#container-runtime-selection">Container Runtime Selection</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-a-rendered-project-up-to-date">Keeping a Rendered Project Up to Date</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#network-binding-and-security">Network Binding and Security</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables-env">Environment Variables (<code class="docutils literal notranslate"><span class="pre">.env</span></code>)</a></li>
