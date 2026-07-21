@@ -11,6 +11,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- `osprey deploy up` and `osprey deploy status` now warn when the project's render is stale — i.e. it was rendered by a different osprey version, or the preset's content has changed since the render (a content hash of the resolved preset is stamped into `.osprey-manifest.json` at build time). The warning names the exact `osprey build ... --force` command to re-render; it never blocks a deploy, and legacy projects without the stamp are unaffected.
+- Every `osprey deploy up` now ends with a service-endpoint summary (published host ports from the rendered compose files, plus the web-terminal landing URL — or an explicit "web terminal (not configured in this project)" line when the config declares no web tier).
+
+### Changed
+
+- `osprey build --force` now re-renders an existing project *in place* instead of deleting the directory: `.env` (existing values win over freshly detected ones, and keys only it carries are kept), `_agent_data/`, and the project's `.git` are preserved; everything framework-rendered, including `data/`, is rebuilt. A profile-provided `env.file` is likewise merged into an existing `.env` rather than overwriting it.
+
 ### Fixed
 
 - The AskSage provider now falls back to its static default model list when a `/models` fetch fails or credentials are missing, instead of returning a malformed value that could reach a UI caller. The fetched list is also cached across adapter instances, so an AskSage completion no longer pays a repeat `/models` round-trip on every request.
