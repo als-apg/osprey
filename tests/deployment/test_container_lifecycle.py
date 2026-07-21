@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment import container_lifecycle
-from osprey.deployment.web_terminals import provision
+from osprey.deployment.web_terminals import postup_hooks, provision
 
 
 @pytest.fixture
@@ -199,6 +199,7 @@ def captured_web_runs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
 
     def _fake_write_artifacts(config, dest_dir="."):
         written.append(config)
@@ -395,6 +396,7 @@ def captured_combined_runs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
 
     def _fake_build(config, dev_mode, env):
@@ -538,6 +540,7 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["podman", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -610,6 +613,7 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     # Auto-render is a separate concern with its own dedicated tests below;
     # keep it inert here so the mode-wiring tests exercise only the local/
@@ -1352,6 +1356,7 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     calls: list = []
 
@@ -1483,6 +1488,7 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **k: None)
     monkeypatch.setattr(provision, "run_verify_script", lambda *a, **k: None)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     runs: list = []
 
     def _fake_run(cmd, env=None, **k):
