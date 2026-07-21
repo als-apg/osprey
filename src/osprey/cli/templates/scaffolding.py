@@ -120,6 +120,28 @@ def detect_environment_variables() -> dict[str, str]:
     return detected
 
 
+def _render_env_preserving_existing(jinja_env, project_dir: Path, ctx: dict) -> None:
+    """Render ``project/env.j2`` to ``.env``, merging with an existing file.
+
+    On a fresh build this is a plain render. On a --force re-render an
+    existing ``.env`` is authoritative: its values win over freshly detected
+    environment values and keys it alone carries are appended — the project's
+    service tokens and volume-pinned passwords must survive a re-render (see
+    :func:`osprey.utils.dotenv.merge_env_preserving_existing`).
+    """
+    env_path = project_dir / ".env"
+    rendered = jinja_env.get_template("project/env.j2").render(**ctx)
+    if env_path.exists():
+        from osprey.utils.dotenv import merge_env_preserving_existing
+
+        content = merge_env_preserving_existing(rendered, env_path.read_text(encoding="utf-8"))
+    else:
+        content = rendered if rendered.endswith("\n") else rendered + "\n"
+    env_path.write_text(content, encoding="utf-8")
+    # Owner read/write only: the file carries secrets.
+    os.chmod(env_path, 0o600)
+
+
 def create_project_structure(
     template_root: Path,
     jinja_env,
@@ -193,9 +215,7 @@ def create_project_structure(
     if has_api_keys:
         env_template = project_template_dir / "env.j2"
         if env_template.exists():
-            render_template(jinja_env, "project/env.j2", ctx, project_dir / ".env")
-            # Set proper permissions (owner read/write only)
-            os.chmod(project_dir / ".env", 0o600)
+            _render_env_preserving_existing(jinja_env, project_dir, ctx)
 
     # Copy static files
     for src_name, dst_name in static_files:

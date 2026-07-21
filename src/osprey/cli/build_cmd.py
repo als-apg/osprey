@@ -100,7 +100,15 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
     default=".",
     help="Output directory for project (default: current directory)",
 )
-@click.option("--force", "-f", is_flag=True, help="Force overwrite if project directory exists")
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help=(
+        "Re-render an existing project directory in place "
+        "(.env, _agent_data/, and .git are preserved)"
+    ),
+)
 @click.option("--stream", "-s", is_flag=True, help="Stream lifecycle step output in real-time")
 @click.option(
     "--skip-lifecycle", is_flag=True, help="Skip pre_build, post_build, and validate phases"
@@ -326,9 +334,11 @@ def build(
         # 3. Handle --force / directory existence
         if project_path.exists():
             if force:
-                logger.warning("  Removing existing directory: %s", project_path)
-                shutil.rmtree(project_path)
-                logger.info("  ✓ Removed existing directory")
+                logger.warning("  Clearing rendered files in existing directory: %s", project_path)
+                preserved = _clear_rendered_project_dir(project_path)
+                if preserved:
+                    logger.info("  ✓ Preserved user state: %s", ", ".join(preserved))
+                logger.info("  ✓ Cleared rendered files")
             else:
                 logger.error(
                     "  ✗ Directory '%s' already exists. Use --force to overwrite, or choose a different name.",
@@ -836,10 +846,52 @@ def _run_lifecycle_phase(
                 logger.warning("  ! %s", msg)
 
 
+def _clear_rendered_project_dir(project_path: Path) -> list[str]:
+    """Clear a project directory for ``--force``, keeping user-owned state.
+
+    Removes every top-level entry the build renders, but leaves what the user
+    owns — ``.env`` (secrets and the service tokens/passwords live docker
+    volumes were initialized with), ``_agent_data/`` (agent workspace), and
+    ``.git`` (the project's own history) — in place, untouched. This is what
+    makes ``--force`` (the staleness advisory's remedy) safe to run on a
+    stale project. Mirrors the user-owned exclusion set of
+    :func:`osprey.cli.templates.manifest.calculate_file_checksums`.
+
+    Returns:
+        Names of the preserved entries that were actually present.
+    """
+    user_owned = (".env", "_agent_data", ".git")
+    preserved: list[str] = []
+    for entry in sorted(project_path.iterdir(), key=lambda p: p.name):
+        if entry.name in user_owned:
+            preserved.append(entry.name)
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    return preserved
+
+
 def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None:
-    """Copy a profile-provided .env file to the built project."""
+    """Copy a profile-provided .env file to the built project.
+
+    An existing project ``.env`` is merged, not clobbered: its values win and
+    keys it alone carries are appended (see
+    :func:`osprey.utils.dotenv.merge_env_preserving_existing`), so a --force
+    re-render never resets user secrets to template defaults.
+    """
     src = (profile_dir / env_file).resolve()
     dst = project_path / ".env"
+    if dst.exists():
+        from osprey.utils.dotenv import merge_env_preserving_existing
+
+        merged = merge_env_preserving_existing(
+            src.read_text(encoding="utf-8"), dst.read_text(encoding="utf-8")
+        )
+        dst.write_text(merged, encoding="utf-8")
+        logger.info("  ✓ Merged %s → .env (existing values preserved)", env_file)
+        return
     shutil.copy2(src, dst)
     logger.info("  ✓ Copied %s → .env", env_file)
 
