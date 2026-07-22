@@ -42,26 +42,25 @@ def make_error(
 # ---------------------------------------------------------------------------
 def create_server() -> FastMCP:
     """Initialize the registry and import tool modules, then return the server."""
-    from osprey.mcp_server.startup import (
-        initialize_workspace_singletons,
-        prime_config_builder,
+    from osprey.mcp_server.channel_finder_common import build_cf_server
+
+    def _initialize_context() -> object:
+        from osprey.mcp_server.channel_finder_in_context.server_context import (
+            initialize_cf_ic_context,
+        )
+
+        return initialize_cf_ic_context()
+
+    def _import_tools() -> None:
+        # Import tool modules (each registers itself via @mcp.tool())
+        from osprey.mcp_server.channel_finder_in_context.tools import (  # noqa: F401
+            query_channels,
+        )
+
+    return build_cf_server(
+        mcp=mcp,
+        logger=logger,
+        initialize_context=_initialize_context,
+        import_tools=_import_tools,
+        ready_message="Channel Finder IC MCP server initialised with all tools registered",
     )
-    from osprey.utils.workspace import resolve_workspace_root
-
-    prime_config_builder()
-
-    from osprey.mcp_server.channel_finder_in_context.server_context import (
-        initialize_cf_ic_context,
-    )
-
-    initialize_cf_ic_context()
-    workspace_root = resolve_workspace_root()
-    initialize_workspace_singletons(workspace_root)
-
-    # Import tool modules (each registers itself via @mcp.tool())
-    from osprey.mcp_server.channel_finder_in_context.tools import (  # noqa: F401
-        query_channels,
-    )
-
-    logger.info("Channel Finder IC MCP server initialised with all tools registered")
-    return mcp
