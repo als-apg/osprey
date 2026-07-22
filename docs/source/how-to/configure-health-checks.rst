@@ -185,6 +185,51 @@ Both are ordinary categories: valid under ``--category``, tunable via a
 metadata-only override, and rendered as dashboard tiles with no extra
 configuration.
 
+Auto-derived MCP server checks (``health.auto``)
+------------------------------------------------
+
+Every MCP server your build wires up is already described in ``config.yml``
+under ``claude_code.servers``. Rather than make you re-declare each one as an
+``mcp`` probe, the framework reads those blocks and builds an ``mcp_servers``
+category for you — one reachability check per server. It is on by default, so
+you normally configure nothing.
+
+.. code-block:: yaml
+
+   health:
+     auto:
+       mcp:
+         enabled: true        # default true — set false to drop the category
+         url_key: host_url    # which URL to probe (see below)
+
+A server is included when its ``claude_code.servers`` block carries a ``url`` and
+a ``network`` block with a URL to reach it. Servers without those are skipped.
+
+**Which URL is probed.** Each server block records two URLs: ``host_url`` (the
+server seen from the machine, ``http://localhost:<port>/mcp``) and ``docker_url``
+(the server seen from inside a container, ``http://<name>:<port>/mcp``). The
+category picks one automatically:
+
+- If you set ``url_key`` explicitly, that choice is always used.
+- Otherwise the framework detects whether the health check is itself running
+  inside a container — a Docker ``/.dockerenv`` marker file, or the
+  ``OSPREY_IN_CONTAINER`` environment variable set by the deployment — and uses
+  ``docker_url`` when containerized, ``host_url`` on a plain host.
+
+**Expected tools.** If a server block declares ``permissions`` (its ``allow``
+and ``ask`` tool lists), the derived check also confirms the server actually
+exposes those tools, not just that it answers — a reachable server missing an
+expected tool is graded an ``error``. A server with no declared permissions gets
+a plain reachability check.
+
+.. warning::
+
+   ``docker_url`` assumes the container's hostname matches the server's key in
+   ``config.yml`` — a server named ``matlab`` is probed at ``http://matlab:…``.
+   If your compose service is named differently, the probe points at a host that
+   does not exist. Either rename the service to match the key, or set
+   ``url_key: host_url`` to probe the localhost URL instead.
+
 Timeouts
 --------
 
@@ -404,3 +449,56 @@ value overrides the previous one, matching CLI semantics.
    apply") and keeps using the original connector. Restart ``osprey web`` to pick
    up the new control system — swapping the connector inside a running process is
    unsafe, so the change is surfaced rather than done silently.
+
+The agent surface
+-----------------
+
+The OSPREY agent can read the same health suite through two tools, so you can
+ask it "is the facility healthy?" in plain language and it checks for you. The
+two tools mirror the CLI's poll / ``--full`` split:
+
+- ``health_check`` — the poll tier. Cheap, read-only, and **auto-approved**: the
+  agent runs it without interrupting you. This is the everyday "how are things?"
+  check.
+- ``health_check_full`` — the full tier, covering the ``on_demand`` checks the
+  poll tier reports as skipped (a live model chat, a package-download
+  verification). Because those are costly, this tool **asks for your approval
+  first**, like any other guarded action.
+
+Reading the freshness fields
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The poll tool serves its answer from a short-lived cache, and every response
+carries three fields that say how fresh it is:
+
+- ``cached`` — ``false`` when the agent just ran the suite, ``true`` when it
+  served a recent result without re-running.
+- ``age_s`` — how many seconds old that result is (``0`` on a fresh run).
+- ``refresh_suppressed`` — normally ``false``. ``true`` is the rare signal that a
+  previous run got stuck and the tool served the last good result rather than
+  start another; treat that answer as possibly stale and ask again shortly.
+
+A ``health_check_full`` response always reports ``cached: false``, ``age_s: 0``,
+and ``refresh_suppressed: false`` — the full tier is always run fresh.
+
+How long a check takes
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The first poll check — and the first one after you edit ``config.yml`` or
+``.env`` — runs the whole poll suite inline, so it can take up to
+``suite_timeout_s`` (default 30 seconds). After that, checks inside the refresh
+window return right away from the cache.
+
+A full check runs everything fresh and takes about as long as the ``on_demand``
+checks it covers add up to — bounded by ``on_demand_timeout_s`` (see
+`Suite timing`_) plus the poll tier's own budget. Expect it to be the slower of
+the two, which is the other reason it is approval-gated.
+
+One server per session
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each agent session runs its own health server with its own cache. If several
+operators are working at once, each session polls independently: three sessions
+means three separate poll suites, each still bounded by its own refresh interval
+(``interval_s``) and, for the full tier, its own approval prompt. There is no
+shared health cache across sessions.
