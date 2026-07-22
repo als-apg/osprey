@@ -77,6 +77,15 @@ services:
       # never sees the operator's host filesystem layout.
       BLUESKY_PLAN_DIRS: /app/project/plans
 {% endif %}
+{% if services.bluesky.excluded_plans %}
+      # Facility plan-catalog exclusions (Task 3.3): the plan loader
+      # (plan_loader.py) reads BLUESKY_EXCLUDED_PLANS as an os.pathsep-separated
+      # list of plan IDs to DROP from the discovered catalog, so an operator can
+      # suppress specific plans without editing any plan directory. Written by
+      # _inject_bluesky (build_cmd.py) only when non-empty — an empty exclusion
+      # set omits the key entirely, so this env var never renders.
+      BLUESKY_EXCLUDED_PLANS: "{{ services.bluesky.excluded_plans }}"
+{% endif %}
 {% if 'virtual_accelerator' in deployed_services %}
       # Reach the co-deployed Virtual Accelerator (Task 4.1) over Channel
       # Access. Name-server TCP transport is the one host<->container CA
