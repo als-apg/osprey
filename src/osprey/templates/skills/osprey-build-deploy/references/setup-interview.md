@@ -85,7 +85,7 @@ This is the source-control + CI side. The user must already have a project creat
 
 > "Which CI/CD provider hosts your source and runs your pipeline? OSPREY ships one CI template (`.gitlab-ci.yml`) today, so `gitlab` is the only value that actually renders a working pipeline — `provider` is still a named field (mirroring how `llm.provider` names providers OSPREY doesn't all support equally) so a future provider can be added as a schema value later without a breaking change. If you're not on GitLab, pick `other`, note it in the README, and expect to hand-adapt the CI template."
 
-This writes `ci.provider` (or, if the user is re-entering an interview against an existing config with a legacy `gitlab:` block, the normalizer already reads it as `provider: "gitlab"` — no action needed).
+This writes `ci.provider`. If the user is re-entering an interview against an existing config that still carries a legacy `gitlab:` block, the loader now rejects it — rename the block to `ci: {provider: "gitlab", ...}` before continuing.
 
 The remaining Phase 2 questions below assume `gitlab`; ask them only in that case. For `other`, collect `host`, `remote_name`, `default_branch`, `project_path`, and `token_env_var` in generic terms (skip `project_id`, which is GitLab-specific), and note in the README that no CI template is generated.
 
