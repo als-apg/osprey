@@ -17,7 +17,7 @@ seeded into every web-terminal user's session; per-user additions live in
 ## Personas
 
 Each user's terminal runs a persona-specific project with its own capability
-set. Operators monitor and diagnose; physicists additionally author and
-validate scan plans (orbit response matrix, n-dimensional grid scan).
-Capabilities are enforced per project — what you can do is defined by the
-session you are in.
+set. Both personas monitor, diagnose, and author and validate scan plans
+(orbit response matrix, n-dimensional grid scan); only the read-write persona
+can execute writes — setpoint changes and scan runs. Capabilities are
+enforced per project — what you can do is defined by the session you are in.

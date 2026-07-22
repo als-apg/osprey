@@ -194,21 +194,21 @@ config:
     ariel_base_port: 9391         # first per-user ARIEL search port
     lattice_base_port: 9491       # first per-user lattice-dashboard port
     channel_finder_base_port: 9591  # first per-user channel-finder panel port
-    default_persona: physicist  # roster entries with no persona resolve here
+    default_persona: readonly   # roster entries with no persona resolve here
     users:
-      - alice                   # bare string → default_persona (physicist)
+      - alice                   # bare string → default_persona (readonly)
       - name: bob
         index: 1
-        persona: operator
+        persona: readwrite
     personas:
-      physicist:
-        project: control-assistant-physicist
-        project_path: ../control-assistant-physicist
-        build_profile: control-assistant-physicist
-      operator:
-        project: control-assistant-operator
-        project_path: ../control-assistant-operator
-        build_profile: control-assistant-operator
+      readonly:
+        project: control-assistant-readonly
+        project_path: ../control-assistant-readonly
+        build_profile: control-assistant-readonly
+      readwrite:
+        project: control-assistant-readwrite
+        project_path: ../control-assistant-readwrite
+        build_profile: control-assistant-readwrite
 
 # ── Event dispatch (optional) ────────────────────────────────────────────────
 # Turns external events (webhooks) into headless agent runs. This ships a set of

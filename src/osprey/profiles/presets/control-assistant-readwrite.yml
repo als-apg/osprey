@@ -1,4 +1,4 @@
-# control-assistant-operator.yml
+# control-assistant-readwrite.yml
 # Write-capable persona — the operations tier of the control-assistant
 # multi-user stack.
 #
@@ -9,9 +9,9 @@
 # the connector executes it. The tier difference is whether the write path
 # exists at all, not whether it is supervised.
 #
-# The read-only counterpart is `control-assistant-physicist`.
+# The read-only counterpart is `control-assistant-readonly`.
 
-name: Control Assistant (Operator)
+name: Control Assistant (Read-Write)
 
 extends: control-assistant
 

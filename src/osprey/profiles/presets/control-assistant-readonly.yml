@@ -1,4 +1,4 @@
-# control-assistant-physicist.yml
+# control-assistant-readonly.yml
 # Read-only persona — the analysis tier of the control-assistant multi-user stack.
 #
 # This preset inherits everything from `control-assistant` and pins the write
@@ -9,9 +9,9 @@
 # it. Reads, the channel finder, the archiver, logbook search, and the scan
 # panels all work unchanged.
 #
-# The write-capable counterpart is `control-assistant-operator`.
+# The write-capable counterpart is `control-assistant-readwrite`.
 
-name: Control Assistant (Physicist)
+name: Control Assistant (Read-Only)
 
 extends: control-assistant
 
@@ -29,7 +29,7 @@ deploy_services: false
 config:
   # The single axis this persona differs on. The tutorial base arms writes for
   # its own single-user agent, so this tier boundary MUST be pinned explicitly
-  # here — it is what makes the physicist terminal read-only.
+  # here — it is what makes the read-only terminal read-only.
   control_system.writes_enabled: false
   # Attached persona: the hosting project owns the web-terminal tier (nginx,
   # landing, per-user containers). Without this override the inherited roster
