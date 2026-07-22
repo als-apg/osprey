@@ -1,7 +1,7 @@
 """OKF document model: parse, serialize, and validate facility knowledge documents.
 
 An OKF document is a Markdown file with a YAML frontmatter block, following the
-OSPREY Knowledge Framework specification (OKF §9).  The frontmatter is delimited
+Open Knowledge Format specification (OKF §9).  The frontmatter is delimited
 by ``---`` lines, exactly like Jekyll / Hugo front matter.
 
 Example document::
