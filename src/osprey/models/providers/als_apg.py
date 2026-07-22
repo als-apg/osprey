@@ -5,13 +5,13 @@ ALS-APG is an OpenAI-compatible proxy service hosted on AWS for the
 Advanced Light Source Accelerator Physics Group.
 """
 
-from typing import Any
-
-from .base import BaseProvider
 from .litellm_adapter import check_litellm_health, execute_litellm_completion
+from .litellm_delegating import LiteLLMDelegatingProvider
+
+__all__ = ["ALSAPGProviderAdapter", "check_litellm_health", "execute_litellm_completion"]
 
 
-class ALSAPGProviderAdapter(BaseProvider):
+class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     """ALS Accelerator Physics Group provider implementation using LiteLLM."""
 
     # Metadata (single source of truth)
@@ -45,44 +45,4 @@ class ALSAPGProviderAdapter(BaseProvider):
     # on the resolved openai/<model> id — als-apg was never in the old native-json_schema
     # whitelist, so this preserves its prior behavior.
 
-    def execute_completion(
-        self,
-        message: str,
-        model_id: str,
-        api_key: str | None,
-        base_url: str | None,
-        max_tokens: int = 1024,
-        temperature: float = 0.0,
-        thinking: dict | None = None,
-        system_prompt: str | None = None,
-        output_format: Any | None = None,
-        **kwargs,
-    ) -> str | Any:
-        """Execute ALS-APG chat completion via LiteLLM."""
-        return execute_litellm_completion(
-            provider=self.name,
-            message=message,
-            model_id=model_id,
-            api_key=api_key,
-            base_url=base_url,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            output_format=output_format,
-            **kwargs,
-        )
-
-    def check_health(
-        self,
-        api_key: str | None,
-        base_url: str | None,
-        timeout: float = 5.0,
-        model_id: str | None = None,
-    ) -> tuple[bool, str]:
-        """Check ALS-APG API health via LiteLLM."""
-        return check_litellm_health(
-            provider=self.name,
-            api_key=api_key,
-            base_url=base_url,
-            timeout=timeout,
-            model_id=model_id or self.health_check_model_id,
-        )
+    # execute_completion / check_health inherited from LiteLLMDelegatingProvider.

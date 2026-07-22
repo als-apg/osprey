@@ -7,13 +7,13 @@ a unified endpoint at https://aiapi-prod.stanford.edu/v1.
 This provider uses LiteLLM as the backend for unified API access.
 """
 
-from typing import Any
-
-from .base import BaseProvider
 from .litellm_adapter import check_litellm_health, execute_litellm_completion
+from .litellm_delegating import LiteLLMDelegatingProvider
+
+__all__ = ["StanfordProviderAdapter", "check_litellm_health", "execute_litellm_completion"]
 
 
-class StanfordProviderAdapter(BaseProvider):
+class StanfordProviderAdapter(LiteLLMDelegatingProvider):
     """Stanford AI Playground provider adapter using LiteLLM."""
 
     # Metadata (single source of truth)
@@ -53,48 +53,7 @@ class StanfordProviderAdapter(BaseProvider):
     is_openai_compatible = True
     supports_native_structured_output = True  # proxies to models with native json_schema support
 
-    def execute_completion(
-        self,
-        message: str,
-        model_id: str,
-        api_key: str | None,
-        base_url: str | None,
-        max_tokens: int = 1024,
-        temperature: float = 0.0,
-        thinking: dict | None = None,
-        system_prompt: str | None = None,
-        output_format: Any | None = None,
-        **kwargs,
-    ) -> str | Any:
-        """Execute Stanford AI chat completion via LiteLLM."""
-        effective_base_url = base_url or self.default_base_url
-
-        return execute_litellm_completion(
-            provider=self.name,
-            message=message,
-            model_id=model_id,
-            api_key=api_key,
-            base_url=effective_base_url,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            output_format=output_format,
-            **kwargs,
-        )
-
-    def check_health(
-        self,
-        api_key: str | None,
-        base_url: str | None,
-        timeout: float = 5.0,
-        model_id: str | None = None,
-    ) -> tuple[bool, str]:
-        """Check Stanford AI API health via LiteLLM."""
-        effective_base_url = base_url or self.default_base_url
-
-        return check_litellm_health(
-            provider=self.name,
-            api_key=api_key,
-            base_url=effective_base_url,
-            timeout=timeout,
-            model_id=model_id or self.health_check_model_id,
-        )
+    # Stanford alone resolves a missing base_url to default_base_url before
+    # delegating; execute_completion / check_health are inherited from
+    # LiteLLMDelegatingProvider, which applies the fallback when this flag is set.
+    apply_default_base_url_fallback = True
