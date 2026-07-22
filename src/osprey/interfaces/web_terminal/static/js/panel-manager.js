@@ -94,6 +94,13 @@ const PANELS = [
     configEndpoint: '/api/okf-server', // data string; fetchJSON prefixes it in initPanel()
     statusBarId: null,
   },
+  {
+    id: 'system-health',
+    label: 'SYSTEM',
+    configEndpoint: '/api/system-health-server', // data string; fetchJSON prefixes it in initPanel()
+    healthEndpoint: '/health', // EXPLICIT — the sidecar liveness LED polls it; omitting/null skips polling (pins healthy)
+    statusBarId: null,
+  },
 ];
 
 // ---- State ----
@@ -541,9 +548,7 @@ async function pollHealth(panel) {
 
     // First time healthy — let the shared policy decide whether this
     // newly-healthy panel should take an empty slot.
-    if (state.healthy && !wasHealthy) {
-      ensureActivePanel();
-    }
+    if (state.healthy && !wasHealthy) { ensureActivePanel(); }
   } catch {
     state.healthy = false;
     updateTabState(panel.id);

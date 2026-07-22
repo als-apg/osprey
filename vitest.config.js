@@ -17,6 +17,6 @@ export default {
   },
   test: {
     environment: 'happy-dom',
-    include: ['tests/**/*.test.{js,mjs}']
+    include: ['tests/**/*.test.{js,mjs}', 'src/osprey/interfaces/**/*.test.{js,mjs}']
   }
 };

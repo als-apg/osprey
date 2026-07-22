@@ -16,6 +16,7 @@ BUILTIN_PANELS: set[str] = {
     "channel-finder",
     "lattice",
     "okf",
+    "system-health",
 }
 
 # The event-dispatcher dashboard (``events``) is intentionally NOT a builtin: it
@@ -34,6 +35,7 @@ BUILTIN_PANEL_LABELS: dict[str, str] = {
     "channel-finder": "CHANNELS",
     "lattice": "LATTICE",
     "okf": "KNOWLEDGE",
+    "system-health": "SYSTEM",
 }
 
 # Frontend fallback when a profile/config doesn't pin a default tab.

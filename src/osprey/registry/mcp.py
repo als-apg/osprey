@@ -358,6 +358,28 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__bluesky__.*")],
     ),
+    "health": ServerDefinition(
+        name="health",
+        module="osprey.mcp_server.health",
+        # Off by default: only profiles that opt in (claude_code.servers.health.enabled
+        # = true) get the system-health tools (mirrors phoebus's opt-in reasoning).
+        #
+        # Read-only posture — no _WRITES_CHECK / approval hooks. The health tools take
+        # ONLY a categories filter; they accept no channel, URL, or probe parameters, so
+        # every connector touch is config-declared and read-only. That is why the
+        # auto-approved health_check may execute channel_read probes that would be
+        # approval-gated as free-parameter reads on the controls server: here the operator
+        # cannot steer the read at call time, so there is nothing to gate.
+        default_enabled=False,
+        env={
+            "OSPREY_CONFIG": "{project_root}/config.yml",
+            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            "CONFIG_FILE": "{project_root}/config.yml",
+        },
+        permissions_allow=["health_check"],
+        permissions_ask=["health_check_full"],
+        hooks_post=[_post_error("mcp__health__.*")],
+    ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",

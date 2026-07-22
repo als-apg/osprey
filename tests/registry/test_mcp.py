@@ -40,8 +40,8 @@ class TestResolveServers:
 
         # Core servers always on
         assert {"controls", "osprey_workspace", "ariel"} <= enabled
-        # Conditional servers off (conditions not in ctx)
-        assert {"channel-finder"} <= disabled
+        # Conditional servers off (conditions not in ctx); opt-in servers off by default
+        assert {"channel-finder", "health"} <= disabled
 
     def test_resolve_disable_framework_server(self):
         """New format: servers: {ariel: {enabled: false}}."""
@@ -133,11 +133,55 @@ class TestResolveServers:
         ctx = _base_ctx(channel_finder_pipeline="hierarchical")
         servers = resolve_servers({}, ctx)
         expected = "/tmp/test-project/config.yml"
-        for name in ("controls", "python", "osprey_workspace", "ariel", "channel-finder"):
+        for name in ("controls", "python", "osprey_workspace", "ariel", "health", "channel-finder"):
             srv = [s for s in servers if s["name"] == name][0]
             assert srv["env"].get("CONFIG_FILE") == expected, (
                 f"{name} must set CONFIG_FILE={expected!r}, got {srv['env'].get('CONFIG_FILE')!r}"
             )
+
+    def test_health_server_entry(self):
+        """The health server is an opt-in, read-only server.
+
+        Off by default (opt-in via claude_code.servers.health.enabled), module runs as
+        python -m osprey.mcp_server.health, and its allow/ask split puts health_check on
+        silent-allow while health_check_full is approval-gated. Being read-only (tools
+        take only a categories filter, no channel/URL/probe params), it carries NO
+        pre-tool-use write/approval hooks — only the standard PostToolUse error guidance.
+        """
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        health = [s for s in servers if s["name"] == "health"][0]
+        # Opt-in: off by default.
+        assert health["enabled"] is False
+        # Module path renders as python -m osprey.mcp_server.health.
+        assert health["args"] == ["-m", "osprey.mcp_server.health"]
+        # Allow/ask split.
+        assert health["permissions_allow"] == ["health_check"]
+        assert health["permissions_ask"] == ["health_check_full"]
+        # Read-only: no PreToolUse (write/approval) hooks at all.
+        assert health["hooks_pre"] == []
+        # Only the standard PostToolUse error-guidance hook.
+        assert [r["matcher"] for r in health["hooks_post"]] == ["mcp__health__.*"]
+
+    def test_health_server_enabled_via_config_override(self):
+        """control-assistant opts the health server in via the dotted override
+        ``claude_code.servers.health.enabled: true`` (renders to this config).
+
+        Mirrors the bluesky enablement pattern: the preset's ``claude_code``
+        config flips the off-by-default server on.
+        """
+        ctx = _base_ctx()
+        servers = resolve_servers({"servers": {"health": {"enabled": True}}}, ctx)
+        health = [s for s in servers if s["name"] == "health"][0]
+        assert health["enabled"] is True
+
+    def test_health_server_disabled_without_override(self):
+        """hello-world ships no ``claude_code.servers.health`` block, so the
+        server stays disabled (default_enabled=False) — off by default."""
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        health = [s for s in servers if s["name"] == "health"][0]
+        assert health["enabled"] is False
 
     def test_controls_hook_structure(self):
         """controls server has 3 distinct PreToolUse hook rules."""

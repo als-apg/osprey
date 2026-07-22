@@ -123,4 +123,18 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         factory_config_kwargs={"bundle_path": "facility_knowledge.bundle_path"},
         multi_user_base_port=9691,
     ),
+    # System-health dashboard panel. Port/host live under the nested `web`
+    # subkey (config is `health.web.host`/`health.web.port`); env override is
+    # OSPREY_HEALTH_PORT. require_section is False — the panel is always
+    # launchable (auto_launch defaults on) since the health framework ships a
+    # usable default even when config.yml has no `health` section.
+    "system_health": WebServerDefinition(
+        name="System Health Dashboard",
+        factory_path="osprey.interfaces.health.app:create_app",
+        config_key="health",
+        config_web_subkey="web",
+        port_default=8094,
+        require_section=False,
+        multi_user_base_port=9791,
+    ),
 }

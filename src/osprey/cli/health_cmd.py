@@ -1,1044 +1,166 @@
-"""Health check command for Osprey Framework.
+"""``osprey health`` command — thin CLI wrapper over the health framework.
 
-This module provides the 'osprey health' command which performs comprehensive
-diagnostics on the osprey installation and application configuration. It checks
-configuration validity, file system structure, container status, API providers,
-and Python environment without actually running the osprey.
+This module is a thin Click wrapper: it resolves the project, performs the
+single ``config.yml`` load, assembles the merged category records (built-in
+"core" categories, declarative YAML categories, and facility plugins), runs the
+async health suite, and renders the report. All check logic lives in
+:mod:`osprey.health`; this file only wires the pieces together.
+
+Design contracts honored here:
+
+* **Single config load.** The CLI loads ``config.yml`` exactly once via
+  :func:`osprey.utils.config.get_config_builder` and reports on the outcome
+  through a :class:`~osprey.health.core.configuration.ConfigState`. A load
+  failure never crashes the command — it degrades into configuration error rows
+  while the rest of the report still renders.
+* **``--full`` is the sole on_demand gate.** ``--category`` selects which
+  categories run but never elevates cost class.
+* **Machine-clean ``--json``.** In ``--json`` mode every human-facing line
+  (progress spinner, deprecation warning) is routed to a stderr console so
+  stdout is a single JSON document that round-trips through :func:`json.loads`.
+
+The module-level ``console`` is intentionally patchable (tests replace
+``osprey.cli.health_cmd.console``); ``resolve_project_path`` is imported locally
+inside the command so patching it at its source module takes effect.
 """
 
-import json
+from __future__ import annotations
+
+import asyncio
+import logging
 import os
-import shutil
-import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import click
-from rich.live import Live
-from rich.panel import Panel
-from rich.spinner import Spinner
 
-from osprey.cli.styles import Messages, Styles, console
-from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
-from osprey.utils.log_filter import quiet_logger
+from osprey.cli.styles import console
+from osprey.health.records import build_records, load_config
 
+if TYPE_CHECKING:
+    from osprey.health.config import CategoryRecord
+    from osprey.health.models import CheckReport
 
-class HealthCheckResult:
-    """Result of a health check with status and details."""
+# Loggers that narrate config/registry loading. Osprey's root ``RichHandler``
+# writes to stdout, so their chatter (including config-load ERROR blocks) is
+# silenced during a run.
+_NOISY_LOADER_LOGGERS = ("CONFIG", "registry")
 
-    def __init__(self, name: str, status: str, message: str = "", details: str = ""):
-        self.name = name
-        self.status = status  # "ok", "warning", "error"
-        self.message = message
-        self.details = details
-
-    def __repr__(self):
-        return f"HealthCheckResult({self.name}, {self.status})"
+# A level above CRITICAL: nothing a logger or handler emits reaches it, so a
+# handler/logger pinned here stays silent for every record — including the
+# ERROR-level config-load failure block that ConfigBuilder emits.
+_SILENT_LEVEL = logging.CRITICAL + 1
 
 
-class HealthChecker:
-    """Comprehensive health checker for Osprey Framework."""
+@contextmanager
+def _quiet_run_logs(*, as_json: bool, verbose: bool) -> Iterator[None]:
+    """Keep incidental log output from corrupting the command's stdout.
 
-    def __init__(self, verbose: bool = False, full: bool = False, project_path: Path | None = None):
-        self.verbose = verbose
-        self.full = full
-        self.results: list[HealthCheckResult] = []
-        self.cwd = project_path if project_path else Path.cwd()
-        self.config = {}
-
-        # Load .env file early so environment variables are available for all checks
-        self._load_env_file()
-
-    def add_result(self, name: str, status: str, message: str = "", details: str = ""):
-        """Add a health check result."""
-        self.results.append(HealthCheckResult(name, status, message, details))
-
-    def _load_env_file(self):
-        """Load .env file from current directory if it exists."""
+    Osprey's root logging handler renders to stdout, so any record it emits
+    during the run lands on stdout. ConfigBuilder logs config-load failures at
+    ``ERROR``, so merely capping at ``ERROR`` would still leak a Rich error block
+    ahead of the report — breaking the ``--json`` machine-clean contract. Both
+    paths therefore pin to :data:`_SILENT_LEVEL` (above ``CRITICAL``): ``--json``
+    silences every root handler, and the human path (unless ``--verbose``)
+    silences the noisy loader loggers. Genuine config failures are never lost —
+    the ``configuration`` category reports them as proper rows.
+    """
+    if as_json:
+        handlers = logging.getLogger().handlers
+        saved = [(h, h.level) for h in handlers]
+        for handler in handlers:
+            handler.setLevel(max(handler.level, _SILENT_LEVEL))
         try:
-            from dotenv import load_dotenv
+            yield
+        finally:
+            for handler, level in saved:
+                handler.setLevel(level)
+        return
 
-            dotenv_path = self.cwd / ".env"
-            if dotenv_path.exists():
-                load_dotenv(dotenv_path, override=True)  # .env file is source of truth for API keys
-        except ImportError:
-            # python-dotenv not available, skip loading
-            pass
+    if verbose:
+        yield
+        return
 
-    def check_all(self) -> bool:
-        """Run all health checks and return True if all passed."""
-        console.print(f"\n{Messages.header('Osprey Framework - Health Check')}\n")
+    saved_levels = {name: logging.getLogger(name).level for name in _NOISY_LOADER_LOGGERS}
+    for name in _NOISY_LOADER_LOGGERS:
+        logging.getLogger(name).setLevel(_SILENT_LEVEL)
+    try:
+        yield
+    finally:
+        for name, level in saved_levels.items():
+            logging.getLogger(name).setLevel(level)
 
-        # Initialize registry (needed for provider checks)
-        try:
-            from osprey.registry import initialize_registry
 
-            # Show spinner during registry initialization
-            spinner = Spinner(
-                "dots", text="[dim]Initializing framework registry...[/dim]", style=Styles.INFO
+def _load_project_env(project_path: Path) -> None:
+    """Load the project's ``.env`` into ``os.environ`` with override semantics.
+
+    The ``.env`` file is the source of truth for API keys and facility settings,
+    so it overrides any pre-existing process environment. A missing file or a
+    missing ``python-dotenv`` is silently ignored.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    dotenv_path = project_path / ".env"
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path, override=True)
+
+
+def _validate_categories(
+    requested: tuple[str, ...], valid_names: set[str], *, config_ok: bool
+) -> tuple[str, ...] | None:
+    """Resolve the ``--category`` selection, rejecting unknown names.
+
+    Returns the requested names to run (deduplicated), or ``None`` when none
+    were requested (run every category).
+
+    An unknown name is a ``UsageError`` only when the config loaded — then
+    ``valid_names`` is the full, authoritative category set. Under a config
+    failure only the core categories are known (YAML and plugin categories were
+    never parsed), so a non-core name cannot be judged invalid: it passes
+    through, matches no record, and the scoped report still renders. This
+    preserves the "``--category X`` + broken config → report, no ``UsageError``"
+    contract.
+    """
+    if not requested:
+        return None
+    if config_ok:
+        unknown = [name for name in requested if name not in valid_names]
+        if unknown:
+            plural = "ies" if len(unknown) > 1 else "y"
+            raise click.UsageError(
+                f"Unknown health categor{plural}: {', '.join(unknown)}. "
+                f"Valid categories: {', '.join(sorted(valid_names))}"
             )
-            with Live(spinner, console=console, transient=True):
-                if not self.verbose:
-                    with quiet_logger(["registry", "CONFIG"]):
-                        initialize_registry()
-                else:
-                    initialize_registry()
-        except Exception as e:
-            if self.verbose:
-                console.print(f"  [dim]Could not initialize registry: {e}[/dim]")
+    return tuple(dict.fromkeys(requested))
 
-        self.check_configuration()
-        self.check_file_system()
-        self.check_python_environment()
 
-        self.check_containers()
-        self.check_openobserve()
-        self.check_api_providers()
-        self.check_claude_cli_version()
+async def _run_suite(
+    records: list[CategoryRecord],
+    control_system_config: dict[str, Any],
+    *,
+    full: bool,
+    categories: tuple[str, ...] | None,
+    suite_timeout_s: float,
+    on_demand_timeout_s: float | None,
+) -> CheckReport:
+    """Run the merged suite under a :class:`HealthRuntime` async context."""
+    from osprey.health.runner import run_health_suite
+    from osprey.health.runtime import HealthRuntime
 
-        if self.full:
-            self.check_model_chat_completions()
-
-        # Display results
-        self.display_results()
-
-        # Return overall status
-        errors = sum(1 for r in self.results if r.status == "error")
-        return errors == 0
-
-    def check_claude_cli_version(self):
-        """Verify the Claude Code CLI is available, honoring claude_code.cli_version pin.
-
-        When ``claude_code.cli_version`` is set, runs
-        ``npx -y @anthropic-ai/claude-code@<version> --version`` with a 60s
-        timeout (first-run download budget) and warns if the reported version
-        does not match the pin. Otherwise reports the globally-installed
-        ``claude`` version as informational. See issue #218.
-        """
-        from osprey.utils.claude_launcher import parse_claude_version
-
-        console.print("\n[bold]Claude Code CLI[/bold]")
-
-        cc_config = self.config.get("claude_code", {}) or {}
-        pinned = cc_config.get("cli_version")
-
-        if pinned:
-            argv = ["npx", "-y", f"@anthropic-ai/claude-code@{pinned}", "--version"]
-            try:
-                result = subprocess.run(argv, capture_output=True, text=True, timeout=60)
-            except FileNotFoundError:
-                self.add_result(
-                    "claude_cli_version",
-                    "error",
-                    "npx not found in PATH",
-                    "Install Node.js (which ships npx) to use claude_code.cli_version pinning.",
-                )
-                console.print(f"  {Messages.error('✗ npx not found — install Node.js')}")
-                return
-            except subprocess.TimeoutExpired:
-                self.add_result(
-                    "claude_cli_version",
-                    "error",
-                    f"npx timed out fetching @anthropic-ai/claude-code@{pinned} (60s)",
-                    "Check network connectivity to the npm registry.",
-                )
-                console.print(f"  {Messages.error('✗ npx download timed out')}")
-                return
-
-            if result.returncode != 0:
-                self.add_result(
-                    "claude_cli_version",
-                    "error",
-                    f"npx failed for @anthropic-ai/claude-code@{pinned}",
-                    result.stderr.strip() or "no stderr output",
-                )
-                console.print(f"  {Messages.error('✗ npx invocation failed')}")
-                return
-
-            detected = parse_claude_version(result.stdout)
-            if detected == pinned:
-                self.add_result("claude_cli_version", "ok", f"Pinned Claude Code CLI {pinned}")
-                console.print(f"  {Messages.success(f'Pinned: {pinned}')}")
-            else:
-                shown = detected or "unknown"
-                self.add_result(
-                    "claude_cli_version",
-                    "warning",
-                    f"Pinned {pinned} but npx reported {shown}",
-                    f"raw --version output: {result.stdout.strip()!r}",
-                )
-                console.print(f"  {Messages.warning(f' Pin {pinned} != detected {shown}')}")
-            return
-
-        # Unpinned: report globally-installed claude version as informational.
-        try:
-            result = subprocess.run(
-                ["claude", "--version"], capture_output=True, text=True, timeout=5
-            )
-        except FileNotFoundError:
-            self.add_result(
-                "claude_cli_version",
-                "warning",
-                "`claude` not found in PATH",
-                "Install with `npm install -g @anthropic-ai/claude-code` or "
-                "pin via claude_code.cli_version in config.yml.",
-            )
-            console.print(f"  {Messages.warning(' `claude` not installed')}")
-            return
-        except subprocess.TimeoutExpired:
-            self.add_result("claude_cli_version", "warning", "`claude --version` timed out (5s)")
-            console.print(f"  {Messages.warning(' `claude --version` timed out')}")
-            return
-
-        detected = parse_claude_version(result.stdout) if result.returncode == 0 else None
-        if detected:
-            self.add_result("claude_cli_version", "ok", f"Claude Code CLI {detected}")
-            console.print(f"  {Messages.success(f'Detected: {detected}')}")
-        else:
-            self.add_result(
-                "claude_cli_version",
-                "warning",
-                "Could not parse `claude --version` output",
-                f"stdout={result.stdout.strip()!r} stderr={result.stderr.strip()!r}",
-            )
-            console.print(f"  {Messages.warning(' Could not detect Claude Code version')}")
-
-    def _check_timezone(self):
-        """Check if timezone is configured (not left as UTC default)."""
-        from osprey.utils.config import resolve_env_vars
-
-        tz_raw = self.config.get("system", {}).get("timezone", "UTC")
-        tz = resolve_env_vars(tz_raw) if isinstance(tz_raw, str) else tz_raw
-        if tz == "UTC":
-            self.add_result(
-                "timezone",
-                "warning",
-                "Timezone is UTC (default)",
-                "Set TZ in .env to your facility timezone (e.g., America/New_York, Europe/Berlin)",
-            )
-            console.print(
-                f"  {Messages.warning(' Timezone is UTC — set TZ in .env for your facility')}"
-            )
-        else:
-            self.add_result("timezone", "ok", f"Timezone: {tz}")
-            console.print(f"  {Messages.success(f'Timezone: {tz}')}")
-
-    def check_configuration(self):
-        """Check configuration file validity and structure."""
-        console.print("[bold]Configuration[/bold]")
-
-        # Check if config.yml exists
-        config_path = self.cwd / "config.yml"
-        if not config_path.exists():
-            self.add_result(
-                "config_file_exists",
-                "error",
-                "config.yml not found in current directory",
-                f"Looking in: {self.cwd}\n"
-                "Please run this command from a project directory containing config.yml",
-            )
-            console.print(f"  {Messages.error('✗ config.yml not found')}")
-            return
-
-        self.add_result("config_file_exists", "ok", f"Found at {config_path}")
-        console.print(f"  {Messages.success('config.yml found')}")
-
-        try:
-            import yaml
-
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
-
-            if config is None:
-                self.add_result("yaml_valid", "error", "Config file is empty")
-                console.print(f"  {Messages.error('✗ Config file is empty')}")
-                return
-
-            if not isinstance(config, dict):
-                self.add_result("yaml_valid", "error", "Config must be a dictionary")
-                console.print(f"  {Messages.error('✗ Invalid YAML structure')}")
-                return
-
-            self.add_result("yaml_valid", "ok", "Valid YAML syntax")
-            console.print(f"  {Messages.success('Valid YAML syntax')}")
-
-            # Store config for use in other checks
-            self.config = config
-
-            # Check required sections
-            self._check_config_structure(config)
-
-            # Check environment variables
-            self._check_environment_variables(config)
-
-            # Check timezone configuration
-            self._check_timezone()
-
-        except yaml.YAMLError as e:
-            self.add_result("yaml_valid", "error", f"YAML parsing error: {e}")
-            console.print(f"  {Messages.error(f'YAML parsing error: {e}')}")
-        except Exception as e:
-            self.add_result("yaml_valid", "error", f"Failed to read config: {e}")
-            console.print(f"  {Messages.error(f'Failed to read config: {e}')}")
-
-    def _check_config_structure(self, config: dict):
-        """Check configuration structure and required sections."""
-
-        # In the MCP architecture, only python_code_generator is actively consumed
-        # by live code (basic_generator.py). Other model roles are optional and
-        # application-specific.
-        recommended_models = [
-            "python_code_generator",
-        ]
-
-        models = config.get("models", {})
-
-        if not models:
-            self.add_result(
-                "model_configs",
-                "warning",
-                "No models section in config",
-                "The models section is optional but python_code_generator is needed "
-                "for Python code execution.",
-            )
-            console.print(f"  {Messages.warning('No models configured')}")
-        else:
-            missing_recommended = [m for m in recommended_models if m not in models]
-            if missing_recommended:
-                missing_str = ", ".join(missing_recommended)
-                self.add_result(
-                    "recommended_models",
-                    "warning",
-                    f"Missing recommended models: {missing_str}",
-                    "python_code_generator is used by the Python execution service.",
-                )
-                console.print(f"  {Messages.warning(f'Missing recommended model: {missing_str}')}")
-            else:
-                self.add_result(
-                    "recommended_models",
-                    "ok",
-                    f"{len(models)} model(s) defined (including python_code_generator)",
-                )
-                console.print(f"  {Messages.success(f'{len(models)} model(s) defined')}")
-
-        # Check model configurations
-        invalid_models = []
-        for model_name, model_config in models.items():
-            if not isinstance(model_config, dict):
-                invalid_models.append(model_name)
-                continue
-            if "provider" not in model_config:
-                invalid_models.append(f"{model_name} (missing provider)")
-            if "model_id" not in model_config:
-                invalid_models.append(f"{model_name} (missing model_id)")
-
-        if invalid_models:
-            self.add_result(
-                "model_configs_valid",
-                "warning",
-                f"Invalid model configurations: {', '.join(invalid_models)}",
-            )
-            invalid_str = ", ".join(invalid_models)
-            console.print(f"  {Messages.warning(f'Invalid model configs: {invalid_str}')}")
-        else:
-            self.add_result("model_configs_valid", "ok", "All model configurations valid")
-            console.print(f"  {Messages.success('All model configurations valid')}")
-
-        # Check deployed_services
-        deployed_services = config.get("deployed_services", [])
-        if not deployed_services:
-            self.add_result("deployed_services", "warning", "No deployed services configured")
-            console.print(f"  {Messages.warning('No deployed services configured')}")
-        else:
-            self.add_result(
-                "deployed_services",
-                "ok",
-                f"{len(deployed_services)} services configured: {', '.join(deployed_services)}",
-            )
-            console.print(f"  {Messages.success(f'{len(deployed_services)} services configured')}")
-
-        # Check if services defined in deployed_services exist in services section
-        services = config.get("services", {})
-        undefined_services = [s for s in deployed_services if s not in services]
-        if undefined_services:
-            self.add_result(
-                "service_definitions",
-                "error",
-                f"Services not defined: {', '.join(undefined_services)}",
-            )
-            undefined_str = ", ".join(undefined_services)
-            console.print(f"  {Messages.error(f'Undefined services: {undefined_str}')}")
-        else:
-            self.add_result("service_definitions", "ok", "All deployed services defined")
-            if deployed_services:  # Only print if there are services
-                console.print(f"  {Messages.success('All deployed services defined')}")
-
-        # Check API providers
-        api_providers = config.get("api", {}).get("providers", {})
-        if not api_providers:
-            self.add_result("api_providers", "warning", "No API providers configured")
-            console.print(f"  {Messages.warning(' No API providers configured')}")
-        else:
-            self.add_result(
-                "api_providers",
-                "ok",
-                f"{len(api_providers)} providers configured: {', '.join(api_providers.keys())}",
-            )
-            console.print(f"  {Messages.success(f'{len(api_providers)} API providers configured')}")
-
-    def _check_environment_variables(self, config: dict):
-        """Check if environment variables referenced in config are set."""
-        import re
-
-        config_str = str(config)
-        env_vars = re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", config_str)
-        env_vars = list(set(env_vars))  # Remove duplicates
-
-        missing_vars = [var for var in env_vars if var not in os.environ]
-
-        if missing_vars:
-            self.add_result(
-                "environment_variables",
-                "warning",
-                f"Missing environment variables: {', '.join(missing_vars)}",
-                "These variables are referenced in config.yml but not set in environment",
-            )
-            missing_vars_str = ", ".join(missing_vars)
-            console.print(f"  {Messages.warning(f' Missing env vars: {missing_vars_str}')}")
-        else:
-            if env_vars:
-                self.add_result(
-                    "environment_variables", "ok", f"All {len(env_vars)} environment variables set"
-                )
-                console.print(
-                    f"  {Messages.success(f'All {len(env_vars)} environment variables set')}"
-                )
-
-    def _check_project_paths(self):
-        """Check if project_root and agent data directory paths are valid and accessible."""
-
-        try:
-            # Get project_root from config (could be hardcoded or env var)
-            project_root = self.config.get("project_root")
-            if not project_root:
-                self.add_result("project_paths", "warning", "No project_root configured")
-                console.print(f"  {Messages.warning(' No project_root configured')}")
-                return
-
-            # Resolve project_root (handles ${PROJECT_ROOT} expansion)
-            project_root_resolved = os.path.expandvars(str(project_root))
-            project_root_path = Path(project_root_resolved)
-
-            # Check if project_root exists
-            if project_root_path.exists():
-                self.add_result(
-                    "project_root_path", "ok", f"Project root exists: {project_root_path}"
-                )
-                console.print(f"  {Messages.success(f'Project root exists: {project_root_path}')}")
-            else:
-                self.add_result(
-                    "project_root_path",
-                    "warning",
-                    f"Project root does not exist: {project_root_path}",
-                )
-                console.print(
-                    f"  {Messages.warning(f' Project root does not exist: {project_root_path}')}"
-                )
-                # Don't return - we can still check if it could be created
-
-            # Check agent data directory
-            file_paths = self.config.get("file_paths", {})
-            agent_data_dir = file_paths.get("agent_data_dir", "_agent_data")
-            agent_data_path = project_root_path / agent_data_dir
-
-            if agent_data_path.exists():
-                # Check if it's writable
-                if os.access(agent_data_path, os.W_OK):
-                    self.add_result(
-                        "agent_data_dir", "ok", f"Agent data directory writable: {agent_data_path}"
-                    )
-                    console.print(f"  {Messages.success('Agent data directory writable')}")
-                else:
-                    self.add_result(
-                        "agent_data_dir",
-                        "warning",
-                        f"Agent data directory not writable: {agent_data_path}",
-                    )
-                    console.print(f"  {Messages.warning(' Agent data directory not writable')}")
-            else:
-                # Check if parent directory exists and is writable (can we create it?)
-                parent_dir = agent_data_path.parent
-                if parent_dir.exists() and os.access(parent_dir, os.W_OK):
-                    self.add_result(
-                        "agent_data_dir",
-                        "ok",
-                        f"Agent data directory can be created: {agent_data_path}",
-                    )
-                    console.print(f"  {Messages.success('Agent data directory can be created')}")
-                else:
-                    self.add_result(
-                        "agent_data_dir",
-                        "warning",
-                        f"Cannot create agent data directory: {agent_data_path}",
-                    )
-                    console.print(f"  {Messages.warning(' Cannot create agent data directory')}")
-
-        except Exception as e:
-            self.add_result("project_paths", "error", f"Error checking project paths: {e}")
-            console.print(f"  {Messages.error(f'Error checking project paths: {e}')}")
-
-    def check_file_system(self):
-        """Check file system structure and permissions."""
-        console.print("\n[bold]File System[/bold]")
-
-        # Check project paths from config
-        self._check_project_paths()
-
-        # Check .env file
-        env_file = self.cwd / ".env"
-        if env_file.exists():
-            self.add_result("env_file", "ok", ".env file found")
-            console.print(f"  {Messages.success('.env file found')}")
-        else:
-            self.add_result("env_file", "warning", ".env file not found")
-            console.print(f"  {Messages.warning(' .env file not found')}")
-
-        # Check registry file (if specified in config)
-        try:
-            config_path = self.cwd / "config.yml"
-            if config_path.exists():
-                import yaml
-
-                with open(config_path) as f:
-                    config = yaml.safe_load(f)
-
-                registry_path_str = config.get("registry_path")
-                if registry_path_str:
-                    # Resolve environment variables in path
-                    registry_path_str = os.path.expandvars(registry_path_str)
-                    registry_path = self.cwd / registry_path_str
-
-                    if registry_path.exists():
-                        self.add_result(
-                            "registry_file", "ok", f"Registry file found: {registry_path}"
-                        )
-                        console.print(f"  {Messages.success('Registry file found')}")
-                    else:
-                        self.add_result(
-                            "registry_file", "error", f"Registry file not found: {registry_path}"
-                        )
-                        console.print(
-                            f"  {Messages.error(f'Registry file not found: {registry_path}')}"
-                        )
-        except Exception:
-            # Don't fail if we can't check registry
-            pass
-
-        # Check disk space. Container volumes (incl. the OpenObserve telemetry
-        # store, which has no hard size cap) grow into this filesystem, so report
-        # the percentage used and warn as it fills — the honest "how full" signal.
-        try:
-            stat = shutil.disk_usage(self.cwd)
-            free_gb = stat.free / (1024**3)
-            pct_used = (stat.used / stat.total * 100) if stat.total else 0.0
-
-            if free_gb < 1.0 or pct_used >= 90.0:
-                self.add_result(
-                    "disk_space",
-                    "warning",
-                    f"Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)",
-                    "Container volumes (incl. the OpenObserve store) grow into this disk.",
-                )
-                console.print(
-                    f"  {Messages.warning(f' Disk {pct_used:.0f}% full — {free_gb:.1f} GB free')}"
-                )
-            else:
-                self.add_result(
-                    "disk_space", "ok", f"Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)"
-                )
-                console.print(
-                    f"  {Messages.success(f'Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)')}"
-                )
-        except Exception as e:
-            self.add_result("disk_space", "warning", f"Could not check disk space: {e}")
-
-    def check_python_environment(self):
-        """Check Python version and dependencies."""
-        console.print("\n[bold]Python Environment[/bold]")
-
-        # Check Python version
-        version = sys.version_info
-        version_str = f"{version.major}.{version.minor}.{version.micro}"
-
-        if version.major < 3 or (version.major == 3 and version.minor < 11):
-            self.add_result(
-                "python_version", "warning", f"Python {version_str} (recommended: 3.11+)"
-            )
-            console.print(f"  {Messages.warning(f' Python {version_str} (recommended: 3.11+)')}")
-        else:
-            self.add_result("python_version", "ok", f"Python {version_str}")
-            console.print(f"  {Messages.success(f'Python {version_str}')}")
-
-        # Check if we're in a virtual environment
-        in_venv = hasattr(sys, "real_prefix") or (
-            hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
+    async with HealthRuntime(control_system_config) as runtime:
+        return await run_health_suite(
+            records,
+            runtime=runtime,
+            full=full,
+            categories=categories,
+            suite_timeout_s=suite_timeout_s,
+            on_demand_timeout_s=on_demand_timeout_s,
         )
-
-        if in_venv:
-            self.add_result("virtual_environment", "ok", "Virtual environment active")
-            console.print(f"  {Messages.success('Virtual environment active')}")
-        else:
-            self.add_result("virtual_environment", "warning", "Not in a virtual environment")
-            console.print(f"  {Messages.warning(' Not in a virtual environment')}")
-
-        # Check core dependencies
-        core_deps = [
-            "click",
-            "rich",
-            "yaml",
-            "jinja2",
-            "litellm",
-        ]
-
-        missing_deps = []
-        for dep in core_deps:
-            try:
-                __import__(dep)
-            except ImportError:
-                missing_deps.append(dep)
-
-        if missing_deps:
-            self.add_result(
-                "core_dependencies", "error", f"Missing dependencies: {', '.join(missing_deps)}"
-            )
-            missing_deps_str = ", ".join(missing_deps)
-            console.print(f"  {Messages.error(f'Missing dependencies: {missing_deps_str}')}")
-        else:
-            self.add_result(
-                "core_dependencies", "ok", f"All {len(core_deps)} core dependencies installed"
-            )
-            console.print(
-                f"  {Messages.success(f'Core dependencies installed ({len(core_deps)}/{len(core_deps)})')}"
-            )
-
-    def check_containers(self):
-        """Check container runtime and deployed services."""
-        console.print("\n[bold]Container Infrastructure[/bold]")
-
-        # Check if a container runtime is available
-        try:
-            runtime_cmd = get_runtime_command()
-            runtime = runtime_cmd[0]  # 'docker' or 'podman'
-
-            result = subprocess.run(
-                [runtime, "--version"], capture_output=True, text=True, timeout=5
-            )
-
-            if result.returncode == 0:
-                version = result.stdout.strip()
-                self.add_result(f"{runtime}_available", "ok", version)
-                console.print(f"  {Messages.success(f'{version}')}")
-
-                # Check container status
-                self._check_container_status()
-            else:
-                self.add_result(
-                    f"{runtime}_available", "error", f"{runtime.capitalize()} command failed"
-                )
-                console.print(
-                    f"  {Messages.error(f'✗ {runtime.capitalize()} not working properly')}"
-                )
-        except RuntimeError as e:
-            # No runtime found
-            self.add_result("container_runtime", "warning", str(e))
-            console.print(
-                f"  {Messages.warning(' No container runtime found (Docker or Podman required)')}"
-            )
-        except FileNotFoundError:
-            self.add_result("container_runtime", "warning", "Container runtime not found in PATH")
-            console.print(
-                f"  {Messages.warning(' Container runtime not installed or not in PATH')}"
-            )
-        except Exception as e:
-            self.add_result(
-                "container_runtime", "warning", f"Could not check container runtime: {e}"
-            )
-            console.print(f"  {Messages.warning(f' Could not check container runtime: {e}')}")
-
-    def _check_container_status(self):
-        """Check status of deployed containers."""
-        try:
-            # Load config to get deployed services
-            config_path = self.cwd / "config.yml"
-            if not config_path.exists():
-                return
-
-            import yaml
-
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
-
-            deployed_services = config.get("deployed_services", [])
-            if not deployed_services:
-                return
-
-            # Get all containers
-            result = subprocess.run(
-                get_ps_command(config, all_containers=True),
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if result.returncode != 0:
-                return
-
-            containers = json.loads(result.stdout) if result.stdout.strip() else []
-
-            # Check each expected service
-            for service in deployed_services:
-                # Extract service short name (handle dotted paths like "osprey.jupyter")
-                service_short = str(service).split(".")[-1].lower()
-
-                # Look for containers matching the service name
-                # Use smart matching to handle underscore/hyphen variations
-                matching = []
-                for c in containers:
-                    names = c.get("Names", [])
-                    if isinstance(names, list):
-                        names_str = " ".join(str(n) for n in names).lower()
-                    else:
-                        names_str = str(names).lower()
-
-                    # Check for match (handles both underscore and hyphen)
-                    if (
-                        service_short in names_str
-                        or service_short.replace("_", "-") in names_str
-                        or service_short.replace("-", "_") in names_str
-                    ):
-                        matching.append(c)
-
-                if matching:
-                    container = matching[0]
-                    state = container.get("State", "unknown")
-
-                    if state == "running":
-                        self.add_result(f"container_{service}", "ok", f"{service}: running")
-                        console.print(f"  {Messages.success(f'{service}: running')}")
-                    else:
-                        self.add_result(f"container_{service}", "warning", f"{service}: {state}")
-                        console.print(f"  {Messages.warning(f' {service}: {state}')}")
-                else:
-                    self.add_result(f"container_{service}", "warning", f"{service}: not found")
-                    console.print(f"  {Messages.warning(f' {service}: not deployed')}")
-
-        except Exception as e:
-            if self.verbose:
-                console.print(f"  [dim]Could not check container status: {e}[/dim]")
-
-    def check_openobserve(self):
-        """Probe the OpenObserve telemetry store (only when it is deployed).
-
-        Surfaces two signals the generic container check cannot: whether the
-        store answers its readiness endpoint (``running`` != ``ready``), and
-        whether its data volume is growth-bounded. A Docker/Podman named volume
-        has no hard size cap, so growth is bounded by OpenObserve's own
-        retention (``ZO_COMPACT_DATA_RETENTION_DAYS``), surfaced from
-        ``services.openobserve.retention_days``.
-        """
-        import urllib.error
-        import urllib.request
-
-        deployed = self.config.get("deployed_services", []) or []
-        if "openobserve" not in deployed:
-            return
-
-        console.print("\n[bold]OpenObserve Telemetry Store[/bold]")
-
-        oo = (self.config.get("services", {}) or {}).get("openobserve", {}) or {}
-        port = oo.get("port", 5080)
-        bind = (self.config.get("deployment", {}) or {}).get("bind_address", "127.0.0.1")
-
-        # (1) Readiness endpoint — running != ready.
-        url = f"http://{bind}:{port}/healthz"
-        try:
-            with urllib.request.urlopen(url, timeout=5) as resp:  # noqa: S310 (fixed localhost URL)
-                if resp.status == 200:
-                    self.add_result("openobserve_healthz", "ok", f"Store ready ({url})")
-                    console.print(f"  {Messages.success(f'Endpoint ready: {url}')}")
-                else:
-                    self.add_result(
-                        "openobserve_healthz", "warning", f"/healthz returned HTTP {resp.status}"
-                    )
-                    console.print(f"  {Messages.warning(f' /healthz returned HTTP {resp.status}')}")
-        except (urllib.error.URLError, OSError) as e:
-            self.add_result(
-                "openobserve_healthz",
-                "warning",
-                f"Store unreachable at {url}: {e}",
-                "Deploy it with `osprey deploy up`, or check the bind address / port.",
-            )
-            console.print(f"  {Messages.warning(f' Store not reachable at {url}')}")
-
-        # (2) Retention posture — the practical size bound for a capless volume.
-        retention = oo.get("retention_days", 14)  # mirror the compose default
-        if isinstance(retention, int) and retention < 3:
-            self.add_result(
-                "openobserve_retention",
-                "warning",
-                f"retention_days={retention} is below OpenObserve's floor of 3",
-                "OpenObserve will not honor a retention under 3 days.",
-            )
-            console.print(
-                f"  {Messages.warning(f' retention_days={retention} below floor (min 3)')}"
-            )
-        else:
-            self.add_result("openobserve_retention", "ok", f"Retention: {retention} day(s)")
-            console.print(f"  {Messages.success(f'Data retention: {retention} day(s)')}")
-
-    def check_api_providers(self):
-        """Check API provider configurations and connectivity."""
-        console.print("\n[bold]API Providers[/bold]")
-
-        try:
-            config_path = self.cwd / "config.yml"
-            if not config_path.exists():
-                return
-
-            import yaml
-
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
-
-            api_config = config.get("api", {}).get("providers", {})
-
-            for provider_name, provider_config in api_config.items():
-                self._check_provider(provider_name, provider_config)
-
-        except Exception as e:
-            if self.verbose:
-                console.print(f"  [dim]Could not check API providers: {e}[/dim]")
-
-    def _check_provider(self, provider_name: str, provider_config: dict):
-        """Check a specific API provider using the provider registry."""
-        from osprey.registry import get_registry
-
-        try:
-            # Suppress registry and CONFIG loggers unless in verbose mode
-            if not self.verbose:
-                with quiet_logger(["registry", "CONFIG"]):
-                    registry = get_registry()
-                    provider_class = registry.get_provider(provider_name)
-            else:
-                registry = get_registry()
-                provider_class = registry.get_provider(provider_name)
-        except Exception as e:
-            if self.verbose:
-                console.print(f"  [dim]Failed to get registry: {e}[/dim]")
-            provider_class = None
-
-        if not provider_class:
-            self.add_result(
-                f"provider_{provider_name}",
-                "warning",
-                f"{provider_name}: Unknown provider (not in registry)",
-            )
-            console.print(f"  {Messages.warning(f' {provider_name}: Unknown provider')}")
-            return
-
-        # Resolve API key from environment if needed
-        api_key = provider_config.get("api_key", "")
-        if api_key.startswith("${") and api_key.endswith("}"):
-            var_name = api_key[2:-1]
-            api_key = os.environ.get(var_name, "")
-
-        # Get base URL from config
-        base_url = provider_config.get("base_url")
-
-        # Instantiate provider and check health
-        provider = provider_class()
-        success, message = provider.check_health(api_key, base_url, timeout=5.0)
-
-        if success:
-            self.add_result(f"provider_{provider_name}", "ok", f"{provider_name}: {message}")
-            console.print(f"  {Messages.success(f'{provider_name}: {message}')}")
-        else:
-            self.add_result(f"provider_{provider_name}", "warning", f"{provider_name}: {message}")
-            console.print(f"  {Messages.warning(f' {provider_name}: {message}')}")
-
-    def check_model_chat_completions(self):
-        """Test actual chat completions with each unique model (full mode only)."""
-        console.print("\n[bold]Model Chat Completions (Full Test)[/bold]")
-        console.print("  [dim]Testing actual chat completion with each unique model...[/dim]")
-
-        try:
-            # Load config to get models
-            config_path = self.cwd / "config.yml"
-            if not config_path.exists():
-                return
-
-            import yaml
-
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
-
-            models = config.get("models", {})
-            if not models:
-                console.print(f"  {Messages.warning(' No models configured')}")
-                return
-
-            # Extract unique (provider, model_id) pairs
-            unique_models = set()
-            for _model_name, model_config in models.items():
-                if not isinstance(model_config, dict):
-                    continue
-
-                provider = model_config.get("provider")
-                model_id = model_config.get("model_id")
-
-                if provider and model_id:
-                    unique_models.add((provider, model_id))
-
-            if not unique_models:
-                console.print(f"  {Messages.warning(' No valid models found')}")
-                return
-
-            console.print(f"  [dim]Found {len(unique_models)} unique model(s) to test[/dim]\n")
-
-            # Test each unique model
-            for provider, model_id in sorted(unique_models):
-                self._test_model_chat(provider, model_id)
-
-        except Exception as e:
-            if self.verbose:
-                console.print(f"  [dim]Could not test model completions: {e}[/dim]")
-
-    def _test_model_chat(self, provider: str, model_id: str):
-        """Test a single model with a minimal chat completion."""
-        model_label = f"{provider}/{model_id}"
-
-        # Show that we're testing this model
-        console.print(f"  [dim]Testing {model_label}...[/dim]", end=" ")
-
-        try:
-            # Use the simple get_chat_completion function
-            from osprey.models.completion import get_chat_completion
-
-            # Simple test prompt
-            test_message = "Reply with exactly: OK"
-
-            # Call get_chat_completion with a timeout
-            # Suppress registry and CONFIG loggers unless in verbose mode
-            try:
-                if not self.verbose:
-                    with quiet_logger(["registry", "CONFIG"]):
-                        response = get_chat_completion(
-                            message=test_message,
-                            provider=provider,
-                            model_id=model_id,
-                            max_tokens=50,  # Keep it minimal
-                        )
-                else:
-                    response = get_chat_completion(
-                        message=test_message,
-                        provider=provider,
-                        model_id=model_id,
-                        max_tokens=50,  # Keep it minimal
-                    )
-
-                # If we got here without exception and have a response, the model works
-                if response and isinstance(response, str) and len(response.strip()) > 0:
-                    self.add_result(
-                        f"model_chat_{provider}_{model_id}",
-                        "ok",
-                        f"{model_label}: Chat completion successful",
-                    )
-                    console.print(Messages.success("Working"))
-                else:
-                    self.add_result(
-                        f"model_chat_{provider}_{model_id}",
-                        "warning",
-                        f"{model_label}: Empty response",
-                    )
-                    console.print(Messages.warning(" Empty response"))
-
-            except Exception as e:
-                # Check if it's a timeout-like error
-                error_msg = str(e)
-                if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                    self.add_result(
-                        f"model_chat_{provider}_{model_id}", "warning", f"{model_label}: Timeout"
-                    )
-                    console.print(Messages.warning(" Timeout"))
-                else:
-                    # Some other error
-                    display_msg = error_msg[:80] + "..." if len(error_msg) > 80 else error_msg
-                    self.add_result(
-                        f"model_chat_{provider}_{model_id}", "error", f"{model_label}: {error_msg}"
-                    )
-                    console.print(Messages.error("✗ Failed"))
-                    console.print(f"     [dim]{display_msg}[/dim]")
-                return
-
-        except KeyboardInterrupt:
-            # Re-raise keyboard interrupt so user can stop
-            raise
-
-        except Exception as e:
-            error_msg = str(e)
-            # Truncate for display
-            display_msg = error_msg[:80] + "..." if len(error_msg) > 80 else error_msg
-
-            self.add_result(
-                f"model_chat_{provider}_{model_id}", "error", f"{model_label}: {error_msg}"
-            )
-            console.print(Messages.error("✗ Failed"))
-
-            # Always show error details in full mode (not just verbose)
-            console.print(f"     [dim]{display_msg}[/dim]")
-
-    def display_results(self):
-        """Display summary of health check results."""
-        console.print()
-
-        # Count results by status
-        ok_count = sum(1 for r in self.results if r.status == "ok")
-        warning_count = sum(1 for r in self.results if r.status == "warning")
-        error_count = sum(1 for r in self.results if r.status == "error")
-        total_count = len(self.results)
-
-        # Build the content for the panel
-        panel_content = []
-
-        # Create summary line
-        summary = f"Summary: {ok_count}/{total_count} checks passed"
-        if warning_count > 0:
-            summary += f" ({warning_count} warning{'s' if warning_count > 1 else ''})"
-        if error_count > 0:
-            summary += f" ({error_count} error{'s' if error_count > 1 else ''})"
-
-        panel_content.append(summary)
-
-        # Show detailed errors and warnings if verbose
-        if self.verbose and (warning_count > 0 or error_count > 0):
-            panel_content.append("")  # Empty line
-            panel_content.append("Details:")
-            for result in self.results:
-                if result.status in ["warning", "error"]:
-                    symbol = "!" if result.status == "warning" else "✗"
-                    panel_content.append(f"  {symbol} {result.name}: {result.message}")
-                    if result.details:
-                        panel_content.append(f"     {result.details}")
-
-        # Create and display the framed panel
-        panel = Panel(
-            "\n".join(panel_content),
-            title="Osprey Health Check Results",
-            border_style=Styles.BORDER_DIM,
-            expand=False,
-            padding=(1, 2),
-        )
-        console.print(panel)
 
 
 @click.command()
@@ -1049,105 +171,157 @@ class HealthChecker:
     help="Project directory (default: current directory or OSPREY_PROJECT env var)",
 )
 @click.option(
-    "--verbose", "-v", is_flag=True, help="Show detailed information about warnings and errors"
+    "--verbose", "-v", is_flag=True, help="Show per-warning and per-error details in the summary"
 )
 @click.option(
-    "--basic",
-    "-b",
+    "--json",
+    "as_json",
     is_flag=True,
-    help="Skip model completion tests (only check configuration and connectivity)",
+    help="Emit the report as a single JSON document on stdout (machine-readable)",
 )
-def health(project: str, verbose: bool, basic: bool):
+@click.option(
+    "--category",
+    "categories",
+    multiple=True,
+    metavar="NAME",
+    help="Run only the named category (repeatable). Unknown names are rejected.",
+)
+@click.option(
+    "--full",
+    is_flag=True,
+    help="Also run on_demand categories (live model chat, pinned CLI download).",
+)
+@click.option("--basic", "-b", is_flag=True, hidden=True)
+def health(
+    project: str | None,
+    verbose: bool,
+    as_json: bool,
+    categories: tuple[str, ...],
+    full: bool,
+    basic: bool,
+) -> None:
     """Check the health of your Osprey installation and configuration.
 
-    This command performs comprehensive diagnostics without actually running
-    the osprey.
+    Runs a suite of diagnostics — configuration validity, file-system layout,
+    Python environment, container infrastructure, telemetry store, API
+    providers, and the Claude Code CLI — grouped into categories. Cheap
+    poll-class categories run by default; costly on_demand categories (live
+    model chat completions, pinned-CLI verification) run only with ``--full``.
 
-    Full Mode (DEFAULT):
+    Exit codes:
+
     \b
-      • Configuration file validity and structure
-      • Required models and services configuration
-      • File system structure and permissions
-      • Python version and dependencies
-      • Container runtime availability
-      • Container status (running/stopped)
-      • API provider endpoint connectivity (lightweight tests)
-        - Ollama: Connection test
-        - OpenAI/CBORG: GET /v1/models endpoint
-        - Anthropic/Google: Key format validation
-      • Actual chat completion tests with each unique model
-      • Tests each unique (provider, model_id) pair only once
-      • Sends minimal test prompt and verifies response
-      • May incur small API costs (~$0.001-0.01 per model)
-
-    Basic Mode (--basic):
-    \b
-      • All checks except model completion tests
-      • Faster, no API costs
-      • Only checks configuration and connectivity
-
-    The health check must be run from a project directory containing
-    config.yml (e.g., als_assistant, weather).
-
-    Exit Codes:
-    \b
-      0 - All checks passed
-      1 - Some warnings detected (non-critical)
-      2 - Errors detected (critical issues)
+      0 - all checks passed
+      1 - warnings only
+      2 - one or more errors (including configuration errors)
+      3 - the command itself failed unexpectedly
+      130 - interrupted
 
     Examples:
 
     \b
-      # Full health check with model completion tests (default)
+      # Poll-class checks for the current project
       $ osprey health
 
-      # Basic check without model tests
-      $ osprey health --basic
+      # Include the on_demand model-chat checks
+      $ osprey health --full
 
-      # Verbose output with detailed error messages
-      $ osprey health --verbose
+      # Only the providers category, as JSON
+      $ osprey health --category providers --json
 
-      # Basic mode with verbose output
-      $ osprey health --basic --verbose
-
-      # Check health of specific project
+      # A specific project directory
       $ osprey health --project ~/projects/my-agent
-
-      # Use environment variable
-      $ export OSPREY_PROJECT=~/projects/my-agent
-      $ osprey health
     """
+    from rich.console import Console
+
+    from osprey.health.config import DEFAULT_SUITE_TIMEOUT_S
+    from osprey.health.offload import abandoned_count
+    from osprey.health.render import render_json, render_report, run_progress
+
     from .project_utils import resolve_project_path
 
+    # A dedicated stderr console for out-of-band notices (progress, deprecation,
+    # failure messages) that must never touch stdout. In ``--json`` mode it is
+    # also the human console so stdout stays a pure JSON document.
+    err_console = Console(stderr=True)
+    human_console = err_console if as_json else console
+
+    if basic:
+        # Deprecation notice is unconditionally stderr — stdout carries only the
+        # report (or, under ``--json``, only the JSON document).
+        err_console.print(
+            "[dim]Warning: --basic is deprecated and has no effect; on_demand checks "
+            "are now opt-in via --full.[/dim]"
+        )
+
     try:
-        # Resolve project directory
         project_path = resolve_project_path(project)
+        config_path = project_path / "config.yml"
 
-        # Full mode is default, basic flag disables it
-        full = not basic
+        with _quiet_run_logs(as_json=as_json, verbose=verbose):
+            config_state, expanded, settings, config_ok = load_config(config_path, project_path)
 
-        checker = HealthChecker(verbose=verbose, full=full, project_path=project_path)
-        checker.check_all()
+            # Load the project .env after the config load so its values are present
+            # in os.environ for the run-time checks (provider canaries, env scan).
+            _load_project_env(project_path)
 
-        # Determine exit code
-        error_count = sum(1 for r in checker.results if r.status == "error")
-        warning_count = sum(1 for r in checker.results if r.status == "warning")
+            suite_timeout_s = settings.suite_timeout_s if settings else DEFAULT_SUITE_TIMEOUT_S
+            on_demand_timeout_s = settings.on_demand_timeout_s if settings else None
 
-        if error_count > 0:
-            console.print(f"\n{Messages.error('✗ Health check failed with errors')}")
-            sys.exit(2)
-        elif warning_count > 0:
-            console.print(f"\n{Messages.warning('Health check completed with warnings')}")
-            sys.exit(1)
+            records, extra_rows = build_records(
+                config_state, expanded, settings, config_ok, project_path, suite_timeout_s
+            )
+            selected = _validate_categories(
+                categories, {r.name for r in records}, config_ok=config_ok
+            )
+            # A config-load failure is a global fault: its ``configuration``
+            # error rows (and the resulting exit 2) must surface even when a
+            # ``--category`` filter would otherwise scope them out.
+            if selected is not None and not config_ok and "configuration" not in selected:
+                selected = ("configuration", *selected)
+
+            control_system_config = (expanded or {}).get("control_system", {}) or {}
+
+            with run_progress(console=human_console):
+                report = asyncio.run(
+                    _run_suite(
+                        records,
+                        control_system_config,
+                        full=full,
+                        categories=selected,
+                        suite_timeout_s=suite_timeout_s,
+                        on_demand_timeout_s=on_demand_timeout_s,
+                    )
+                )
+
+        # Plugin-load diagnostics are surfaced only on an unfiltered run; a
+        # ``--category`` selection keeps the output scoped to what was asked for.
+        if selected is None and extra_rows:
+            report.results.extend(extra_rows)
+
+        if as_json:
+            render_json(report)
         else:
-            console.print(f"\n{Messages.success('All health checks passed!')}")
-            sys.exit(0)
+            render_report(report, verbose=verbose, console=console)
 
+        exit_code = report.exit_code
+
+    except click.UsageError:
+        raise
     except KeyboardInterrupt:
-        console.print(f"\n\n{Messages.warning('Health check interrupted')}")
-        sys.exit(130)
-    except Exception as e:
-        console.print(f"\n{Messages.error(f'Health check failed: {e}')}")
+        human_console.print("\n[yellow]Health check interrupted[/yellow]")
+        exit_code = 130
+    except Exception as exc:  # noqa: BLE001 - top-level guard: any failure is exit 3
+        human_console.print(f"\n[red]Health check failed: {exc}[/red]")
         if verbose:
-            console.print_exception()
-        sys.exit(3)
+            human_console.print_exception()
+        exit_code = 3
+
+    # A hung sync check leaves a daemon thread running; a normal ``sys.exit`` can
+    # then wedge on interpreter teardown. Fall back to ``os._exit`` so an
+    # abandoned thread can never block process exit.
+    if abandoned_count() > 0:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(exit_code)
+    sys.exit(exit_code)
