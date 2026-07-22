@@ -97,7 +97,7 @@ async def okf_server_config(request: Request):
 async def system_health_server_config(request: Request):
     """Return the System Health dashboard server URL for iframe embedding."""
     url = getattr(request.app.state, "system_health_server_url", None)
-    proxy_url = f"{_url_prefix()}/panel/system-health" if url else None
+    proxy_url = f"{compute_url_prefix()}/panel/system-health" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
