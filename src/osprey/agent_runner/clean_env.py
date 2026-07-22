@@ -1,12 +1,17 @@
-"""Shared environment helpers for the OSPREY Web Terminal.
+"""Clean child-environment helpers for launching Claude Code agents.
 
-Centralises the ``CLAUDE_CODE_*`` stripping logic so the operator (SDK) path
-and the interactive PTY path cannot drift apart.
+Centralises the ``CLAUDE_CODE_*`` stripping and base-env preparation shared by
+every path that spawns a Claude Code child process: the Web Terminal's SDK
+operator path and interactive PTY path (``interfaces.web_terminal``) and the
+dispatch worker (``mcp_server.dispatch_worker``). Living in ``agent_runner``
+keeps this single source of truth below both consumers so neither layer has to
+import the other.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from osprey.utils.shell_resolver import user_bin_dirs
 
@@ -43,12 +48,12 @@ def strip_claude_code_env(env: dict[str, str]) -> dict[str, str]:
 
 
 def build_base_child_env() -> dict[str, str]:
-    """Build the base environment shared by both Web Terminal child launchers.
+    """Build the base environment shared by every Claude Code child launcher.
 
-    The interactive PTY path (:func:`pty_manager.build_pty_env`) and the SDK
-    operator subprocess (:func:`operator_session.build_clean_env`) both need the
-    same three preparation steps, in the same order, before each overlays its
-    own path-specific keys:
+    The interactive PTY path (:func:`pty_manager.build_pty_env`), the SDK
+    operator subprocess (:func:`build_clean_env`), and the dispatch worker all
+    need the same three preparation steps, in the same order, before each
+    overlays its own path-specific keys:
 
     1. Strip Claude Code internal session variables via
        :func:`strip_claude_code_env` (preserving the telemetry master switch).
@@ -60,8 +65,8 @@ def build_base_child_env() -> dict[str, str]:
        processes resolve their dependencies even from a non-login context
        (lifecycle hooks, ``nohup``, etc.).
 
-    Centralising all three here — not just the strip step — is what keeps the two
-    launch paths from drifting apart, the reason this module exists.
+    Centralising all three here — not just the strip step — is what keeps the
+    launch paths from drifting apart, the reason this helper exists.
 
     Returns:
         A fresh env dict, ready for path-specific keys to be overlaid.
@@ -74,5 +79,32 @@ def build_base_child_env() -> dict[str, str]:
     extra_dirs = user_bin_dirs()
     if extra_dirs:
         env["PATH"] = os.pathsep.join(extra_dirs) + os.pathsep + env.get("PATH", "")
+
+    return env
+
+
+def build_clean_env(project_cwd: str | None = None) -> dict[str, str]:
+    """Build a clean environment dict for the SDK subprocess.
+
+    Layers the SDK-specific keys on top of :func:`build_base_child_env` (which
+    strips ``CLAUDECODE``/``CLAUDE_CODE_*`` variables while preserving the
+    telemetry master switch, resolves the auth-token conflict, and augments
+    ``PATH``): auto-sets ``OSPREY_CONFIG`` from the project directory.
+
+    Args:
+        project_cwd: Optional project directory. When ``OSPREY_CONFIG`` is not
+            already set and this directory contains ``config.yml``, the variable
+            is set automatically so hooks can locate the configuration.
+    """
+    env = build_base_child_env()
+
+    # Auto-set OSPREY_CONFIG when a config.yml exists in the project directory
+    if "OSPREY_CONFIG" not in env and project_cwd:
+        config_path = Path(project_cwd) / "config.yml"
+        if config_path.exists():
+            env["OSPREY_CONFIG"] = str(config_path)
+
+    # Note: OSPREY_HOOK_DEBUG is intentionally NOT propagated here.
+    # Hooks read config.yml directly for hot-reloadable debug toggle.
 
     return env

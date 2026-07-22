@@ -176,7 +176,7 @@ def test_native_provider_env_block_unchanged(
 ) -> None:
     """Regression: a literal-URL native config still resolves to the exact
     same env block as the raw resolver — locks the e2e no-op guarantee."""
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
     _write_config(tmp_path, "cborg")
     monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-secret")
@@ -204,7 +204,7 @@ def test_e2e_force_derives_forced_keys_from_single_source(
     force list left the matrix sending the wrong model on background calls.
     """
     from osprey.agent_runner.primitives import _apply_e2e_overrides
-    from osprey.cli.claude_code_resolver import (
+    from osprey.build.claude_code_resolver import (
         TIER_MODEL_ENV_VARS,
         ClaudeCodeModelResolver,
     )
@@ -229,7 +229,7 @@ def test_e2e_force_derives_forced_keys_from_single_source(
 def test_e2e_force_inert_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """With neither override env var set, the spec is returned unchanged."""
     from osprey.agent_runner.primitives import _apply_e2e_overrides
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
     monkeypatch.delenv("OSPREY_E2E_FORCE_MODEL", raising=False)
     monkeypatch.delenv("OSPREY_E2E_PROXY_BASE_URL", raising=False)

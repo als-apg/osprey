@@ -1,7 +1,7 @@
 """OTEL / Claude Code telemetry env-block construction.
 
 Builds the ``OTEL_*`` / ``CLAUDE_CODE_ENABLE_TELEMETRY`` environment block that
-:class:`osprey.cli.claude_code_resolver.ClaudeCodeModelResolver` injects into a
+:class:`osprey.build.claude_code_resolver.ClaudeCodeModelResolver` injects into a
 launch when ``claude_code.telemetry`` is enabled. Kept separate from the
 resolver's provider/model logic because telemetry is a distinct observability
 concern: :func:`_build_telemetry_env` does no I/O and reads no env (all

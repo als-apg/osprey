@@ -12,7 +12,7 @@ Exposes:
 Which artifacts belong to a run is decided by the artifact store's write-time
 ``run_id`` tag (created-by), so all three artifact surfaces — the status-body
 list, the list route, and the byte route — share one strict isolation gate and
-cannot disagree. See ``osprey.interfaces.artifacts.resolve``.
+cannot disagree. See ``osprey.agent_runner.artifact_resolve``.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, field_validator
 
-from osprey.interfaces.artifacts.resolve import (
+from osprey.agent_runner.artifact_resolve import (
     describe_run_artifacts,
     describe_run_input_artifacts,
     get_run_store,
@@ -161,7 +161,7 @@ def _inject_provider_env_once() -> None:
     # provider variable would silently redirect the worker's agent to a backend
     # the project did not configure. Refuse to start — checked before the try
     # below so the broad except cannot swallow the refusal.
-    from osprey.cli.claude_code_resolver import (
+    from osprey.build.claude_code_resolver import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
     )
@@ -176,8 +176,8 @@ def _inject_provider_env_once() -> None:
     try:
         from pathlib import Path
 
-        from osprey.cli.claude_code_resolver import inject_provider_env, load_provider_spec
-        from osprey.cli.claude_code_telemetry import TelemetryConfigError
+        from osprey.build.claude_code_resolver import inject_provider_env, load_provider_spec
+        from osprey.build.claude_code_telemetry import TelemetryConfigError
 
         # load_provider_spec expands ${VAR} in provider config (e.g. a custom
         # provider's base_url: ${ARGO_PROD_URL}) against the container-mounted
@@ -377,7 +377,7 @@ def _start_retention_sweep() -> asyncio.Task | None:
     if retention_days <= 0:
         return None
 
-    from osprey.interfaces.artifacts.resolve import _get_store
+    from osprey.agent_runner.artifact_resolve import _get_store
 
     return asyncio.create_task(
         retention.retention_loop(

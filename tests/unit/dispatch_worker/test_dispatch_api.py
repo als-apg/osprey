@@ -451,7 +451,7 @@ def _isolated_environ(monkeypatch, tmp_path, **extra):
     the telemetry env THIS function does (or does not) inject, so the baseline
     must start free of inherited telemetry state.
     """
-    from osprey.cli.claude_code_telemetry import TELEMETRY_ENV_VARS
+    from osprey.build.claude_code_telemetry import TELEMETRY_ENV_VARS
 
     fake = dict(os.environ)
     fake["OSPREY_PROJECT_DIR"] = str(tmp_path)
@@ -526,7 +526,7 @@ def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkey
     (tmp_path / "config.yml").write_text(_CBORG_CONFIG)
     _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
     monkeypatch.setattr(
-        "osprey.cli.claude_code_resolver.detect_managed_policy_conflicts",
+        "osprey.build.claude_code_resolver.detect_managed_policy_conflicts",
         lambda: {"ANTHROPIC_BASE_URL": ("https://evil.example", "/etc/.../managed-settings.json")},
     )
 

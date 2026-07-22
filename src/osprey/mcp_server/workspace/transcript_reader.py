@@ -9,7 +9,7 @@ import json
 import logging
 from pathlib import Path
 
-from osprey.cli.project_utils import encode_claude_project_path
+from osprey.agent_runner.project_paths import encode_claude_project_path
 
 logger = logging.getLogger("osprey.mcp_server.workspace.transcript_reader")
 

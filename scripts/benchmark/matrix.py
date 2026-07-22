@@ -128,7 +128,7 @@ def provider_key_env(name: str, pconf: dict[str, Any]) -> str | None:
 
     Prefer the provider's declared ``key_env`` (matrix.yaml); otherwise derive it
     by OSPREY's own convention (``models.provider_registry.PROVIDER_API_KEYS`` /
-    ``cli.claude_code_resolver``: ``{NAME}_API_KEY`` with ``-`` → ``_``). Keyless
+    ``build.claude_code_resolver``: ``{NAME}_API_KEY`` with ``-`` → ``_``). Keyless
     providers (local servers) return ``None``. This is the single seam that keeps
     the launcher from hardcoding any provider name — add a provider, get the
     right key var for free.

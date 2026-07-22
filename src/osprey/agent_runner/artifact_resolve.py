@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactStore
 
-logger = logging.getLogger("osprey.interfaces.artifacts.resolve")
+logger = logging.getLogger("osprey.agent_runner.artifact_resolve")
 
 
 @dataclass

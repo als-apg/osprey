@@ -592,7 +592,7 @@ def _create_lifespan(
             logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
 
         # ── Provider env injection ──
-        from osprey.cli.claude_code_resolver import (
+        from osprey.build.claude_code_resolver import (
             detect_managed_policy_conflicts,
             format_managed_policy_conflicts,
             inject_provider_env,

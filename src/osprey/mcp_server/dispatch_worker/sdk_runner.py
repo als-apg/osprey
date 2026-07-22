@@ -162,7 +162,7 @@ def _load_entry_b64(entry_id: str) -> str | None:
     later via ``data_read`` — so this only reads, never removes.
     """
     try:
-        from osprey.interfaces.artifacts.resolve import get_run_store
+        from osprey.agent_runner.artifact_resolve import get_run_store
 
         path = get_run_store().get_file_path(entry_id)
         if path is None or not path.exists():
@@ -315,8 +315,8 @@ async def run_dispatch(
     # build_clean_env() strips CLAUDECODE/CLAUDE_CODE_* vars and resolves auth
     # conflicts.  Provider env (auth token, base URL, model tier IDs) is already
     # injected into os.environ by _inject_provider_env_once() at worker startup.
-    from osprey.interfaces.web_terminal.operator_session import build_clean_env
-    from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
+    from osprey.agent_runner.clean_env import build_clean_env
+    from osprey.agent_runner.sdk_context import build_system_prompt
     from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
     from osprey.mcp_server.dispatch_worker.tool_policy import (
         make_backstop,

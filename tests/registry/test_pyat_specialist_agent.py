@@ -22,7 +22,7 @@ import re
 
 import pytest
 
-from osprey.cli.claude_code_resolver import AGENT_DEFAULT_TIERS
+from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS
 from osprey.registry.mcp import FRAMEWORK_AGENTS, resolve_agents, resolve_servers
 
 # ---------------------------------------------------------------------------

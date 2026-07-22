@@ -197,7 +197,7 @@ def build_claude_code_context(
         ctx["textbooks_root_tilde"] = None
 
     # Model provider resolution for Claude Code
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
     api_providers = config.get("api", {}).get("providers", {})
     try:

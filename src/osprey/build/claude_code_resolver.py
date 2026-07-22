@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from osprey.cli.claude_code_telemetry import (
+from osprey.build.claude_code_telemetry import (
     TELEMETRY_ENV_VARS,
     _build_telemetry_env,
     _openobserve_host_override,
@@ -31,7 +31,7 @@ from osprey.cli.claude_code_telemetry import (
 )
 from osprey.models.tiers import VALID_TIERS
 
-logger = logging.getLogger("osprey.cli.claude_code_resolver")
+logger = logging.getLogger("osprey.build.claude_code_resolver")
 
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
