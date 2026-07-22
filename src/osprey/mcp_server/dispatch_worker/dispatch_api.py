@@ -30,7 +30,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from osprey.interfaces.artifacts.resolve import (
     describe_run_artifacts,
@@ -38,6 +38,11 @@ from osprey.interfaces.artifacts.resolve import (
     resolve_single_run_artifact,
 )
 from osprey.mcp_server.dispatch_worker import counters, failure_class, run_stats, sdk_runner
+from osprey.mcp_server.dispatch_worker.input_files_policy import (
+    InputFilesError,
+    sanitize_filename,
+    validate_input_files,
+)
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -337,6 +342,29 @@ def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sc
 # ---------------------------------------------------------------------------
 
 
+class InputFile(BaseModel):
+    """One caller-supplied file carried alongside a dispatch prompt.
+
+    ``ingest`` defaults to ``True`` (the file is meant to be handed to the
+    agent). ``filename`` is sanitised to a safe basename on construction — no
+    directory or traversal components survive — so every downstream consumer
+    sees an already-safe name. Caps and the mime allowlist are enforced at
+    request time by :func:`osprey.mcp_server.dispatch_worker.input_files_policy.validate_input_files`,
+    not on this model, so an invalid batch rejects the whole request with one
+    machine-readable code rather than a field-level 422.
+    """
+
+    filename: str
+    mime: str
+    content_b64: str
+    ingest: bool = True
+
+    @field_validator("filename")
+    @classmethod
+    def _sanitize_filename(cls, value: str) -> str:
+        return sanitize_filename(value)
+
+
 class DispatchRequest(BaseModel):
     """Request body for ``POST /dispatch``.
 
@@ -345,6 +373,10 @@ class DispatchRequest(BaseModel):
     a pure no-op for the dispatched run. Consuming them (system-prompt
     injection, tool narrowing) is left to downstream tasks; this model only
     carries the values across the dispatcher→worker boundary.
+
+    ``input_files`` is likewise additive and defaults to ``None``. When present
+    it is validated fail-closed at request time (see :func:`dispatch`); this
+    model only carries the batch — ingestion is a downstream task.
     """
 
     prompt: str
@@ -352,6 +384,7 @@ class DispatchRequest(BaseModel):
     max_turns: int = 25
     surface_prompt: str | None = None
     surface_tools: list[str] | None = None
+    input_files: list[InputFile] | None = None
 
 
 class DispatchResponse(BaseModel):
@@ -524,6 +557,20 @@ async def dispatch(request: DispatchRequest) -> DispatchResponse:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Tools blocked by server denylist: {denied}",
         )
+
+    # Fail-closed input-file validation BEFORE any run is created: mime
+    # allowlist, per-file and total decoded-size caps, ingest-file count. A
+    # violation rejects the whole request with a machine-readable 400 detail
+    # (a bridge maps it to a non-retryable failure class).
+    if request.input_files:
+        try:
+            validate_input_files(request.input_files)
+        except InputFilesError as exc:
+            logger.warning("Rejected dispatch: input files invalid (%s): %s", exc.detail, exc)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exc.detail,
+            ) from exc
 
     # Evict oldest entries if store exceeds capacity
     if len(_runs) >= _MAX_RUNS:
