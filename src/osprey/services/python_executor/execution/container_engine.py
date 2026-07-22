@@ -90,7 +90,12 @@ import websocket
 from osprey.utils.logger import get_logger
 
 from ..config import PythonExecutorConfig
-from ..exceptions import CodeRuntimeError, ContainerConnectivityError, ExecutionTimeoutError
+from ..exceptions import (
+    CodeRuntimeError,
+    ContainerConnectivityError,
+    ExecutionTimeoutError,
+    PythonExecutorException,
+)
 from ..models import PythonExecutionEngineResult
 
 logger = get_logger("python_executor")
@@ -686,8 +691,10 @@ class FileBasedResultCollector:
                 captured_figures=figure_paths,
             )
 
-        except CodeRuntimeError:
-            # Re-raise code runtime errors
+        except PythonExecutorException:
+            # Already-classified executor errors keep their category — downgrading
+            # them to CodeRuntimeError would corrupt the retry strategy (e.g. an
+            # infrastructure fault must re-execute the same code, not regenerate it)
             raise
         except Exception as e:
             logger.error(f"Failed to collect results from files: {e}")
@@ -896,8 +903,8 @@ class ContainerExecutor:
 
             return result
 
-        except (ContainerConnectivityError, CodeRuntimeError, ExecutionTimeoutError):
-            # Re-raise known exceptions
+        except PythonExecutorException:
+            # Re-raise already-classified executor errors with category intact
             raise
         except Exception as e:
             logger.error(f"Container code execution failed: {str(e)}")
