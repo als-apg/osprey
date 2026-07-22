@@ -1,0 +1,64 @@
+# channel-finder-standalone.yml
+# Channel-finder-only deployment — no control-system stack.
+#
+# Use this preset when you want OSPREY's natural-language channel/PV address
+# finder (the channel-finder pipeline + its interactive web panel) but no
+# archiver, no logbook (ARIEL), no Python executor, and no hardware writes.
+# Everything stays in lockstep with the OSPREY codebase — same modules,
+# different config selection.
+
+name: Channel Finder Standalone
+
+# Data bundle: channel-finder-only project skeleton (channel_finder config, a
+# bundled demo hierarchical database, no Postgres / logbook / benchmark data).
+data_bundle: channel_finder_standalone
+
+provider: anthropic
+model: claude-haiku-4-5
+
+# Channel-finder pipeline. The bundle ships a demo hierarchical database, so
+# hierarchical is the out-of-the-box default. Override for your data via
+# `--set channel_finder_mode=in_context|middle_layer` or a profile that
+# extends this preset.
+channel_finder_mode: hierarchical
+
+# Selects the channel-finder persona — "channel/PV address finder" instead of
+# the default control-system operator. See
+# src/osprey/templates/claude_code/CLAUDE.channel-finder.md.j2.
+claude_md_template: CLAUDE.channel-finder.md.j2
+
+# ── Artifact selection ───────────────────────────────────────────────────────
+# Each list entry is a short name resolved from the osprey artifact library.
+
+hooks:
+  - hook-log          # Append every tool call to a structured JSONL audit log
+  - hook-config       # Inject project config.yml path into every tool call env
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - memory-guard      # Warn when context window approaches threshold
+  - config-drift      # Warn at session start when config.yml drifted from generated artifacts
+  - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+
+rules:
+  - error-handling      # Standard error handling and retry guidance
+  - artifacts           # Rules for saving diagnostic artifacts
+  - facility            # Facility-level conventions (naming, terminology)
+  - workflows           # Approved workflow patterns (plan, delegate, parallelize)
+  - timezone            # Always localise timestamps to facility timezone
+
+skills:
+  - session-report          # Summarise session actions and outcomes
+
+agents:
+  # The channel-finder subagent triggers the channel_finder config derivation
+  # (enable flags, pipeline, tools) and owns the indexed hierarchy traversal.
+  - channel-finder
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - channel-finder    # Interactive channel-finder web UI
+
+# Focus the CHANNELS tab on cold load instead of the always-on Workspace tab.
+default_panel: channel-finder
