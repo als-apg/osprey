@@ -28,6 +28,7 @@ Design contracts honored here:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,6 +36,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from osprey.health.config import CategoryRecord, HealthSettings
     from osprey.health.core.configuration import ConfigState
+
+_logger = logging.getLogger(__name__)
 
 #: Produces ``(expanded, unexpanded)`` from a freshly constructed config builder,
 #: or raises (``FileNotFoundError`` for a racy disappearance; any other exception
@@ -247,4 +250,52 @@ def build_records(
         records.extend(plugin_result.categories.values())
         extra_rows = plugin_result.errors
 
+        derived = _derived_mcp_record(records, settings, expanded, suite_timeout_s)
+        if derived is not None:
+            records.append(derived)
+
     return records, extra_rows
+
+
+def _derived_mcp_record(
+    records: list[CategoryRecord],
+    settings: HealthSettings,
+    expanded: dict[str, Any] | None,
+    suite_timeout_s: float,
+) -> CategoryRecord | None:
+    """Return the auto-derived ``mcp_servers`` record ready to merge, or ``None``.
+
+    Wires the auto-derived category into the same merged record set every
+    surface consumes. ``derive_mcp_servers`` returns ``None`` iff
+    ``health.auto.mcp.enabled`` is false; it never applies the
+    ``health.categories.mcp_servers`` override, so that is applied here to
+    mirror ``core_record``. A name collision with a declared (YAML or plugin)
+    category in *records* keeps the declared category and drops the derived one
+    with a warning.
+    """
+    from osprey.health.config import resolve_callable_timeout_s
+    from osprey.health.derive import derive_mcp_servers
+
+    derived = derive_mcp_servers(settings, expanded)
+    if derived is None:
+        return None
+
+    if any(r.name == derived.name for r in records):
+        source = "YAML config" if derived.name in settings.categories else "a plugin"
+        _logger.warning(
+            "Auto-derived health category %r collides with a category "
+            "declared by %s; skipping the derived category and keeping "
+            "the declared one.",
+            derived.name,
+            source,
+        )
+        return None
+
+    override = settings.overrides.get(derived.name)
+    if override is not None:
+        if override.cost is not None:
+            derived.cost = override.cost
+        derived.timeout_s = resolve_callable_timeout_s(
+            derived.cost, override.timeout_s, suite_timeout_s
+        )
+    return derived

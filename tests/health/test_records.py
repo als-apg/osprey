@@ -8,6 +8,7 @@ the function boundary — the surface-agnostic mechanism the ``osprey health`` C
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from osprey.health.config import (
@@ -242,3 +243,143 @@ class TestBuildRecords:
         by_name = {r.name: r for r in records}
         for name in ON_DEMAND_CORE:
             assert by_name[name].cost is Cost.ON_DEMAND
+
+
+# --------------------------------------------------------------------------- #
+# build_records: auto-derived mcp_servers category
+# --------------------------------------------------------------------------- #
+
+
+# A config carrying a build-emitted ``claude_code.servers`` entry: a top-level
+# ``url`` plus the ``network`` block (with host/docker URLs) and a permissions
+# block that ``osprey build`` writes. This is the cross-surface seam every
+# surface (CLI, web, agent) inherits through ``build_records``.
+_CONFIG_WITH_MCP_SERVER = """\
+project_name: test_project
+models:
+  python_code_generator:
+    provider: mock
+    model_id: mock-model
+claude_code:
+  servers:
+    myserver:
+      url: "http://example/mcp"
+      network:
+        port: 9000
+        host_url: "http://localhost:9000/mcp"
+        docker_url: "http://myserver:9000/mcp"
+      permissions:
+        allow:
+          - "mcp__myserver__tool_a"
+        ask:
+          - "mcp__myserver__tool_b"
+"""
+
+
+class TestBuildRecordsMcpServers:
+    def test_derived_category_from_cross_surface_config(self, tmp_path):
+        # A config with a build-emitted server block yields the derived
+        # ``mcp_servers`` category from the single seam every surface consumes.
+        project = tmp_path / "proj"
+        config_path = _write_config(project, _CONFIG_WITH_MCP_SERVER)
+        state, expanded, settings, config_ok = load_config(config_path, project)
+        assert config_ok is True
+
+        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        by_name = {r.name: r for r in records}
+        assert "mcp_servers" in by_name
+
+        rec = by_name["mcp_servers"]
+        assert rec.cost is Cost.POLL
+        assert rec.func is None
+        assert rec.checks is not None
+        assert len(rec.checks) == 1
+
+        check = rec.checks[0]
+        assert check.name == "myserver"
+        assert check.type == "mcp"
+        # On a host (not containerized), the derived probe targets host_url.
+        assert check.params["url"] == "http://localhost:9000/mcp"
+        # Ordered, de-duplicated union of permissions.allow + permissions.ask.
+        assert check.params["expect_tools"] == [
+            "mcp__myserver__tool_a",
+            "mcp__myserver__tool_b",
+        ]
+
+    def test_auto_disabled_omits_category(self, tmp_path):
+        config = _CONFIG_WITH_MCP_SERVER + "health:\n  auto:\n    mcp:\n      enabled: false\n"
+        project = tmp_path / "proj"
+        config_path = _write_config(project, config)
+        state, expanded, settings, config_ok = load_config(config_path, project)
+        assert config_ok is True
+
+        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        assert "mcp_servers" not in {r.name for r in records}
+
+    def test_vanilla_config_yields_empty_category(self, tmp_path):
+        # No claude_code servers → the derived category is present but empty
+        # (an empty category is valid and must be kept, not dropped).
+        project = tmp_path / "proj"
+        config_path = _write_config(project, _VALID_CONFIG)
+        state, expanded, settings, config_ok = load_config(config_path, project)
+
+        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        by_name = {r.name: r for r in records}
+        assert "mcp_servers" in by_name
+        assert by_name["mcp_servers"].checks == []
+
+    def test_yaml_collision_skips_derived_and_warns(self, tmp_path, caplog):
+        # A YAML-declared mcp_servers category wins; the derived one is skipped
+        # and a warning naming the collision source is logged.
+        config = """\
+project_name: test_project
+health:
+  categories:
+    mcp_servers:
+      checks:
+        - name: manual_probe
+          type: mcp
+          url: "http://manual/mcp"
+"""
+        project = tmp_path / "proj"
+        config_path = _write_config(project, config)
+        state, expanded, settings, config_ok = load_config(config_path, project)
+        assert config_ok is True
+
+        with caplog.at_level(logging.WARNING, logger="osprey.health.records"):
+            records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+
+        mcp_recs = [r for r in records if r.name == "mcp_servers"]
+        assert len(mcp_recs) == 1
+        # The kept record is the YAML-declared one.
+        assert mcp_recs[0].checks is not None
+        assert mcp_recs[0].checks[0].name == "manual_probe"
+        # A warning was logged naming the collision source clearly.
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("mcp_servers" in r.getMessage() for r in warnings)
+        assert any("YAML config" in r.getMessage() for r in warnings)
+
+    def test_override_applied_to_derived_record(self, tmp_path):
+        # A metadata-only override for mcp_servers is applied to the derived
+        # record exactly as core overrides apply.
+        config = _CONFIG_WITH_MCP_SERVER + (
+            "health:\n"
+            "  categories:\n"
+            "    mcp_servers:\n"
+            "      cost: on_demand\n"
+            "      timeout_s: 5.0\n"
+        )
+        project = tmp_path / "proj"
+        config_path = _write_config(project, config)
+        state, expanded, settings, config_ok = load_config(config_path, project)
+        assert config_ok is True
+
+        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        by_name = {r.name: r for r in records}
+        assert "mcp_servers" in by_name
+        rec = by_name["mcp_servers"]
+        assert rec.cost is Cost.ON_DEMAND
+        assert rec.timeout_s == 5.0
+        # The override does not disturb the derived checks.
+        assert rec.checks is not None
+        assert len(rec.checks) == 1

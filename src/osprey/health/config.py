@@ -70,6 +70,10 @@ CORE_CATEGORY_NAMES: frozenset[str] = frozenset(_CORE_CATEGORY_NAMES_ORDERED)
 # Reserved keys within a single check mapping; everything else becomes params.
 _RESERVED_CHECK_KEYS = frozenset({"name", "type", "timeout_s", "timeout_status", "requires"})
 
+#: Valid values for ``health.auto.mcp.url_key`` — which server connection URL the
+#: auto-derived ``mcp_servers`` probes target.
+_AUTO_MCP_URL_KEYS: frozenset[str] = frozenset({"host_url", "docker_url"})
+
 
 class Cost(StrEnum):
     """Cost class of a category, controlling which deadline budget bounds it."""
@@ -134,6 +138,30 @@ class CategoryOverride:
     timeout_s: float | None = None
 
 
+@dataclass(frozen=True)
+class AutoMcpSettings:
+    """Settings for the auto-derived ``mcp_servers`` health category.
+
+    Parsed from ``health.auto.mcp``. Controls whether the framework synthesizes
+    an ``mcp_servers`` health category from the configured MCP servers, and
+    which connection URL the generated probes target.
+
+    Attributes:
+        enabled: Whether the auto-derived ``mcp_servers`` category is emitted.
+        url_key: Which server URL the derived probes use — ``"host_url"`` or
+            ``"docker_url"``.
+        url_key_explicit: ``True`` only when ``url_key`` was set in the config;
+            ``False`` when it holds its default. Consumers (``derive.py``) rely
+            on this to distinguish an explicit choice from the default,
+            resolving the probe URL as ``url_key`` when explicit, else
+            ``docker_url`` when containerized, else ``host_url``.
+    """
+
+    enabled: bool = True
+    url_key: str = "host_url"
+    url_key_explicit: bool = False
+
+
 @dataclass
 class HealthSettings:
     """Parsed ``health:`` configuration.
@@ -148,6 +176,9 @@ class HealthSettings:
         categories: Declarative (YAML) categories keyed by name.
         overrides: Metadata-only overrides for core/plugin category names.
         plugins: Dotted plugin module paths exposing category callables.
+        auto: Settings for the auto-derived ``mcp_servers`` category
+            (``health.auto.mcp``); the default instance when the section is
+            absent.
     """
 
     suite_timeout_s: float
@@ -157,6 +188,7 @@ class HealthSettings:
     categories: dict[str, CategoryRecord] = field(default_factory=dict)
     overrides: dict[str, CategoryOverride] = field(default_factory=dict)
     plugins: list[str] = field(default_factory=list)
+    auto: AutoMcpSettings = field(default_factory=AutoMcpSettings)
 
 
 # --- Timeout resolution helpers ---------------------------------------------
@@ -395,6 +427,8 @@ def parse_health_config(health: Mapping[str, Any] | None) -> HealthSettings:
 
     plugins = _parse_plugins(health.get("plugins"))
 
+    auto = _parse_auto(health.get("auto"))
+
     categories: dict[str, CategoryRecord] = {}
     overrides: dict[str, CategoryOverride] = {}
     categories_raw = health.get("categories") or {}
@@ -415,6 +449,7 @@ def parse_health_config(health: Mapping[str, Any] | None) -> HealthSettings:
         categories=categories,
         overrides=overrides,
         plugins=plugins,
+        auto=auto,
     )
 
 
@@ -432,3 +467,43 @@ def _parse_plugins(value: Any) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ConfigurationError("health.plugins must be a list of dotted module paths")
     return list(value)
+
+
+def _parse_auto(value: Any) -> AutoMcpSettings:
+    """Parse the ``health.auto`` section into :class:`AutoMcpSettings`.
+
+    Only ``health.auto.mcp.{enabled, url_key}`` are read; any other keys under
+    ``auto`` or ``auto.mcp`` are ignored, consistent with the additive posture
+    of the rest of the parser. An absent section (or absent ``mcp`` subsection)
+    yields the default instance with ``url_key_explicit`` false.
+    """
+    if value is None:
+        return AutoMcpSettings()
+    if not isinstance(value, Mapping):
+        raise ConfigurationError(f"health.auto must be a mapping, got {value!r}")
+
+    mcp_raw = value.get("mcp")
+    if mcp_raw is None:
+        return AutoMcpSettings()
+    if not isinstance(mcp_raw, Mapping):
+        raise ConfigurationError(f"health.auto.mcp must be a mapping, got {mcp_raw!r}")
+
+    if "enabled" in mcp_raw:
+        enabled = mcp_raw["enabled"]
+        if not isinstance(enabled, bool):
+            raise ConfigurationError(f"health.auto.mcp.enabled must be a boolean, got {enabled!r}")
+    else:
+        enabled = True
+
+    url_key_explicit = "url_key" in mcp_raw
+    if url_key_explicit:
+        url_key = mcp_raw["url_key"]
+        if url_key not in _AUTO_MCP_URL_KEYS:
+            allowed = ", ".join(sorted(_AUTO_MCP_URL_KEYS))
+            raise ConfigurationError(
+                f"health.auto.mcp.url_key {url_key!r} is not valid; must be one of ({allowed})"
+            )
+    else:
+        url_key = "host_url"
+
+    return AutoMcpSettings(enabled=enabled, url_key=url_key, url_key_explicit=url_key_explicit)

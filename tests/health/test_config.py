@@ -11,6 +11,7 @@ from osprey.health.config import (
     DEFAULT_ON_DEMAND_CALLABLE_TIMEOUT_S,
     DEFAULT_PROBE_TIMEOUTS,
     DEFAULT_SUITE_TIMEOUT_S,
+    AutoMcpSettings,
     CategoryOverride,
     CategoryRecord,
     CheckSpec,
@@ -35,6 +36,10 @@ def test_parse_none_yields_defaults() -> None:
     assert s.categories == {}
     assert s.overrides == {}
     assert s.plugins == []
+    assert s.auto == AutoMcpSettings()
+    assert s.auto.enabled is True
+    assert s.auto.url_key == "host_url"
+    assert s.auto.url_key_explicit is False
 
 
 def test_parse_empty_dict_yields_defaults() -> None:
@@ -411,3 +416,85 @@ def test_multiple_yaml_and_override_categories() -> None:
     assert set(s.categories) == {"web_a", "web_b"}
     assert set(s.overrides) == {"providers"}
     assert s.categories["web_b"].checks[0].type == "mcp"  # type: ignore[index]
+
+
+# --- health.auto.mcp --------------------------------------------------------
+
+
+def test_auto_absent_yields_default_instance() -> None:
+    s = parse_health_config({})
+    assert s.auto == AutoMcpSettings(enabled=True, url_key="host_url", url_key_explicit=False)
+    assert s.auto.url_key_explicit is False
+
+
+def test_auto_none_defaults() -> None:
+    # An explicit null in YAML falls back to the default rather than raising.
+    assert parse_health_config({"auto": None}).auto == AutoMcpSettings()
+
+
+def test_auto_empty_section_defaults() -> None:
+    # A present-but-empty auto (or auto.mcp) block leaves defaults untouched.
+    assert parse_health_config({"auto": {}}).auto == AutoMcpSettings()
+    assert parse_health_config({"auto": {"mcp": {}}}).auto == AutoMcpSettings()
+
+
+def test_auto_enabled_false_parsed() -> None:
+    s = parse_health_config({"auto": {"mcp": {"enabled": False}}})
+    assert s.auto.enabled is False
+    # url_key untouched, so it is not marked explicit.
+    assert s.auto.url_key == "host_url"
+    assert s.auto.url_key_explicit is False
+
+
+def test_auto_explicit_url_key_docker_marked_explicit() -> None:
+    s = parse_health_config({"auto": {"mcp": {"url_key": "docker_url"}}})
+    assert s.auto.url_key == "docker_url"
+    assert s.auto.url_key_explicit is True
+    assert s.auto.enabled is True
+
+
+def test_auto_explicit_url_key_host_still_marked_explicit() -> None:
+    # Setting url_key to the default value still records the explicit choice,
+    # so derive.py can honour it over containerized auto-selection.
+    s = parse_health_config({"auto": {"mcp": {"url_key": "host_url"}}})
+    assert s.auto.url_key == "host_url"
+    assert s.auto.url_key_explicit is True
+
+
+def test_auto_enabled_non_bool_raises() -> None:
+    with pytest.raises(ConfigurationError, match="health.auto.mcp.enabled"):
+        parse_health_config({"auto": {"mcp": {"enabled": "yes"}}})
+
+
+def test_auto_invalid_url_key_raises_with_valid_keys() -> None:
+    with pytest.raises(ConfigurationError, match="health.auto.mcp.url_key") as exc:
+        parse_health_config({"auto": {"mcp": {"url_key": "ws_url"}}})
+    message = str(exc.value)
+    assert "host_url" in message and "docker_url" in message
+
+
+def test_auto_unknown_keys_ignored() -> None:
+    # Unknown keys inside auto and auto.mcp are silently ignored (additive).
+    s = parse_health_config(
+        {"auto": {"future": 1, "mcp": {"url_key": "docker_url", "extra": True}}}
+    )
+    assert s.auto.url_key == "docker_url"
+    assert s.auto.url_key_explicit is True
+
+
+def test_auto_non_mapping_raises() -> None:
+    with pytest.raises(ConfigurationError, match="health.auto"):
+        parse_health_config({"auto": ["not", "a", "mapping"]})
+
+
+def test_auto_mcp_non_mapping_raises() -> None:
+    with pytest.raises(ConfigurationError, match="health.auto.mcp"):
+        parse_health_config({"auto": {"mcp": ["nope"]}})
+
+
+def test_auto_does_not_affect_other_parsing() -> None:
+    s = parse_health_config({"auto": {"mcp": {"enabled": False}}, "suite_timeout_s": 40})
+    assert s.auto.enabled is False
+    assert s.suite_timeout_s == 40.0
+    assert s.interval_s == 80.0
+    assert s.categories == {}
