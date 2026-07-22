@@ -13,6 +13,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.
+
+### Changed
+
+- `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).
+
 - `osprey deploy up` and `osprey deploy status` now warn when the project's render is stale — i.e. it was rendered by a different osprey version, or the preset's content has changed since the render (a content hash of the resolved preset is stamped into `.osprey-manifest.json` at build time). The warning names the exact `osprey build ... --force` command to re-render; it never blocks a deploy, and legacy projects without the stamp are unaffected.
 - Every `osprey deploy up` now ends with a service-endpoint summary (published host ports from the rendered compose files, plus the web-terminal landing URL — or an explicit "web terminal (not configured in this project)" line when the config declares no web tier).
 

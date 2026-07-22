@@ -318,12 +318,28 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     missing = {var: origin for var, origin in required_cc_vars.items() if var not in dotenv}
     if missing:
         needs = "; ".join(f"{origin} needs {var}" for var, origin in missing.items())
+        # .env stays the only secret SOURCE (see the determinism note above) —
+        # but when a missing var is sitting right there in the caller's shell,
+        # say so and hand over the exact copy-in command instead of leaving
+        # the operator to discover the .env-only rule by archaeology. Presence
+        # check only; the value itself is never read into the message.
+        exported = [var for var in missing if os.environ.get(var)]
+        shell_hint = ""
+        if exported:
+            copy_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
+            verb = "are" if len(exported) > 1 else "is"
+            shell_hint = (
+                f" Note: {', '.join(exported)} {verb} exported in the current "
+                f"shell, but .env is the canonical secrets store for this "
+                f"deploy (generation never reads the ambient environment). "
+                f"Copy it in with: {copy_cmds}"
+            )
         raise RuntimeError(
             f"Generating {env_production_path} from {env_path} would leave web "
             f"terminals unauthenticated: {needs}, not set in {env_path}. Add "
             "the missing variable(s) there, or author .env.production yourself "
             "(an existing file is never regenerated) if this deploy "
-            "authenticates another way."
+            f"authenticates another way.{shell_hint}"
         )
 
     subset = _build_env_production_subset(config, dotenv, {**required_cc_vars, **extra_cc_vars})

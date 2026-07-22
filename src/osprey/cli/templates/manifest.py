@@ -328,6 +328,21 @@ def extract_build_args(
             if isinstance(value, bool) or value:
                 build_args[arg_key] = value
 
+    # Record which of those keys the user EXPLICITLY passed via `--set`
+    # (context["explicit_set_keys"], stamped by build_cmd). The values above
+    # are resolved ones — preset defaults included — so this marker is what
+    # lets persona auto-render forward the user's overrides without ever
+    # clobbering a persona preset with a mere default.
+    explicit_raw = context.get("explicit_set_keys")
+    if isinstance(explicit_raw, (list, tuple)):
+        explicit = [
+            arg_key
+            for _, arg_key in optional_keys
+            if arg_key in explicit_raw and arg_key in build_args
+        ]
+        if explicit:
+            build_args["explicit_overrides"] = explicit
+
     return build_args
 
 

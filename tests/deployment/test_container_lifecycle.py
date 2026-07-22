@@ -621,7 +621,7 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     monkeypatch.setattr(
         provision,
         "auto_render_missing_personas",
-        lambda config, resolved_users, env: None,
+        lambda config, resolved_users, env, project_root=None: None,
     )
 
     def _fake_run(cmd, **kwargs):
@@ -750,7 +750,7 @@ def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then
     monkeypatch.setattr(
         provision,
         "auto_render_missing_personas",
-        lambda cfg, resolved_users, env: order.append("auto_render"),
+        lambda cfg, resolved_users, env, project_root=None: order.append("auto_render"),
     )
 
     def _fake_build(cfg, resolved_users, dev_mode, env):
@@ -765,10 +765,14 @@ def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    # Exactly three compose calls (the stale-container `rm -f` preflight, the
-    # web `up -d`, then the advisory nginx config reload; no deployed_services,
-    # no pull in local mode) after all three preflight steps, in this order.
+    # The fail-fast deploy_up preflight runs auto_render + ensure_env_production
+    # once BEFORE the image-build stage, and deploy_up_web_terminals re-runs the
+    # same (idempotent) pair; then exactly three compose calls (the
+    # stale-container `rm -f` preflight, the web `up -d`, then the advisory
+    # nginx config reload; no deployed_services, no pull in local mode).
     assert order == [
+        "auto_render",
+        "ensure_env_production",
         "auto_render",
         "ensure_env_production",
         "build_persona_images",
@@ -873,7 +877,16 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    assert order == ["ensure_env_production", "rm", "pull", "up", "nginx_reload"]
+    # Twice before any compose call: once from deploy_up's fail-fast preflight
+    # (pre-image-build), once from deploy_up_web_terminals' own idempotent run.
+    assert order == [
+        "ensure_env_production",
+        "ensure_env_production",
+        "rm",
+        "pull",
+        "up",
+        "nginx_reload",
+    ]
 
 
 def test_post_up_hook_order_is_linger_then_seed_then_verify(
@@ -1734,6 +1747,7 @@ def test_deploy_up_prints_endpoint_summary_on_web_path(_wiring_calls, monkeypatc
         ),
     )
     monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     assert _wiring_calls["summary"] == [["docker-compose.yml"]]
 
@@ -1749,3 +1763,83 @@ def test_deploy_up_summarizes_even_when_nothing_deploys(_wiring_calls, monkeypat
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     assert _wiring_calls["stale"] == [tmp_path.resolve()]
     assert _wiring_calls["summary"] == [["docker-compose.yml"]]
+
+
+# ---------------------------------------------------------------------------
+# deploy_up ordering: the web-terminal preflight (persona auto-render +
+# .env.production credential gate) must run BEFORE the expensive project-image
+# build -- a missing provider secret aborts in seconds, not after minutes of
+# docker build.
+# ---------------------------------------------------------------------------
+
+
+def test_deploy_up_runs_web_terminal_preflight_before_image_build(monkeypatch, tmp_path):
+    order: list[str] = []
+
+    web_config = {
+        "deployed_services": [],
+        "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
+    }
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (web_config, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "preflight_web_terminals",
+        lambda *a, **k: order.append("preflight"),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_build_project_image",
+        lambda *a, **k: order.append("build_image"),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "deploy_up_web_terminals",
+        lambda *a, **k: order.append("web_up"),
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert order == ["preflight", "build_image", "web_up"]
+
+
+def test_deploy_up_no_web_terminals_skips_preflight(monkeypatch, tmp_path):
+    order: list[str] = []
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "preflight_web_terminals",
+        lambda *a, **k: order.append("preflight"),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_build_project_image",
+        lambda *a, **k: order.append("build_image"),
+    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert "preflight" not in order
+    assert "build_image" in order

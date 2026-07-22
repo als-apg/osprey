@@ -12,8 +12,9 @@ name: Control Assistant
 # bundle that includes channel databases, benchmarks, and a logbook seed.
 data_bundle: control_assistant
 
-# Default LLM provider and model.  Override here or via --provider / --model
-# flags on `osprey build`.
+# Default LLM provider and model. Override here or via `osprey build`'s
+# --set provider=... / --set model=... flags; explicit --set overrides are
+# also forwarded to the persona projects auto-rendered at deploy time.
 provider: anthropic
 model: claude-haiku-4-5
 

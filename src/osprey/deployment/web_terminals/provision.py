@@ -43,6 +43,34 @@ from osprey.utils.logger import get_logger
 logger = get_logger("deployment.lifecycle")
 
 
+def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
+    """Fail-fast web-terminal preflight, run BEFORE any image build.
+
+    ``deploy_up`` invokes this ahead of its (minutes-long) project-image
+    build so the two deploy aborts that need no image at all — an
+    unresolvable persona catalog and a missing provider auth secret
+    (:func:`ensure_env_production`'s fail-closed gate) — surface in seconds.
+    Local mode first renders any missing persona project (the credential
+    sweep reads each rendered persona's ``config.yml``), forwarding the
+    parent's explicit ``--set`` overrides exactly as the main provisioning
+    path does.
+
+    Every step is idempotent, so :func:`deploy_up_web_terminals` re-running
+    the same sequence later is a cheap no-op: rendered personas are
+    user-owned and skipped, and an existing ``.env.production`` is returned
+    as-is. Assumes the project-root cwd every other step of ``osprey deploy
+    up`` already relies on.
+    """
+    project_root = os.getcwd()
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    if effective_image_source(web_terminals) == "local":
+        facility_prefix = (config.get("facility") or {}).get("prefix") or ""
+        registry_cfg = config.get("registry") or {}
+        resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
+        auto_render_missing_personas(config, resolved_users, env, project_root=Path(project_root))
+    ensure_env_production(config, project_root)
+
+
 def deploy_up_web_terminals(
     config: dict,
     compose_files: list[str],
@@ -205,7 +233,7 @@ def deploy_up_web_terminals(
         # Render any referenced persona whose project isn't on disk yet, so the
         # image build below always finds a complete context -- the `osprey build`
         # + `osprey deploy up` demo promise, no manual per-persona builds.
-        auto_render_missing_personas(config, resolved_users, env)
+        auto_render_missing_personas(config, resolved_users, env, project_root=Path(project_root))
         # ensure_env_production AFTER auto-render (its claude_code credential
         # sweep reads each rendered persona's config.yml -- on a first deploy
         # those exist only once auto-render has run) but still BEFORE any
