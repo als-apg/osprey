@@ -22,6 +22,9 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "https://llm.gianlucamartino.com"
+    # als-apg routes openai-compatible; without a base_url litellm would fall
+    # through to api.openai.com, so a missing base_url resolves to the default.
+    apply_default_base_url_fallback = True
     default_model_id = "claude-haiku-4-5-20251001"
     health_check_model_id = "claude-haiku-4-5-20251001"
     available_models = [
