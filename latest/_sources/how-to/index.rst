@@ -89,6 +89,13 @@ Run & Operate the Agent
       Emit the agent's logs and metrics over OTLP to any backend, or deploy the
       opt-in local OpenObserve store alongside your project.
 
+   .. grid-item-card:: Configure Health Checks
+      :link: configure-health-checks
+      :link-type: doc
+
+      Extend ``osprey health`` with facility probe checks and plugins, and tune
+      the suite's cost classes and timeouts via the ``health:`` config block.
+
 Extend & Integrate
 ------------------
 
@@ -177,6 +184,7 @@ Bundled Services & Tutorials
    non_interactive_query
    event-dispatch
    monitor-agent
+   configure-health-checks
    add-connector
    add-mcp-server
    use-python-executor
