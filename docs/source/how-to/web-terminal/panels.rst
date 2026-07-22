@@ -17,6 +17,28 @@ Enable OSPREY's built-in panels in ``config.yml``:
        channel-finder: true
        lattice: true
 
+Panels backed by a URL
+----------------------
+
+An entry under ``web.panels`` can also declare a **URL-backed panel** — a tab
+that shows another web service inside the terminal. This is how the EVENTS
+dashboard and the Bluesky PLAN / RESULTS tabs ship in the
+``control-assistant`` preset (a build that includes those stacks registers
+the entries for you):
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       events:
+         label: EVENTS
+         url: http://127.0.0.1:8020    # the backing service
+         path: /dashboard              # optional: page the tab opens (default /)
+         health_endpoint: /healthz     # optional: lets the hub report status
+
+The hub shows the service as a tab and proxies requests to it from the same
+origin, so the browser never needs direct access to the backing port.
+
 Adding your own panel
 ---------------------
 
@@ -85,7 +107,7 @@ like "set up for machine setup."
       .. tab-item:: Authoring rules
 
          A panel is one HTML entry point plus a ``manifest.json`` (its id, label,
-         and entry file). Two rules make it theme itself for free, and a
+         entry file, and version). Two rules make it theme itself for free, and a
          validator enforces both: it must **boot the shared theme before the page
          paints** (so it never flashes the wrong colors), and it must use **only
          design tokens** for color — never a raw hex value. Copy OSPREY's

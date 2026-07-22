@@ -122,24 +122,26 @@ Providers are configured in two sections of ``config.yml``:
          base_url: https://api.anthropic.com
          models:
            haiku: claude-haiku-4-5-20251001
-           sonnet: claude-sonnet-4-6
-           opus: claude-opus-4-7
+           sonnet: claude-sonnet-4-5-20250929
+           opus: claude-opus-4-6
 
        cborg:
          api_key: ${CBORG_API_KEY}
          base_url: https://api.cborg.lbl.gov/v1
          models:
-           haiku: anthropic/claude-haiku
-           sonnet: anthropic/claude-sonnet
-           opus: anthropic/claude-opus
+           # Use pinned versions here — unversioned aliases like
+           # anthropic/claude-sonnet break the agent's capability detection.
+           haiku: claude-haiku-4-5
+           sonnet: claude-sonnet-4-6
+           opus: claude-opus-4-7
 
        stanford:
          api_key: ${STANFORD_API_KEY}
          base_url: https://aiapi-prod.stanford.edu/v1
          models:
-           haiku: claude-3-haiku
-           sonnet: claude-4-sonnet
-           opus: claude-4-sonnet
+           haiku: claude-3-7-sonnet
+           sonnet: claude-3-7-sonnet
+           opus: claude-3-7-sonnet
 
 Each provider entry needs ``api_key``, ``base_url``, and a ``models`` mapping
 that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
@@ -179,7 +181,7 @@ For example, to override the opus tier for a specific project:
      provider: cborg
      default_model: sonnet
      models:
-       opus: anthropic/claude-sonnet   # use sonnet even for opus-tier agents
+       opus: claude-sonnet-4-6   # use sonnet even for opus-tier agents
 
 Agents can also be pinned to specific tiers:
 

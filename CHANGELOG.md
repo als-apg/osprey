@@ -11,6 +11,20 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- `web.app_name` in `config.yml` now actually labels the web terminal header: the
+  runtime read the key from a nested section nothing generates, so only the
+  `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,
+  matching `web.theme` and `web.presets` (env override still wins).
+- A server-configured `web.theme` family now survives a visitor's first page load:
+  the in-browser theme runtime adopted the default family on first visit instead of
+  the configured one. Light/dark still follows the OS until the visitor picks a mode.
+- How-to documentation refreshed against the current code: provider model IDs,
+  deploy/build semantics (`--force` preservation, `--dev` image builds, full
+  subcommand list), telemetry now documented as on-by-default, MCP/executor error
+  contracts, and the ARIEL web-interface module tables.
+
 ### Added
 
 - Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.

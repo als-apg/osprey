@@ -138,6 +138,19 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - PUT
               - ``/api/config``
               - Update the ARIEL configuration block
+            * - GET
+              - ``/api/publish-info``
+              - Describe the configured logbook's write capability (the create
+                form adapts its credential prompt to it)
+            * - POST
+              - ``/api/drafts``
+              - Create a draft entry (pre-fill data for the web form)
+            * - GET
+              - ``/api/drafts/{draft_id}``
+              - Read a draft entry
+            * - GET
+              - ``/api/drafts/{draft_id}/attachments/{filename}``
+              - Download a draft's attachment
 
          Additionally, a ``GET /health`` endpoint at the root level returns a simple health check response.
 
@@ -270,23 +283,28 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - Module
               - Responsibility
             * - ``app.js``
-              - Application initialization, hash-based routing, health check polling
+              - Application initialization and hash-based routing
             * - ``api.js``
               - REST client wrapping ``fetch()`` for all API endpoints
             * - ``search.js``
               - Search form, query submission, results rendering
             * - ``advanced-options.js``
               - Capabilities-driven advanced options panel (dynamic parameter controls)
-            * - ``entries.js``
-              - Browse view with pagination, entry detail view, new entry form
+            * - ``entries.js``, ``entries-detail.js``, ``entries-form.js``, ``entries-helpers.js``
+              - Browse view with pagination, entry detail view, and the new
+                entry form (split across the four modules)
             * - ``dashboard.js``
-              - Status dashboard rendering
+              - Status dashboard rendering and periodic health refresh
             * - ``components.js``
               - Shared UI components (entry cards, loading states, error messages)
-            * - ``drawer.js``
-              - Side-drawer behavior (filters, advanced options, settings panels)
+            * - ``utils.js``
+              - Small shared helpers
             * - ``settings.js``
               - Settings UI: read/write ARIEL config block via ``/api/config``
+
+         Side-drawer behavior (filters, advanced options, settings panels) comes
+         from the shared ``<osprey-drawer>`` design-system component rather than
+         a page-local module.
 
          **CSS architecture:**
 
@@ -296,8 +314,6 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
             * - File
               - Scope
-            * - ``variables.css``
-              - Design tokens (colors, spacing, typography, transitions)
             * - ``base.css``
               - Reset, typography, form elements
             * - ``components.css``
@@ -305,9 +321,13 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - ``layout.css``
               - Header, navigation, main content, responsive grid
             * - ``drawer.css``
-              - Side-drawer panel styling
+              - Page-level styling around the shared drawer component
             * - ``settings.css``
-              - Settings and OSPREY-agent-setup editor styling
+              - Settings drawer styling (config form, YAML editor, save bar)
+
+         Design tokens (colors, spacing, typography, transitions) are not
+         defined per page — they come from the shared design system's
+         ``/design-system/css/tokens.css``.
 
          **Routing:** The app uses ``window.location.hash`` for navigation. The ``app.js`` module listens for ``hashchange`` events and shows/hides view sections (``#search``, ``#browse``, ``#create``, ``#status``). No page reloads occur during navigation.
 
