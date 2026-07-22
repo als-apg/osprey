@@ -29,7 +29,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, field_validator
 
@@ -62,6 +62,17 @@ logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
 
 DISPATCH_TIMEOUT_SEC = int(os.environ.get("DISPATCH_TIMEOUT_SEC", "300"))
 _QUEUE_TTL_SEC = 60  # discard unconsumed SSE queues after this many seconds post-completion
+
+# Explicit request-body ceiling. A legit /dispatch body carrying an input-files
+# batch tops out near ~24 MB (base64 + prompt); 32 MB leaves ~25% headroom while
+# bounding the memory a hostile caller can force the worker to buffer. Enforced
+# from Content-Length before the body is read (see ``_limit_request_body``).
+MAX_REQUEST_BYTES = 32 * 1024 * 1024
+
+# Capabilities this worker advertises on /health. A downstream bridge gates
+# feature use on BOTH the dispatcher's and the worker's /health carrying the
+# capability, so the list is a plain JSON array on both bodies.
+_CAPABILITIES: list[str] = ["input_files"]
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -237,6 +248,28 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="dispatch-worker", version="1.0.0", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _limit_request_body(request: Request, call_next):  # noqa: ANN001, ANN202
+    """Reject an over-size request body (413) before the route reads it.
+
+    Guards every route from the declared Content-Length; only /dispatch carries a
+    large body in practice, but a global guard is simplest and GET routes carry no
+    body. A missing/unparseable Content-Length falls through to normal handling
+    (our own callers always set it), so this is a cheap bound, not a hard cap on a
+    lying/chunked client.
+    """
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared = int(content_length)
+        except ValueError:
+            declared = -1
+        if declared > MAX_REQUEST_BYTES:
+            return JSONResponse({"detail": "Request body too large"}, status_code=413)
+    return await call_next(request)
+
 
 _bearer_scheme = HTTPBearer()
 
@@ -855,6 +888,7 @@ async def health() -> dict[str, Any]:
         "provider_errors": lifetime[failure_class.FAILURE_PROVIDER],
         "infrastructure_errors": lifetime[failure_class.FAILURE_INFRASTRUCTURE],
         "boot_nonce": _BOOT_NONCE,
+        "capabilities": _CAPABILITIES,
     }
 
 
