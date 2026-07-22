@@ -31,7 +31,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_panels import launch
+from osprey.interfaces.bluesky_panels import launch
 
 TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
 RUN_ID = "run-abc123"

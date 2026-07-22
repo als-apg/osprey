@@ -68,7 +68,7 @@ from osprey.bluesky_bridge_connection import (
     resolve_launch_token,
     unwrap_bridge_conflict_detail,
 )
-from osprey.services.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
+from osprey.interfaces.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
 
 router = APIRouter()
 

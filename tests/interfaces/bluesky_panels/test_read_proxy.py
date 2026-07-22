@@ -1,7 +1,7 @@
 """Unit tests for the bluesky panels sidecar's read-proxy router (task 1.2).
 
 Exercises `read_proxy.router` mounted on a LOCAL FastAPI app (never the
-package-level `osprey.services.bluesky_panels.app.app`, which does not include
+package-level `osprey.interfaces.bluesky_panels.app.app`, which does not include
 this router yet -- that wiring is a separate integration task). The bridge
 HTTP layer is faked with `httpx.MockTransport` so no real network call is
 made and no real Bluesky bridge process needs to be running.
@@ -16,7 +16,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_panels import read_proxy
+from osprey.interfaces.bluesky_panels import read_proxy
 
 _BRIDGE_URL = "http://bridge.test"
 

@@ -3,7 +3,7 @@
  * (schema-form.js).
  *
  * happy-dom environment (configured globally in vitest.config.js):
- *   npx vitest run tests/services/bluesky_panels/schema-form.test.mjs
+ *   npx vitest run tests/interfaces/bluesky_panels/schema-form.test.mjs
  *
  * The two fixtures below are the verbatim ``model_json_schema()`` output of the
  * shipped ``orm`` and ``grid_scan`` plans' Pydantic parameter models — the real
@@ -20,7 +20,7 @@ import {
   renderSchemaForm,
   resolveNode,
   OMIT,
-} from '../../../src/osprey/services/bluesky_panels/panels/plan/schema-form.js';
+} from '../../../src/osprey/interfaces/bluesky_panels/panels/plan/schema-form.js';
 
 const ORM_SCHEMA = {
   properties: {

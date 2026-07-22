@@ -1,7 +1,7 @@
 """Unit tests for the bluesky panels sidecar's plan-draft relay (task 3.1).
 
 Exercises `draft_relay.router` mounted on a LOCAL FastAPI app (never the
-package-level `osprey.services.bluesky_panels.app.app`, which is covered
+package-level `osprey.interfaces.bluesky_panels.app.app`, which is covered
 separately in `test_app_integration.py`). The bridge HTTP layer is faked with
 `httpx.MockTransport` so no real network call is made and no real Bluesky
 bridge process needs to be running. This module never touches OSPREY config
@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_panels import draft_relay
+from osprey.interfaces.bluesky_panels import draft_relay
 
 _BRIDGE_URL = "http://bridge.test"
 

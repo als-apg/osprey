@@ -2,7 +2,7 @@
  * Unit tests for the plan panel's live draft client (draft-client.js).
  *
  * happy-dom environment (configured globally in vitest.config.js):
- *   npx vitest run tests/services/bluesky_panels/draft-client.test.mjs
+ *   npx vitest run tests/interfaces/bluesky_panels/draft-client.test.mjs
  *
  * Two layers are exercised:
  *  - The pure reducers (`reduceFrame`, `reduceReset`, `computeDelta`,
@@ -31,8 +31,8 @@ import {
   classifyLaunchResponse,
   resultsPanelUrl,
   buildLaunchBanner,
-} from '../../../src/osprey/services/bluesky_panels/panels/plan/draft-client.js';
-import { renderSchemaForm } from '../../../src/osprey/services/bluesky_panels/panels/plan/schema-form.js';
+} from '../../../src/osprey/interfaces/bluesky_panels/panels/plan/draft-client.js';
+import { renderSchemaForm } from '../../../src/osprey/interfaces/bluesky_panels/panels/plan/schema-form.js';
 
 // A small ORM-shaped fixture: one channel-list (container widget, exercises
 // whole-value-replacement flash) and two plain scalars (exercise the

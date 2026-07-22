@@ -1,5 +1,5 @@
 # The bluesky-panels service owns the browser-facing FastAPI sidecar (see
-# src/osprey/services/bluesky_panels/) that serves the three operator web panels,
+# src/osprey/interfaces/bluesky_panels/) that serves the three operator web panels,
 # same-origin read-proxies the bluesky bridge, and exposes /health/full.
 # `osprey deploy up` builds its image locally on first run; subsequent runs
 # reuse the local tag. To use a prebuilt/published image instead, set
@@ -41,7 +41,7 @@ services:
     command:
       [
         "uvicorn",
-        "osprey.services.bluesky_panels.app:app",
+        "osprey.interfaces.bluesky_panels.app:app",
         "--host",
         "0.0.0.0",
         "--port",

@@ -33,8 +33,8 @@ from starlette.staticfiles import StaticFiles
 
 from osprey.bluesky_bridge_connection import resolve_bridge_url
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.services.bluesky_panels import draft_relay, launch, read_proxy
-from osprey.services.bluesky_panels import health as health_routes
+from osprey.interfaces.bluesky_panels import draft_relay, launch, read_proxy
+from osprey.interfaces.bluesky_panels import health as health_routes
 
 # Panel bundle directories (relative to this module's directory) and the
 # mount path each is served under. Later tasks (3.2 plan authoring, 3.3

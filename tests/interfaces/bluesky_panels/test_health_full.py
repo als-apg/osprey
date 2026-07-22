@@ -18,7 +18,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_panels import health
+from osprey.interfaces.bluesky_panels import health
 
 
 class _FakeWriter:

@@ -13,7 +13,7 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_panels.app import _PANEL_MOUNTS, app
+from osprey.interfaces.bluesky_panels.app import _PANEL_MOUNTS, app
 
 _HEAVY_MODULES = ("bluesky", "ophyd", "tiled")
 
@@ -66,12 +66,12 @@ def test_import_is_clean_of_heavy_control_system_deps() -> None:
     # tiled (e.g. the bluesky_bridge suite in a full ``pytest tests/`` run), so
     # proving bluesky_panels.app's OWN import graph is clean requires isolation.
     check = (
-        "import sys, osprey.services.bluesky_panels.app; "
+        "import sys, osprey.interfaces.bluesky_panels.app; "
         f"leaked=[m for m in {_HEAVY_MODULES!r} if m in sys.modules]; "
         "sys.exit('leaked: ' + ','.join(leaked) if leaked else 0)"
     )
     result = subprocess.run([sys.executable, "-c", check], capture_output=True, text=True)
     assert result.returncode == 0, (
-        "osprey.services.bluesky_panels.app must not import a heavy control-system "
+        "osprey.interfaces.bluesky_panels.app must not import a heavy control-system "
         f"dependency at module scope: {result.stdout}{result.stderr}"
     )

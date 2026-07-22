@@ -2,7 +2,7 @@
 
 Task 1.2 (sidecar-read-proxy) of the Phase-6 "Operator Interfaces" plan. This
 module only defines ``router``; a separate integration task wires it onto the
-app built in ``osprey.services.bluesky_panels.app`` (task 1.1), which already
+app built in ``osprey.interfaces.bluesky_panels.app`` (task 1.1), which already
 publishes the shared ``httpx.AsyncClient`` and resolved bridge base URL onto
 ``app.state.client`` / ``app.state.bridge_url``.
 
@@ -43,7 +43,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from osprey.services.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
+from osprey.interfaces.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
 
 router = APIRouter()
 

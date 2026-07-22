@@ -1,6 +1,6 @@
 """Unit tests for the bluesky panels sidecar's launch route.
 
-Exercises ``osprey.services.bluesky_panels.launch.router`` mounted onto a local
+Exercises ``osprey.interfaces.bluesky_panels.launch.router`` mounted onto a local
 FastAPI app (not the full sidecar app) against a mocked Bluesky bridge via
 ``httpx.MockTransport`` (respx is not installed in this environment). Covers
 the write-safety contract: the launch token is resolved in-process, never
@@ -18,7 +18,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_panels import launch
+from osprey.interfaces.bluesky_panels import launch
 
 TOKEN = "s3cr3t-launch-token"
 RUN_ID = "run-abc123"

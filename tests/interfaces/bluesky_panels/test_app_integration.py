@@ -3,7 +3,7 @@
 The per-router unit tests in this directory (``test_read_proxy.py``,
 ``test_launch.py``, ``test_health.py``, ``test_health_full.py``) each mount
 a single router onto a locally-built ``FastAPI()`` instance. This module
-instead exercises the package-level ``osprey.services.bluesky_panels.app:app``
+instead exercises the package-level ``osprey.interfaces.bluesky_panels.app:app``
 -- the object actually served in production -- to catch wiring bugs that a
 per-router test can't see: router composition, static-mount registration,
 and the shared design-system/fonts assets.
@@ -31,7 +31,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_panels.app import app
+from osprey.interfaces.bluesky_panels.app import app
 
 TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
 RUN_ID = "run-xyz789"
