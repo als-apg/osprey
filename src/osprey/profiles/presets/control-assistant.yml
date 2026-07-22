@@ -126,6 +126,10 @@ config:
   # (default_enabled=False); opt in here so the tutorial's agent can author
   # and launch scan plans out of the box.
   claude_code.servers.bluesky.enabled: true
+  # The system-health MCP server is likewise off-by-default in the framework
+  # registry (default_enabled=False); opt in here so the tutorial's agent can
+  # run read-only framework/stack health checks out of the box.
+  claude_code.servers.health.enabled: true
   # system.timezone: America/Los_Angeles
   # system.facility_name: My Facility
   # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
