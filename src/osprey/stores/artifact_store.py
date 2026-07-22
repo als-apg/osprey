@@ -79,6 +79,13 @@ class ArtifactEntry:
     relocates the whole store into ``_agent_data/sessions/<id>/`` (see
     ``resolve_agent_data_root``), so it cannot be reused to tag a dispatch run
     without moving its artifacts off the shared root the gallery reads."""
+    origin: str = ""
+    """Provenance of the artifact within its run. Empty (the default) for the
+    agent's own output. ``"input"`` marks a caller-supplied file ingested into
+    the run *before* the agent starts: such entries are excluded from the run's
+    produced-artifact listing yet remain reachable through the created-by byte
+    route, so an input image can be served back without appearing as something
+    the agent generated."""
 
     def to_dict(self) -> dict[str, Any]:
         return _sanitize_for_json(asdict(self))
@@ -223,6 +230,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         d.setdefault("source_agent", "")
         d.setdefault("session_id", "")
         d.setdefault("run_id", "")
+        d.setdefault("origin", "")
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
@@ -248,8 +256,17 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         tool_source: str = "unknown",
         metadata: dict[str, Any] | None = None,
         category: str = "",
+        run_id: str | None = None,
+        origin: str = "",
     ) -> ArtifactEntry:
-        """Low-level save: write raw bytes to disk and register in the index."""
+        """Low-level save: write raw bytes to disk and register in the index.
+
+        ``run_id`` defaults to the ``OSPREY_DISPATCH_RUN_ID`` env var (how the
+        dispatched agent's own tools tag their output). A caller that writes on
+        behalf of a run whose id is not in its environment — e.g. the worker
+        ingesting input files before the agent starts — passes it explicitly.
+        ``origin`` tags the entry's provenance within the run (``"input"`` for
+        an ingested caller file; empty for produced output)."""
         if category:
             from osprey.stores.type_registry import valid_category_keys
 
@@ -276,7 +293,10 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 metadata=metadata or {},
                 category=category,
                 session_id=os.environ.get("OSPREY_SESSION_ID", ""),
-                run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
+                run_id=(
+                    run_id if run_id is not None else os.environ.get("OSPREY_DISPATCH_RUN_ID", "")
+                ),
+                origin=origin,
             )
             self._entries.append(entry)
             self._save_index()

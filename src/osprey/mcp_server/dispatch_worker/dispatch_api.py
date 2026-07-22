@@ -18,6 +18,7 @@ cannot disagree. See ``osprey.interfaces.artifacts.resolve``.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hmac
 import json
 import logging
@@ -34,6 +35,8 @@ from pydantic import BaseModel, field_validator
 
 from osprey.interfaces.artifacts.resolve import (
     describe_run_artifacts,
+    describe_run_input_artifacts,
+    get_run_store,
     load_run_record,
     resolve_single_run_artifact,
 )
@@ -430,6 +433,90 @@ class DispatchResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Input-file ingestion
+# ---------------------------------------------------------------------------
+
+# Prompt-assembly seam, keyed by run_id: the per-input-file descriptors that
+# ingestion hands to the (downstream) prompt-assembly step. Held in memory only
+# for the brief window between ingestion (start of the run task) and prompt
+# assembly; the run task's ``finally`` drops any entry a consumer left behind.
+_run_input_seam: dict[str, list[dict[str, Any]]] = {}
+
+
+def take_input_seam(run_id: str) -> list[dict[str, Any]]:
+    """Pop and return the input-file seam for ``run_id`` (``[]`` if none).
+
+    The handoff from ingestion to prompt assembly. Each item is
+    ``{"filename": str, "mime": str, "entry_id": str | None, "content_b64": str | None}``:
+    for an ingested (``ingest=True``) file ``entry_id`` is its artifact-store id
+    and ``content_b64`` is ``None`` (fetch the bytes via the byte route); for an
+    ``ingest=False`` file ``entry_id`` is ``None`` and ``content_b64`` carries
+    the original bytes to inline directly. Pop-once: a second call returns
+    ``[]``.
+    """
+    return _run_input_seam.pop(run_id, [])
+
+
+def _input_artifact_type(mime: str) -> str:
+    """Coarse ``artifact_type`` for an ingested input file, from its mime."""
+    if mime.startswith("image/"):
+        return "image"
+    if mime == "application/json":
+        return "json"
+    if mime.startswith("text/"):
+        return "text"
+    return "file"
+
+
+def ingest_input_files(run_id: str, input_files: list[InputFile]) -> list[dict[str, Any]]:
+    """Ingest a validated input-file batch for ``run_id`` before its SDK run.
+
+    ``ingest=True`` files are base64-decoded and written to the artifact store
+    tagged with this run's ``run_id`` and ``origin="input"`` — so the byte route
+    serves them and the status body's ``input_artifacts`` lists them, while the
+    agent's produced-artifact listing excludes them. ``ingest=False`` files are
+    never stored; their bytes ride the returned seam straight to prompt
+    assembly. Returns the seam (one item per file, in request order) documented
+    on :func:`take_input_seam`.
+
+    The batch was validated at request time (mime allowlist, decodable base64,
+    size caps), so this never re-rejects — it only decodes and writes. Filenames
+    are already sanitised on the model, so the stored name is safe.
+    """
+    if not input_files:
+        return []
+    store = get_run_store()
+    seam: list[dict[str, Any]] = []
+    for f in input_files:
+        if f.ingest:
+            raw = base64.b64decode(f.content_b64)
+            entry = store.save_file(
+                file_content=raw,
+                filename=f.filename,
+                artifact_type=_input_artifact_type(f.mime),
+                title=f.filename,
+                mime_type=f.mime,
+                tool_source="input",
+                metadata={"input_filename": f.filename},
+                run_id=run_id,
+                origin="input",
+            )
+            seam.append(
+                {"filename": f.filename, "mime": f.mime, "entry_id": entry.id, "content_b64": None}
+            )
+        else:
+            seam.append(
+                {
+                    "filename": f.filename,
+                    "mime": f.mime,
+                    "entry_id": None,
+                    "content_b64": f.content_b64,
+                }
+            )
+    return seam
+
+
+# ---------------------------------------------------------------------------
 # Background task
 # ---------------------------------------------------------------------------
 
@@ -488,6 +575,14 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         request.max_turns,
     )
     try:
+        # Ingest caller-supplied input files BEFORE the SDK run: ingest=true
+        # files are decoded into the artifact store (run_id tag + origin="input")
+        # so their entry_ids exist for prompt assembly and the status body, while
+        # ingest=false files pass through untouched. The returned seam is stashed
+        # for the prompt-assembly step to consume via take_input_seam(); the
+        # finally drops it if nothing consumed it.
+        _run_input_seam[run_id] = ingest_input_files(run_id, request.input_files or [])
+
         result = await asyncio.wait_for(
             sdk_runner.run_dispatch(
                 prompt=request.prompt,
@@ -508,6 +603,9 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # computed once at completion from the store tag and persisted with the
         # run so it survives restart and never disagrees with the live routes.
         result["artifacts"] = describe_run_artifacts(run_id)
+        # Caller-supplied inputs ingested for this run, kept separate from the
+        # agent's produced ``artifacts`` (both read the same created-by store tag).
+        result["input_artifacts"] = describe_run_input_artifacts(run_id)
         _runs[run_id] = result
         _persist_run(run_id, result)
         logger.info("Dispatch %s completed: status=%s", run_id, result.get("status"))
@@ -571,6 +669,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
     finally:
         _tasks.pop(run_id, None)
         run_stats.pop_run_stats(run_id)
+        _run_input_seam.pop(run_id, None)
 
 
 # ---------------------------------------------------------------------------
