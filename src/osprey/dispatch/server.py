@@ -17,6 +17,7 @@ import hmac
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +40,7 @@ from osprey.dispatch.trigger_config import (
 from osprey.dispatch.worker_client import (
     AuthError,
     DispatchError,
+    FatalDispatchError,
     cancel_worker_run,
     dispatch_to_worker,
     fetch_worker_runs,
@@ -47,10 +49,44 @@ from osprey.dispatch.worker_client import (
 
 logger = logging.getLogger("osprey.dispatch.server")
 
+# Capabilities this dispatcher advertises on /health. A downstream bridge gates
+# feature use on BOTH the dispatcher's and the worker's /health carrying the
+# capability, so the list is a plain JSON array on both bodies.
+_CAPABILITIES: list[str] = ["input_files"]
+
+# Boot nonce: this dispatcher process's start timestamp, captured once at import.
+# Stable for the process lifetime and different across restarts, mirroring the
+# worker's boot_nonce so a poller can detect a dispatcher restart.
+_BOOT_NONCE: float = time.time()
+
+# Sentinel: distinguishes "no input_files threaded yet" (first call) from an
+# explicit ``None`` payload once popped, so retries reuse the already-popped batch.
+_INPUT_FILES_UNSET: Any = object()
+
 
 # ---------------------------------------------------------------------------
 # Dispatch helper with on_error policy handling
 # ---------------------------------------------------------------------------
+
+
+def _log_input_files(trigger_name: str, input_files: list[dict[str, Any]]) -> None:
+    """Log the carried input files by filename and approximate decoded size only.
+
+    Never logs ``content_b64`` — only the filename and a byte-size estimate
+    (derived arithmetically from the base64 length, so no bytes are decoded just
+    to log them). The estimate is close enough for an operational log line.
+    """
+    parts = []
+    for f in input_files:
+        b64 = f.get("content_b64") or ""
+        approx = (len(b64) * 3) // 4 if isinstance(b64, str) else 0
+        parts.append(f"{f.get('filename')!r}=~{approx}B")
+    logger.info(
+        "Trigger '%s' carries %d input file(s): %s",
+        trigger_name,
+        len(input_files),
+        ", ".join(parts),
+    )
 
 
 async def _dispatch_with_policy(
@@ -60,12 +96,25 @@ async def _dispatch_with_policy(
     dispatch_target: str,
     dispatch_token: str,
     attempt: int = 1,
+    input_files: Any = _INPUT_FILES_UNSET,
 ) -> dict | None:
     """Execute the trigger action and handle on_error policy.
 
-    Returns the worker response dict on success (contains run_id, status),
-    or None if the dispatch was dropped/failed after retries.
+    Returns the worker response dict on success (contains run_id, status), a
+    ``{"status": "error", "error_code": ...}`` sentinel on a fatal (4xx) worker
+    rejection, or None if the dispatch was dropped/failed after retries.
     """
+    # Pop the caller's input-file batch OUT of the payload on the FIRST call,
+    # before the payload is folded into the prompt or persisted to history — the
+    # base64 bytes must never land in either. Threaded through the retry
+    # recursion via ``input_files`` so a re-dispatch still carries the files
+    # (the payload dict no longer holds them after the pop).
+    if input_files is _INPUT_FILES_UNSET:
+        popped = payload.pop("input_files", None)
+        input_files = popped if isinstance(popped, list) else None
+        if input_files:
+            _log_input_files(trigger.name, input_files)
+
     action = trigger.action
     prompt = action.get("prompt", "")
     allowed_tools = action.get("allowed_tools", [])
@@ -98,9 +147,22 @@ async def _dispatch_with_policy(
             token=dispatch_token,
             surface_prompt=surface_prompt,
             surface_tools=surface_tools,
+            input_files=input_files,
         )
         await registry.record_event(trigger.name, payload, "dispatched")
         return result
+
+    except FatalDispatchError as exc:
+        # A deterministic 4xx rejection (e.g. input_files over cap / invalid).
+        # NOT retryable and must NOT drop to None: surface a sentinel error dict
+        # carrying the machine-readable error_code. The pool wraps this return
+        # value; ``get_dispatch_result`` unwraps the sentinel into a top-level
+        # pool error so the poll body exposes ``error_code``. Log the code only,
+        # never the worker's body.
+        code = exc.error_code
+        logger.warning("Fatal dispatch rejection for trigger '%s': %s", trigger.name, code or "4xx")
+        await registry.record_event(trigger.name, payload, f"rejected: {code or '4xx'}")
+        return {"status": "error", "error_code": code, "error": str(exc)}
 
     except (DispatchError, AuthError) as exc:
         # Only dispatch/auth failures flow through the on_error policy. A genuine
@@ -133,7 +195,13 @@ async def _dispatch_with_policy(
             if backoff_sec > 0:
                 await asyncio.sleep(backoff_sec)
             return await _dispatch_with_policy(
-                trigger, payload, registry, dispatch_target, dispatch_token, attempt + 1
+                trigger,
+                payload,
+                registry,
+                dispatch_target,
+                dispatch_token,
+                attempt + 1,
+                input_files=input_files,
             )
         else:
             # drop (or retry exhausted)
@@ -235,6 +303,8 @@ async def health(request: Request) -> JSONResponse:
             "status": "ok",
             "trigger_count": trigger_count,
             "pool": pool_status,
+            "capabilities": _CAPABILITIES,
+            "boot_nonce": _BOOT_NONCE,
         }
     )
 
@@ -255,6 +325,28 @@ async def get_dispatch_result(request: Request) -> JSONResponse:
     result = _pool.get_result(dispatch_id)
     if result is None:
         return JSONResponse({"detail": f"dispatch_id {dispatch_id!r} not found"}, status_code=404)
+
+    # A fatal (4xx) worker rejection creates no run: ``_dispatch_with_policy``
+    # returns a ``{"status": "error", "error_code": ...}`` sentinel, which the
+    # pool wraps as ``{"status": "completed", "result": <sentinel>}``. Unwrap it
+    # into a TOP-LEVEL pool error carrying ``error_code``, which is what a polling
+    # client keys on (status == "error" -> read error_code). A genuine worker
+    # response reports status "accepted", never "error", so this only fires for
+    # the sentinel.
+    inner = result.get("result")
+    if (
+        result.get("status") == "completed"
+        and isinstance(inner, dict)
+        and inner.get("status") == "error"
+    ):
+        return JSONResponse(
+            {
+                "status": "error",
+                "error": inner.get("error"),
+                "error_code": inner.get("error_code"),
+                "trigger_name": result.get("trigger_name"),
+            }
+        )
 
     # Do NOT echo the internal worker URL (_dispatch_target) back to callers — it
     # is an internal topology detail and the poll response should carry only the
