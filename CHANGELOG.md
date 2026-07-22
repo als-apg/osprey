@@ -13,6 +13,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
+  payload omits its `id`: the ALS and generic adapters now fall back to an empty
+  entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
+  fetch loop caught and dropped the entry on.
 - `web.app_name` in `config.yml` now actually labels the web terminal header: the
   runtime read the key from a nested section nothing generates, so only the
   `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,

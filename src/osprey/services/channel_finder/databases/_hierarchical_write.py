@@ -66,10 +66,6 @@ class _HierarchicalWriteMixin(_HierarchicalNamingMixin):
                     )
         return node
 
-    def _rebuild_channel_map(self) -> None:
-        """Rebuild the flat channel map from the current tree state."""
-        self.channel_map = self._build_channel_map()
-
     @staticmethod
     def _normalize_expansion(exp: dict) -> dict:
         """Normalize expansion keys for the API layer.
@@ -154,8 +150,7 @@ class _HierarchicalWriteMixin(_HierarchicalNamingMixin):
 
         parent[name] = new_node
 
-        self._rebuild_channel_map()
-        self._persist()
+        self._commit()
 
         return {"success": True, "name": name, "level": level}
 
@@ -199,8 +194,7 @@ class _HierarchicalWriteMixin(_HierarchicalNamingMixin):
                 else:
                     node.pop("_description", None)
 
-        self._rebuild_channel_map()
-        self._persist()
+        self._commit()
 
         return {"success": True, "old_name": old_name, "new_name": effective_name}
 
@@ -228,8 +222,7 @@ class _HierarchicalWriteMixin(_HierarchicalNamingMixin):
         affected = self._count_channels(parent[name])
         del parent[name]
 
-        self._rebuild_channel_map()
-        self._persist()
+        self._commit()
 
         return {"success": True, "name": name, "affected_channels": affected}
 
@@ -343,8 +336,7 @@ class _HierarchicalWriteMixin(_HierarchicalNamingMixin):
         if "_type" not in expansion:
             expansion["_type"] = "range"
 
-        self._rebuild_channel_map()
-        self._persist()
+        self._commit()
 
         return {
             "success": True,

@@ -596,10 +596,6 @@ class MiddleLayerDatabase(BaseDatabase):
         """Serialize the MML tree back to JSON-compatible dict."""
         return self.data
 
-    def _rebuild_channel_map(self) -> None:
-        """Rebuild the flat channel map from the current MML tree."""
-        self.channel_map = self._build_channel_map()
-
     # === Navigation helper ===
 
     def _ml_navigate(self, system: str, family: str | None = None) -> dict:
@@ -654,8 +650,7 @@ class MiddleLayerDatabase(BaseDatabase):
             new_family["_description"] = description
 
         sys_node[family] = new_family
-        self._rebuild_channel_map()
-        self._persist()
+        self._commit()
 
         return {"success": True, "system": system, "family": family}
 
@@ -677,8 +672,7 @@ class MiddleLayerDatabase(BaseDatabase):
 
         affected = self._count_channels_in_family(sys_node[family])
         del sys_node[family]
-        self._rebuild_channel_map()
-        self._persist()
+        self._commit()
 
         return {
             "success": True,
@@ -740,8 +734,7 @@ class MiddleLayerDatabase(BaseDatabase):
             )
 
         names.append(channel_name)
-        self._rebuild_channel_map()
-        self._persist()
+        self._commit()
 
         return {
             "success": True,
@@ -785,8 +778,7 @@ class MiddleLayerDatabase(BaseDatabase):
 
         names.remove(channel_name)
         target["ChannelNames"] = names
-        self._rebuild_channel_map()
-        self._persist()
+        self._commit()
 
         return {"success": True, "channel": channel_name}
 
