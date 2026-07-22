@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _inject_bluesky
 from osprey.cli.build_profile import BlueskyConfig, _parse_profile
 from osprey.deployment.compose_generator import find_service_config
+from osprey.errors import BuildProfileError
 
 
 def _write_config(project_path: Path) -> None:
@@ -218,6 +220,32 @@ def test_inject_bluesky_no_plan_dir_omits_key(tmp_path: Path) -> None:
     assert "plan_dir" not in config["services"]["bluesky"]
 
 
+def test_inject_bluesky_excluded_plans_written_to_config(tmp_path: Path) -> None:
+    """Configured excluded_plans are emitted as an os.pathsep-joined string."""
+    import os
+
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(excluded_plans=["orm", "tune"]), project_path)
+
+    config = _read_config(project_path)
+    assert config["services"]["bluesky"]["excluded_plans"] == os.pathsep.join(["orm", "tune"])
+
+
+def test_inject_bluesky_no_excluded_plans_omits_key(tmp_path: Path) -> None:
+    """Empty excluded_plans -> no excluded_plans key at all (omit-when-empty)."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(), project_path)
+
+    config = _read_config(project_path)
+    assert "excluded_plans" not in config["services"]["bluesky"]
+
+
 def test_plan_dir_mount_and_env_round_trip_through_compose(tmp_path: Path) -> None:
     """A configured plan_dir renders both the read-only bind mount and the
     in-container BLUESKY_PLAN_DIRS env var the loader (plan_loader.py) reads
@@ -251,6 +279,38 @@ def test_plan_dir_absent_omits_mount_and_env(tmp_path: Path) -> None:
     bridge = rendered["services"]["bluesky-bridge"]
     assert "BLUESKY_PLAN_DIRS" not in bridge["environment"]
     assert not any(str(v).endswith(":/app/project/plans:ro") for v in bridge["volumes"])
+
+
+def test_excluded_plans_env_round_trips_through_compose(tmp_path: Path) -> None:
+    """A configured excluded_plans renders the in-container BLUESKY_EXCLUDED_PLANS
+    env var the plan loader reads to drop catalog entries — the os.pathsep-joined
+    string flows straight through to the rendered compose environment (Task 3.3,
+    success criterion 6, asserted through the rendered artifact)."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(excluded_plans=["orm"]), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    bridge = rendered["services"]["bluesky-bridge"]
+    assert bridge["environment"]["BLUESKY_EXCLUDED_PLANS"] == "orm"
+
+
+def test_excluded_plans_absent_omits_env(tmp_path: Path) -> None:
+    """Regression: a deploy with no excluded_plans renders no BLUESKY_EXCLUDED_PLANS
+    env var — an empty exclusion set contributes nothing to the container env."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    bridge = rendered["services"]["bluesky-bridge"]
+    assert "BLUESKY_EXCLUDED_PLANS" not in bridge["environment"]
 
 
 def test_loopback_bind_and_failclosed_token_survive_plan_dir_wiring(tmp_path: Path) -> None:
@@ -313,3 +373,32 @@ def test_profile_bluesky_key_defaults_when_empty_mapping() -> None:
     assert profile.bluesky.tiled_port == 8091
     assert profile.bluesky.demo_runner is False
     assert profile.bluesky.plan_dir is None
+    assert profile.bluesky.excluded_plans == []
+
+
+# ---------------------------------------------------------------------------
+# Plan-catalog exclusions (Task 3.1): hide named plans from the agent while the
+# bluesky server stays enabled (dev/local convenience).
+# ---------------------------------------------------------------------------
+
+
+def test_profile_bluesky_excluded_plans_parses() -> None:
+    profile = _parse_profile({"name": "with-exclusions", "bluesky": {"excluded_plans": ["orm"]}})
+    assert profile.bluesky is not None
+    assert profile.bluesky.excluded_plans == ["orm"]
+
+
+def test_profile_bluesky_excluded_plans_defaults_empty() -> None:
+    profile = _parse_profile({"name": "no-exclusions", "bluesky": {}})
+    assert profile.bluesky is not None
+    assert profile.bluesky.excluded_plans == []
+
+
+def test_profile_bluesky_excluded_plans_non_list_raises() -> None:
+    with pytest.raises(BuildProfileError):
+        _parse_profile({"name": "bad", "bluesky": {"excluded_plans": 5}})
+
+
+def test_profile_bluesky_excluded_plans_non_str_element_raises() -> None:
+    with pytest.raises(BuildProfileError):
+        _parse_profile({"name": "bad", "bluesky": {"excluded_plans": ["orm", 7]}})

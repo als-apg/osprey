@@ -338,6 +338,218 @@ def test_equal_trust_collision_lets_the_later_scanned_directory_win(
     )
 
 
+def _write_excluded_config(tmp_path: Path, excluded_plans) -> Path:
+    """Write a temp config.yml carrying ``bluesky.excluded_plans`` (list or scalar)."""
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.dump({"bluesky": {"excluded_plans": excluded_plans}}))
+    return config_file
+
+
+def test_resolve_excluded_plans_env_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "orm")
+    assert plan_loader._resolve_excluded_plans() == {"orm"}
+
+
+def test_resolve_excluded_plans_config_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OSPREY_CONFIG", str(_write_excluded_config(tmp_path, ["orm"])))
+    assert plan_loader._resolve_excluded_plans() == {"orm"}
+
+
+def test_resolve_excluded_plans_unions_env_and_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "orm")
+    monkeypatch.setenv("OSPREY_CONFIG", str(_write_excluded_config(tmp_path, ["grid_scan"])))
+    assert plan_loader._resolve_excluded_plans() == {"orm", "grid_scan"}
+
+
+def test_resolve_excluded_plans_config_bare_string_is_coerced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OSPREY_CONFIG", str(_write_excluded_config(tmp_path, "orm")))
+    assert plan_loader._resolve_excluded_plans() == {"orm"}
+
+
+def test_resolve_excluded_plans_unset_env_and_no_config_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(plan_loader._EXCLUDED_PLANS_ENV, raising=False)
+    assert plan_loader._resolve_excluded_plans() == set()
+
+
+def test_resolve_excluded_plans_empty_env_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "")
+    assert plan_loader._resolve_excluded_plans() == set()
+
+
+def test_resolve_excluded_plans_trailing_pathsep_contributes_no_empty_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "orm" + os.pathsep)
+    assert plan_loader._resolve_excluded_plans() == {"orm"}
+
+
+_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
+_EXCLUSION_NO_MATCH_MARKER = "matched no registered plan"
+
+
+def _register_session_plan(session_dir: Path, filename: str, name: str) -> Path:
+    """Write a session-tier plan file and record a passing validation for it,
+    so `get_facility_plans()`'s load-time gate lets it register."""
+    source = _valid_plan_source(name)
+    path = _write(session_dir, filename, source)
+    plan_loader.validation_records.record(plan_loader.hash_plan_body(source))
+    return path
+
+
+def _exclusion_no_match_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and _EXCLUSION_NO_MATCH_MARKER in r.getMessage()
+    ]
+
+
+def test_excluded_plan_absent_from_catalog_while_siblings_remain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shipped_dir = tmp_path / "shipped"
+    _write(shipped_dir, "keep_me.py", _valid_plan_source("keep_me"))
+    _write(shipped_dir, "drop_me.py", _valid_plan_source("drop_me"))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", shipped_dir)
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "drop_me")
+
+    facility = plan_loader.get_facility_plans()
+
+    assert "drop_me" not in facility.plans
+    assert "keep_me" in facility.plans
+
+
+def test_exclusion_removes_a_shipped_tier_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shipped_dir = tmp_path / "shipped"
+    _write(shipped_dir, "core_plan.py", _valid_plan_source("core_plan"))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", shipped_dir)
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "core_plan")
+
+    assert "core_plan" not in plan_loader.get_facility_plans().plans
+
+
+def test_exclusion_removes_a_facility_tier_plan_via_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facility_dir = tmp_path / "facility"
+    _write(facility_dir, "facility_plan.py", _valid_plan_source("facility_plan"))
+
+    monkeypatch.setenv(_PLAN_DIRS_ENV, str(facility_dir))
+    monkeypatch.setenv("OSPREY_CONFIG", str(_write_excluded_config(tmp_path, ["facility_plan"])))
+
+    assert "facility_plan" not in plan_loader.get_facility_plans().plans
+
+
+def test_exclusion_removes_a_session_tier_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session_dir = tmp_path / "session"
+    _register_session_plan(session_dir, "authored.py", "authored_plan")
+
+    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(session_dir))
+
+    # Sanity: it registers when not excluded.
+    assert "authored_plan" in plan_loader.get_facility_plans().plans
+
+    plan_loader.reset_facility_plans()
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "authored_plan")
+
+    assert "authored_plan" not in plan_loader.get_facility_plans().plans
+
+
+def test_unknown_excluded_name_warns_exactly_once_across_repeated_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    shipped_dir = tmp_path / "shipped"
+    session_dir = tmp_path / "session"
+    _write(shipped_dir, "keep_me.py", _valid_plan_source("keep_me"))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", shipped_dir)
+    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(session_dir))
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "does_not_exist")
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        for _ in range(3):
+            plan_loader.get_facility_plans()
+
+    assert len(_exclusion_no_match_warnings(caplog)) == 1
+
+
+def test_exclusion_warning_refires_after_the_registry_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The warn-once guard is keyed on the live `registry.keys()`; adding a new
+    (session-tier) plan changes that key and must re-warn."""
+    shipped_dir = tmp_path / "shipped"
+    session_dir = tmp_path / "session"
+    _write(shipped_dir, "keep_me.py", _valid_plan_source("keep_me"))
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", shipped_dir)
+    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(session_dir))
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "does_not_exist")
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        plan_loader.get_facility_plans()
+        plan_loader.get_facility_plans()
+        assert len(_exclusion_no_match_warnings(caplog)) == 1
+
+        # The session layer is re-scanned every call: adding a validated plan
+        # changes registry.keys() without a cache reset, so the guard re-fires.
+        _register_session_plan(session_dir, "extra.py", "session_extra")
+        plan_loader.get_facility_plans()
+
+    assert len(_exclusion_no_match_warnings(caplog)) == 2
+
+
+def test_empty_exclusion_set_is_a_silent_no_op(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    shipped_dir = tmp_path / "shipped"
+    _write(shipped_dir, "keep_me.py", _valid_plan_source("keep_me"))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", shipped_dir)
+    monkeypatch.delenv(plan_loader._EXCLUDED_PLANS_ENV, raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "keep_me" in facility.plans
+    assert _exclusion_no_match_warnings(caplog) == []
+
+
+def test_excluding_the_surviving_name_of_a_trust_collision_filters_it_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A higher-trust `facility` file wins the `shared_name` collision over a
+    `shipped` file; excluding `shared_name` must drop the survivor and the
+    rejected lower-trust loser must not resurface."""
+    shipped_dir = tmp_path / "shipped"
+    facility_dir = tmp_path / "facility"
+    _write(shipped_dir, "a.py", _valid_plan_source("shared_name"))
+    _write(facility_dir, "b.py", _valid_plan_source("shared_name"))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", shipped_dir)
+    monkeypatch.setenv(_PLAN_DIRS_ENV, str(facility_dir))
+    monkeypatch.setenv(plan_loader._EXCLUDED_PLANS_ENV, "shared_name")
+
+    facility = plan_loader.get_facility_plans()
+
+    assert "shared_name" not in facility.plans
+
+
 def test_shipped_plans_register_through_the_real_shipped_dir() -> None:
     """Sanity check: `plan_loader.py` is the sole plan registry — the shipped
     `orm`/`grid_scan` plans (in `plans_core/`) register through the ordinary
