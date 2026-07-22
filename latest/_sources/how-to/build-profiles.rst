@@ -193,6 +193,18 @@ profile itself is edited.
    write-capable sibling only on ``control_system.writes_enabled``, leaving
    the tool surface identical (see :doc:`web-terminal/multi-user-demo`).
 
+To keep the scan server **on** while hiding an individual plan, set
+``bluesky.excluded_plans`` on the deploying project's profile:
+
+.. code-block:: yaml
+
+   bluesky:
+     excluded_plans: [orm]
+
+The named plan is then invisible to the agent and non-runnable. The deploy render
+carries it to the bridge as ``BLUESKY_EXCLUDED_PLANS`` (the config key alone is a
+dev-only convenience).
+
 
 Quick Start
 ===========

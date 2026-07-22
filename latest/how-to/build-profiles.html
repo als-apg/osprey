@@ -1086,6 +1086,15 @@ the bundled <code class="docutils literal notranslate"><span class="pre">multi-u
 write-capable sibling only on <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>, leaving
 the tool surface identical (see <a class="reference internal" href="web-terminal/multi-user-demo.html"><span class="doc">Run the Multi-User Demo</span></a>).</p>
 </div>
+<p>To keep the scan server <strong>on</strong> while hiding an individual plan, set
+<code class="docutils literal notranslate"><span class="pre">bluesky.excluded_plans</span></code> on the deploying project’s profile:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">bluesky</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">excluded_plans</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">orm</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>The named plan is then invisible to the agent and non-runnable. The deploy render
+carries it to the bridge as <code class="docutils literal notranslate"><span class="pre">BLUESKY_EXCLUDED_PLANS</span></code> (the config key alone is a
+dev-only convenience).</p>
 </section>
 </section>
 <section id="quick-start">
