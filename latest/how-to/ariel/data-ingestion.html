@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -594,13 +590,14 @@ Text Embedding</label><div class="sd-tab-content docutils">
 <p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">enhancement/text_embedding/</span></code> (entry point: <code class="docutils literal notranslate"><span class="pre">embedder.py</span></code>)</p>
 <p>Generates vector embeddings for each entry using a configurable embedding model. Embeddings are stored in dedicated per-model tables (e.g., <code class="docutils literal notranslate"><span class="pre">text_embeddings_nomic_embed_text</span></code>), allowing multiple models to coexist.</p>
 <p><strong>Configuration:</strong></p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">enhancement_modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">text_embedding</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
-<span class="w">    </span><span class="nt">models</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nomic-embed-text</span>
-<span class="w">        </span><span class="nt">dimension</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">768</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enhancement_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">text_embedding</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">      </span><span class="nt">models</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nomic-embed-text</span>
+<span class="w">          </span><span class="nt">dimension</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">768</span>
 </pre></div>
 </div>
 <p><strong>Requirements:</strong> Ollama (or another embedding provider) running with the specified model.</p>
@@ -611,14 +608,15 @@ Semantic Processor</label><div class="sd-tab-content docutils">
 <p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">enhancement/semantic_processor/</span></code> (entry point: <code class="docutils literal notranslate"><span class="pre">processor.py</span></code>)</p>
 <p>Uses an LLM to extract keywords and generate summaries for each entry. These fields improve keyword search recall and the quality of context the agent layer surfaces over results.</p>
 <p><strong>Configuration:</strong></p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">enhancement_modules</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">semantic_processor</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
-<span class="w">    </span><span class="nt">model</span><span class="p">:</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enhancement_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">semantic_processor</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
-<span class="w">      </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-haiku</span>
-<span class="w">      </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span>
+<span class="w">      </span><span class="nt">model</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">        </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-haiku</span>
+<span class="w">        </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span>
 </pre></div>
 </div>
 </div>

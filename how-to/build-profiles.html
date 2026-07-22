@@ -495,8 +495,8 @@ window.addEventListener("load", load);</script>
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Add an MCP Server" href="add-mcp-server.html" />
-    <link rel="prev" title="Containerize a Project" href="containerize-project.html" />
+    <link rel="next" title="Configure LLM Providers" href="configure-providers.html" />
+    <link rel="prev" title="How-To Guides" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -803,12 +803,11 @@ window.addEventListener("load", load);</script>
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -828,17 +827,17 @@ window.addEventListener("load", load);</script>
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -847,11 +846,8 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -960,7 +956,8 @@ separately.</p>
 <p>OSPREY’s build inputs form a three-layer hierarchy:</p>
 <ul class="simple">
 <li><p><strong>Preset</strong> — bundled upstream, lives in <code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/</span></code>.
-Self-contained: no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>. Edited only by PR’ing OSPREY itself.
+Edited only by PR’ing OSPREY itself. A preset may itself extend another
+preset (e.g. <code class="docutils literal notranslate"><span class="pre">operator</span></code> extends <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>).
 Examples: <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code>.</p></li>
 <li><p><strong>Profile</strong> — user-owned, lives in <em>your</em> repo as a directory. Has
 <code class="docutils literal notranslate"><span class="pre">extends:</span> <span class="pre">&lt;preset-name&gt;</span></code> (or a path) and overrides only what your
@@ -1143,13 +1140,17 @@ a complete Osprey agent project at <code class="docutils literal notranslate"><s
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
 <td><p>string</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
-<td><p>LLM provider (<code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">cborg</span></code>, <code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">google</span></code>, etc.).</p></td>
+<td><p><em>required</em></p></td>
+<td><p>LLM provider for the agent. Built-ins: <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">cborg</span></code>,
+<code class="docutils literal notranslate"><span class="pre">als-apg</span></code>; any custom provider declared under <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>
+also works. The build aborts if the resolved profile sets no
+provider (presets already set one).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
-<td><p>Model tier (<code class="docutils literal notranslate"><span class="pre">haiku</span></code>, <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>, <code class="docutils literal notranslate"><span class="pre">opus</span></code>).</p></td>
+<td><p>Default model for the agent: a tier name (<code class="docutils literal notranslate"><span class="pre">haiku</span></code>, <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>,
+<code class="docutils literal notranslate"><span class="pre">opus</span></code>) or a full provider model ID (e.g. <code class="docutils literal notranslate"><span class="pre">claude-haiku-4-5</span></code>).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
 <td><p>string</p></td>
@@ -1206,14 +1207,6 @@ a complete Osprey agent project at <code class="docutils literal notranslate"><s
 <td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
 <td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code> (project venv), <code class="docutils literal notranslate"><span class="pre">build</span></code> (build-time Python), or an absolute path.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">port_block</span></code></p></td>
-<td><p>int</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
-<td><p>Per-project host-port band (<code class="docutils literal notranslate"><span class="pre">0</span></code>–<code class="docutils literal notranslate"><span class="pre">8</span></code>). <code class="docutils literal notranslate"><span class="pre">0</span></code> keeps today’s default ports; a
-non-zero block shifts every host-published default onto a dedicated band so
-two projects built from the same profile can run on one host. A port left at
-its default moves with the block; a port set to any other value is preserved.</p></td>
-</tr>
 </tbody>
 </table>
 </div>
@@ -1222,9 +1215,18 @@ its default moves with the block; a port set to any other value is preserved.</p
 <h2>Configuration Overrides<a class="headerlink" href="#configuration-overrides" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">config:</span></code> section uses <strong>dot notation</strong> to override any key in the generated
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The base set of keys is in
-<code class="docutils literal notranslate"><span class="pre">src/osprey/templates/project/config.yml.j2</span></code>; presets add further
-sections (e.g. <code class="docutils literal notranslate"><span class="pre">archiver</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder</span></code>) in their own
-<code class="docutils literal notranslate"><span class="pre">config.yml.j2</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">src/osprey/templates/project/config.yml.j2</span></code>; app data bundles add further
+sections (e.g. <code class="docutils literal notranslate"><span class="pre">archiver</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder</span></code>) in their own <code class="docutils literal notranslate"><span class="pre">config.yml.j2</span></code>
+under <code class="docutils literal notranslate"><span class="pre">src/osprey/templates/apps/&lt;bundle&gt;/</span></code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Always write overrides as <strong>dotted keys</strong>, one per line, exactly as shown
+below — never as nested YAML. A nested block counts as <em>one</em> override whose
+value replaces the entire subtree in the rendered config. For example,
+<code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{claude_code:</span> <span class="pre">{model:</span> <span class="pre">opus}}</span></code> wipes out everything else under
+<code class="docutils literal notranslate"><span class="pre">claude_code</span></code> (servers, permissions, …), silently. The dotted form
+<code class="docutils literal notranslate"><span class="pre">claude_code.model:</span> <span class="pre">opus</span></code> changes just that one setting.</p>
+</div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="c1"># Control system</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
@@ -1299,10 +1301,6 @@ destination paths relative to the project root.</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">data/benchmarks/{name}.json</span></code></p></td>
 <td><p>Evaluation datasets</p></td>
 </tr>
-<tr class="row-odd"><td><p>Example scripts</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">_agent_data/example_scripts/{cat}/</span></code></p></td>
-<td><p>Agent learning examples</p></td>
-</tr>
 </tbody>
 </table>
 </div>
@@ -1315,8 +1313,10 @@ validation error at load time.</p>
 </section>
 <section id="mcp-server-injection">
 <h2>MCP Server Injection<a class="headerlink" href="#mcp-server-injection" title="Link to this heading">#</a></h2>
-<p>Custom MCP servers are injected into both <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> (server configuration) and
-<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> (tool permissions).</p>
+<p>Custom MCP servers are recorded in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (under
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code>) and rendered from there into <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> (server
+configuration) and <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> (tool permissions) — so a later
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> re-renders them instead of losing them.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">my_server</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
@@ -1365,14 +1365,15 @@ the build adds <code class="docutils literal notranslate"><span class="pre">mcp_
 <p>By default OSPREY writes a deny list into <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> that blocks a
 handful of general-purpose tools — <code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>,
 and the Playwright/Context7 plugins — so a stock control-operator agent cannot shell
-out or browse the web. These defaults are <strong>overridable per facility</strong> through the
-<code class="docutils literal notranslate"><span class="pre">claude_code.permissions</span></code> block in your profile (merged on top of the framework
-defaults at build time):</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">permissions</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">remove_deny</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># drop these from the default deny list</span>
-<span class="w">    </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">                  </span><span class="c1"># then allow them outright</span>
-<span class="w">    </span><span class="nt">ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">]</span><span class="w">                          </span><span class="c1"># or route to human approval instead</span>
+out or browse the web. These defaults are <strong>overridable per facility</strong> from your
+profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> section, using dotted keys (merged on top of the framework
+defaults at build time). A top-level <code class="docutils literal notranslate"><span class="pre">claude_code:</span></code> block in a profile is <em>not</em>
+a recognized profile field and would be ignored with a warning — always go
+through <code class="docutils literal notranslate"><span class="pre">config:</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.remove_deny</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># drop from the default deny list</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">                </span><span class="c1"># then allow outright</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">]</span><span class="w">                       </span><span class="c1"># or route to human approval</span>
 </pre></div>
 </div>
 <p>Supported keys:</p>
@@ -1515,7 +1516,8 @@ framework dependencies.</p>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scipy~=1.11</span>
 </pre></div>
 </div>
-<p>After building, install with <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-r</span> <span class="pre">requirements.txt</span></code>.</p>
+<p>The build installs these into the project venv automatically; only builds run
+with <code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code> need a manual <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-r</span> <span class="pre">requirements.txt</span></code>.</p>
 </section>
 <section id="repository-structure">
 <h2>Repository Structure<a class="headerlink" href="#repository-structure" title="Link to this heading">#</a></h2>
@@ -1574,7 +1576,7 @@ string lists union-dedup.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code></p></td>
 <td><p>Inline scalar/list override. RHS is parsed as YAML, so
-<code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">lifecycle.timeout=120</span></code> lands an int and
+<code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">tier=3</span></code> lands an int and
 <code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">hooks=[memory-guard]</span></code> lands a list. May be repeated.
 <code class="docutils literal notranslate"><span class="pre">--set</span></code> wins over <code class="docutils literal notranslate"><span class="pre">-O</span></code> files at the same key.</p></td>
 </tr>
@@ -1585,7 +1587,21 @@ string lists union-dedup.</p></td>
 <td><p>Output directory (default: current directory).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-f,</span> <span class="pre">--force</span></code></p></td>
-<td><p>Overwrite if project directory already exists.</p></td>
+<td><p>Re-render an existing project directory in place. Everything
+framework-owned is rebuilt; <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.git</span></code>
+are preserved.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--tier</span> <span class="pre">{1,3}</span></code></p></td>
+<td><p>Channel-database tier: selects which
+<code class="docutils literal notranslate"><span class="pre">data/channel_databases/tiers/tier{N}/</span></code> database the rendered config
+points at. Advanced — overrides the default derived from the channel
+finder paradigm (<code class="docutils literal notranslate"><span class="pre">in_context</span></code> → tier 1, <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code> /
+<code class="docutils literal notranslate"><span class="pre">middle_layer</span></code> → tier 3). Tier 1 is <code class="docutils literal notranslate"><span class="pre">in_context</span></code>-only.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--emit-profile</span> <span class="pre">DIR</span></code></p></td>
+<td><p>Scaffold an editable profile directory at <code class="docutils literal notranslate"><span class="pre">DIR</span></code> that extends
+<code class="docutils literal notranslate"><span class="pre">--preset</span></code>, then exit without rendering a project. Build from it
+with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&lt;PROJECT_NAME&gt;</span> <span class="pre">DIR/profile.yml</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code></p></td>
 <td><p>Stream lifecycle step output in real time.</p></td>
@@ -1628,7 +1644,8 @@ osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="
 <ol class="arabic simple">
 <li><p><strong>Load and validate</strong> the YAML profile (schema check, path existence)</p></li>
 <li><p><strong>Check version constraint</strong> — abort if <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code> is not satisfied</p></li>
-<li><p><strong>Resolve output path</strong> and handle <code class="docutils literal notranslate"><span class="pre">--force</span></code> (remove existing directory)</p></li>
+<li><p><strong>Resolve output path</strong> and handle <code class="docutils literal notranslate"><span class="pre">--force</span></code> (re-render in place,
+preserving <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.git</span></code>)</p></li>
 <li><p><strong>Run pre_build commands</strong> (cwd: profile directory)</p></li>
 <li><p><strong>Clear Osprey agent state</strong> for the target directory</p></li>
 <li><p><strong>Create project venv</strong> — install OSPREY (per <code class="docutils literal notranslate"><span class="pre">osprey_install</span></code>) and profile dependencies</p></li>
@@ -1638,7 +1655,9 @@ osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="
 <li><p><strong>Copy service templates</strong> (built-in containers for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>)</p></li>
 <li><p><strong>Inject profile services</strong> (facility containers from <code class="docutils literal notranslate"><span class="pre">services:</span></code>)</p></li>
 <li><p><strong>Copy overlay files</strong> from the profile directory into the project</p></li>
-<li><p><strong>Inject MCP servers</strong> into <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> and <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code></p></li>
+<li><p><strong>Inject MCP servers</strong> — recorded in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code>, then rendered into <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code></p></li>
 <li><p><strong>Copy .env file</strong> (if <code class="docutils literal notranslate"><span class="pre">env.file</span></code> is set)</p></li>
 <li><p><strong>Generate .env.template</strong> from <code class="docutils literal notranslate"><span class="pre">env.required</span></code> and <code class="docutils literal notranslate"><span class="pre">env.defaults</span></code></p></li>
 <li><p><strong>Generate manifest</strong> (<code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code>) for migration tracking</p></li>
@@ -1692,7 +1711,8 @@ profile YAML’s directory, not the current working directory.</p>
 be absolute or contain <code class="docutils literal notranslate"><span class="pre">..</span></code>.</p>
 <p><strong>“MCP server ‘X’ missing ‘command’ or ‘url’”</strong> — Every MCP server definition
 needs a <code class="docutils literal notranslate"><span class="pre">command</span></code> (stdio) or a <code class="docutils literal notranslate"><span class="pre">url</span></code> (HTTP) field.</p>
-<p><strong>“Directory ‘X’ already exists”</strong> — Use <code class="docutils literal notranslate"><span class="pre">--force</span></code> to overwrite, or pick a
+<p><strong>“Directory ‘X’ already exists”</strong> — Use <code class="docutils literal notranslate"><span class="pre">--force</span></code> to rebuild it in place
+(your <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are preserved), or pick a
 different project name.</p>
 <p><strong>“OSPREY X does not satisfy requires_osprey_version”</strong> — Upgrade OSPREY to a
 version matching the profile’s specifier, or remove the constraint.</p>
@@ -1723,20 +1743,20 @@ directory must contain a <code class="docutils literal notranslate"><span class=
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="containerize-project.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Containerize a Project</p>
+        <p class="prev-next-title">How-To Guides</p>
       </div>
     </a>
     <a class="right-next"
-       href="add-mcp-server.html"
+       href="configure-providers.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Add an MCP Server</p>
+        <p class="prev-next-title">Configure LLM Providers</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

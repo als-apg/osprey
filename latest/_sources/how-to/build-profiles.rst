@@ -56,7 +56,8 @@ Preset → Profile → Project
 OSPREY's build inputs form a three-layer hierarchy:
 
 - **Preset** — bundled upstream, lives in ``src/osprey/profiles/presets/``.
-  Self-contained: no ``extends:``. Edited only by PR'ing OSPREY itself.
+  Edited only by PR'ing OSPREY itself. A preset may itself extend another
+  preset (e.g. ``operator`` extends ``control-assistant``).
   Examples: ``hello-world``, ``control-assistant``, ``ariel-standalone``.
 - **Profile** — user-owned, lives in *your* repo as a directory. Has
   ``extends: <preset-name>`` (or a path) and overrides only what your
@@ -242,12 +243,16 @@ Profile YAML Schema
        ``hello_world``, ``ariel_standalone``. See ``src/osprey/templates/apps/``.
    * - ``provider``
      - string
-     - ``None``
-     - LLM provider (``anthropic``, ``cborg``, ``openai``, ``google``, etc.).
+     - *required*
+     - LLM provider for the agent. Built-ins: ``anthropic``, ``cborg``,
+       ``als-apg``; any custom provider declared under ``api.providers``
+       also works. The build aborts if the resolved profile sets no
+       provider (presets already set one).
    * - ``model``
      - string
      - ``None``
-     - Model tier (``haiku``, ``sonnet``, ``opus``).
+     - Default model for the agent: a tier name (``haiku``, ``sonnet``,
+       ``opus``) or a full provider model ID (e.g. ``claude-haiku-4-5``).
    * - ``channel_finder_mode``
      - string
      - ``None``
@@ -292,13 +297,6 @@ Profile YAML Schema
      - string
      - ``project``
      - Python used by MCP servers: ``project`` (project venv), ``build`` (build-time Python), or an absolute path.
-   * - ``port_block``
-     - int
-     - ``0``
-     - Per-project host-port band (``0``–``8``). ``0`` keeps today's default ports; a
-       non-zero block shifts every host-published default onto a dedicated band so
-       two projects built from the same profile can run on one host. A port left at
-       its default moves with the block; a port set to any other value is preserved.
 
 
 Configuration Overrides
@@ -306,9 +304,18 @@ Configuration Overrides
 
 The ``config:`` section uses **dot notation** to override any key in the generated
 ``config.yml``. The base set of keys is in
-``src/osprey/templates/project/config.yml.j2``; presets add further
-sections (e.g. ``archiver``, ``channel_finder``) in their own
-``config.yml.j2``.
+``src/osprey/templates/project/config.yml.j2``; app data bundles add further
+sections (e.g. ``archiver``, ``channel_finder``) in their own ``config.yml.j2``
+under ``src/osprey/templates/apps/<bundle>/``.
+
+.. warning::
+
+   Always write overrides as **dotted keys**, one per line, exactly as shown
+   below — never as nested YAML. A nested block counts as *one* override whose
+   value replaces the entire subtree in the rendered config. For example,
+   ``config: {claude_code: {model: opus}}`` wipes out everything else under
+   ``claude_code`` (servers, permissions, …), silently. The dotted form
+   ``claude_code.model: opus`` changes just that one setting.
 
 .. code-block:: yaml
 
@@ -378,9 +385,6 @@ Common overlay targets:
    * - Benchmark data
      - ``data/benchmarks/{name}.json``
      - Evaluation datasets
-   * - Example scripts
-     - ``_agent_data/example_scripts/{cat}/``
-     - Agent learning examples
 
 .. admonition:: Path Safety
    :class: important
@@ -393,8 +397,10 @@ Common overlay targets:
 MCP Server Injection
 ====================
 
-Custom MCP servers are injected into both ``.mcp.json`` (server configuration) and
-``.claude/settings.json`` (tool permissions).
+Custom MCP servers are recorded in the project's ``config.yml`` (under
+``claude_code.servers``) and rendered from there into ``.mcp.json`` (server
+configuration) and ``.claude/settings.json`` (tool permissions) — so a later
+``osprey claude regen`` re-renders them instead of losing them.
 
 .. code-block:: yaml
 
@@ -450,17 +456,18 @@ Tool Permissions
 By default OSPREY writes a deny list into ``.claude/settings.json`` that blocks a
 handful of general-purpose tools — ``Bash``, ``Edit``, ``WebFetch``, ``WebSearch``,
 and the Playwright/Context7 plugins — so a stock control-operator agent cannot shell
-out or browse the web. These defaults are **overridable per facility** through the
-``claude_code.permissions`` block in your profile (merged on top of the framework
-defaults at build time):
+out or browse the web. These defaults are **overridable per facility** from your
+profile's ``config:`` section, using dotted keys (merged on top of the framework
+defaults at build time). A top-level ``claude_code:`` block in a profile is *not*
+a recognized profile field and would be ignored with a warning — always go
+through ``config:``:
 
 .. code-block:: yaml
 
-   claude_code:
-     permissions:
-       remove_deny: ["Bash", "WebSearch"]   # drop these from the default deny list
-       allow: ["WebSearch"]                  # then allow them outright
-       ask: ["Bash"]                          # or route to human approval instead
+   config:
+     claude_code.permissions.remove_deny: ["Bash", "WebSearch"]  # drop from the default deny list
+     claude_code.permissions.allow: ["WebSearch"]                # then allow outright
+     claude_code.permissions.ask: ["Bash"]                       # or route to human approval
 
 Supported keys:
 
@@ -615,7 +622,8 @@ framework dependencies.
      - pandas
      - scipy~=1.11
 
-After building, install with ``pip install -r requirements.txt``.
+The build installs these into the project venv automatically; only builds run
+with ``--skip-deps`` need a manual ``pip install -r requirements.txt``.
 
 
 Repository Structure
@@ -677,7 +685,7 @@ CLI Reference
        string lists union-dedup.
    * - ``--set KEY.PATH=VALUE``
      - Inline scalar/list override. RHS is parsed as YAML, so
-       ``--set lifecycle.timeout=120`` lands an int and
+       ``--set tier=3`` lands an int and
        ``--set hooks=[memory-guard]`` lands a list. May be repeated.
        ``--set`` wins over ``-O`` files at the same key.
    * - ``--list-presets``
@@ -685,7 +693,19 @@ CLI Reference
    * - ``-o, --output-dir DIR``
      - Output directory (default: current directory).
    * - ``-f, --force``
-     - Overwrite if project directory already exists.
+     - Re-render an existing project directory in place. Everything
+       framework-owned is rebuilt; ``.env``, ``_agent_data/``, and ``.git``
+       are preserved.
+   * - ``--tier {1,3}``
+     - Channel-database tier: selects which
+       ``data/channel_databases/tiers/tier{N}/`` database the rendered config
+       points at. Advanced — overrides the default derived from the channel
+       finder paradigm (``in_context`` → tier 1, ``hierarchical`` /
+       ``middle_layer`` → tier 3). Tier 1 is ``in_context``-only.
+   * - ``--emit-profile DIR``
+     - Scaffold an editable profile directory at ``DIR`` that extends
+       ``--preset``, then exit without rendering a project. Build from it
+       with ``osprey build <PROJECT_NAME> DIR/profile.yml``.
    * - ``-s, --stream``
      - Stream lifecycle step output in real time.
    * - ``--skip-lifecycle``
@@ -725,7 +745,8 @@ When ``osprey build`` runs, it executes these steps in order:
 
 1. **Load and validate** the YAML profile (schema check, path existence)
 2. **Check version constraint** — abort if ``requires_osprey_version`` is not satisfied
-3. **Resolve output path** and handle ``--force`` (remove existing directory)
+3. **Resolve output path** and handle ``--force`` (re-render in place,
+   preserving ``.env``, ``_agent_data/``, and ``.git``)
 4. **Run pre_build commands** (cwd: profile directory)
 5. **Clear Osprey agent state** for the target directory
 6. **Create project venv** — install OSPREY (per ``osprey_install``) and profile dependencies
@@ -735,7 +756,9 @@ When ``osprey build`` runs, it executes these steps in order:
 10. **Copy service templates** (built-in containers for ``osprey deploy``)
 11. **Inject profile services** (facility containers from ``services:``)
 12. **Copy overlay files** from the profile directory into the project
-13. **Inject MCP servers** into ``.mcp.json`` and ``.claude/settings.json``
+13. **Inject MCP servers** — recorded in ``config.yml`` under
+    ``claude_code.servers``, then rendered into ``.mcp.json`` and
+    ``.claude/settings.json``
 14. **Copy .env file** (if ``env.file`` is set)
 15. **Generate .env.template** from ``env.required`` and ``env.defaults``
 16. **Generate manifest** (``.osprey-manifest.json``) for migration tracking
@@ -799,7 +822,8 @@ be absolute or contain ``..``.
 **"MCP server 'X' missing 'command' or 'url'"** — Every MCP server definition
 needs a ``command`` (stdio) or a ``url`` (HTTP) field.
 
-**"Directory 'X' already exists"** — Use ``--force`` to overwrite, or pick a
+**"Directory 'X' already exists"** — Use ``--force`` to rebuild it in place
+(your ``.env``, ``_agent_data/``, and ``.git`` are preserved), or pick a
 different project name.
 
 **"OSPREY X does not satisfy requires_osprey_version"** — Upgrade OSPREY to a

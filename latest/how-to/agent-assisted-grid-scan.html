@@ -60,7 +60,7 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Logbook Search Service (ARIEL)" href="ariel/index.html" />
+    <link rel="next" title="CLI Reference" href="../cli-reference/index.html" />
     <link rel="prev" title="Use the Virtual Accelerator" href="use-virtual-accelerator.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -538,26 +534,26 @@ at every point.
 </pre></div>
 </div>
 <p>The agent resolves this into a <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code> plan draft — two
-<code class="docutils literal notranslate"><span class="pre">axes</span></code> entries (one per corrector, each naming its <code class="docutils literal notranslate"><span class="pre">setpoint</span></code> channel
-plus <code class="docutils literal notranslate"><span class="pre">start</span></code>/<code class="docutils literal notranslate"><span class="pre">stop</span></code>/<code class="docutils literal notranslate"><span class="pre">num_points</span></code>) and a <code class="docutils literal notranslate"><span class="pre">detectors</span></code> list naming the
-two BPM readbacks — and
+<code class="docutils literal notranslate"><span class="pre">axes</span></code> entries (one per corrector, each naming its <code class="docutils literal notranslate"><span class="pre">setpoint</span></code> device as
+the bridge knows it, plus <code class="docutils literal notranslate"><span class="pre">start</span></code>/<code class="docutils literal notranslate"><span class="pre">stop</span></code>/<code class="docutils literal notranslate"><span class="pre">num_points</span></code>) and a
+<code class="docutils literal notranslate"><span class="pre">detectors</span></code> list naming the two BPM readbacks — and
 stages the whole thing in a single <code class="docutils literal notranslate"><span class="pre">set_draft</span></code> call, noting the <code class="docutils literal notranslate"><span class="pre">revision</span></code>
 it returns. This is staging only: composing the draft never touches hardware,
 never requires arming, and never triggers an approval prompt.</p>
 </section>
 <section id="watch-it-fill">
 <h2>Watch it fill<a class="headerlink" href="#watch-it-fill" title="Link to this heading">#</a></h2>
-<p>Switch to the <strong>PLAN</strong> tab. If you weren’t already looking at <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code>,
-you’ll see a small affordance appear: <strong>“Draft is now on grid_scan — click
-to view”</strong>. Click it (or select <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code> from the sidebar) to bind the
-panel to the draft — this seeds the form from the current draft state and
-starts live updates.</p>
+<p>Switch to the <strong>PLAN</strong> tab. If the panel is already showing <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code>, a
+small affordance appears: <strong>“Draft is now on grid_scan — click to view”</strong> —
+click it to bind the panel to the draft, which seeds the form from the
+current draft state and starts live updates. If the panel is showing a
+<em>different</em> plan there is no hint; select <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code> from the sidebar and
+the panel binds to the waiting draft automatically.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Binding always requires this one click or selection, even if the agent
-set the draft first: an <em>unbound</em> panel never silently jumps to a plan you
-weren’t already looking at — it just tells you one is waiting. Once bound,
-the panel does follow the draft if the agent switches it to a different
+<p>An <em>unbound</em> panel never silently jumps to a plan you weren’t already
+looking at — binding always takes your click or selection. Once bound, the
+panel does follow the draft if the agent switches it to a different
 plan, so what you are looking at always matches what a Launch would send.</p>
 </div>
 <p>Once bound, a <strong>Draft bound</strong> indicator appears next to a <strong>Discard</strong>
@@ -631,11 +627,11 @@ seconds of confirming the launch.</p>
       </div>
     </a>
     <a class="right-next"
-       href="ariel/index.html"
+       href="../cli-reference/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Logbook Search Service (ARIEL)</p>
+        <p class="prev-next-title">CLI Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

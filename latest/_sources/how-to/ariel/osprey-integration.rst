@@ -76,7 +76,9 @@ Osprey agent selects the appropriate tool based on the user's query.
 Search Result Structure
 =======================
 
-The MCP tool returns a structured result containing:
+Internally, each search produces an ``ARIELSearchResult`` with the fields
+below; the MCP tools serialize this into their own JSON envelope for the
+agent:
 
 .. list-table::
    :header-rows: 1

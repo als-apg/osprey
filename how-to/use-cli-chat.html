@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -503,13 +499,18 @@ analytics, etc.) via their URLs in a browser.</p>
 </ol>
 <section id="options">
 <h3>Options<a class="headerlink" href="#options" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--project<span class="w"> </span>/path/to/project<span class="w">   </span><span class="c1"># explicit project dir</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>-p<span class="w"> </span>/path/to/project<span class="w">           </span><span class="c1"># explicit project dir (--project)</span>
 osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--resume<span class="w"> </span>SESSION_ID<span class="w">           </span><span class="c1"># resume a previous session</span>
 osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--print<span class="w">                       </span><span class="c1"># non-interactive (pipe-friendly)</span>
 osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--effort<span class="w"> </span>high<span class="w">                 </span><span class="c1"># set effort level</span>
+osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--no-pin<span class="w">                      </span><span class="c1"># ignore the pinned CLI version</span>
 </pre></div>
 </div>
 <p>When <code class="docutils literal notranslate"><span class="pre">--project</span></code> is omitted, the current directory is used.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> is set in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, chat launches that
+exact agent CLI version instead of whatever is installed globally, so every
+launch of the project behaves the same. <code class="docutils literal notranslate"><span class="pre">--no-pin</span></code> opts out and uses the
+global installation.</p>
 </section>
 </section>
 <section id="companion-services">

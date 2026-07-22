@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Web Terminal</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -496,6 +492,25 @@ theme automatically, in light and dark, with no extra work.</p>
 <span class="w">    </span><span class="nt">lattice</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
+<section id="panels-backed-by-a-url">
+<h2>Panels backed by a URL<a class="headerlink" href="#panels-backed-by-a-url" title="Link to this heading">#</a></h2>
+<p>An entry under <code class="docutils literal notranslate"><span class="pre">web.panels</span></code> can also declare a <strong>URL-backed panel</strong> — a tab
+that shows another web service inside the terminal. This is how the EVENTS
+dashboard and the Bluesky PLAN / RESULTS tabs ship in the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset (a build that includes those stacks registers
+the entries for you):</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">events</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">EVENTS</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://127.0.0.1:8020</span><span class="w">    </span><span class="c1"># the backing service</span>
+<span class="w">      </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/dashboard</span><span class="w">              </span><span class="c1"># optional: page the tab opens (default /)</span>
+<span class="w">      </span><span class="nt">health_endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/healthz</span><span class="w">     </span><span class="c1"># optional: lets the hub report status</span>
+</pre></div>
+</div>
+<p>The hub shows the service as a tab and proxies requests to it from the same
+origin, so the browser never needs direct access to the backing port.</p>
+</section>
 <section id="adding-your-own-panel">
 <h2>Adding your own panel<a class="headerlink" href="#adding-your-own-panel" title="Link to this heading">#</a></h2>
 <p>The easy path is the guided skill — a coding agent follows it to produce a
@@ -553,7 +568,7 @@ idea:</p>
 <label class="sd-tab-label" for="sd-tab-item-0">
 Authoring rules</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">A panel is one HTML entry point plus a <code class="docutils literal notranslate"><span class="pre">manifest.json</span></code> (its id, label,
-and entry file). Two rules make it theme itself for free, and a
+entry file, and version). Two rules make it theme itself for free, and a
 validator enforces both: it must <strong>boot the shared theme before the page
 paints</strong> (so it never flashes the wrong colors), and it must use <strong>only
 design tokens</strong> for color — never a raw hex value. Copy OSPREY’s
@@ -639,6 +654,7 @@ shape of it.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel-layouts-presets">Panel layouts (“presets”)</a></li>
 </ul>

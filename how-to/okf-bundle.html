@@ -60,7 +60,7 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="CLI Reference" href="../cli-reference/index.html" />
+    <link rel="next" title="How to Use the Channel Finder" href="use-channel-finder.html" />
     <link rel="prev" title="Facility Rules" href="facility-rules.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -535,13 +531,14 @@ your bundle at the authoring level.</p>
 Structure &amp; Config</label><div class="sd-tab-content docutils">
 <p>There is no required layout beyond the top-level directory — organize
 sub-directories in whatever structure suits your facility, from a single
-flat folder to a deep tree. The server discovers whatever is present and
-auto-generates the <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files. A conventional starting shape groups
-documents by kind:</p>
+flat folder to a deep tree. The server discovers whatever is present;
+the <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files are generated by the CLI (run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span></code> after adding or renaming documents). A
+conventional starting shape groups documents by kind:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>data/facility_knowledge/
-├── index.md            ← bundle root index (auto-generated)
+├── index.md            ← bundle root index (CLI-generated)
 ├── subsystems/         ← how the major systems work (vacuum, timing, safety…)
-│   ├── index.md        ← sub-directory index (auto-generated)
+│   ├── index.md        ← sub-directory index (CLI-generated)
 │   ├── power-supply-system.md
 │   └── timing-system.md
 ├── devices/            ← device classes and families (BPMs, ion pumps…)
@@ -552,7 +549,7 @@ documents by kind:</p>
 └── references/         ← glossaries, standards, safety rules
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset ships an Example Research Facility bundle
+<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships an Example Research Facility bundle
 you can read as a worked example, then replace with your own.</p>
 <p id="authoring-concept-documents"><strong>Authoring concept documents.</strong> Each concept document is a markdown file
 with YAML frontmatter at the top:</p>
@@ -592,10 +589,9 @@ description: DC power supplies for all storage-ring magnets.
 </tbody>
 </table>
 </div>
-<p>Optional fields: <code class="docutils literal notranslate"><span class="pre">tags</span></code> (list of strings), <code class="docutils literal notranslate"><span class="pre">related</span></code> (list of
-bundle-relative paths to related docs). Documents cross-reference each
-other with bundle-relative Markdown links, as shown in <a class="reference internal" href="#the-core-ideas">The Core Ideas</a>
-above.</p>
+<p>Optional fields: <code class="docutils literal notranslate"><span class="pre">tags</span></code> (list of strings). Documents cross-reference
+each other with bundle-relative Markdown links, as shown in
+<a class="reference internal" href="#the-core-ideas">The Core Ideas</a> above.</p>
 <p><strong>Pointing the server at the bundle.</strong> Add a <code class="docutils literal notranslate"><span class="pre">facility_knowledge</span></code> block
 to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">facility_knowledge</span><span class="p">:</span>
@@ -603,19 +599,21 @@ to <code class="docutils literal notranslate"><span class="pre">config.yml</span
 </pre></div>
 </div>
 <p>Relative paths are resolved against the directory containing <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-(the project root).  For the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset the example
+(the project root).  For the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the example
 bundle is scaffolded into <code class="docutils literal notranslate"><span class="pre">data/facility_knowledge/</span></code> automatically.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
 Connecting to OSPREY</label><div class="sd-tab-content docutils">
 <p>The <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> MCP server reads the OKF bundle at
-startup, auto-generates the <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files, and exposes it to the agent
-through four tools:</p>
+startup and exposes it to the agent through five tools:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">list_concepts</span></code> — browse the index to discover what topics exist</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">read_concept</span></code> — retrieve a specific document by its bundle-relative path</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">read_concept</span></code> — retrieve a document by its concept ID (its bundle
+path minus the <code class="docutils literal notranslate"><span class="pre">.md</span></code> extension, e.g. <code class="docutils literal notranslate"><span class="pre">subsystems/timing-system</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">search</span></code> — full-text search across all concept documents</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> — report the bundle’s path, size, concept types, and
+whether draft writes are enabled</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> — author a new concept document (requires human approval)</p></li>
 </ul>
 <p><strong>The facility-knowledge subagent.</strong> When it is enabled in a project’s
@@ -625,7 +623,7 @@ access only to the three read-only tools (<code class="docutils literal notransl
 <code class="docutils literal notranslate"><span class="pre">read_concept</span></code>, <code class="docutils literal notranslate"><span class="pre">search</span></code>) and follows a fixed retrieval strategy: list
 first to orient, search to narrow, read to synthesize, then submit the
 result.</p>
-<p>It is enabled by default in the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset. To enable or
+<p>It is enabled by default in the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset. To enable or
 disable it in a generated project, set the agent’s <code class="docutils literal notranslate"><span class="pre">enabled</span></code> flag under
 <code class="docutils literal notranslate"><span class="pre">claude_code.agents</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
@@ -745,11 +743,11 @@ documents.</p>
       </div>
     </a>
     <a class="right-next"
-       href="../cli-reference/index.html"
+       href="use-channel-finder.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">CLI Reference</p>
+        <p class="prev-next-title">How to Use the Channel Finder</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

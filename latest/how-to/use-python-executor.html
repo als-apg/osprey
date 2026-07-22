@@ -60,8 +60,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Event Dispatch" href="event-dispatch.html" />
-    <link rel="prev" title="Non-Interactive Agent Queries" href="non_interactive_query.html" />
+    <link rel="next" title="Facility Knowledge" href="use-facility-knowledge.html" />
+    <link rel="prev" title="Add an MCP Server" href="add-mcp-server.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -542,17 +538,23 @@ them.</p></td>
 </tbody>
 </table>
 </div>
-<p>The tool returns a JSON object containing:</p>
+<p>On success the tool returns a JSON object whose top level describes the saved
+run:</p>
 <ul class="simple">
-<li><p><strong>output</strong> / <strong>error</strong> — stdout and stderr truncated to 500 characters.
-Full output is available in the saved data file.</p></li>
-<li><p><strong>artifact_ids</strong> — IDs for any figures or saved objects.</p></li>
-<li><p><strong>notebook_artifact_id</strong> — ID of an auto-generated notebook capturing the
-run.</p></li>
-<li><p><strong>gallery_url</strong> — link to the artifact gallery (when available).</p></li>
-<li><p><strong>has_errors</strong>, <strong>status</strong> (<code class="docutils literal notranslate"><span class="pre">&quot;Success&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;Failed&quot;</span></code>), and
+<li><p><strong>status</strong> (<code class="docutils literal notranslate"><span class="pre">&quot;success&quot;</span></code>), <strong>artifact_id</strong>, <strong>title</strong>, and <strong>data_file</strong>
+for the saved artifact.</p></li>
+<li><p><strong>summary</strong> — a nested object with the run details: the truncated
+<strong>output</strong> / <strong>error</strong> (500 characters; full output is in the saved data
+file), a <code class="docutils literal notranslate"><span class="pre">&quot;Success&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;Failed&quot;</span></code> <strong>status</strong>, <strong>has_errors</strong>, and
 <strong>detected_patterns</strong> for control-system operation metadata.</p></li>
+<li><p><strong>artifact_ids</strong> — IDs for any figures or saved objects, and
+<strong>notebook_artifact_id</strong> for the auto-generated notebook capturing the run.</p></li>
+<li><p><strong>gallery_url</strong> — link to the artifact gallery (when available).</p></li>
 </ul>
+<p>A failing run does not return this object as a normal result: the tool raises
+a structured error (<code class="docutils literal notranslate"><span class="pre">error_type:</span> <span class="pre">&quot;execution_error&quot;</span></code>) whose <code class="docutils literal notranslate"><span class="pre">details</span></code> field
+carries the same information, so the agent receives an explicit error rather
+than a status field it might overlook.</p>
 </section>
 <section id="execution-modes">
 <h2>Execution Modes<a class="headerlink" href="#execution-modes" title="Link to this heading">#</a></h2>
@@ -674,20 +676,20 @@ safety checks, and pattern detection.</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="non_interactive_query.html"
+       href="add-mcp-server.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Non-Interactive Agent Queries</p>
+        <p class="prev-next-title">Add an MCP Server</p>
       </div>
     </a>
     <a class="right-next"
-       href="event-dispatch.html"
+       href="use-facility-knowledge.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Event Dispatch</p>
+        <p class="prev-next-title">Facility Knowledge</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

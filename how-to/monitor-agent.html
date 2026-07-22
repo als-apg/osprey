@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -500,17 +496,19 @@ air-gapped store</p></li>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
 <p>The OSPREY agent can emit its operational telemetry — structured event logs and
-runtime metrics — over the OpenTelemetry Protocol (OTLP). Emit is <strong>off by
-default</strong>; you turn it on with a <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block under <code class="docutils literal notranslate"><span class="pre">claude_code:</span></code> in
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. There are two ways to consume it:</p>
+runtime metrics — over the OpenTelemetry Protocol (OTLP). Projects built from
+the bundled presets ship with telemetry <strong>already enabled</strong> and pointed at the
+local OpenObserve store; the mechanism itself only stays off when a config has
+no <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block under <code class="docutils literal notranslate"><span class="pre">claude_code:</span></code>. There are two ways to consume
+it:</p>
 <ul class="simple">
 <li><p><strong>Phase 1 — any OTLP endpoint (backend-agnostic).</strong> Point the agent at an
 OTLP collector or observability platform you already run. OSPREY only produces
 OTLP; it does not care what receives it.</p></li>
-<li><p><strong>Phase 2 — the local OpenObserve add-on (opt-in).</strong> Deploy a single-binary
-OpenObserve store next to your project with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> and keep all
-telemetry on the same host. This is the turn-key option when you have no
-existing observability stack.</p></li>
+<li><p><strong>Phase 2 — the local OpenObserve add-on (the scaffolded default).</strong> A
+single-binary OpenObserve store deployed next to your project with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>; all telemetry stays on the same host. This is the
+turn-key option when you have no existing observability stack.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -581,14 +579,15 @@ environments or agent instances in your backend.</p></td>
 </section>
 <section id="phase-2-the-local-openobserve-add-on">
 <h2>Phase 2 — The local OpenObserve add-on<a class="headerlink" href="#phase-2-the-local-openobserve-add-on" title="Link to this heading">#</a></h2>
-<p>If you do not already run an observability stack, OSPREY ships an opt-in
+<p>If you do not already run an observability stack, OSPREY ships an
 <a class="reference external" href="https://openobserve.ai/">OpenObserve</a> service: a single binary that ingests
 OTLP directly and serves a browser UI, with no external dependencies. Everything
 stays on the deploy host.</p>
-<section id="enable-the-service">
-<h3>1. Enable the service<a class="headerlink" href="#enable-the-service" title="Link to this heading">#</a></h3>
-<p>The <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> service is declared in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> but left out of
-<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> so it stays off until you opt in. Add it to the list:</p>
+<section id="check-the-service-is-enabled">
+<h3>1. Check the service is enabled<a class="headerlink" href="#check-the-service-is-enabled" title="Link to this heading">#</a></h3>
+<p>New projects ship with the <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> service already declared in
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> <strong>and</strong> listed under <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> — it deploys by
+default. If your project removed it, restore it:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">openobserve</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/openobserve</span>
@@ -599,11 +598,13 @@ stays on the deploy host.</p>
 </pre></div>
 </div>
 </section>
-<section id="set-the-admin-credentials">
-<h3>2. Set the admin credentials<a class="headerlink" href="#set-the-admin-credentials" title="Link to this heading">#</a></h3>
-<p>The OpenObserve root account doubles as the OTLP ingest credential, so set both
-in your project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. The same two variables configure the container <strong>and</strong>
-authenticate the agent’s OTLP push — one source of truth:</p>
+<section id="optional-set-the-admin-credentials">
+<h3>2. (Optional) set the admin credentials<a class="headerlink" href="#optional-set-the-admin-credentials" title="Link to this heading">#</a></h3>
+<p>The OpenObserve root account doubles as the OTLP ingest credential. You do not
+have to set it yourself: the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> mints a strong
+<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> into <code class="docutils literal notranslate"><span class="pre">.env</span></code> automatically. Set the two variables
+yourself only if you want specific values — the same pair configures the
+container <strong>and</strong> authenticates the agent’s OTLP push, one source of truth:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
 <span class="nv">ZO_ROOT_USER_EMAIL</span><span class="o">=</span>you@example.com
 <span class="nv">ZO_ROOT_USER_PASSWORD</span><span class="o">=</span>choose-a-strong-password
@@ -640,8 +641,11 @@ automatically per network context:</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>For <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> the OTLP endpoint is <strong>auto-derived</strong> and you
-should not hardcode it. The derived form is <code class="docutils literal notranslate"><span class="pre">http://&lt;host&gt;:5080/api/&lt;org&gt;</span></code>,
-where <code class="docutils literal notranslate"><span class="pre">&lt;host&gt;</span></code> is chosen for the running context:</p>
+should not hardcode it. The derived form is <code class="docutils literal notranslate"><span class="pre">http://&lt;host&gt;:5080/api/&lt;org&gt;</span></code>
+— note the <code class="docutils literal notranslate"><span class="pre">5080</span></code> is fixed: the derivation does <em>not</em> follow a changed
+<code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>, so if you publish the store on a different
+host port, set <code class="docutils literal notranslate"><span class="pre">endpoint:</span></code> explicitly instead. The <code class="docutils literal notranslate"><span class="pre">&lt;host&gt;</span></code> part is
+chosen for the running context:</p>
 <ul class="simple">
 <li><p><strong>On the host</strong> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> on your machine) the host
 is <code class="docutils literal notranslate"><span class="pre">localhost</span></code> — the store’s published port.</p></li>
@@ -760,8 +764,8 @@ security in front of it.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-emit-to-any-otlp-endpoint">Phase 1 — Emit to any OTLP endpoint</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-the-local-openobserve-add-on">Phase 2 — The local OpenObserve add-on</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#enable-the-service">1. Enable the service</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#set-the-admin-credentials">2. Set the admin credentials</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#check-the-service-is-enabled">1. Check the service is enabled</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#optional-set-the-admin-credentials">2. (Optional) set the admin credentials</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deploy-it">3. Deploy it</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-agent-at-it">4. Point the agent at it</a></li>
 </ul>

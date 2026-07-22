@@ -41,9 +41,9 @@ the fastest way to try OSPREY and the right tool whenever one person sits in
 front of one machine; :doc:`operate` covers it.
 
 The multi-user stack is strictly opt-in. It lives in a
-``modules.web_terminals`` block in the project's ``config.yml``, and the *only*
-command that reads that block is ``osprey deploy``. ``osprey web`` never looks
-at it — so a project that carries the block (the ``multi-user-demo`` preset
+``modules.web_terminals`` block in the project's ``config.yml``, read only by
+``osprey deploy`` (and validated by ``osprey scaffold web-terminals lint``).
+``osprey web`` never looks at it — so a project that carries the block (the ``multi-user-demo`` preset
 ships one) still runs single-user exactly as before. Reach for the multi-user
 stack when several people need their own terminal on a shared machine, and
 stay with ``osprey web`` for everything else.

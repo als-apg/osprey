@@ -232,7 +232,3 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    search-modes
    web-interface
    standalone-deployment
-
-
-See Also
-========

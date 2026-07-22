@@ -61,7 +61,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Agent-Assisted Grid Scan Tutorial" href="agent-assisted-grid-scan.html" />
-    <link rel="prev" title="How to Use the Channel Finder" href="use-channel-finder.html" />
+    <link rel="prev" title="Standalone Deployment" href="ariel/standalone-deployment.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -550,6 +546,10 @@ osprey<span class="w"> </span>deploy<span class="w"> </span>up
 osprey<span class="w"> </span>web
 </pre></div>
 </div>
+<p>The very first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> that includes the Virtual Accelerator
+builds its container image from source (compiling PyAT and the soft-IOC), so
+expect it to take several minutes — it is building, not hanging. Later deploys
+reuse the image.</p>
 <p>Switch back to the mock at any time with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-control-system</span> <span class="pre">mock</span></code>. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its
 production values throughout.</p>
@@ -600,10 +600,10 @@ project’s directory explicitly to use its scenarios:</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works in Virtual Accelerator mode exactly as it
 does for the mock. Applying a scenario writes the project’s <code class="docutils literal notranslate"><span class="pre">active_scenarios</span></code>
 file; the in-container engine polls it and, within about a second, composed
-channel values reflect the new scenario. Switching scenarios also resets any
-values you wrote during the session, mirroring the mock engine’s semantics — the
-simulation engine is the single implementation behind both backends, so they
-cannot drift apart.</p>
+channel values reflect the new scenario. One behavioral difference from the
+mock: in VA mode a scenario switch only refreshes the engine-composed channels
+— setpoints you wrote during the session live in the IOC’s own records and
+<strong>survive</strong> the switch. (In mock mode, written values are reset.)</p>
 <p>This assumes the IOC is reading the same project’s <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code>. That is
 automatic for the deployed service; if you launched the container by hand, see
 the warning under <a class="reference internal" href="#running-from-a-source-checkout">Running from a source checkout</a>.</p>
@@ -653,12 +653,12 @@ future addition.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="use-channel-finder.html"
+       href="ariel/standalone-deployment.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">How to Use the Channel Finder</p>
+        <p class="prev-next-title">Standalone Deployment</p>
       </div>
     </a>
     <a class="right-next"

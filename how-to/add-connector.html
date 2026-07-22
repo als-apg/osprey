@@ -60,7 +60,7 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="How to Use the Channel Finder" href="use-channel-finder.html" />
+    <link rel="next" title="Add an MCP Server" href="add-mcp-server.html" />
     <link rel="prev" title="Monitor Your OSPREY Agent" href="monitor-agent.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -481,14 +477,13 @@
   <section id="add-a-connector">
 <h1>Add a Connector<a class="headerlink" href="#add-a-connector" title="Link to this heading">#</a></h1>
 <p><strong>What you’ll build:</strong> Control system connectors for accessing hardware abstraction layers</p>
-</section>
 <section id="overview">
-<h1>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h1>
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
 <p>The Control System Integration system provides a <strong>two-layer abstraction</strong> for working with control systems and archivers. This enables development and R&amp;D work using mock connectors (without hardware access) and migration to production by changing a single configuration line.</p>
 <p><strong>Capabilities:</strong></p>
 <ul class="simple">
 <li><p><strong>Mock Mode</strong>: Work with any channel names without hardware access</p></li>
-<li><p><strong>Production Mode</strong>: EPICS in-tree; LabVIEW, Tango, and other stacks via user-registered custom connectors</p></li>
+<li><p><strong>Production Mode</strong>: EPICS and DOOCS ship in-tree; LabVIEW, Tango, and other stacks via user-registered custom connectors</p></li>
 <li><p><strong>One API</strong>: the same code works with mock and production connectors</p></li>
 <li><p><strong>Custom connectors</strong>: register your own via <code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code></p></li>
 </ul>
@@ -496,13 +491,18 @@
 <ul class="simple">
 <li><p><strong>mock</strong> / <strong>mock_archiver</strong>: Development/R&amp;D mode (no hardware access required)</p></li>
 <li><p><strong>epics</strong> / <strong>epics_archiver</strong>: EPICS Channel Access / Archiver Appliance (production)</p></li>
+<li><p><strong>virtual_accelerator</strong>: the PyAT Virtual Accelerator’s EPICS soft-IOC — behaves
+like <code class="docutils literal notranslate"><span class="pre">epics</span></code> but tracks setpoints through the simulated machine, so scans
+actually run (the mock connector can’t do that); see <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></p></li>
 <li><p><strong>mongodb_archiver</strong>: MongoDB time-series archiver (optional, <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">&quot;osprey-framework[archiver-mongodb]&quot;</span></code>)</p></li>
 </ul>
+<p>A DOOCS connector and DOOCS archiver also ship in-tree; they are wired up via
+their dotted class paths rather than a registered name.</p>
 </section>
 <section id="quick-start-using-connectors">
-<h1>Quick Start: Using Connectors<a class="headerlink" href="#quick-start-using-connectors" title="Link to this heading">#</a></h1>
+<h2>Quick Start: Using Connectors<a class="headerlink" href="#quick-start-using-connectors" title="Link to this heading">#</a></h2>
 <section id="mock-mode-development-r-d">
-<h2>Mock Mode (Development &amp; R&amp;D)<a class="headerlink" href="#mock-mode-development-r-d" title="Link to this heading">#</a></h2>
+<h3>Mock Mode (Development &amp; R&amp;D)<a class="headerlink" href="#mock-mode-development-r-d" title="Link to this heading">#</a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span>
 
 <span class="c1"># Create mock connector - works with ANY channel names</span>
@@ -523,7 +523,7 @@
 </div>
 </section>
 <section id="production-mode-epics">
-<h2>Production Mode (EPICS)<a class="headerlink" href="#production-mode-epics" title="Link to this heading">#</a></h2>
+<h3>Production Mode (EPICS)<a class="headerlink" href="#production-mode-epics" title="Link to this heading">#</a></h3>
 <p>Switch to real hardware by changing <code class="docutils literal notranslate"><span class="pre">type</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Mock (default, for development):</span>
 <span class="nt">control_system</span><span class="p">:</span>
@@ -569,7 +569,7 @@ archiver (synthetic data) to the EPICS Archiver Appliance the same way:</p>
 </div>
 </section>
 <section id="mongodb-archiver">
-<h2>MongoDB Archiver<a class="headerlink" href="#mongodb-archiver" title="Link to this heading">#</a></h2>
+<h3>MongoDB Archiver<a class="headerlink" href="#mongodb-archiver" title="Link to this heading">#</a></h3>
 <p>For facilities that store time-series PV data in MongoDB rather than EPICS Archiver
 Appliance, configure the archiver block independently of the control-system choice:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
@@ -593,7 +593,7 @@ The connector requires the optional <code class="docutils literal notranslate"><
 </section>
 </section>
 <section id="write-verification">
-<h1>Write Verification<a class="headerlink" href="#write-verification" title="Link to this heading">#</a></h1>
+<h2>Write Verification<a class="headerlink" href="#write-verification" title="Link to this heading">#</a></h2>
 <p>All <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> calls return <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">()</span>
 
@@ -679,7 +679,7 @@ verification falls back to the <code class="docutils literal notranslate"><span 
 <code class="docutils literal notranslate"><span class="pre">control_system.write_verification.default_level</span></code>. Set <code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code> – on a
 channel, or in <code class="docutils literal notranslate"><span class="pre">defaults</span></code> to lock everything down by default – to block writes.</p>
 <section id="write-safety-configuration">
-<span id="write-safety-config"></span><h2>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h2>
+<span id="write-safety-config"></span><h3>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h3>
 <p>Write operations are disabled by default and must be explicitly enabled at two levels:</p>
 <p><strong>Global write permission</strong> (in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
@@ -695,12 +695,12 @@ agent); in-flight control of an active scan is the RunEngine’s own <code class
 <p>The connector applies <strong>per-write mechanical safety</strong> — the <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> gate,
 limits validation, and the fail-closed validation path — on every Channel Access put.
 This is a separate, complementary layer from the <strong>per-intent human authorization</strong>
-enforced at the tool boundary (the PreToolUse approval hook, and the promote token for
+enforced at the tool boundary (the PreToolUse approval hook, and the launch token for
 scans), which gates the <em>intent</em> to write once per intent rather than once per put.
 The approval layer cannot substitute for the connector’s mechanical refusal.</p>
 </section>
 <section id="limits-checking">
-<span id="limits-checking-config"></span><h2>Limits Checking<a class="headerlink" href="#limits-checking" title="Link to this heading">#</a></h2>
+<span id="limits-checking-config"></span><h3>Limits Checking<a class="headerlink" href="#limits-checking" title="Link to this heading">#</a></h3>
 <p>Automatic safety-limit validation for write operations:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
@@ -726,12 +726,12 @@ database format.</p>
 </section>
 </section>
 <section id="implementing-custom-connectors">
-<h1>Implementing Custom Connectors<a class="headerlink" href="#implementing-custom-connectors" title="Link to this heading">#</a></h1>
+<h2>Implementing Custom Connectors<a class="headerlink" href="#implementing-custom-connectors" title="Link to this heading">#</a></h2>
 <p>Subclass <code class="xref py py-class docutils literal notranslate"><span class="pre">ControlSystemConnector</span></code> and implement the abstract methods: <code class="docutils literal notranslate"><span class="pre">connect</span></code>, <code class="docutils literal notranslate"><span class="pre">disconnect</span></code>, <code class="docutils literal notranslate"><span class="pre">read_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">write_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">read_multiple_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">subscribe</span></code>, <code class="docutils literal notranslate"><span class="pre">unsubscribe</span></code>, <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">validate_channel</span></code>.</p>
 <p>You may also override the non-abstract <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> method if your backend benefits from atomic batch writes (e.g., disabling lattice recalculation between writes in a simulator). The default implementation writes sequentially via <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code>.</p>
 <p>Your connector must return the standard data models from <code class="docutils literal notranslate"><span class="pre">osprey.connectors.control_system.base</span></code>: <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelMetadata</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>, and <code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerification</span></code>.</p>
 <section id="registering-custom-connectors">
-<h2>Registering Custom Connectors<a class="headerlink" href="#registering-custom-connectors" title="Link to this heading">#</a></h2>
+<h3>Registering Custom Connectors<a class="headerlink" href="#registering-custom-connectors" title="Link to this heading">#</a></h3>
 <p><strong>Direct registration</strong> (simplest approach):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span>
 
@@ -765,7 +765,7 @@ instantiates the named class directly – useful for one-off custom connectors t
 don’t need a registry entry.</p>
 </section>
 <section id="testing-custom-connectors">
-<h2>Testing Custom Connectors<a class="headerlink" href="#testing-custom-connectors" title="Link to this heading">#</a></h2>
+<h3>Testing Custom Connectors<a class="headerlink" href="#testing-custom-connectors" title="Link to this heading">#</a></h3>
 <p>Test in three phases:</p>
 <ol class="arabic simple">
 <li><p><strong>Capability logic</strong> – use <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">mock</span></code> connector, no hardware needed.</p></li>
@@ -780,6 +780,7 @@ don’t need a registry entry.</p>
     <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;mock&#39;</span><span class="p">,</span> <span class="s1">&#39;connector&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;mock&#39;</span><span class="p">:</span> <span class="p">{}}}</span>
 </pre></div>
 </div>
+</section>
 </section>
 </section>
 
@@ -803,11 +804,11 @@ don’t need a registry entry.</p>
       </div>
     </a>
     <a class="right-next"
-       href="use-channel-finder.html"
+       href="add-mcp-server.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">How to Use the Channel Finder</p>
+        <p class="prev-next-title">Add an MCP Server</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -830,26 +831,24 @@ don’t need a registry entry.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Add a Connector</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start-using-connectors">Quick Start: Using Connectors</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mock-mode-development-r-d">Mock Mode (Development &amp; R&amp;D)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-mode-epics">Production Mode (EPICS)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mongodb-archiver">MongoDB Archiver</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start-using-connectors">Quick Start: Using Connectors</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mock-mode-development-r-d">Mock Mode (Development &amp; R&amp;D)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#production-mode-epics">Production Mode (EPICS)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mongodb-archiver">MongoDB Archiver</a></li>
 </ul>
 </li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#write-verification">Write Verification</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-safety-configuration">Write Safety Configuration</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-verification">Write Verification</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-safety-configuration">Write Safety Configuration</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
 </ul>
 </li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-custom-connectors">Implementing Custom Connectors</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-custom-connectors">Registering Custom Connectors</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-custom-connectors">Testing Custom Connectors</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-custom-connectors">Implementing Custom Connectors</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-custom-connectors">Registering Custom Connectors</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-custom-connectors">Testing Custom Connectors</a></li>
 </ul>
 </li>
 </ul>
-
   </nav></div>
 
   <div class="sidebar-secondary-item">

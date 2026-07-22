@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -483,10 +479,6 @@
                   
   <section id="web-interface">
 <h1>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h1>
-<div class="warning admonition">
-<p class="admonition-title">Experimental</p>
-<p>The ARIEL web interface is experimental and under active development. Its API endpoints, frontend architecture, and configuration options may change in future releases.</p>
-</div>
 <p>ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Browser (SPA)                        Server (FastAPI)
 ┌──────────────────────┐             ┌──────────────────────────┐
@@ -632,6 +624,23 @@ REST API</label><div class="sd-tab-content docutils">
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
 <td><p class="sd-card-text">Update the ARIEL configuration block</p></td>
 </tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/publish-info</span></code></p></td>
+<td><p class="sd-card-text">Describe the configured logbook’s write capability (the create
+form adapts its credential prompt to it)</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">POST</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts</span></code></p></td>
+<td><p class="sd-card-text">Create a draft entry (pre-fill data for the web form)</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts/{draft_id}</span></code></p></td>
+<td><p class="sd-card-text">Read a draft entry</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts/{draft_id}/attachments/{filename}</span></code></p></td>
+<td><p class="sd-card-text">Download a draft’s attachment</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -770,7 +779,7 @@ Frontend</label><div class="sd-tab-content docutils">
 </thead>
 <tbody>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">app.js</span></code></p></td>
-<td><p class="sd-card-text">Application initialization, hash-based routing, health check polling</p></td>
+<td><p class="sd-card-text">Application initialization and hash-based routing</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">api.js</span></code></p></td>
 <td><p class="sd-card-text">REST client wrapping <code class="docutils literal notranslate"><span class="pre">fetch()</span></code> for all API endpoints</p></td>
@@ -781,17 +790,18 @@ Frontend</label><div class="sd-tab-content docutils">
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">advanced-options.js</span></code></p></td>
 <td><p class="sd-card-text">Capabilities-driven advanced options panel (dynamic parameter controls)</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">entries.js</span></code></p></td>
-<td><p class="sd-card-text">Browse view with pagination, entry detail view, new entry form</p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">entries.js</span></code>, <code class="docutils literal notranslate"><span class="pre">entries-detail.js</span></code>, <code class="docutils literal notranslate"><span class="pre">entries-form.js</span></code>, <code class="docutils literal notranslate"><span class="pre">entries-helpers.js</span></code></p></td>
+<td><p class="sd-card-text">Browse view with pagination, entry detail view, and the new
+entry form (split across the four modules)</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">dashboard.js</span></code></p></td>
-<td><p class="sd-card-text">Status dashboard rendering</p></td>
+<td><p class="sd-card-text">Status dashboard rendering and periodic health refresh</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">components.js</span></code></p></td>
 <td><p class="sd-card-text">Shared UI components (entry cards, loading states, error messages)</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">drawer.js</span></code></p></td>
-<td><p class="sd-card-text">Side-drawer behavior (filters, advanced options, settings panels)</p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">utils.js</span></code></p></td>
+<td><p class="sd-card-text">Small shared helpers</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.js</span></code></p></td>
 <td><p class="sd-card-text">Settings UI: read/write ARIEL config block via <code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
@@ -799,6 +809,9 @@ Frontend</label><div class="sd-tab-content docutils">
 </tbody>
 </table>
 </div>
+<p class="sd-card-text">Side-drawer behavior (filters, advanced options, settings panels) comes
+from the shared <code class="docutils literal notranslate"><span class="pre">&lt;osprey-drawer&gt;</span></code> design-system component rather than
+a page-local module.</p>
 <p class="sd-card-text"><strong>CSS architecture:</strong></p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -811,27 +824,27 @@ Frontend</label><div class="sd-tab-content docutils">
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">variables.css</span></code></p></td>
-<td><p class="sd-card-text">Design tokens (colors, spacing, typography, transitions)</p></td>
-</tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">base.css</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">base.css</span></code></p></td>
 <td><p class="sd-card-text">Reset, typography, form elements</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">components.css</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">components.css</span></code></p></td>
 <td><p class="sd-card-text">Cards, buttons, badges, modals, search results</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">layout.css</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">layout.css</span></code></p></td>
 <td><p class="sd-card-text">Header, navigation, main content, responsive grid</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">drawer.css</span></code></p></td>
-<td><p class="sd-card-text">Side-drawer panel styling</p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">drawer.css</span></code></p></td>
+<td><p class="sd-card-text">Page-level styling around the shared drawer component</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.css</span></code></p></td>
-<td><p class="sd-card-text">Settings and OSPREY-agent-setup editor styling</p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.css</span></code></p></td>
+<td><p class="sd-card-text">Settings drawer styling (config form, YAML editor, save bar)</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p class="sd-card-text">Design tokens (colors, spacing, typography, transitions) are not
+defined per page — they come from the shared design system’s
+<code class="docutils literal notranslate"><span class="pre">/design-system/css/tokens.css</span></code>.</p>
 <p class="sd-card-text"><strong>Routing:</strong> The app uses <code class="docutils literal notranslate"><span class="pre">window.location.hash</span></code> for navigation. The <code class="docutils literal notranslate"><span class="pre">app.js</span></code> module listens for <code class="docutils literal notranslate"><span class="pre">hashchange</span></code> events and shows/hides view sections (<code class="docutils literal notranslate"><span class="pre">#search</span></code>, <code class="docutils literal notranslate"><span class="pre">#browse</span></code>, <code class="docutils literal notranslate"><span class="pre">#create</span></code>, <code class="docutils literal notranslate"><span class="pre">#status</span></code>). No page reloads occur during navigation.</p>
 </div>
 </div>

@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -505,16 +501,18 @@ build profile, see <a class="reference internal" href="build-profiles.html#profi
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> renders each service’s Jinja2 Docker Compose template,
 copies source and configuration into a per-service build directory, and
 hands the result to Docker or Podman Compose. A new project built from the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset deploys three services out of the box
-(<code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, <code class="docutils literal notranslate"><span class="pre">event-dispatcher</span></code>, and <code class="docutils literal notranslate"><span class="pre">dispatch-worker</span></code> — the latter
-two from the preset’s <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block); the <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset deploys
-none. You only need this page when you add or customize a containerized service.</p>
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset deploys a full stack out of the box:
+<code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, <code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>,
+<code class="docutils literal notranslate"><span class="pre">bluesky</span></code> (with its co-deployed Tiled data server), <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>,
+<code class="docutils literal notranslate"><span class="pre">bluesky_panels</span></code>, and the multi-user web-terminal stack. Even the minimal
+<code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset deploys one service (<code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, for telemetry).
+You only need this page when you add or customize a containerized service.</p>
 </section>
 <section id="service-configuration">
 <h2>Service Configuration<a class="headerlink" href="#service-configuration" title="Link to this heading">#</a></h2>
 <p>Services are declared under <code class="docutils literal notranslate"><span class="pre">services:</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and selected for
-deployment via <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>. A minimal example (this is what the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships with):</p>
+deployment via <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>. A minimal example (one of the services
+the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships with):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/postgresql</span>
@@ -537,11 +535,13 @@ template defining more than one compose service). For how facility services
 are declared inside a build profile, see <a class="reference internal" href="build-profiles.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
 <section id="service-lookup-namespaces">
 <h3>Service lookup namespaces<a class="headerlink" href="#service-lookup-namespaces" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">find_service_config</span></code> resolves a name from <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> in three
-places, in order: <code class="docutils literal notranslate"><span class="pre">osprey.&lt;name&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">applications.&lt;app&gt;.&lt;name&gt;</span></code>, and
-top-level <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;</span></code>. The flat form shown above is the legacy
-pattern; the namespaced forms are preferred for build profiles that ship
-multiple applications.</p>
+<p>A name in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is looked up by its literal spelling — there
+is no search order. A plain name like <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> resolves to top-level
+<code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code>. A dotted name picks its namespace explicitly:
+<code class="docutils literal notranslate"><span class="pre">osprey.&lt;name&gt;</span></code> reads <code class="docutils literal notranslate"><span class="pre">osprey.services.&lt;name&gt;</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">applications.&lt;app&gt;.&lt;name&gt;</span></code> reads <code class="docutils literal notranslate"><span class="pre">applications.&lt;app&gt;.services.&lt;name&gt;</span></code>.
+The flat form shown above is the common case; the namespaced forms exist for
+build profiles that ship multiple applications.</p>
 </section>
 </section>
 <section id="cli-commands">
@@ -551,8 +551,13 @@ osprey<span class="w"> </span>deploy<span class="w"> </span>down<span class="w">
 osprey<span class="w"> </span>deploy<span class="w"> </span>restart<span class="w">              </span><span class="c1"># Stop then start services</span>
 osprey<span class="w"> </span>deploy<span class="w"> </span>status<span class="w">               </span><span class="c1"># Show status table</span>
 osprey<span class="w"> </span>deploy<span class="w"> </span>build<span class="w">                </span><span class="c1"># Render compose files without starting</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>clean<span class="w">                </span><span class="c1"># Remove containers and volumes (destructive)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>clean<span class="w">                </span><span class="c1"># Remove containers, volumes, and images (destructive)</span>
 osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w">              </span><span class="c1"># Clean, rebuild, and restart services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>seed<span class="w"> </span><span class="o">[</span>USER<span class="o">]</span><span class="w">          </span><span class="c1"># (Re)seed multi-user web-terminal workspaces</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>decommission<span class="w"> </span>USER<span class="w">    </span><span class="c1"># Remove one user&#39;s workspace (--archive | --purge)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>prune<span class="w">                </span><span class="c1"># Remove workspaces of users no longer in the index</span>
+<span class="w">                                   </span><span class="c1">#   (--archive | --purge, --dry-run)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>nuke<span class="w">                 </span><span class="c1"># Tear down the whole multi-user stack (destructive)</span>
 </pre></div>
 </div>
 <p>Full command and flag reference: <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a>. Note there
@@ -609,10 +614,10 @@ needs.</p>
 <li><p><strong>Staleness advisory</strong> — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span></code>
 compare the project’s recorded provenance (osprey version and a content
 hash of the resolved preset, stamped into <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code> at
-build time) against the installed framework, and warn with the exact
-rebuild command when the render is out of date. The warning never blocks
-a deploy; projects built before the hash existed get the version
-comparison only.</p></li>
+build time) against the installed framework, and warn when the render is
+out of date — <code class="docutils literal notranslate"><span class="pre">up</span></code> prints the exact rebuild command, <code class="docutils literal notranslate"><span class="pre">status</span></code> a
+general reminder. The warning never blocks a deploy; projects built
+before the hash existed get the version comparison only.</p></li>
 <li><p><strong>Endpoint summary</strong> — every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> ends with a summary of
 the published service endpoints, including an explicit <code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">terminal</span>
 <span class="pre">(not</span> <span class="pre">configured</span> <span class="pre">in</span> <span class="pre">this</span> <span class="pre">project)</span></code> line when the config declares no web
@@ -666,12 +671,18 @@ have authentication and firewalling in place — <code class="docutils literal n
 <section id="environment-variables-env">
 <h2>Environment Variables (<code class="docutils literal notranslate"><span class="pre">.env</span></code>)<a class="headerlink" href="#environment-variables-env" title="Link to this heading">#</a></h2>
 <p>The deploy system passes a <code class="docutils literal notranslate"><span class="pre">.env</span></code> file from the project root to Docker /
-Podman Compose via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code>. Variables defined there are available to
-Compose substitution and to running containers.</p>
+Podman Compose via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code>. Compose uses these values to fill in
+<code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files; a variable reaches a
+running container only where a template maps it in.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 <span class="c1"># Edit .env with your actual values</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> also <em>writes</em> to this file: on first deploy it mints any
+missing service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>
+or <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>) so services never start with blank credentials,
+and restricts the file to owner-only permissions. Treat <code class="docutils literal notranslate"><span class="pre">.env</span></code> as the
+project’s secret store and keep it out of version control.</p>
 <p>If no <code class="docutils literal notranslate"><span class="pre">.env</span></code> file is found, services start with default/empty environment
 variables and a warning is logged.</p>
 </section>
@@ -682,9 +693,11 @@ instead of the PyPI version:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--dev
 </pre></div>
 </div>
-<p>The system builds a wheel from your local Osprey source and copies it into
-each service’s build directory, then sets <code class="docutils literal notranslate"><span class="pre">DEV_MODE=true</span></code> in the
-container environment. If the local source cannot be found (e.g., Osprey
+<p>The system builds a wheel from your local Osprey source, copies it into each
+service’s build directory, and rebuilds the service images with that wheel
+installed — the images are built first, then started as-is. Your dev source
+is baked into the image at build time; nothing changes inside an
+already-running container. If the local source cannot be found (e.g., Osprey
 was installed from PyPI rather than editable mode), containers fall back to
 the PyPI version.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> requires the Python <code class="docutils literal notranslate"><span class="pre">build</span></code> package:</p>
@@ -704,7 +717,8 @@ inspect rendered files under <code class="docutils literal notranslate"><span cl
 <p><strong>Daemon not running:</strong> Both Docker and Podman print platform-specific
 hints; on macOS, start Docker Desktop or run <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">machine</span> <span class="pre">start</span></code>.</p>
 <p><strong>``–dev`` issues:</strong> Confirm the Osprey wheel (<code class="docutils literal notranslate"><span class="pre">.whl</span></code>) exists in the
-service build directory; check <code class="docutils literal notranslate"><span class="pre">DEV_MODE</span></code> env var inside the container.</p>
+service build directory, and that the image was rebuilt after your source
+change — rerun <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span> <span class="pre">--dev</span></code> to rebuild it.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">

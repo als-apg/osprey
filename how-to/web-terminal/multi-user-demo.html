@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Web Terminal</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -552,9 +548,9 @@ it from the persona’s <code class="docutils literal notranslate"><span class="
 already-rendered project is user-owned and never overwritten; a half-written
 one errors with a remediation hint rather than being rebuilt over.</p></li>
 <li><p><strong>Builds each persona’s image.</strong> In the preset’s local mode
-(<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> builds each persona’s
-<code class="docutils literal notranslate"><span class="pre">…-readonly:local</span></code> / <code class="docutils literal notranslate"><span class="pre">…-readwrite:local</span></code> image itself from that rendered
-project — no registry, no CI.</p></li>
+(<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> builds each persona’s image
+(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-&lt;persona&gt;:local</span></code>) itself from that rendered project —
+no registry, no CI.</p></li>
 <li><p><strong>Brings up the stack.</strong> An nginx reverse proxy (container <code class="docutils literal notranslate"><span class="pre">mu-nginx</span></code>)
 serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9080</span></code>, and one Web Terminal
 container comes up per user — <code class="docutils literal notranslate"><span class="pre">mu-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">9091</span></code> and
@@ -656,9 +652,10 @@ not at the menu.</p>
 <h2>Logging out and switching users<a class="headerlink" href="#logging-out-and-switching-users" title="Link to this heading">#</a></h2>
 <p>Every session’s header carries a logout button. It POSTs to the terminal’s
 logout route, clears the local session pointer, and returns you to the landing
-page. From there, pick another card to open a different user — a switch always
-starts a <strong>fresh</strong> session for the new user rather than resuming the previous
-one.</p>
+page. From there, pick another card to open a different user. Logging out
+ends the session for real — the terminal drops its running processes, so the
+next login starts <strong>fresh</strong>. Simply navigating away (without logout) keeps
+the session warm, and returning to the same user reconnects to it.</p>
 </section>
 <section id="security-posture">
 <h2>Security posture<a class="headerlink" href="#security-posture" title="Link to this heading">#</a></h2>

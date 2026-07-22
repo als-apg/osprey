@@ -60,8 +60,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Web Terminal" href="web-terminal/index.html" />
-    <link rel="prev" title="Build Profiles" href="build-profiles.html" />
+    <link rel="next" title="Python Execution Service" href="use-python-executor.html" />
+    <link rel="prev" title="Add a Connector" href="add-connector.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -507,7 +503,7 @@ project’s <code class="docutils literal notranslate"><span class="pre">config.
 <span class="w">        </span><span class="nt">OSPREY_CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/config.yml&quot;</span>
 </pre></div>
 </div>
-<p>Each entry needs <code class="docutils literal notranslate"><span class="pre">command</span></code> and <code class="docutils literal notranslate"><span class="pre">args</span></code>.  <code class="docutils literal notranslate"><span class="pre">env</span></code> is optional.
+<p>Each entry needs <code class="docutils literal notranslate"><span class="pre">command</span></code>; <code class="docutils literal notranslate"><span class="pre">args</span></code> and <code class="docutils literal notranslate"><span class="pre">env</span></code> are optional.
 <code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> is expanded to the project directory at build time;
 <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> passes through shell environment variables.</p>
 <p>To set permissions and hooks on a custom server:</p>
@@ -643,8 +639,10 @@ instance from <code class="docutils literal notranslate"><span class="pre">serve
 <ul class="simple">
 <li><p><strong>Return type</strong> – always <code class="docutils literal notranslate"><span class="pre">str</span></code> (typically JSON).</p></li>
 <li><p><strong>Docstring</strong> – becomes the tool description the LLM sees; be specific.</p></li>
-<li><p><strong>Error handling</strong> – return structured JSON errors via
-<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.errors.make_error</span></code> rather than raising exceptions.</p></li>
+<li><p><strong>Error handling</strong> – report failures via
+<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.errors.make_error</span></code>, which raises a <code class="docutils literal notranslate"><span class="pre">ToolError</span></code>
+carrying a structured JSON envelope; raising this way is what marks the
+result as an error for the agent.</p></li>
 <li><p><strong>One tool per file</strong> keeps modules focused and avoids circular imports.</p></li>
 </ul>
 </section>
@@ -684,15 +682,22 @@ agent configuration.  The server will appear in <code class="docutils literal no
 </section>
 <section id="testing">
 <h2>Testing<a class="headerlink" href="#testing" title="Link to this heading">#</a></h2>
-<p>Unit-test tools by calling the async functions directly:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<p>Unit-test tools by calling the underlying async function. FastMCP’s
+<code class="docutils literal notranslate"><span class="pre">&#64;mcp.tool()</span></code> decorator wraps a function into a <code class="docutils literal notranslate"><span class="pre">FunctionTool</span></code> object, so
+unwrap it first — the shared test helper <code class="docutils literal notranslate"><span class="pre">get_tool_fn</span></code> (in
+<code class="docutils literal notranslate"><span class="pre">tests/mcp_server/conftest.py</span></code>) returns the raw function via its <code class="docutils literal notranslate"><span class="pre">.fn</span></code>
+attribute:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">tests.mcp_server.conftest</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_tool_fn</span>
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">unit</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_my_tool</span><span class="p">():</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.mcp_server.my_server.tools.my_tool</span><span class="w"> </span><span class="kn">import</span> <span class="n">my_tool</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">my_tool</span><span class="p">(</span><span class="s2">&quot;example&quot;</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">get_tool_fn</span><span class="p">(</span><span class="n">my_tool</span><span class="p">)(</span><span class="s2">&quot;example&quot;</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
     <span class="k">assert</span> <span class="s1">&#39;&quot;status&quot;: &quot;ok&quot;&#39;</span> <span class="ow">in</span> <span class="n">result</span>
 </pre></div>
 </div>
-<p>Place tests under <code class="docutils literal notranslate"><span class="pre">tests/mcp_server/test_my_server.py</span></code>.</p>
+<p>(The suite runs with <code class="docutils literal notranslate"><span class="pre">asyncio_mode=auto</span></code>, so plain <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">def</span></code> tests need
+no extra marker.) Place tests under <code class="docutils literal notranslate"><span class="pre">tests/mcp_server/test_my_server.py</span></code>.</p>
 </section>
 </section>
 
@@ -707,20 +712,20 @@ agent configuration.  The server will appear in <code class="docutils literal no
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="build-profiles.html"
+       href="add-connector.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Build Profiles</p>
+        <p class="prev-next-title">Add a Connector</p>
       </div>
     </a>
     <a class="right-next"
-       href="web-terminal/index.html"
+       href="use-python-executor.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Web Terminal</p>
+        <p class="prev-next-title">Python Execution Service</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -489,7 +485,7 @@ They load into the main agent’s context at the start of every session, the sam
 way <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> does. Several of them carry facility-specific operating
 context.</p>
 <section id="what-the-control-assistant-preset-ships">
-<h2>What the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset ships<a class="headerlink" href="#what-the-control-assistant-preset-ships" title="Link to this heading">#</a></h2>
+<h2>What the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships<a class="headerlink" href="#what-the-control-assistant-preset-ships" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 34.0%" />
@@ -525,14 +521,19 @@ and the required <code class="docutils literal notranslate"><span class="pre">os
 <td><p>Error taxonomy and response protocol for tool failures.</p></td>
 <td><p>Customizable</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">artifacts.md</span></code>, <code class="docutils literal notranslate"><span class="pre">python-execution.md</span></code>, <code class="docutils literal notranslate"><span class="pre">data-visualization.md</span></code>, <code class="docutils literal notranslate"><span class="pre">workflows.md</span></code></p></td>
-<td><p>Generic operating rules — artifact reuse, code execution, plotting, and
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">artifacts.md</span></code>, <code class="docutils literal notranslate"><span class="pre">python-execution.md</span></code>, <code class="docutils literal notranslate"><span class="pre">workflows.md</span></code></p></td>
+<td><p>Generic operating rules — artifact reuse, code execution, and
 task planning/delegation.</p></td>
 <td><p>No</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>Some rules render conditionally: <code class="docutils literal notranslate"><span class="pre">data-visualization.md</span></code> is generated only
+when the <code class="docutils literal notranslate"><span class="pre">data-visualizer</span></code> agent is <em>not</em> enabled (the agent carries its own
+plotting guidance, and the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset enables it — so a
+default project has no such rule file), and <code class="docutils literal notranslate"><span class="pre">timezone.md</span></code> only appears when
+<code class="docutils literal notranslate"><span class="pre">system.timezone</span></code> is set.</p>
 <p>A build profile can add rules of its own. Any rule without <code class="docutils literal notranslate"><span class="pre">paths</span></code> frontmatter
 loads unconditionally at session start.</p>
 </section>
@@ -633,7 +634,7 @@ unclaim and regen:</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-control-assistant-preset-ships">What the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset ships</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-control-assistant-preset-ships">What the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-a-rule">Changing a rule</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#answer-provenance-verify-first">Answer provenance (verify-first)</a></li>
 </ul>

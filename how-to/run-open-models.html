@@ -368,12 +368,11 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
-<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -393,17 +392,17 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
-
-
-
-
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
@@ -412,11 +411,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -503,10 +499,30 @@ Messages</strong> calls. When the endpoint speaks the OpenAI protocol, OSPREY br
 two with a local <code class="docutils literal notranslate"><span class="pre">Anthropic</span> <span class="pre">↔</span> <span class="pre">OpenAI</span></code> translation proxy that starts automatically
 once you select an OpenAI-protocol provider — you never invoke it yourself. This is
 identical whether the model is self-hosted (<code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">vllm</span></code>, no API key) or
-served by an OpenAI-only remote aggregator. (CBORG is the exception: it exposes an
-Anthropic-compatible endpoint, so the agent reaches it directly without the local
-proxy.) The provider list and <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys are in
-<a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
+served by an OpenAI-only remote aggregator.</p>
+<p>One nuance for CBORG: the built-in <code class="docutils literal notranslate"><span class="pre">cborg</span></code> provider uses CBORG’s
+Anthropic-compatible endpoint, which serves the <strong>Claude</strong> models — those go
+direct, with no proxy. CBORG’s <em>open</em> models live on its OpenAI-compatible side,
+so to run one you add your own provider entry pointing there. It then goes
+through the translation proxy like any other OpenAI endpoint:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">api</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">providers</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">cborg-open</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${CBORG_API_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.cborg.lbl.gov/v1</span><span class="w">   </span><span class="c1"># keep the /v1</span>
+<span class="w">      </span><span class="nt">models</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">haiku</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gpt-oss-120b</span>
+<span class="w">        </span><span class="nt">sonnet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gpt-oss-120b</span>
+<span class="w">        </span><span class="nt">opus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gpt-oss-120b</span>
+
+<span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg-open</span>
+<span class="w">  </span><span class="nt">default_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
+</pre></div>
+</div>
+<p>Any model ID from CBORG’s catalogue works in the <code class="docutils literal notranslate"><span class="pre">models</span></code> block — the
+benchmark table below shows which ones hold up in practice. The provider list
+and <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys are in <a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
 </section>
 <section id="which-models-are-known-to-work">
 <h2>Which models are known to work<a class="headerlink" href="#which-models-are-known-to-work" title="Link to this heading">#</a></h2>
@@ -558,7 +574,7 @@ control/ceiling reference.</p>
 <li><p><strong>Measured against:</strong> OSPREY <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code></p></li>
 <li><p><strong>Run:</strong> 2026-06-25 · open subjects via CBORG · Anthropic reference columns via als-apg · <code class="docutils literal notranslate"><span class="pre">deepseek-v4</span></code> self-hosted on a Mac Studio (keyless <code class="docutils literal notranslate"><span class="pre">ds4</span></code> server, single seed)</p></li>
 <li><p><strong>Scope:</strong> the model-driving subset of <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code> — 36 tests per seed</p></li>
-<li><p><strong>Scoring:</strong> pass rate = passed / (passed + failed + timeout); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.</p></li>
+<li><p><strong>Scoring:</strong> pass rate = passed / (passed + failed + timeout + errors); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.</p></li>
 </ul>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -635,7 +651,7 @@ control/ceiling reference.</p>
 <td><p>N/A</p></td>
 <td><p><strong>97%</strong></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude-haiku-4-5</span></code> <em>(ref)</em></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude-haiku-4-5-20251001</span></code> <em>(ref)</em></p></td>
 <td><p>als-apg</p></td>
 <td><p>100%</p></td>
 <td><p>—</p></td>

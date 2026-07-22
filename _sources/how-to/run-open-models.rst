@@ -25,10 +25,33 @@ Messages** calls. When the endpoint speaks the OpenAI protocol, OSPREY bridges t
 two with a local ``Anthropic ↔ OpenAI`` translation proxy that starts automatically
 once you select an OpenAI-protocol provider — you never invoke it yourself. This is
 identical whether the model is self-hosted (``ollama``, ``vllm``, no API key) or
-served by an OpenAI-only remote aggregator. (CBORG is the exception: it exposes an
-Anthropic-compatible endpoint, so the agent reaches it directly without the local
-proxy.) The provider list and ``config.yml`` keys are in
-:doc:`configure-providers`.
+served by an OpenAI-only remote aggregator.
+
+One nuance for CBORG: the built-in ``cborg`` provider uses CBORG's
+Anthropic-compatible endpoint, which serves the **Claude** models — those go
+direct, with no proxy. CBORG's *open* models live on its OpenAI-compatible side,
+so to run one you add your own provider entry pointing there. It then goes
+through the translation proxy like any other OpenAI endpoint:
+
+.. code-block:: yaml
+
+   api:
+     providers:
+       cborg-open:
+         api_key: ${CBORG_API_KEY}
+         base_url: https://api.cborg.lbl.gov/v1   # keep the /v1
+         models:
+           haiku: gpt-oss-120b
+           sonnet: gpt-oss-120b
+           opus: gpt-oss-120b
+
+   claude_code:
+     provider: cborg-open
+     default_model: sonnet
+
+Any model ID from CBORG's catalogue works in the ``models`` block — the
+benchmark table below shows which ones hold up in practice. The provider list
+and ``config.yml`` keys are in :doc:`configure-providers`.
 
 Which models are known to work
 ------------------------------
@@ -86,7 +109,7 @@ hard-codes a number, so it stays accurate as the suite grows.
    - **Measured against:** OSPREY ``v2026.6.2``
    - **Run:** 2026-06-25 · open subjects via CBORG · Anthropic reference columns via als-apg · ``deepseek-v4`` self-hosted on a Mac Studio (keyless ``ds4`` server, single seed)
    - **Scope:** the model-driving subset of ``tests/e2e/`` — 36 tests per seed
-   - **Scoring:** pass rate = passed / (passed + failed + timeout); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.
+   - **Scoring:** pass rate = passed / (passed + failed + timeout + errors); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.
 
    .. list-table::
       :header-rows: 1
@@ -146,7 +169,7 @@ hard-codes a number, so it stays accurate as the suite grows.
         - N/A
         - N/A
         - **97%**
-      * - ``claude-haiku-4-5`` *(ref)*
+      * - ``claude-haiku-4-5-20251001`` *(ref)*
         - als-apg
         - 100%
         - —

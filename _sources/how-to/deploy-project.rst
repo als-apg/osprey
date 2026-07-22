@@ -29,17 +29,19 @@ Overview
 ``osprey deploy`` renders each service's Jinja2 Docker Compose template,
 copies source and configuration into a per-service build directory, and
 hands the result to Docker or Podman Compose. A new project built from the
-``control-assistant`` preset deploys three services out of the box
-(``postgresql``, ``event-dispatcher``, and ``dispatch-worker`` — the latter
-two from the preset's ``dispatch:`` block); the ``hello-world`` preset deploys
-none. You only need this page when you add or customize a containerized service.
+``control-assistant`` preset deploys a full stack out of the box:
+``postgresql``, ``openobserve``, ``event_dispatcher`` and ``dispatch_worker``,
+``bluesky`` (with its co-deployed Tiled data server), ``virtual_accelerator``,
+``bluesky_panels``, and the multi-user web-terminal stack. Even the minimal
+``hello-world`` preset deploys one service (``openobserve``, for telemetry).
+You only need this page when you add or customize a containerized service.
 
 Service Configuration
 =====================
 
 Services are declared under ``services:`` in ``config.yml`` and selected for
-deployment via ``deployed_services:``. A minimal example (this is what the
-``control-assistant`` preset ships with):
+deployment via ``deployed_services:``. A minimal example (one of the services
+the ``control-assistant`` preset ships with):
 
 .. code-block:: yaml
 
@@ -66,11 +68,13 @@ are declared inside a build profile, see :ref:`profile-services`.
 Service lookup namespaces
 -------------------------
 
-``find_service_config`` resolves a name from ``deployed_services`` in three
-places, in order: ``osprey.<name>``, ``applications.<app>.<name>``, and
-top-level ``services.<name>``. The flat form shown above is the legacy
-pattern; the namespaced forms are preferred for build profiles that ship
-multiple applications.
+A name in ``deployed_services`` is looked up by its literal spelling — there
+is no search order. A plain name like ``postgresql`` resolves to top-level
+``services.postgresql``. A dotted name picks its namespace explicitly:
+``osprey.<name>`` reads ``osprey.services.<name>``, and
+``applications.<app>.<name>`` reads ``applications.<app>.services.<name>``.
+The flat form shown above is the common case; the namespaced forms exist for
+build profiles that ship multiple applications.
 
 CLI Commands
 ============
@@ -82,8 +86,13 @@ CLI Commands
    osprey deploy restart              # Stop then start services
    osprey deploy status               # Show status table
    osprey deploy build                # Render compose files without starting
-   osprey deploy clean                # Remove containers and volumes (destructive)
+   osprey deploy clean                # Remove containers, volumes, and images (destructive)
    osprey deploy rebuild              # Clean, rebuild, and restart services
+   osprey deploy seed [USER]          # (Re)seed multi-user web-terminal workspaces
+   osprey deploy decommission USER    # Remove one user's workspace (--archive | --purge)
+   osprey deploy prune                # Remove workspaces of users no longer in the index
+                                      #   (--archive | --purge, --dry-run)
+   osprey deploy nuke                 # Tear down the whole multi-user stack (destructive)
 
 Full command and flag reference: :doc:`../cli-reference/index`. Note there
 is no ``osprey deploy logs`` subcommand — use ``docker logs <name>`` or
@@ -144,10 +153,10 @@ Two guards make render drift visible:
 * **Staleness advisory** — ``osprey deploy up`` and ``osprey deploy status``
   compare the project's recorded provenance (osprey version and a content
   hash of the resolved preset, stamped into ``.osprey-manifest.json`` at
-  build time) against the installed framework, and warn with the exact
-  rebuild command when the render is out of date. The warning never blocks
-  a deploy; projects built before the hash existed get the version
-  comparison only.
+  build time) against the installed framework, and warn when the render is
+  out of date — ``up`` prints the exact rebuild command, ``status`` a
+  general reminder. The warning never blocks a deploy; projects built
+  before the hash existed get the version comparison only.
 * **Endpoint summary** — every ``osprey deploy up`` ends with a summary of
   the published service endpoints, including an explicit ``web terminal
   (not configured in this project)`` line when the config declares no web
@@ -208,13 +217,20 @@ Environment Variables (``.env``)
 =================================
 
 The deploy system passes a ``.env`` file from the project root to Docker /
-Podman Compose via ``--env-file``. Variables defined there are available to
-Compose substitution and to running containers.
+Podman Compose via ``--env-file``. Compose uses these values to fill in
+``${VAR}`` placeholders in the rendered compose files; a variable reaches a
+running container only where a template maps it in.
 
 .. code-block:: bash
 
    cp .env.example .env
    # Edit .env with your actual values
+
+``osprey deploy up`` also *writes* to this file: on first deploy it mints any
+missing service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``
+or ``ZO_ROOT_USER_PASSWORD``) so services never start with blank credentials,
+and restricts the file to owner-only permissions. Treat ``.env`` as the
+project's secret store and keep it out of version control.
 
 If no ``.env`` file is found, services start with default/empty environment
 variables and a warning is logged.
@@ -229,9 +245,11 @@ instead of the PyPI version:
 
    osprey deploy up --dev
 
-The system builds a wheel from your local Osprey source and copies it into
-each service's build directory, then sets ``DEV_MODE=true`` in the
-container environment. If the local source cannot be found (e.g., Osprey
+The system builds a wheel from your local Osprey source, copies it into each
+service's build directory, and rebuilds the service images with that wheel
+installed — the images are built first, then started as-is. Your dev source
+is baked into the image at build time; nothing changes inside an
+already-running container. If the local source cannot be found (e.g., Osprey
 was installed from PyPI rather than editable mode), containers fall back to
 the PyPI version.
 
@@ -258,7 +276,8 @@ inspect rendered files under ``build/services/<name>/``.
 hints; on macOS, start Docker Desktop or run ``podman machine start``.
 
 **``--dev`` issues:** Confirm the Osprey wheel (``.whl``) exists in the
-service build directory; check ``DEV_MODE`` env var inside the container.
+service build directory, and that the image was rebuilt after your source
+change — rerun ``osprey deploy up --dev`` to rebuild it.
 
 .. seealso::
 

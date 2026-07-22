@@ -128,13 +128,14 @@ The built-in enhancement modules:
 
       .. code-block:: yaml
 
-         enhancement_modules:
-           text_embedding:
-             enabled: true
-             provider: ollama
-             models:
-               - name: nomic-embed-text
-                 dimension: 768
+         ariel:
+           enhancement_modules:
+             text_embedding:
+               enabled: true
+               provider: ollama
+               models:
+                 - name: nomic-embed-text
+                   dimension: 768
 
       **Requirements:** Ollama (or another embedding provider) running with the specified model.
 
@@ -148,14 +149,15 @@ The built-in enhancement modules:
 
       .. code-block:: yaml
 
-         enhancement_modules:
-           semantic_processor:
-             enabled: true
-             provider: cborg
-             model:
+         ariel:
+           enhancement_modules:
+             semantic_processor:
+               enabled: true
                provider: cborg
-               model_id: anthropic/claude-haiku
-               max_tokens: 256
+               model:
+                 provider: cborg
+                 model_id: anthropic/claude-haiku
+                 max_tokens: 256
 
 **Registering a custom enhancement module:**
 
