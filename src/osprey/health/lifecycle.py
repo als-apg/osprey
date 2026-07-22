@@ -1,7 +1,8 @@
-"""Runtime-lifecycle unit for the health web sidecar.
+"""Runtime-lifecycle unit for long-lived health surfaces.
 
-The health app runs inside a long-lived, possibly daemon-thread-hosted process
-(the web terminal). :class:`HealthRuntimeLifecycle` owns the single
+A health surface may run inside a long-lived, possibly daemon-thread-hosted
+process — the web terminal's sidecar app or the stdio health MCP server.
+:class:`HealthRuntimeLifecycle` owns the single
 :class:`~osprey.health.runtime.HealthRuntime` for that process and the rules
 that keep its control-system connector safe there:
 
@@ -15,7 +16,7 @@ that keep its control-system connector safe there:
   zero Channel Access risk, so a broken-config first refresh cannot latch an
   empty mapping. Once a connector *has* been constructed, a changed mapping is
   never swapped in-process (an in-flight CA connector swap is a libca crash
-  class in the shared terminal process); instead it is surfaced explicitly as a
+  class in a shared host process); instead it is surfaced explicitly as a
   one-time warning log plus an informational result row on every subsequent
   report until the process restarts.
 * **Loop-affine, refresh-serialized teardown.** The connector must be
@@ -45,11 +46,23 @@ from typing import Any
 from osprey.health.models import CheckResult, Status
 from osprey.health.runtime import HealthRuntime
 
-logger = logging.getLogger("osprey.interfaces.health.lifecycle")
+logger = logging.getLogger("osprey.health.lifecycle")
 
-#: Message shown (log + result row) when ``control_system`` config changes after
-#: a connector has already been constructed and cannot be swapped in-process.
-RESTART_NOTICE_MESSAGE = "control_system config changed; restart the web terminal to apply"
+#: Default surface-neutral restart hint. Surfaces pass their own via
+#: ``HealthRuntimeLifecycle(restart_hint=...)`` so the notice names the process
+#: the operator (or agent) can actually restart.
+DEFAULT_RESTART_HINT = "restart the health service"
+
+
+def restart_notice_message(restart_hint: str = DEFAULT_RESTART_HINT) -> str:
+    """Compose the message shown (log + result row) when ``control_system``
+    config changes after a connector has been constructed and cannot be swapped
+    in-process."""
+    return f"control_system config changed; {restart_hint} to apply"
+
+
+#: The default-composed message, kept for callers/tests that don't customize the hint.
+RESTART_NOTICE_MESSAGE = restart_notice_message()
 
 #: Bounded wait for the ``atexit`` teardown to complete on the owning loop. Kept
 #: as a module constant so a process exiting while the loop is wedged never hangs
@@ -70,13 +83,13 @@ def control_system_snapshot(expanded: dict[str, Any] | None) -> dict[str, Any]:
     return (expanded or {}).get("control_system", {}) or {}
 
 
-def _restart_notice_row() -> CheckResult:
+def _restart_notice_row(message: str) -> CheckResult:
     """Build the informational row surfaced after an unapplied config change."""
     return CheckResult(
         name="control_system",
         category="configuration",
         status=Status.WARNING,
-        message=RESTART_NOTICE_MESSAGE,
+        message=message,
     )
 
 
@@ -89,9 +102,19 @@ class HealthRuntimeLifecycle:
             cancels and awaits it before disconnecting the connector so the two
             never race. May instead be supplied later via
             :meth:`set_inflight_task_provider`.
+        restart_hint: Surface-specific phrase naming the process to restart when
+            a ``control_system`` change cannot be applied in-process (e.g.
+            ``"restart the web terminal"``). Composed into the notice row and
+            warning log via :func:`restart_notice_message`.
     """
 
-    def __init__(self, inflight_task_provider: InflightTaskProvider | None = None) -> None:
+    def __init__(
+        self,
+        inflight_task_provider: InflightTaskProvider | None = None,
+        *,
+        restart_hint: str = DEFAULT_RESTART_HINT,
+    ) -> None:
+        self.restart_notice_message = restart_notice_message(restart_hint)
         self._runtime: HealthRuntime | None = None
         # The ``control_system`` mapping the current runtime was built from.
         self._active_control_system: dict[str, Any] | None = None
@@ -160,9 +183,9 @@ class HealthRuntimeLifecycle:
         # A connector is live; the config changed. Never swap in-process — warn
         # once and surface the notice row until the process restarts.
         if snapshot != self._noticed_control_system:
-            logger.warning("HealthRuntime: %s", RESTART_NOTICE_MESSAGE)
+            logger.warning("HealthRuntime: %s", self.restart_notice_message)
             self._noticed_control_system = snapshot
-        return [_restart_notice_row()]
+        return [_restart_notice_row(self.restart_notice_message)]
 
     # -- teardown ---------------------------------------------------------------
 

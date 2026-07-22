@@ -27,10 +27,10 @@ from typing import Any
 import pytest
 
 from osprey.health.config import HealthSettings
+from osprey.health.lifecycle import RESTART_NOTICE_MESSAGE, HealthRuntimeLifecycle
+from osprey.health.loader import LoadedHealthConfig
 from osprey.health.models import CheckResult, Status
 from osprey.interfaces.health.engine import HealthCheckEngine
-from osprey.interfaces.health.lifecycle import RESTART_NOTICE_MESSAGE, HealthRuntimeLifecycle
-from osprey.interfaces.health.loader import LoadedHealthConfig
 
 
 def _settings(
@@ -187,7 +187,7 @@ async def test_suite_run_is_unfiltered_and_never_on_demand(monkeypatch: pytest.M
 
         return CheckReport()
 
-    monkeypatch.setattr("osprey.interfaces.health.engine.run_health_suite", fake_suite)
+    monkeypatch.setattr("osprey.health.refresh.run_health_suite", fake_suite)
 
     loader = _FakeLoader(_loaded(_settings(), expanded={"api": {"providers": {}}}))
     engine, _ = _engine(loader)

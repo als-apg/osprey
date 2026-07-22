@@ -89,7 +89,7 @@ def _load_config_result(
 
     The single source of the ``config.yml`` degradation contract shared by the
     CLI one-shot load (:func:`load_config`) and the long-lived web loader
-    (:func:`osprey.interfaces.health.loader._load_config`): only builder
+    (:func:`osprey.health.loader._load_config`): only builder
     construction differs between them, so each supplies its own ``load_builder``
     while this owns the exists-check, the raise-to-degrade branches, and the
     ``health:`` parse — none of which ever raise.

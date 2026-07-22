@@ -28,15 +28,15 @@ from typing import Any
 import pytest
 
 from osprey.connectors import factory
-from osprey.health.models import Status
-from osprey.interfaces.health import lifecycle as lifecycle_mod
-from osprey.interfaces.health.lifecycle import (
+from osprey.health import lifecycle as lifecycle_mod
+from osprey.health.lifecycle import (
     RESTART_NOTICE_MESSAGE,
     HealthRuntimeLifecycle,
     control_system_snapshot,
 )
+from osprey.health.models import Status
 
-_LIFECYCLE_LOGGER = "osprey.interfaces.health.lifecycle"
+_LIFECYCLE_LOGGER = "osprey.health.lifecycle"
 
 
 class _SpyConnector:

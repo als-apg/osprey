@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`osprey.interfaces.health.loader`.
+"""Unit tests for :mod:`osprey.health.loader`.
 
 The loader is the synchronous phase of the health web view's refresh cycle. It
 shares record-assembly with the CLI (:mod:`osprey.health.records`) but adds the
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from osprey.health.config import HealthSettings
-from osprey.interfaces.health.loader import HealthConfigLoader, LoadedHealthConfig
+from osprey.health.loader import HealthConfigLoader, LoadedHealthConfig
 
 _VALID_CONFIG = """\
 project_name: test_project

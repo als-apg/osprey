@@ -11,21 +11,23 @@ so two poll suites never run at once.
 
 Composition (mirrors the web engine's building blocks):
 
-* One :class:`~osprey.interfaces.health.loader.HealthConfigLoader` owns the
+* One :class:`~osprey.health.loader.HealthConfigLoader` owns the
   synchronous config-load phase (config-path resolution, ``.env``/``config.yml``
   mtime gating, merged-record assembly, and the degrade-to-default-settings
   contract). It is driven off the event loop through
   :func:`osprey.health.offload.run_sync` so a wedged plugin import cannot block
   process exit.
-* One :class:`~osprey.interfaces.health.lifecycle.HealthRuntimeLifecycle` owns
+* One :class:`~osprey.health.lifecycle.HealthRuntimeLifecycle` owns
   the single connector runtime: :meth:`~HealthRuntimeLifecycle.reconcile` is
   called each refresh (re-snapshotting the runtime before first connect, and
   surfacing a restart-notice row after) and :meth:`~HealthRuntimeLifecycle.shutdown`
   performs the bounded connector teardown.
-* One :func:`osprey.health.runner.run_health_suite` run per refresh, always
-  ``full=False`` and ``categories=None`` — the cache always holds the full poll
-  suite so any caller's category selection can be satisfied downstream by
-  filtering the returned report; category selection never re-runs the suite.
+* One :func:`osprey.health.refresh.run_poll_refresh` per refresh — the poll
+  cycle shared with the web engine (reconcile → ``full=False`` /
+  ``categories=None`` suite → append plugin/notice rows). The cache always holds
+  the full poll suite so any caller's category selection can be satisfied
+  downstream by filtering the returned report; category selection never re-runs
+  the suite.
 
 Validity, wedge breaker, and single-flight are the three invariants:
 
@@ -59,10 +61,11 @@ from typing import Any
 
 from osprey.health import offload
 from osprey.health.config import parse_health_config
+from osprey.health.lifecycle import HealthRuntimeLifecycle
+from osprey.health.loader import HealthConfigLoader, LoadedHealthConfig
 from osprey.health.models import CheckReport
-from osprey.health.runner import run_health_suite
-from osprey.interfaces.health.lifecycle import HealthRuntimeLifecycle
-from osprey.interfaces.health.loader import HealthConfigLoader, LoadedHealthConfig
+from osprey.health.refresh import run_poll_refresh
+from osprey.health.signatures import disk_signature as _resolve_disk_signature
 
 logger = logging.getLogger("osprey.mcp_server.health.server_context")
 
@@ -134,15 +137,6 @@ class PollReportResult:
     refresh_suppressed: bool
 
 
-def _stat_signature(path: Path) -> tuple[int, int] | None:
-    """Return a change-detecting ``(mtime_ns, size)`` signature, or ``None``."""
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size)
-
-
 class HealthServerContext:
     """Owns the cached poll report and the single-flight refresh that produces it.
 
@@ -169,7 +163,7 @@ class HealthServerContext:
     ) -> None:
         cfg_path = Path(config_path) if config_path is not None else None
         self._loader = HealthConfigLoader(cfg_path)
-        self._lifecycle = HealthRuntimeLifecycle()
+        self._lifecycle = HealthRuntimeLifecycle(restart_hint="restart the health MCP server")
         self._config_path = cfg_path
         self._clock = clock
         self._disk_signature_fn = disk_signature or self._default_disk_signature
@@ -325,32 +319,16 @@ class HealthServerContext:
     # -- refresh ----------------------------------------------------------------
 
     async def _refresh(self, sig: Any) -> _Snapshot:
-        """Run one full refresh cycle: sync load → reconcile → suite → cache.
+        """Run one full refresh cycle: sync load → poll cycle → cache.
 
-        Must be called holding :attr:`_lock`. Mirrors the web engine's cycle but
-        awaits the suite inline and always stores the resulting snapshot.
+        Must be called holding :attr:`_lock`. Shares the poll cycle
+        (:func:`osprey.health.refresh.run_poll_refresh`) with the web engine but
+        awaits it inline and always stores the resulting snapshot.
         """
         loaded = await offload.run_sync(self._loader.load, timeout_s=self._settings.suite_timeout_s)
         self._settings = loaded.settings
 
-        notice_rows = self._lifecycle.reconcile(loaded.expanded)
-        runtime = self._lifecycle.runtime
-        if runtime is None:  # defensive: reconcile always constructs a runtime
-            raise RuntimeError("health lifecycle produced no runtime after reconcile")
-
-        report = await run_health_suite(
-            loaded.records,
-            runtime=runtime,
-            config=loaded.expanded,
-            full=False,
-            categories=None,
-            suite_timeout_s=loaded.settings.suite_timeout_s,
-            on_demand_timeout_s=loaded.settings.on_demand_timeout_s,
-        )
-        # Plugin-load diagnostics and any restart-notice row render alongside the
-        # suite results, unfiltered — matching the web surface's report shape.
-        report.results.extend(loaded.extra_rows)
-        report.results.extend(notice_rows)
+        report = await run_poll_refresh(loaded, self._lifecycle)
 
         snapshot = _Snapshot(
             loaded=loaded,
@@ -366,13 +344,7 @@ class HealthServerContext:
 
     def _default_disk_signature(self) -> tuple[Any, Any]:
         """Stat ``config.yml`` and its sibling ``.env`` for the validity probe."""
-        if self._config_path is not None:
-            config_path = self._config_path
-        else:
-            from osprey.utils.workspace import resolve_config_path
-
-            config_path = resolve_config_path()
-        return (_stat_signature(config_path), _stat_signature(config_path.parent / ".env"))
+        return _resolve_disk_signature(self._config_path)
 
 
 # ---------------------------------------------------------------------------

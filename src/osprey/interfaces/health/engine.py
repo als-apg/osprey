@@ -8,16 +8,16 @@ Refresh cycle (single-flight; request-kicked, never a browser-blocking run):
 
 1. **Sync phase** through :func:`osprey.health.offload.run_sync` (never
    ``asyncio.to_thread`` — a wedged plugin import must not block process exit):
-   the injected :class:`~osprey.interfaces.health.loader.HealthConfigLoader`
+   the injected :class:`~osprey.health.loader.HealthConfigLoader`
    resolves the config path, mtime-gates ``.env``/``config.yml``, and assembles
    the merged records.
-2. **Runtime reconcile** via
-   :class:`~osprey.interfaces.health.lifecycle.HealthRuntimeLifecycle`: the
-   ``control_system`` snapshot re-snapshots the runtime before first connect and
-   yields a restart-notice row afterwards.
-3. **Suite** via :func:`osprey.health.runner.run_health_suite` — always
-   ``full=False`` and ``categories=None`` so ``on_demand`` categories never
-   execute and the served report is never filtered.
+2. **Poll cycle** via :func:`osprey.health.refresh.run_poll_refresh` — the
+   sequence shared with the MCP poll surface: reconcile the
+   :class:`~osprey.health.lifecycle.HealthRuntimeLifecycle` runtime against the
+   ``control_system`` snapshot, run the ``full=False`` / ``categories=None``
+   suite so ``on_demand`` categories never execute and the report is never
+   filtered, then append the unfiltered plugin-diagnostic and restart-notice
+   rows.
 
 The report is cached with an age clock. ``/checks`` serves the cache and, when
 its age crosses ``interval_s − suite_timeout_s``, kicks a background refresh
@@ -47,11 +47,12 @@ from typing import TYPE_CHECKING, Any, Protocol
 from osprey.health import offload
 from osprey.health.config import HealthSettings, parse_health_config
 from osprey.health.models import CheckReport
-from osprey.health.runner import run_health_suite
+from osprey.health.refresh import run_poll_refresh
+from osprey.health.signatures import disk_signature as _resolve_disk_signature
 
 if TYPE_CHECKING:
-    from osprey.interfaces.health.lifecycle import HealthRuntimeLifecycle
-    from osprey.interfaces.health.loader import LoadedHealthConfig
+    from osprey.health.lifecycle import HealthRuntimeLifecycle
+    from osprey.health.loader import LoadedHealthConfig
 
 logger = logging.getLogger("osprey.interfaces.health.engine")
 
@@ -63,15 +64,6 @@ class _SyncLoader(Protocol):
     """Structural type for the injected synchronous config loader."""
 
     def load(self) -> LoadedHealthConfig: ...
-
-
-def _stat_signature(path: Path) -> tuple[int, int] | None:
-    """Return a change-detecting ``(mtime_ns, size)`` signature, or ``None``."""
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size)
 
 
 class HealthCheckEngine:
@@ -232,31 +224,14 @@ class HealthCheckEngine:
             return
 
         self._settings = loaded.settings
-        notice_rows = self._lifecycle.reconcile(loaded.expanded)
-        runtime = self._lifecycle.runtime
-        if runtime is None:  # defensive: reconcile always constructs a runtime
-            self._evaluate_breaker(events_before)
-            return
-
         try:
-            report = await run_health_suite(
-                loaded.records,
-                runtime=runtime,
-                config=loaded.expanded,
-                full=False,
-                categories=None,
-                suite_timeout_s=loaded.settings.suite_timeout_s,
-                on_demand_timeout_s=loaded.settings.on_demand_timeout_s,
-            )
+            # Shared poll cycle: reconcile → suite → append plugin/notice rows.
+            report = await run_poll_refresh(loaded, self._lifecycle)
         except Exception:
             logger.warning("health refresh: suite run failed; serving cached report", exc_info=True)
             self._evaluate_breaker(events_before)
             return
 
-        # Plugin-load diagnostics and the runtime restart notice always render,
-        # unfiltered, alongside the suite results.
-        report.results.extend(loaded.extra_rows)
-        report.results.extend(notice_rows)
         self._report = report
         self._cached_at = self._clock()
         self._config_ok = loaded.config_ok
@@ -303,10 +278,4 @@ class HealthCheckEngine:
 
     def _default_disk_signature(self) -> tuple[Any, Any]:
         """Stat ``config.yml`` and its sibling ``.env`` for the breaker fast-path."""
-        if self._config_path is not None:
-            config_path = Path(self._config_path)
-        else:
-            from osprey.utils.workspace import resolve_config_path
-
-            config_path = resolve_config_path()
-        return (_stat_signature(config_path), _stat_signature(config_path.parent / ".env"))
+        return _resolve_disk_signature(self._config_path)

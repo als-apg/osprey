@@ -107,7 +107,8 @@ def env(monkeypatch):
 
     monkeypatch.setattr(sc, "HealthConfigLoader", _make_loader)
     monkeypatch.setattr(sc, "HealthRuntimeLifecycle", _make_lifecycle)
-    monkeypatch.setattr(sc, "run_health_suite", _run_health_suite)
+    # The poll suite runs from the shared refresh module now, so patch it there.
+    monkeypatch.setattr("osprey.health.refresh.run_health_suite", _run_health_suite)
     monkeypatch.setattr(sc.offload, "run_sync", _run_sync)
     monkeypatch.setattr(sc.offload, "abandoned_alive_count", lambda: state["alive"])
 

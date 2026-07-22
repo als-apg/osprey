@@ -1,9 +1,10 @@
-"""Synchronous config-load phase of the health web view's refresh cycle.
+"""Synchronous config-load phase of a long-lived health surface's refresh cycle.
 
-The web health surface re-runs the same suite the ``osprey health`` CLI runs,
-but from a long-lived process that must pick up edits to ``config.yml`` / ``.env``
-without a restart and without entangling itself with the CLI's process-global
-config singleton. This module owns the *synchronous* half of one refresh cycle:
+The persistent health surfaces (the web sidecar and the health MCP server)
+re-run the same suite the ``osprey health`` CLI runs, but from a long-lived
+process that must pick up edits to ``config.yml`` / ``.env`` without a restart
+and without entangling itself with the CLI's process-global config singleton.
+This module owns the *synchronous* half of one refresh cycle:
 resolve the config path, cheaply skip work when nothing on disk changed (an
 mtime/size gate), reload ``.env`` only when it actually changed, load and parse
 ``config.yml`` through a private :class:`~osprey.utils.config.ConfigBuilder`
@@ -15,7 +16,7 @@ Divergences from the CLI's one-shot load
 persistent-process setting:
 
 * **No singleton.** Constructs ``ConfigBuilder(..., load_env=False)`` directly so
-  an in-place config edit is observed on the next cycle and the view neither
+  an in-place config edit is observed on the next cycle and the surface neither
   mutates nor is perturbed by the CLI's cached default config.
 * **Explicit ``.env`` control.** ``load_env=False`` keeps the builder from
   touching ``os.environ``; this module instead calls ``load_dotenv`` against the
@@ -32,6 +33,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
+
+from osprey.health.signatures import stat_signature
 
 if TYPE_CHECKING:
     from osprey.health.config import CategoryRecord, HealthSettings
@@ -52,21 +55,6 @@ class LoadedHealthConfig(NamedTuple):
     expanded: dict[str, Any] | None
     control_system: dict[str, Any]
     config_ok: bool
-
-
-def _stat_signature(path: Path) -> tuple[int, int] | None:
-    """Return a change-detecting ``(mtime_ns, size)`` signature, or ``None``.
-
-    ``None`` means the file is absent. Comparing signatures across cycles
-    detects a content edit (mtime and/or size change) as well as the appearance
-    or disappearance of the file; pairing size with mtime catches an edit that a
-    coarse filesystem clock would leave at the same timestamp.
-    """
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size)
 
 
 def _load_project_env(env_path: Path) -> None:
@@ -92,7 +80,7 @@ def _load_config(
     of the degradation-and-parse contract (a missing file, bad YAML, empty
     document, or invalid ``health:`` section all degrade to ``config_ok=False``
     and never raise) — but supplies a fresh ``ConfigBuilder(load_env=False)``
-    instead of the shared singleton so the long-lived view observes edits and
+    instead of the shared singleton so the long-lived surface observes edits and
     performs no ``.env`` side effect here.
     """
     from osprey.health.records import _load_config_result
@@ -107,11 +95,11 @@ def _load_config(
 
 
 class HealthConfigLoader:
-    """Stateful synchronous loader for the health view's refresh cycle.
+    """Stateful synchronous loader for a health surface's refresh cycle.
 
     A single instance is reused across refresh cycles. Each :meth:`load` call
     resolves the config path and returns its cached result unchanged when neither
-    ``config.yml`` nor ``.env`` moved since the last cycle — so an idle view
+    ``config.yml`` nor ``.env`` moved since the last cycle — so an idle surface
     neither re-reads YAML nor re-mutates ``os.environ``.
     """
 
@@ -133,8 +121,8 @@ class HealthConfigLoader:
         config_path = self._resolve_path()
         env_path = config_path.parent / ".env"
 
-        config_sig = _stat_signature(config_path)
-        env_sig = _stat_signature(env_path)
+        config_sig = stat_signature(config_path)
+        env_sig = stat_signature(env_path)
 
         first_run = self._cached is None
         env_changed = first_run or env_sig != self._env_sig

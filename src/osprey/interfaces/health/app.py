@@ -8,9 +8,9 @@ pattern.
 
 Three collaborators are wired here and cached on ``app.state``:
 
-* :class:`~osprey.interfaces.health.loader.HealthConfigLoader` — the synchronous
+* :class:`~osprey.health.loader.HealthConfigLoader` — the synchronous
   config-load phase (mtime-gated ``.env``/``config.yml`` → merged records);
-* :class:`~osprey.interfaces.health.lifecycle.HealthRuntimeLifecycle` — the sole
+* :class:`~osprey.health.lifecycle.HealthRuntimeLifecycle` — the sole
   owner of the control-system connector, with loop-affine teardown;
 * :class:`~osprey.interfaces.health.engine.HealthCheckEngine` — the single-flight
   cache/scheduler backing ``/checks``.
@@ -45,8 +45,8 @@ from osprey.interfaces._app_setup import configure_interface_app
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from osprey.health.lifecycle import HealthRuntimeLifecycle
     from osprey.interfaces.health.engine import HealthCheckEngine
-    from osprey.interfaces.health.lifecycle import HealthRuntimeLifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +66,12 @@ def _build_engine(
     deferred to the first refresh — so this succeeds even with a missing config.
     """
     try:
+        from osprey.health.lifecycle import HealthRuntimeLifecycle
+        from osprey.health.loader import HealthConfigLoader
         from osprey.interfaces.health.engine import HealthCheckEngine
-        from osprey.interfaces.health.lifecycle import HealthRuntimeLifecycle
-        from osprey.interfaces.health.loader import HealthConfigLoader
 
         loader = HealthConfigLoader(Path(config_path) if config_path is not None else None)
-        lifecycle = HealthRuntimeLifecycle()
+        lifecycle = HealthRuntimeLifecycle(restart_hint="restart the web terminal")
         engine = HealthCheckEngine(loader=loader, lifecycle=lifecycle, config_path=config_path)
         return engine, lifecycle
     except Exception:  # noqa: BLE001 — degrade to guarded mode, never raise.
