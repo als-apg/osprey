@@ -25,13 +25,13 @@ class StanfordProviderAdapter(BaseProvider):
     supports_proxy = True
     default_base_url = "https://aiapi-prod.stanford.edu/v1"
     default_model_id = "gpt-4o"
-    health_check_model_id = "gpt-4.omini"  # Cheapest OpenAI model for health checks
+    health_check_model_id = "gpt-4o-mini"  # Cheapest OpenAI model for health checks
     available_models = [
         # Anthropic Claude models
         "claude-3-7-sonnet",
         # OpenAI models
         "gpt-4o",
-        "gpt-4.omini",
+        "gpt-4o-mini",
         "o3-mini",
         # Google models
         "gemini-2.0-flash-001",
