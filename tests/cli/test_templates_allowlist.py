@@ -17,4 +17,9 @@ def test_templates_apps_matches_allowlist():
     on_disk = {
         p.name for p in templates_apps.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))
     }
-    assert on_disk == {"hello_world", "control_assistant", "ariel_standalone"}
+    assert on_disk == {
+        "hello_world",
+        "control_assistant",
+        "ariel_standalone",
+        "channel_finder_standalone",
+    }
