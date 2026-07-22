@@ -1192,6 +1192,22 @@ def test_openobserve_service_config_lookup_succeeds(tmp_path: Path) -> None:
     assert template_path == "./services/openobserve/docker-compose.yml.j2"
 
 
+def test_find_service_config_resolves_flat_names_only() -> None:
+    """Services resolve only by their flat short name under ``services:``. Dotted
+    spellings (``osprey.<name>`` / ``applications.<app>.<name>``) are not a
+    supported config shape — nothing populates a nested ``osprey:``/
+    ``applications:`` services block — so they resolve to ``(None, None)``, which
+    callers surface as a named "service not found" error.
+    """
+    from osprey.deployment.compose_generator import find_service_config
+
+    config = {"services": {"openobserve": {"path": "./services/openobserve"}}}
+
+    assert find_service_config(config, "openobserve")[0] is not None
+    assert find_service_config(config, "osprey.openobserve") == (None, None)
+    assert find_service_config(config, "applications.app.openobserve") == (None, None)
+
+
 # ---------------------------------------------------------------------------
 # postgresql service: per-project container_name (concurrent-deploy safety)
 #
