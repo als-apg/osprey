@@ -24,17 +24,19 @@ Overview
 ========
 
 The OSPREY agent can emit its operational telemetry — structured event logs and
-runtime metrics — over the OpenTelemetry Protocol (OTLP). Emit is **off by
-default**; you turn it on with a ``telemetry:`` block under ``claude_code:`` in
-``config.yml``. There are two ways to consume it:
+runtime metrics — over the OpenTelemetry Protocol (OTLP). Projects built from
+the bundled presets ship with telemetry **already enabled** and pointed at the
+local OpenObserve store; the mechanism itself only stays off when a config has
+no ``telemetry:`` block under ``claude_code:``. There are two ways to consume
+it:
 
 - **Phase 1 — any OTLP endpoint (backend-agnostic).** Point the agent at an
   OTLP collector or observability platform you already run. OSPREY only produces
   OTLP; it does not care what receives it.
-- **Phase 2 — the local OpenObserve add-on (opt-in).** Deploy a single-binary
-  OpenObserve store next to your project with ``osprey deploy up`` and keep all
-  telemetry on the same host. This is the turn-key option when you have no
-  existing observability stack.
+- **Phase 2 — the local OpenObserve add-on (the scaffolded default).** A
+  single-binary OpenObserve store deployed next to your project with
+  ``osprey deploy up``; all telemetry stays on the same host. This is the
+  turn-key option when you have no existing observability stack.
 
 .. note::
 
@@ -98,16 +100,17 @@ That is all Phase 1 requires — the agent begins emitting on its next run.
 Phase 2 — The local OpenObserve add-on
 ======================================
 
-If you do not already run an observability stack, OSPREY ships an opt-in
+If you do not already run an observability stack, OSPREY ships an
 `OpenObserve <https://openobserve.ai/>`_ service: a single binary that ingests
 OTLP directly and serves a browser UI, with no external dependencies. Everything
 stays on the deploy host.
 
-1. Enable the service
----------------------
+1. Check the service is enabled
+-------------------------------
 
-The ``openobserve`` service is declared in ``config.yml`` but left out of
-``deployed_services`` so it stays off until you opt in. Add it to the list:
+New projects ship with the ``openobserve`` service already declared in
+``config.yml`` **and** listed under ``deployed_services`` — it deploys by
+default. If your project removed it, restore it:
 
 .. code-block:: yaml
 
@@ -119,12 +122,14 @@ The ``openobserve`` service is declared in ``config.yml`` but left out of
    deployed_services:
      - openobserve
 
-2. Set the admin credentials
-----------------------------
+2. (Optional) set the admin credentials
+---------------------------------------
 
-The OpenObserve root account doubles as the OTLP ingest credential, so set both
-in your project ``.env``. The same two variables configure the container **and**
-authenticate the agent's OTLP push — one source of truth:
+The OpenObserve root account doubles as the OTLP ingest credential. You do not
+have to set it yourself: the first ``osprey deploy up`` mints a strong
+``ZO_ROOT_USER_PASSWORD`` into ``.env`` automatically. Set the two variables
+yourself only if you want specific values — the same pair configures the
+container **and** authenticates the agent's OTLP push, one source of truth:
 
 .. code-block:: bash
 
@@ -167,8 +172,11 @@ automatically per network context:
 .. important::
 
    For ``backend: openobserve`` the OTLP endpoint is **auto-derived** and you
-   should not hardcode it. The derived form is ``http://<host>:5080/api/<org>``,
-   where ``<host>`` is chosen for the running context:
+   should not hardcode it. The derived form is ``http://<host>:5080/api/<org>``
+   — note the ``5080`` is fixed: the derivation does *not* follow a changed
+   ``services.openobserve.port``, so if you publish the store on a different
+   host port, set ``endpoint:`` explicitly instead. The ``<host>`` part is
+   chosen for the running context:
 
    - **On the host** (``osprey web`` / ``osprey query`` on your machine) the host
      is ``localhost`` — the store's published port.

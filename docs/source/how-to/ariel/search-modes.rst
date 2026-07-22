@@ -87,9 +87,10 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
       .. code-block:: yaml
 
-         search_modules:
-           keyword:
-             enabled: true
+         ariel:
+           search_modules:
+             keyword:
+               enabled: true
 
    .. tab-item:: Semantic Search
 
@@ -115,14 +116,15 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
       .. code-block:: yaml
 
-         search_modules:
-           semantic:
-             enabled: true
-             provider: ollama
-             model: nomic-embed-text
-             settings:
-               similarity_threshold: 0.5
-               embedding_dimension: 768
+         ariel:
+           search_modules:
+             semantic:
+               enabled: true
+               provider: ollama
+               model: nomic-embed-text
+               settings:
+                 similarity_threshold: 0.5
+                 embedding_dimension: 768
 
       **Requirements:** Ollama (or another embedding provider) running with the configured model, embedding table populated via the ``text_embedding`` :ref:`enhancement module <Enhancement Pipeline>`, and the pgvector extension installed in PostgreSQL.
 

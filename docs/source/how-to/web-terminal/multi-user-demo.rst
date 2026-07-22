@@ -74,9 +74,9 @@ single project you built:
    one errors with a remediation hint rather than being rebuilt over.
 
 #. **Builds each persona's image.** In the preset's local mode
-   (``image_source: local``), ``deploy up`` builds each persona's
-   ``…-readonly:local`` / ``…-readwrite:local`` image itself from that rendered
-   project — no registry, no CI.
+   (``image_source: local``), ``deploy up`` builds each persona's image
+   (tagged ``<project>-<persona>:local``) itself from that rendered project —
+   no registry, no CI.
 
 #. **Brings up the stack.** An nginx reverse proxy (container ``mu-nginx``)
    serves the landing page on ``http://127.0.0.1:9080``, and one Web Terminal
@@ -181,9 +181,10 @@ Logging out and switching users
 
 Every session's header carries a logout button. It POSTs to the terminal's
 logout route, clears the local session pointer, and returns you to the landing
-page. From there, pick another card to open a different user — a switch always
-starts a **fresh** session for the new user rather than resuming the previous
-one.
+page. From there, pick another card to open a different user. Logging out
+ends the session for real — the terminal drops its running processes, so the
+next login starts **fresh**. Simply navigating away (without logout) keeps
+the session warm, and returning to the same user reconnects to it.
 
 Security posture
 ================

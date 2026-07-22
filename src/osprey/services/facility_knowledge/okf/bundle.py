@@ -1,7 +1,7 @@
 """Read API over an OKF knowledge bundle directory.
 
 A bundle is a directory tree of ``.md`` files whose structure follows the
-OSPREY Knowledge Framework specification (OKF §§2–6).  This module exposes
+Open Knowledge Format specification (OKF §§2–6).  This module exposes
 three operations:
 
 * :py:meth:`OKFBundle.list_concepts` — lightweight listing from ``index.md``

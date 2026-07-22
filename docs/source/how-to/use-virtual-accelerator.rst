@@ -68,6 +68,11 @@ switching backends is a config change, not a new deployment.
    # 3. Run the assistant as usual — the agent now talks to real Channel Access
    osprey web
 
+The very first ``osprey deploy up`` that includes the Virtual Accelerator
+builds its container image from source (compiling PyAT and the soft-IOC), so
+expect it to take several minutes — it is building, not hanging. Later deploys
+reuse the image.
+
 Switch back to the mock at any time with
 ``osprey config set-control-system mock``. The ``epics`` block keeps its
 production values throughout.
@@ -124,10 +129,10 @@ Scenarios
 ``osprey sim apply <scenario>`` works in Virtual Accelerator mode exactly as it
 does for the mock. Applying a scenario writes the project's ``active_scenarios``
 file; the in-container engine polls it and, within about a second, composed
-channel values reflect the new scenario. Switching scenarios also resets any
-values you wrote during the session, mirroring the mock engine's semantics — the
-simulation engine is the single implementation behind both backends, so they
-cannot drift apart.
+channel values reflect the new scenario. One behavioral difference from the
+mock: in VA mode a scenario switch only refreshes the engine-composed channels
+— setpoints you wrote during the session live in the IOC's own records and
+**survive** the switch. (In mock mode, written values are reset.)
 
 This assumes the IOC is reading the same project's ``data/simulation``. That is
 automatic for the deployed service; if you launched the container by hand, see

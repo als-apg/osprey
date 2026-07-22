@@ -11,6 +11,20 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- `web.app_name` in `config.yml` now actually labels the web terminal header: the
+  runtime read the key from a nested section nothing generates, so only the
+  `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,
+  matching `web.theme` and `web.presets` (env override still wins).
+- A server-configured `web.theme` family now survives a visitor's first page load:
+  the in-browser theme runtime adopted the default family on first visit instead of
+  the configured one. Light/dark still follows the OS until the visitor picks a mode.
+- How-to documentation refreshed against the current code: provider model IDs,
+  deploy/build semantics (`--force` preservation, `--dev` image builds, full
+  subcommand list), telemetry now documented as on-by-default, MCP/executor error
+  contracts, and the ARIEL web-interface module tables.
+
 ### Added
 
 - Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.
@@ -95,6 +109,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The Virtual Accelerator image now builds for the host's native architecture instead of pinning `linux/amd64`. On Apple Silicon it compiles `accelerator-toolbox`/`softioc` from source at build time (a slower first build) and then runs natively with no x86 emulation; on x86_64 it installs the prebuilt wheels as before. A single-arch `amd64` published image on an arm64 host must supply its own `platform` override.
 - **The event-dispatch worker now runs the full project image** instead of a lean image that rebuilt its `.claude` artifacts from `config.yml` at startup. Dispatched agents now see the same facility overlays (custom skills, agents, and rules) and `data/` files as the Web Terminal agent, by construction — previously overlays and `data/` were silently absent from dispatched runs. `osprey deploy up` builds the project image (`<project>:local`; `--dev` installs the locally built wheel) and the worker references it via `OSPREY_WORKER_IMAGE`. **Requires rebuilding the dispatch worker image on redeploy.**
 - **Dev image rebuilds are now incremental, and locally built service images are project-prefixed.** Each service Dockerfile now splits third-party dependencies (a cached layer) from the locally built OSPREY wheel (a fast layer), so a code-only change rebuilds in seconds and an unchanged deploy rebuilds nothing. Locally built images are now named per project — `<project>-dispatch:local`, `<project>-va:local`, `<project>-bluesky-bridge:local`, `<project>-bluesky-panels:local` — so multiple OSPREY projects on one host no longer overwrite or delete each other's images; every one carries a `com.osprey.project` label, and `osprey deploy clean` now targets the correct compose project. The old host-global images can be removed with `docker rmi osprey-dispatch:local osprey-va:local osprey-bluesky-bridge:local osprey-bluesky-panels:local`. **Migration:** an already-rendered project needs `build/` added to its `.dockerignore` — add it by hand to keep any custom Dockerfile edits, or re-render with `osprey build --force` (which overwrites hand edits). A project name that previously ended in `_` or `-` is now normalized without the trailing separator, changing its compose project and image names; run `osprey deploy down` on the old version before upgrading such a deployment.
+- Refreshed the architecture diagram shown on the documentation landing page and the Architecture Overview page to match the current system design.
 - `claude-agent-sdk` upgraded to 0.2.110 (bundles CLI 2.1.191); `uv.lock` regenerated (#311).
 - `fastmcp` floor raised to `>=3.4.4` (brings FastAPI 0.139 / Starlette 1.x); `uv.lock` regenerated. Route-registration checks now read the app's OpenAPI schema rather than `router.routes`, which Starlette 1.0 no longer flattens for included routers.
 - Dependency floors raised — `bokeh`, `gspread`, `watchdog`, `questionary`, `pillow`, `openai`, `scipy`, `bluesky`, `sphinx`, `docker`, `duckdb`, `idna`, `nltk`, `ollama`, `testcontainers`, `tiled`, `urllib3`, `uvicorn`; `uv.lock` regenerated to match.

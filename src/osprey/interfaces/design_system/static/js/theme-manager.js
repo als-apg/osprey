@@ -482,8 +482,12 @@ export function initTheme({ role = 'follower' } = {}) {
   if (_role === 'hub') {
     const queryPreference = _parsePreferenceToken(queryTheme);
     const storedPreference = _readStoredPreference();
+    // First visit (nothing stored, no ?theme=): keep mode 'auto' but adopt
+    // the family theme-boot.js already applied, so a server-configured
+    // web.theme family survives hub init instead of being displaced by
+    // DEFAULT_FAMILY.
     const preference = queryPreference || storedPreference || {
-      family: DEFAULT_FAMILY,
+      family: _isKnownId(attrTheme) ? _familyOf(attrTheme) : DEFAULT_FAMILY,
       mode: /** @type {ModePreference} */ ('auto'),
     };
     _preferenceFamily = preference.family;

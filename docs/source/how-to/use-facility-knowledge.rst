@@ -35,7 +35,7 @@ It uses a two-altitude model, split by *when* the agent needs the content:
    - The ``osprey knowledge`` CLI, the ``draft_concept`` tool, and the ``facility-knowledge`` subagent
 
    **Prerequisites:** The concepts need none. To try the mechanics you'll want
-   a generated OSPREY project (the ``control_assistant`` preset ships a
+   a generated OSPREY project (the ``control-assistant`` preset ships a
    ready-made bundle).
 
 The two tiers are documented separately:
@@ -47,7 +47,7 @@ The two tiers are documented separately:
       :link: facility-rules
       :link-type: doc
 
-      The always-in-context tier — what the ``control_assistant`` preset ships
+      The always-in-context tier — what the ``control-assistant`` preset ships
       in ``.claude/rules/`` and how to change it.
 
    .. grid-item-card:: The OKF Bundle

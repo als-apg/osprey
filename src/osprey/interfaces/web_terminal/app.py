@@ -433,8 +433,8 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
     return presets
 
 
-def _load_web_config(config_path: str | Path | None = None) -> dict:
-    """Load web_terminal config section from config.yml."""
+def _load_config_section(section: str, config_path: str | Path | None = None) -> dict:
+    """Load one top-level section from config.yml."""
     config_paths = [
         Path(config_path) if config_path else None,
         Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
@@ -445,9 +445,19 @@ def _load_web_config(config_path: str | Path | None = None) -> dict:
         if path and path.exists() and path.is_file():
             with open(path) as f:
                 config = yaml.safe_load(f) or {}
-            return config.get("web_terminal", {})
+            return config.get(section, {})
 
     return {}
+
+
+def _load_web_config(config_path: str | Path | None = None) -> dict:
+    """Load web_terminal config section from config.yml."""
+    return _load_config_section("web_terminal", config_path)
+
+
+def _load_web_ui_config(config_path: str | Path | None = None) -> dict:
+    """Load the top-level ``web`` section (UI settings: app_name, theme, presets)."""
+    return _load_config_section("web", config_path)
 
 
 def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
@@ -458,19 +468,7 @@ def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
     no explicit ``shell_command`` was passed — e.g. under ``uvicorn --reload``
     where ``create_app`` is called with no arguments.
     """
-    config_paths = [
-        Path(config_path) if config_path else None,
-        Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
-        Path("config.yml"),
-    ]
-
-    for path in config_paths:
-        if path and path.exists() and path.is_file():
-            with open(path) as f:
-                config = yaml.safe_load(f) or {}
-            return config.get("claude_code", {})
-
-    return {}
+    return _load_config_section("claude_code", config_path)
 
 
 def _create_lifespan(
@@ -518,7 +516,7 @@ def _create_lifespan(
         # Empty/absent ⇒ no label is rendered.
         app.state.app_name = (
             os.environ.get("OSPREY_WEB_APP_NAME", "").strip()
-            or str((config.get("web") or {}).get("app_name") or "").strip()
+            or str(_load_web_ui_config(config_path).get("app_name") or "").strip()
         )
         # Per-user deployment identity for multi-user compose stacks. No
         # config key exists for either of these today, so the config-side

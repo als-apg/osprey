@@ -224,10 +224,16 @@ class TestHeaderAppName:
     """web.app_name surfaces as an optional header badge for deployment ID."""
 
     def test_app_name_renders_when_set(self, workspace_dir):
-        cfg = {"watch_dir": str(workspace_dir), "web": {"app_name": "Control Room A"}}
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value=cfg,
+        cfg = {"watch_dir": str(workspace_dir)}
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value=cfg,
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_ui_config",
+                return_value={"app_name": "Control Room A"},
+            ),
         ):
             app = create_app(shell_command="echo")
             with TestClient(app) as c:
@@ -244,11 +250,15 @@ class TestHeaderAppName:
     def test_env_var_overrides_config(self, workspace_dir):
         # OSPREY_WEB_APP_NAME wins over web.app_name so containers sharing one
         # baked config image can still be named individually.
-        cfg = {"watch_dir": str(workspace_dir), "web": {"app_name": "From Config"}}
+        cfg = {"watch_dir": str(workspace_dir)}
         with (
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_config",
                 return_value=cfg,
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_ui_config",
+                return_value={"app_name": "From Config"},
             ),
             patch.dict("os.environ", {"OSPREY_WEB_APP_NAME": "From Env"}),
         ):

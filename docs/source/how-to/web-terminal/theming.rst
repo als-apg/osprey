@@ -23,11 +23,12 @@ matches automatically, in light or dark. You can also design your own.
 Choosing a theme
 ----------------
 
-Themes come in **families**. OSPREY ships two:
+Themes come in **families**. OSPREY ships three:
 
 - **osprey** — the default look, in light and dark.
 - **high-contrast** — a stronger-contrast family for accessibility, also in
   light and dark.
+- **apex** — a warm, gold-accented alternative look, also in light and dark.
 
 The switcher in the header lets you change family and flip between light and
 dark; it remembers your choice, and an ``auto`` setting follows your operating
@@ -58,8 +59,9 @@ To set the theme a deployment *starts* in, use ``web.theme`` in ``config.yml``:
    web:
      theme: osprey        # a family, or a specific theme like high-contrast-light
 
-Name a family to get its dark theme by default, or a specific theme to pin an
-exact look. Whatever you pick in the browser always wins over this and sticks
+Name a family to start visitors in that family (light or dark then follows
+their operating-system preference), or name a specific theme to pin an exact
+look. Whatever you pick in the browser always wins over this and sticks
 across reloads.
 
 .. note::
