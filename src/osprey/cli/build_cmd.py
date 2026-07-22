@@ -183,7 +183,7 @@ def build(
       # List available presets
       $ osprey build --list-presets
     """
-    from .build_profile import resolve_build_profile
+    from .build_profile import explicit_model_override_keys, resolve_build_profile
     from .project_utils import _clear_claude_code_project_state
 
     # --emit-profile is a project-less scaffold mode. Validate its constraints
@@ -523,6 +523,12 @@ def build(
             manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
         if build_profile.claude_md_template:
             manifest_context["claude_md_template"] = build_profile.claude_md_template
+        # Mark which model-selection keys came from an explicit `--set` so the
+        # manifest can distinguish user intent from resolved preset defaults
+        # (persona auto-render forwards only the former).
+        explicit_set_keys = explicit_model_override_keys(tuple(set_pairs))
+        if explicit_set_keys:
+            manifest_context["explicit_set_keys"] = explicit_set_keys
         # Carry the invocation source forward so build_reproducible_command
         # renders the matching --preset or positional form (C12).
         if preset:

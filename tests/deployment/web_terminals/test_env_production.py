@@ -411,3 +411,33 @@ def test_env_production_existing_file_with_credential_does_not_warn(tmp_path, ca
         env_production.ensure_env_production(config, tmp_path)
 
     assert "none of the LLM credential" not in caplog.text
+
+
+def test_env_production_missing_secret_present_in_shell_env_names_the_fix(tmp_path, monkeypatch):
+    """The gate deliberately never reads the ambient shell env as a secret
+    source -- but when the missing var IS exported there, the error must say
+    so and hand the operator the exact copy-in command, instead of leaving
+    them to discover the .env-only rule by archaeology."""
+    monkeypatch.setenv("ALS_APG_API_KEY", "exported-in-shell")
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with pytest.raises(RuntimeError, match="ALS_APG_API_KEY") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert "exported in the current shell" in message
+    assert f">> {tmp_path / '.env'}" in message
+    # The secret VALUE itself must never appear in the error.
+    assert "exported-in-shell" not in message
+
+
+def test_env_production_missing_secret_absent_everywhere_has_no_shell_hint(tmp_path, monkeypatch):
+    monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with pytest.raises(RuntimeError) as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "exported in the current shell" not in str(excinfo.value)

@@ -35,6 +35,7 @@ from osprey.deployment.staleness import warn_if_project_stale
 from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
+    preflight_web_terminals,
 )
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.dotenv import parse_dotenv_file
@@ -986,6 +987,14 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     if dev_mode:
         env["DEV_MODE"] = "true"
         logger.key_info("Development mode: DEV_MODE environment variable set for containers")
+
+    # Fail-fast web-terminal preflight (persona render + credential gate)
+    # BEFORE the minutes-long image build below: a deploy that is doomed to
+    # abort on a missing provider secret must say so in seconds, not after
+    # the whole project image has been built. deploy_up_web_terminals re-runs
+    # the same (idempotent) steps later, unchanged.
+    if web_terminals_enabled:
+        preflight_web_terminals(config, env)
 
     # Build the <project>:local image the dispatch worker references. The worker
     # has no compose build block (that would race the event-dispatcher on the

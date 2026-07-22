@@ -1157,6 +1157,26 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
     return result
 
 
+# The model-selection shorthand keys a user can override via `--set` whose
+# explicit use is recorded in the project manifest (extract_build_args) and
+# re-applied by persona auto-render, so one parent-build override retints
+# every derived persona project.
+MODEL_SELECTION_OVERRIDE_KEYS = ("provider", "model", "channel_finder_mode")
+
+
+def explicit_model_override_keys(set_pairs: tuple[str, ...]) -> list[str]:
+    """Model-selection keys the user explicitly overrode via bare ``--set``.
+
+    Only top-level shorthand keys count (``--set provider=x``); a dotted path
+    into ``config:`` addresses the rendered config directly and carries no
+    whole-stack intent, so it is never forwarded to persona renders.
+
+    Returns the matching keys in :data:`MODEL_SELECTION_OVERRIDE_KEYS` order.
+    """
+    parsed = _parse_set_pairs(set_pairs)
+    return [key for key in MODEL_SELECTION_OVERRIDE_KEYS if key in parsed]
+
+
 def resolve_build_profile(
     profile_path: Path | None,
     preset: str | None,
