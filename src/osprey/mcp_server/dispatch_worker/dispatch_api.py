@@ -37,7 +37,13 @@ from osprey.interfaces.artifacts.resolve import (
     load_run_record,
     resolve_single_run_artifact,
 )
-from osprey.mcp_server.dispatch_worker import counters, failure_class, run_stats, sdk_runner
+from osprey.mcp_server.dispatch_worker import (
+    counters,
+    failure_class,
+    retention,
+    run_stats,
+    sdk_runner,
+)
 from osprey.mcp_server.dispatch_worker.input_files_policy import (
     InputFilesError,
     sanitize_filename,
@@ -220,8 +226,11 @@ async def _lifespan(app: FastAPI):
     counters.install()
     _load_persisted_runs()
     task = asyncio.create_task(_stale_run_cleanup())
+    retention_task = _start_retention_sweep()
     yield
     task.cancel()
+    if retention_task is not None:
+        retention_task.cancel()
 
 
 app = FastAPI(title="dispatch-worker", version="1.0.0", lifespan=_lifespan)
@@ -314,6 +323,34 @@ async def _stale_run_cleanup() -> None:
     while True:
         await asyncio.sleep(60)
         _sweep_stale_runs()
+
+
+def _in_flight_run_ids() -> frozenset[str]:
+    """Run ids of currently-pending (in-flight) runs — never swept by retention."""
+    return frozenset(rid for rid, run in _runs.items() if run.get("status") == "pending")
+
+
+def _start_retention_sweep() -> asyncio.Task | None:
+    """Start the opt-in retention sweep task, or return ``None`` when disabled.
+
+    Enabled only when ``RETENTION_DAYS`` is a positive integer. The store factory
+    mirrors the artifact resolver's root logic (the module singleton is rooted at
+    the wrong CWD in the worker process).
+    """
+    retention_days = retention.retention_days_from_env()
+    if retention_days <= 0:
+        return None
+
+    from osprey.interfaces.artifacts.resolve import _get_store
+
+    return asyncio.create_task(
+        retention.retention_loop(
+            _LOG_DIR,
+            _get_store,
+            retention_days,
+            _in_flight_run_ids,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
