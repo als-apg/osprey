@@ -71,6 +71,7 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/operator.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/palette.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
@@ -105,6 +106,16 @@
         {% if terminal_user %}<span class="header-app-name" id="header-user-name" title="Logged in as {{ terminal_user }}">{{ terminal_user }}</span>{% endif %}
         {% if app_name %}<span class="header-app-name" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
         <osprey-theme-switcher></osprey-theme-switcher>
+        <!-- Command palette trigger (frame). Reads as a search bar; behaviour
+             (Cmd/Ctrl+K, filtering, keyboard nav) is wired by a later JS task.
+             CSS-hidden in simple UI mode. -->
+        <button id="command-palette-btn" class="command-palette-trigger" type="button"
+                aria-label="Open command palette"
+                title="Search settings, panels &amp; actions (Cmd/Ctrl+K)">
+          <span class="command-palette-trigger-icon" aria-hidden="true">&#128269;</span>
+          <span class="command-palette-trigger-label">Search</span>
+          <span class="command-palette-kbd" aria-hidden="true">&#8984;K</span>
+        </button>
         <button class="header-icon-btn" data-drawer-trigger="settings-drawer" title="Settings">&#9881;</button>
         <!-- Simple-mode help chip (frame 2b). CSS-gated off html[data-ui-mode]:
              hidden in expert, shown in simple. An anchor to the safety guide so

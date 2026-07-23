@@ -24,7 +24,10 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { initSettings } from '../../../src/osprey/interfaces/web_terminal/static/js/settings.js';
+import {
+  initSettings,
+  openDrawerTab,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/settings.js';
 
 /** Mount the minimal DOM `initSettings()` and `applySettings()` need. */
 function mountFixture() {
@@ -91,5 +94,77 @@ describe('applySettings: raw mode PUT', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/config', expect.objectContaining({
       method: 'PUT',
     }));
+  });
+});
+
+/**
+ * The command-palette gate seam. `openDrawerTab` is the SINGLE gated entry the
+ * palette (and `revealSetting`) build on: it must clear the warning gate first,
+ * then activate a tab, and report whether the tab actually became active.
+ * `runWarningGate` is internal, so its true-on-preset-ack decision is observed
+ * through this seam (no warning overlay is built and the drawer opens).
+ */
+describe('openDrawerTab: gated tab activation', () => {
+  const ACK_KEY = 'osprey-settings-warning-ack';
+
+  /** @type {any} */ let drawer;
+  /** @type {HTMLElement} */ let tab;
+
+  /** Stub `/health` (reached via fetchJSON) to hand back a server session id.
+   * @param {string} sessionId */
+  function stubHealth(sessionId) {
+    vi.stubGlobal('fetch', vi.fn((url) =>
+      String(url).endsWith('/health')
+        ? Promise.resolve({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: () => Promise.resolve({ session_id: sessionId }),
+          })
+        : Promise.resolve(notOkResponse())));
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = `
+      <button data-drawer-trigger="settings-drawer"></button>
+      <div id="settings-drawer">
+        <div class="drawer-tab" data-tab="tab-config"></div>
+      </div>
+      <div id="tab-config"></div>
+    `;
+    drawer = document.getElementById('settings-drawer');
+    // The real osprey-drawer supplies open()/close(); the fixture stubs them.
+    drawer.open = vi.fn(() => drawer.setAttribute('open', ''));
+    drawer.close = vi.fn(() => drawer.removeAttribute('open'));
+    tab = /** @type {HTMLElement} */ (document.querySelector('.drawer-tab'));
+    initSettings();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  test('clears the gate silently (no dialog, drawer opens) when the ack is preset for this server session', async () => {
+    localStorage.setItem(ACK_KEY, 'srv-1');
+    stubHealth('srv-1');
+
+    await openDrawerTab('tab-config');
+
+    // Preset ack => runWarningGate resolved true WITHOUT building a dialog...
+    expect(document.querySelector('.settings-warning-overlay')).toBeNull();
+    // ...and the caller (openDrawerTab) went on to open the drawer.
+    expect(drawer.open).toHaveBeenCalled();
+  });
+
+  test('returns false without polling when the target tab never gains .active (unsaved-changes veto)', async () => {
+    localStorage.setItem(ACK_KEY, 'srv-1');
+    stubHealth('srv-1');
+
+    const result = await openDrawerTab('tab-config');
+
+    // Fixture tab has no component handler, so the click adds no `.active`.
+    expect(tab.classList.contains('active')).toBe(false);
+    expect(result).toBe(false);
   });
 });

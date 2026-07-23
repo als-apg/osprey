@@ -1,0 +1,261 @@
+/* OSPREY Web Terminal — Command Palette
+ *
+ * Presentation for the Cmd/Ctrl+K command palette: the header search-bar
+ * trigger plus the full-viewport overlay + dialog. Behaviour (open/close,
+ * filtering, keyboard nav, result population) lives in JS; this file only
+ * styles the DOM contract. Everything themes through design-system tokens,
+ * so light/dark and the accent families come for free.
+ *
+ * The overlay/dialog structure mirrors the settings-warning modal precedent
+ * in drawer.css: hidden by default, revealed by an added `.visible` class
+ * that drives an opacity/visibility (+ scale) transition. */
+
+/* ---- Header trigger (reads like a search bar) ---- */
+
+/* A pill that sits among the header's bordered-chip controls but is wider and
+ * carries a magnifier + muted placeholder-style label + a keyboard hint, so it
+ * reads as "search" rather than a plain icon button. Tone (bg-panel border,
+ * radius, muted text) matches `.header .header-icon-btn` in terminal.css. */
+.command-palette-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  min-width: 180px;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--wt-transition-fast),
+              border-color var(--wt-transition-fast),
+              background var(--wt-transition-fast);
+}
+
+.command-palette-trigger:hover {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+.command-palette-trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  color: var(--text-secondary);
+  border-color: var(--border-accent);
+}
+
+/* Magnifier glyph — reads as the search affordance. */
+.command-palette-trigger-icon {
+  font-size: var(--text-lg);
+  line-height: var(--leading-none);
+  flex-shrink: 0;
+}
+
+/* The muted "Search…" placeholder-ish label. Grows to push the kbd hint to the
+ * far edge so the pill reads like a real search field. */
+.command-palette-trigger-label {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Simple UI mode: hide the trigger (LOAD-BEARING) ----
+ * Attribute selector on <html> + the id keeps this specific enough to win over
+ * the base `.command-palette-trigger { display: inline-flex }` above. */
+html[data-ui-mode="simple"] #command-palette-btn {
+  display: none;
+}
+
+/* ---- Keyboard-hint chip ---- */
+
+/* Small key cap, used inside the trigger (and reusable in rows). */
+.command-palette-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-none);
+  color: var(--text-secondary);
+  background: var(--neutral-tint-08);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+/* ---- Overlay ----
+ * Full-viewport scrim. Sits above the drawer (drawer.css z-index: 101) and the
+ * settings-warning modal (--z-sticky) by using --z-modal. Child is anchored to
+ * the top third (VS Code placement), not dead-centre. */
+.command-palette-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--overlay-black-70);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 15vh var(--space-4) var(--space-4);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--wt-transition-fast),
+              visibility var(--wt-transition-fast);
+}
+
+.command-palette-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* ---- Dialog panel ---- */
+.command-palette-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: 60vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-dialog);
+  overflow: hidden;
+  transform: scale(0.98);
+  transition: transform var(--wt-transition-fast);
+}
+
+.command-palette-overlay.visible .command-palette-dialog {
+  transform: scale(1);
+}
+
+/* Focus-within lifts the dialog border to accent — the dialog is the focus
+ * surface (the input itself carries no outline). */
+.command-palette-dialog:focus-within {
+  border-color: var(--border-accent);
+}
+
+/* ---- Search input ---- */
+.command-palette-input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-regular);
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-default);
+  outline: none;
+  flex-shrink: 0;
+}
+
+.command-palette-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ---- Results list ---- */
+.command-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  flex: 1;
+}
+
+/* ---- Group heading (Settings / Panels / Layouts / Actions) ---- */
+.command-palette-group-heading {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+/* ---- Result row ---- */
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  transition: background var(--wt-transition-fast),
+              color var(--wt-transition-fast);
+}
+
+.command-palette-item:hover {
+  background: var(--neutral-tint-08);
+}
+
+/* Keyboard-highlighted row — accent tint + accent left border and label,
+ * deliberately distinct from the neutral hover state. */
+.command-palette-item--active {
+  background: var(--accent-tint-10);
+  border-left-color: var(--color-accent);
+  color: var(--color-accent-light);
+}
+
+.command-palette-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Secondary muted text on the right (dot-key / hint). */
+.command-palette-item .command-palette-item-detail {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+}
+
+/* ---- Matched-character highlight ----
+ * Accent + bold; legible on both normal rows and the accent-tinted active row
+ * (accent-light stays readable over accent-tint-10). */
+.command-palette-match {
+  color: var(--color-accent-light);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---- Status row (non-interactive: "Loading settings…" / "unavailable") ---- */
+.command-palette-status {
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-style: italic;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* ---- Empty state ---- */
+.command-palette-empty {
+  padding: var(--space-5) var(--space-3);
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}

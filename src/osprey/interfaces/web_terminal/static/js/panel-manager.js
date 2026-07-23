@@ -13,7 +13,7 @@
 
 import { fetchJSON, createEventSource } from './api.js';
 import { getTheme } from '/design-system/js/theme-manager.js';
-import { getCurrentSessionId } from './terminal.js';
+import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, getMode } from './panel-iframe-sync.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { initDockIframeAdapter, adoptIframe, focusPanel, hidePanel, setKnownServicePanels } from './dock-iframe.js';
@@ -254,11 +254,11 @@ export async function initPanelManager(panelId) {
   // dumb view reading state through these closures and calling back into the same
   // visibility/register paths the agent uses.
   wirePanelHeaderControls({
-    getHiddenPanels: () => PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label })),
+    getHiddenPanels,
     allowUrlPanels: () => allowRuntimePanels,
     onShowPanel: showPanel,
     onRegisterUrl: registerUrlPanel,
-    getPresets: () => panelPresets,
+    getPresets,
     onApplyPreset: applyMenuPreset,
   });
 
@@ -602,80 +602,6 @@ function updateStatusBar(panel) {
   }
 }
 
-// ---- Theme Sync ----
-
-/**
- * Send the hub's current theme to one iframe. Always sends — never
- * conditioned on whether the id differs from the last send — because a
- * hidden iframe can read empty custom properties on Firefox and needs a
- * fresh, unconditional resend once it's visible again (theme-manager's
- * hidden-iframe protocol; see that module's docstring). Broadcasting to
- * every iframe on every hub theme change is theme-manager's own job (hub
- * role); this is only the two per-iframe trigger points panel-manager
- * owns: iframe creation and tab activation.
- *
- * 'osprey-theme-change' is the one message type theme-manager's follower
- * role (and every embedded interface) actually listens for.
- * @param {HTMLIFrameElement | null} iframe
- */
-function sendThemeToIframe(iframe) {
-  if (!iframe?.contentWindow) return;
-  try {
-    iframe.contentWindow.postMessage({ type: 'osprey-theme-change', theme: getTheme() }, window.location.origin);
-  } catch { /* cross-origin */ }
-}
-
-/**
- * Send the hub's active session id to one iframe — the twin of
- * sendThemeToIframe(), owned by the same two per-iframe trigger points
- * (iframe creation and tab activation). Guards on a missing contentWindow
- * (a not-yet-loaded or detached iframe) and on there being no active
- * session yet, and swallows the cross-origin postMessage throw the same
- * way its theme twin does.
- *
- * 'osprey-session-change' is the message type embedded interfaces listen
- * for to scope their view to the hub's active session.
- * @param {HTMLIFrameElement | null} iframe
- */
-function sendSessionToIframe(iframe) {
-  if (!iframe?.contentWindow) return;
-  const sid = getCurrentSessionId();
-  if (!sid) return;
-  try {
-    iframe.contentWindow.postMessage({ type: 'osprey-session-change', session_id: sid }, window.location.origin);
-  } catch { /* cross-origin */ }
-}
-
-// ---- UI Mode Sync ----
-//
-// The mode axis (expert|simple) has no manager module the way the theme axis
-// does — mode-boot.js resolves it pre-paint and the live value simply lives on
-// <html data-ui-mode>. Read it straight from there, defaulting to 'expert' so
-// the broadcast payload is never the empty/missing string consumers ignore.
-
-/** @returns {string} */
-function getMode() {
-  return document.documentElement.getAttribute('data-ui-mode') || 'expert';
-}
-
-/**
- * Send the hub's current UI mode to one iframe — the mode-axis twin of
- * sendThemeToIframe(), owned by the same two per-iframe trigger points (iframe
- * creation and tab activation). Always sends unconditionally for the same
- * hidden-iframe reason its theme twin does, and swallows the cross-origin
- * postMessage throw the same way.
- *
- * 'osprey-mode-change' is the message type embedded interfaces listen for to
- * flip their layout between Expert and Simple.
- * @param {HTMLIFrameElement | null} iframe
- */
-function sendModeToIframe(iframe) {
-  if (!iframe?.contentWindow) return;
-  try {
-    iframe.contentWindow.postMessage({ type: 'osprey-mode-change', mode: getMode() }, window.location.origin);
-  } catch { /* cross-origin */ }
-}
-
 /**
  * Broadcast the current UI mode to every panel iframe — the hub-role fan-out
  * the header toggle fires after it swaps <html data-ui-mode>. Mirrors
@@ -691,10 +617,13 @@ export function broadcastMode() {
 // ---- Tab Switching ----
 
 /**
+ * Focus an already-visible panel. Cross-module callers (the command palette's
+ * "Focus panel" pick) MUST pass `{ userInitiated: true }` so the switch is
+ * reported to the server via setPanelFocus — omitting it focuses locally only.
  * @param {string} panelId
  * @param {{ userInitiated?: boolean, auto?: boolean }} [options]
  */
-function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
+export function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
   const state = panelState[panelId];
   if (!state || !state.healthy) return;
   // A panel becoming healthy is not a request to show it. The server owns the
@@ -758,7 +687,7 @@ function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
  * when it's healthy (and no-ops otherwise, leaving the tab visible but unfocused).
  * @param {string} panelId
  */
-function showPanel(panelId) {
+export function showPanel(panelId) {
   setPanelVisibility(panelId, true);
   activateTab(panelId, { userInitiated: true });
 }
@@ -771,7 +700,7 @@ function showPanel(panelId) {
  * focus is a purely-local activateTab (no visibility re-POST for the primary).
  * @param {string[]} panels
  */
-function applyMenuPreset(panels) {
+export function applyMenuPreset(panels) {
   applyPreset(panels, {
     getVisible: () => visiblePanels,
     getKnown: () => new Set(PANELS.map(p => p.id)),
@@ -867,6 +796,44 @@ function createIframe(panelId) {
     }
   });
   observer.observe(contentEl);
+}
+
+// ---- Command Palette Accessors ----
+//
+// Thin read-only getters over this module's private panel state (PANELS,
+// visiblePanels, activeTabId, panelPresets), letting the command-palette module
+// enumerate panels without owning any of that state. They derive from the live
+// state on every call — no new module-level variable — and pair with the
+// re-exported showPanel / activateTab / applyMenuPreset actions so the palette
+// drives the same visibility/focus/layout paths the "+" menu uses.
+
+/**
+ * Known-but-hidden panels, in PANELS order. Shared with the "+" add menu (the
+ * wirePanelHeaderControls getHiddenPanels closure calls this, so both surfaces
+ * enumerate identically).
+ * @returns {Array<{id: string, label: string}>}
+ */
+export function getHiddenPanels() {
+  return PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label }));
+}
+
+/**
+ * Visible panels excluding the active one, in PANELS order. "Focus" on the
+ * already-active panel is a no-op, so activeTabId is filtered out.
+ * @returns {Array<{id: string, label: string}>}
+ */
+export function getVisiblePanels() {
+  return PANELS.filter(p => visiblePanels.has(p.id) && p.id !== activeTabId).map(p => ({ id: p.id, label: p.label }));
+}
+
+/**
+ * Config-defined layout presets ("Layouts"), in config order. Shared with the
+ * "+" menu's Layouts section (the wirePanelHeaderControls getPresets closure
+ * calls this). Empty unless a facility opts in.
+ * @returns {Array<{name: string, panels: string[]}>}
+ */
+export function getPresets() {
+  return panelPresets;
 }
 
 // ---- Empty State ----

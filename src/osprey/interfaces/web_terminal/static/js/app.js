@@ -9,6 +9,7 @@ import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
+import { initCommandPalette } from './palette-boot.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
@@ -35,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error('Failed to init dock workspace:', err);
   }
   initKeyboardShortcuts();
+  initCommandPalette();
   initNewSessionButton();
   initLogoutButton();
   initModeToggle();
