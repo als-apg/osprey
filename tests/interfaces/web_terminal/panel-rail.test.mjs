@@ -24,6 +24,7 @@ import {
   setHealth,
   setEntryEnabled,
   setEntryVisible,
+  setEntryAttention,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
 
 const PANELS = [
@@ -305,6 +306,64 @@ describe('setEntryEnabled / setEntryVisible', () => {
   test('both are no-ops for an unknown id', () => {
     expect(() => setEntryEnabled(rail, 'nope', true)).not.toThrow();
     expect(() => setEntryVisible(rail, 'nope', false)).not.toThrow();
+  });
+});
+
+describe('setEntryAttention', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  beforeEach(() => {
+    rail = freshRail();
+    createRail(rail, PANELS);
+  });
+
+  test('on sets the persistent badge class and fires the transient flash', () => {
+    expect(setEntryAttention(rail, 'ariel', true)).toBe(true);
+    const entry = getEntry(rail, 'ariel');
+    expect(entry?.classList.contains('agent-attention')).toBe(true);
+    expect(entry?.classList.contains('agent-flash')).toBe(true);
+  });
+
+  test('off removes the badge without force-stopping an in-flight flash', () => {
+    setEntryAttention(rail, 'ariel', true);
+    expect(setEntryAttention(rail, 'ariel', false)).toBe(true);
+    const entry = getEntry(rail, 'ariel');
+    expect(entry?.classList.contains('agent-attention')).toBe(false);
+    // No animationend has fired in happy-dom, so the flash class must survive.
+    expect(entry?.classList.contains('agent-flash')).toBe(true);
+  });
+
+  test('returns false and does not throw for an unknown id', () => {
+    expect(() => setEntryAttention(rail, 'nope', true)).not.toThrow();
+    expect(setEntryAttention(rail, 'nope', true)).toBe(false);
+  });
+
+  test('badge persists across setEntryVisible hide/show toggles', () => {
+    setEntryAttention(rail, 'ariel', true);
+    setEntryVisible(rail, 'ariel', false);
+    expect(getEntry(rail, 'ariel')?.classList.contains('agent-attention')).toBe(true);
+    setEntryVisible(rail, 'ariel', true);
+    expect(getEntry(rail, 'ariel')?.classList.contains('agent-attention')).toBe(true);
+  });
+
+  test('a hidden entry accepts the badge', () => {
+    setEntryVisible(rail, 'ariel', false);
+    expect(setEntryAttention(rail, 'ariel', true)).toBe(true);
+    const entry = getEntry(rail, 'ariel');
+    expect(entry?.classList.contains('panel-rail-hidden')).toBe(true);
+    expect(entry?.classList.contains('agent-attention')).toBe(true);
+  });
+
+  test('is class-only: no child nodes or attributes added or removed', () => {
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    const childrenBefore = [...entry.children];
+    const attrsBefore = entry.getAttributeNames().sort();
+
+    setEntryAttention(rail, 'ariel', true);
+    setEntryAttention(rail, 'ariel', false);
+
+    expect([...entry.children]).toEqual(childrenBefore);
+    expect(entry.getAttributeNames().sort()).toEqual(attrsBefore);
   });
 });
 

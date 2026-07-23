@@ -5,8 +5,8 @@
  * horizontal header tab strip. It builds one entry per enabled panel (icon,
  * label, health LED, active accent) plus a trailing `＋` add affordance, and
  * exposes small imperative mutators — set active, set health, enable, show/hide,
- * append — so `panel-manager.js`'s state machine can drive the rail without
- * owning any DOM specifics.
+ * attention, append — so `panel-manager.js`'s state machine can drive the rail
+ * without owning any DOM specifics.
  *
  * This module holds NO panel state and issues NO fetches or POSTs. The caller
  * passes closures for the interactions (activate, close, add); everything else
@@ -28,6 +28,8 @@
  *     <button class="panel-rail-add" type="button" aria-label="Add panel">＋</button>  (only when onAdd given)
  *   </nav>
  */
+
+import { flashElement } from '/design-system/js/highlight.js';
 
 // ---- Types ----
 
@@ -254,4 +256,28 @@ export function setEntryEnabled(railEl, panelId, enabled) {
  */
 export function setEntryVisible(railEl, panelId, visible) {
   getEntry(railEl, panelId)?.classList.toggle('panel-rail-hidden', !visible);
+}
+
+/**
+ * Set or clear the agent-attention affordance on an entry. Turning it on
+ * toggles the persistent `agent-attention` badge class (the design system's
+ * highlight.css draws an absolutely-positioned `::after` accent dot — class
+ * only, no child nodes, no layout shift) and fires the one-shot `agent-flash`
+ * glow via {@link flashElement}. Turning it off removes only the badge class;
+ * an in-flight flash is left to finish on its own `animationend`.
+ *
+ * The badge is orthogonal to visibility: hidden (`.panel-rail-hidden`) entries
+ * accept it and keep it across hide/show toggles.
+ * @param {HTMLElement} railEl
+ * @param {string} panelId
+ * @param {boolean} on
+ * @returns {boolean} true when the entry existed and was updated; false for an
+ *   unknown id (safe no-op, so callers can fall back)
+ */
+export function setEntryAttention(railEl, panelId, on) {
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return false;
+  entry.classList.toggle('agent-attention', on);
+  if (on) flashElement(entry);
+  return true;
 }
