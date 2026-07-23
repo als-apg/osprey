@@ -111,6 +111,8 @@ from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     PARTITION_STATIC_NOISY,
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
+    RECORD_TYPE_LONG_STRING,
+    RECORD_TYPE_MBB,
     build_manifest,
 )
 from osprey.services.virtual_accelerator.manifest.loaders import (  # noqa: E402
@@ -370,6 +372,77 @@ class TestBiRecordsRejectNoise:
         )
         records = build_records([ok])
         assert set(records.all) == {"ZZTEST:MAG:OK:01:STATUS:FAULT"}
+
+
+class TestGatewayRecordTypes:
+    """The longstringin/mbbi dispatch additions: the two gateway channel
+    shapes (512-byte char waveform, multi-bit binary) the original three
+    record types didn't cover. Build-time coverage only -- value round-trips
+    ride the same live-CA machinery as every other type."""
+
+    def test_long_string_sp_echo_pair_builds(self):
+        channels = [
+            _channel(
+                "ZZTEST:GW:LSTR:01:MSG:RB",
+                partition=PARTITION_SP_ECHO,
+                subfield="RB",
+                record_type=RECORD_TYPE_LONG_STRING,
+                family="LSTR",
+                field="MSG",
+            ),
+            _channel(
+                "ZZTEST:GW:LSTR:01:MSG:SP",
+                partition=PARTITION_SP_ECHO,
+                subfield="SP",
+                record_type=RECORD_TYPE_LONG_STRING,
+                family="LSTR",
+                field="MSG",
+            ),
+        ]
+        records = build_records(channels)
+        assert set(records.all) == {"ZZTEST:GW:LSTR:01:MSG:RB", "ZZTEST:GW:LSTR:01:MSG:SP"}
+
+    def test_mbb_static_channel_builds(self):
+        state = _channel(
+            "ZZTEST:GW:MODE:01:STATE:RB",
+            partition=PARTITION_STATIC_NOISY,
+            subfield="RB",
+            record_type=RECORD_TYPE_MBB,
+            family="MODE",
+            field="STATE",
+        )
+        records = build_records([state])
+        assert "ZZTEST:GW:MODE:01:STATE:RB" in records.static_noisy
+
+    def test_noisy_mbb_channel_raises(self):
+        bad = _channel(
+            "ZZTEST:GW:MODE:02:STATE:RB",
+            partition=PARTITION_STATIC_NOISY,
+            subfield="RB",
+            record_type=RECORD_TYPE_MBB,
+            noise=True,
+        )
+        with pytest.raises(ManifestContractError, match="reject noise"):
+            build_records([bad])
+
+    def test_noisy_long_string_channel_raises(self):
+        bad = _channel(
+            "ZZTEST:GW:LSTR:02:MSG:RB",
+            partition=PARTITION_STATIC_NOISY,
+            subfield="RB",
+            record_type=RECORD_TYPE_LONG_STRING,
+            noise=True,
+        )
+        with pytest.raises(ManifestContractError, match="reject noise"):
+            build_records([bad])
+
+    def test_long_string_records_declare_full_gateway_width(self):
+        # NELM must be 512 explicitly: the builder's own default (256, or
+        # len(initial_value)+1) would silently truncate a full-width wire
+        # value. Asserted at the wrapper level so a future builder-default
+        # change upstream cannot quietly shrink the record.
+        rec = ioc_records_module._long_string_in("ZZTEST:GW:LSTR:03:MSG:RB")
+        assert int(rec.NELM.Value()) == 512
 
 
 class TestContractViolations:

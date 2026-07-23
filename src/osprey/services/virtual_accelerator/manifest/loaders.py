@@ -2,9 +2,11 @@
 
 Reuses osprey's own channel_finder database parsers (the same code that
 loads these files at runtime) so this generator never re-implements
-``_expansion`` range/list parsing. This is a generation-time dependency
-only: the emitted ``channel_manifest.json`` has no osprey import
-requirement for downstream consumers (the future IOC just reads the JSON).
+``_expansion`` range/list parsing. Note the IOC does *not* read the emitted
+``channel_manifest.json``: ``entrypoint.py`` regenerates the manifest
+in-process via ``build_manifest()``, and the committed JSON serves only as a
+drift guard. (An IOC *can* be pointed at a manifest JSON explicitly -- that
+is the file-backed channel source below, :func:`load_manifest_file`.)
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from osprey.services.channel_finder.databases.hierarchical import (
     HierarchicalChannelDatabase,
@@ -70,10 +73,101 @@ def load_middle_layer_addresses() -> set[str]:
     return {ch["address"] for ch in db.get_all_channels()}
 
 
-def load_machine_json_channels() -> dict[str, dict]:
-    """Return the scenario-seed machine.json channels keyed by address."""
-    data = json.loads(paths.MACHINE_JSON.read_text())
-    return data["channels"]
+def load_machine_json_channels(path: Path | None = None) -> dict[str, dict]:
+    """Return the scenario-seed machine.json channels keyed by address.
+
+    ``path`` selects which machine.json to read: ``None`` (the default)
+    keeps the historical behaviour of reading the bundled control-assistant
+    template's copy; a file-backed facility passes its own mounted
+    machine.json instead (see ``entrypoint.py``).
+    """
+    data = json.loads((path or paths.MACHINE_JSON).read_text())
+    channels: dict[str, dict] = data["channels"]
+    return channels
+
+
+# --- file-backed channel source ------------------------------------------
+
+# The full per-channel schema build_records() consumes -- identical to the
+# in-memory shape build_manifest()["channels"] produces. A file-backed
+# manifest must supply every key for every channel; the identity keys
+# (ring/system/family/device/field) may be empty strings only if the
+# facility accepts the pairing collisions that implies (setpoint/readback
+# pairs are matched on exactly those five keys).
+MANIFEST_CHANNEL_KEYS = frozenset(
+    {
+        "address",
+        "ring",
+        "system",
+        "family",
+        "device",
+        "field",
+        "subfield",
+        "partition",
+        "record_type",
+        "noise",
+    }
+)
+
+
+class ManifestFileError(RuntimeError):
+    """A file-backed channel manifest is missing, unreadable, or malformed.
+
+    Raised eagerly at load time so a misconfigured IOC dies at boot with a
+    named cause, never serving a partial channel set.
+    """
+
+
+def load_manifest_file(path: Path) -> list[dict]:
+    """Load the channel list from a manifest JSON file.
+
+    This is the file-backed channel source: a facility that does not use the
+    built-in generated manifest supplies ``{"channels": [...]}`` where each
+    entry carries the exact per-channel schema ``build_manifest()`` produces
+    (see ``MANIFEST_CHANNEL_KEYS``). Facility-neutral by construction -- no
+    address grammar is imposed beyond the presence of the schema keys, so
+    any facility's namespace (three-part addresses included) loads through
+    the same call.
+
+    Raises:
+        ManifestFileError: if the file is absent, not valid JSON, lacks a
+            top-level ``channels`` list, contains a channel missing schema
+            keys, or declares the same address twice.
+    """
+    if not path.is_file():
+        raise ManifestFileError(f"channel manifest file not found: {path}")
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ManifestFileError(f"channel manifest {path} is not valid JSON: {exc}") from exc
+
+    channels = data.get("channels") if isinstance(data, dict) else None
+    if not isinstance(channels, list):
+        raise ManifestFileError(
+            f"channel manifest {path} must be a JSON object with a 'channels' list"
+        )
+
+    seen: set[str] = set()
+    for index, channel in enumerate(channels):
+        if not isinstance(channel, dict):
+            raise ManifestFileError(f"channel manifest {path}: channels[{index}] is not an object")
+        missing = MANIFEST_CHANNEL_KEYS - channel.keys()
+        if missing:
+            raise ManifestFileError(
+                f"channel manifest {path}: channels[{index}] "
+                f"({channel.get('address', '<no address>')!r}) is missing "
+                f"key(s): {', '.join(sorted(missing))}"
+            )
+        address = channel["address"]
+        if not address:
+            raise ManifestFileError(
+                f"channel manifest {path}: channels[{index}] has an empty address"
+            )
+        if address in seen:
+            raise ManifestFileError(f"channel manifest {path}: duplicate address {address!r}")
+        seen.add(address)
+
+    return channels
 
 
 # Matches `"<address>": { "label": ...` entries in machine_state_channels.json.j2

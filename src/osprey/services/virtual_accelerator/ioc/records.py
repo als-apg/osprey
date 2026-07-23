@@ -42,27 +42,70 @@ from osprey.services.virtual_accelerator.manifest import (
     PARTITION_STATIC_NOISY,
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
+    RECORD_TYPE_LONG_STRING,
+    RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
 )
 
 SETPOINT_SUBFIELD = "SP"
 READBACK_SUBFIELD = "RB"
 
+# Gateway "long string" channels are 512-byte char waveforms (NELM=512,
+# FTVL='CHAR'). Pass length=512 EXPLICITLY: longStringIn/Out otherwise
+# default to 256 -- or to len(initial_value)+1 when an initial value is
+# given -- either of which would silently truncate a wire value the real
+# channel carries in full.
+_LONG_STRING_LENGTH = 512
+
+
+def _long_string_in(name: str, **fields: Any) -> Any:
+    return builder.longStringIn(name, length=_LONG_STRING_LENGTH, **fields)
+
+
+def _long_string_out(name: str, **fields: Any) -> Any:
+    return builder.longStringOut(name, length=_LONG_STRING_LENGTH, **fields)
+
+
+# mbbIn/mbbOut take their enum state labels as *positional* options
+# (``mbbIn(name, "OFF", "ON", ...)``), so they cannot sit in the flat
+# keyword-only dispatch tables directly. The manifest schema carries no
+# state labels -- an mbb channel is served as a plain numeric enum -- so
+# these wrappers simply pass no options; they exist to pin the calling
+# convention (and to hold state labels, should the manifest ever grow them).
+def _mbb_in(name: str, **fields: Any) -> Any:
+    return builder.mbbIn(name, **fields)
+
+
+def _mbb_out(name: str, **fields: Any) -> Any:
+    return builder.mbbOut(name, **fields)
+
+
 _IN_BUILDERS = {
     RECORD_TYPE_ANALOG: builder.aIn,
     RECORD_TYPE_BINARY: builder.boolIn,
     RECORD_TYPE_STRING: builder.stringIn,
+    RECORD_TYPE_LONG_STRING: _long_string_in,
+    RECORD_TYPE_MBB: _mbb_in,
 }
 _OUT_BUILDERS = {
     RECORD_TYPE_ANALOG: builder.aOut,
     RECORD_TYPE_BINARY: builder.boolOut,
     RECORD_TYPE_STRING: builder.stringOut,
+    RECORD_TYPE_LONG_STRING: _long_string_out,
+    RECORD_TYPE_MBB: _mbb_out,
 }
 _DEFAULT_VALUE = {
     RECORD_TYPE_ANALOG: 0.0,
     RECORD_TYPE_BINARY: False,
     RECORD_TYPE_STRING: "",
+    RECORD_TYPE_LONG_STRING: "",
+    RECORD_TYPE_MBB: 0,
 }
+
+# Record types whose values are discrete or textual: simulated measurement
+# noise is meaningless for them, so a manifest flagging one noisy is a
+# contract violation (same rationale as the long-standing bi rejection).
+_NOISE_REJECTING_TYPES = frozenset({RECORD_TYPE_BINARY, RECORD_TYPE_MBB, RECORD_TYPE_LONG_STRING})
 
 
 class ManifestContractError(ValueError):
@@ -188,9 +231,10 @@ def build_records(
             raise ManifestContractError(
                 f"unknown record_type {record_type!r} for {channel['address']!r}"
             )
-        if record_type == RECORD_TYPE_BINARY and channel["noise"]:
+        if record_type in _NOISE_REJECTING_TYPES and channel["noise"]:
             raise ManifestContractError(
-                f"binary channel {channel['address']!r} is flagged noisy -- bi records reject noise"
+                f"channel {channel['address']!r} is flagged noisy -- "
+                f"{record_type} records reject noise"
             )
 
         if channel["subfield"] == SETPOINT_SUBFIELD:
