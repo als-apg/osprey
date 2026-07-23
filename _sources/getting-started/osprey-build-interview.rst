@@ -5,11 +5,10 @@ Guided Project Setup
 If you're setting up OSPREY for a specific detector, beamline, or accelerator
 subsystem, the ``/osprey-build-interview`` skill walks you through a guided
 conversation that generates a ready-to-build project profile tailored to your
-system. It also handles **migration from existing OSPREY projects** — point
-it at your old
-project directory and it will scan, classify, and extract everything reusable.
+system.
 
-The whole interview takes about 10--15 minutes.
+It's a short conversation — roughly five minutes, and about three rounds of
+questions.
 
 .. dropdown:: **Prerequisites**
    :color: info
@@ -35,8 +34,6 @@ The whole interview takes about 10--15 minutes.
    * **A list or spreadsheet of EPICS PV names** for your subsystem, if you have
      one. Not required — the interview can proceed without concrete PVs — but
      having it handy speeds things up considerably.
-   * **If migrating from an existing OSPREY project:** the path to that project
-     directory ready to paste.
 
 Install the interview skill
 ===========================
@@ -70,35 +67,43 @@ In the Osprey agent session, type:
 
    /osprey-build-interview
 
-The Osprey agent will walk you through:
+There is no fixed script. The Osprey agent asks questions in whatever order the
+conversation takes, phrases them for the person in front of it, and follows up
+where an answer needs more detail. By the end of the conversation it will have
+established five things:
 
-1. What system you work with and what you need the AI for
-2. Whether you're starting fresh or **migrating from an existing OSPREY project**
-   (if migrating, just point it to the directory and it will scan and reuse what it can)
-3. Your EPICS PV names (if you have them — it's OK if you don't yet)
-4. Whether you need read-only or write access
-5. How to connect (simulated data is recommended for starting out)
-6. Whether you'd like a custom monitoring panel in the web dashboard
-7. A review step that checks for anything missing
+* **What your system is** — the kind of system, a short name for the project, a
+  one-line description in plain English, and the facility it belongs to.
+* **How it connects** — simulated data to start with, which is the recommended
+  choice if you're unsure, or a live connection to your control system.
+* **Which signals matter** — the process variables the assistant will work with,
+  along with their units and typical ranges. If you don't have a list yet, a
+  rough description is enough to start from.
+* **Whether the assistant may change things, or only look** — read-only is the
+  default and the recommended starting point. If you do want it to change
+  values, you'll also be asked which signals and what range is safe for each.
+* **Which AI service you have access to** — usually whichever one your lab
+  provides. "I'm not sure" is a fine answer here too.
 
 Tips during the interview
 -------------------------
 
 - If you're not sure about a question, say "I'm not sure" — it'll pick a safe default
 - If you have a spreadsheet of PV names handy, that's helpful but not required
-- If you're migrating, have the path to your existing project directory ready
 - You can always re-run the interview later to adjust things
 
 Build your project
 ==================
 
-When the interview is done, the Osprey agent generates a ``build-profile/`` directory
-containing your ``profile.yml``, channel database, README, and a project-local
-copy of the **osprey-build-deploy** skill under
-``build-profile/.claude/skills/osprey-build-deploy/``. The interview installs
-this skill automatically and runs three verification agents to confirm it
-landed correctly — so the deploy phase is wired up by the time you see the
-final summary.
+When the interview is done, the Osprey agent generates a ``build-profile/``
+directory containing your ``profile.yml``, a ``README.md`` explaining what was
+decided and why, and — if you gave signal details — a channel database and the
+safe operating ranges that go with it.
+
+Before handing it over, the agent builds the profile itself and requires that
+build to succeed. If something doesn't render, it fixes the profile and tries
+again rather than passing you a broken one, so what you receive is known to
+build.
 
 Then:
 
@@ -126,6 +131,15 @@ Or for the web dashboard:
 
 Phase 2: deploy your project
 ============================
+
+The interview settles *what* to build. A separate skill, **osprey-build-deploy**,
+covers *how to ship it*. At the end of the interview the Osprey agent points you
+at it:
+
+.. code-block:: bash
+
+   # skip-ci
+   osprey skills install osprey-build-deploy
 
 The ``build-profile/`` directory is a durable, git-tracked artifact you'll
 redeploy from many times. When you're ready to ship to a real deploy server
@@ -156,10 +170,8 @@ The deploy skill walks you through:
    tag → ``deploy.sh`` on the server)
 4. Post-deploy health checks and ongoing release operations
 
-Because the skill lives **inside the profile repo** (not globally), every
-operator who clones this repo gets the same deploy operator automatically —
-no separate install step. To refresh the skill after upgrading OSPREY, run
-from the profile repo root:
+If you'd rather every operator who clones the profile repo get the deploy skill
+automatically, install a copy into the repo itself:
 
 .. code-block:: bash
 
@@ -167,12 +179,5 @@ from the profile repo root:
    osprey skills install osprey-build-deploy --target .claude/skills/
 
 The previous copy is backed up to ``.claude/skills/osprey-build-deploy.bak.<timestamp>/``.
-
-Send feedback
-=============
-
-After you've tested your project, you can send feedback to the OSPREY team by
-starting an Osprey agent session and typing ``/osprey-build-interview feedback``. It takes
-about 30 seconds and helps us improve the process.
 
 See :doc:`/how-to/build-profiles` for the full build profile reference.

@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Jul 22, 2026"/>
+    <meta name="docbuild:last-update" content="Jul 23, 2026"/>
   </head>
   
   
@@ -438,10 +438,9 @@
 <p>If you’re setting up OSPREY for a specific detector, beamline, or accelerator
 subsystem, the <code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> skill walks you through a guided
 conversation that generates a ready-to-build project profile tailored to your
-system. It also handles <strong>migration from existing OSPREY projects</strong> — point
-it at your old
-project directory and it will scan, classify, and extract everything reusable.</p>
-<p>The whole interview takes about 10–15 minutes.</p>
+system.</p>
+<p>It’s a short conversation — roughly five minutes, and about three rounds of
+questions.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -465,8 +464,6 @@ dropdown in <a class="reference internal" href="installation.html"><span class="
 <li><p class="sd-card-text"><strong>A list or spreadsheet of EPICS PV names</strong> for your subsystem, if you have
 one. Not required — the interview can proceed without concrete PVs — but
 having it handy speeds things up considerably.</p></li>
-<li><p class="sd-card-text"><strong>If migrating from an existing OSPREY project:</strong> the path to that project
-directory ready to paste.</p></li>
 </ul>
 </div>
 </details><section id="install-the-interview-skill">
@@ -493,36 +490,43 @@ claude
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey-build-interview
 </pre></div>
 </div>
-<p>The Osprey agent will walk you through:</p>
-<ol class="arabic simple">
-<li><p>What system you work with and what you need the AI for</p></li>
-<li><p>Whether you’re starting fresh or <strong>migrating from an existing OSPREY project</strong>
-(if migrating, just point it to the directory and it will scan and reuse what it can)</p></li>
-<li><p>Your EPICS PV names (if you have them — it’s OK if you don’t yet)</p></li>
-<li><p>Whether you need read-only or write access</p></li>
-<li><p>How to connect (simulated data is recommended for starting out)</p></li>
-<li><p>Whether you’d like a custom monitoring panel in the web dashboard</p></li>
-<li><p>A review step that checks for anything missing</p></li>
-</ol>
+<p>There is no fixed script. The Osprey agent asks questions in whatever order the
+conversation takes, phrases them for the person in front of it, and follows up
+where an answer needs more detail. By the end of the conversation it will have
+established five things:</p>
+<ul class="simple">
+<li><p><strong>What your system is</strong> — the kind of system, a short name for the project, a
+one-line description in plain English, and the facility it belongs to.</p></li>
+<li><p><strong>How it connects</strong> — simulated data to start with, which is the recommended
+choice if you’re unsure, or a live connection to your control system.</p></li>
+<li><p><strong>Which signals matter</strong> — the process variables the assistant will work with,
+along with their units and typical ranges. If you don’t have a list yet, a
+rough description is enough to start from.</p></li>
+<li><p><strong>Whether the assistant may change things, or only look</strong> — read-only is the
+default and the recommended starting point. If you do want it to change
+values, you’ll also be asked which signals and what range is safe for each.</p></li>
+<li><p><strong>Which AI service you have access to</strong> — usually whichever one your lab
+provides. “I’m not sure” is a fine answer here too.</p></li>
+</ul>
 <section id="tips-during-the-interview">
 <h3>Tips during the interview<a class="headerlink" href="#tips-during-the-interview" title="Link to this heading">#</a></h3>
 <ul class="simple">
 <li><p>If you’re not sure about a question, say “I’m not sure” — it’ll pick a safe default</p></li>
 <li><p>If you have a spreadsheet of PV names handy, that’s helpful but not required</p></li>
-<li><p>If you’re migrating, have the path to your existing project directory ready</p></li>
 <li><p>You can always re-run the interview later to adjust things</p></li>
 </ul>
 </section>
 </section>
 <section id="build-your-project">
 <h2>Build your project<a class="headerlink" href="#build-your-project" title="Link to this heading">#</a></h2>
-<p>When the interview is done, the Osprey agent generates a <code class="docutils literal notranslate"><span class="pre">build-profile/</span></code> directory
-containing your <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, channel database, README, and a project-local
-copy of the <strong>osprey-build-deploy</strong> skill under
-<code class="docutils literal notranslate"><span class="pre">build-profile/.claude/skills/osprey-build-deploy/</span></code>. The interview installs
-this skill automatically and runs three verification agents to confirm it
-landed correctly — so the deploy phase is wired up by the time you see the
-final summary.</p>
+<p>When the interview is done, the Osprey agent generates a <code class="docutils literal notranslate"><span class="pre">build-profile/</span></code>
+directory containing your <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, a <code class="docutils literal notranslate"><span class="pre">README.md</span></code> explaining what was
+decided and why, and — if you gave signal details — a channel database and the
+safe operating ranges that go with it.</p>
+<p>Before handing it over, the agent builds the profile itself and requires that
+build to succeed. If something doesn’t render, it fixes the profile and tries
+again rather than passing you a broken one, so what you receive is known to
+build.</p>
 <p>Then:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
 osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>build-profile/profile.yml
@@ -543,6 +547,13 @@ osprey<span class="w"> </span>web
 </section>
 <section id="phase-2-deploy-your-project">
 <h2>Phase 2: deploy your project<a class="headerlink" href="#phase-2-deploy-your-project" title="Link to this heading">#</a></h2>
+<p>The interview settles <em>what</em> to build. A separate skill, <strong>osprey-build-deploy</strong>,
+covers <em>how to ship it</em>. At the end of the interview the Osprey agent points you
+at it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
+osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-deploy
+</pre></div>
+</div>
 <p>The <code class="docutils literal notranslate"><span class="pre">build-profile/</span></code> directory is a durable, git-tracked artifact you’ll
 redeploy from many times. When you’re ready to ship to a real deploy server
 (GitLab CI/CD, container registry, on-server containers), open the Osprey agent
@@ -568,21 +579,13 @@ writes them to <code class="docutils literal notranslate"><span class="pre">faci
 tag → <code class="docutils literal notranslate"><span class="pre">deploy.sh</span></code> on the server)</p></li>
 <li><p>Post-deploy health checks and ongoing release operations</p></li>
 </ol>
-<p>Because the skill lives <strong>inside the profile repo</strong> (not globally), every
-operator who clones this repo gets the same deploy operator automatically —
-no separate install step. To refresh the skill after upgrading OSPREY, run
-from the profile repo root:</p>
+<p>If you’d rather every operator who clones the profile repo get the deploy skill
+automatically, install a copy into the repo itself:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
 osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-deploy<span class="w"> </span>--target<span class="w"> </span>.claude/skills/
 </pre></div>
 </div>
 <p>The previous copy is backed up to <code class="docutils literal notranslate"><span class="pre">.claude/skills/osprey-build-deploy.bak.&lt;timestamp&gt;/</span></code>.</p>
-</section>
-<section id="send-feedback">
-<h2>Send feedback<a class="headerlink" href="#send-feedback" title="Link to this heading">#</a></h2>
-<p>After you’ve tested your project, you can send feedback to the OSPREY team by
-starting an Osprey agent session and typing <code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span> <span class="pre">feedback</span></code>. It takes
-about 30 seconds and helps us improve the process.</p>
 <p>See <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the full build profile reference.</p>
 </section>
 </section>
@@ -641,7 +644,6 @@ about 30 seconds and helps us improve the process.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-your-project">Build your project</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-deploy-your-project">Phase 2: deploy your project</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#send-feedback">Send feedback</a></li>
 </ul>
   </nav></div>
 
