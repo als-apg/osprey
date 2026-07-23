@@ -1,0 +1,233 @@
+# ============================================================
+# {{ project_name }} Configuration — Channel Finder Standalone
+# ============================================================
+# Natural-language channel/PV address finding, on its own. No control-system
+# runtime, no archiver, no logbook (ARIEL), no Python executor, no hardware
+# writes. This bundle ships only the channel-finder pipeline + its interactive
+# web panel, backed by a bundled demo channel database.
+# ============================================================
+
+# Project identity
+project_name: "{{ project_name }}"
+
+# Facility identity — substituted into agent prompts (CLAUDE.md, subagents).
+# Keep this in sync with .claude/rules/facility.md.
+facility_name: "Example Research Facility"
+
+build_dir: ./build
+
+# Root directory (absolute path)
+project_root: {{ project_root }}
+
+# ============================================================
+# API CONFIGURATION
+# ============================================================
+# API keys and endpoints for LLM providers. The channel-finder subagent
+# references the provider by name (e.g. "{{ default_provider }}") for the
+# reasoning loop that resolves user descriptions to real addresses.
+
+api:
+  providers:
+    cborg:
+      api_key: ${CBORG_API_KEY}
+      base_url: https://api.cborg.lbl.gov/v1
+      models:
+        haiku: claude-haiku-4-5
+        sonnet: claude-sonnet-4-6
+        opus: claude-opus-4-7
+    openai:
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+    anthropic:
+      api_key: ${ANTHROPIC_API_KEY}
+      base_url: https://api.anthropic.com
+      models:
+        haiku: claude-haiku-4-5-20251001
+        sonnet: claude-sonnet-4-5-20250929
+        opus: claude-opus-4-6
+    google:
+      api_key: ${GOOGLE_API_KEY}
+      base_url: https://generativelanguage.googleapis.com/v1beta
+    ollama:
+      api_key: ollama
+      base_url: ${OLLAMA_HOST:-http://localhost:11434}
+      host: localhost
+      port: 11434
+    als-apg:
+      api_key: ${ALS_APG_API_KEY}
+      base_url: https://llm.gianlucamartino.com/v1
+      models:
+        haiku: claude-haiku-4-5-20251001
+        sonnet: claude-sonnet-4-6
+        opus: claude-opus-4-6
+
+# ============================================================
+# ENVIRONMENT VARIABLES
+# ============================================================
+# Set these in your .env file:
+#
+#   ANTHROPIC_API_KEY=sk-ant-...    # or CBORG_API_KEY for the LBL proxy
+#   TZ=UTC
+#
+
+# ============================================================
+# CONTAINER RUNTIME
+# ============================================================
+# Container runtime selection for deployment
+# Options: auto (default), docker, podman
+container_runtime: auto
+
+# ============================================================
+# SYSTEM CONFIGURATION
+# ============================================================
+system:
+  # Facility timezone — timestamps rendered in this zone. Pinned to UTC for
+  # reproducibility; set your real facility zone (e.g. America/Los_Angeles).
+  timezone: UTC
+
+# ============================================================
+# SERVICES
+# ============================================================
+# The channel finder is file-backed (a channel database read directly by the
+# panel server and the MCP tools); it needs no Postgres, Typesense, or other
+# standing service. `osprey web` runs it with zero `osprey deploy up`.
+deployed_services: []
+
+# ============================================================
+# SAFETY CONTROLS
+# ============================================================
+# Approval workflow. The channel finder is read-only (it returns addresses,
+# never writes), so no write tools are gated here — the default policy applies
+# to any tool not explicitly classified.
+approval:
+  enabled: true
+  default_policy: "always"        # Fail-closed: unknown tools require approval
+
+# ── Hook observability ──────────────────────────────────────────────
+# Set debug: true to enable hook activity logging to stderr.
+hooks:
+  debug: true
+
+# ============================================================
+# CHANNEL FINDER CONFIGURATION
+# ============================================================
+# Natural language channel finding service. Pipeline mode: {{ channel_finder_mode }}
+# The active pipeline and its enable flags are derived at build time from the
+# profile's `channel_finder_mode` (in_context | hierarchical | middle_layer).
+
+channel_finder:
+  # Active pipeline mode
+  pipeline_mode: {{ default_pipeline }}
+
+  # Explicit channel address validation mode.
+  #   - lenient (DEFAULT): accept all explicit addresses, warn if not in database
+  #   - strict: only accept channels that exist in database
+  #   - skip: no validation, accept all addresses immediately
+  explicit_validation_mode: lenient
+
+  # Pipeline-specific configurations
+  pipelines:
+{% if enable_in_context %}
+    # In-Context Pipeline (Semantic Search) — best for a few hundred channels.
+    in_context:
+      database:
+        type: template                # "template" (device-family expansion) or "flat"
+        path: data/channel_databases/in_context.json
+        presentation_mode: template   # "explicit" (list all names) or "template" (pattern notation)
+      processing:
+        chunk_dictionary: false       # false = send whole database in one LLM call (<200 channels)
+        chunk_size: 50
+        max_correction_iterations: 2
+      subagent_model: null
+{% endif %}
+{% if enable_hierarchical %}
+    # Hierarchical Pipeline (Structured Navigation) — best for >1,000 channels
+    # with a clean naming convention.
+    hierarchical:
+      database:
+        type: hierarchical            # Always "hierarchical" for this pipeline mode
+        path: data/channel_databases/hierarchical.json
+                                      # Nested: system -> family -> device -> field -> subfield
+      # Tree preview: compact database overview injected into LLM prompts.
+      tree_preview:
+        enabled: true
+        max_depth: 3
+        max_children: 5
+      # Feedback loop: records successful navigation paths for identical queries.
+      feedback:
+        enabled: true
+        store_path: data/feedback/hierarchical_feedback.json
+{% endif %}
+{% if enable_middle_layer %}
+    # Middle Layer Pipeline (React Agent with MML Database) — best for
+    # MATLAB Middle Layer style databases (System -> Family -> Field).
+    middle_layer:
+      database:
+        type: middle_layer            # Always "middle_layer" for this pipeline mode
+        path: data/channel_databases/middle_layer.json
+                                      # MML structure: System -> Family -> Field -> ChannelNames
+{% endif %}
+
+# ============================================================
+# AGENT DATA & ARTIFACT GALLERY
+# ============================================================
+agent_data:
+  base_dir: "./_agent_data"
+
+artifact_server:
+  host: "127.0.0.1"
+  port: 8086
+  auto_launch: true
+
+# ============================================================
+# CLAUDE CODE INTEGRATION
+# ============================================================
+# The channel-finder subagent (auto-derived from the `channel_finder:` section
+# above) owns the indexed hierarchy traversal. Every other framework MCP server
+# is disabled: no control-system or python sandbox (no hardware reads/writes),
+# no ariel (no logbook here), no facility-knowledge (no OKF bundle here). Only
+# osprey_workspace (artifact handoff) and channel-finder remain.
+
+claude_code:
+  servers:
+    controls:
+      enabled: false
+    python:
+      enabled: false
+    ariel:
+      enabled: false
+    osprey_facility_knowledge:
+      enabled: false
+
+  provider: {{ default_provider }}
+  default_model: {{ default_model | default("haiku") }}   # Options: haiku, sonnet, opus
+
+  # ── Telemetry / Observability ──
+  # Off by default here: the standalone channel finder ships with no OpenObserve
+  # service, so telemetry has nowhere local to land. Enable it (and add the
+  # openobserve service) if you want a queryable local store.
+  telemetry:
+    enabled: false
+
+# ============================================================
+# WEB PANEL CONFIGURATION
+# ============================================================
+# Controls which panel tabs appear in the web terminal (osprey web).
+# Universal panels (Workspace, Activity, Session Analytics) are always shown.
+
+web:
+{%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
+{%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
+{%- if default_panel is defined and default_panel %}
+  # Tab focused on cold load. Falls back to "artifacts" (Workspace) when unset.
+  default_panel: {{ default_panel }}
+{%- endif %}
+{%- if _enabled_builtin_panels %}
+  panels:
+{%- for panel in _enabled_builtin_panels %}
+    {{ panel }}:
+      enabled: true
+{%- endfor %}
+{%- else %}
+  panels: {}
+{%- endif %}
