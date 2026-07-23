@@ -80,9 +80,11 @@ Thumbs.db
 !models/.gitkeep
 results/
 !results/.gitkeep
-# The Phase-6 bluesky results panel is SOURCE, not ML output — the broad
-# unanchored results/ ignore above must not swallow it.
-!src/osprey/services/bluesky_panels/panels/results/
+# Any source dir named results/ is SOURCE, not ML output — the broad unanchored
+# results/ ignore above must not swallow it (this negation is deliberately
+# path-independent: pinning it to one package broke when the bluesky panels
+# moved services/ -> interfaces/, silently dropping the panel from the move).
+!src/**/results/
 # Benchmark model-matrix run exhaust (#259) — regenerable from scripts/benchmark/.
 # All generated artifacts (dashboard.html, results_box/, live_updater.log) live
 # under one output dir co-located with the tooling, keeping the repo root clean.

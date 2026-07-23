@@ -13,7 +13,7 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.bluesky_panels.app import _PANEL_MOUNTS, app
+from osprey.interfaces.bluesky_panels.app import _PANEL_MOUNTS, _PANELS_ROOT, app
 
 _HEAVY_MODULES = ("bluesky", "ophyd", "tiled")
 
@@ -36,6 +36,41 @@ def test_panel_mounts_registered() -> None:
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
     for mount_path in _PANEL_MOUNTS.values():
         assert mount_path in mounted_paths
+
+
+def test_every_mounted_panel_ships_a_bundle() -> None:
+    """A registered mount is not evidence the panel exists.
+
+    ``app.py`` runs ``os.makedirs(panel_dir, exist_ok=True)`` before mounting,
+    so a panel whose bundle never made it into the tree still mounts cleanly —
+    against an empty directory it just fabricated — and serves 404s to
+    operators while the nav still links to it. The mount-registration check
+    above cannot see that, so assert the bundle's real entry file instead of
+    the directory (the directory always exists by the time this imports).
+
+    This is a source-tree guard, not a style check: the results panel was
+    silently dropped this way once already, when an unanchored ``results/``
+    rule in .gitignore re-swallowed it at its new path during a package move
+    and git staged the deletions with no matching additions.
+    """
+    for panel_name in _PANEL_MOUNTS:
+        entry = _PANELS_ROOT / panel_name / "index.html"
+        assert entry.is_file(), (
+            f"panel {panel_name!r} is mounted at {_PANEL_MOUNTS[panel_name]} but ships no "
+            f"bundle entry at {entry} — either the bundle is missing from the tree or "
+            f"an ignore rule is keeping it untracked (check `git check-ignore -v`)"
+        )
+
+
+def test_every_mounted_panel_actually_serves(client: TestClient) -> None:
+    """The operator-visible half of the guard above: each mount must return a
+    real HTML shell, not the 404 an empty fabricated bundle directory yields."""
+    for panel_name, mount_path in _PANEL_MOUNTS.items():
+        response = client.get(f"{mount_path}/")
+        assert response.status_code == 200, (
+            f"panel {panel_name!r} at {mount_path}/ returned {response.status_code}"
+        )
+        assert "text/html" in response.headers["content-type"], panel_name
 
 
 def test_panel_mounts_do_not_collide_with_healthcheck(client: TestClient) -> None:
