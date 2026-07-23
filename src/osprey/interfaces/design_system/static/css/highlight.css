@@ -1,0 +1,58 @@
+/* OSPREY Design System — Agent-activity highlight utilities
+   Hand-maintained. Shared, app-agnostic classes for surfacing agent activity
+   in any interface. Colors come exclusively from design tokens (tokens.css) —
+   accent-family only, so the classes read correctly in all four themes
+   (dark / light / apex / high-contrast) with zero color literals here.
+
+   Contract (consumed across interfaces — do not rename):
+     .agent-flash      one-shot 900ms glow; fired via flashElement(el) from
+                       js/highlight.js, which reflow-restarts the animation
+                       and removes the class again on animationend.
+     .agent-attention  persistent "agent touched this" badge — a small accent
+                       dot overlaid on the element's top-right corner.
+
+   Both effects are box-shadow/background/pseudo-element only: they never
+   change the element's box size, so applying them causes no layout shift. */
+
+@keyframes agent-flash-glow {
+  0% {
+    background-color: var(--accent-tint-20);
+    box-shadow: 0 0 0 3px var(--accent-tint-25);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+.agent-flash {
+  /* 900ms is the flash contract: a deliberate slow decay well past
+     --duration-slow (300ms) — long enough to catch the eye. */
+  animation: agent-flash-glow 900ms ease-out; /* hygiene-allow-scale: deliberate slow decay */
+  border-radius: var(--radius-lg);
+}
+
+/* Persistent attention badge: absolutely-positioned dot, no layout shift.
+   `position: relative` only anchors the pseudo-element — statically
+   positioned elements keep their place in the flow. */
+.agent-attention {
+  position: relative;
+}
+.agent-attention::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--accent-tint-20);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-flash {
+    animation: none;
+  }
+}
