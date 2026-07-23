@@ -28,10 +28,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 
 - Agent actions are now highlighted live in the web terminal: the plan panel follows the OSPREY agent's drafts (with a banner instead of a switch when you have unsaved edits), panels the agent touches glow and carry an attention badge on the panel rail until you open them, and backend actions — channel writes, run launches — appear briefly in the status-bar activity strip.
+- The control-assistant preset now ships the KNOWLEDGE panel, a browser for the project's facility knowledge bundle. Existing projects gain the tab by adding `okf` to `web_panels` and rebuilding.
 - Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.
 - A bluesky scan plan can now be hidden from the agent without turning off the whole scan server. Set `bluesky.excluded_plans` on the profile of the project that deploys the bridge; the deploy render carries it into the bridge as the `BLUESKY_EXCLUDED_PLANS` environment variable. An excluded plan is both absent from the agent's plan list and non-runnable — it cannot be staged or launched by name. The bare config key is a local/development convenience; the environment variable is the production channel.
 
 ### Changed
+
+- The `osprey-build-interview` skill now asks the installed framework what it offers instead of carrying its own catalog: presets, build artifacts, providers, and config keys are all read from the live installation at interview time, so a newly shipped capability is offered without anyone editing the skill. It generates the profile with `osprey build --emit-profile` rather than a hand-written YAML template, and builds that profile itself before handing it over — what you receive is known to build. The interview now adapts its questions to the person rather than following a fixed script, and takes about five minutes. Legacy-project migration, the feedback prompts, and the web-panel design step were removed; panel authoring belongs to the `creating-an-osprey-panel` skill.
 
 - `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).
 
@@ -145,6 +148,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
+- Retired the Bluesky scan stack's HEALTH panel and the sidecar's `/health/full` rollup. Service status for the whole deployment is shown by the SYSTEM tab; `web_panels: [health]` entries should be removed from project configs.
 - Retired the Tuning optimization panel and its companion web server. It is no longer a built-in panel, and `web_panels: [tuning]` entries should be removed from project configs.
 - Dropped the unused `basePath` iframe query parameter from the Web Terminal.
 - Retired the tier-2 channel databases and their benchmark query set; build profiles can no longer select tier 2.

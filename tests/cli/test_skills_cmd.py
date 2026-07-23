@@ -43,7 +43,7 @@ def test_install_fresh_succeeds(fake_home: Path) -> None:
     assert result.exit_code == 0, result.output
     target = fake_home / ".claude" / "skills" / "osprey-build-interview"
     assert (target / "SKILL.md").is_file()
-    assert (target / "references" / "migration-guide.md").is_file()
+    assert (target / "references" / "osprey-map.md").is_file()
 
 
 def test_install_backs_up_existing(fake_home: Path) -> None:

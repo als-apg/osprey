@@ -13,7 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.build_profile import resolve_build_profile
+from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.errors import BuildProfileError
 
 
@@ -90,6 +90,45 @@ def test_emit_profile_then_build_succeeds(runner: CliRunner, tmp_path: Path) -> 
 
     manifest = json.loads((project / ".osprey-manifest.json").read_text())
     assert manifest["build_args"]["source"] == "profile"
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_emit_profile_then_build_succeeds_for_every_preset(
+    runner: CliRunner, tmp_path: Path, preset: str
+) -> None:
+    """Every bundled preset must survive the scaffold-then-build round-trip.
+
+    The emitted profile skeleton is rendered from
+    ``templates/profile_seed/profile.yml.j2``. That template is written by hand
+    and is not otherwise coupled to the build profile schema, so it can silently
+    drift out of sync with what ``osprey build`` accepts — for a single preset or
+    for a whole class of them. This test is the standing guard against that drift.
+
+    The parametrization is derived from ``list_presets()`` rather than hardcoded,
+    so a newly added preset is covered automatically with no edit here.
+    """
+    profile_dir = tmp_path / "profile"
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    scaffold = runner.invoke(build, ["--emit-profile", str(profile_dir), "--preset", preset])
+    assert scaffold.exit_code == 0, f"emit-profile failed for preset {preset!r}: {scaffold.output}"
+
+    rebuild = runner.invoke(
+        build,
+        [
+            "proj",
+            str(profile_dir / "profile.yml"),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(out_dir),
+        ],
+    )
+    assert rebuild.exit_code == 0, f"build failed for preset {preset!r}: {rebuild.output}"
+    assert (out_dir / "proj" / "config.yml").is_file(), (
+        f"preset {preset!r} built without a config.yml"
+    )
 
 
 def test_emit_profile_round_trip_matches_preset_artifacts(

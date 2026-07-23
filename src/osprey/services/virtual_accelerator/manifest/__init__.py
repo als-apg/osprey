@@ -23,19 +23,27 @@ from .classify import (
     PARTITION_STATIC_NOISY,
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
+    RECORD_TYPE_LONG_STRING,
+    RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
     classify_partition,
     derive_record_type,
 )
+from .loaders import MANIFEST_CHANNEL_KEYS, ManifestFileError, load_manifest_file
 
 __all__ = [
     "build_manifest",
     "classify_partition",
     "derive_record_type",
+    "load_manifest_file",
+    "ManifestFileError",
+    "MANIFEST_CHANNEL_KEYS",
     "PARTITION_PYAT_COUPLED",
     "PARTITION_SP_ECHO",
     "PARTITION_STATIC_NOISY",
     "RECORD_TYPE_ANALOG",
     "RECORD_TYPE_BINARY",
+    "RECORD_TYPE_LONG_STRING",
+    "RECORD_TYPE_MBB",
     "RECORD_TYPE_STRING",
 ]

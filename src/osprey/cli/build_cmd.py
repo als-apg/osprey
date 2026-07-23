@@ -1745,7 +1745,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         deployed.append("bluesky_panels")
     config["deployed_services"] = deployed
 
-    # 3. Register the three web.panels.<id> entries. Derive each url from
+    # 3. Register the two web.panels.<id> entries. Derive each url from
     # bluesky_panels.port so the port is a single source of truth (mirroring the
     # events-panel comment in _inject_dispatch), but write only when the
     # profile has not already set an explicit `web.panels.<id>.url` via a
@@ -1754,22 +1754,19 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # (rather than baking the panel path into `url`) to match the
     # custom-panel proxy convention: the web terminal composes
     # `url.rstrip('/') + '/' + path`, so a path baked into `url` would
-    # double-prefix sub-routes. `setdefault` on `path`/`label`
-    # (`health_endpoint` for health) honors a facility override.
+    # double-prefix sub-routes. `setdefault` on `path`/`label` honors a
+    # facility override.
     default_url = f"${{BLUESKY_PANELS_URL:-http://localhost:{bluesky_panels.port}}}"
     panel_specs = (
-        ("plan", "/plan/", "PLAN", None),
-        ("results", "/results/", "RESULTS", None),
-        ("health", "/health-panel/", "HEALTH", "/health"),
+        ("plan", "/plan/", "PLAN"),
+        ("results", "/results/", "RESULTS"),
     )
-    for panel_id, panel_path, label, health_endpoint in panel_specs:
+    for panel_id, panel_path, label in panel_specs:
         panel_cfg = config.setdefault("web", {}).setdefault("panels", {}).setdefault(panel_id, {})
         if not panel_cfg.get("url"):
             panel_cfg["url"] = default_url
         panel_cfg.setdefault("path", panel_path)
         panel_cfg.setdefault("label", label)
-        if health_endpoint:
-            panel_cfg.setdefault("health_endpoint", health_endpoint)
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -1777,8 +1774,8 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # 4. Post-build hint.
     logger.info("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
     logger.info(
-        "    Panels:     PLAN, RESULTS, HEALTH — reached through the "
-        "web-terminal proxy at /panel/{plan,results,health}."
+        "    Panels:     PLAN, RESULTS — reached through the "
+        "web-terminal proxy at /panel/{plan,results}."
     )
     logger.info(
         "    Images:     `osprey deploy up` builds the bluesky-panels image locally "

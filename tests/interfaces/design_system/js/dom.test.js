@@ -136,8 +136,8 @@ describe('panelApiPrefix', () => {
   });
 
   test('multi-user deep path: nested panel-internal segments do not extend the prefix', () => {
-    atPath('/u/bob/panel/health/health-panel/index.html');
-    expect(panelApiPrefix()).toBe('/u/bob/panel/health');
+    atPath('/u/bob/panel/results/results/index.html');
+    expect(panelApiPrefix()).toBe('/u/bob/panel/results');
   });
 
   test('standalone (sidecar-mounted) panel: no /panel/ segment yields the empty string', () => {
@@ -146,7 +146,7 @@ describe('panelApiPrefix', () => {
   });
 
   test('a panel-internal path segment merely containing "panel" is not a mount marker', () => {
-    atPath('/health-panel/index.html');
+    atPath('/results-panel/index.html');
     expect(panelApiPrefix()).toBe('');
   });
 });
