@@ -267,9 +267,11 @@ def _wait_for_health(base_url: str, cid: str, timeout: float) -> None:
 
 def _post_chat(base_url: str, prompt: str, timeout: float) -> dict:
     """POST a prompt to the buffered chat endpoint, return the JSON body."""
+    # chat_id is a required field — it keys the server-side ChatSessionPool.
+    # A single fixed id is enough for this one-turn smoke test.
     req = urllib.request.Request(
         f"{base_url}/api/chat?stream=false",
-        data=json.dumps({"prompt": prompt}).encode(),
+        data=json.dumps({"prompt": prompt, "chat_id": "e2e"}).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
