@@ -137,7 +137,11 @@ def notify_panel_visibility(panel: str, visible: bool) -> None:
         visible: ``True`` to show the panel, ``False`` to hide it.
     """
     base = web_terminal_url()
-    post_json(f"{base}/api/panel-visibility", {"panel": panel, "visible": visible}, timeout=2)
+    post_json(
+        f"{base}/api/panel-visibility",
+        {"panel": panel, "visible": visible, "source": "agent"},
+        timeout=2,
+    )
 
 
 def notify_panel_register(
@@ -178,6 +182,7 @@ def notify_panel_register(
         "url": url,
         "path": path,
         "health_endpoint": health_endpoint,
+        "source": "agent",
     }
     try:
         status, body = _post_json_with_response(f"{base}/api/panels/register", payload, timeout=5)
@@ -197,7 +202,50 @@ def notify_panel_focus(panel_id: str, url: str | None = None) -> None:
     Non-fatal if the web terminal is not running (CLI-only mode).
     """
     base = web_terminal_url()
-    payload: dict = {"panel": panel_id}
+    payload: dict = {"panel": panel_id, "source": "agent"}
     if url is not None:
         payload["url"] = url
     post_json(f"{base}/api/panel-focus", payload, timeout=2)
+
+
+def notify_agent_activity(
+    tool: str,
+    kind: str,
+    panel: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """Fire-and-forget POST reporting agent tool activity to the Web Terminal.
+
+    Posts ``{"tool": tool, "target": {"kind": kind, "panel"?: ..., "detail"?: ...}}``
+    to ``/api/agent-activity`` so the UI can highlight what the agent is
+    touching.  ``panel``/``detail`` are omitted from the body when ``None``.
+    Non-fatal if the web terminal is not running (CLI-only mode): all
+    exceptions are swallowed and this function never raises.
+
+    .. warning::
+        This function performs a **blocking** HTTP call (bounded at 1s).
+        Async tools MUST call it via ``await anyio.to_thread.run_sync(...)``
+        — never inline in a coroutine.  Calling a sync ``post_json``-style
+        helper directly from async code stalls the event loop (a known
+        foot-gun with the existing sync-post-in-async pattern; do not copy it).
+
+    Args:
+        tool: Name of the tool the agent invoked.
+        kind: Activity target kind (validated server-side; unknown kinds 422).
+        panel: Optional panel identifier the activity targets.
+        detail: Optional free-form detail (e.g. channel name, file path).
+            Truncated to the route's 1024-char bound so an unbounded caller
+            (e.g. a bulk channel write) cannot turn the emit into a silent 422.
+    """
+    try:
+        target: dict = {"kind": kind}
+        if panel is not None:
+            target["panel"] = panel
+        if detail is not None:
+            if len(detail) > 1024:
+                detail = detail[:1023] + "…"
+            target["detail"] = detail
+        base = web_terminal_url()
+        post_json(f"{base}/api/agent-activity", {"tool": tool, "target": target}, timeout=1)
+    except Exception as exc:
+        logger.warning("agent-activity notify failed (non-fatal): %s", exc)

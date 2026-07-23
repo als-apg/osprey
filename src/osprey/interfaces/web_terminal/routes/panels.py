@@ -8,6 +8,7 @@ import ipaddress
 import logging
 import socket
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -232,6 +233,7 @@ def _known_panel_ids(request: Request) -> set[str]:
 class PanelFocusRequest(BaseModel):
     panel: str
     url: str | None = None
+    source: Literal["agent"] | None = None
 
 
 @router.get("/api/panel-focus")
@@ -256,6 +258,8 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     event: dict = {"type": "panel_focus", "panel": body.panel}
     if body.url:
         event["url"] = _prefix_path(body.url)
+    if body.source:
+        event["source"] = body.source
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "active_panel": body.panel}
 
@@ -263,6 +267,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
 class PanelVisibilityRequest(BaseModel):
     panel: str
     visible: bool
+    source: Literal["agent"] | None = None
 
 
 @router.post("/api/panel-visibility")
@@ -288,9 +293,10 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     else:
         visible_panels = [p for p in visible_panels if p != body.panel]
     request.app.state.visible_panels = visible_panels
-    request.app.state.broadcaster.broadcast(
-        {"type": "panel_visibility", "panel": body.panel, "visible": body.visible}
-    )
+    event: dict = {"type": "panel_visibility", "panel": body.panel, "visible": body.visible}
+    if body.source:
+        event["source"] = body.source
+    request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "panel": body.panel, "visible": body.visible}
 
 
@@ -430,6 +436,7 @@ class PanelRegisterRequest(BaseModel):
     url: str
     path: str = "/"
     health_endpoint: str | None = None
+    source: Literal["agent"] | None = None
 
 
 @router.post("/api/panels/register")
@@ -512,16 +519,17 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     request.app.state.visible_panels = visible_panels
 
     browser_url = f"{compute_url_prefix()}/panel/{body.id}"
-    request.app.state.broadcaster.broadcast(
-        {
-            "type": "panel_register",
-            "id": body.id,
-            "label": body.label,
-            "url": browser_url,  # rewritten for the browser
-            "healthEndpoint": body.health_endpoint,
-            "path": body.path,
-        }
-    )
+    event: dict = {
+        "type": "panel_register",
+        "id": body.id,
+        "label": body.label,
+        "url": browser_url,  # rewritten for the browser
+        "healthEndpoint": body.health_endpoint,
+        "path": body.path,
+    }
+    if body.source:
+        event["source"] = body.source
+    request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "id": body.id, "label": body.label, "url": browser_url}
 
 
