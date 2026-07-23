@@ -13,15 +13,17 @@
  * Three layers, outside in:
  *
  * 1. Pure reducers (`createInitialState`, `reduceFrame`, `reduceReset`,
- *    `computeDelta`, `shouldShowAffordance`, `resolvePinnedRevision`) — no
+ *    `computeDelta`, `shouldShowAffordance`, `shouldAutoSwitch`,
+ *    `shouldShowAgentDraftBanner`, `resolvePinnedRevision`) — no
  *    DOM, no network, no timers. These encode every rule from the proposal:
  *    revision drop/apply/resync, hello/resync baseline reset (including
  *    backward), own-origin echo suppression, and the minimal-delta
  *    PATCH-back shape (blank -> `remove[]`).
  * 2. `createDraftClient(deps)` — the orchestrator. Wires the reducers to a
  *    form (pending-key tracking, debounced PATCH-back), a set of DOM
- *    callbacks (bound indicator, affordance, unknown-plan banner, flash,
- *    agent-edited note) and a set of injectable HTTP functions
+ *    callbacks (bound indicator, affordance, agent-draft banner,
+ *    unknown-plan banner, flash, agent-edited note) and a set of injectable
+ *    HTTP functions
  *    (`getDraft`/`patchDraft`/`deleteDraft`/`fetchPlans`). Every side effect
  *    is a `deps` function, so tests can substitute canned promises and a real
  *    (happy-dom) form without a real bridge.
@@ -33,6 +35,8 @@
  *
  * @module draft-client
  */
+
+import { flashElement } from '/design-system/js/highlight.js';
 
 /**
  * @typedef {object} DraftSnapshot
@@ -85,6 +89,18 @@
  * @property {Record<string, unknown>|null} draftArgs
  * @property {boolean} bound
  * @property {string|null} selectedName
+ * @property {boolean} formDirty  Whether the operator has unsaved manual
+ *   edits in the (unbound) form. Carried in state so the pure auto-switch /
+ *   banner predicates can honor it; the reducers themselves never set it —
+ *   the orchestrator owns flipping it from real form events.
+ * @property {string|null} lastUpdatedBy  `updated_by` of the last draft seen
+ *   at EITHER ingestion site (`reduceReset` or `reduceFrame`'s apply/echo
+ *   path); `null` while the draft is null. Lets a reconnect hello repeating
+ *   an already-seen `updated_at` be told apart from genuinely new agent work.
+ * @property {string|null} lastUpdatedAt  `updated_at` companion to
+ *   `lastUpdatedBy` (ISO-8601 string as the bridge minted it); `null` while
+ *   the draft is null — and a null last-seen value compares as
+ *   always-in-the-past (see `shouldAutoSwitch`).
  * @property {{runId: string, revision: number}|null} launchBanner  The last
  *   observed `launched` frame's run — the fact behind the "revision N
  *   launched -> run <id>" banner (FR8: the launch moment is visible whether
@@ -103,6 +119,9 @@ export function createInitialState(clientId) {
     draftArgs: null,
     bound: false,
     selectedName: null,
+    formDirty: false,
+    lastUpdatedBy: null,
+    lastUpdatedAt: null,
     launchBanner: null,
   };
 }
@@ -123,6 +142,8 @@ export function reduceReset(state, snapshot) {
     lastAppliedRevision: snapshot.revision,
     draftPlanName: snapshot.draft ? snapshot.draft.plan_name : null,
     draftArgs: snapshot.draft ? snapshot.draft.plan_args : null,
+    lastUpdatedBy: snapshot.draft ? (snapshot.draft.updated_by ?? null) : null,
+    lastUpdatedAt: snapshot.draft ? (snapshot.draft.updated_at ?? null) : null,
   };
 }
 
@@ -187,6 +208,8 @@ export function reduceFrame(state, frame) {
     lastAppliedRevision: frame.revision,
     draftPlanName: frame.draft ? frame.draft.plan_name : null,
     draftArgs: frame.draft ? frame.draft.plan_args : null,
+    lastUpdatedBy: frame.draft ? (frame.draft.updated_by ?? null) : null,
+    lastUpdatedAt: frame.draft ? (frame.draft.updated_at ?? null) : null,
   };
   return { state: nextState, action: { type: isOwnOrigin ? 'echo' : 'apply', frame } };
 }
@@ -202,6 +225,93 @@ export function reduceFrame(state, frame) {
  */
 export function shouldShowAffordance(state) {
   return !state.bound && state.draftPlanName !== null && state.draftPlanName === state.selectedName;
+}
+
+/**
+ * The literal `origin`/`client_id`/`updated_by` value agent writes carry
+ * (bridge contract). Browser tabs mint UUID client ids, so this never
+ * collides with a tab's own id.
+ */
+export const AGENT_ORIGIN = 'mcp-agent';
+
+/**
+ * Whether `next` is strictly newer than the last-seen `lastSeen` timestamp.
+ * Both are the bridge's own ISO-8601 UTC strings, so lexicographic `>` is
+ * chronological order. A null last-seen value compares as always-in-the-past
+ * (an agent draft arriving after a no-draft baseline counts as an advance); a
+ * null `next` (no draft) never advances.
+ *
+ * @param {string|null} lastSeen
+ * @param {string|null} next
+ * @returns {boolean}
+ */
+function updatedAtAdvanced(lastSeen, next) {
+  if (next === null) return false;
+  return lastSeen === null || next > lastSeen;
+}
+
+/**
+ * Whether the "the agent is working on plan X" banner should show: a draft
+ * exists, its last writer was the agent, this tab is unbound, the draft names
+ * a different plan than the one being viewed, and the operator has unsaved
+ * manual edits (`formDirty`) — i.e. exactly the case where auto-switching
+ * would clobber operator work, so a banner is surfaced instead.
+ *
+ * @param {DraftState} state
+ * @returns {boolean}
+ */
+export function shouldShowAgentDraftBanner(state) {
+  return (
+    state.draftPlanName !== null &&
+    state.lastUpdatedBy === AGENT_ORIGIN &&
+    !state.bound &&
+    state.draftPlanName !== state.selectedName &&
+    state.formDirty
+  );
+}
+
+/**
+ * Decide whether an ingested frame/snapshot should auto-switch the panel onto
+ * the agent's draft plan, and whether the agent-draft banner should show
+ * afterward. Pure — `prevState` is the state BEFORE the ingestion (it carries
+ * the last-seen `lastUpdatedAt` pair and the pre-reset `lastAppliedRevision`),
+ * `reduced` is the reducer's result AFTER it (a `reduceFrame` return, or a
+ * bare `reduceReset` result wrapped by the caller as
+ * `{state, action: {type: 'reset'}}`).
+ *
+ * Switch rules:
+ *  - Never while bound, while `formDirty`, or when the ingested draft is null
+ *    (a clear/no-draft snapshot has nothing to switch to).
+ *  - Live path (an `apply` action): switch when the frame's origin is the
+ *    literal agent origin. An `echo` (own-origin) frame never switches.
+ *  - Reset path (a `reset` action — hello or `GET /draft` resync): switch on
+ *    the first-ever reset (pre-reset `lastAppliedRevision === null`), or when
+ *    the reset draft's `updated_at` advanced past the last-seen value AND its
+ *    `updated_by` is the agent. A routine reconnect hello / internal resync
+ *    (revision-gap or PATCH-failure recovery) repeats an already-seen
+ *    `updated_at`, so it never switches.
+ *
+ * @param {DraftState} prevState
+ * @param {{state: DraftState, action: FrameAction}} reduced
+ * @returns {{switch: boolean, banner: boolean}}
+ */
+export function shouldAutoSwitch(prevState, reduced) {
+  const next = reduced.state;
+  const banner = shouldShowAgentDraftBanner(next);
+  if (next.bound || next.formDirty || next.draftPlanName === null) {
+    return { switch: false, banner };
+  }
+  const action = reduced.action;
+  if (action.type === 'apply') {
+    return { switch: action.frame.origin === AGENT_ORIGIN, banner };
+  }
+  if (action.type === 'reset') {
+    const firstEver = prevState.lastAppliedRevision === null;
+    const agentAdvanced =
+      next.lastUpdatedBy === AGENT_ORIGIN && updatedAtAdvanced(prevState.lastUpdatedAt, next.lastUpdatedAt);
+    return { switch: firstEver || agentAdvanced, banner };
+  }
+  return { switch: false, banner };
 }
 
 /**
@@ -370,6 +480,37 @@ export function buildLaunchBanner(doc, banner, resultsUrlFor) {
   return frag;
 }
 
+/**
+ * Build the agent-draft banner's detached content: an "agent drafted
+ * <plan-name>" note plus a view/switch action. Same posture as
+ * `buildLaunchBanner` above: createElement/textContent only — the plan name
+ * is agent-influenced data, so it reaches the DOM strictly as a text node
+ * (and a `data-plan-name` attribute set via the dataset property), never as
+ * parsed markup. The action button invokes `onView(planName)` — panel.js
+ * wires that to its own `selectPlan`, which binds to the draft and clears
+ * `formDirty`, making the banner predicate go false (self-clearing).
+ *
+ * @param {Document} doc
+ * @param {string} planName
+ * @param {(planName: string) => void} onView
+ * @returns {DocumentFragment}
+ */
+export function buildAgentDraftBanner(doc, planName, onView) {
+  const frag = doc.createDocumentFragment();
+  const text = doc.createElement('span');
+  text.className = 'agent-draft-banner-text';
+  text.textContent = `agent drafted ${planName}`;
+  frag.appendChild(text);
+  const view = doc.createElement('button');
+  view.type = 'button';
+  view.className = 'agent-draft-banner-view';
+  view.textContent = 'View draft';
+  view.dataset.planName = planName;
+  view.addEventListener('click', () => onView(planName));
+  frag.appendChild(view);
+  return frag;
+}
+
 // ---------------------------------------------------------------------------
 // SSE transport — the one real-EventSource touchpoint. Manual backoff
 // reconnect (capped) rather than relying on the browser's own retry, so a
@@ -459,6 +600,13 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  * @property {() => Promise<void>} deleteDraft
  * @property {(bound: boolean) => void} onBoundChange
  * @property {(planName: string|null) => void} onAffordance
+ * @property {(planName: string|null) => void} onAgentDraftBanner  The
+ *   agent-draft banner decision changed: render the "agent drafted
+ *   <plan-name>" banner for `planName`, or remove it on `null`. Recomputed at
+ *   every affordance-recompute site (and on the formDirty flip that arms the
+ *   predicate), purely from `shouldShowAgentDraftBanner(state)` — the banner
+ *   owns no imperative show/hide state of its own. While it shows, the
+ *   passive affordance is suppressed (never both at once).
  * @property {(planName: string|null) => void} onUnknownPlanBanner
  * @property {(keys: string[]) => void} onAgentEditNote
  * @property {(banner: {runId: string, revision: number}|null) => void} onLaunchBanner
@@ -487,6 +635,11 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  * @property {() => Promise<void>} resync  Force a `GET /draft` resync (e.g.
  *   after Launch's own `stale_draft_revision` 409).
  * @property {() => boolean} isBound
+ * @property {() => string|null} getAgentDraftBannerPlan  The agent-draft
+ *   banner DECISION (shouldShowAgentDraftBanner): the draft's plan name when
+ *   the banner should show, else null. The UI itself is rendered via the
+ *   `onAgentDraftBanner` deps callback; this exposes the same display-ready
+ *   decision for tests and callers.
  * @property {() => number|null} getLastAppliedRevision
  * @property {() => void} destroy
  */
@@ -518,8 +671,21 @@ export function createDraftClient(deps) {
     deps.onBoundChange(state.bound);
   }
 
+  /**
+   * Recompute both agent-facing hints from the current state, declaratively:
+   * the agent-draft banner (`shouldShowAgentDraftBanner`) and the passive
+   * bind affordance (`shouldShowAffordance`). The two predicates are
+   * mutually exclusive by construction (the banner requires
+   * `draftPlanName !== selectedName`, the affordance the opposite), but the
+   * suppression is still made explicit here so they can never render
+   * together even if the predicates ever drift.
+   */
   function renderAffordance() {
-    deps.onAffordance(shouldShowAffordance(state) ? state.draftPlanName : null);
+    const bannerPlan = shouldShowAgentDraftBanner(state) ? state.draftPlanName : null;
+    deps.onAgentDraftBanner(bannerPlan);
+    deps.onAffordance(
+      bannerPlan === null && shouldShowAffordance(state) ? state.draftPlanName : null
+    );
   }
 
   /**
@@ -576,8 +742,9 @@ export function createDraftClient(deps) {
   /**
    * Flash exactly the given top-level field names (whole-value containers
    * flash as one element, same as scalars — `fields[name].el` is already the
-   * container for the axes table / chip well / nested object). Reflow-restart
-   * so two rapid edits to the same field re-fire the animation.
+   * container for the axes table / chip well / nested object) via the shared
+   * design-system agent-activity flash (`.agent-flash`; reflow-restart and
+   * animationend cleanup live in `flashElement` itself).
    *
    * @param {string[]} names
    */
@@ -586,11 +753,7 @@ export function createDraftClient(deps) {
     if (!collector) return;
     for (const name of names) {
       const field = collector.fields[name];
-      if (!field) continue;
-      const el = field.el;
-      el.classList.remove('draft-flash');
-      void el.offsetWidth;
-      el.classList.add('draft-flash');
+      if (field) flashElement(field.el);
     }
   }
 
@@ -652,7 +815,9 @@ export function createDraftClient(deps) {
       await ensureDraftPlanKnown();
       return;
     }
-    state = { ...state, bound: true };
+    // Bind completion also clears formDirty: the form now mirrors the shared
+    // draft, so any prior unbound manual edits are gone from the screen.
+    state = { ...state, bound: true, formDirty: false };
     pendingKeys.clear();
     applyFullSnapshot();
     renderBoundIndicator();
@@ -691,13 +856,43 @@ export function createDraftClient(deps) {
   }
 
   /**
+   * Auto-switch onto the agent's draft plan (`shouldAutoSwitch` said yes):
+   * delegate to `deps.selectPlan`, which re-renders the target plan's form
+   * and re-enters `onPlanSelected` — performing the actual bind — then flash
+   * ALL keys of the applied draft args via the shared design-system flash.
+   * The whole applied arg set (not the triggering frame's `changed[]`) is
+   * flashed deliberately: the form was just re-rendered from scratch, so
+   * every visible value is newly-landed agent content and the frame's
+   * `changed[]` is stale by re-render time anyway. If the switch-bind did
+   * not complete (selection raced onward, plan failed to load), nothing
+   * flashes.
+   */
+  async function switchToDraftAndFlash() {
+    const name = state.draftPlanName;
+    if (name === null) return;
+    await deps.selectPlan(name);
+    const appliedArgs = state.draftArgs;
+    if (state.bound && appliedArgs) {
+      flashFields(Object.keys(appliedArgs));
+    }
+  }
+
+  /**
    * Post-processing shared by a hello frame and a resync `GET /draft` —
    * `state` already reflects the reset. When bound to the still-matching
    * plan, `pendingKeys.clear()` here is a deliberate decision (see
    * `applyFullSnapshot`'s docstring), not an oversight: any resync discards
    * unflushed local edits in favor of the fresh snapshot.
+   *
+   * Unbound, the reset is also an auto-switch decision point: `prevState`
+   * (the state BEFORE the reset was ingested — it carries the last-seen
+   * `lastUpdatedAt` pair and the pre-reset baseline) lets `shouldAutoSwitch`
+   * tell a first-open / genuinely-new agent draft apart from a routine
+   * reconnect hello or internal resync repeating an already-seen snapshot.
+   *
+   * @param {DraftState} prevState
    */
-  async function afterReset() {
+  async function afterReset(prevState) {
     if (state.bound) {
       if (state.draftPlanName === state.selectedName) {
         pendingKeys.clear();
@@ -709,13 +904,18 @@ export function createDraftClient(deps) {
         await rebindToDraftPlan();
       }
     } else {
+      const decision = shouldAutoSwitch(prevState, { state, action: { type: 'reset' } });
       renderAffordance();
-      await ensureDraftPlanKnown();
+      const known = await ensureDraftPlanKnown();
+      if (decision.switch && known) await switchToDraftAndFlash();
     }
   }
 
   /** @param {{state: DraftState, action: FrameAction}} result */
   async function handleReducedResult(result) {
+    // Captured before the reducer's state lands: shouldAutoSwitch compares
+    // the pre-ingestion state against the reduced result.
+    const prevState = state;
     state = result.state;
     const action = result.action;
 
@@ -731,7 +931,7 @@ export function createDraftClient(deps) {
     if (action.type === 'resync') {
       const applied = await fetchAndApplyReset();
       if (!applied) return;
-      await afterReset();
+      await afterReset(prevState);
       return;
     }
 
@@ -745,7 +945,7 @@ export function createDraftClient(deps) {
       // revision counter backward and silently drop every subsequent frame
       // as "stale" until the next reconnect).
       resyncEpoch++;
-      await afterReset();
+      await afterReset(prevState);
       return;
     }
 
@@ -761,8 +961,14 @@ export function createDraftClient(deps) {
     // action.type === 'apply'
     const frame = action.frame;
     if (!state.bound) {
+      // Live-path auto-switch decision (agent-origin frames only — the pure
+      // predicate owns the AGENT_ORIGIN check; echo/operator-tab frames never
+      // switch). The banner counterpart of the decision is rendered by
+      // renderAffordance() below via the onAgentDraftBanner callback.
+      const decision = shouldAutoSwitch(prevState, result);
       renderAffordance();
-      await ensureDraftPlanKnown();
+      const known = await ensureDraftPlanKnown();
+      if (decision.switch && known) await switchToDraftAndFlash();
       return;
     }
 
@@ -831,7 +1037,21 @@ export function createDraftClient(deps) {
    */
   function onUserEdit(event) {
     if (event.type === 'form-change' && event.target === deps.formEl) return;
-    if (!state.bound) return;
+    if (!state.bound) {
+      // An unbound manual edit dirties the form — suppressing agent
+      // auto-switch and arming the agent-draft banner (shouldAutoSwitch /
+      // shouldShowAgentDraftBanner) — but never marks pending keys or
+      // schedules a PATCH: unbound edits are purely local. Cleared by
+      // onPlanSelected and by bind completion. The flip is itself a banner
+      // recompute point: an agent draft already sitting on another plan must
+      // surface the moment the operator's edit arms the predicate, not wait
+      // for the next frame.
+      if (!state.formDirty) {
+        state = { ...state, formDirty: true };
+        renderAffordance();
+      }
+      return;
+    }
     const collector = deps.getCollector();
     if (!collector) return;
     const target = /** @type {Node} */ (event.target);
@@ -889,8 +1109,9 @@ export function createDraftClient(deps) {
       // 409 (no_draft / plan_name_mismatch), a network failure, or any other
       // unexpected failure status: drop the edit and resync to ground truth
       // (PROPOSAL.md pending-key rule).
+      const prevState = state;
       const applied = await fetchAndApplyReset();
-      if (applied) await afterReset();
+      if (applied) await afterReset(prevState);
       return { patched: false, revision: null };
     }
     return { patched: true, revision: result.body.revision };
@@ -927,7 +1148,9 @@ export function createDraftClient(deps) {
         clearTimeout(debounceTimer);
         debounceTimer = null;
       }
-      state = { ...state, selectedName: name, bound: false };
+      // A fresh selection abandons any unbound manual edits along with the
+      // form they lived in — formDirty resets with it.
+      state = { ...state, selectedName: name, bound: false, formDirty: false };
       pendingKeys.clear();
       renderBoundIndicator();
       if (state.draftPlanName !== null && state.draftPlanName === name) {
@@ -969,12 +1192,17 @@ export function createDraftClient(deps) {
     },
 
     async resync() {
+      const prevState = state;
       const applied = await fetchAndApplyReset();
-      if (applied) await afterReset();
+      if (applied) await afterReset(prevState);
     },
 
     isBound() {
       return state.bound;
+    },
+
+    getAgentDraftBannerPlan() {
+      return shouldShowAgentDraftBanner(state) ? state.draftPlanName : null;
     },
 
     getLastAppliedRevision() {
