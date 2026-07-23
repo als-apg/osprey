@@ -23,6 +23,8 @@ from .classify import (
     PARTITION_STATIC_NOISY,
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
+    RECORD_TYPE_LONG_STRING,
+    RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
     classify_partition,
     derive_record_type,
@@ -37,5 +39,7 @@ __all__ = [
     "PARTITION_STATIC_NOISY",
     "RECORD_TYPE_ANALOG",
     "RECORD_TYPE_BINARY",
+    "RECORD_TYPE_LONG_STRING",
+    "RECORD_TYPE_MBB",
     "RECORD_TYPE_STRING",
 ]
