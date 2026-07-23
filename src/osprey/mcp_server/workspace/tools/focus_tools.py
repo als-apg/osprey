@@ -4,11 +4,14 @@ artifact_focus selects a specific artifact in the gallery so the user sees it.
 artifact_pin toggles the pinned flag for quick access filtering.
 """
 
+import functools
 import json
 import logging
 
+import anyio
+
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import gallery_url, post_json
+from osprey.mcp_server.http import gallery_url, notify_agent_activity, post_json
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.focus")
@@ -46,6 +49,18 @@ async def artifact_focus(artifact_id: str, fullscreen: bool = False) -> str:
     if fullscreen:
         payload["fullscreen"] = True
     post_json(f"{base_url}/api/focus", payload)
+
+    # Agent-activity highlight for the host activity strip. The gallery itself
+    # is unchanged — it already self-signals via its own focus SSE above.
+    # notify_agent_activity never raises; the blocking call runs off the loop.
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_agent_activity,
+            "artifact_focus",
+            "artifact",
+            detail=entry.title or artifact_id,
+        )
+    )
 
     return json.dumps(
         {
@@ -86,6 +101,16 @@ async def artifact_pin(artifact_id: str, pinned: bool = True) -> str:
     # Notify gallery of the update
     base_url = gallery_url()
     post_json(f"{base_url}/api/artifacts/{artifact_id}/pin", {"pinned": pinned})
+
+    # Agent-activity highlight (same contract as artifact_focus above).
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_agent_activity,
+            "artifact_pin",
+            "artifact",
+            detail=entry.title or artifact_id,
+        )
+    )
 
     return json.dumps(
         {
