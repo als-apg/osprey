@@ -249,9 +249,9 @@ warn_unused_configs = true
 disallow_untyped_defs = false  # Gradual typing
 ignore_missing_imports = true
 exclude = [
-    "build/",
-    "dist/",
-    "venv/",
+    "^build/",
+    "^dist/",
+    "^venv/",
     "_agent_data/",
     "__pycache__/",
 ]

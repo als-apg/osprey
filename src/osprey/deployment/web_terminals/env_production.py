@@ -40,7 +40,7 @@ def _claude_code_auth_secret_vars(
     """Auth-secret env-var names every ``claude_code.provider`` in play needs.
 
     This is the web-terminal counterpart of the launch-time secret injection
-    in :mod:`osprey.cli.claude_code_resolver`: a per-user web container runs
+    in :mod:`osprey.build.claude_code_resolver`: a per-user web container runs
     its persona project's agent, which authenticates via the provider named in
     that project's ``claude_code.provider`` — and the *only* env its container
     sees is ``docker-compose.web.yml``'s ``env_file: .env.production``. A
@@ -71,7 +71,7 @@ def _claude_code_auth_secret_vars(
     ``api.providers`` is likewise skipped here (the resolver raises its own
     actionable error for that at launch).
     """
-    from osprey.cli.claude_code_resolver import provider_auth_secret_env
+    from osprey.build.claude_code_resolver import provider_auth_secret_env
 
     def _provider_var(cfg: dict) -> tuple[str, str | None] | None:
         provider = (cfg.get("claude_code") or {}).get("provider")

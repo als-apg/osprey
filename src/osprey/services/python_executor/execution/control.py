@@ -37,7 +37,7 @@ for manual control when needed.
 Examples:
     Basic execution control configuration::
 
-        >>> config = ExecutionControlConfig(epics_writes_enabled=False)
+        >>> config = ExecutionControlConfig(control_system_writes_enabled=False)
         >>> mode = config.get_execution_mode(
         ...     has_epics_writes=True,
         ...     has_epics_reads=True
@@ -47,7 +47,7 @@ Examples:
 
     Enabling write operations with proper safeguards::
 
-        >>> write_config = ExecutionControlConfig(epics_writes_enabled=True)
+        >>> write_config = ExecutionControlConfig(control_system_writes_enabled=True)
         >>> mode = write_config.get_execution_mode(
         ...     has_epics_writes=True,
         ...     has_epics_reads=False
@@ -129,9 +129,6 @@ class ExecutionControlConfig:
     code. This ensures that potentially dangerous operations require both
     configuration permission and explicit code intent.
 
-    :param epics_writes_enabled: (Deprecated) Whether EPICS write operations are permitted.
-                                 Use control_system_writes_enabled instead.
-    :type epics_writes_enabled: bool
     :param control_system_writes_enabled: Whether control system write operations are permitted in this deployment
     :type control_system_writes_enabled: bool
     :param control_system_type: Type of control system (epics, mock, tango, etc.)
@@ -168,15 +165,8 @@ class ExecutionControlConfig:
     """
 
     # Control system settings
-    epics_writes_enabled: bool = False  # Deprecated - kept for backward compatibility
-    control_system_writes_enabled: bool | None = None
+    control_system_writes_enabled: bool = False
     control_system_type: str = EPICS  # Default for backward compatibility
-
-    def __post_init__(self):
-        """Handle backward compatibility for epics_writes_enabled."""
-        # If control_system_writes_enabled not explicitly set, use epics_writes_enabled
-        if self.control_system_writes_enabled is None:
-            self.control_system_writes_enabled = self.epics_writes_enabled
 
     def get_execution_mode(self, has_epics_writes: bool, has_epics_reads: bool) -> ExecutionMode:
         """Determine appropriate execution mode based on code analysis and security policy.
@@ -206,7 +196,7 @@ class ExecutionControlConfig:
         Examples:
             Mode selection with different code patterns::
 
-                >>> config = ExecutionControlConfig(epics_writes_enabled=True)
+                >>> config = ExecutionControlConfig(control_system_writes_enabled=True)
                 >>>
                 >>> # Code with only read operations
                 >>> mode = config.get_execution_mode(has_epics_writes=False, has_epics_reads=True)
@@ -220,13 +210,13 @@ class ExecutionControlConfig:
 
             Security policy enforcement::
 
-                >>> secure_config = ExecutionControlConfig(epics_writes_enabled=False)
+                >>> secure_config = ExecutionControlConfig(control_system_writes_enabled=False)
                 >>> # Write operations detected but not permitted by policy
                 >>> mode = secure_config.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
                 >>> print(f"Secured mode: {mode}")  # Always READ_ONLY when writes disabled
                 Secured mode: ExecutionMode.READ_ONLY
         """
-        if has_epics_writes and self.epics_writes_enabled:
+        if has_epics_writes and self.control_system_writes_enabled:
             return ExecutionMode.WRITE_ACCESS
         else:
             return ExecutionMode.READ_ONLY
@@ -241,8 +231,10 @@ class ExecutionControlConfig:
         warnings = []
 
         # Live writes are potentially dangerous - log warning
-        if self.epics_writes_enabled:
-            warnings.append("WARNING: epics.writes_enabled=true (live EPICS writes enabled!)")
+        if self.control_system_writes_enabled:
+            warnings.append(
+                "WARNING: control_system.writes_enabled=true (live control-system writes enabled!)"
+            )
 
         return warnings
 
@@ -269,7 +261,6 @@ def get_execution_control_config() -> ExecutionControlConfig:
 
         # Build typed config with defaults
         execution_control = ExecutionControlConfig(
-            epics_writes_enabled=writes_enabled,
             control_system_writes_enabled=writes_enabled,
             control_system_type=control_system_type,
         )
@@ -290,6 +281,4 @@ def get_execution_control_config() -> ExecutionControlConfig:
         logger.warning(f"Failed to load execution control config: {e}, using safe defaults")
 
         # Return safe defaults
-        return ExecutionControlConfig(
-            epics_writes_enabled=False, control_system_writes_enabled=False
-        )
+        return ExecutionControlConfig(control_system_writes_enabled=False)

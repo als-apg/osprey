@@ -50,7 +50,7 @@ export default [
   // must not grow without bound either. Cap at the current high-water mark
   // (schema-form.js) rounded up; lower toward 450 if files shrink.
   {
-    files: ['src/osprey/services/bluesky_panels/panels/**/*.js'],
+    files: ['src/osprey/interfaces/bluesky_panels/panels/**/*.js'],
     ignores: ['**/*.test.*'],
     rules: {
       'max-lines': ['error', { max: 700, skipComments: true, skipBlankLines: true }],

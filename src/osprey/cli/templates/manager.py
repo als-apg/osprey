@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from osprey.cli.build_profile import (
+from osprey.build.build_tiers import (
     VALID_CHANNEL_FINDER_MODES,
     default_tier_for_mode,
     tier_mode_conflict,
@@ -377,7 +377,7 @@ class TemplateManager:
             cc_cfg = cc_config
             ctx["facility_permissions"] = cc_config.get("permissions", {})
             # Model provider resolution for init-time rendering
-            from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+            from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
             api_providers = rendered_config.get("api", {}).get("providers", {})
             try:

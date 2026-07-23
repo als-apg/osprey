@@ -35,15 +35,15 @@ from osprey.mcp_server.dispatch_worker import sdk_runner
 def _stub_osprey_helpers(monkeypatch):
     """Stub the deferred OSPREY helper imports on their source modules."""
     monkeypatch.setattr(
-        "osprey.interfaces.web_terminal.operator_session.build_clean_env",
+        "osprey.agent_runner.clean_env.build_clean_env",
         lambda **kw: {},
     )
     monkeypatch.setattr(
-        "osprey.interfaces.web_terminal.sdk_context.build_system_prompt",
+        "osprey.agent_runner.sdk_context.build_system_prompt",
         lambda *a, **k: "system",
     )
     monkeypatch.setattr(
-        "osprey.interfaces.web_terminal.sdk_context.make_tool_allowlist",
+        "osprey.agent_runner.sdk_context.make_tool_allowlist",
         lambda tools, denied=(): lambda *a, **k: None,
     )
     monkeypatch.setattr(
@@ -426,7 +426,7 @@ async def test_surface_prompt_forwarded_to_build_system_prompt(monkeypatch):
         return "system"
 
     monkeypatch.setattr(
-        "osprey.interfaces.web_terminal.sdk_context.build_system_prompt",
+        "osprey.agent_runner.sdk_context.build_system_prompt",
         _spy_build_system_prompt,
     )
 
@@ -455,7 +455,7 @@ async def test_surface_prompt_omitted_leaves_system_prompt_unchanged(monkeypatch
         return "system"
 
     monkeypatch.setattr(
-        "osprey.interfaces.web_terminal.sdk_context.build_system_prompt",
+        "osprey.agent_runner.sdk_context.build_system_prompt",
         _spy_build_system_prompt,
     )
 

@@ -89,19 +89,17 @@ ci:
 
 The token must have at minimum: `api` and `read_registry` scopes (`write_registry` if CI pushes images). Document this in the `.env.template`.
 
-### Deprecated alias: `gitlab:`
+### Removed: the legacy `gitlab:` block
 
-Older facility configs use a top-level `gitlab:` block instead of `ci:` — same fields,
-no `provider` key (it's implied to be `"gitlab"`). It still works: every facility-config
-load site (the `scaffold web-terminals` lint loader and every `osprey deploy`/lifecycle
-entry point) runs the config through
-`osprey.deployment.facility_config.normalize_facility_config()` first, a pure function
-that rewrites a bare `gitlab:` block to `ci: {provider: "gitlab", ...gitlab fields}`
-before any other code sees the config. If a config somehow has both `gitlab:` and
-`ci:`, `ci:` wins and `gitlab:` is dropped. Either way, normalizing emits exactly one
-`DeprecationWarning` per process no matter how many load sites call it in that
-invocation. New configs should write `ci:` directly — the setup interview (Phase 2)
-now asks for `ci.provider` and only ever writes the `ci:` form.
+Older facility configs used a top-level `gitlab:` block instead of `ci:` — same fields,
+no `provider` key (it was implied to be `"gitlab"`). That block has been **removed**.
+Every facility-config load site (the `scaffold web-terminals` lint loader and every
+`osprey deploy`/lifecycle entry point) runs the config through
+`osprey.deployment.facility_config.normalize_facility_config()` first; a config that
+still carries a `gitlab:` block is now **rejected** with a `ConfigurationError` naming
+the replacement, rather than silently aliased. Rename the block to
+`ci: {provider: "gitlab", ...gitlab fields}`. The setup interview (Phase 2) asks for
+`ci.provider` and only ever writes the `ci:` form.
 
 ---
 

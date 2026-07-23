@@ -227,7 +227,7 @@ def init_project(
     ``OSPREY_E2E_FORCE_MODEL`` (honored in ``_resolve_project_spec``), which
     collapses all tiers onto a single model id.
     """
-    from osprey.cli.build_profile import default_tier_for_mode
+    from osprey.build.build_tiers import default_tier_for_mode
 
     provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
     effective_tier = tier

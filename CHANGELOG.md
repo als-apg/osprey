@@ -13,6 +13,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
+  payload omits its `id`: the ALS and generic adapters now fall back to an empty
+  entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
+  fetch loop caught and dropped the entry on.
 - `web.app_name` in `config.yml` now actually labels the web terminal header: the
   runtime read the key from a nested section nothing generates, so only the
   `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,
@@ -28,23 +32,29 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 
 - Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.
+- Broad unit-test coverage for previously untested modules across services (migration engine, channel-finder data layer and tools, python-executor sandbox plumbing), interfaces (lattice-dashboard physics workers, web-terminal file/chat/scaffold routes incl. the path-traversal guard), CLI menus, MCP servers, registry loader/export, deployment, template hooks, and utilities.
 - A bluesky scan plan can now be hidden from the agent without turning off the whole scan server. Set `bluesky.excluded_plans` on the profile of the project that deploys the bridge; the deploy render carries it into the bridge as the `BLUESKY_EXCLUDED_PLANS` environment variable. An excluded plan is both absent from the agent's plan list and non-runnable — it cannot be staged or launched by name. The bare config key is a local/development convenience; the environment variable is the production channel.
-
-### Changed
-
-- The `osprey-build-interview` skill now asks the installed framework what it offers instead of carrying its own catalog: presets, build artifacts, providers, and config keys are all read from the live installation at interview time, so a newly shipped capability is offered without anyone editing the skill. It generates the profile with `osprey build --emit-profile` rather than a hand-written YAML template, and builds that profile itself before handing it over — what you receive is known to build. The interview now adapts its questions to the person rather than following a fixed script, and takes about five minutes. Legacy-project migration, the feedback prompts, and the web-panel design step were removed; panel authoring belongs to the `creating-an-osprey-panel` skill.
-
-- `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).
 
 - `osprey deploy up` and `osprey deploy status` now warn when the project's render is stale — i.e. it was rendered by a different osprey version, or the preset's content has changed since the render (a content hash of the resolved preset is stamped into `.osprey-manifest.json` at build time). The warning names the exact `osprey build ... --force` command to re-render; it never blocks a deploy, and legacy projects without the stamp are unaffected.
 - Every `osprey deploy up` now ends with a service-endpoint summary (published host ports from the rendered compose files, plus the web-terminal landing URL — or an explicit "web terminal (not configured in this project)" line when the config declares no web tier).
 
 ### Changed
 
+- `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).
+- The `osprey-build-interview` skill now asks the installed framework what it offers instead of carrying its own catalog: presets, build artifacts, providers, and config keys are all read from the live installation at interview time, so a newly shipped capability is offered without anyone editing the skill. It generates the profile with `osprey build --emit-profile` rather than a hand-written YAML template, and builds that profile itself before handing it over — what you receive is known to build. The interview now adapts its questions to the person rather than following a fixed script, and takes about five minutes. Legacy-project migration, the feedback prompts, and the web-panel design step were removed; panel authoring belongs to the `creating-an-osprey-panel` skill.
+- New `osprey.build` package holds the build-time kernel shared across layers (Claude Code model/provider resolution, telemetry env block, channel-finder tier defaults, manifest primitives); agent-runtime helpers (clean child-env, SDK system-prompt, artifact-path resolution, Claude Code project-path encoding) moved to `osprey.agent_runner`. This removes the `services`/`mcp_server` → `cli`/`interfaces` layering inversions; internal import paths changed with no compatibility shims.
+- Removed the legacy facility-config `gitlab:` block: a config that still carries it now fails closed with a `ConfigurationError` naming the `ci: {provider: "gitlab", ...}` replacement, instead of being silently aliased.
+- Bluesky panels app moved from services to interfaces (import path `osprey.interfaces.bluesky_panels`).
+- python-executor: removed the deprecated `epics_writes_enabled` field; `control_system_writes_enabled` is now the single write-gating flag.
+- The seven LiteLLM-thin provider adapters (anthropic, als-apg, amsc-i2, cborg, google, openai, stanford) now share a single data-driven delegating base; behavior is unchanged (Stanford keeps its base-URL fallback).
+- The three channel-finder MCP servers now share one bootstrap module (config load, path resolution, `python -m` entry point, startup sequence); behavior and entry points are unchanged.
 - `osprey build --force` now re-renders an existing project *in place* instead of deleting the directory: `.env` (existing values win over freshly detected ones, and keys only it carries are kept), `_agent_data/`, and the project's `.git` are preserved; everything framework-rendered, including `data/`, is rebuilt. A profile-provided `env.file` is likewise merged into an existing `.env` rather than overwriting it.
 
 ### Fixed
 
+- `osprey ariel purge` now clears the text-embedding migration record along with the dropped embedding tables, so a subsequent `osprey ariel migrate` actually recreates them instead of silently no-opping.
+- Containerized Python execution no longer misclassifies an infrastructure failure during result collection as a code error: pre-classified executor errors keep their retry category, so an infrastructure fault re-executes the same code instead of triggering code regeneration.
+- The Stanford provider's health-check model id had a typo (`gpt-4.omini` → `gpt-4o-mini`), also fixed in its available-models list.
 - The AskSage provider now falls back to its static default model list when a `/models` fetch fails or credentials are missing, instead of returning a malformed value that could reach a UI caller. The fetched list is also cached across adapter instances, so an AskSage completion no longer pays a repeat `/models` round-trip on every request.
 - Every companion web panel now gets its own per-user port family in multi-user deployments. The family set is derived from the web-server registry — previously it was a hand-maintained list that missed the channel-finder and OKF panels, so a second user's container collided with the first on the panel's fixed port (crash-looping the container once the `osprey web` preflight landed). Families omitted from config fall back to registry defaults (`channel_finder_base_port` 9591, `okf_base_port` 9691), so existing configs deploy unchanged.
 - Bluesky PLAN/RESULTS/HEALTH panels now resolve their API endpoints correctly under the multi-user `/u/<user>/` mount: the shared `panelApiPrefix()` helper accepts an outer proxy prefix, the health panel no longer relies on the proxy's content rewrite (which double-prefixes once the runtime prefix is correct — this also fixes the proxied single-user health panel), and a guard test keeps panel bundles free of literals colliding with the proxy rewrite list.

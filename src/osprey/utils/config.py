@@ -391,8 +391,7 @@ class ConfigBuilder:
         """Build agent control defaults with explicit configuration control."""
 
         return {
-            # Control system writes control (with backward compatibility)
-            "epics_writes_enabled": self._get_writes_enabled_with_fallback(),
+            # Control system writes control
             "control_system_writes_enabled": self._get_writes_enabled_with_fallback(),
         }
 

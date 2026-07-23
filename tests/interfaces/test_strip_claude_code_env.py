@@ -8,8 +8,7 @@ switch (``CLAUDE_CODE_ENABLE_TELEMETRY``) and unrelated variables (including
 
 from __future__ import annotations
 
-from osprey.interfaces.web_terminal.env_utils import strip_claude_code_env
-from osprey.interfaces.web_terminal.operator_session import build_clean_env
+from osprey.agent_runner.clean_env import build_clean_env, strip_claude_code_env
 from osprey.interfaces.web_terminal.pty_manager import build_pty_env
 
 

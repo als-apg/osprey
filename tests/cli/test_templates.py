@@ -365,7 +365,7 @@ class TestGitIsolation:
         """Test that --force removes Claude Code's session directory."""
         from pathlib import Path
 
-        from osprey.cli.project_utils import encode_claude_project_path
+        from osprey.agent_runner.project_paths import encode_claude_project_path
 
         runner = CliRunner()
 

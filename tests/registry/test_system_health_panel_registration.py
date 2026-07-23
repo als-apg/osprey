@@ -15,6 +15,7 @@ wiring is consistent across every site. Two facts are specific to this panel:
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -37,6 +38,24 @@ def _fresh_source(obj) -> str:
     path = inspect.getsourcefile(obj) or inspect.getfile(obj)
     with open(path, encoding="utf-8") as fh:
         return fh.read()
+
+
+def _fresh_build_package_source() -> str:
+    """Concatenate every ``build_*.py`` concern module's source.
+
+    The build pipeline is split across sibling modules (``build_cmd`` orchestrates;
+    injectors, environment, lifecycle, persistence, and profile live alongside it).
+    A panel-id guard must cover wherever the injectors *currently* live, so this
+    scans the whole family rather than naming one module — otherwise moving an
+    injector between modules silently voids the guard while everything still
+    imports and passes.
+    """
+    from osprey.cli import build_cmd
+
+    build_dir = Path(inspect.getsourcefile(build_cmd) or inspect.getfile(build_cmd)).parent
+    sources = sorted(build_dir.glob("build_*.py"))
+    assert sources, f"no build_*.py concern modules found under {build_dir}"
+    return "\n".join(p.read_text(encoding="utf-8") for p in sources)
 
 
 # -- builtin registration + definition -----------------------------------------
@@ -235,9 +254,7 @@ def test_no_injector_registers_a_system_health_panel_id():
     the builtin tab. The Bluesky injector registers the distinct ``health`` id,
     which must stay intact.
     """
-    from osprey.cli import build_cmd
-
-    source = _fresh_source(build_cmd)
+    source = _fresh_build_package_source()
     assert "system-health" not in source  # no injector (or literal) registers it
     # The Bluesky scan-stack HEALTH tab (a different id) is left untouched.
     assert '"health"' in source

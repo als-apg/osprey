@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from osprey.agent_runner.clean_env import build_clean_env
 from osprey.interfaces.web_terminal.operator_session import (
     OperatorRegistry,
     OperatorSession,
     _format_tool_name,
     _message_to_events,
-    build_clean_env,
     validate_project_directory,
 )
 

@@ -10,7 +10,7 @@ from claude_agent_sdk import (
     ToolPermissionContext,
 )
 
-from osprey.interfaces.web_terminal.sdk_context import (
+from osprey.agent_runner.sdk_context import (
     build_system_prompt,
     make_tool_allowlist,
 )

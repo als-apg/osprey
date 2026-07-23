@@ -55,7 +55,7 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
 
     import yaml
 
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
     config_path = project_dir / "config.yml"
     if not config_path.exists():

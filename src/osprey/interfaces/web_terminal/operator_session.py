@@ -14,8 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.interfaces.web_terminal.env_utils import build_base_child_env
-from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
+from osprey.agent_runner.sdk_context import build_system_prompt
 from osprey.utils.config import get_facility_timezone
 
 logger = logging.getLogger(__name__)
@@ -133,33 +132,6 @@ def _message_to_events(message: Any) -> list[dict[str, Any]]:
 
     # StreamEvent and other unknown types are silently ignored.
     return events
-
-
-def build_clean_env(project_cwd: str | None = None) -> dict[str, str]:
-    """Build a clean environment dict for the SDK subprocess.
-
-    Layers the SDK-specific keys on top of :func:`build_base_child_env` (which
-    strips ``CLAUDECODE``/``CLAUDE_CODE_*`` variables while preserving the
-    telemetry master switch, resolves the auth-token conflict, and augments
-    ``PATH``): auto-sets ``OSPREY_CONFIG`` from the project directory.
-
-    Args:
-        project_cwd: Optional project directory. When ``OSPREY_CONFIG`` is not
-            already set and this directory contains ``config.yml``, the variable
-            is set automatically so hooks can locate the configuration.
-    """
-    env = build_base_child_env()
-
-    # Auto-set OSPREY_CONFIG when a config.yml exists in the project directory
-    if "OSPREY_CONFIG" not in env and project_cwd:
-        config_path = Path(project_cwd) / "config.yml"
-        if config_path.exists():
-            env["OSPREY_CONFIG"] = str(config_path)
-
-    # Note: OSPREY_HOOK_DEBUG is intentionally NOT propagated here.
-    # Hooks read config.yml directly for hot-reloadable debug toggle.
-
-    return env
 
 
 def validate_project_directory(cwd: str) -> list[str]:

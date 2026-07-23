@@ -57,7 +57,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import get_hook_input, get_project_dir, log_hook
 
 # Keep this regex in sync with
-# ``osprey.cli.project_utils.encode_claude_project_path``. Duplicated inline
+# ``osprey.agent_runner.project_paths.encode_claude_project_path``. Duplicated inline
 # because this hook runs in user projects where the ``osprey`` package may
 # not be importable at hook-execution time.
 _CLAUDE_PROJECT_DIR_NORMALIZE = re.compile(r"[^A-Za-z0-9-]")

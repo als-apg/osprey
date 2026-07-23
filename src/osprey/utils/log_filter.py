@@ -1,7 +1,7 @@
 """Log filtering utilities for selective suppression by logger name, level, or message pattern.
 
 Provides LoggerFilter for fine-grained suppression and context managers
-(suppress_logger, suppress_logger_level, quiet_logger) for temporary filtering.
+(suppress_logger_level, quiet_logger) for temporary filtering.
 """
 
 import logging
@@ -91,39 +91,6 @@ class LoggerFilter(logging.Filter):
 
 
 @contextmanager
-def suppress_logger(
-    logger_name: str | list[str],
-    levels: list[int] | None = None,
-    message_patterns: list[str] | None = None,
-):
-    """Context manager to temporarily suppress logger output.
-
-    Args:
-        logger_name: Name of logger(s) to suppress (string or list of strings).
-        levels: Specific levels to suppress. None suppresses all levels.
-        message_patterns: Regex patterns; only matching messages are suppressed.
-
-    Yields:
-        The LoggerFilter instance.
-    """
-    logger_names = [logger_name] if isinstance(logger_name, str) else logger_name
-
-    log_filter = LoggerFilter(
-        logger_names=logger_names, levels=levels, message_patterns=message_patterns
-    )
-
-    loggers = [logging.getLogger(name) for name in logger_names]
-    for logger in loggers:
-        logger.addFilter(log_filter)
-
-    try:
-        yield log_filter
-    finally:
-        for logger in loggers:
-            logger.removeFilter(log_filter)
-
-
-@contextmanager
 def suppress_logger_level(logger_name: str | list[str], level: int):
     """Context manager to temporarily raise logger level to suppress messages.
 
@@ -187,7 +154,6 @@ def quiet_logger(logger_name: str | list[str]):
 
 __all__ = [
     "LoggerFilter",
-    "suppress_logger",
     "suppress_logger_level",
     "quiet_logger",
 ]

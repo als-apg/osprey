@@ -13,11 +13,9 @@ Usage in tools:
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
+from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
 
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.hierarchical import (
@@ -51,7 +49,7 @@ class ChannelFinderHierContext:
         if self._initialized:
             return
 
-        self._raw_config = self._load_config()
+        self._raw_config = load_cf_config(logger)
 
         cf_config = self._raw_config.get("channel_finder", {})
         hier_config = cf_config.get("pipelines", {}).get("hierarchical", {})
@@ -59,7 +57,7 @@ class ChannelFinderHierContext:
         db_path = db_config.get("path")
 
         if db_path:
-            db_path = self._resolve_path(db_path)
+            db_path = resolve_cf_path(db_path)
 
             from osprey.services.channel_finder.databases.hierarchical import (
                 HierarchicalChannelDatabase,
@@ -80,7 +78,7 @@ class ChannelFinderHierContext:
             try:
                 from osprey.services.channel_finder.feedback.store import FeedbackStore
 
-                store_path = self._resolve_path(feedback_config["store_path"])
+                store_path = resolve_cf_path(feedback_config["store_path"])
                 self._feedback_store = FeedbackStore(store_path)
                 logger.info("ChannelFinderHierContext: feedback store loaded from %s", store_path)
             except Exception:
@@ -118,32 +116,6 @@ class ChannelFinderHierContext:
     def feedback_store(self) -> FeedbackStore | None:
         """FeedbackStore instance, or None if not configured."""
         return self._feedback_store
-
-    def _resolve_path(self, path_str: str) -> str:
-        """Resolve path relative to config file directory."""
-        config_path = Path(
-            os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-        )
-        p = Path(path_str)
-        if not p.is_absolute():
-            p = config_path.parent / p
-        return str(p.resolve())
-
-    @staticmethod
-    def _load_config() -> dict[str, Any]:
-        """Load config.yml from OSPREY_CONFIG env var or cwd."""
-        config_path = Path(
-            os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-        )
-        raw: dict[str, Any] = {}
-        if config_path.exists():
-            with open(config_path) as f:
-                raw = yaml.safe_load(f) or {}
-            logger.info("ChannelFinderHierContext: config loaded from %s", config_path)
-        else:
-            logger.warning("Config file not found: %s", config_path)
-
-        return raw
 
 
 # ---------------------------------------------------------------------------

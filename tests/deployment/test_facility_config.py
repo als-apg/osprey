@@ -1,19 +1,16 @@
-"""Tests for the facility-config `gitlab:` → `ci:` normalizer."""
+"""Tests for the facility-config normalizer (canonical `ci:` shape)."""
 
 import ast
 import copy
 import inspect
 import re
-import warnings
 from pathlib import Path
 
 import pytest
 import yaml
 
-from osprey.deployment.facility_config import (
-    _reset_warn_state,
-    normalize_facility_config,
-)
+from osprey.deployment.facility_config import normalize_facility_config
+from osprey.errors import ConfigurationError
 
 GITLAB_BLOCK = {
     "host": "git.dls.example.org",
@@ -36,22 +33,33 @@ def _base_config(**overrides):
     return config
 
 
-@pytest.fixture(autouse=True)
-def _reset_warn_flag():
-    _reset_warn_state()
-    yield
-    _reset_warn_state()
+class TestGitlabBlockRejected:
+    """The legacy `gitlab:` block is removed: its presence hard-errors with a
+    message naming the `ci:` replacement (fail-closed with guidance, never a
+    silent alias or silent drop)."""
 
-
-class TestGitlabAliasing:
-    def test_gitlab_block_aliased_to_ci(self):
+    def test_gitlab_block_raises(self):
         config = _base_config(gitlab=dict(GITLAB_BLOCK))
 
-        normalized = normalize_facility_config(config)
+        with pytest.raises(ConfigurationError, match="gitlab"):
+            normalize_facility_config(config)
 
-        assert "gitlab" not in normalized
-        assert normalized["ci"] == CI_BLOCK
+    def test_error_names_ci_replacement(self):
+        config = _base_config(gitlab=dict(GITLAB_BLOCK))
 
+        with pytest.raises(ConfigurationError, match=r'ci: \{provider: "gitlab"'):
+            normalize_facility_config(config)
+
+    def test_gitlab_rejected_even_when_ci_also_present(self):
+        # A lingering `gitlab:` block is rejected even alongside a valid `ci:`
+        # block — it is never silently dropped in favor of `ci:`.
+        config = _base_config(gitlab=dict(GITLAB_BLOCK), ci=dict(CI_BLOCK))
+
+        with pytest.raises(ConfigurationError, match="gitlab"):
+            normalize_facility_config(config)
+
+
+class TestCiShape:
     def test_ci_block_passes_through_unchanged(self):
         config = _base_config(ci=dict(CI_BLOCK))
 
@@ -60,71 +68,25 @@ class TestGitlabAliasing:
         assert normalized["ci"] == CI_BLOCK
         assert "gitlab" not in normalized
 
-    def test_both_present_ci_wins(self):
-        conflicting_gitlab = {**GITLAB_BLOCK, "token_env_var": "OTHER_TOKEN"}
-        config = _base_config(gitlab=conflicting_gitlab, ci=dict(CI_BLOCK))
+    def test_no_ci_no_gitlab_passes_through(self):
+        config = _base_config()
 
         normalized = normalize_facility_config(config)
 
-        assert normalized["ci"] == CI_BLOCK
-        assert "gitlab" not in normalized
-
-    def test_both_present_emits_warning(self):
-        config = _base_config(gitlab=dict(GITLAB_BLOCK), ci=dict(CI_BLOCK))
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            normalize_facility_config(config)
-
-        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
-
-    def test_no_gitlab_no_ci_no_warning(self):
-        config = _base_config()
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            normalized = normalize_facility_config(config)
-
         assert "ci" not in normalized
-        assert not any(issubclass(w.category, DeprecationWarning) for w in caught)
-
-
-class TestWarnOnce:
-    def test_exactly_one_warning_per_process(self):
-        config = _base_config(gitlab=dict(GITLAB_BLOCK))
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            normalize_facility_config(config)
-            normalize_facility_config(copy.deepcopy(config))
-            normalize_facility_config(copy.deepcopy(config))
-
-        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
-        assert len(deprecation_warnings) == 1
-
-    def test_reset_allows_warning_again(self):
-        config = _base_config(gitlab=dict(GITLAB_BLOCK))
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            normalize_facility_config(config)
-            _reset_warn_state()
-            normalize_facility_config(copy.deepcopy(config))
-
-        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
-        assert len(deprecation_warnings) == 2
+        assert "gitlab" not in normalized
 
 
 class TestRegistryTokenDefault:
     def test_registry_token_defaults_from_ci(self):
-        config = _base_config(gitlab=dict(GITLAB_BLOCK))
+        config = _base_config(ci=dict(CI_BLOCK))
 
         normalized = normalize_facility_config(config)
 
-        assert normalized["registry"]["token_env_var"] == GITLAB_BLOCK["token_env_var"]
+        assert normalized["registry"]["token_env_var"] == CI_BLOCK["token_env_var"]
 
     def test_registry_token_not_overridden_when_set(self):
-        config = _base_config(gitlab=dict(GITLAB_BLOCK))
+        config = _base_config(ci=dict(CI_BLOCK))
         config["registry"]["token_env_var"] = "CUSTOM_REGISTRY_TOKEN"
 
         normalized = normalize_facility_config(config)
@@ -132,7 +94,7 @@ class TestRegistryTokenDefault:
         assert normalized["registry"]["token_env_var"] == "CUSTOM_REGISTRY_TOKEN"
 
     def test_no_registry_block_does_not_error(self):
-        config = {"gitlab": dict(GITLAB_BLOCK)}
+        config = {"ci": dict(CI_BLOCK)}
 
         normalized = normalize_facility_config(config)
 
@@ -142,7 +104,7 @@ class TestRegistryTokenDefault:
 
 class TestNonMutating:
     def test_input_dict_unchanged(self):
-        config = _base_config(gitlab=dict(GITLAB_BLOCK))
+        config = _base_config(ci=dict(CI_BLOCK))
         original = copy.deepcopy(config)
 
         normalize_facility_config(config)
@@ -150,23 +112,12 @@ class TestNonMutating:
         assert config == original
 
     def test_returns_new_dict(self):
-        config = _base_config(gitlab=dict(GITLAB_BLOCK))
+        config = _base_config(ci=dict(CI_BLOCK))
 
         normalized = normalize_facility_config(config)
 
         assert normalized is not config
         assert normalized["registry"] is not config["registry"]
-
-
-class TestEquivalence:
-    def test_gitlab_shape_equals_ci_shape(self):
-        gitlab_shape = _base_config(gitlab=dict(GITLAB_BLOCK))
-        ci_shape = _base_config(ci=dict(CI_BLOCK))
-
-        normalized_gitlab = normalize_facility_config(gitlab_shape)
-        normalized_ci = normalize_facility_config(ci_shape)
-
-        assert normalized_gitlab == normalized_ci
 
 
 # =============================================================================
@@ -334,60 +285,56 @@ class TestLoadSiteWiring:
         assert "normalize_facility_config(" in source
 
 
-class TestLoadSiteWarnOnce:
-    """Repeated loads across *different* load sites still emit one warning."""
+class TestLoadSiteRejectsGitlab:
+    """A removed `gitlab:` block is rejected at a real wired load site, not just
+    through normalize_facility_config() directly."""
 
-    def test_repeated_loads_across_load_sites_emit_one_warning(self, tmp_path):
+    def test_scaffold_load_site_rejects_gitlab(self, tmp_path):
         config_path = tmp_path / "facility-config.yml"
         config_path.write_text(yaml.dump(_base_config(gitlab=dict(GITLAB_BLOCK))))
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            # Site 1: the scaffold lint/render path (direct yaml.safe_load).
+        with pytest.raises(ConfigurationError, match="gitlab"):
             scaffold_cmd._load_facility_config(str(config_path))
-            # Site 2: a ConfigBuilder-based deploy-lifecycle path. web_terminals
-            # is absent, so seed_web_terminals no-ops after loading + normalizing.
+
+    def test_seed_web_terminals_load_site_rejects_gitlab(self, tmp_path):
+        # A ConfigBuilder-based deploy-lifecycle load site: it too funnels
+        # through the normalizer, so a `gitlab:` block fails closed here.
+        config_path = tmp_path / "facility-config.yml"
+        config_path.write_text(yaml.dump(_base_config(gitlab=dict(GITLAB_BLOCK))))
+
+        with pytest.raises(ConfigurationError, match="gitlab"):
             wt_seeding.seed_web_terminals(str(config_path))
 
-        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
-        assert len(deprecation_warnings) == 1
 
+class TestLoadSiteCanonicalCi:
+    """A canonical ci-shape config flows through a real wired load site
+    unchanged (not just through normalize_facility_config() directly)."""
 
-class TestLoadSiteBehaviorEquivalence:
-    """A gitlab-shape config behaves identically to a ci-shape config through a
-    real wired load site (not just through normalize_facility_config() directly)."""
-
-    def test_scaffold_load_site_gitlab_equals_ci(self, tmp_path):
-        gitlab_path = tmp_path / "gitlab-facility-config.yml"
-        gitlab_path.write_text(yaml.dump(_base_config(gitlab=dict(GITLAB_BLOCK))))
-
-        ci_path = tmp_path / "ci-facility-config.yml"
+    def test_scaffold_load_site_accepts_ci(self, tmp_path):
+        ci_path = tmp_path / "facility-config.yml"
         ci_path.write_text(yaml.dump(_base_config(ci=dict(CI_BLOCK))))
 
-        loaded_gitlab = scaffold_cmd._load_facility_config(str(gitlab_path))
         loaded_ci = scaffold_cmd._load_facility_config(str(ci_path))
 
-        assert loaded_gitlab == loaded_ci
-        assert loaded_gitlab["ci"] == CI_BLOCK
-        assert "gitlab" not in loaded_gitlab
+        assert loaded_ci["ci"] == CI_BLOCK
+        assert "gitlab" not in loaded_ci
 
-    def test_setup_build_dir_stages_normalized_config(self, tmp_path, monkeypatch):
-        """A gitlab-shape project config.yml, staged into a container build dir
-        by ``setup_build_dir``, comes out in the canonical `ci:` shape.
+    def test_setup_build_dir_stages_canonical_ci_config(self, tmp_path, monkeypatch):
+        """A ci-shape project config.yml, staged into a container build dir by
+        ``setup_build_dir``, comes out carrying the canonical `ci:` block.
 
         Drives the real container-config propagation path: ``setup_build_dir``
         reads the CWD's ``config.yml`` via a bare ``ConfigBuilder()`` (not
         ``.raw_config``, which is why this needs its own test rather than
-        reusing ``TestLoadSiteBehaviorEquivalence``'s scaffold-path fixture),
-        flattens it, and writes the result as the service's staged
-        ``config.yml`` — the file actually bind-mounted/copied into the
-        container. That staged file must never carry the raw `gitlab:` block.
+        reusing ``TestLoadSiteCanonicalCi``'s scaffold-path fixture), flattens
+        it, and writes the result as the service's staged ``config.yml`` — the
+        file actually bind-mounted/copied into the container.
         """
         from osprey.deployment.compose_generator import setup_build_dir
 
         project_config_path = tmp_path / "config.yml"
         project_config_path.write_text(
-            yaml.dump(_base_config(gitlab=dict(GITLAB_BLOCK), project_name="pep-fixture"))
+            yaml.dump(_base_config(ci=dict(CI_BLOCK), project_name="pep-fixture"))
         )
 
         service_dir = tmp_path / "services" / "worker"
