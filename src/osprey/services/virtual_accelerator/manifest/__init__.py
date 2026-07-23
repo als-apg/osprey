@@ -29,11 +29,15 @@ from .classify import (
     classify_partition,
     derive_record_type,
 )
+from .loaders import MANIFEST_CHANNEL_KEYS, ManifestFileError, load_manifest_file
 
 __all__ = [
     "build_manifest",
     "classify_partition",
     "derive_record_type",
+    "load_manifest_file",
+    "ManifestFileError",
+    "MANIFEST_CHANNEL_KEYS",
     "PARTITION_PYAT_COUPLED",
     "PARTITION_SP_ECHO",
     "PARTITION_STATIC_NOISY",
