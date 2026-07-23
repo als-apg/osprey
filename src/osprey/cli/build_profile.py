@@ -139,6 +139,11 @@ class BlueskyConfig:
     ``plan_loader.py``. ``None`` (default) deploys the bridge with no
     facility plan directory, matching every prior bluesky-only build.
     """
+    excluded_plans: list[str] = field(default_factory=list)
+    """Named plans to hide from the agent while the bluesky server stays
+    enabled (dev/local convenience). Production uses the
+    ``BLUESKY_EXCLUDED_PLANS`` env var instead.
+    """
 
 
 @dataclass
@@ -913,12 +918,21 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if bluesky_raw is not None:
         if not isinstance(bluesky_raw, dict):
             raise BuildProfileError("Profile 'bluesky' must be a mapping")
+        excluded_plans = bluesky_raw.get("excluded_plans", [])
+        if not isinstance(excluded_plans, list) or not all(
+            isinstance(p, str) for p in excluded_plans
+        ):
+            raise BuildProfileError(
+                "bluesky.excluded_plans must be a list of plan-name strings "
+                f"(got {excluded_plans!r})"
+            )
         bluesky = BlueskyConfig(
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
             tiled_port=bluesky_raw.get("tiled_port", 8091),
             demo_runner=bluesky_raw.get("demo_runner", False),
             plan_dir=bluesky_raw.get("plan_dir"),
+            excluded_plans=excluded_plans,
         )
 
     va_raw = raw.get("virtual_accelerator")

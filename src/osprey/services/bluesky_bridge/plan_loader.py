@@ -90,6 +90,10 @@ _MODULE_PATH_ENV = "BLUESKY_PLAN_MODULE"
 # os.pathsep-separated list of directory-layer dirs, set per bridge instance.
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
 
+# os.pathsep-separated list of plan names to exclude from the catalog, set per
+# bridge instance. Unioned with config.yml's ``bluesky.excluded_plans``.
+_EXCLUDED_PLANS_ENV = "BLUESKY_EXCLUDED_PLANS"
+
 # The in-image core plan directory shipped with this package (task 1.5
 # populates it; scanned even if absent/empty).
 _SHIPPED_PLANS_DIR = Path(__file__).parent / "plans_core"
@@ -173,6 +177,37 @@ def _resolve_plan_dir_layers() -> list[tuple[Path, Provenance]]:
     layers.append((resolve_session_plan_dir(), "session"))
 
     return layers
+
+
+def _resolve_excluded_plans() -> set[str]:
+    """Plan names to exclude from the catalog, unioned across env and config.yml.
+
+    Two sources, both contributing to the returned set:
+
+    1. ``BLUESKY_EXCLUDED_PLANS`` (env, ``os.pathsep``-separated), set per
+       bridge instance at launch — mirrors ``BLUESKY_PLAN_DIRS``.
+    2. ``bluesky.excluded_plans`` in config.yml, either a ``list[str]`` or a
+       bare ``str`` (coerced to a one-element list, mirroring
+       ``bluesky.plan_dirs``).
+
+    Empty tokens are skipped from both sources. Pure and deterministic given
+    env + config; no side effects.
+    """
+    excluded: set[str] = set()
+
+    env_value = os.environ.get(_EXCLUDED_PLANS_ENV)
+    if env_value:
+        excluded.update(t for t in env_value.split(os.pathsep) if t)
+
+    from osprey.utils.workspace import load_osprey_config
+
+    config = load_osprey_config()
+    config_excluded = config.get("bluesky", {}).get("excluded_plans") or []
+    if isinstance(config_excluded, str):
+        config_excluded = [config_excluded]
+    excluded.update(t for t in config_excluded if t)
+
+    return excluded
 
 
 def _load_module_from_path(path: Path) -> Any:
@@ -483,6 +518,11 @@ def _load_startup_layers(module_path: str | None) -> _StartupLayers:
 # ---------------------------------------------------------------------------
 _startup_layers: _StartupLayers | None = None
 _merged_plans: FacilityPlans | None = None
+# Warn-once guard for excluded names that match no registered plan. Keyed on
+# ``(frozenset(unmatched), frozenset(registry.keys()))`` so a stable
+# misconfiguration warns exactly once, re-warning only when the unmatched set or
+# the live registry keys actually change (e.g. a new session plan appears).
+_warned_exclusions: tuple[frozenset[str], frozenset[str]] | None = None
 
 
 def get_facility_plans() -> FacilityPlans:
@@ -499,7 +539,7 @@ def get_facility_plans() -> FacilityPlans:
     written and validated session plan therefore appears on the very next
     call, with no bridge restart and no explicit cache invalidation.
     """
-    global _startup_layers, _merged_plans
+    global _startup_layers, _merged_plans, _warned_exclusions
 
     if _startup_layers is None:
         _startup_layers = _load_startup_layers(None)
@@ -509,6 +549,25 @@ def get_facility_plans() -> FacilityPlans:
         _load_plan_file(path, "session", registry)
 
     plans = {name: spec for name, (_, _, spec) in registry.items()}
+
+    # Drop excluded plans BEFORE wrapping/caching: filtering after the
+    # `_merged_plans` equality compare below would cache and return an
+    # UNFILTERED result. An excluded name that matches no registered plan warns
+    # exactly once (guarded on the unmatched set + live registry keys), so a
+    # stable misconfiguration doesn't warn on every scan.
+    excluded = _resolve_excluded_plans()
+    unmatched = excluded - set(registry.keys())
+    if unmatched:
+        key = (frozenset(unmatched), frozenset(registry.keys()))
+        if key != _warned_exclusions:
+            logger.warning(
+                "plan_loader: excluded plan name(s) %s matched no registered plan",
+                sorted(unmatched),
+            )
+            _warned_exclusions = key
+    for name in excluded:
+        plans.pop(name, None)
+
     merged = FacilityPlans(plans=plans, devices=dict(_startup_layers.devices))
 
     if _merged_plans is not None and merged == _merged_plans:
@@ -519,6 +578,7 @@ def get_facility_plans() -> FacilityPlans:
 
 def reset_facility_plans() -> None:
     """Clear every cached layer (startup and last-merged result) — for testing."""
-    global _startup_layers, _merged_plans
+    global _startup_layers, _merged_plans, _warned_exclusions
     _startup_layers = None
     _merged_plans = None
+    _warned_exclusions = None

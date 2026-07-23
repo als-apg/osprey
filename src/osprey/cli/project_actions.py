@@ -284,19 +284,26 @@ def handle_health_action(project_path: Path | None = None):
         original_dir = None
 
     try:
-        from osprey.cli.health_cmd import HealthChecker
-        from osprey.utils.log_filter import quiet_logger
+        from osprey.cli.health_cmd import health
 
-        # Create and run health checker (full mode by default)
-        # Suppress config/registry initialization messages
-        with quiet_logger(["registry", "CONFIG"]):
-            checker = HealthChecker(verbose=False, full=True)
-            success = checker.check_all()
+        # Run the health command programmatically in full mode (matching the
+        # old menu semantics). ``standalone_mode=False`` stops Click from
+        # exiting the process itself; the command always terminates via
+        # ``sys.exit(report.exit_code)``, which surfaces here as ``SystemExit``.
+        exit_code = 0
+        try:
+            health.main(args=["--full"], prog_name="osprey health", standalone_mode=False)
+        except SystemExit as exc:
+            exit_code = int(exc.code or 0)
 
-        if success:
+        if exit_code == 0:
             console.print(f"\n{Messages.success('Health check completed successfully')}")
-        else:
+        elif exit_code == 1:
             console.print(f"\n{Messages.warning('Health check completed with warnings')}")
+        elif exit_code == 130:
+            console.print(f"\n{Messages.warning('Health check interrupted')}")
+        else:
+            console.print(f"\n{Messages.error('Health check reported errors')}")
 
     except Exception as e:
         console.print(f"\n{Messages.error(str(e))}")

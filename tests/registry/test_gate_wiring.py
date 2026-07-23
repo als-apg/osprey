@@ -31,11 +31,12 @@ source — route-safety style.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import osprey
 from osprey import bluesky_tool_names as bsky
-from osprey.registry.mcp import resolve_servers
+from osprey.registry.mcp import resolve_agents, resolve_servers
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -294,3 +295,77 @@ def test_launch_run_carries_both_gates_stop_run_approval_only() -> None:
         "stop_run must NEVER be writes-check/kill-switch gated — the kill switch "
         "must not be able to block stopping a run"
     )
+
+
+# ---------------------------------------------------------------------------
+# Health server gate wiring (opt-in, read-only allow/ask split)
+# ---------------------------------------------------------------------------
+
+_HEALTH_CTX = {"project_root": "/tmp/test-project", "current_python_env": "/usr/bin/python3"}
+
+
+def _render_settings(claude_code_config: dict) -> dict:
+    """Render settings.json.j2 end-to-end and return the parsed permissions block.
+
+    Exercises the real allow/ask wiring: the template prefixes each server's
+    permissions_allow / permissions_ask tools as ``mcp__<name>__<tool>`` and only
+    emits entries for ENABLED servers.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+
+    ctx = dict(_HEALTH_CTX)
+    ctx["facility_permissions"] = {}
+    ctx["servers"] = resolve_servers(claude_code_config, ctx)
+    ctx["agents"] = resolve_agents(claude_code_config, ctx, resolved_servers=ctx["servers"])
+    tm = TemplateManager()
+    template = tm.jinja_env.get_template("claude_code/claude/settings.json.j2")
+    return json.loads(template.render(**ctx))
+
+
+def test_health_allow_ask_split_renders_prefixed_tools() -> None:
+    """With health enabled, the allow/ask split renders as prefixed tool names.
+
+    health_check → permissions.allow (silent, read-only); health_check_full →
+    permissions.ask (approval-gated). The ``mcp__health__`` prefix is applied by
+    the settings template, not stored in the registry.
+    """
+    data = _render_settings({"servers": {"health": {"enabled": True}}})
+    allow = set(data["permissions"]["allow"])
+    ask = set(data["permissions"]["ask"])
+
+    assert "mcp__health__health_check" in allow
+    assert "mcp__health__health_check_full" in ask
+    # The split is exclusive: neither tool leaks into the other list.
+    assert "mcp__health__health_check_full" not in allow
+    assert "mcp__health__health_check" not in ask
+
+
+def test_health_absent_from_rendered_settings_unless_enabled() -> None:
+    """Opt-in: health tools appear in the rendered gate ONLY when enabled.
+
+    The server ships default_enabled=False, so a default config emits no
+    ``mcp__health__*`` permission entry; setting claude_code.servers.health.enabled
+    = true is what surfaces the tools.
+    """
+    default = _render_settings({})
+    default_perms = default["permissions"]["allow"] + default["permissions"]["ask"]
+    assert not any(p.startswith("mcp__health__") for p in default_perms), (
+        "health tools must be absent from the default (opt-out) rendered settings"
+    )
+
+    enabled = _render_settings({"servers": {"health": {"enabled": True}}})
+    enabled_perms = enabled["permissions"]["allow"] + enabled["permissions"]["ask"]
+    assert any(p.startswith("mcp__health__") for p in enabled_perms), (
+        "health tools must surface once the server is opted in"
+    )
+
+
+def test_health_carries_no_pretooluse_hook() -> None:
+    """Read-only posture: the enabled health server contributes no PreToolUse rule.
+
+    No _WRITES_CHECK / approval hook is wired for either tool — every connector
+    touch is config-declared and read-only, so there is nothing to gate.
+    """
+    data = _render_settings({"servers": {"health": {"enabled": True}}})
+    pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
+    assert not any(m.startswith("mcp__health__") for m in pre_matchers)

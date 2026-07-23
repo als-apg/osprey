@@ -12,6 +12,7 @@ service templates.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -423,6 +424,13 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         # key, so an unset plan_dir means no mount and no BLUESKY_PLAN_DIRS
         # env var at all (Task 1.4).
         config["services"]["bluesky"]["plan_dir"] = bluesky.plan_dir
+    if bluesky.excluded_plans:
+        # Only written when non-empty — its absence keeps a deploy with no
+        # exclusions rendering exactly as before: the compose template's
+        # {% if %} guard reads this same key, so an empty list means no
+        # BLUESKY_EXCLUDED_PLANS env var at all. The os.pathsep join is done
+        # Python-side because the Jinja render context has no `os` module.
+        config["services"]["bluesky"]["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
     deployed = config.get("deployed_services", []) or []
     if "bluesky" not in [str(s) for s in deployed]:
         deployed.append("bluesky")

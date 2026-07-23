@@ -93,6 +93,14 @@ async def okf_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
+@router.get("/api/system-health-server")
+async def system_health_server_config(request: Request):
+    """Return the System Health dashboard server URL for iframe embedding."""
+    url = getattr(request.app.state, "system_health_server_url", None)
+    proxy_url = f"{compute_url_prefix()}/panel/system-health" if url else None
+    return {"url": proxy_url, "available": proxy_url is not None}
+
+
 def _browser_panel_url(cp: dict) -> str:
     """The browser-facing URL for a custom panel, prefixed with ``compute_url_prefix()``.
 
