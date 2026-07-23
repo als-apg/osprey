@@ -329,7 +329,13 @@ def test_generated_image_serves_agent_over_http(built_image):
         assert CHAT_MARKER in text, (
             f"expected marker {CHAT_MARKER!r} in agent reply, got: {text[:500]!r}"
         )
-        assert (data.get("num_turns") or 0) >= 1, "expected at least one agent turn"
+        # The buffered chat payload is reduced to {text, events, is_error} —
+        # turn counts are deliberately withheld from the chat client — so a
+        # completed turn is evidenced by its terminal result event.
+        events = data.get("events") or []
+        assert any(e.get("type") == "result" for e in events), (
+            f"expected a completed agent turn, got events: {events}"
+        )
     finally:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
 
