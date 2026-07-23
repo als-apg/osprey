@@ -33,6 +33,7 @@ claude_md_template: CLAUDE.channel-finder.md.j2
 hooks:
   - hook-log          # Append every tool call to a structured JSONL audit log
   - hook-config       # Inject project config.yml path into every tool call env
+  - approval          # Enforce config.yml approval policy (fail-closed default for any write tool)
   - error-guidance    # Post-error hook that surfaces remediation hints
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - memory-guard      # Warn when context window approaches threshold
