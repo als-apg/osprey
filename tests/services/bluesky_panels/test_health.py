@@ -1,7 +1,7 @@
 """Unit tests for the bluesky panels sidecar app skeleton (task 1.1).
 
 Exercises the assembled FastAPI app (`bluesky_panels/app.py`) rather than its
-helpers directly: the healthcheck route, the three panel static mounts, and
+helpers directly: the healthcheck route, the two panel static mounts, and
 import-cleanliness (no `bluesky`/`ophyd`/`tiled` at module scope).
 """
 
@@ -31,24 +31,14 @@ def test_health_ok(client: TestClient) -> None:
 
 
 def test_panel_mounts_registered() -> None:
-    assert _PANEL_MOUNTS == {"plan": "/plan", "results": "/results", "health": "/health-panel"}
+    assert _PANEL_MOUNTS == {"plan": "/plan", "results": "/results"}
 
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
     for mount_path in _PANEL_MOUNTS.values():
         assert mount_path in mounted_paths
 
 
-def test_panel_mounts_do_not_collide_with_healthcheck(client: TestClient) -> None:
-    # The health-panel bundle is mounted at /health-panel, never /health --
-    # a request to /health must always hit the JSON healthcheck route, not
-    # a static file lookup.
-    response = client.get("/health")
-    assert response.json() == {"status": "ok"}
-    assert "/health-panel" in {route.path for route in app.routes if hasattr(route, "path")}
-    assert "/health" != "/health-panel"
-
-
-@pytest.mark.parametrize("mount_path", ["/plan", "/results", "/health-panel"])
+@pytest.mark.parametrize("mount_path", ["/plan", "/results"])
 def test_panel_mount_responds_not_as_health_json(client: TestClient, mount_path: str) -> None:
     # The panel static mount must not shadow the /health JSON route. Depending
     # on whether the panel bundle has been authored yet, the mount responds

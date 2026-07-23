@@ -258,8 +258,8 @@ def _multi_user_landing_server(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # Scan panels (Phase-6 operator interfaces): unlike every other target above,
 # the sidecar has no ``create_app()`` factory — it's a single module-level
-# FastAPI singleton (see ``osprey.services.bluesky_panels.app``) that mounts all
-# three panel bundles (plan/results/health) plus the shared design-system
+# FastAPI singleton (see ``osprey.services.bluesky_panels.app``) that mounts both
+# panel bundles (plan/results) plus the shared design-system
 # assets in one process. Import the app object directly and hand it to
 # ``_run_app_server`` the same way the other targets hand it a freshly
 # constructed app. No bridge is running behind it here, so each panel renders
@@ -320,7 +320,7 @@ TARGETS: list[VisualTarget] = [
     # Dispatch dashboard has no live dispatcher backend behind it here, so it
     # renders its genuine no-data empty state — a legitimate, stable baseline.
     VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/"),
-    # Scan panels (Phase-6): mounted at /plan, /results, /health-panel by the
+    # Scan panels (Phase-6): mounted at /plan, /results by the
     # sidecar (see ``_PANEL_MOUNTS`` in ``osprey.services.bluesky_panels.app``);
     # each wait_selector is a static top-level element present in the shell's
     # initial markup (not injected by JS), so it attaches even though no
@@ -336,12 +336,6 @@ TARGETS: list[VisualTarget] = [
         _bluesky_panels_server,
         path="/results/",
         wait_selector="#run-picker",
-    ),
-    VisualTarget(
-        "scan_panel_health",
-        _bluesky_panels_server,
-        path="/health-panel/",
-        wait_selector="#service-grid",
     ),
 ]
 

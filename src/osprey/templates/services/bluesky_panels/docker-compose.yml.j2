@@ -1,6 +1,6 @@
 # The bluesky-panels service owns the browser-facing FastAPI sidecar (see
-# src/osprey/services/bluesky_panels/) that serves the three operator web panels,
-# same-origin read-proxies the bluesky bridge, and exposes /health/full.
+# src/osprey/services/bluesky_panels/) that serves the operator web panels and
+# same-origin read-proxies the bluesky bridge.
 # `osprey deploy up` builds its image locally on first run; subsequent runs
 # reuse the local tag. To use a prebuilt/published image instead, set
 # OSPREY_BLUESKY_PANELS_IMAGE (e.g. OSPREY_BLUESKY_PANELS_IMAGE=my-registry/osprey-bluesky-panels:dev).
@@ -71,13 +71,6 @@ services:
       # project .env when unset (see container_lifecycle.py's per-service
       # token-mint map).
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
-      # Tiled's IN-NETWORK port is 8000, not the host-published tiled_port
-      # (services.bluesky.tiled_port, default 8091) — same distinction as the
-      # bridge's own BLUESKY_TILED_URI.
-      BLUESKY_PANELS_TILED_URL: http://tiled:8000
-      # The Virtual Accelerator IOC's Channel-Access endpoint; /health/full
-      # TCP-probes this (not HTTP).
-      BLUESKY_PANELS_VA_ADDR: virtual-accelerator:5064
     volumes:
       # Bind-mount source is relative to the compose project directory
       # (build/services/), not this file's own subdir — hence the
