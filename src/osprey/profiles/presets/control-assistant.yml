@@ -70,6 +70,7 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
+  - okf             # KNOWLEDGE tab — browse the facility knowledge bundle
   - events          # EVENTS dashboard tab (event dispatcher)
   - plan       # Bluesky plan selection & execute
   - results    # Live run results viewer

@@ -27,6 +27,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- The control-assistant preset now ships the KNOWLEDGE panel, a browser for the project's facility knowledge bundle. Existing projects gain the tab by adding `okf` to `web_panels` and rebuilding.
 - Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.
 - A bluesky scan plan can now be hidden from the agent without turning off the whole scan server. Set `bluesky.excluded_plans` on the profile of the project that deploys the bridge; the deploy render carries it into the bridge as the `BLUESKY_EXCLUDED_PLANS` environment variable. An excluded plan is both absent from the agent's plan list and non-runnable — it cannot be staged or launched by name. The bare config key is a local/development convenience; the environment variable is the production channel.
 
