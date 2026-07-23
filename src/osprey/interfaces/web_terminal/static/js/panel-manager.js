@@ -108,6 +108,13 @@ const PANELS = [
     configEndpoint: '/api/okf-server',
     statusBarId: null,
   },
+  {
+    id: 'system-health',
+    label: 'SYSTEM',
+    configEndpoint: '/api/system-health-server', // data string; fetchJSON prefixes it in initPanel()
+    healthEndpoint: '/health', // EXPLICIT — the sidecar liveness LED polls it; omitting/null skips polling (pins healthy)
+    statusBarId: null,
+  },
 ];
 
 // ---- State ----

@@ -22,6 +22,13 @@ while writing it, not theoretical):
   module imports ``ioc.records``, so it never inherits that poisoned state.
   This mirrors the real deployment anyway: the agent (CA client) and the VA
   container (CA server) are always separate processes.
+
+The boot-value tests (``TestBootValues``) are the one exception to "build
+real records": they monkeypatch the factory's ``_IN_BUILDERS``/
+``_OUT_BUILDERS`` tables to a duck-typed ``FakeRecord`` for the scope of a
+single test, so ``build_records()``'s pure-Python initial-value wiring can
+be exercised on throwaway synthetic addresses without ever registering them
+in the process-global softioc namespace described above.
 """
 
 from __future__ import annotations
@@ -88,6 +95,12 @@ import time  # noqa: E402
 
 import pytest  # noqa: E402
 
+from osprey.services.virtual_accelerator.entrypoint import (  # noqa: E402
+    _channel_limits_path,
+    _load_boot_values,
+    _load_drive_limits,
+)
+from osprey.services.virtual_accelerator.ioc import records as ioc_records_module  # noqa: E402
 from osprey.services.virtual_accelerator.ioc.records import (  # noqa: E402
     ManifestContractError,
     build_records,
@@ -99,6 +112,9 @@ from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
     build_manifest,
+)
+from osprey.services.virtual_accelerator.manifest.loaders import (  # noqa: E402
+    load_machine_json_channels,
 )
 
 _SP_ECHO_SP = "ZZTEST:MAG:ECHO:01:CURRENT:SP"
@@ -113,13 +129,13 @@ _STUCK_SP = "ZZTEST:MAG:STUCK:03:CURRENT:SP"
 _STUCK_RB = "ZZTEST:MAG:STUCK:03:CURRENT:RB"
 # A second, unfaulted pyat-coupled corrector -- dedicated to the DRVH/DRVL
 # clamp tests so they don't interleave with the echo/hook assertions above.
+# Its clamp band is injected explicitly (see _run_live_ioc_subprocess) --
+# under the injected-limits contract (task 2.3), records.py itself is
+# file-blind and clamps only addresses the caller's drive_limits map names,
+# never by family.
 _LIMIT_SP = "ZZTEST:MAG:LIMIT:04:CURRENT:SP"
 _LIMIT_RB = "ZZTEST:MAG:LIMIT:04:CURRENT:RB"
-# A pyat-coupled *quadrupole* (family=QF, not a corrector) -- proves the
-# drive-limit clamp is corrector-only, per FR10/2.9 ("do not clamp
-# non-corrector records").
-_QUAD_SP = "ZZTEST:MAG:QUAD:05:CURRENT:SP"
-_QUAD_RB = "ZZTEST:MAG:QUAD:05:CURRENT:RB"
+_LIMIT_DRVL, _LIMIT_DRVH = -12.0, 12.0
 
 
 def _channel(
@@ -180,17 +196,16 @@ def _run_live_ioc_subprocess() -> None:
         _channel(_STUCK_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP", device="03"),
         _channel(_LIMIT_RB, partition=PARTITION_PYAT_COUPLED, subfield="RB", device="04"),
         _channel(_LIMIT_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP", device="04"),
-        _channel(
-            _QUAD_RB, partition=PARTITION_PYAT_COUPLED, subfield="RB", device="05", family="QF"
-        ),
-        _channel(
-            _QUAD_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP", device="05", family="QF"
-        ),
     ]
     build_records(
         channels,
         on_pyat_setpoint=on_pyat_setpoint,
         stuck_setpoints=frozenset({_STUCK_SP}),
+        # Injected-limits contract (task 2.3): records.py never knows this
+        # address is a "corrector" -- it only clamps because the caller
+        # (here, this test) put it in the map, exactly as entrypoint.py's
+        # real _load_drive_limits() does from channel_limits.json.
+        drive_limits={_LIMIT_SP: (_LIMIT_DRVL, _LIMIT_DRVH)},
     )
 
     dispatcher = asyncio_dispatcher.AsyncioDispatcher()
@@ -241,8 +256,18 @@ def full_manifest_records(manifest_channels):
     build_records() populates softioc's process-global builder registry, so
     every test that only needs to inspect the *result* shares this one
     build rather than re-registering the same ~1,228 record names.
+
+    Wired with the same derived ``drive_limits``/``boot_values`` maps
+    entrypoint.main() passes in production (see ``_load_drive_limits``/
+    ``_load_boot_values``), so this shared build also doubles as an
+    integration check that those derivations don't choke when combined with
+    every real manifest channel at once.
     """
-    return build_records(manifest_channels)
+    return build_records(
+        manifest_channels,
+        drive_limits=_load_drive_limits(),
+        boot_values=_load_boot_values(),
+    )
 
 
 class TestRecordCountsMatchManifest:
@@ -283,33 +308,40 @@ class TestRecordCountsMatchManifest:
         assert sp_echo_addresses.isdisjoint(full_manifest_records.static_noisy)
 
 
-class TestCorrectorDriveLimitMatchesChannelLimits:
-    """The DRVL/DRVH clamp records.py hardcodes as ``CORRECTOR_DRIVE_LIMIT_A``
-    must track channel_limits.json's SR HCM/VCM band -- otherwise a future
-    channel_limits retune silently diverges from the softioc-enforced clamp
-    instead of failing CI."""
+class TestDerivedDriveLimitsMatchChannelLimitsFile:
+    """records.py is file-blind (task 2.3): entrypoint.py's
+    ``_load_drive_limits()`` is the only place that turns
+    channel_limits.json into the ``build_records(drive_limits=...)`` map
+    the softioc DRVL/DRVH clamp is actually built from. This pins that
+    derivation against the file's own contents directly -- read the same
+    path the entrypoint reads, independently re-derive the expected map from
+    the raw JSON, and require full-dict equality -- so a future
+    channel_limits retune that silently changes which ``:SP`` addresses are
+    writable-with-bounds fails here instead of just drifting the deployed
+    clamp unnoticed."""
 
-    def test_drive_limit_matches_sr_corrector_channel_limits_band(self):
-        import json
-        from pathlib import Path
+    def test_derived_map_matches_writable_sp_entries_in_the_file(self):
+        raw = json.loads(_channel_limits_path().read_text())
+        defaults = raw.get("defaults", {})
+        expected: dict[str, tuple[float, float]] = {}
+        for address, entry in raw.items():
+            if address.startswith("_") or address == "defaults" or not address.endswith(":SP"):
+                continue
+            merged = {**defaults, **entry}
+            if not merged.get("writable", True):
+                continue
+            min_value = merged.get("min_value")
+            max_value = merged.get("max_value")
+            if min_value is None or max_value is None:
+                continue
+            expected[address] = (float(min_value), float(max_value))
 
-        from osprey.services.virtual_accelerator.ioc.records import CORRECTOR_DRIVE_LIMIT_A
-
-        limits_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "osprey"
-            / "templates"
-            / "apps"
-            / "control_assistant"
-            / "data"
-            / "channel_limits.json"
-        )
-        limits_db = json.loads(limits_path.read_text())
-        for address in ("SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:VCM:01:CURRENT:SP"):
-            band = limits_db[address]
-            assert band["min_value"] == -CORRECTOR_DRIVE_LIMIT_A
-            assert band["max_value"] == CORRECTOR_DRIVE_LIMIT_A
+        derived = _load_drive_limits()
+        assert derived == expected
+        # Sanity count: pins today's writable-:SP-with-bounds population so
+        # a channel_limits.json edit that silently drops/adds entries is
+        # caught here, not only downstream in clamp behavior.
+        assert len(expected) == 396
 
 
 class TestBiRecordsRejectNoise:
@@ -389,6 +421,110 @@ class TestPyatCoupledCallbackSlot:
         # Building the record must not itself trigger the hook -- only a
         # live CA write does (covered by TestLiveChannelAccessRoundTrip).
         assert calls == []
+
+
+class FakeRecord:
+    """Duck-typed stand-in for a softioc In/Out record, swapped in for
+    ``ioc.records``'s real ``_IN_BUILDERS``/``_OUT_BUILDERS`` tables via
+    monkeypatching (see ``TestBootValues``). ``build_records()``'s
+    boot-value wiring (``_initial_value``) is pure Python, so exercising it
+    doesn't need a single real softioc record built -- and monkeypatching
+    keeps these tests' throwaway addresses out of the process-global softioc
+    namespace the rest of this module's non-live tests do consume (see the
+    module docstring)."""
+
+    def __init__(self, address, *, initial_value=None, on_update=None, **_ignored) -> None:
+        self.address = address
+        self.value = initial_value
+        self.on_update = on_update
+
+    def get(self):
+        return self.value
+
+    def set(self, value) -> None:
+        self.value = value
+
+
+# Real addresses (not synthetic ZZTEST ones): boot-value wiring is best
+# proven against actual machine.json entries, so a real nonzero-nominal
+# quad and a real zeroed corrector exercise the two ends of the range this
+# factory must reproduce faithfully at boot.
+_BOOT_QUAD_SP = "SR:MAG:QF:01:CURRENT:SP"
+_BOOT_QUAD_RB = "SR:MAG:QF:01:CURRENT:RB"
+_BOOT_CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+_BOOT_CORRECTOR_RB = "SR:MAG:HCM:01:CURRENT:RB"
+# Synthetic addresses with no entry in this test's boot_values map at all --
+# the fallback-to-default path.
+_BOOT_FALLBACK_SP = "ZZTEST:MAG:NOBOOT:06:CURRENT:SP"
+_BOOT_FALLBACK_RB = "ZZTEST:MAG:NOBOOT:06:CURRENT:RB"
+
+
+class TestBootValues:
+    """``build_records()``'s ``boot_values`` map seeds a ``:SP``/``:RB``
+    record's initial value at construction (ioc-records-limits-injection-
+    boot-init, task 2.3), mirroring entrypoint.py's real
+    ``_load_boot_values()`` derivation from machine.json. An address absent
+    from the map still boots at the type-appropriate default (0.0 for
+    analog) -- the same behavior as when ``boot_values`` is ``None``
+    entirely."""
+
+    @pytest.fixture()
+    def fake_record_builders(self, monkeypatch):
+        monkeypatch.setitem(ioc_records_module._IN_BUILDERS, RECORD_TYPE_ANALOG, FakeRecord)
+        monkeypatch.setitem(ioc_records_module._OUT_BUILDERS, RECORD_TYPE_ANALOG, FakeRecord)
+
+    def test_boots_at_machine_json_value_for_nonzero_nominal_quad(self, fake_record_builders):
+        nominal = load_machine_json_channels()[_BOOT_QUAD_SP]["value"]
+        assert nominal != 0.0
+        channels = [
+            _channel(
+                _BOOT_QUAD_SP,
+                partition=PARTITION_PYAT_COUPLED,
+                subfield="SP",
+                ring="SR",
+                family="QF",
+            ),
+            _channel(
+                _BOOT_QUAD_RB,
+                partition=PARTITION_PYAT_COUPLED,
+                subfield="RB",
+                ring="SR",
+                family="QF",
+            ),
+        ]
+        records = build_records(
+            channels, boot_values={_BOOT_QUAD_SP: nominal, _BOOT_QUAD_RB: nominal}
+        )
+        assert records.all[_BOOT_QUAD_SP].value == pytest.approx(nominal)
+        assert records.all[_BOOT_QUAD_RB].value == pytest.approx(nominal)
+
+    def test_boots_at_zero_for_zeroed_corrector(self, fake_record_builders):
+        value = load_machine_json_channels()[_BOOT_CORRECTOR_SP]["value"]
+        assert value == 0.0
+        channels = [
+            _channel(
+                _BOOT_CORRECTOR_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP", ring="SR"
+            ),
+            _channel(
+                _BOOT_CORRECTOR_RB, partition=PARTITION_PYAT_COUPLED, subfield="RB", ring="SR"
+            ),
+        ]
+        records = build_records(
+            channels, boot_values={_BOOT_CORRECTOR_SP: value, _BOOT_CORRECTOR_RB: value}
+        )
+        assert records.all[_BOOT_CORRECTOR_SP].value == 0.0
+        assert records.all[_BOOT_CORRECTOR_RB].value == 0.0
+
+    def test_falls_back_to_default_for_address_absent_from_map(self, fake_record_builders):
+        channels = [
+            _channel(_BOOT_FALLBACK_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP"),
+            _channel(_BOOT_FALLBACK_RB, partition=PARTITION_PYAT_COUPLED, subfield="RB"),
+        ]
+        # boot_values is non-empty but names only an unrelated address --
+        # neither fallback address appears in it.
+        records = build_records(channels, boot_values={_BOOT_QUAD_SP: 999.0})
+        assert records.all[_BOOT_FALLBACK_SP].value == 0.0
+        assert records.all[_BOOT_FALLBACK_RB].value == 0.0
 
 
 @pytest.fixture(scope="module")
@@ -473,26 +609,21 @@ class TestLiveChannelAccessRoundTrip:
         # never moves, honestly, for every CA reader -- not just this one.
         assert _caget(_STUCK_RB) == pytest.approx(0.0)
 
-    def test_corrector_caput_beyond_drive_limit_is_clamped(self, live_ioc):
+    def test_setpoint_caput_beyond_injected_drive_limit_is_clamped(self, live_ioc):
         # pythonSoftIOC clamps VAL to [DRVL, DRVH] before on_update ever
         # runs, so both the SP itself and its echoed RB read the clamped
         # value, not the requested one -- a real bound below the ORM plan's
-        # own pydantic schema, enforced against any writer.
+        # own pydantic schema, enforced against any writer. _LIMIT_SP is
+        # clamped solely because _run_live_ioc_subprocess put it in the
+        # drive_limits map it passed to build_records() -- records.py itself
+        # never knows or cares that this address is a "corrector" (the
+        # injected-limits contract, task 2.3).
         assert _caput(_LIMIT_SP, 50.0)
         time.sleep(0.3)
-        assert _caget(_LIMIT_SP) == pytest.approx(12.0)
-        assert _caget(_LIMIT_RB) == pytest.approx(12.0)
+        assert _caget(_LIMIT_SP) == pytest.approx(_LIMIT_DRVH)
+        assert _caget(_LIMIT_RB) == pytest.approx(_LIMIT_DRVH)
 
         assert _caput(_LIMIT_SP, -50.0)
         time.sleep(0.3)
-        assert _caget(_LIMIT_SP) == pytest.approx(-12.0)
-        assert _caget(_LIMIT_RB) == pytest.approx(-12.0)
-
-    def test_non_corrector_pyat_coupled_setpoint_is_not_drive_limited(self, live_ioc):
-        # A quad (family=QF) is pyat-coupled too, but 2.9 scopes the
-        # drive-limit clamp to correctors only -- a 500 A quad write must
-        # pass through unclamped.
-        assert _caput(_QUAD_SP, 500.0)
-        time.sleep(0.3)
-        assert _caget(_QUAD_SP) == pytest.approx(500.0)
-        assert _caget(_QUAD_RB) == pytest.approx(500.0)
+        assert _caget(_LIMIT_SP) == pytest.approx(_LIMIT_DRVL)
+        assert _caget(_LIMIT_RB) == pytest.approx(_LIMIT_DRVL)

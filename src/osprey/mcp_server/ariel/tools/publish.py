@@ -5,7 +5,7 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import make_error, mcp
+from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
 
@@ -43,15 +43,19 @@ async def entry_publish(
 
         result = await service.publish_entry(entry_id, logbook=logbook)
 
-        return json.dumps(
-            {
-                "entry_id": result.entry_id,
-                "source_system": result.source_system,
-                "sync_status": result.sync_status.value,
-                "message": result.message,
-            },
-            default=str,
-        )
+        # The just-published entry now carries a facility-assigned id, so the
+        # canonical entry_url is correct at the write-then-link moment.
+        published = {
+            "entry_id": result.entry_id,
+            "source_system": result.source_system,
+            "sync_status": result.sync_status.value,
+            "message": result.message,
+        }
+        entry_url = build_entry_url(result.entry_id, result.source_system)
+        if entry_url is not None:
+            published["entry_url"] = entry_url
+
+        return json.dumps(published, default=str)
 
     except KeyError:
         return make_error(

@@ -29,6 +29,34 @@ VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
 )
 
 
+def default_tier_for_mode(channel_finder_mode: str | None) -> int:
+    """Paradigm-aware default tier: ``in_context`` → 1, otherwise → 3.
+
+    The single source of truth for the tier a build lands on when no explicit
+    ``tier`` is pinned. Every code path that needs a concrete tier from a
+    channel-finder paradigm (the build pipeline, the project materializer)
+    MUST derive it here so the rule cannot drift between callers.
+    """
+    return 1 if channel_finder_mode == "in_context" else 3
+
+
+def tier_mode_conflict(tier: int | None, channel_finder_mode: str | None) -> str | None:
+    """Return a rule-naming error message if ``tier``/paradigm conflict, else None.
+
+    Tier 1 ships only the ``in_context`` paradigm DB. Pairing an explicit
+    ``tier: 1`` with a ``hierarchical``/``middle_layer`` paradigm would
+    otherwise fail deep in :func:`materialize_tier_artifacts` as an opaque
+    ``FileNotFoundError`` (``tier1/<paradigm>.json`` does not exist). Callers
+    surface this message so the failure is legible on every configuration path.
+    """
+    if tier == 1 and channel_finder_mode not in (None, "in_context"):
+        return (
+            "tier 1 requires channel_finder_mode: in_context "
+            f"(got channel_finder_mode: {channel_finder_mode!r})"
+        )
+    return None
+
+
 @dataclass
 class McpServerDef:
     """Definition of an MCP server to inject into a built project."""
@@ -134,6 +162,11 @@ class BlueskyConfig:
     plan loader as a ``BLUESKY_PLAN_DIRS`` (facility-tier) layer — see
     ``plan_loader.py``. ``None`` (default) deploys the bridge with no
     facility plan directory, matching every prior bluesky-only build.
+    """
+    excluded_plans: list[str] = field(default_factory=list)
+    """Named plans to hide from the agent while the bluesky server stays
+    enabled (dev/local convenience). Production uses the
+    ``BLUESKY_EXCLUDED_PLANS`` env var instead.
     """
 
 
@@ -377,9 +410,10 @@ class BuildProfile:
     model: str | None = None
     channel_finder_mode: str | None = None
     tier: int | None = None
-    """Channel-database tier (1|2|3) selecting which preset `tiers/tier{N}` DB
+    """Channel-database tier (1|3) selecting which preset `tiers/tier{N}` DB
     is materialized at build time to the flat `data/channel_databases/<name>.json`
-    location. When ``None``, the build resolves a paradigm-aware default via
+    location. Tier 1 is in_context-only; tier 3 carries all three paradigms.
+    When ``None``, the build resolves a paradigm-aware default via
     :meth:`resolved_tier` (in_context → 1, hierarchical/middle_layer → 3).
     This is build-time only and is NOT rendered into `config.yml`; the runtime
     config carries no tier knob. Facility profiles can ignore it because the
@@ -438,7 +472,7 @@ class BuildProfile:
         """
         if self.tier is not None:
             return self.tier
-        return 1 if self.channel_finder_mode == "in_context" else 3
+        return default_tier_for_mode(self.channel_finder_mode)
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a panel this profile could render.
@@ -468,8 +502,16 @@ class BuildProfile:
                 f"deploy_services must be a boolean (got {type(self.deploy_services).__name__})"
             )
 
-        if self.tier is not None and self.tier not in (1, 2, 3):
-            errors.append(f"tier must be 1, 2, or 3 (got {self.tier!r})")
+        if self.tier is not None and self.tier not in (1, 3):
+            errors.append(f"tier must be 1 or 3 (got {self.tier!r})")
+
+        # Tier 1 ships only the in_context paradigm DB; reject a tier/paradigm
+        # mismatch here with a rule-naming message (see tier_mode_conflict) so
+        # the failure is legible on every configuration path rather than an
+        # opaque FileNotFoundError deep in materialize_tier_artifacts.
+        conflict = tier_mode_conflict(self.tier, self.channel_finder_mode)
+        if conflict:
+            errors.append(conflict)
 
         if (
             self.channel_finder_mode is not None
@@ -900,12 +942,21 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if bluesky_raw is not None:
         if not isinstance(bluesky_raw, dict):
             raise BuildProfileError("Profile 'bluesky' must be a mapping")
+        excluded_plans = bluesky_raw.get("excluded_plans", [])
+        if not isinstance(excluded_plans, list) or not all(
+            isinstance(p, str) for p in excluded_plans
+        ):
+            raise BuildProfileError(
+                "bluesky.excluded_plans must be a list of plan-name strings "
+                f"(got {excluded_plans!r})"
+            )
         bluesky = BlueskyConfig(
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
             tiled_port=bluesky_raw.get("tiled_port", 8091),
             demo_runner=bluesky_raw.get("demo_runner", False),
             plan_dir=bluesky_raw.get("plan_dir"),
+            excluded_plans=excluded_plans,
         )
 
     va_raw = raw.get("virtual_accelerator")
@@ -1037,6 +1088,54 @@ def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     return raw, target
 
 
+def _hash_resolved_profile(raw: dict[str, Any], profile_path: Path) -> str:
+    """Canonical content hash of a profile dict after ``extends`` resolution.
+
+    Hashes the *resolved* content (canonical JSON, sorted keys) rather than
+    file bytes, so comment/ordering churn is invisible while a change in any
+    ``extends`` parent is not.
+    """
+    import hashlib
+    import json
+
+    resolved = _resolve_extends(dict(raw), profile_path)
+    canonical = json.dumps(resolved, sort_keys=True, default=str)
+    return f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+def compute_preset_hash(preset_name: str) -> str | None:
+    """Content hash of a bundled preset as resolved (post-``extends``).
+
+    Stamped into ``.osprey-manifest.json`` at build time and compared by the
+    deploy-side staleness advisory
+    (:mod:`osprey.deployment.staleness`). Returns ``None`` when the preset is
+    unknown or unreadable — callers treat that as "cannot compare", never as
+    drift.
+    """
+    try:
+        raw, path = _load_preset_raw(preset_name)
+        return _hash_resolved_profile(raw, path)
+    except Exception:
+        return None
+
+
+def compute_profile_hash(profile_path: Path) -> str | None:
+    """Content hash of a positional profile YAML as resolved (post-``extends``).
+
+    Counterpart of :func:`compute_preset_hash` for ``osprey build NAME
+    PROFILE.yml`` invocations. Returns ``None`` when the file is missing or
+    unreadable.
+    """
+    try:
+        path = Path(profile_path)
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        return _hash_resolved_profile(raw, path)
+    except Exception:
+        return None
+
+
 def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
     """Parse ``--set KEY.PATH=VALUE`` pairs into a nested dict.
 
@@ -1070,6 +1169,26 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
             target = existing
         target[parts[-1]] = value
     return result
+
+
+# The model-selection shorthand keys a user can override via `--set` whose
+# explicit use is recorded in the project manifest (extract_build_args) and
+# re-applied by persona auto-render, so one parent-build override retints
+# every derived persona project.
+MODEL_SELECTION_OVERRIDE_KEYS = ("provider", "model", "channel_finder_mode")
+
+
+def explicit_model_override_keys(set_pairs: tuple[str, ...]) -> list[str]:
+    """Model-selection keys the user explicitly overrode via bare ``--set``.
+
+    Only top-level shorthand keys count (``--set provider=x``); a dotted path
+    into ``config:`` addresses the rendered config directly and carries no
+    whole-stack intent, so it is never forwarded to persona renders.
+
+    Returns the matching keys in :data:`MODEL_SELECTION_OVERRIDE_KEYS` order.
+    """
+    parsed = _parse_set_pairs(set_pairs)
+    return [key for key in MODEL_SELECTION_OVERRIDE_KEYS if key in parsed]
 
 
 def resolve_build_profile(

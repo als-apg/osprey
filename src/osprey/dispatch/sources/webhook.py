@@ -26,6 +26,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("osprey.dispatch.sources.webhook")
 
+# Explicit request-body ceiling for the webhook route. A legit body carrying an
+# input-files batch tops out near ~24 MB (base64 + history); 32 MB leaves ~25%
+# headroom while bounding memory a hostile caller can force the dispatcher to
+# buffer. Enforced from the Content-Length header before the body is read.
+_MAX_WEBHOOK_BYTES = 32 * 1024 * 1024
+
 
 class WebhookSource:
     """Event source that fires triggers from authenticated webhook POSTs."""
@@ -48,6 +54,18 @@ class WebhookSource:
         @mcp_app.custom_route("/webhook/{trigger_name}", methods=["POST"])
         async def handle_webhook(request: Request) -> JSONResponse:
             trigger_name = request.path_params["trigger_name"]
+            # Reject an over-size body up front (413) from its declared
+            # Content-Length, before reading/parsing it — so a huge payload never
+            # gets buffered. A missing/unparseable header falls through to normal
+            # handling (our own callers always set Content-Length).
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    declared = int(content_length)
+                except ValueError:
+                    declared = -1
+                if declared > _MAX_WEBHOOK_BYTES:
+                    return JSONResponse({"detail": "Request body too large"}, status_code=413)
             auth_header = request.headers.get("Authorization", "")
             try:
                 payload = await request.json()

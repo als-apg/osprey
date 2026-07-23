@@ -103,6 +103,7 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "logbook-search": "sonnet",
     "logbook-deep-research": "opus",
     "data-visualizer": "sonnet",
+    "pyat-specialist": "sonnet",
 }
 
 # Single source of truth for the Claude Code tier→model env vars.

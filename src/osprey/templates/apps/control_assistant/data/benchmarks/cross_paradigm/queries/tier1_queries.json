@@ -25,16 +25,28 @@
       "SR:MAG:DIPOLE:21:CURRENT:RB",
       "SR:MAG:DIPOLE:22:CURRENT:RB",
       "SR:MAG:DIPOLE:23:CURRENT:RB",
-      "SR:MAG:DIPOLE:24:CURRENT:RB"
+      "SR:MAG:DIPOLE:24:CURRENT:RB",
+      "SR:MAG:DIPOLE:25:CURRENT:RB",
+      "SR:MAG:DIPOLE:26:CURRENT:RB",
+      "SR:MAG:DIPOLE:27:CURRENT:RB",
+      "SR:MAG:DIPOLE:28:CURRENT:RB",
+      "SR:MAG:DIPOLE:29:CURRENT:RB",
+      "SR:MAG:DIPOLE:30:CURRENT:RB",
+      "SR:MAG:DIPOLE:31:CURRENT:RB",
+      "SR:MAG:DIPOLE:32:CURRENT:RB",
+      "SR:MAG:DIPOLE:33:CURRENT:RB",
+      "SR:MAG:DIPOLE:34:CURRENT:RB",
+      "SR:MAG:DIPOLE:35:CURRENT:RB",
+      "SR:MAG:DIPOLE:36:CURRENT:RB"
     ],
     "category": "aggregate"
   },
   {
     "user_query": "What are the last three horizontal corrector current setpoints?",
     "targeted_pv": [
-      "SR:MAG:HCM:18:CURRENT:SP",
-      "SR:MAG:HCM:19:CURRENT:SP",
-      "SR:MAG:HCM:20:CURRENT:SP"
+      "SR:MAG:HCM:70:CURRENT:SP",
+      "SR:MAG:HCM:71:CURRENT:SP",
+      "SR:MAG:HCM:72:CURRENT:SP"
     ],
     "category": "aggregate"
   },
@@ -127,18 +139,18 @@
   {
     "user_query": "Show the last six SR BPM positions in both planes",
     "targeted_pv": [
-      "SR:DIAG:BPM:15:POSITION:X",
-      "SR:DIAG:BPM:15:POSITION:Y",
-      "SR:DIAG:BPM:16:POSITION:X",
-      "SR:DIAG:BPM:16:POSITION:Y",
-      "SR:DIAG:BPM:17:POSITION:X",
-      "SR:DIAG:BPM:17:POSITION:Y",
-      "SR:DIAG:BPM:18:POSITION:X",
-      "SR:DIAG:BPM:18:POSITION:Y",
-      "SR:DIAG:BPM:19:POSITION:X",
-      "SR:DIAG:BPM:19:POSITION:Y",
-      "SR:DIAG:BPM:20:POSITION:X",
-      "SR:DIAG:BPM:20:POSITION:Y"
+      "SR:DIAG:BPM:67:POSITION:X",
+      "SR:DIAG:BPM:67:POSITION:Y",
+      "SR:DIAG:BPM:68:POSITION:X",
+      "SR:DIAG:BPM:68:POSITION:Y",
+      "SR:DIAG:BPM:69:POSITION:X",
+      "SR:DIAG:BPM:69:POSITION:Y",
+      "SR:DIAG:BPM:70:POSITION:X",
+      "SR:DIAG:BPM:70:POSITION:Y",
+      "SR:DIAG:BPM:71:POSITION:X",
+      "SR:DIAG:BPM:71:POSITION:Y",
+      "SR:DIAG:BPM:72:POSITION:X",
+      "SR:DIAG:BPM:72:POSITION:Y"
     ],
     "category": "range"
   },

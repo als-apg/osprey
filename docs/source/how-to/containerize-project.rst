@@ -30,16 +30,22 @@ recipe at the project root:
 - ``.dockerignore`` — keeps secrets (``.env``) and host-specific state
   (``.venv``, ``.git``, ``_agent_data/``) out of the image.
 
-Both files are **generated once and then yours**: edit them freely or delete
-them. ``osprey claude regen`` never touches them. To get a fresh copy,
-rebuild the project with ``osprey build``.
+Both files are **generated once and then yours**: edit them freely, but keep
+``.dockerignore`` in place — the build depends on it, and it is what keeps
+your ``.env`` secrets out of the image. ``osprey claude regen`` never touches
+either file. To get a fresh copy, rebuild the project with
+``osprey build --force`` — note that this overwrites any edits you made to
+the Dockerfile and ``.dockerignore`` (only ``.env``, ``_agent_data/``, and
+``.git`` survive a force rebuild).
 
 .. note::
 
    This page covers the **project image** — one container that runs the
-   assistant and its web terminal. It is unrelated to ``osprey deploy``,
-   which manages the project's *service* containers (databases, MCP
-   servers); see :doc:`deploy-project` for those.
+   assistant and its web terminal. ``osprey deploy`` manages the project's
+   *service* containers (databases, MCP servers) — see :doc:`deploy-project`
+   — but the two meet in one place: a deploy that includes the dispatch
+   worker builds this same project image (tagged ``<project>:local``) for
+   the worker to run.
 
 Quickstart
 ==========
@@ -57,7 +63,7 @@ enters the image.
 Build Arguments
 ===============
 
-The image exposes exactly three knobs for site-specific builds:
+The image exposes these knobs for site-specific builds:
 
 .. list-table::
    :header-rows: 1
@@ -78,6 +84,14 @@ The image exposes exactly three knobs for site-specific builds:
      - ``"0"``
      - ``"1"`` vendors web assets (JS/CSS/fonts) into the image via
        ``osprey vendor fetch`` so the web UI works without internet access.
+   * - ``CLAUDE_CLI_VERSION``
+     - pinned at build time
+     - Version of the agent CLI installed into the image. The default pin
+       matches the framework version that generated the Dockerfile; override
+       to test a newer CLI without regenerating the project.
+
+(A fifth ARG, ``OSPREY_DEV``, is used internally by ``osprey deploy up
+--dev`` to install a locally built wheel; you normally never set it by hand.)
 
 Example — install OSPREY from an internal mirror behind a proxy, with
 vendored assets for an air-gapped host:
@@ -119,10 +133,9 @@ Why Non-Root
 ============
 
 The image creates and switches to an unprivileged ``osprey`` user because
-**Claude Code refuses to run in bypassPermissions mode as root**. The
-native Claude Code installer lives under ``/root/.local``; the Dockerfile
-makes that chain world-traversable so the runtime user can execute it.
-Keep both pieces if you customize the recipe.
+**Claude Code refuses to run in bypassPermissions mode as root**. The agent
+CLI itself is installed as a pinned global npm package, so it is runnable
+by any user — keep the non-root user if you customize the recipe.
 
 Runtime State and Volumes
 =========================
@@ -153,10 +166,11 @@ Kubernetes notes
 Troubleshooting
 ===============
 
-**pip fails building** ``accelerator-toolbox`` **on Apple Silicon** — OSPREY's
-dependency chain ships ``linux/amd64`` wheels only, and the slim base image
-has no compiler. Build (and run) the amd64 image under Docker Desktop's
-emulation instead; it matches the usual amd64 deployment target:
+**pip fails building** ``accelerator-toolbox`` **on Apple Silicon** — parts
+of OSPREY's dependency chain ship prebuilt wheels for ``linux/amd64`` only,
+so an arm64 build must compile them from source, which is where it breaks.
+Build (and run) the amd64 image under Docker Desktop's emulation instead; it
+matches the usual amd64 deployment target:
 
 .. code-block:: bash
 
@@ -172,8 +186,8 @@ The file is yours — common edits:
   ``FROM`` it in a small site Dockerfile that adds credentials helpers,
   enterprise ``managed-settings.json``, or extra processes.
 - **Change the entrypoint**: the default ``CMD`` runs
-  ``osprey web --host 0.0.0.0 --port 8087``; override it to run a process
-  supervisor if you add sidecars.
+  ``osprey web --host 0.0.0.0 --port 8087 --project /app/<project>``;
+  override it to run a process supervisor if you add sidecars.
 - **Template-level override**: a build profile's app bundle can ship its own
   ``apps/<bundle>/Dockerfile.j2``, which takes precedence over the framework
   template at build time — use this when every project built from a bundle

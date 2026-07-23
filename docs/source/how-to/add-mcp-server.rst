@@ -32,7 +32,7 @@ project's ``config.yml``:
          env:
            OSPREY_CONFIG: "{project_root}/config.yml"
 
-Each entry needs ``command`` and ``args``.  ``env`` is optional.
+Each entry needs ``command``; ``args`` and ``env`` are optional.
 ``{project_root}`` is expanded to the project directory at build time;
 ``${VAR}`` passes through shell environment variables.
 
@@ -190,8 +190,10 @@ Tool guidelines:
 
 * **Return type** -- always ``str`` (typically JSON).
 * **Docstring** -- becomes the tool description the LLM sees; be specific.
-* **Error handling** -- return structured JSON errors via
-  ``osprey.mcp_server.errors.make_error`` rather than raising exceptions.
+* **Error handling** -- report failures via
+  ``osprey.mcp_server.errors.make_error``, which raises a ``ToolError``
+  carrying a structured JSON envelope; raising this way is what marks the
+  result as an error for the agent.
 * **One tool per file** keeps modules focused and avoids circular imports.
 
 
@@ -240,14 +242,21 @@ agent configuration.  The server will appear in ``.mcp.json``.
 Testing
 -------
 
-Unit-test tools by calling the async functions directly:
+Unit-test tools by calling the underlying async function. FastMCP's
+``@mcp.tool()`` decorator wraps a function into a ``FunctionTool`` object, so
+unwrap it first — the shared test helper ``get_tool_fn`` (in
+``tests/mcp_server/conftest.py``) returns the raw function via its ``.fn``
+attribute:
 
 .. code-block:: python
 
-   @pytest.mark.asyncio
+   from tests.mcp_server.conftest import get_tool_fn
+
+   @pytest.mark.unit
    async def test_my_tool():
        from osprey.mcp_server.my_server.tools.my_tool import my_tool
-       result = await my_tool("example", count=2)
+       result = await get_tool_fn(my_tool)("example", count=2)
        assert '"status": "ok"' in result
 
-Place tests under ``tests/mcp_server/test_my_server.py``.
+(The suite runs with ``asyncio_mode=auto``, so plain ``async def`` tests need
+no extra marker.) Place tests under ``tests/mcp_server/test_my_server.py``.

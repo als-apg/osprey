@@ -123,7 +123,7 @@ def test_expected_mcp_servers_empty_when_missing(tmp_path) -> None:
 def test_redelegation_loop_detected_on_repeated_identical_agent_spawns() -> None:
     """3+ identical Agent spawns = non-convergence loop (a MODEL timeout)."""
     wf = SDKWorkflowResult()
-    same = {"description": "Find RF cavity C1 temperature channels"}
+    same = {"description": "Find RF CAVITY01 temperature channels"}
     wf.tool_traces = [
         ToolTrace(name="Agent", input=same),
         ToolTrace(name="mcp__channel-finder__get_options", input={"level": 1}),

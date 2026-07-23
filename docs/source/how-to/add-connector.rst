@@ -4,14 +4,14 @@ Add a Connector
 **What you'll build:** Control system connectors for accessing hardware abstraction layers
 
 Overview
-========
+--------
 
 The Control System Integration system provides a **two-layer abstraction** for working with control systems and archivers. This enables development and R&D work using mock connectors (without hardware access) and migration to production by changing a single configuration line.
 
 **Capabilities:**
 
 - **Mock Mode**: Work with any channel names without hardware access
-- **Production Mode**: EPICS in-tree; LabVIEW, Tango, and other stacks via user-registered custom connectors
+- **Production Mode**: EPICS and DOOCS ship in-tree; LabVIEW, Tango, and other stacks via user-registered custom connectors
 - **One API**: the same code works with mock and production connectors
 - **Custom connectors**: register your own via ``ConnectorFactory``
 
@@ -19,14 +19,20 @@ The Control System Integration system provides a **two-layer abstraction** for w
 
 - **mock** / **mock_archiver**: Development/R&D mode (no hardware access required)
 - **epics** / **epics_archiver**: EPICS Channel Access / Archiver Appliance (production)
+- **virtual_accelerator**: the PyAT Virtual Accelerator's EPICS soft-IOC — behaves
+  like ``epics`` but tracks setpoints through the simulated machine, so scans
+  actually run (the mock connector can't do that); see :doc:`use-virtual-accelerator`
 - **mongodb_archiver**: MongoDB time-series archiver (optional, ``pip install "osprey-framework[archiver-mongodb]"``)
+
+A DOOCS connector and DOOCS archiver also ship in-tree; they are wired up via
+their dotted class paths rather than a registered name.
 
 
 Quick Start: Using Connectors
-=============================
+-----------------------------
 
 Mock Mode (Development & R&D)
-------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -48,7 +54,7 @@ Mock Mode (Development & R&D)
    await connector.disconnect()
 
 Production Mode (EPICS)
------------------------
+~~~~~~~~~~~~~~~~~~~~~~~
 
 Switch to real hardware by changing ``type`` in ``config.yml``:
 
@@ -99,7 +105,7 @@ archiver (synthetic data) to the EPICS Archiver Appliance the same way:
    ``writes_enabled`` setting that controls write permissions.
 
 MongoDB Archiver
-----------------
+~~~~~~~~~~~~~~~~
 
 For facilities that store time-series PV data in MongoDB rather than EPICS Archiver
 Appliance, configure the archiver block independently of the control-system choice:
@@ -127,7 +133,7 @@ The connector requires the optional ``archiver-mongodb`` extra:
 
 
 Write Verification
-==================
+------------------
 
 All ``write_channel()`` calls return :class:`~osprey.connectors.control_system.base.ChannelWriteResult`:
 
@@ -212,7 +218,7 @@ channel, or in ``defaults`` to lock everything down by default -- to block write
 .. _write-safety-config:
 
 Write Safety Configuration
---------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Write operations are disabled by default and must be explicitly enabled at two levels:
 
@@ -234,14 +240,14 @@ agent); in-flight control of an active scan is the RunEngine's own ``abort`` / `
 The connector applies **per-write mechanical safety** — the ``writes_enabled`` gate,
 limits validation, and the fail-closed validation path — on every Channel Access put.
 This is a separate, complementary layer from the **per-intent human authorization**
-enforced at the tool boundary (the PreToolUse approval hook, and the promote token for
+enforced at the tool boundary (the PreToolUse approval hook, and the launch token for
 scans), which gates the *intent* to write once per intent rather than once per put.
 The approval layer cannot substitute for the connector's mechanical refusal.
 
 .. _limits-checking-config:
 
 Limits Checking
----------------
+~~~~~~~~~~~~~~~
 
 Automatic safety-limit validation for write operations:
 
@@ -270,7 +276,7 @@ database format.
 
 
 Implementing Custom Connectors
-==============================
+------------------------------
 
 Subclass :class:`~osprey.connectors.control_system.base.ControlSystemConnector` and implement the abstract methods: ``connect``, ``disconnect``, ``read_channel``, ``write_channel``, ``read_multiple_channels``, ``subscribe``, ``unsubscribe``, ``get_metadata``, ``validate_channel``.
 
@@ -279,7 +285,7 @@ You may also override the non-abstract ``write_multiple_channels()`` method if y
 Your connector must return the standard data models from ``osprey.connectors.control_system.base``: :class:`~osprey.connectors.control_system.base.ChannelValue`, :class:`~osprey.connectors.control_system.base.ChannelMetadata`, :class:`~osprey.connectors.control_system.base.ChannelWriteResult`, and :class:`~osprey.connectors.control_system.base.WriteVerification`.
 
 Registering Custom Connectors
------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Direct registration** (simplest approach):
 
@@ -321,7 +327,7 @@ instantiates the named class directly -- useful for one-off custom connectors th
 don't need a registry entry.
 
 Testing Custom Connectors
--------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Test in three phases:
 

@@ -1,748 +1,612 @@
-"""Tests for health CLI command.
+"""Contract tests for the ``osprey health`` CLI command.
 
-This test module verifies the health check functionality.
+The command was rebuilt as a thin Click wrapper over the ``osprey.health``
+framework (see ``.claude/plans/configurable-health-system-p1-core-cli/PROPOSAL.md``
+§CLI rebuild). This module pins the *CLI-level contracts* — the observable
+behaviors a caller (human, ``--json`` consumer, or CI) depends on — rather than
+the internals of any single check, which are owned by the ``osprey.health.*``
+module tests.
 
-Iteration 1: Smoke tests and basic functionality
-Target: 0% → 30%+ coverage
+Contracts pinned here
+---------------------
+* Exit-code mapping 0/1/2/3/130 (ok / warnings / errors / unexpected wrapper
+  failure / interrupt).
+* ``--basic`` hidden alias: no-op with a deprecation notice on **stderr**, never
+  on stdout.
+* ``--full`` gating: on_demand categories (``model_chat``, ``claude_cli_pinned``)
+  run only with ``--full``; ``--category`` selection never elevates cost class.
+* ``--category`` validation: unknown name on a valid config → ``UsageError``
+  (exit 2); a non-core name under a *broken* config passes through (report still
+  renders, no ``UsageError``), and the ``configuration`` category is force-included
+  so config-error rows always surface.
+* ``claude_cli_pinned`` on an unpinned but valid config → exit 0 skip row.
+* Config-load failures degrade into ``configuration`` error rows (never a crash):
+  missing file → ``config_file_exists``; bad YAML → ``yaml_valid``; invalid
+  ``health:`` → ``health_config``; the full report still renders alongside.
+* No container runtime → a single ``skip`` row (exit 0 contribution).
+* ``--project`` from a foreign cwd resolves that project's ``config.yml`` and
+  ``.env`` (env-var resolution canary).
+* ``--json`` is machine-clean: stdout is exactly the report JSON, round-trips
+  through ``json.loads``, and carries the locked wire-shape keys — even when the
+  config load logs an ERROR (loader chatter must not corrupt stdout).
+* Subprocess no-hang: a never-returning plugin check still lets the process exit
+  within the suite deadline with the correct code (the daemon-thread / ``os._exit``
+  guarantee). This *must* be a real subprocess — in-process it would kill pytest.
+
+Deliberately dropped from the old 749-line suite
+------------------------------------------------
+The previous file tested a since-deleted ``HealthChecker`` class and its
+``HealthCheckResult`` value object. Those were implementation-detail unit tests of
+a class that no longer exists; the *behaviors* they approximated are now pinned
+either by the contract tests above or by the ``osprey.health.*`` module tests that
+own each check. Consciously dropped assertions, and why:
+
+* ``HealthCheckResult`` construction/repr/status — deleted type; replaced by
+  ``osprey.health.models.CheckResult`` (owned by the models tests).
+* ``HealthChecker`` init/options/``add_result``/``results``/``config`` state —
+  deleted class; the CLI no longer holds mutable checker state.
+* ``check_configuration`` missing/valid/empty/invalid-YAML unit calls — the
+  configuration *rows* are now pinned here via ``--json`` (``config_file_exists``,
+  ``yaml_valid``, ``health_config``); row-message internals belong to
+  ``core/configuration`` tests.
+* ``check_file_system`` / ``check_python_environment`` per-row unit calls
+  (``disk_space``, ``env_file``, ``python_version``, ``virtual_environment``) —
+  owned by ``core/file_system`` and ``core/python_environment`` tests; here we
+  only assert these config-independent categories still render.
+* ``check_containers`` docker/podman ``--version`` mocking — owned by
+  ``core/containers`` + the container probe tests; here we pin only the
+  no-runtime skip contract.
+* ``check_api_providers`` registry mocking — owned by ``core/providers`` + the
+  provider-canary tests.
+* ``_check_timezone`` UTC/configured/env-var unit calls — owned by
+  ``core/configuration`` tests (the timezone row); the CLI does not special-case it.
+* ``check_claude_cli_version`` pinned-match/mismatch/npx-missing/unpinned subprocess
+  mocking — owned by ``core/claude_cli`` tests; here we pin only the CLI-visible
+  unpinned-skip and ``--full`` gating contracts.
+* ``display_results`` all-passing/warnings/errors/verbose calls — rendering is now
+  ``osprey.health.render`` (owned by the render tests); the CLI wires it and we
+  assert the stdout/stderr split, not the glyph layout.
+* ``check_openobserve`` healthz/retention unit calls — owned by
+  ``core/openobserve`` tests.
+* The old exit-code tests patched ``HealthChecker`` to inject results; the mapping
+  is now a property of ``CheckReport`` and is pinned here by injecting a report at
+  the ``_run_suite`` boundary.
 """
 
-from unittest.mock import MagicMock, Mock, patch
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.health_cmd import HealthChecker, HealthCheckResult, health
+from osprey.cli.health_cmd import health
+from osprey.health.models import CheckReport, CheckResult, Status
+
+# --------------------------------------------------------------------------- #
+# Fixtures and helpers
+# --------------------------------------------------------------------------- #
 
 
 @pytest.fixture
-def cli_runner():
-    """Provide a Click CLI test runner."""
+def cli_runner() -> CliRunner:
+    """A Click CLI test runner (stdout and stderr are captured separately)."""
     return CliRunner()
 
 
-@pytest.fixture
-def sample_config_yml(tmp_path):
-    """Provide a sample config.yml for testing."""
-    config_content = """
-project_name: test_project
-project_root: ${PROJECT_ROOT}
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """Snapshot and restore ``os.environ`` around every test.
 
+    The command loads the project's ``.env`` into ``os.environ`` with override
+    semantics; run in-process, that would otherwise leak canary variables into
+    sibling tests. This guarantees a pristine environment regardless.
+    """
+    saved = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+@pytest.fixture(autouse=True)
+def _guard_os_exit():
+    """Force the CLI's normal ``sys.exit`` path for in-process invocations.
+
+    When a sync check is abandoned after a timeout, the command falls back to
+    ``os._exit`` — which, in an in-process ``CliRunner`` test, would terminate the
+    pytest process itself. The daemon-thread / ``os._exit`` guarantee is instead
+    pinned by the real-subprocess no-hang test; every in-process test pins
+    ``abandoned_count`` at 0 so the caught ``SystemExit`` carries the exit code.
+    """
+    with patch("osprey.health.offload.abandoned_count", return_value=0):
+        yield
+
+
+def _write_config(project: Path, body: str) -> Path:
+    """Write ``config.yml`` into *project* (created if needed) and return its path."""
+    project.mkdir(parents=True, exist_ok=True)
+    config_path = project / "config.yml"
+    config_path.write_text(body)
+    return config_path
+
+
+# A minimal but valid config: parses, has a ``models`` section, references no
+# providers or deployed services (so no network or container I/O is attempted).
+_VALID_CONFIG = """\
+project_name: test_project
 models:
   python_code_generator:
-    provider: cborg
-    model_id: anthropic/claude-haiku
-
-deployed_services: []
-
-services: {}
-
-api:
-  providers:
-    cborg:
-      api_key: ${CBORG_API_KEY}
+    provider: mock
+    model_id: mock-model
 """
-    config_file = tmp_path / "config.yml"
-    config_file.write_text(config_content)
-    return config_file
+
+# A valid config with no models at all — used to exercise ``model_chat``'s
+# zero-item short-circuit under ``--full`` without issuing a real completion.
+_NO_MODELS_CONFIG = "project_name: no_models\n"
 
 
-class TestHealthCommandBasics:
-    """Test health command basic functionality."""
+@pytest.fixture
+def valid_project(tmp_path: Path) -> Path:
+    """A project directory holding a minimal valid ``config.yml``."""
+    project = tmp_path / "proj"
+    _write_config(project, _VALID_CONFIG)
+    return project
 
-    def test_health_command_exists(self):
-        """Verify health command can be imported and is callable."""
-        assert health is not None
-        assert callable(health)
 
-    def test_health_command_help(self, cli_runner):
-        """Verify health command shows help text."""
-        result = cli_runner.invoke(health, ["--help"])
+def _result(
+    name: str, status: Status, *, category: str = "demo", message: str = "msg"
+) -> CheckResult:
+    return CheckResult(name=name, category=category, status=status, message=message)
 
+
+def _report(
+    *results: CheckResult, elapsed_ms: float = 1.5, deadline_hit: bool = False
+) -> CheckReport:
+    return CheckReport(results=list(results), elapsed_ms=elapsed_ms, deadline_hit=deadline_hit)
+
+
+def _patch_suite(report: CheckReport):
+    """Patch the CLI's ``_run_suite`` boundary to return *report* without running checks."""
+    return patch("osprey.cli.health_cmd._run_suite", AsyncMock(return_value=report))
+
+
+def _no_container_runtime():
+    """Patch the containers category so it degrades to its no-runtime skip row."""
+    return patch(
+        "osprey.health.core.containers.get_runtime_command",
+        side_effect=RuntimeError("no container runtime"),
+    )
+
+
+def _find(results: list[dict], name: str) -> dict | None:
+    """Return the first wire-shape result row with ``name``, or ``None``."""
+    return next((r for r in results if r.get("name") == name), None)
+
+
+# --------------------------------------------------------------------------- #
+# Exit-code mapping (0 / 1 / 2 / 3 / 130)
+# --------------------------------------------------------------------------- #
+
+
+class TestExitCodes:
+    """The CLI's process exit code follows the report / failure class."""
+
+    def test_exit_code_all_ok_is_0(self, cli_runner, valid_project):
+        report = _report(_result("a", Status.OK), _result("b", Status.OK))
+        with _patch_suite(report):
+            result = cli_runner.invoke(health, ["--project", str(valid_project)])
         assert result.exit_code == 0
-        assert "health" in result.output.lower() or "Health" in result.output
-        assert "--verbose" in result.output
-        assert "--basic" in result.output
 
-    def test_health_command_verbose_flag(self, cli_runner):
-        """Verify health command accepts --verbose flag."""
-        result = cli_runner.invoke(health, ["--help"])
-
-        assert result.exit_code == 0
-        assert "--verbose" in result.output or "-v" in result.output
-
-    def test_health_command_basic_flag(self, cli_runner):
-        """Verify health command accepts --basic flag."""
-        result = cli_runner.invoke(health, ["--help"])
-
-        assert result.exit_code == 0
-        assert "--basic" in result.output or "-b" in result.output
-
-
-class TestHealthCheckResult:
-    """Test HealthCheckResult class."""
-
-    def test_health_check_result_creation(self):
-        """Test creating a HealthCheckResult."""
-        result = HealthCheckResult("test", "ok", "message", "details")
-
-        assert result.name == "test"
-        assert result.status == "ok"
-        assert result.message == "message"
-        assert result.details == "details"
-
-    def test_health_check_result_repr(self):
-        """Test HealthCheckResult string representation."""
-        result = HealthCheckResult("test", "ok")
-
-        repr_str = repr(result)
-        assert "HealthCheckResult" in repr_str
-        assert "test" in repr_str
-        assert "ok" in repr_str
-
-    def test_health_check_result_statuses(self):
-        """Test different health check status values."""
-        ok_result = HealthCheckResult("test1", "ok")
-        warning_result = HealthCheckResult("test2", "warning")
-        error_result = HealthCheckResult("test3", "error")
-
-        assert ok_result.status == "ok"
-        assert warning_result.status == "warning"
-        assert error_result.status == "error"
-
-
-class TestHealthChecker:
-    """Test HealthChecker class."""
-
-    def test_health_checker_initialization(self):
-        """Test creating a HealthChecker instance."""
-        checker = HealthChecker()
-
-        assert checker.verbose is False
-        assert checker.full is False
-        assert checker.results == []
-        assert checker.config == {}
-
-    def test_health_checker_with_options(self, tmp_path):
-        """Test HealthChecker with verbose and full options."""
-        checker = HealthChecker(verbose=True, full=True, project_path=tmp_path)
-
-        assert checker.verbose is True
-        assert checker.full is True
-        assert checker.cwd == tmp_path
-
-    def test_add_result(self):
-        """Test adding health check results."""
-        checker = HealthChecker()
-        checker.add_result("test", "ok", "message", "details")
-
-        assert len(checker.results) == 1
-        assert checker.results[0].name == "test"
-        assert checker.results[0].status == "ok"
-
-    def test_add_multiple_results(self):
-        """Test adding multiple health check results."""
-        checker = HealthChecker()
-        checker.add_result("test1", "ok")
-        checker.add_result("test2", "warning")
-        checker.add_result("test3", "error")
-
-        assert len(checker.results) == 3
-        assert checker.results[0].status == "ok"
-        assert checker.results[1].status == "warning"
-        assert checker.results[2].status == "error"
-
-
-class TestHealthCheckerConfiguration:
-    """Test configuration checking functionality."""
-
-    def test_check_configuration_missing_config(self, tmp_path):
-        """Test checking configuration when config.yml is missing."""
-        checker = HealthChecker(project_path=tmp_path)
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_configuration()
-
-        # Should have error result for missing config
-        assert len(checker.results) > 0
-        config_results = [r for r in checker.results if "config" in r.name]
-        assert any(r.status == "error" for r in config_results)
-
-    def test_check_configuration_valid_config(self, sample_config_yml):
-        """Test checking valid configuration."""
-        checker = HealthChecker(project_path=sample_config_yml.parent)
-
-        with patch("osprey.cli.health_cmd.console"):
-            with patch("osprey.registry.initialize_registry"):
-                checker.check_configuration()
-
-        # Should have results
-        assert len(checker.results) > 0
-        # Config file should be found
-        config_found = any("config_file_exists" in r.name for r in checker.results)
-        assert config_found
-
-    def test_check_configuration_empty_config(self, tmp_path):
-        """Test checking empty configuration file."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("")
-
-        checker = HealthChecker(project_path=tmp_path)
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_configuration()
-
-        # Should detect empty config
-        errors = [r for r in checker.results if r.status == "error"]
-        assert len(errors) > 0
-
-    def test_check_configuration_invalid_yaml(self, tmp_path):
-        """Test checking invalid YAML configuration."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("invalid: yaml: content:")
-
-        checker = HealthChecker(project_path=tmp_path)
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_configuration()
-
-        # Should detect YAML error
-        errors = [r for r in checker.results if r.status == "error"]
-        assert len(errors) > 0
-
-
-class TestHealthCheckerFileSystem:
-    """Test file system checking functionality."""
-
-    def test_check_file_system(self, tmp_path, sample_config_yml):
-        """Test file system checks."""
-        checker = HealthChecker(project_path=sample_config_yml.parent)
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_file_system()
-
-        # Should have file system results
-        assert len(checker.results) > 0
-
-    def test_check_file_system_disk_space(self, tmp_path):
-        """Test disk space checking."""
-        checker = HealthChecker(project_path=tmp_path)
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_file_system()
-
-        # Should check disk space
-        disk_space_result = any("disk_space" in r.name for r in checker.results)
-        assert disk_space_result or len(checker.results) > 0
-
-    def test_check_file_system_env_file_exists(self, tmp_path):
-        """Test .env file detection when it exists."""
-        env_file = tmp_path / ".env"
-        env_file.write_text("TEST_VAR=value")
-
-        checker = HealthChecker(project_path=tmp_path)
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_file_system()
-
-        env_result = [r for r in checker.results if "env_file" in r.name]
-        assert len(env_result) > 0
-        assert env_result[0].status == "ok"
-
-    def test_check_file_system_env_file_missing(self, tmp_path):
-        """Test .env file detection when it's missing."""
-        checker = HealthChecker(project_path=tmp_path)
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_file_system()
-
-        env_result = [r for r in checker.results if "env_file" in r.name]
-        assert len(env_result) > 0
-        assert env_result[0].status == "warning"
-
-
-class TestHealthCheckerPythonEnvironment:
-    """Test Python environment checking functionality."""
-
-    def test_check_python_environment(self):
-        """Test Python environment checks."""
-        checker = HealthChecker()
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_python_environment()
-
-        # Should have Python version check
-        assert len(checker.results) > 0
-        python_result = any("python_version" in r.name for r in checker.results)
-        assert python_result
-
-    def test_check_python_version(self):
-        """Test Python version checking."""
-        checker = HealthChecker()
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_python_environment()
-
-        version_results = [r for r in checker.results if "python_version" in r.name]
-        assert len(version_results) > 0
-        # Current Python should be detected
-        assert version_results[0].status in ["ok", "warning"]
-
-    def test_check_virtual_environment(self):
-        """Test virtual environment detection."""
-        checker = HealthChecker()
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_python_environment()
-
-        venv_results = [r for r in checker.results if "virtual_environment" in r.name]
-        assert len(venv_results) > 0
-
-
-class TestHealthCheckerContainers:
-    """Test container checking functionality."""
-
-    def test_check_containers_no_runtime(self):
-        """Test container check when no runtime is available."""
-        checker = HealthChecker()
-
-        with patch("osprey.cli.health_cmd.console"):
-            with patch("osprey.cli.health_cmd.get_runtime_command") as mock_runtime:
-                mock_runtime.side_effect = RuntimeError("No runtime")
-                checker.check_containers()
-
-        # Should handle missing runtime gracefully
-        runtime_results = [r for r in checker.results if "runtime" in r.name]
-        assert len(runtime_results) > 0
-        assert runtime_results[0].status == "warning"
-
-    def test_check_containers_with_docker(self):
-        """Test container check with Docker available."""
-        checker = HealthChecker()
-
-        with patch("osprey.cli.health_cmd.console"):
-            with patch("osprey.cli.health_cmd.get_runtime_command") as mock_runtime:
-                with patch("subprocess.run") as mock_run:
-                    mock_runtime.return_value = ["docker"]
-                    mock_run.return_value = Mock(returncode=0, stdout="Docker version 24.0.0")
-
-                    checker.check_containers()
-
-        # Should detect Docker
-        docker_results = [r for r in checker.results if "docker" in r.name]
-        assert len(docker_results) > 0
-
-    def test_check_containers_with_podman(self):
-        """Test container check with Podman available."""
-        checker = HealthChecker()
-
-        with patch("osprey.cli.health_cmd.console"):
-            with patch("osprey.cli.health_cmd.get_runtime_command") as mock_runtime:
-                with patch("subprocess.run") as mock_run:
-                    mock_runtime.return_value = ["podman"]
-                    mock_run.return_value = Mock(returncode=0, stdout="podman version 4.0.0")
-
-                    checker.check_containers()
-
-        # Should detect Podman
-        podman_results = [r for r in checker.results if "podman" in r.name]
-        assert len(podman_results) > 0
-
-
-class TestHealthCheckerAPIProviders:
-    """Test API provider checking functionality."""
-
-    def test_check_api_providers_no_config(self, tmp_path):
-        """Test API provider check when config is missing."""
-        checker = HealthChecker(project_path=tmp_path)
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_api_providers()
-
-        # Should handle missing config gracefully
-        # No results or handled gracefully
-        assert True  # No crash is success
-
-    def test_check_api_providers_with_config(self, sample_config_yml):
-        """Test API provider check with valid config."""
-        checker = HealthChecker(project_path=sample_config_yml.parent)
-
-        with patch("osprey.cli.health_cmd.console"):
-            with patch("osprey.registry.get_registry") as mock_registry:
-                mock_reg = Mock()
-                mock_provider_class = Mock()
-                mock_provider_instance = Mock()
-                mock_provider_instance.check_health.return_value = (True, "Connected")
-                mock_provider_class.return_value = mock_provider_instance
-                mock_reg.get_provider.return_value = mock_provider_class
-                mock_registry.return_value = mock_reg
-
-                checker.check_api_providers()
-
-        # Should check providers
-        provider_results = [r for r in checker.results if "provider" in r.name]
-        assert len(provider_results) > 0
-
-
-class TestHealthCommandIntegration:
-    """Test full health command execution."""
-
-    def test_health_command_with_missing_config(self, cli_runner, tmp_path):
-        """Test health command when config is missing."""
-        with patch("osprey.cli.project_utils.resolve_project_path") as mock_resolve:
-            mock_resolve.return_value = tmp_path
-
+    def test_exit_code_warnings_only_is_1(self, cli_runner, valid_project):
+        report = _report(_result("a", Status.OK), _result("b", Status.WARNING))
+        with _patch_suite(report):
+            result = cli_runner.invoke(health, ["--project", str(valid_project)])
+        assert result.exit_code == 1
+
+    def test_exit_code_errors_is_2(self, cli_runner, valid_project):
+        report = _report(_result("a", Status.OK), _result("b", Status.ERROR))
+        with _patch_suite(report):
+            result = cli_runner.invoke(health, ["--project", str(valid_project)])
+        assert result.exit_code == 2
+
+    def test_exit_code_unexpected_wrapper_failure_is_3(self, cli_runner):
+        # A failure anywhere in the wrapper (here: project resolution) is exit 3.
+        with patch(
+            "osprey.cli.project_utils.resolve_project_path",
+            side_effect=RuntimeError("boom"),
+        ):
             result = cli_runner.invoke(health, [])
+        assert result.exit_code == 3
 
-            # Should execute but report errors
-            assert result.exit_code in [1, 2, 3]
-
-    def test_health_command_basic_mode(self, cli_runner, sample_config_yml):
-        """Test health command in basic mode."""
-        with patch("osprey.cli.project_utils.resolve_project_path") as mock_resolve:
-            with patch("osprey.registry.initialize_registry"):
-                with patch("osprey.deployment.runtime_helper.get_runtime_command") as mock_runtime:
-                    mock_resolve.return_value = sample_config_yml.parent
-                    mock_runtime.side_effect = RuntimeError("No runtime")
-
-                    result = cli_runner.invoke(health, ["--basic"])
-
-                    # Should execute
-                    assert result.exit_code in [0, 1, 2]
-
-    def test_health_command_verbose_mode(self, cli_runner, sample_config_yml):
-        """Test health command in verbose mode."""
-        with patch("osprey.cli.project_utils.resolve_project_path") as mock_resolve:
-            with patch("osprey.registry.initialize_registry"):
-                with patch("osprey.deployment.runtime_helper.get_runtime_command") as mock_runtime:
-                    mock_resolve.return_value = sample_config_yml.parent
-                    mock_runtime.side_effect = RuntimeError("No runtime")
-
-                    result = cli_runner.invoke(health, ["--verbose"])
-
-                    # Should execute
-                    assert result.exit_code in [0, 1, 2]
-
-    def test_health_command_keyboard_interrupt(self, cli_runner):
-        """Test health command handles keyboard interrupt gracefully."""
-        with patch("osprey.cli.project_utils.resolve_project_path") as mock_resolve:
-            mock_resolve.side_effect = KeyboardInterrupt()
-
+    def test_exit_code_keyboard_interrupt_is_130(self, cli_runner):
+        with patch(
+            "osprey.cli.project_utils.resolve_project_path",
+            side_effect=KeyboardInterrupt,
+        ):
             result = cli_runner.invoke(health, [])
-
-            # Should exit gracefully
-            assert result.exit_code == 130
-
-
-class TestHealthCheckerTimezone:
-    """Test timezone checking functionality."""
-
-    def test_timezone_warning_when_utc(self):
-        """Timezone set to UTC produces a warning."""
-        checker = HealthChecker()
-        checker.config = {"system": {"timezone": "UTC"}}
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker._check_timezone()
-
-        tz_results = [r for r in checker.results if r.name == "timezone"]
-        assert len(tz_results) == 1
-        assert tz_results[0].status == "warning"
-        assert "UTC" in tz_results[0].message
-
-    def test_timezone_ok_when_configured(self):
-        """Timezone set to a real timezone produces ok."""
-        checker = HealthChecker()
-        checker.config = {"system": {"timezone": "America/New_York"}}
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker._check_timezone()
-
-        tz_results = [r for r in checker.results if r.name == "timezone"]
-        assert len(tz_results) == 1
-        assert tz_results[0].status == "ok"
-        assert "America/New_York" in tz_results[0].message
-
-    def test_timezone_warning_when_missing(self):
-        """Missing system.timezone defaults to UTC warning."""
-        checker = HealthChecker()
-        checker.config = {}
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker._check_timezone()
-
-        tz_results = [r for r in checker.results if r.name == "timezone"]
-        assert len(tz_results) == 1
-        assert tz_results[0].status == "warning"
-
-    def test_timezone_resolves_env_var(self, monkeypatch, tmp_path):
-        """${TZ:-UTC} resolves via env var before checking."""
-        monkeypatch.setenv("TZ", "Europe/Berlin")
-        checker = HealthChecker(project_path=tmp_path)
-        checker.config = {"system": {"timezone": "${TZ:-UTC}"}}
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker._check_timezone()
-
-        tz_results = [r for r in checker.results if r.name == "timezone"]
-        assert len(tz_results) == 1
-        assert tz_results[0].status == "ok"
-        assert "Europe/Berlin" in tz_results[0].message
-
-
-class TestCheckClaudeCliVersion:
-    """Test the Claude Code CLI pin verification (issue #218)."""
-
-    def _run(self, checker):
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_claude_cli_version()
-        return [r for r in checker.results if r.name == "claude_cli_version"]
-
-    def test_unpinned_reports_detected_version(self):
-        """Without a pin, runs `claude --version` and reports detected version."""
-        checker = HealthChecker()
-        checker.config = {}
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="2.1.146 (Claude Code)\n", stderr="")
-            results = self._run(checker)
-
-        assert mock_run.call_args[0][0] == ["claude", "--version"]
-        assert len(results) == 1
-        assert results[0].status == "ok"
-        assert "2.1.146" in results[0].message
-
-    def test_pinned_match_reports_ok(self):
-        """Pinned version that matches what npx reports is ok."""
-        checker = HealthChecker()
-        checker.config = {"claude_code": {"cli_version": "2.1.146"}}
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="2.1.146\n", stderr="")
-            results = self._run(checker)
-
-        argv = mock_run.call_args[0][0]
-        assert argv[:3] == ["npx", "-y", "@anthropic-ai/claude-code@2.1.146"]
-        assert argv[-1] == "--version"
-        assert len(results) == 1
-        assert results[0].status == "ok"
-        assert "2.1.146" in results[0].message
-
-    def test_pinned_mismatch_reports_warning(self):
-        """Pin set to X but npx returns Y produces warning."""
-        checker = HealthChecker()
-        checker.config = {"claude_code": {"cli_version": "2.1.146"}}
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="2.1.999\n", stderr="")
-            results = self._run(checker)
-
-        assert len(results) == 1
-        assert results[0].status == "warning"
-        assert "2.1.146" in results[0].message
-        assert "2.1.999" in results[0].message
-
-    def test_pinned_npx_missing_reports_error(self):
-        """npx not installed produces an error result."""
-        checker = HealthChecker()
-        checker.config = {"claude_code": {"cli_version": "2.1.146"}}
-
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            results = self._run(checker)
-
-        assert len(results) == 1
-        assert results[0].status == "error"
-        assert "npx" in results[0].message.lower()
-
-    def test_unpinned_claude_missing_reports_warning(self):
-        """`claude` not installed and no pin → warning (not error)."""
-        checker = HealthChecker()
-        checker.config = {}
-
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            results = self._run(checker)
-
-        assert len(results) == 1
-        assert results[0].status == "warning"
-
-
-class TestHealthDisplayResults:
-    """Test result display functionality."""
-
-    def test_display_results_all_passing(self):
-        """Test displaying results when all checks pass."""
-        checker = HealthChecker()
-        checker.add_result("test1", "ok")
-        checker.add_result("test2", "ok")
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.display_results()
-
-        # Should complete without errors
-        assert len(checker.results) == 2
-
-    def test_display_results_with_warnings(self):
-        """Test displaying results with warnings."""
-        checker = HealthChecker()
-        checker.add_result("test1", "ok")
-        checker.add_result("test2", "warning", "Warning message")
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.display_results()
-
-        warnings = [r for r in checker.results if r.status == "warning"]
-        assert len(warnings) == 1
-
-    def test_display_results_with_errors(self):
-        """Test displaying results with errors."""
-        checker = HealthChecker()
-        checker.add_result("test1", "ok")
-        checker.add_result("test2", "error", "Error message")
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.display_results()
-
-        errors = [r for r in checker.results if r.status == "error"]
-        assert len(errors) == 1
-
-    def test_display_results_verbose_mode(self):
-        """Test displaying results in verbose mode."""
-        checker = HealthChecker(verbose=True)
-        checker.add_result("test1", "ok")
-        checker.add_result("test2", "warning", "Warning", "Details")
-        checker.add_result("test3", "error", "Error", "Error details")
-
-        with patch("osprey.cli.health_cmd.console"):
-            checker.display_results()
-
-        # Should have warnings and errors
-        warnings = [r for r in checker.results if r.status == "warning"]
-        errors = [r for r in checker.results if r.status == "error"]
-        assert len(warnings) == 1
-        assert len(errors) == 1
-
-
-class TestHealthExitCodes:
-    """Test health command exit codes."""
-
-    def test_exit_code_all_passing(self, cli_runner, sample_config_yml):
-        """Test exit code 0 when all checks pass."""
-        with patch("osprey.cli.project_utils.resolve_project_path") as mock_resolve:
-            with patch("osprey.cli.health_cmd.HealthChecker.check_all"):
-                with patch("osprey.cli.health_cmd.console"):
-                    mock_resolve.return_value = sample_config_yml.parent
-
-                    # Create a mock checker with all passing results
-                    mock_checker_instance = Mock()
-                    mock_checker_instance.results = [
-                        HealthCheckResult("test1", "ok"),
-                        HealthCheckResult("test2", "ok"),
-                    ]
-
-                    with patch("osprey.cli.health_cmd.HealthChecker") as MockChecker:
-                        MockChecker.return_value = mock_checker_instance
-
-                        result = cli_runner.invoke(health, [])
-
-                        assert result.exit_code == 0
-
-    def test_exit_code_with_warnings(self, cli_runner, sample_config_yml):
-        """Test exit code 1 when warnings present."""
-        with patch("osprey.cli.project_utils.resolve_project_path") as mock_resolve:
-            with patch("osprey.cli.health_cmd.console"):
-                mock_resolve.return_value = sample_config_yml.parent
-
-                # Create a mock checker with warnings
-                mock_checker_instance = Mock()
-                mock_checker_instance.results = [
-                    HealthCheckResult("test1", "ok"),
-                    HealthCheckResult("test2", "warning"),
-                ]
-
-                with patch("osprey.cli.health_cmd.HealthChecker") as MockChecker:
-                    MockChecker.return_value = mock_checker_instance
-
-                    result = cli_runner.invoke(health, [])
-
-                    assert result.exit_code == 1
-
-    def test_exit_code_with_errors(self, cli_runner, sample_config_yml):
-        """Test exit code 2 when errors present."""
-        with patch("osprey.cli.project_utils.resolve_project_path") as mock_resolve:
-            with patch("osprey.cli.health_cmd.console"):
-                mock_resolve.return_value = sample_config_yml.parent
-
-                # Create a mock checker with errors
-                mock_checker_instance = Mock()
-                mock_checker_instance.results = [
-                    HealthCheckResult("test1", "ok"),
-                    HealthCheckResult("test2", "error"),
-                ]
-
-                with patch("osprey.cli.health_cmd.HealthChecker") as MockChecker:
-                    MockChecker.return_value = mock_checker_instance
-
-                    result = cli_runner.invoke(health, [])
-
-                    assert result.exit_code == 2
-
-
-class TestHealthCheckerOpenObserve:
-    """The OpenObserve telemetry-store probe: readiness + retention posture."""
-
-    def _checker(self, deployed, retention=None):
-        checker = HealthChecker()
-        oo = {"path": "./services/openobserve", "port": 5080}
-        if retention is not None:
-            oo["retention_days"] = retention
-        checker.config = {"deployed_services": deployed, "services": {"openobserve": oo}}
-        return checker
-
-    def test_skipped_when_not_deployed(self):
-        checker = self._checker(deployed=[])
-        with patch("osprey.cli.health_cmd.console"):
-            checker.check_openobserve()
-        assert not [r for r in checker.results if r.name.startswith("openobserve")]
-
-    def test_ready(self):
-        checker = self._checker(deployed=["openobserve"])
-        resp_cm = MagicMock()
-        resp_cm.__enter__.return_value.status = 200
-        with (
-            patch("osprey.cli.health_cmd.console"),
-            patch("urllib.request.urlopen", return_value=resp_cm),
-        ):
-            checker.check_openobserve()
-        healthz = [r for r in checker.results if r.name == "openobserve_healthz"]
-        assert healthz and healthz[0].status == "ok"
-
-    def test_unreachable(self):
-        import urllib.error
-
-        checker = self._checker(deployed=["openobserve"])
-        with (
-            patch("osprey.cli.health_cmd.console"),
-            patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")),
-        ):
-            checker.check_openobserve()
-        healthz = [r for r in checker.results if r.name == "openobserve_healthz"]
-        assert healthz and healthz[0].status == "warning"
-
-    def test_retention_below_floor_warns(self):
-        checker = self._checker(deployed=["openobserve"], retention=1)
-        with (
-            patch("osprey.cli.health_cmd.console"),
-            patch("urllib.request.urlopen", side_effect=OSError("no server")),
-        ):
-            checker.check_openobserve()
-        ret = [r for r in checker.results if r.name == "openobserve_retention"]
-        assert ret and ret[0].status == "warning"
-
-    def test_retention_ok(self):
-        checker = self._checker(deployed=["openobserve"], retention=14)
-        with (
-            patch("osprey.cli.health_cmd.console"),
-            patch("urllib.request.urlopen", side_effect=OSError("no server")),
-        ):
-            checker.check_openobserve()
-        ret = [r for r in checker.results if r.name == "openobserve_retention"]
-        assert ret and ret[0].status == "ok"
+        assert result.exit_code == 130
+
+
+# --------------------------------------------------------------------------- #
+# --basic hidden alias
+# --------------------------------------------------------------------------- #
+
+
+class TestBasicAlias:
+    """``--basic`` is a hidden, deprecated no-op that warns only on stderr."""
+
+    def test_basic_flag_is_hidden_in_help(self, cli_runner):
+        result = cli_runner.invoke(health, ["--help"])
+        assert result.exit_code == 0
+        # Hidden option: present as a flag but never advertised in --help.
+        assert "--basic" not in result.output
+        assert "--full" in result.output
+        assert "--json" in result.output
+        assert "--category" in result.output
+
+    def test_basic_deprecation_on_stderr_not_stdout(self, cli_runner, valid_project):
+        report = _report(_result("a", Status.OK))
+        with _patch_suite(report):
+            result = cli_runner.invoke(health, ["--project", str(valid_project), "--basic"])
+        assert result.exit_code == 0
+        assert "deprecated" in result.stderr.lower()
+        assert "deprecated" not in result.stdout.lower()
+
+    def test_basic_is_noop(self, cli_runner, valid_project):
+        report = _report(_result("a", Status.WARNING))
+        with _patch_suite(report):
+            without = cli_runner.invoke(health, ["--project", str(valid_project)])
+        with _patch_suite(report):
+            with_basic = cli_runner.invoke(health, ["--project", str(valid_project), "--basic"])
+        # Same exit code and same report on stdout — the flag changes nothing.
+        assert without.exit_code == with_basic.exit_code == 1
+        assert without.stdout == with_basic.stdout
+
+
+# --------------------------------------------------------------------------- #
+# --full gating (on_demand categories) and --category non-elevation
+# --------------------------------------------------------------------------- #
+
+
+class TestFullGating:
+    """``--full`` is the sole on_demand gate; ``--category`` never elevates cost."""
+
+    def test_full_gating_model_chat_skipped_without_full(self, cli_runner, tmp_path):
+        project = tmp_path / "proj"
+        _write_config(project, _NO_MODELS_CONFIG)
+        result = cli_runner.invoke(
+            health, ["--project", str(project), "--json", "--category", "model_chat"]
+        )
+        payload = json.loads(result.stdout)
+        row = _find(payload["results"], "model_chat")
+        assert row is not None
+        assert row["status"] == "skip"
+        assert "--full" in row["message"]
+
+    def test_full_gating_model_chat_runs_with_full(self, cli_runner, tmp_path):
+        # With --full the on_demand category actually executes; a zero-model
+        # config short-circuits to its own skip row (no live completion issued).
+        project = tmp_path / "proj"
+        _write_config(project, _NO_MODELS_CONFIG)
+        result = cli_runner.invoke(
+            health, ["--project", str(project), "--json", "--full", "--category", "model_chat"]
+        )
+        payload = json.loads(result.stdout)
+        row = _find(payload["results"], "model_chat")
+        assert row is not None
+        assert row["status"] == "skip"
+        assert row["message"] == "no models configured"
+        assert "--full" not in row["message"]
+        # The zero-model guard short-circuits before the deadline machinery: a
+        # skip-only report is exit 0 with no deadline hit.
+        assert result.exit_code == 0
+        assert payload["deadline_hit"] is False
+
+    def test_full_category_does_not_elevate_cost(self, cli_runner, valid_project):
+        # Selecting an on_demand category without --full must not run it.
+        result = cli_runner.invoke(
+            health, ["--project", str(valid_project), "--json", "--category", "claude_cli_pinned"]
+        )
+        payload = json.loads(result.stdout)
+        row = _find(payload["results"], "claude_cli_pinned")
+        assert row is not None
+        assert row["status"] == "skip"
+        assert "--full" in row["message"]
+
+
+# --------------------------------------------------------------------------- #
+# --category validation and claude_cli_pinned unpinned skip
+# --------------------------------------------------------------------------- #
+
+
+class TestCategorySelection:
+    """``--category`` resolution: unknown-name handling and the pinned-skip row."""
+
+    def test_unknown_category_on_valid_config_is_usage_error(self, cli_runner, valid_project):
+        result = cli_runner.invoke(
+            health, ["--project", str(valid_project), "--category", "does_not_exist"]
+        )
+        assert result.exit_code == 2
+        assert "Unknown health categor" in result.output
+
+    def test_unknown_category_with_missing_config_renders_no_usage_error(
+        self, cli_runner, tmp_path
+    ):
+        # No config.yml: category names cannot be validated, so a non-core name
+        # passes through — the report renders (exit 2 from config errors) rather
+        # than raising a UsageError.
+        project = tmp_path / "empty"
+        project.mkdir()
+        with _no_container_runtime():
+            result = cli_runner.invoke(
+                health, ["--project", str(project), "--json", "--category", "does_not_exist"]
+            )
+        assert result.exit_code == 2
+        assert "Unknown health categor" not in result.output
+        payload = json.loads(result.stdout)
+        # configuration is force-included under a config failure even when filtered.
+        config_row = _find(payload["results"], "config_file_exists")
+        assert config_row is not None
+        assert config_row["status"] == "error"
+
+    def test_category_claude_cli_pinned_unpinned_skip(self, cli_runner, valid_project):
+        # A valid config without a claude_code.cli_version pin: the on_demand
+        # category runs under --full but returns a skip row (no npx invoked).
+        result = cli_runner.invoke(
+            health,
+            [
+                "--project",
+                str(valid_project),
+                "--json",
+                "--full",
+                "--category",
+                "claude_cli_pinned",
+            ],
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        row = _find(payload["results"], "claude_cli_pinned")
+        assert row is not None
+        assert row["status"] == "skip"
+        assert "no cli_version pin configured" in row["message"]
+
+
+# --------------------------------------------------------------------------- #
+# Config-load failure degradation (missing / bad YAML / bad health:)
+# --------------------------------------------------------------------------- #
+
+
+class TestConfigFailureDegradation:
+    """A config-load failure degrades into report rows; the report still renders."""
+
+    def test_missing_config_yields_config_file_exists_error(self, cli_runner, tmp_path):
+        project = tmp_path / "empty"
+        project.mkdir()
+        with _no_container_runtime():
+            result = cli_runner.invoke(health, ["--project", str(project), "--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.stdout)
+        row = _find(payload["results"], "config_file_exists")
+        assert row is not None and row["status"] == "error"
+        # Full report still renders: config-independent categories are present.
+        categories = {r["category"] for r in payload["results"]}
+        assert "file_system" in categories
+        assert "python_environment" in categories
+
+    def test_malformed_yaml_yields_yaml_valid_error(self, cli_runner, tmp_path):
+        project = tmp_path / "proj"
+        _write_config(project, "invalid: yaml: content:\n")
+        with _no_container_runtime():
+            result = cli_runner.invoke(health, ["--project", str(project), "--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.stdout)
+        assert _find(payload["results"], "config_file_exists")["status"] == "ok"
+        yaml_row = _find(payload["results"], "yaml_valid")
+        assert yaml_row is not None and yaml_row["status"] == "error"
+
+    def test_malformed_health_section_yields_health_config_error(self, cli_runner, tmp_path):
+        project = tmp_path / "proj"
+        _write_config(
+            project,
+            "project_name: bad_health\nhealth:\n  suite_timeout_s: not-a-number\n",
+        )
+        with _no_container_runtime():
+            result = cli_runner.invoke(health, ["--project", str(project), "--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.stdout)
+        assert _find(payload["results"], "config_file_exists")["status"] == "ok"
+        assert _find(payload["results"], "yaml_valid")["status"] == "ok"
+        health_row = _find(payload["results"], "health_config")
+        assert health_row is not None and health_row["status"] == "error"
+
+
+# --------------------------------------------------------------------------- #
+# No container runtime → skip
+# --------------------------------------------------------------------------- #
+
+
+class TestContainerRuntime:
+    """Absent container runtime contributes a skip row, not an error."""
+
+    def test_no_container_runtime_is_skip(self, cli_runner, valid_project):
+        with _no_container_runtime():
+            result = cli_runner.invoke(
+                health, ["--project", str(valid_project), "--json", "--category", "containers"]
+            )
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        row = _find(payload["results"], "container_runtime")
+        assert row is not None and row["status"] == "skip"
+        assert "no container runtime available" in row["message"]
+
+
+# --------------------------------------------------------------------------- #
+# --project from a foreign cwd (config + .env resolution canary)
+# --------------------------------------------------------------------------- #
+
+
+class TestProjectResolution:
+    """``--project`` resolves config and ``.env`` from the named directory."""
+
+    def test_project_resolves_config_and_env_from_foreign_cwd(
+        self, cli_runner, tmp_path, monkeypatch
+    ):
+        project = tmp_path / "proj"
+        _write_config(
+            project,
+            "project_name: canary\n"
+            "models:\n"
+            "  python_code_generator:\n"
+            "    provider: mock\n"
+            "    model_id: ${OSPREY_HEALTH_CANARY}\n",
+        )
+        # The canary variable is defined only in the project's .env — never in the
+        # ambient environment — so an "ok" env-var row proves the project .env was
+        # loaded even though the process runs from an unrelated cwd.
+        (project / ".env").write_text("OSPREY_HEALTH_CANARY=resolved-from-project-env\n")
+        assert "OSPREY_HEALTH_CANARY" not in os.environ
+
+        foreign = tmp_path / "foreign"
+        foreign.mkdir()
+        monkeypatch.chdir(foreign)
+
+        with _no_container_runtime():
+            result = cli_runner.invoke(
+                health, ["--project", str(project), "--json", "--category", "configuration"]
+            )
+        payload = json.loads(result.stdout)
+
+        env_row = _find(payload["results"], "environment_variables")
+        assert env_row is not None and env_row["status"] == "ok"
+
+        # Config itself was read from the --project directory, not the cwd.
+        config_row = _find(payload["results"], "config_file_exists")
+        assert config_row is not None and config_row["status"] == "ok"
+        assert str(project) in config_row["message"]
+
+
+# --------------------------------------------------------------------------- #
+# --json machine-clean wire contract
+# --------------------------------------------------------------------------- #
+
+
+class TestJsonOutput:
+    """``--json`` emits exactly one JSON document on stdout, in the locked shape."""
+
+    _WIRE_KEYS = {
+        "summary",
+        "ok",
+        "warnings",
+        "errors",
+        "skips",
+        "total",
+        "elapsed_ms",
+        "deadline_hit",
+        "results",
+    }
+
+    def test_json_stdout_roundtrips_to_report(self, cli_runner, valid_project):
+        report = _report(
+            _result("a", Status.OK),
+            _result("b", Status.WARNING),
+            _result("c", Status.SKIP),
+        )
+        with _patch_suite(report):
+            result = cli_runner.invoke(health, ["--project", str(valid_project), "--json"])
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload == report.to_dict()
+
+    def test_json_wire_shape_keys(self, cli_runner, valid_project):
+        report = _report(_result("a", Status.OK))
+        with _patch_suite(report):
+            result = cli_runner.invoke(health, ["--project", str(valid_project), "--json"])
+        payload = json.loads(result.stdout)
+        assert set(payload) == self._WIRE_KEYS
+
+    def test_json_stdout_is_single_document(self, cli_runner, valid_project):
+        # Exactly one JSON document, nothing else, on stdout (spinner is on stderr).
+        report = _report(_result("a", Status.OK))
+        with _patch_suite(report):
+            result = cli_runner.invoke(health, ["--project", str(valid_project), "--json"])
+        stripped = result.stdout.strip()
+        assert stripped.startswith("{") and stripped.endswith("}")
+        assert "\n" not in stripped  # a single compact line
+
+    def test_json_clean_despite_config_load_error(self, cli_runner, tmp_path):
+        # Regression: the loader logs bad-YAML failures at ERROR through a
+        # stdout-bound handler. Under --json those logs must be silenced so stdout
+        # stays a single parseable JSON document.
+        project = tmp_path / "proj"
+        _write_config(project, "invalid: yaml: content:\n")
+        with _no_container_runtime():
+            result = cli_runner.invoke(health, ["--project", str(project), "--json"])
+        payload = json.loads(result.stdout)  # must not raise
+        assert _find(payload["results"], "yaml_valid")["status"] == "error"
+
+
+# --------------------------------------------------------------------------- #
+# Subprocess no-hang guarantee (must be a real process, not in-process)
+# --------------------------------------------------------------------------- #
+
+
+class TestNoHang:
+    """A never-returning check must not block process exit."""
+
+    def test_subprocess_no_hang_hung_plugin_exits(self, tmp_path):
+        project = tmp_path / "proj"
+        # A short suite deadline plus a plugin whose sync check never returns: the
+        # runner off-loads it to a daemon thread, abandons it at the deadline, and
+        # the CLI must still exit (via os._exit) with an error code.
+        _write_config(
+            project,
+            "project_name: hung_test\n"
+            "health:\n"
+            "  suite_timeout_s: 2\n"
+            "  plugins:\n"
+            "    - hung_health_plugin\n",
+        )
+
+        fixtures_dir = Path(__file__).parent / "fixtures"
+        osprey_bin = Path(sys.executable).parent / "osprey"
+        assert osprey_bin.exists(), f"osprey console script not found at {osprey_bin}"
+
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join([str(fixtures_dir), env.get("PYTHONPATH", "")]).rstrip(
+            os.pathsep
+        )
+
+        # Wall-clock bound well above the 2s suite deadline but far below any hang:
+        # a TimeoutExpired here is the no-hang failure signal.
+        wall_clock_bound_s = 30.0
+        started = time.monotonic()
+        proc = subprocess.run(
+            [str(osprey_bin), "health", "--project", str(project), "--category", "hung"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=wall_clock_bound_s,
+        )
+        elapsed = time.monotonic() - started
+
+        assert elapsed < wall_clock_bound_s
+        # Lower bound: the process must have actually reached the 2s suite deadline
+        # (abandon-then-exit), not fast-failed before running the hung check.
+        assert elapsed >= 1.5, f"exited too fast ({elapsed:.2f}s); deadline path may not have fired"
+        # The abandoned category yields a deadline error row → exit 2.
+        assert proc.returncode == 2, (
+            f"rc={proc.returncode}\nstdout={proc.stdout!r}\nstderr={proc.stderr!r}"
+        )
+        # Positively pin that the os._exit deadline path fired: the synthesized
+        # budget-exceeded row for the hung category is rendered on stdout.
+        assert "exceeded its" in proc.stdout and "budget" in proc.stdout, (
+            f"missing deadline row\nstdout={proc.stdout!r}"
+        )

@@ -9,7 +9,7 @@ way ``CLAUDE.md`` does. Several of them carry facility-specific operating
 context.
 
 
-What the ``control_assistant`` preset ships
+What the ``control-assistant`` preset ships
 ===========================================
 
 .. list-table::
@@ -36,10 +36,16 @@ What the ``control_assistant`` preset ships
    * - ``error-handling.md``
      - Error taxonomy and response protocol for tool failures.
      - Customizable
-   * - ``artifacts.md``, ``python-execution.md``, ``data-visualization.md``, ``workflows.md``
-     - Generic operating rules — artifact reuse, code execution, plotting, and
+   * - ``artifacts.md``, ``python-execution.md``, ``workflows.md``
+     - Generic operating rules — artifact reuse, code execution, and
        task planning/delegation.
      - No
+
+Some rules render conditionally: ``data-visualization.md`` is generated only
+when the ``data-visualizer`` agent is *not* enabled (the agent carries its own
+plotting guidance, and the ``control-assistant`` preset enables it — so a
+default project has no such rule file), and ``timezone.md`` only appears when
+``system.timezone`` is set.
 
 A build profile can add rules of its own. Any rule without ``paths`` frontmatter
 loads unconditionally at session start.

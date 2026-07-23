@@ -177,6 +177,38 @@ def _launch_okf_server(app: FastAPI) -> None:
         app.state.okf_server_url = None
 
 
+def _launch_system_health_server(app: FastAPI) -> None:
+    """Auto-launch the System Health dashboard server if enabled.
+
+    The (host, port) computed here MUST match what ``ServerLauncher`` resolves
+    for the ``system_health`` definition (``registry/web.py``): host/port read
+    from the nested ``health.web`` subkey, with the ``OSPREY_HEALTH_PORT`` env
+    override. ``require_section`` is False, so unlike the okf/channel-finder
+    launchers there is no early return on a missing section — the health
+    framework ships a usable default, so the panel is always launchable.
+    """
+    try:
+        from osprey.infrastructure.server_launcher import ensure_system_health_server
+        from osprey.utils.workspace import load_osprey_config
+
+        config = load_osprey_config()
+        health_web = config.get("health", {}).get("web", {})
+        host = health_web.get("host", "127.0.0.1")
+        # Guard a set-but-empty env override (e.g. compose `OSPREY_HEALTH_PORT=`):
+        # int("") would raise and kill this launch (silent dead tab). This mirrors
+        # server_launcher._make_config_reader's `if env_val:` guard so both sides
+        # resolve the SAME port — the launcher would otherwise bind 8094 while we'd die.
+        env_port = os.environ.get("OSPREY_HEALTH_PORT")
+        port = int(env_port) if env_port else int(health_web.get("port", 8094))
+
+        app.state.system_health_server_url = f"http://{host}:{port}"
+        ensure_system_health_server()
+        logger.info("System Health dashboard available at %s", app.state.system_health_server_url)
+    except Exception:
+        logger.warning("Could not auto-launch System Health dashboard", exc_info=True)
+        app.state.system_health_server_url = None
+
+
 def _load_theme_registry() -> tuple[list[ThemeManifestEntry], dict[str, dict[str, str]]]:
     """Load the baked theme manifest + per-family defaults for SSR resolution.
 
@@ -473,8 +505,8 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
     return presets
 
 
-def _load_web_config(config_path: str | Path | None = None) -> dict:
-    """Load web_terminal config section from config.yml."""
+def _load_config_section(section: str, config_path: str | Path | None = None) -> dict:
+    """Load one top-level section from config.yml."""
     config_paths = [
         Path(config_path) if config_path else None,
         Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
@@ -485,9 +517,19 @@ def _load_web_config(config_path: str | Path | None = None) -> dict:
         if path and path.exists() and path.is_file():
             with open(path) as f:
                 config = yaml.safe_load(f) or {}
-            return config.get("web_terminal", {})
+            return config.get(section, {})
 
     return {}
+
+
+def _load_web_config(config_path: str | Path | None = None) -> dict:
+    """Load web_terminal config section from config.yml."""
+    return _load_config_section("web_terminal", config_path)
+
+
+def _load_web_ui_config(config_path: str | Path | None = None) -> dict:
+    """Load the top-level ``web`` section (UI settings: app_name, theme, presets)."""
+    return _load_config_section("web", config_path)
 
 
 def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
@@ -498,19 +540,7 @@ def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
     no explicit ``shell_command`` was passed — e.g. under ``uvicorn --reload``
     where ``create_app`` is called with no arguments.
     """
-    config_paths = [
-        Path(config_path) if config_path else None,
-        Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
-        Path("config.yml"),
-    ]
-
-    for path in config_paths:
-        if path and path.exists() and path.is_file():
-            with open(path) as f:
-                config = yaml.safe_load(f) or {}
-            return config.get("claude_code", {})
-
-    return {}
+    return _load_config_section("claude_code", config_path)
 
 
 def _create_lifespan(
@@ -585,7 +615,7 @@ def _create_lifespan(
         # Empty/absent ⇒ no label is rendered.
         app.state.app_name = (
             os.environ.get("OSPREY_WEB_APP_NAME", "").strip()
-            or str((config.get("web") or {}).get("app_name") or "").strip()
+            or str(_load_web_ui_config(config_path).get("app_name") or "").strip()
         )
         # Per-user deployment identity for multi-user compose stacks. No
         # config key exists for either of these today, so the config-side
@@ -781,6 +811,8 @@ def _create_lifespan(
             _launch_lattice_dashboard_server(app)
         if "okf" in enabled_panels:
             _launch_okf_server(app)
+        if "system-health" in enabled_panels:
+            _launch_system_health_server(app)
 
         # Hook env placeholder — hooks read config.yml directly for
         # hot-reloadable settings (no env var propagation needed).

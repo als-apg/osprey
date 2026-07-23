@@ -7,8 +7,10 @@ structured results for use by the dispatch API endpoint.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
+import re
 import time
 import uuid
 from collections.abc import Iterable
@@ -18,6 +20,32 @@ from typing import Any
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
+
+# Any base64-ish run this long is not something this module ever intends to
+# log — the sole source of such a run here is an inlined image input's bytes
+# (content_b64). Redact it defensively so no current or future log statement in
+# this module can leak inlined image bytes to a sink. Session/run UUIDs carry
+# hyphens (max alnum run ~12 chars), so they are never touched. Hygiene
+# invariant — unit-asserted alongside "never in the prompt string / run record".
+_B64_RUN_RE = re.compile(r"[A-Za-z0-9+/]{64,}={0,2}")
+
+
+class _Base64RedactingFilter(logging.Filter):
+    """Redact long base64-ish runs from this logger's records (defense-in-depth)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        redacted = _B64_RUN_RE.sub("[redacted-b64]", message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = ()
+        return True
+
+
+logger.addFilter(_Base64RedactingFilter())
 
 # SDK imports -- guard so module loads even when SDK is not installed
 # (SDK is only available inside the worker container).
@@ -97,6 +125,120 @@ def _cap_text(text: str) -> str:
         dropped = len(text) - _MAX_TEXT_OUTPUT
         return text[:_MAX_TEXT_OUTPUT] + f"\n…[truncated {dropped} chars]"
     return text
+
+
+# ---------------------------------------------------------------------------
+# Input-file prompt assembly
+# ---------------------------------------------------------------------------
+
+# Header introducing the per-input-file descriptor block appended to the prompt.
+# Generic and mechanism-only: it names no channel and states no policy, so it
+# never contradicts a channel-specific system-prompt fragment.
+_INPUT_FILES_HEADER = "Files provided with this request:"
+
+
+def _take_seam(run_id: str | None) -> list[dict[str, Any]]:
+    """Pop this run's input-file seam exactly once (``[]`` when there is none).
+
+    Deferred, function-local import of ``take_input_seam``: a top-level import
+    would be circular (``dispatch_api`` imports ``sdk_runner``). Pop-once — the
+    dispatch task populated the seam before invoking the run, and the task's
+    ``finally`` drops anything left behind. A run with no ``run_id`` (unit tests,
+    ad-hoc calls) has no seam.
+    """
+    if not run_id:
+        return []
+    from osprey.mcp_server.dispatch_worker.dispatch_api import take_input_seam
+
+    return take_input_seam(run_id)
+
+
+def _load_entry_b64(entry_id: str) -> str | None:
+    """Return an ingested artifact's bytes as raw base64, or ``None`` if absent.
+
+    Used to re-inline an ``ingest=True`` image input (its bytes already live in
+    the ArtifactStore, so the seam item carries no ``content_b64``) as an image
+    content block. The store copy is retained — the same entry stays readable
+    later via ``data_read`` — so this only reads, never removes.
+    """
+    try:
+        from osprey.interfaces.artifacts.resolve import get_run_store
+
+        path = get_run_store().get_file_path(entry_id)
+        if path is None or not path.exists():
+            return None
+        return base64.b64encode(path.read_bytes()).decode("ascii")
+    except Exception:
+        logger.warning("Could not load input artifact %s for inlining", entry_id, exc_info=True)
+        return None
+
+
+def _descriptor_line(item: dict[str, Any], *, inlined: bool) -> str:
+    """One mechanism-only descriptor line for an input file.
+
+    An inlined image is marked ``image shown inline [shown_inline]`` — the
+    literal ``shown_inline`` token is a consumed marker (a downstream channel
+    prompt keys on it). A store-resident file is referenced by the mechanism a
+    reader uses to open it: ``data_read("<entry_id>")``. No mention of
+    base64/ingest/caps — mechanism only.
+    """
+    filename = item.get("filename")
+    mime = item.get("mime")
+    if inlined:
+        return f"- {filename} ({mime}) — image shown inline [shown_inline]"
+    entry_id = item.get("entry_id")
+    if entry_id:
+        return f'- {filename} ({mime}) — read with data_read("{entry_id}")'
+    # Degenerate: a non-image seam item with neither an entry_id nor a way to
+    # inline it. The seam contract makes text-mime inputs store-resident, so this
+    # is not expected; emit a bare descriptor rather than a false access hint.
+    return f"- {filename} ({mime})"
+
+
+def _assemble_user_content(
+    prompt: str, seam_items: list[dict[str, Any]]
+) -> str | list[dict[str, Any]]:
+    """Build the user-message ``content`` from the prompt and the input seam.
+
+    Routing by mime: ``image/*`` items become base64 image content blocks in the
+    same user message (from the seam's ``content_b64`` when present, else the
+    stored bytes via ``entry_id``); every other item is referenced by descriptor
+    only. Every input file — inlined or not — contributes one descriptor line to
+    a block appended to the prompt text.
+
+    Returns the raw ``prompt`` string when there are no input files (unchanged
+    legacy shape), a ``[*image_blocks, {text}]`` list when at least one image is
+    inlined, and a ``prompt + descriptor`` string when there are inputs but none
+    inline. ``content_b64`` rides only an image block's ``source.data`` — never
+    the returned text — so it cannot reach the prompt string or the run record.
+    """
+    if not seam_items:
+        return prompt
+
+    image_blocks: list[dict[str, Any]] = []
+    descriptor_lines: list[str] = []
+    for item in seam_items:
+        mime = item.get("mime") or ""
+        inlined = False
+        if mime.startswith("image/"):
+            data_b64 = item.get("content_b64")
+            if data_b64 is None and item.get("entry_id"):
+                data_b64 = _load_entry_b64(item["entry_id"])
+            if data_b64:
+                image_blocks.append(
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": mime, "data": data_b64},
+                    }
+                )
+                inlined = True
+        descriptor_lines.append(_descriptor_line(item, inlined=inlined))
+
+    text = f"{prompt}\n\n{_INPUT_FILES_HEADER}\n" + "\n".join(descriptor_lines)
+    if not image_blocks:
+        return text
+    # Image-then-text order verified by the SDK spike; block ordering is free.
+    return [*image_blocks, {"type": "text", "text": text}]
 
 
 async def run_dispatch(
@@ -318,9 +460,16 @@ async def run_dispatch(
         if event_queue is not None:
             await event_queue.put(event)
 
+    # Assemble the user-message content once, before streaming: pop this run's
+    # input-file seam (pop-once) and route each item by type — image inputs
+    # become base64 image content blocks in this same user message, every input
+    # file adds a mechanism-only descriptor line to the prompt. content_b64
+    # rides only an image block's source.data, never the prompt text or a log.
+    user_content = _assemble_user_content(prompt, _take_seam(run_id))
+
     # can_use_tool requires streaming-mode input (AsyncIterable), not str.
     async def _prompt_stream():
-        yield {"type": "user", "message": {"role": "user", "content": prompt}}
+        yield {"type": "user", "message": {"role": "user", "content": user_content}}
 
     t0 = time.monotonic()
     agen = query(prompt=_prompt_stream(), options=options)

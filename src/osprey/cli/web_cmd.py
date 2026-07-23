@@ -156,6 +156,7 @@ _PANEL_ID_FOR_REGISTRY_KEY: dict[str, str] = {
     "channel_finder": "channel-finder",
     "lattice_dashboard": "lattice",
     "okf": "okf",
+    "system_health": "system-health",
 }
 
 

@@ -120,6 +120,28 @@ def detect_environment_variables() -> dict[str, str]:
     return detected
 
 
+def _render_env_preserving_existing(jinja_env, project_dir: Path, ctx: dict) -> None:
+    """Render ``project/env.j2`` to ``.env``, merging with an existing file.
+
+    On a fresh build this is a plain render. On a --force re-render an
+    existing ``.env`` is authoritative: its values win over freshly detected
+    environment values and keys it alone carries are appended — the project's
+    service tokens and volume-pinned passwords must survive a re-render (see
+    :func:`osprey.utils.dotenv.merge_env_preserving_existing`).
+    """
+    env_path = project_dir / ".env"
+    rendered = jinja_env.get_template("project/env.j2").render(**ctx)
+    if env_path.exists():
+        from osprey.utils.dotenv import merge_env_preserving_existing
+
+        content = merge_env_preserving_existing(rendered, env_path.read_text(encoding="utf-8"))
+    else:
+        content = rendered if rendered.endswith("\n") else rendered + "\n"
+    env_path.write_text(content, encoding="utf-8")
+    # Owner read/write only: the file carries secrets.
+    os.chmod(env_path, 0o600)
+
+
 def create_project_structure(
     template_root: Path,
     jinja_env,
@@ -193,9 +215,7 @@ def create_project_structure(
     if has_api_keys:
         env_template = project_template_dir / "env.j2"
         if env_template.exists():
-            render_template(jinja_env, "project/env.j2", ctx, project_dir / ".env")
-            # Set proper permissions (owner read/write only)
-            os.chmod(project_dir / ".env", 0o600)
+            _render_env_preserving_existing(jinja_env, project_dir, ctx)
 
     # Copy static files
     for src_name, dst_name in static_files:
@@ -363,9 +383,9 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
 
     The preset ships:
     - channel databases under
-      ``data/channel_databases/tiers/tier{1,2,3}/<paradigm>.json``
+      ``data/channel_databases/tiers/tier{1,3}/<paradigm>.json``
     - benchmark query files under
-      ``data/benchmarks/cross_paradigm/queries/tier{1,2,3}_queries.json``
+      ``data/benchmarks/cross_paradigm/queries/tier{1,3}_queries.json``
 
     After ``osprey build``, this helper picks the requested ``tier`` and:
     - copies the active paradigm's DB to the flat
@@ -381,7 +401,10 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
 
     Args:
         project_dir: Root directory of the rendered project.
-        tier: Tier number (1, 2, or 3) selecting the source subdirectories.
+        tier: Tier number (1 or 3) selecting the source subdirectories. Tier 1
+            ships only the ``in_context`` paradigm; the build-profile validator
+            rejects tier 1 paired with a non-in_context channel_finder_mode
+            before this step, so a missing tier1/<paradigm>.json here is a bug.
         channel_finder_mode: Paradigm selector from the build profile. Must
             be one of ``"in_context"``, ``"hierarchical"``, ``"middle_layer"``.
 
@@ -436,13 +459,6 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
             f"Tier-routed benchmark queries file not found: {queries_src} (tier={tier})"
         )
     pairs.append((queries_src, queries_dst))
-
-    # The preset ships the canonical hierarchical.json at flat_root as the
-    # generator's source-of-truth. End users only need the tier-filtered
-    # active paradigm file — drop the canonical before materialization.
-    canonical_source = flat_root / "hierarchical.json"
-    if canonical_source.exists():
-        canonical_source.unlink()
 
     for src, dst in pairs:
         shutil.copy2(src, dst)

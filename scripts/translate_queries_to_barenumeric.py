@@ -1,6 +1,6 @@
 """Translate family-prefixed device segments in unified benchmark queries to bare-numeric.
 
-One-shot importer for cross_paradigm/queries/tier{1,2,3}_queries.json — applies the
+One-shot importer for cross_paradigm/queries/tier{1,3}_queries.json — applies the
 schema-cleanup convention from commit 30a4af8e (device segment digits-only) to the
 paper-repo-style queries that still carry family prefixes.
 
@@ -13,9 +13,14 @@ Translation rules for DEVICE:
      This covers BPM01, B24, H18, V05, QF03, QD08, SF03, SD12, GAMM01, NEUT01,
      C1, C2, K1, K2, etc.
   3. If neither matches and the segment is already bare-numeric (^\\d+$), leave
-     it. This makes the script idempotent.
+     it.
 
-Idempotent: running on already-translated input is a no-op.
+WARNING: destructive one-shot importer -- NOT safe to re-run. Rule 2 rewrites
+any letters+digits device segment to bare numbers on every pass, so
+sector-named device tokens (e.g. the canonical GAUGE ``SR03`` addresses) get
+mangled to ``03`` and no longer match the databases. Run this ONCE against
+paper-repo-style queries that still carry family prefixes; never against
+query files that are already in canonical form.
 """
 
 from __future__ import annotations
@@ -82,7 +87,7 @@ def translate_file(path: Path) -> tuple[int, int]:
 
 
 def main() -> int:
-    for tier in (1, 2, 3):
+    for tier in (1, 3):
         path = QUERIES_DIR / f"tier{tier}_queries.json"
         changed, total = translate_file(path)
         print(f"tier{tier}: translated {changed}/{total} PVs in {path.name}")

@@ -136,33 +136,43 @@ class ConfigBuilder:
                 return default
         return value
 
-    def __init__(self, config_path: str | None = None):
+    def __init__(self, config_path: str | None = None, *, load_env: bool = True):
         """
         Initialize configuration builder.
 
         Args:
             config_path: Path to the config.yml file. If None, looks in current directory.
+            load_env: When True (the default), load ``.env`` from the current
+                working directory into ``os.environ``. This ``.env`` → environ
+                passthrough is load-bearing: it feeds the ``${VAR}`` references
+                Claude Code expands in ``.mcp.json`` at MCP server launch time.
+                Pass False only when the caller has already populated the
+                environment (or must not mutate it) and wants a config load with
+                no side effects on ``os.environ``.
 
         Raises:
             FileNotFoundError: If config.yml is not found and no path is provided.
         """
-        try:
-            from dotenv import load_dotenv
+        if load_env:
+            try:
+                from dotenv import load_dotenv
 
-            dotenv_path = Path.cwd() / ".env"
-            if dotenv_path.exists():
-                load_dotenv(dotenv_path, override=True)  # .env file is source of truth for API keys
-                logger.debug(f"Loaded .env file from {dotenv_path}")
-            else:
-                logger.debug(f"No .env file found at {dotenv_path}")
-        except ImportError:
-            logger.warning("python-dotenv not available, skipping .env file loading")
-        except OSError as e:
-            # e.g. a 0600 .env owned by another uid mounted into a non-root
-            # container (dispatch worker on a uid-mismatched host). Provider
-            # env should already be in os.environ by the time config is built,
-            # so degrade gracefully instead of crash-looping the process.
-            logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
+                dotenv_path = Path.cwd() / ".env"
+                if dotenv_path.exists():
+                    load_dotenv(
+                        dotenv_path, override=True
+                    )  # .env file is source of truth for API keys
+                    logger.debug(f"Loaded .env file from {dotenv_path}")
+                else:
+                    logger.debug(f"No .env file found at {dotenv_path}")
+            except ImportError:
+                logger.warning("python-dotenv not available, skipping .env file loading")
+            except OSError as e:
+                # e.g. a 0600 .env owned by another uid mounted into a non-root
+                # container (dispatch worker on a uid-mismatched host). Provider
+                # env should already be in os.environ by the time config is built,
+                # so degrade gracefully instead of crash-looping the process.
+                logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
 
         if config_path is None:
             cwd_config = Path.cwd() / "config.yml"

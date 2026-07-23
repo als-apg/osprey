@@ -61,16 +61,23 @@ takes ``file_path`` and optional ``script_args`` in place of ``code``).
      - ``True``
      - Save code and output to a workspace data file and artifact store.
 
-The tool returns a JSON object containing:
+On success the tool returns a JSON object whose top level describes the saved
+run:
 
-- **output** / **error** --- stdout and stderr truncated to 500 characters.
-  Full output is available in the saved data file.
-- **artifact_ids** --- IDs for any figures or saved objects.
-- **notebook_artifact_id** --- ID of an auto-generated notebook capturing the
-  run.
-- **gallery_url** --- link to the artifact gallery (when available).
-- **has_errors**, **status** (``"Success"`` / ``"Failed"``), and
+- **status** (``"success"``), **artifact_id**, **title**, and **data_file**
+  for the saved artifact.
+- **summary** --- a nested object with the run details: the truncated
+  **output** / **error** (500 characters; full output is in the saved data
+  file), a ``"Success"`` / ``"Failed"`` **status**, **has_errors**, and
   **detected_patterns** for control-system operation metadata.
+- **artifact_ids** --- IDs for any figures or saved objects, and
+  **notebook_artifact_id** for the auto-generated notebook capturing the run.
+- **gallery_url** --- link to the artifact gallery (when available).
+
+A failing run does not return this object as a normal result: the tool raises
+a structured error (``error_type: "execution_error"``) whose ``details`` field
+carries the same information, so the agent receives an explicit error rather
+than a status field it might overlook.
 
 Execution Modes
 ===============

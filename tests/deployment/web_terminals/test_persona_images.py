@@ -567,3 +567,115 @@ def test_auto_render_renders_each_distinct_persona_once(monkeypatch, tmp_path):
     assert len(calls) == 2
     assert any("ops-app" in c and "control-assistant" in c for c in calls)
     assert any("sci-app" in c and "physicist" in c for c in calls)
+
+
+# ---------------------------------------------------------------------------
+# auto_render_missing_personas -- forwarding the parent project's explicit
+# --set model-selection overrides (recorded in its .osprey-manifest.json) into
+# each persona render, so one `--set provider=` at parent build time retints
+# the whole multi-user stack.
+# ---------------------------------------------------------------------------
+
+
+def _write_parent_manifest(project_root: Path, build_args: dict) -> None:
+    import json
+
+    (project_root / ".osprey-manifest.json").write_text(
+        json.dumps({"schema_version": "1.0", "build_args": build_args}), encoding="utf-8"
+    )
+
+
+def test_auto_render_forwards_explicit_overrides_from_parent_manifest(monkeypatch, tmp_path):
+    """Parent manifest marks provider+model as explicit --set overrides ->
+    the persona render argv carries the same --set pairs; the non-explicit
+    channel_finder_mode (a preset default) is NOT forwarded, so a persona
+    preset keeps its own say over anything the user didn't override."""
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    _write_parent_manifest(
+        parent,
+        {
+            "provider": "als-apg",
+            "model": "anthropic/claude-opus",
+            "channel_finder_mode": "hierarchical",
+            "explicit_overrides": ["provider", "model"],
+        },
+    )
+    config = _auto_render_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    persona_images.auto_render_missing_personas(config, _AUTO_RENDER_USERS, {}, project_root=parent)
+
+    assert len(calls) == 1
+    cmd = calls[0]
+    assert cmd[-4:] == ["--set", "provider=als-apg", "--set", "model=anthropic/claude-opus"]
+    assert "channel_finder_mode=hierarchical" not in " ".join(cmd)
+
+
+def test_auto_render_without_project_root_forwards_nothing(monkeypatch, tmp_path):
+    """No project_root (legacy caller) -> argv identical to the pre-forwarding
+    form, no --set anywhere."""
+    config = _auto_render_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    persona_images.auto_render_missing_personas(config, _AUTO_RENDER_USERS, {})
+
+    assert len(calls) == 1
+    assert "--set" not in calls[0]
+
+
+def test_auto_render_legacy_manifest_without_explicit_marker_forwards_nothing(
+    monkeypatch, tmp_path
+):
+    """A manifest from before explicit_overrides existed records resolved
+    values only -> nothing is forwarded (resolved preset defaults must never
+    clobber a persona preset's own configuration)."""
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    _write_parent_manifest(parent, {"provider": "anthropic", "model": "claude-haiku-4-5"})
+    config = _auto_render_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    persona_images.auto_render_missing_personas(config, _AUTO_RENDER_USERS, {}, project_root=parent)
+
+    assert len(calls) == 1
+    assert "--set" not in calls[0]
+
+
+def test_auto_render_malformed_or_absent_manifest_is_ignored(monkeypatch, tmp_path):
+    """An unreadable/absent parent manifest degrades to no forwarding -- the
+    render itself must never fail over provenance metadata."""
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    (parent / ".osprey-manifest.json").write_text("{not json", encoding="utf-8")
+    config = _auto_render_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    persona_images.auto_render_missing_personas(config, _AUTO_RENDER_USERS, {}, project_root=parent)
+
+    assert len(calls) == 1
+    assert "--set" not in calls[0]
+
+
+def test_auto_render_forwards_only_keys_with_recorded_values(monkeypatch, tmp_path):
+    """A key listed in explicit_overrides but missing its recorded value (a
+    hand-edited or truncated manifest) is skipped, never rendered as
+    `--set key=None`."""
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    _write_parent_manifest(
+        parent, {"provider": "als-apg", "explicit_overrides": ["provider", "model"]}
+    )
+    config = _auto_render_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    persona_images.auto_render_missing_personas(config, _AUTO_RENDER_USERS, {}, project_root=parent)
+
+    cmd = calls[0]
+    assert cmd[-2:] == ["--set", "provider=als-apg"]
+    assert "model" not in " ".join(cmd)

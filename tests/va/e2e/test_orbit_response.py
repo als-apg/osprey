@@ -6,13 +6,19 @@ this suite touches device 01's correctors, so its lattice state is exclusively
 owned here for the life of the session container.
 
 The physics bridge (osprey.services.virtual_accelerator.ioc.physics_bridge) applies
-a purely linear kick-angle map and AT's find_orbit4 closed-orbit solve, with
-sextupole strength at zero (h=0, no chromaticity wired) -- so the response is
-exactly linear and antisymmetric about zero current, not merely "moves in the
-same direction as the raw local kick" (that naive assumption is wrong for a
-periodic ring; see findings #8). This asserts the antisymmetric-linear shape
-directly: +I and -I give opposite shifts, 2x I doubles the shift, and the
-shift is nonzero at the paired BPM -- never same-sign or magnitude alone.
+a linear kick-angle map and AT's find_orbit4 closed-orbit solve on the real
+ALS-U AR ring; sextupoles sit at their baked strengths, so the response is
+linear to feed-down accuracy (relative deviation well inside LINEAR_REL_TOL
+at these amplitudes) and antisymmetric about zero current, not merely "moves
+in the same direction as the raw local kick" (that naive assumption is wrong
+for a periodic ring; see findings #8). This asserts the antisymmetric-linear
+shape directly: +I and -I give opposite shifts, 2x I doubles the shift, and
+the shift is nonzero at the paired BPM -- never same-sign or magnitude alone.
+
+Sweep currents stay inside the committed +/-12 A corrector band: the records
+layer enforces channel_limits.json bands as DRVL/DRVH, so an out-of-band
+write (e.g. 20 A) is silently clamped at the record and would corrupt the
+linearity measurement rather than fail loudly.
 """
 
 from __future__ import annotations
@@ -51,9 +57,13 @@ async def _read_bpm(connector, address: str, *, retries: int = 10, delay: float 
 
 
 async def _measure_one_cycle(connector) -> dict[str, float]:
-    """Write 0, +10, -10, +20 A in turn and return each state's BPM01 (x, y)."""
+    """Write 0, +5, -5, +10 A in turn and return each state's BPM01 (x, y).
+
+    All amplitudes are inside the committed +/-12 A band -- see the module
+    docstring for why exceeding it silently clamps instead of failing.
+    """
     readings: dict[str, tuple[float, float]] = {}
-    for label, current in (("zero", 0.0), ("plus10", 10.0), ("minus10", -10.0), ("plus20", 20.0)):
+    for label, current in (("zero", 0.0), ("plus5", 5.0), ("minus5", -5.0), ("plus10", 10.0)):
         await _write_current(connector, current)
         x = await _read_bpm(connector, BPM_X, retries=3, delay=0.05)
         y = await _read_bpm(connector, BPM_Y, retries=1, delay=0.0)
@@ -82,30 +92,30 @@ class TestOrbitResponse:
 
         for i, readings in enumerate(cycles):
             x0, y0 = readings["zero"]
-            x_p10, y_p10 = readings["plus10"]
-            x_m10, _ = readings["minus10"]
-            x_p20, _ = readings["plus20"]
+            x_p5, y_p5 = readings["plus5"]
+            x_m5, _ = readings["minus5"]
+            x_p10, _ = readings["plus10"]
 
+            delta_p5 = x_p5 - x0
+            delta_m5 = x_m5 - x0
             delta_p10 = x_p10 - x0
-            delta_m10 = x_m10 - x0
-            delta_p20 = x_p20 - x0
 
-            assert abs(delta_p10) > NONZERO_FLOOR_M, (
-                f"cycle {i}: +10A produced a negligible BPM01 x shift ({delta_p10} m) -- "
+            assert abs(delta_p5) > NONZERO_FLOOR_M, (
+                f"cycle {i}: +5A produced a negligible BPM01 x shift ({delta_p5} m) -- "
                 "corrector write is not reaching the physics bridge"
             )
             # Antisymmetric: +I and -I give opposite shifts, not naive same-sign.
-            assert delta_p10 == pytest.approx(-delta_m10, rel=LINEAR_REL_TOL), (
-                f"cycle {i}: +10A shift ({delta_p10}) is not antisymmetric with "
-                f"-10A shift ({delta_m10})"
+            assert delta_p5 == pytest.approx(-delta_m5, rel=LINEAR_REL_TOL), (
+                f"cycle {i}: +5A shift ({delta_p5}) is not antisymmetric with "
+                f"-5A shift ({delta_m5})"
             )
             # Linear: 2x the current doubles the shift.
-            assert delta_p20 == pytest.approx(2 * delta_p10, rel=LINEAR_REL_TOL), (
-                f"cycle {i}: +20A shift ({delta_p20}) is not double the +10A shift ({delta_p10})"
+            assert delta_p10 == pytest.approx(2 * delta_p5, rel=LINEAR_REL_TOL), (
+                f"cycle {i}: +10A shift ({delta_p10}) is not double the +5A shift ({delta_p5})"
             )
             # Plane decoupling: HCM steers x only -- y stays put at BPM01.
-            assert y_p10 == pytest.approx(y0, abs=1e-6), (
-                f"cycle {i}: HCM write moved BPM01 y ({y0} -> {y_p10}); "
+            assert y_p5 == pytest.approx(y0, abs=1e-6), (
+                f"cycle {i}: HCM write moved BPM01 y ({y0} -> {y_p5}); "
                 "expected x/y plane decoupling to hold"
             )
 

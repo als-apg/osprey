@@ -358,6 +358,28 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__bluesky__.*")],
     ),
+    "health": ServerDefinition(
+        name="health",
+        module="osprey.mcp_server.health",
+        # Off by default: only profiles that opt in (claude_code.servers.health.enabled
+        # = true) get the system-health tools (mirrors phoebus's opt-in reasoning).
+        #
+        # Read-only posture — no _WRITES_CHECK / approval hooks. The health tools take
+        # ONLY a categories filter; they accept no channel, URL, or probe parameters, so
+        # every connector touch is config-declared and read-only. That is why the
+        # auto-approved health_check may execute channel_read probes that would be
+        # approval-gated as free-parameter reads on the controls server: here the operator
+        # cannot steer the read at call time, so there is nothing to gate.
+        default_enabled=False,
+        env={
+            "OSPREY_CONFIG": "{project_root}/config.yml",
+            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            "CONFIG_FILE": "{project_root}/config.yml",
+        },
+        permissions_allow=["health_check"],
+        permissions_ask=["health_check_full"],
+        hooks_post=[_post_error("mcp__health__.*")],
+    ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
@@ -415,6 +437,12 @@ class AgentDefinition:
     default_enabled: bool = True
     description: str = ""
     is_custom: bool = False
+    # Approval-gated (permissions.ask) tools this agent hard-requires. These
+    # must survive the writes-disabled kill-switch that otherwise pulls
+    # read/write tools like mcp__python__execute out of ask (see
+    # cli/templates/claude_code.py) -- an enabled agent declaring a tool that
+    # is neither in allow nor ask fails build validation.
+    requires_ask_tools: frozenset[str] = frozenset()
 
 
 FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
@@ -447,6 +475,19 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "this agent when the user asks about facility layout, terminology, beam "
             "parameters, or any documented facility knowledge."
         ),
+    ),
+    "pyat-specialist": AgentDefinition(
+        name="pyat-specialist",
+        server_dependency="python",
+        description=(
+            "Delegate to this agent when the user needs lattice/optics quantities "
+            "computed from the accelerator model (orbit, tunes, beta functions, "
+            "dispersion, response matrices) — it writes and executes pyAT code "
+            "against the simulated ALS-U AR ring."
+        ),
+        # Its only compute path is mcp__python__execute (read-only kernels), so
+        # it must keep that tool even in a writes-disabled (read-only) persona.
+        requires_ask_tools=frozenset({"mcp__python__execute"}),
     ),
 }
 
@@ -885,6 +926,7 @@ def _agent_to_dict(adef: AgentDefinition) -> dict:
         "enabled": adef.default_enabled,
         "description": adef.description,
         "is_custom": adef.is_custom,
+        "requires_ask_tools": sorted(adef.requires_ask_tools),
     }
 
 

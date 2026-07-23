@@ -72,13 +72,22 @@ def _build_channel_entry(validator, channel_address: str) -> dict:
     return entry
 
 
-def _match_channels(validator, pattern: str | None, filter_by: str | None) -> dict:
+def _match_channels(
+    validator,
+    pattern: str | None,
+    name_contains: str | None,
+    filter_by: str | None,
+) -> dict:
     """Match channels by regex pattern and/or property filter. Returns compact entries."""
     addresses = list(validator.limits.keys())
 
     # Apply regex filter
     if pattern:
         addresses = [a for a in addresses if re.search(pattern, a)]
+
+    # Apply literal substring filter
+    if name_contains:
+        addresses = [a for a in addresses if name_contains in a]
 
     # Apply property filter
     if filter_by:
@@ -123,6 +132,7 @@ def _match_channels(validator, pattern: str | None, filter_by: str | None) -> di
 async def channel_limits(
     channels: list[str] | None = None,
     pattern: str | None = None,
+    name_contains: str | None = None,
     filter_by: str | None = None,
 ) -> str:
     """Query the channel safety limits database.
@@ -135,12 +145,15 @@ async def channel_limits(
       - No params: summary statistics and policy overview
       - channels: detailed config for specific channel addresses
       - pattern: regex search across all channel addresses
-      - pattern + filter_by: regex search filtered by property
+      - name_contains: literal substring search across all channel addresses
+      - pattern/name_contains + filter_by: search filtered by property
       - filter_by alone: all channels matching a property
 
     Args:
         channels: Exact channel addresses to look up.
         pattern: Regex to match against channel addresses.
+        name_contains: Literal substring to match against channel addresses. Use this for
+                       names containing regex metacharacters such as [], (), ., or ^.
         filter_by: Property filter — one of: writable, read_only,
                    has_step_limit, has_range, readback_verified.
 
@@ -148,11 +161,21 @@ async def channel_limits(
         JSON with channel limits configuration or database summary.
     """
     # Validate parameter combinations
-    if channels is not None and pattern is not None:
+    if channels is not None and (pattern is not None or name_contains is not None):
         return make_error(
             "validation_error",
-            "Cannot combine 'channels' (exact lookup) with 'pattern' (regex search).",
-            ["Use 'channels' for exact addresses or 'pattern' for regex matching, not both."],
+            "Cannot combine 'channels' (exact lookup) with search parameters.",
+            [
+                "Use 'channels' for exact addresses, 'pattern' for regex matching, "
+                "or 'name_contains' for literal substring matching."
+            ],
+        )
+
+    if pattern is not None and name_contains is not None:
+        return make_error(
+            "validation_error",
+            "Cannot combine 'pattern' (regex search) with 'name_contains' (literal search).",
+            ["Use either 'pattern' or 'name_contains', not both."],
         )
 
     if filter_by is not None and filter_by not in VALID_FILTERS:
@@ -196,7 +219,7 @@ async def channel_limits(
         )
 
     # Dispatch to the appropriate mode
-    if channels is None and pattern is None and filter_by is None:
+    if channels is None and pattern is None and name_contains is None and filter_by is None:
         # Summary mode
         return json.dumps(_build_summary(validator), default=str)
 
@@ -230,11 +253,13 @@ async def channel_limits(
             default=str,
         )
 
-    # Search / Filter mode (pattern and/or filter_by)
-    matched = _match_channels(validator, pattern, filter_by)
+    # Search / Filter mode (pattern/name_contains and/or filter_by)
+    matched = _match_channels(validator, pattern, name_contains, filter_by)
     desc_parts = []
     if pattern:
         desc_parts.append(f"pattern={pattern!r}")
+    if name_contains:
+        desc_parts.append(f"name_contains={name_contains!r}")
     if filter_by:
         desc_parts.append(f"filter={filter_by}")
 

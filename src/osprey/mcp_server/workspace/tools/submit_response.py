@@ -21,6 +21,7 @@ _AGENT_CATEGORY_MAP: dict[str, str] = {
     "channel-finder": "channel_finder",
     "logbook-search": "logbook_research",
     "logbook-deep-research": "logbook_research",
+    "pyat-specialist": "lattice_analysis",
 }
 
 

@@ -66,12 +66,16 @@ def rendered_project(tmp_path: Path) -> Path:
 
 
 class TestSingleParadigmModes:
-    """Single-paradigm modes materialize only that paradigm."""
+    """Single-paradigm modes materialize only that paradigm.
 
-    @pytest.mark.parametrize("paradigm", _PARADIGMS)
-    def test_single_mode_only_materializes_that_paradigm(
-        self, rendered_project: Path, paradigm: str
-    ):
+    Tier 1 ships the ``in_context`` paradigm only (the build-profile validator
+    rejects tier 1 paired with any other mode), so the single-mode materialize
+    path for tier 1 is exercised with ``in_context``. Full per-paradigm
+    coverage lives in :class:`TestTier3Selection`.
+    """
+
+    def test_single_mode_only_materializes_that_paradigm(self, rendered_project: Path):
+        paradigm = "in_context"
         materialize_tier_artifacts(rendered_project, tier=1, channel_finder_mode=paradigm)
 
         cdb = rendered_project / "data" / "channel_databases"
@@ -142,11 +146,11 @@ class TestMissingSourceDb:
 
     def test_missing_source_for_single_mode_raises(self, tmp_path: Path):
         project_dir = tmp_path / "proj"
-        # tier2 dir exists but is empty — single-paradigm request should fail.
-        (project_dir / "data" / "channel_databases" / "tiers" / "tier2").mkdir(parents=True)
+        # tier dir exists but is empty — single-paradigm request should fail.
+        (project_dir / "data" / "channel_databases" / "tiers" / "tier3").mkdir(parents=True)
 
         with pytest.raises(FileNotFoundError, match="hierarchical"):
-            materialize_tier_artifacts(project_dir, tier=2, channel_finder_mode="hierarchical")
+            materialize_tier_artifacts(project_dir, tier=3, channel_finder_mode="hierarchical")
 
 
 class TestMissingQueriesFile:
@@ -180,7 +184,7 @@ class TestSubtreePruning:
         assert (cdb / "tiers" / "tier1").is_dir()
         assert (cross_paradigm / "queries").is_dir()
 
-        materialize_tier_artifacts(rendered_project, tier=1, channel_finder_mode="hierarchical")
+        materialize_tier_artifacts(rendered_project, tier=1, channel_finder_mode="in_context")
 
         assert not (cdb / "tiers").exists()
         assert not cross_paradigm.exists()

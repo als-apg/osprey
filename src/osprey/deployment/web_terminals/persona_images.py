@@ -7,6 +7,7 @@ persona project on demand via ``osprey build``). Called from
 registry-mode deploys never enter this module.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -200,8 +201,42 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
     return referenced
 
 
+def _parent_set_override_args(project_root: Path) -> list[str]:
+    """``--set KEY=VALUE`` argv fragments re-applying the parent project's
+    explicit model-selection overrides to a persona render.
+
+    Reads the parent's ``.osprey-manifest.json`` ``build_args``: only keys the
+    user explicitly passed via ``--set`` at parent build time (recorded as
+    ``explicit_overrides`` by ``extract_build_args``) are forwarded — resolved
+    preset defaults never are, so a persona preset keeps its own say over
+    anything the user didn't override. Best-effort by design: an absent,
+    unreadable, or legacy manifest yields ``[]`` (the pre-forwarding argv),
+    never an error — a render must not fail over provenance metadata.
+    """
+    manifest_path = project_root / ".osprey-manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    build_args = manifest.get("build_args") if isinstance(manifest, dict) else None
+    if not isinstance(build_args, dict):
+        return []
+    explicit = build_args.get("explicit_overrides")
+    if not isinstance(explicit, list):
+        return []
+    args: list[str] = []
+    for key in explicit:
+        value = build_args.get(key)
+        if isinstance(key, str) and isinstance(value, str | int) and value:
+            args.extend(["--set", f"{key}={value}"])
+    return args
+
+
 def auto_render_missing_personas(
-    config: dict, resolved_users: list[dict], env: dict[str, str]
+    config: dict,
+    resolved_users: list[dict],
+    env: dict[str, str],
+    project_root: Path | None = None,
 ) -> None:
     """Render each referenced persona whose project directory is absent (local mode).
 
@@ -237,10 +272,16 @@ def auto_render_missing_personas(
     :param resolved_users: :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
         output for this deploy.
     :param env: Environment for the ``osprey build`` subprocess(es).
+    :param project_root: The deploy (parent) project root. When given, the
+        parent's explicit ``--set`` model-selection overrides — recorded in
+        its ``.osprey-manifest.json`` — are forwarded to every persona render
+        (see :func:`_parent_set_override_args`), so one parent-build override
+        retints the whole stack. ``None`` forwards nothing.
     :raises ValueError: A referenced persona whose project_path is a partial
         render, or one that must be rendered but whose catalog entry lacks a
         usable ``build_profile``.
     """
+    forwarded_set_args = _parent_set_override_args(project_root) if project_root is not None else []
     for unit in _referenced_personas(config, resolved_users):
         persona_name = unit["persona"]
         project = unit["project"]
@@ -285,8 +326,14 @@ def auto_render_missing_personas(
             "-o",
             str(project_path.parent),
             "--skip-deps",
+            *forwarded_set_args,
         ]
         logger.key_info("Auto-rendering persona %r project at %s", persona_name, project_path)
+        if forwarded_set_args:
+            logger.key_info(
+                "  ↳ forwarding parent build overrides: %s",
+                " ".join(forwarded_set_args),
+            )
         logger.info("Running command:\n    %s", " ".join(cmd))
         subprocess.run(cmd, env=env, check=True)
 

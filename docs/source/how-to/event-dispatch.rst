@@ -55,22 +55,33 @@ rest of the stack. ``osprey deploy up`` auto-generates both bearer tokens into
 
    osprey deploy up        # add --dev to bake in a local osprey checkout
 
-The first build is slow: the shared dispatcher/worker image installs Node and
-the agent CLI the worker runs on.
+The first build is slow: both images install Node and the agent CLI the
+worker runs on.
 
 .. dropdown:: Image build & overrides
    :icon: package
 
-   The dispatcher and worker share one image, built locally from
-   ``services/event_dispatcher/Dockerfile`` on first ``osprey deploy up``. Pass
-   ``--dev`` to install your local osprey checkout (incl. unreleased code) via a
-   wheel; otherwise the image installs ``osprey-framework`` from PyPI. To use a
-   prebuilt/published image instead of building, set the override env vars:
+   The two services use two different images, both built locally on first
+   ``osprey deploy up``:
+
+   - the **dispatcher** gets its own small image
+     (``<project>-dispatch:local``, from
+     ``services/event_dispatcher/Dockerfile``);
+   - the **worker** runs the full *project image* (``<project>:local`` — the
+     same image :doc:`containerize-project` describes, with your overlays and
+     ``data/`` baked in), so the agent it launches sees the real project.
+
+   Pass ``--dev`` to install your local osprey checkout (incl. unreleased
+   code) via a wheel; otherwise the images install ``osprey-framework`` from
+   PyPI. To use prebuilt/published images instead of building, set the
+   override env vars — note they take *different kinds* of image: the worker
+   override must be a project-style image containing ``/app/<project>``, not
+   a dispatch image:
 
    .. code-block:: bash
 
       OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev \
-      OSPREY_WORKER_IMAGE=my-registry/osprey-dispatch:dev \
+      OSPREY_WORKER_IMAGE=my-registry/my-project:dev \
         osprey deploy up
 
    Inside the compose network the worker is reachable as

@@ -308,6 +308,51 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
             "Agent",
         ],
     },
+    "pyat-specialist": {
+        "tools": [
+            "mcp__python__execute",
+            "mcp__osprey_workspace__submit_response",
+            "mcp__osprey_workspace__artifact_save",
+            "mcp__osprey_workspace__data_list",
+            "mcp__osprey_workspace__data_read",
+            "Read",
+        ],
+        "disallowedTools": [
+            "Bash",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
+            "WebFetch",
+            "WebSearch",
+            "NotebookEdit",
+            "Task",
+            "Skill",
+            "Agent",
+        ],
+    },
+    "facility-knowledge": {
+        "tools": [
+            "mcp__osprey_facility_knowledge__list_concepts",
+            "mcp__osprey_facility_knowledge__read_concept",
+            "mcp__osprey_facility_knowledge__search",
+            "mcp__osprey_workspace__submit_response",
+        ],
+        "disallowedTools": [
+            "Bash",
+            "Read",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
+            "WebFetch",
+            "WebSearch",
+            "NotebookEdit",
+            "Task",
+            "Skill",
+            "Agent",
+        ],
+    },
 }
 
 

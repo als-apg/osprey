@@ -18,6 +18,7 @@ cannot disagree. See ``osprey.interfaces.artifacts.resolve``.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hmac
 import json
 import logging
@@ -28,16 +29,29 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from osprey.interfaces.artifacts.resolve import (
     describe_run_artifacts,
+    describe_run_input_artifacts,
+    get_run_store,
     load_run_record,
     resolve_single_run_artifact,
 )
-from osprey.mcp_server.dispatch_worker import counters, failure_class, run_stats, sdk_runner
+from osprey.mcp_server.dispatch_worker import (
+    counters,
+    failure_class,
+    retention,
+    run_stats,
+    sdk_runner,
+)
+from osprey.mcp_server.dispatch_worker.input_files_policy import (
+    InputFilesError,
+    sanitize_filename,
+    validate_input_files,
+)
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -48,6 +62,17 @@ logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
 
 DISPATCH_TIMEOUT_SEC = int(os.environ.get("DISPATCH_TIMEOUT_SEC", "300"))
 _QUEUE_TTL_SEC = 60  # discard unconsumed SSE queues after this many seconds post-completion
+
+# Explicit request-body ceiling. A legit /dispatch body carrying an input-files
+# batch tops out near ~24 MB (base64 + prompt); 32 MB leaves ~25% headroom while
+# bounding the memory a hostile caller can force the worker to buffer. Enforced
+# from Content-Length before the body is read (see ``_limit_request_body``).
+MAX_REQUEST_BYTES = 32 * 1024 * 1024
+
+# Capabilities this worker advertises on /health. A downstream bridge gates
+# feature use on BOTH the dispatcher's and the worker's /health carrying the
+# capability, so the list is a plain JSON array on both bodies.
+_CAPABILITIES: list[str] = ["input_files"]
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -215,11 +240,36 @@ async def _lifespan(app: FastAPI):
     counters.install()
     _load_persisted_runs()
     task = asyncio.create_task(_stale_run_cleanup())
+    retention_task = _start_retention_sweep()
     yield
     task.cancel()
+    if retention_task is not None:
+        retention_task.cancel()
 
 
 app = FastAPI(title="dispatch-worker", version="1.0.0", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _limit_request_body(request: Request, call_next):  # noqa: ANN001, ANN202
+    """Reject an over-size request body (413) before the route reads it.
+
+    Guards every route from the declared Content-Length; only /dispatch carries a
+    large body in practice, but a global guard is simplest and GET routes carry no
+    body. A missing/unparseable Content-Length falls through to normal handling
+    (our own callers always set it), so this is a cheap bound, not a hard cap on a
+    lying/chunked client.
+    """
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared = int(content_length)
+        except ValueError:
+            declared = -1
+        if declared > MAX_REQUEST_BYTES:
+            return JSONResponse({"detail": "Request body too large"}, status_code=413)
+    return await call_next(request)
+
 
 _bearer_scheme = HTTPBearer()
 
@@ -311,6 +361,34 @@ async def _stale_run_cleanup() -> None:
         _sweep_stale_runs()
 
 
+def _in_flight_run_ids() -> frozenset[str]:
+    """Run ids of currently-pending (in-flight) runs — never swept by retention."""
+    return frozenset(rid for rid, run in _runs.items() if run.get("status") == "pending")
+
+
+def _start_retention_sweep() -> asyncio.Task | None:
+    """Start the opt-in retention sweep task, or return ``None`` when disabled.
+
+    Enabled only when ``RETENTION_DAYS`` is a positive integer. The store factory
+    mirrors the artifact resolver's root logic (the module singleton is rooted at
+    the wrong CWD in the worker process).
+    """
+    retention_days = retention.retention_days_from_env()
+    if retention_days <= 0:
+        return None
+
+    from osprey.interfaces.artifacts.resolve import _get_store
+
+    return asyncio.create_task(
+        retention.retention_loop(
+            _LOG_DIR,
+            _get_store,
+            retention_days,
+            _in_flight_run_ids,
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -337,6 +415,29 @@ def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sc
 # ---------------------------------------------------------------------------
 
 
+class InputFile(BaseModel):
+    """One caller-supplied file carried alongside a dispatch prompt.
+
+    ``ingest`` defaults to ``True`` (the file is meant to be handed to the
+    agent). ``filename`` is sanitised to a safe basename on construction — no
+    directory or traversal components survive — so every downstream consumer
+    sees an already-safe name. Caps and the mime allowlist are enforced at
+    request time by :func:`osprey.mcp_server.dispatch_worker.input_files_policy.validate_input_files`,
+    not on this model, so an invalid batch rejects the whole request with one
+    machine-readable code rather than a field-level 422.
+    """
+
+    filename: str
+    mime: str
+    content_b64: str
+    ingest: bool = True
+
+    @field_validator("filename")
+    @classmethod
+    def _sanitize_filename(cls, value: str) -> str:
+        return sanitize_filename(value)
+
+
 class DispatchRequest(BaseModel):
     """Request body for ``POST /dispatch``.
 
@@ -345,6 +446,10 @@ class DispatchRequest(BaseModel):
     a pure no-op for the dispatched run. Consuming them (system-prompt
     injection, tool narrowing) is left to downstream tasks; this model only
     carries the values across the dispatcher→worker boundary.
+
+    ``input_files`` is likewise additive and defaults to ``None``. When present
+    it is validated fail-closed at request time (see :func:`dispatch`); this
+    model only carries the batch — ingestion is a downstream task.
     """
 
     prompt: str
@@ -352,11 +457,96 @@ class DispatchRequest(BaseModel):
     max_turns: int = 25
     surface_prompt: str | None = None
     surface_tools: list[str] | None = None
+    input_files: list[InputFile] | None = None
 
 
 class DispatchResponse(BaseModel):
     status: str
     run_id: str
+
+
+# ---------------------------------------------------------------------------
+# Input-file ingestion
+# ---------------------------------------------------------------------------
+
+# Prompt-assembly seam, keyed by run_id: the per-input-file descriptors that
+# ingestion hands to the (downstream) prompt-assembly step. Held in memory only
+# for the brief window between ingestion (start of the run task) and prompt
+# assembly; the run task's ``finally`` drops any entry a consumer left behind.
+_run_input_seam: dict[str, list[dict[str, Any]]] = {}
+
+
+def take_input_seam(run_id: str) -> list[dict[str, Any]]:
+    """Pop and return the input-file seam for ``run_id`` (``[]`` if none).
+
+    The handoff from ingestion to prompt assembly. Each item is
+    ``{"filename": str, "mime": str, "entry_id": str | None, "content_b64": str | None}``:
+    for an ingested (``ingest=True``) file ``entry_id`` is its artifact-store id
+    and ``content_b64`` is ``None`` (fetch the bytes via the byte route); for an
+    ``ingest=False`` file ``entry_id`` is ``None`` and ``content_b64`` carries
+    the original bytes to inline directly. Pop-once: a second call returns
+    ``[]``.
+    """
+    return _run_input_seam.pop(run_id, [])
+
+
+def _input_artifact_type(mime: str) -> str:
+    """Coarse ``artifact_type`` for an ingested input file, from its mime."""
+    if mime.startswith("image/"):
+        return "image"
+    if mime == "application/json":
+        return "json"
+    if mime.startswith("text/"):
+        return "text"
+    return "file"
+
+
+def ingest_input_files(run_id: str, input_files: list[InputFile]) -> list[dict[str, Any]]:
+    """Ingest a validated input-file batch for ``run_id`` before its SDK run.
+
+    ``ingest=True`` files are base64-decoded and written to the artifact store
+    tagged with this run's ``run_id`` and ``origin="input"`` — so the byte route
+    serves them and the status body's ``input_artifacts`` lists them, while the
+    agent's produced-artifact listing excludes them. ``ingest=False`` files are
+    never stored; their bytes ride the returned seam straight to prompt
+    assembly. Returns the seam (one item per file, in request order) documented
+    on :func:`take_input_seam`.
+
+    The batch was validated at request time (mime allowlist, decodable base64,
+    size caps), so this never re-rejects — it only decodes and writes. Filenames
+    are already sanitised on the model, so the stored name is safe.
+    """
+    if not input_files:
+        return []
+    store = get_run_store()
+    seam: list[dict[str, Any]] = []
+    for f in input_files:
+        if f.ingest:
+            raw = base64.b64decode(f.content_b64)
+            entry = store.save_file(
+                file_content=raw,
+                filename=f.filename,
+                artifact_type=_input_artifact_type(f.mime),
+                title=f.filename,
+                mime_type=f.mime,
+                tool_source="input",
+                metadata={"input_filename": f.filename},
+                run_id=run_id,
+                origin="input",
+            )
+            seam.append(
+                {"filename": f.filename, "mime": f.mime, "entry_id": entry.id, "content_b64": None}
+            )
+        else:
+            seam.append(
+                {
+                    "filename": f.filename,
+                    "mime": f.mime,
+                    "entry_id": None,
+                    "content_b64": f.content_b64,
+                }
+            )
+    return seam
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +608,14 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         request.max_turns,
     )
     try:
+        # Ingest caller-supplied input files BEFORE the SDK run: ingest=true
+        # files are decoded into the artifact store (run_id tag + origin="input")
+        # so their entry_ids exist for prompt assembly and the status body, while
+        # ingest=false files pass through untouched. The returned seam is stashed
+        # for the prompt-assembly step to consume via take_input_seam(); the
+        # finally drops it if nothing consumed it.
+        _run_input_seam[run_id] = ingest_input_files(run_id, request.input_files or [])
+
         result = await asyncio.wait_for(
             sdk_runner.run_dispatch(
                 prompt=request.prompt,
@@ -438,6 +636,9 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # computed once at completion from the store tag and persisted with the
         # run so it survives restart and never disagrees with the live routes.
         result["artifacts"] = describe_run_artifacts(run_id)
+        # Caller-supplied inputs ingested for this run, kept separate from the
+        # agent's produced ``artifacts`` (both read the same created-by store tag).
+        result["input_artifacts"] = describe_run_input_artifacts(run_id)
         _runs[run_id] = result
         _persist_run(run_id, result)
         logger.info("Dispatch %s completed: status=%s", run_id, result.get("status"))
@@ -501,6 +702,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
     finally:
         _tasks.pop(run_id, None)
         run_stats.pop_run_stats(run_id)
+        _run_input_seam.pop(run_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +726,20 @@ async def dispatch(request: DispatchRequest) -> DispatchResponse:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Tools blocked by server denylist: {denied}",
         )
+
+    # Fail-closed input-file validation BEFORE any run is created: mime
+    # allowlist, per-file and total decoded-size caps, ingest-file count. A
+    # violation rejects the whole request with a machine-readable 400 detail
+    # (a bridge maps it to a non-retryable failure class).
+    if request.input_files:
+        try:
+            validate_input_files(request.input_files)
+        except InputFilesError as exc:
+            logger.warning("Rejected dispatch: input files invalid (%s): %s", exc.detail, exc)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exc.detail,
+            ) from exc
 
     # Evict oldest entries if store exceeds capacity
     if len(_runs) >= _MAX_RUNS:
@@ -672,6 +888,7 @@ async def health() -> dict[str, Any]:
         "provider_errors": lifetime[failure_class.FAILURE_PROVIDER],
         "infrastructure_errors": lifetime[failure_class.FAILURE_INFRASTRUCTURE],
         "boot_nonce": _BOOT_NONCE,
+        "capabilities": _CAPABILITIES,
     }
 
 

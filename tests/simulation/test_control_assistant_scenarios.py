@@ -15,10 +15,11 @@ Signatures pinned (target value -> asserted threshold, with margin):
   sector, leading the runner-up by ~0.7 (assert separation > 0.3 — robust to
   the noise tail, unlike an absolute |r| bound); SR07 spike ~4x baseline;
   DCCT dips ~5 mA.
-- ``rf-thermal``: C1 temperature excursions near window fractions
-  0.20/0.55/0.85 (peaks 32-36 degC, assert > 31 over base 27); C2 stays
-  quiet (~28.5 degC, assert < 29.5, far below the C1 excursions); C1
-  reflected power tracks temperature (r ~= 0.96, assert > 0.8); derived
+- ``rf-thermal``: CAVITY01 temperature excursions near window fractions
+  0.20/0.55/0.85 (peaks 32-36 degC, assert > 31 over base 27); CAVITY02
+  stays quiet (~28.5 degC, assert < 29.5, far below the CAVITY01
+  excursions); CAVITY01 reflected power tracks temperature (r ~= 0.96,
+  assert > 0.8); derived
   POWER:NET tracks FWD-REV (r ~= 0.998, assert > 0.95); FREQUENCY:RB detunes
   downward during the excursions.
 """
@@ -115,7 +116,7 @@ class TestVacuumBurstContract:
 
 
 class TestRfThermalContract:
-    """Cavity-1 thermal excursions drive reflected power, forward trips, detuning."""
+    """CAVITY01 thermal excursions drive reflected power, forward trips, detuning."""
 
     CAV = "SR:RF:CAVITY:{:02d}:{}"
 
@@ -124,26 +125,29 @@ class TestRfThermalContract:
         ts = [end - timedelta(days=7) + timedelta(minutes=5 * i) for i in range(n)]
         return np.array(engine.synthesize_series(self.CAV.format(dev, suffix), ts))
 
-    def test_c1_excursions_at_documented_positions(self, engine_factory):
-        """C1 temperature peaks > 31 degC (over base 27) near t=0.20/0.55/0.85."""
+    def test_cavity01_excursions_at_documented_positions(self, engine_factory):
+        """CAVITY01 temperature peaks > 31 degC (over base 27) near t=0.20/0.55/0.85."""
         engine = engine_factory("rf-thermal")
         temp = self._series(engine, 1, "TEMPERATURE:RB")
         t = np.linspace(0, 1, len(temp))
         for pos in (0.20, 0.55, 0.85):
             window = temp[(t > pos - 0.03) & (t < pos + 0.03)]
-            assert window.max() > 31.0, f"no C1 excursion near t={pos} (max {window.max():.2f})"
+            assert window.max() > 31.0, (
+                f"no CAVITY01 excursion near t={pos} (max {window.max():.2f})"
+            )
 
-    def test_c2_stays_quiet(self, engine_factory):
-        """C2 temperature stays < 29.5 degC — far below C1's 32-36 degC excursions."""
+    def test_cavity02_stays_quiet(self, engine_factory):
+        """CAVITY02 temperature stays < 29.5 degC — far below CAVITY01's 32-36 degC excursions."""
         engine = engine_factory("rf-thermal")
         temp = self._series(engine, 2, "TEMPERATURE:RB")
         # Base 26.5 + one minor 1.75-degC event => peak ~28.5; noise can nudge
-        # to ~29.0. 29.5 keeps margin while staying well below C1 (32-36 degC),
-        # so the assertion still fails on genuinely-anomalous C2 data.
-        assert temp.max() < 29.5, f"C2 temp peak {temp.max():.2f}, contract < 29.5"
+        # to ~29.0. 29.5 keeps margin while staying well below CAVITY01
+        # (32-36 degC), so the assertion still fails on genuinely-anomalous
+        # CAVITY02 data.
+        assert temp.max() < 29.5, f"CAVITY02 temp peak {temp.max():.2f}, contract < 29.5"
 
     def test_reflected_power_spikes_with_temperature(self, engine_factory):
-        """C1 reflected power (POWER:REV) correlates with temperature: r > 0.8 (target ~ 0.96)."""
+        """CAVITY01 reflected power (POWER:REV) correlates with temperature: r > 0.8 (target ~ 0.96)."""
         engine = engine_factory("rf-thermal")
         temp = self._series(engine, 1, "TEMPERATURE:RB")
         rev = self._series(engine, 1, "POWER:REV")
@@ -179,7 +183,9 @@ class TestRfThermalContract:
         )
 
     def test_frequency_detunes_during_excursions(self, engine_factory):
-        """C1 resonant frequency detunes downward during the thermal excursions."""
+        """CAVITY01 resonant frequency detunes downward during the thermal excursions."""
         engine = engine_factory("rf-thermal")
         freq = self._series(engine, 1, "FREQUENCY:RB")
-        assert freq.min() < 499.654 - 0.0005, f"C1 freq min {freq.min():.6f}, contract < 499.6535"
+        assert freq.min() < 499.654 - 0.0005, (
+            f"CAVITY01 freq min {freq.min():.6f}, contract < 499.6535"
+        )

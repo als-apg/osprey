@@ -371,3 +371,8 @@ def ensure_lattice_dashboard_server() -> None:
 def ensure_okf_server() -> None:
     """Ensure the OKF knowledge panel server is running; launch if needed."""
     ensure_web_server("okf")
+
+
+def ensure_system_health_server() -> None:
+    """Ensure the system-health dashboard server is running; launch if needed."""
+    ensure_web_server("system_health")

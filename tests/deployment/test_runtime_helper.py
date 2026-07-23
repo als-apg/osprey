@@ -13,7 +13,12 @@ from __future__ import annotations
 
 import os
 
-from osprey.deployment.runtime_helper import runtime_env
+from osprey.deployment import runtime_helper
+from osprey.deployment.runtime_helper import (
+    get_container_image_id,
+    get_image_id,
+    runtime_env,
+)
 
 
 def test_runtime_env_pins_compose_project_name_from_config() -> None:
@@ -59,3 +64,82 @@ def test_runtime_env_defaults_to_os_environ_copy_without_mutating_it() -> None:
 
     assert env["COMPOSE_PROJECT_NAME"] == "proj-a"
     assert "COMPOSE_PROJECT_NAME" not in os.environ
+
+
+class _FakeCompletedProcess:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def test_get_image_id_returns_normalized_id(monkeypatch) -> None:
+    """A successful `image inspect` returns the ID with any sha256: prefix stripped."""
+    recorded: dict = {}
+
+    def _fake_run(cmd, **kwargs):
+        recorded["cmd"] = cmd
+        return _FakeCompletedProcess(returncode=0, stdout="sha256:abc123\n")
+
+    monkeypatch.setattr(runtime_helper.subprocess, "run", _fake_run)
+
+    assert get_image_id("podman", "reg/web-terminal:latest") == "abc123"
+    assert recorded["cmd"] == [
+        "podman",
+        "image",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        "reg/web-terminal:latest",
+    ]
+
+
+def test_get_image_id_returns_none_for_missing_image(monkeypatch) -> None:
+    """A non-zero exit (no such image) yields None rather than raising."""
+    monkeypatch.setattr(
+        runtime_helper.subprocess,
+        "run",
+        lambda cmd, **kwargs: _FakeCompletedProcess(returncode=125, stderr="no such image"),
+    )
+    assert get_image_id("podman", "reg/nope:latest") is None
+
+
+def test_get_container_image_id_returns_normalized_id(monkeypatch) -> None:
+    """A successful `container inspect` returns the created-from image ID, normalized."""
+    recorded: dict = {}
+
+    def _fake_run(cmd, **kwargs):
+        recorded["cmd"] = cmd
+        return _FakeCompletedProcess(returncode=0, stdout="abc123\n")
+
+    monkeypatch.setattr(runtime_helper.subprocess, "run", _fake_run)
+
+    assert get_container_image_id("podman", "als-web-alice") == "abc123"
+    assert recorded["cmd"] == [
+        "podman",
+        "container",
+        "inspect",
+        "--format",
+        "{{.Image}}",
+        "als-web-alice",
+    ]
+
+
+def test_get_container_image_id_returns_none_for_missing_container(monkeypatch) -> None:
+    """A missing container returns None so the caller can treat it as a no-op."""
+    monkeypatch.setattr(
+        runtime_helper.subprocess,
+        "run",
+        lambda cmd, **kwargs: _FakeCompletedProcess(returncode=1, stderr="no such container"),
+    )
+    assert get_container_image_id("podman", "als-web-ghost") is None
+
+
+def test_inspect_id_returns_none_for_empty_output(monkeypatch) -> None:
+    """A zero exit with empty stdout is still treated as absent (None)."""
+    monkeypatch.setattr(
+        runtime_helper.subprocess,
+        "run",
+        lambda cmd, **kwargs: _FakeCompletedProcess(returncode=0, stdout="\n"),
+    )
+    assert get_image_id("podman", "reg/web-terminal:latest") is None

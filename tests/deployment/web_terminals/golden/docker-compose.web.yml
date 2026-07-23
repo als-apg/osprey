@@ -40,6 +40,7 @@ services:
       - OSPREY_CHANNEL_FINDER_PORT=9591
       - OSPREY_LATTICE_DASHBOARD_PORT=9491
       - OSPREY_FACILITY_KNOWLEDGE_PORT=9691
+      - OSPREY_HEALTH_PORT=9791
     volumes:
       - alice-claude-config:/data/claude-config
       - alice-agent-data:/app/dls-assistant/_agent_data
@@ -79,6 +80,7 @@ services:
       - OSPREY_CHANNEL_FINDER_PORT=9592
       - OSPREY_LATTICE_DASHBOARD_PORT=9492
       - OSPREY_FACILITY_KNOWLEDGE_PORT=9692
+      - OSPREY_HEALTH_PORT=9792
     volumes:
       - bob-claude-config:/data/claude-config
       - bob-agent-data:/app/dls-assistant/_agent_data

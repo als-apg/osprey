@@ -68,9 +68,9 @@ setpoint and orbit terms, not plan-parameter terms:
    at every point.
 
 The agent resolves this into a ``grid_scan`` plan draft — two
-``axes`` entries (one per corrector, each naming its ``setpoint`` channel
-plus ``start``/``stop``/``num_points``) and a ``detectors`` list naming the
-two BPM readbacks — and
+``axes`` entries (one per corrector, each naming its ``setpoint`` device as
+the bridge knows it, plus ``start``/``stop``/``num_points``) and a
+``detectors`` list naming the two BPM readbacks — and
 stages the whole thing in a single ``set_draft`` call, noting the ``revision``
 it returns. This is staging only: composing the draft never touches hardware,
 never requires arming, and never triggers an approval prompt.
@@ -78,18 +78,18 @@ never requires arming, and never triggers an approval prompt.
 Watch it fill
 =============
 
-Switch to the **PLAN** tab. If you weren't already looking at ``grid_scan``,
-you'll see a small affordance appear: **"Draft is now on grid_scan — click
-to view"**. Click it (or select ``grid_scan`` from the sidebar) to bind the
-panel to the draft — this seeds the form from the current draft state and
-starts live updates.
+Switch to the **PLAN** tab. If the panel is already showing ``grid_scan``, a
+small affordance appears: **"Draft is now on grid_scan — click to view"** —
+click it to bind the panel to the draft, which seeds the form from the
+current draft state and starts live updates. If the panel is showing a
+*different* plan there is no hint; select ``grid_scan`` from the sidebar and
+the panel binds to the waiting draft automatically.
 
 .. note::
 
-   Binding always requires this one click or selection, even if the agent
-   set the draft first: an *unbound* panel never silently jumps to a plan you
-   weren't already looking at — it just tells you one is waiting. Once bound,
-   the panel does follow the draft if the agent switches it to a different
+   An *unbound* panel never silently jumps to a plan you weren't already
+   looking at — binding always takes your click or selection. Once bound, the
+   panel does follow the draft if the agent switches it to a different
    plan, so what you are looking at always matches what a Launch would send.
 
 Once bound, a **Draft bound** indicator appears next to a **Discard**

@@ -15,9 +15,9 @@ from osprey.services.channel_finder.benchmarks.generator import (
     FIELD_NAMES,
     RING_NAMES,
     SUBFIELD_NAMES,
+    TEMPLATE_DATA_DIR,
     TEMPLATE_DB_PATH,
     TIER_1,
-    TIER_2,
     TIER_3,
     expand_hierarchy,
     filter_channels,
@@ -49,8 +49,8 @@ class TestExpandHierarchy:
 
     def test_expand_hierarchy(self, tree_data: dict, all_channels: list[dict]) -> None:
         """Expand template and verify total count and entry structure."""
-        # Total channel count must match Tier 3 (full DB)
-        assert len(all_channels) == TIER_3.target_count
+        # Tier 3 is the unfiltered superset: filtering must be a no-op.
+        assert len(all_channels) == len(filter_channels(all_channels, TIER_3))
 
         # Every entry must have the required keys
         required_keys = {
@@ -204,41 +204,26 @@ class TestTierSpecs:
     """Tests for tier specifications and filter_channels()."""
 
     def test_tier_specs(self, tree_data: dict, all_channels: list[dict]) -> None:
-        """Verify each tier produces the expected channel count."""
-        tier1 = filter_channels(all_channels, TIER_1)
-        assert len(tier1) == TIER_1.target_count, (
-            f"Tier 1: expected {TIER_1.target_count}, got {len(tier1)}"
-        )
-
-        tier2 = filter_channels(all_channels, TIER_2)
-        assert len(tier2) == TIER_2.target_count, (
-            f"Tier 2: expected {TIER_2.target_count}, got {len(tier2)}"
-        )
-
-        tier3 = filter_channels(all_channels, TIER_3)
-        assert len(tier3) == TIER_3.target_count, (
-            f"Tier 3: expected {TIER_3.target_count}, got {len(tier3)}"
-        )
+        """The flat filter and the in_context envelope agree on each tier's size."""
+        for tier_spec in (TIER_1, TIER_3):
+            filtered = filter_channels(all_channels, tier_spec)
+            envelope = format_in_context(all_channels, tier_spec)
+            assert len(filtered) == len(envelope["channels"]) > 0, (
+                f"{tier_spec.name}: filter/envelope count mismatch "
+                f"({len(filtered)} vs {len(envelope['channels'])})"
+            )
 
     def test_tier_ordering(self, all_channels: list[dict]) -> None:
-        """Tier 1 < Tier 2 < Tier 3 (strict subset)."""
+        """Tier 1 < Tier 3 (strict subset)."""
         t1 = {ch["pv"] for ch in filter_channels(all_channels, TIER_1)}
-        t2 = {ch["pv"] for ch in filter_channels(all_channels, TIER_2)}
         t3 = {ch["pv"] for ch in filter_channels(all_channels, TIER_3)}
 
-        assert t1 < t2, "Tier 1 is not a strict subset of Tier 2"
-        assert t2 < t3, "Tier 2 is not a strict subset of Tier 3"
+        assert t1 < t3, "Tier 1 is not a strict subset of Tier 3"
 
     def test_tier1_sr_only(self, all_channels: list[dict]) -> None:
         """Tier 1 must contain only SR channels."""
         tier1 = filter_channels(all_channels, TIER_1)
         rings = {ch["ring"] for ch in tier1}
-        assert rings == {"SR"}
-
-    def test_tier2_sr_only(self, all_channels: list[dict]) -> None:
-        """Tier 2 must contain only SR channels."""
-        tier2 = filter_channels(all_channels, TIER_2)
-        rings = {ch["ring"] for ch in tier2}
         assert rings == {"SR"}
 
     def test_tier3_all_rings(self, all_channels: list[dict]) -> None:
@@ -270,27 +255,14 @@ class TestTierSpecs:
         assert "ON" not in subfields
         assert "FAULT" not in subfields
 
-    def test_step_ratios(self, all_channels: list[dict]) -> None:
-        """Verify approximate step ratios between tiers."""
-        n1 = len(filter_channels(all_channels, TIER_1))
-        n2 = len(filter_channels(all_channels, TIER_2))
-        n3 = len(filter_channels(all_channels, TIER_3))
-
-        ratio_2_1 = n2 / n1
-        ratio_3_2 = n3 / n2
-
-        # Tier 2 / Tier 1 ~2.7x (allow 2.0 - 3.5)
-        assert 2.0 < ratio_2_1 < 3.5, f"Tier2/Tier1 ratio {ratio_2_1:.2f} out of range"
-        # Tier 3 / Tier 2 ~2.2x (allow 1.5 - 3.0)
-        assert 1.5 < ratio_3_2 < 3.0, f"Tier3/Tier2 ratio {ratio_3_2:.2f} out of range"
-
 
 class TestFormatInContext:
     """Tests for format_in_context()."""
 
     def test_format_in_context(self, tree_data: dict, all_channels: list[dict]) -> None:
         """Verify in-context envelope format structure and channel count."""
-        for tier_spec in (TIER_1, TIER_2, TIER_3):
+        for tier_spec in (TIER_1, TIER_3):
+            expected_count = len(filter_channels(all_channels, tier_spec))
             result = format_in_context(all_channels, tier_spec)
 
             # Must be envelope dict with _metadata and channels
@@ -302,7 +274,7 @@ class TestFormatInContext:
 
             # Metadata checks
             assert result["_metadata"]["tier"] == tier_spec.name
-            assert result["_metadata"]["total_channels"] == tier_spec.target_count
+            assert result["_metadata"]["total_channels"] == expected_count
 
             # Each entry must have channel (alias), address (PV), description
             for entry in result["channels"]:
@@ -318,10 +290,9 @@ class TestFormatInContext:
                     f"{tier_spec.name}: alias missing underscores: {entry['channel']}"
                 )
 
-            # Count must match tier target
-            assert len(result["channels"]) == tier_spec.target_count, (
-                f"{tier_spec.name}: expected {tier_spec.target_count}, "
-                f"got {len(result['channels'])}"
+            # Count must match the live filter
+            assert len(result["channels"]) == expected_count, (
+                f"{tier_spec.name}: expected {expected_count}, got {len(result['channels'])}"
             )
 
     def test_in_context_round_trip(self, all_channels: list[dict], tmp_path) -> None:
@@ -337,7 +308,7 @@ class TestFormatInContext:
         db.load_database()
 
         stats = db.get_statistics()
-        assert stats["total_channels"] == TIER_1.target_count
+        assert stats["total_channels"] == len(filter_channels(all_channels, TIER_1))
 
         first = ic_data["channels"][0]
         last = ic_data["channels"][-1]
@@ -362,7 +333,7 @@ class TestFormatInContext:
         assert "generated_by" in meta
 
         assert meta["tier"] == "tier1"
-        assert meta["total_channels"] == TIER_1.target_count
+        assert meta["total_channels"] == len(filter_channels(all_channels, TIER_1))
         assert meta["generated_by"] == "osprey-benchmark-generator"
 
 
@@ -408,7 +379,7 @@ class TestFormatHierarchical:
         exp = dipole_dev.get("_expansion")
         assert exp is not None, "Missing _expansion in DIPOLE/DEVICE"
         assert exp["_type"] == "range"
-        assert exp["_range"] == [1, 24], f"Range should be [1, 24], got {exp['_range']}"
+        assert exp["_range"] == [1, 36], f"Range should be [1, 36], got {exp['_range']}"
 
     def test_channel_count_matches_tier(self, tree_data: dict, all_channels: list[dict]) -> None:
         """Expanding the pruned tree should yield the tier target count."""
@@ -416,11 +387,12 @@ class TestFormatHierarchical:
             expand_hierarchy,
         )
 
-        for tier_spec in (TIER_1, TIER_2, TIER_3):
+        for tier_spec in (TIER_1, TIER_3):
+            expected_count = len(filter_channels(all_channels, tier_spec))
             pruned = format_hierarchical(tree_data, tier_spec)
             expanded = expand_hierarchy(pruned)
-            assert len(expanded) == tier_spec.target_count, (
-                f"{tier_spec.name}: expanded to {len(expanded)}, expected {tier_spec.target_count}"
+            assert len(expanded) == expected_count, (
+                f"{tier_spec.name}: expanded to {len(expanded)}, expected {expected_count}"
             )
 
     def test_tier3_all_rings(self, tree_data: dict) -> None:
@@ -435,7 +407,8 @@ class TestFormatMiddleLayer:
 
     def test_format_middle_layer(self, tree_data: dict, all_channels: list[dict]) -> None:
         """Verify middle-layer format structure and total channel count."""
-        for tier_spec in (TIER_1, TIER_2, TIER_3):
+        for tier_spec in (TIER_1, TIER_3):
+            expected_count = len(filter_channels(all_channels, tier_spec))
             result = format_middle_layer(all_channels, tier_spec)
 
             # Top-level keys should be ring names (subset of tier rings)
@@ -469,8 +442,8 @@ class TestFormatMiddleLayer:
                             )
                             total += len(sf_node["ChannelNames"])
 
-            assert total == tier_spec.target_count, (
-                f"{tier_spec.name}: total channels {total}, expected {tier_spec.target_count}"
+            assert total == expected_count, (
+                f"{tier_spec.name}: total channels {total}, expected {expected_count}"
             )
 
     def test_leaf_metadata(self, all_channels: list[dict]) -> None:
@@ -500,8 +473,9 @@ class TestValidateQueries:
     @pytest.fixture
     def mini_benchmark(self, tree_data, all_channels, tmp_path):
         """Create a minimal benchmark DB using the real generator functions."""
-        # Use tier 1 (smallest) to generate consistent databases
-        for tier_num in (1, 2, 3):
+        # Use tier 1 (smallest) to generate consistent databases across the
+        # validated tiers (tier 2 is retired).
+        for tier_num in (1, 3):
             tier_dir = tmp_path / f"tier{tier_num}"
             tier_dir.mkdir()
 
@@ -558,7 +532,7 @@ class TestValidateQueries:
     def test_missing_database_file(self, mini_benchmark):
         """Missing database file is reported."""
         db_dir, queries_path, _pvs = mini_benchmark
-        (db_dir / "tier2" / "middle_layer.json").unlink()
+        (db_dir / "tier3" / "middle_layer.json").unlink()
 
         result = validate_queries(queries_path, db_dir)
         assert result["valid"] is False
@@ -568,7 +542,7 @@ class TestValidateQueries:
         """Empty query list is valid."""
         queries_path = tmp_path / "queries.json"
         queries_path.write_text("[]")
-        for t in (1, 2, 3):
+        for t in (1, 3):
             tier_dir = tmp_path / f"tier{t}"
             tier_dir.mkdir()
             (tier_dir / "in_context.json").write_text("[]")
@@ -659,7 +633,7 @@ class TestGenerateAlias:
 
     def test_alias_uniqueness_per_tier(self, all_channels: list[dict]) -> None:
         """All aliases must be unique within each tier's channel set."""
-        for tier_spec in (TIER_1, TIER_2, TIER_3):
+        for tier_spec in (TIER_1, TIER_3):
             filtered = filter_channels(all_channels, tier_spec)
             aliases = [generate_alias(ch) for ch in filtered]
             assert len(aliases) == len(set(aliases)), (
@@ -696,7 +670,7 @@ class TestSetupBlocks:
 
     def test_setup_blocks_present_all_tiers(self, all_channels: list[dict]) -> None:
         """Every family in every tier should have a _setup block."""
-        for tier_spec in (TIER_1, TIER_2, TIER_3):
+        for tier_spec in (TIER_1, TIER_3):
             result = format_middle_layer(all_channels, tier_spec)
             for ring_key in result:
                 if ring_key.startswith("_"):
@@ -804,7 +778,7 @@ class TestPerTierValidation:
         """Create tier-specific benchmark databases and query files."""
         output_dir = tmp_path / "output"
 
-        for tier_num, tier_spec in [(1, TIER_1), (2, TIER_2), (3, TIER_3)]:
+        for tier_num, tier_spec in [(1, TIER_1), (3, TIER_3)]:
             tier_dir = output_dir / f"tier{tier_num}"
             tier_dir.mkdir(parents=True)
 
@@ -883,7 +857,7 @@ class TestLoadTemplate:
         tree_data, channels = load_template()
         assert isinstance(tree_data, dict)
         assert isinstance(channels, list)
-        assert len(channels) == TIER_3.target_count
+        assert len(channels) == len(filter_channels(channels, TIER_3))
 
     def test_channels_have_required_keys(self):
         """Expanded channels have the expected key set."""
@@ -932,15 +906,15 @@ class TestMaterializedTierDatabases:
 
     The generator's in-memory consistency is covered by TestTierSpecs above.
     These tests catch a different failure: the materialized JSON files under
-    src/osprey/templates/.../channel_databases/tiers/{tier1,tier2,tier3}/
+    src/osprey/templates/.../channel_databases/tiers/{tier1,tier3}/
     drifting from the live filter — e.g. someone bumps the template or the
     TierSpec but forgets to re-run scripts/generate_tier_databases.py for
     every (tier, paradigm) combination.
     """
 
-    # TEMPLATE_DB_PATH points at .../channel_databases/hierarchical.json — the
-    # tiers/ output root is its sibling.
-    TIERS_ROOT = TEMPLATE_DB_PATH.parents[0] / "tiers"
+    # The tiers/ output root, derived from the preset data root rather than
+    # walking parents[] off the (tier-nested) template DB path.
+    TIERS_ROOT = TEMPLATE_DATA_DIR / "channel_databases" / "tiers"
 
     @staticmethod
     def _count_hierarchical(path) -> int:
@@ -1019,24 +993,27 @@ class TestMaterializedTierDatabases:
     @pytest.mark.parametrize(
         ("tier_spec", "paradigm"),
         [
-            (tier, paradigm)
-            for tier in (TIER_1, TIER_2, TIER_3)
-            for paradigm in ("hierarchical", "in_context", "middle_layer")
+            # Tier 1 ships only the in_context paradigm; tier 3 ships all three.
+            (TIER_1, "in_context"),
+            *((TIER_3, paradigm) for paradigm in ("hierarchical", "in_context", "middle_layer")),
         ],
         ids=lambda v: v.name if hasattr(v, "name") else v,
     )
-    def test_materialized_db_matches_target_count(self, tier_spec, paradigm: str):
-        """Each shipped tier DB file must enumerate exactly target_count channels.
+    def test_materialized_db_matches_target_count(
+        self, tier_spec, paradigm: str, all_channels: list[dict]
+    ):
+        """Each shipped tier DB file must enumerate exactly the filtered channels.
 
         Catches: stale regen (one paradigm forgotten), hand-edits, template/
         TierSpec changes without rerunning generate_tier_databases.py.
         """
+        expected = len(filter_channels(all_channels, tier_spec))
         path = self.TIERS_ROOT / tier_spec.name / f"{paradigm}.json"
         assert path.exists(), f"Missing materialized DB: {path}"
         counter = self._COUNTERS[paradigm]
         n = counter(path)
-        assert n == tier_spec.target_count, (
+        assert n == expected, (
             f"{tier_spec.name}/{paradigm}.json has {n} channels, "
-            f"expected {tier_spec.target_count}. Re-run "
+            f"expected {expected}. Re-run "
             f"scripts/generate_tier_databases.py to regenerate."
         )

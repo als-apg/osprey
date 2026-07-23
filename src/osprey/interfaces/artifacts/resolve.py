@@ -125,6 +125,18 @@ def _get_store() -> ArtifactStore:
     return ArtifactStore(workspace_root=_agent_data_root())
 
 
+def get_run_store() -> ArtifactStore:
+    """Public accessor for the run-scoped artifact store used by dispatch.
+
+    The single source of truth for the store root shared by everything that
+    reads or writes a dispatch run's artifacts — the resolver's descriptors and
+    byte route here, and the worker's pre-run input-file ingestion. Routing both
+    through one constructor keeps them on the same ``_agent_data`` root, so a
+    file the worker writes is exactly the file the byte route later serves.
+    """
+    return _get_store()
+
+
 # ---------------------------------------------------------------------------
 # Delivery prediction (render-free)
 # ---------------------------------------------------------------------------
@@ -187,6 +199,11 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
         return []
     out: list[dict[str, Any]] = []
     for e in entries:
+        # Caller-supplied inputs (origin="input") are not things the run
+        # produced — they are surfaced separately (see describe_run_input_artifacts)
+        # so a consumer never mistakes an ingested image for agent output.
+        if e.origin == "input":
+            continue
         delivered_mime, convertible = predict_delivery(e.mime_type)
         out.append(
             {
@@ -195,6 +212,41 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
                 "source_mime": e.mime_type,
                 "delivered_mime": delivered_mime,
                 "convertible": convertible,
+            }
+        )
+    return out
+
+
+def describe_run_input_artifacts(run_id: str) -> list[dict[str, Any]]:
+    """Descriptors of the caller-supplied files ingested into a run, oldest first.
+
+    The counterpart to :func:`describe_run_artifacts`: it returns only the
+    ``origin="input"`` entries (the files the worker stored before the agent
+    ran), which that function excludes. Reads only the store index via the
+    strict created-by ``run_filter`` tag, so it is cheap and cannot cross runs.
+    Returns ``[]`` for an unknown/empty run or one with no ingested inputs.
+
+    Each descriptor is exactly ``{entry_id, filename, mime}`` — ``entry_id`` is
+    the store id the byte route resolves, ``filename`` the caller's (sanitised)
+    name, ``mime`` the stored content type. These keys are a consumed contract;
+    do not rename them.
+    """
+    if not run_id:
+        return []
+    try:
+        entries = _get_store().list_entries(run_filter=run_id)
+    except Exception:
+        logger.warning("Could not read artifact store for run %s", run_id, exc_info=True)
+        return []
+    out: list[dict[str, Any]] = []
+    for e in entries:
+        if e.origin != "input":
+            continue
+        out.append(
+            {
+                "entry_id": e.id,
+                "filename": e.metadata.get("input_filename", e.filename),
+                "mime": e.mime_type,
             }
         )
     return out

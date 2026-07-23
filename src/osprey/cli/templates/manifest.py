@@ -328,6 +328,21 @@ def extract_build_args(
             if isinstance(value, bool) or value:
                 build_args[arg_key] = value
 
+    # Record which of those keys the user EXPLICITLY passed via `--set`
+    # (context["explicit_set_keys"], stamped by build_cmd). The values above
+    # are resolved ones — preset defaults included — so this marker is what
+    # lets persona auto-render forward the user's overrides without ever
+    # clobbering a persona preset with a mere default.
+    explicit_raw = context.get("explicit_set_keys")
+    if isinstance(explicit_raw, (list, tuple)):
+        explicit = [
+            arg_key
+            for _, arg_key in optional_keys
+            if arg_key in explicit_raw and arg_key in build_args
+        ]
+        if explicit:
+            build_args["explicit_overrides"] = explicit
+
     return build_args
 
 
@@ -544,6 +559,26 @@ def generate_manifest(
         "data_bundle": template_name,
         "claude_code_only": True,
     }
+    # Stamp a content hash of the resolved preset/profile so `osprey deploy`
+    # can detect a project whose render predates the installed preset — the
+    # osprey_version alone can't, since a --dev checkout keeps one version
+    # string across commits. Best-effort: an unhashable source omits the key
+    # (staleness checks then skip the content comparison) rather than failing
+    # the build.
+    try:
+        from osprey.cli import build_profile as _build_profile
+
+        if preset_name:
+            preset_hash = _build_profile.compute_preset_hash(preset_name)
+        elif profile_path:
+            preset_hash = _build_profile.compute_profile_hash(Path(profile_path))
+        else:
+            preset_hash = None
+    except Exception:
+        preset_hash = None
+    if preset_hash:
+        creation_block["preset_hash"] = preset_hash
+
     # Preserve the CLAUDE.md template choice so `osprey claude regen` can
     # re-render against the same persona (e.g. CLAUDE.ariel.md.j2 for the
     # ARIEL standalone preset). Default is the control-system persona.

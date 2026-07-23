@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Pre-paint theme boot FIRST: a plain (non-module) script that resolves and
+  applies data-theme before first paint, so the panel never flashes the
+  wrong theme. Everything below styles against the token stylesheet that
+  follows it -- no raw color literals anywhere in this bundle (see
+  dashboard.css for the same rule applied to the sibling stylesheet).
+
+  All asset paths are root-absolute so they resolve against the serving host
+  in every embedding context and survive the web-terminal proxy's path
+  rewrite: the design-system + font assets come from the shared mounts, and
+  this panel's own dashboard.css / js live under the sidecar's /static mount.
+-->
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/dashboard.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Health</title>
+<script type="module">
+  // Follower role: this standalone surface is never the theme hub (the web
+  // terminal is). It applies its own `?theme=` query param when the host
+  // appends one, otherwise it trusts whatever theme-boot.js already set
+  // pre-paint, and thereafter obeys the hub's broadcasts. applyEmbedded()
+  // reads `?embedded=true` and hides the standalone chrome so the panel
+  // sits flush inside its host frame. Every color is a design-token reference, so
+  // no re-read of computed colors is needed on a data-theme swap.
+  import { initTheme } from '/design-system/js/theme-manager.js';
+  import { applyEmbedded } from '/design-system/js/frame-params.js';
+  initTheme({ role: 'follower' });
+  applyEmbedded();
+</script>
+</head>
+<body>
+
+<div class="sweep" id="sw"></div>
+
+<header class="hdr">
+  <div class="hdr-t">
+    <h1 id="ttl">System Health</h1>
+    <span class="hdr-sub">Status</span>
+  </div>
+  <div class="hdr-r">
+    <time class="hdr-time" id="ts">--:--:--</time>
+    <button class="btn-ref" id="refBtn" aria-label="Refresh now">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="ring-w">
+    <svg id="ring" class="ring-svg" viewBox="0 0 200 200">
+      <defs>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="2.5" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="bglow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="4" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <circle class="ring-bg" cx="100" cy="100" r="80"/>
+      <circle class="ring-orbit" cx="100" cy="100" r="92"/>
+      <circle id="beam" class="beam" cx="100" cy="8" r="3" filter="url(#bglow)">
+        <animateTransform attributeName="transform" type="rotate"
+          from="0 100 100" to="360 100 100" dur="3s" repeatCount="indefinite"/>
+      </circle>
+    </svg>
+    <div class="ring-c">
+      <div class="ring-sc" id="rsc"><span id="rok">--</span><span class="tot" id="rtot">/--</span></div>
+      <div class="ring-lb">passing</div>
+    </div>
+  </div>
+  <div class="summ" id="summ"></div>
+</section>
+
+<section class="grid" id="grid">
+  <div class="ld"><div class="ld-spin"></div><span>Scanning systems&hellip;</span></div>
+</section>
+
+<footer class="ftr">
+  <span>Next scan in <strong id="cd">60</strong>s</span>
+  <span class="ftr-d">&middot;</span>
+  <span id="stxt">--</span>
+</footer>
+
+<!-- Panel-local entry module: render + polling. Loaded root-absolute from
+     the sidecar's /static mount, after the skeleton above is in the DOM. -->
+<script type="module" src="/static/js/dashboard.js"></script>
+</body>
+</html>

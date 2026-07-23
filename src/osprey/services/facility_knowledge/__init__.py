@@ -1,7 +1,7 @@
 """
 Facility Knowledge Service
 
-Provides access to the OKF (OSPREY Knowledge Framework) document model and related
+Provides access to the OKF (Open Knowledge Format) document model and related
 utilities for parsing, validating, and serializing facility knowledge documents.
 
 Note: the seeder subpackage is intentionally excluded from this namespace — import it

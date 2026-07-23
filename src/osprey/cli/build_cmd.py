@@ -100,7 +100,15 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
     default=".",
     help="Output directory for project (default: current directory)",
 )
-@click.option("--force", "-f", is_flag=True, help="Force overwrite if project directory exists")
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help=(
+        "Re-render an existing project directory in place "
+        "(.env, _agent_data/, and .git are preserved)"
+    ),
+)
 @click.option("--stream", "-s", is_flag=True, help="Stream lifecycle step output in real-time")
 @click.option(
     "--skip-lifecycle", is_flag=True, help="Skip pre_build, post_build, and validate phases"
@@ -117,12 +125,13 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
 )
 @click.option(
     "--tier",
-    type=click.IntRange(1, 3),
+    type=click.Choice(["1", "3"]),
     default=None,
-    help="Channel-database tier (1|2|3). Selects which "
+    help="Channel-database tier (1|3). Selects which "
     "data/channel_databases/tiers/tier{N}/ DB the rendered config points at. "
     "Advanced: override the paradigm-derived default "
-    "(in_context → tier 1, hierarchical/middle_layer → tier 3).",
+    "(in_context → tier 1, hierarchical/middle_layer → tier 3). "
+    "Tier 1 is in_context-only.",
 )
 @click.option(
     "--emit-profile",
@@ -146,7 +155,7 @@ def build(
     skip_lifecycle: bool,
     skip_deps: bool,
     runtime_root: str | None,
-    tier: int | None,
+    tier: str | None,
     emit_profile: Path | None,
 ) -> None:
     """Build a facility-specific assistant from a profile or bundled preset.
@@ -174,7 +183,7 @@ def build(
       # List available presets
       $ osprey build --list-presets
     """
-    from .build_profile import resolve_build_profile
+    from .build_profile import explicit_model_override_keys, resolve_build_profile
     from .project_utils import _clear_claude_code_project_state
 
     # --emit-profile is a project-less scaffold mode. Validate its constraints
@@ -246,9 +255,15 @@ def build(
             raise
 
         # CLI --tier overrides any value coming from the profile/preset/overrides.
-        # Equivalent to --set tier=N but more discoverable in --help.
+        # Equivalent to --set tier=N but more discoverable in --help. click
+        # constrains the choice to {1, 3}; convert the string form to the int
+        # the profile model carries. Re-run validation so the tier rule (tier 1
+        # requires channel_finder_mode: in_context) fails here with a
+        # rule-naming error rather than downstream as a scaffolding
+        # FileNotFoundError.
         if tier is not None:
-            build_profile.tier = tier
+            build_profile.tier = int(tier)
+            build_profile.validate(profile_dir)
 
         # Provider is required — no implicit fallback. Each provider has
         # different auth gating (CBORG: LBLnet; als-apg: ALS_APG_API_KEY;
@@ -319,9 +334,11 @@ def build(
         # 3. Handle --force / directory existence
         if project_path.exists():
             if force:
-                logger.warning("  Removing existing directory: %s", project_path)
-                shutil.rmtree(project_path)
-                logger.info("  ✓ Removed existing directory")
+                logger.warning("  Clearing rendered files in existing directory: %s", project_path)
+                preserved = _clear_rendered_project_dir(project_path)
+                if preserved:
+                    logger.info("  ✓ Preserved user state: %s", ", ".join(preserved))
+                logger.info("  ✓ Cleared rendered files")
             else:
                 logger.error(
                     "  ✗ Directory '%s' already exists. Use --force to overwrite, or choose a different name.",
@@ -506,6 +523,12 @@ def build(
             manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
         if build_profile.claude_md_template:
             manifest_context["claude_md_template"] = build_profile.claude_md_template
+        # Mark which model-selection keys came from an explicit `--set` so the
+        # manifest can distinguish user intent from resolved preset defaults
+        # (persona auto-render forwards only the former).
+        explicit_set_keys = explicit_model_override_keys(tuple(set_pairs))
+        if explicit_set_keys:
+            manifest_context["explicit_set_keys"] = explicit_set_keys
         # Carry the invocation source forward so build_reproducible_command
         # renders the matching --preset or positional form (C12).
         if preset:
@@ -829,10 +852,52 @@ def _run_lifecycle_phase(
                 logger.warning("  ! %s", msg)
 
 
+def _clear_rendered_project_dir(project_path: Path) -> list[str]:
+    """Clear a project directory for ``--force``, keeping user-owned state.
+
+    Removes every top-level entry the build renders, but leaves what the user
+    owns — ``.env`` (secrets and the service tokens/passwords live docker
+    volumes were initialized with), ``_agent_data/`` (agent workspace), and
+    ``.git`` (the project's own history) — in place, untouched. This is what
+    makes ``--force`` (the staleness advisory's remedy) safe to run on a
+    stale project. Mirrors the user-owned exclusion set of
+    :func:`osprey.cli.templates.manifest.calculate_file_checksums`.
+
+    Returns:
+        Names of the preserved entries that were actually present.
+    """
+    user_owned = (".env", "_agent_data", ".git")
+    preserved: list[str] = []
+    for entry in sorted(project_path.iterdir(), key=lambda p: p.name):
+        if entry.name in user_owned:
+            preserved.append(entry.name)
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    return preserved
+
+
 def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None:
-    """Copy a profile-provided .env file to the built project."""
+    """Copy a profile-provided .env file to the built project.
+
+    An existing project ``.env`` is merged, not clobbered: its values win and
+    keys it alone carries are appended (see
+    :func:`osprey.utils.dotenv.merge_env_preserving_existing`), so a --force
+    re-render never resets user secrets to template defaults.
+    """
     src = (profile_dir / env_file).resolve()
     dst = project_path / ".env"
+    if dst.exists():
+        from osprey.utils.dotenv import merge_env_preserving_existing
+
+        merged = merge_env_preserving_existing(
+            src.read_text(encoding="utf-8"), dst.read_text(encoding="utf-8")
+        )
+        dst.write_text(merged, encoding="utf-8")
+        logger.info("  ✓ Merged %s → .env (existing values preserved)", env_file)
+        return
     shutil.copy2(src, dst)
     logger.info("  ✓ Copied %s → .env", env_file)
 
@@ -1497,6 +1562,13 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         # key, so an unset plan_dir means no mount and no BLUESKY_PLAN_DIRS
         # env var at all (Task 1.4).
         config["services"]["bluesky"]["plan_dir"] = bluesky.plan_dir
+    if bluesky.excluded_plans:
+        # Only written when non-empty — its absence keeps a deploy with no
+        # exclusions rendering exactly as before: the compose template's
+        # {% if %} guard reads this same key, so an empty list means no
+        # BLUESKY_EXCLUDED_PLANS env var at all. The os.pathsep join is done
+        # Python-side because the Jinja render context has no `os` module.
+        config["services"]["bluesky"]["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
     deployed = config.get("deployed_services", []) or []
     if "bluesky" not in [str(s) for s in deployed]:
         deployed.append("bluesky")

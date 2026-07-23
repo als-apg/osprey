@@ -246,3 +246,25 @@ def test_get_plans_serves_directory_layer_metadata_via_http(
         "required_devices": ["sniffer"],
         "writes": False,
     }
+
+
+def test_get_plans_omits_excluded_plan_via_http(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    """An excluded plan is surgically removed from `GET /plans` while its
+    siblings remain (success criteria 2 & 3 at the HTTP surface).
+
+    Because draft-staging and launch both read `get_facility_plans().plans` —
+    the same catalog `GET /plans` serves — a plan absent from `GET /plans` is
+    also un-stageable and un-runnable. `orm` and `grid_scan` are the two
+    shipped plans; excluding `orm` must drop it without touching `grid_scan`,
+    proving the exclusion is surgical, not a catalog wipe.
+    """
+    monkeypatch.setenv("BLUESKY_EXCLUDED_PLANS", "orm")
+
+    resp = client.get("/plans")
+
+    assert resp.status_code == 200
+    plan_names = {p["name"] for p in resp.json()}
+    assert "orm" not in plan_names
+    assert "grid_scan" in plan_names

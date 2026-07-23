@@ -190,9 +190,18 @@ def init_project(
     provider: str,
     model: str = "haiku",
     channel_finder_mode: str | None = None,
-    tier: int = 1,
+    tier: int | None = None,
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
+
+    Tier selection follows a per-mode default: tier 1 is in_context-only, while
+    ``hierarchical``/``middle_layer`` require tier 3. When ``tier`` is left
+    ``None`` and a ``channel_finder_mode`` is given, the tier is derived from it
+    (in_context → 1, else → 3); when neither is given, ``--tier`` is omitted and
+    the build derives the tier from the preset's own paradigm. An explicit
+    ``tier`` kwarg is always honored. Consequence: hierarchical/middle_layer
+    callers now score the full tier-3 (2908-channel) surface, not a tier-1
+    subset.
 
     ``provider`` is required (keyword-only) — every test callsite must name
     it explicitly. Each provider gates on different credentials (CBORG needs
@@ -218,7 +227,12 @@ def init_project(
     ``OSPREY_E2E_FORCE_MODEL`` (honored in ``_resolve_project_spec``), which
     collapses all tiers onto a single model id.
     """
+    from osprey.cli.build_profile import default_tier_for_mode
+
     provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
+    effective_tier = tier
+    if effective_tier is None and channel_finder_mode is not None:
+        effective_tier = default_tier_for_mode(channel_finder_mode)
     args = [
         name,
         "--preset",
@@ -227,13 +241,13 @@ def init_project(
         "--skip-lifecycle",
         "--output-dir",
         str(tmp_path),
-        "--tier",
-        str(tier),
         "--set",
         f"provider={provider}",
         "--set",
         f"model={model}",
     ]
+    if effective_tier is not None:
+        args.extend(["--tier", str(effective_tier)])
     if channel_finder_mode is not None:
         args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
     result = subprocess.run(

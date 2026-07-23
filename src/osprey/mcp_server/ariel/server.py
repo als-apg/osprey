@@ -21,8 +21,21 @@ logger = logging.getLogger("osprey.mcp_server.ariel")
 # ---------------------------------------------------------------------------
 mcp = FastMCP(
     "ariel",
-    instructions="Search facility logbook entries and operational records",
+    instructions=(
+        "Search facility logbook entries and operational records. "
+        "When an entry includes an `entry_url`, link to it verbatim; "
+        "never construct, guess, or reuse another host to build a logbook "
+        "entry URL yourself."
+    ),
 )
+
+# The source_system value ARIEL stamps on its own natively-created entries
+# (see tools/entry.py entry_create direct mode). Such entries are not (yet) in
+# the facility logbook, so no canonical entry_url exists for them.
+ARIEL_NATIVE_SOURCE_SYSTEM = "ARIEL MCP"
+
+# One-time guard so a malformed template does not spam the per-entry hot path.
+_entry_url_template_warned = False
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +74,57 @@ def parse_date_filters(
     return parsed_start, parsed_end
 
 
+def build_entry_url(entry_id: str | None, source_system: str | None = None) -> "str | None":
+    """Render the config-driven canonical logbook entry URL, or ``None``.
+
+    An egress transform mirroring ``to_facility_iso``: it reads the
+    facility-supplied ``ariel.entry_url_template`` from the merged config and
+    renders it with the URL-encoded ``entry_id`` so the agent links entries
+    verbatim instead of inventing a URL.
+
+    Returns ``None`` (emit no URL) when:
+
+    - ``source_system`` marks an ARIEL-native entry not yet in the facility
+      logbook (``ARIEL_NATIVE_SOURCE_SYSTEM``);
+    - ``entry_id`` is empty/blank;
+    - no ``ariel.entry_url_template`` is configured (non-ALS / unconfigured
+      deployments emit no ``entry_url`` and the agent shows plain IDs);
+    - the template is malformed (fail-safe — this runs per-entry on the search
+      hot path, so a one-character typo in the template must degrade to "no URL",
+      never crash a read).
+    """
+    from urllib.parse import quote
+
+    from osprey.utils.config import get_config_value
+
+    if source_system == ARIEL_NATIVE_SOURCE_SYSTEM:
+        return None
+    if not entry_id or not str(entry_id).strip():
+        return None
+
+    try:
+        template = get_config_value("ariel.entry_url_template", None)
+    except Exception:
+        # Config not loaded/resolvable (e.g. no config.yml): treat as an
+        # unconfigured deployment — emit no URL rather than crash the read.
+        return None
+    if not template:
+        return None
+
+    try:
+        return template.format(entry_id=quote(str(entry_id), safe=""))
+    except Exception:
+        global _entry_url_template_warned
+        if not _entry_url_template_warned:
+            _entry_url_template_warned = True
+            logger.warning(
+                "Malformed ariel.entry_url_template %r (needs a single {entry_id} "
+                "placeholder); emitting no entry_url.",
+                template,
+            )
+        return None
+
+
 def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
     """Serialize an EnhancedLogbookEntry dict into a compact response dict.
 
@@ -85,6 +149,9 @@ def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
         "raw_text": entry["raw_text"][:text_limit],
         "summary": entry.get("summary"),
     }
+    entry_url = build_entry_url(entry["entry_id"], entry["source_system"])
+    if entry_url is not None:
+        result["entry_url"] = entry_url
     if "_score" in entry:
         result["score"] = entry["_score"]
     return result
