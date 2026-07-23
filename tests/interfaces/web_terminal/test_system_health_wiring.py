@@ -199,8 +199,8 @@ def test_panel_manager_registers_system_health_tab_with_explicit_health_endpoint
     assert "healthEndpoint: '/health'" in js
 
 
-def test_control_assistant_preset_lists_system_health_keeping_bluesky_health():
-    """The preset gains the SYSTEM tab without disturbing the Bluesky health tab."""
+def test_control_assistant_preset_lists_system_health():
+    """The preset lists the SYSTEM tab among its web panels."""
     preset_path = os.path.join(
         os.path.dirname(inspect.getfile(web_terminal_app)),
         "..",
@@ -213,5 +213,3 @@ def test_control_assistant_preset_lists_system_health_keeping_bluesky_health():
         preset = yaml.safe_load(fh)
     web_panels = preset["web_panels"]
     assert "system-health" in web_panels
-    # The distinct Bluesky scan-stack `health` custom panel must stay listed.
-    assert "health" in web_panels

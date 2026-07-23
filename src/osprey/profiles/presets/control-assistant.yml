@@ -73,19 +73,18 @@ web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
   - plan       # Bluesky plan selection & execute
   - results    # Live run results viewer
-  - health     # Bluesky-stack health dashboard
   - system-health   # SYSTEM tab — framework health dashboard (sidecar-backed)
 
 # ── Bluesky stack (turn-key, VA-backed) ─────────────────────────────────────────
 # The tutorial ships the FULL Bluesky-mediated Bluesky stack out of the box:
 # a Bluesky bridge (+ co-deployed Tiled catalog), a PyAT Virtual
 # Accelerator soft-IOC standing in for real EPICS hardware, and the
-# bluesky-panels sidecar that serves the three web_panels above. Each top-level
+# bluesky-panels sidecar that serves the two web_panels above. Each top-level
 # block below is an injector trigger (`_inject_bluesky`/`_inject_va`/
 # `_inject_bluesky_panels` in build_cmd.py) — it renders the corresponding
 # `services.<name>` compose service, appends to `deployed_services`, and (for
 # bluesky_panels) registers the `web.panels.<id>` URLs. Remove this section
-# (and the three panel ids above) to ship a Bluesky-free tutorial.
+# (and the two panel ids above) to ship a Bluesky-free tutorial.
 bluesky:
   port: 8090
   tiled_enabled: true      # co-deploys the Tiled catalog sidecar alongside the bridge
@@ -140,7 +139,7 @@ config:
   web.panels.events.path: /dashboard
   web.panels.events.health_endpoint: /health
   # SCAN panels — the operator UI for the mediated Bluesky stack (plan selection &
-  # execute, live results, service health), served by the bluesky-panels sidecar.
+  # execute, live results), served by the bluesky-panels sidecar.
   # URL defaults to the host-published sidecar port; override BLUESKY_PANELS_URL for
   # a containerized/remote web terminal (same pattern as the EVENTS panel above).
   web.panels.plan.label: PLAN
@@ -149,10 +148,6 @@ config:
   web.panels.results.label: RESULTS
   web.panels.results.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
   web.panels.results.path: /results/
-  web.panels.health.label: HEALTH
-  web.panels.health.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
-  web.panels.health.path: /health-panel/
-  web.panels.health.health_endpoint: /health
   # ── Multi-user web-terminal stack (built-in) ───────────────────────────────
   # The tutorial ships natively multi-user: `osprey deploy up` stands up nginx,
   # the landing page, and one web-terminal container per roster user, alongside

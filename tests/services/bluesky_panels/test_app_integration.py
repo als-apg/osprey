@@ -187,48 +187,6 @@ def test_launch_unarmed_on_composed_app_is_inert() -> None:
 
 
 # ---------------------------------------------------------------------------
-# /health/full on the wired app (bridge + tiled mocked, VA TCP monkeypatched)
-# ---------------------------------------------------------------------------
-
-
-class _FakeWriter:
-    def close(self) -> None:
-        pass
-
-    async def wait_closed(self) -> None:
-        pass
-
-
-async def _fake_open_connection_ok(_host: str, _port: int) -> tuple[object, _FakeWriter]:
-    return object(), _FakeWriter()
-
-
-def test_health_full_rollup_on_composed_app(monkeypatch: pytest.MonkeyPatch) -> None:
-    import asyncio
-
-    monkeypatch.setattr(asyncio, "open_connection", _fake_open_connection_ok)
-    monkeypatch.setenv("BLUESKY_PANELS_TILED_URL", "http://tiled.test")
-    monkeypatch.setenv("BLUESKY_PANELS_VA_ADDR", "va.test:5064")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/health":
-            return httpx.Response(200, json={"status": "ok"})
-        if request.url.path == "/healthz":
-            return httpx.Response(200, text="ok")
-        raise AssertionError(f"unexpected probe URL: {request.url}")
-
-    with TestClient(app) as client:
-        _wire_mock_bridge(handler)
-        response = client.get("/health/full")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["rollup"] == "ok"
-    statuses = {entry["name"]: entry["status"] for entry in body["services"]}
-    assert statuses == {"bridge": "ok", "tiled": "ok", "va_ioc": "ok"}
-
-
-# ---------------------------------------------------------------------------
 # Negative safety assertions on the FULL route table of the composed app
 # ---------------------------------------------------------------------------
 
@@ -324,7 +282,7 @@ def test_design_system_and_fonts_are_served() -> None:
 
 def test_panel_mounts_are_registered_on_composed_app() -> None:
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
-    for mount_path in ("/plan", "/results", "/health-panel"):
+    for mount_path in ("/plan", "/results"):
         assert mount_path in mounted_paths
 
 

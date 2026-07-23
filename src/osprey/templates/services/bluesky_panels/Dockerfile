@@ -1,7 +1,6 @@
 # Image for the Bluesky Panels sidecar service (osprey.services.bluesky_panels): a
-# FastAPI process serving the operator web panels, same-origin read-proxying
-# the bluesky bridge, and exposing /health/full, reached by the web-terminal
-# reverse proxy at /panel/{id}.
+# FastAPI process serving the operator web panels and same-origin read-proxying
+# the bluesky bridge, reached by the web-terminal reverse proxy at /panel/{id}.
 #
 # osprey install strategy (two cache-friendly layers):
 #   * deps layer  — primes the pinned framework release (+ its dependencies)
