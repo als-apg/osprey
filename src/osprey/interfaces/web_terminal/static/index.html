@@ -29,6 +29,7 @@
   <!-- Design system tokens -->
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/highlight.css') }}">
 
   <!-- Family-picker theme switcher: self-registering Custom Element -->
   <script type="module" src="{{ prefixed('/design-system/js/components/osprey-theme-switcher.js') }}"></script>
@@ -74,6 +75,7 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/palette.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
@@ -216,6 +218,11 @@
       </div>
       <div class="status-item" id="term-dims">--x--</div>
     </div>
+    <!-- Agent activity strip: most recent agent action ("agent wrote …").
+         Flexible middle region of this fixed-height bar, so entries appear
+         inside reserved space and never shift the layout. Populated by
+         activity-strip.js via panel-manager's setActivityStripHandler seam. -->
+    <div class="status-activity" id="activity-strip" role="status" aria-live="polite"></div>
     <div class="status-right">
       <a class="status-item status-link" id="docs-link" href="https://als-apg.github.io/osprey/"
          target="_blank" rel="noopener">Docs</a>
@@ -309,6 +316,10 @@
 
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>
+
+  <!-- Activity strip: self-registering module (like osprey-theme-switcher);
+       binds #activity-strip above to panel-manager's activity seam. -->
+  <script type="module" src="{{ prefixed('/static/js/activity-strip.js') }}"></script>
 
 </body>
 </html>

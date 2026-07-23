@@ -41,19 +41,35 @@ function renderContainer() {
   `;
 }
 
-/** A no-op EventSource stub that records constructed URLs. @returns {string[]} */
+/**
+ * A no-op EventSource stub that records constructed URLs and exposes `emit`
+ * to inject server frames through the live onmessage handler — the same
+ * dispatch seam real SSE frames arrive on (api.js's createEventSource
+ * JSON-parses e.data before invoking panel-manager's handler).
+ * @returns {{ urls: string[], emit: (frame: object) => void }}
+ */
 function stubEventSource() {
   /** @type {string[]} */
   const urls = [];
+  /** @type {{ onmessage?: ((e: { data: string }) => void) | null }[]} */
+  const sources = [];
   class FakeEventSource {
     /** @param {string} url */
     constructor(url) {
       urls.push(url);
+      /** @type {((e: { data: string }) => void) | null} */
+      this.onmessage = null;
+      sources.push(this);
     }
     close() {}
   }
   vi.stubGlobal('EventSource', FakeEventSource);
-  return urls;
+  return {
+    urls,
+    emit: (frame) => {
+      for (const s of sources) s.onmessage?.({ data: JSON.stringify(frame) });
+    },
+  };
 }
 
 /** @returns {Promise<typeof import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js')>} */
@@ -132,7 +148,7 @@ describe('/api/files/events EventSource (via createEventSource)', () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       jsonOk({ enabled: [], custom: [], default: null, visible: [], active: null, labels: {} })
     ));
-    const urls = stubEventSource();
+    const { urls } = stubEventSource();
 
     const { initPanelManager } = await freshImport();
     await initPanelManager('panel-manager');
@@ -270,5 +286,115 @@ describe('rail LEDs for custom panels without a health endpoint', () => {
     const led = entry.querySelector('.panel-rail-led');
     if (!(led instanceof HTMLElement)) throw new Error('expected a rail LED');
     expect(led.className).toBe('panel-rail-led healthy');
+  });
+});
+
+describe('agent activity: rail badge/glow + the activity-strip seam', () => {
+  /**
+   * Boot the manager with a healthy 'artifacts' panel (no health endpoint, so
+   * it enables synchronously) and an unhealthy 'ariel' panel (config endpoint
+   * returns no url, so its entry stays disabled). Returns the SSE `emit`
+   * injector, the fresh module, and the artifacts rail entry.
+   */
+  async function bootWithSSE() {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({ enabled: ['artifacts', 'ariel'], custom: [], default: null, visible: ['artifacts', 'ariel'], active: null, labels: {} });
+      }
+      if (url === '/api/artifact-server') {
+        return jsonOk({ url: '/panel/artifacts', available: true });
+      }
+      // /api/ariel-server (and any POST): no url ⇒ ariel stays unhealthy
+      return jsonOk({});
+    }));
+    const { emit } = stubEventSource();
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+
+    const artifacts = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
+    await vi.waitFor(() => expect(artifacts.classList.contains('disabled')).toBe(false));
+    return { emit, mod, artifacts };
+  }
+
+  test("agent_activity kind:'panel' with a rail entry sets badge + flash, no strip fallback", async () => {
+    const { emit, mod, artifacts } = await bootWithSSE();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
+
+    emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 1 });
+
+    expect(artifacts.classList.contains('agent-attention')).toBe(true);
+    expect(artifacts.classList.contains('agent-flash')).toBe(true);
+    expect(strip).not.toHaveBeenCalled();
+  });
+
+  test("agent_activity kind:'panel' with an unknown id falls back to the strip handler", async () => {
+    const { emit, mod } = await bootWithSSE();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
+
+    const frame = { type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'no-such-panel' }, ts: 2 };
+    emit(frame);
+
+    expect(strip).toHaveBeenCalledTimes(1);
+    expect(strip).toHaveBeenCalledWith(frame);
+  });
+
+  test("agent_activity kind:'channel' goes to the strip handler and leaves the rail alone", async () => {
+    const { emit, mod } = await bootWithSSE();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
+
+    const frame = { type: 'agent_activity', tool: 'read_channel', target: { kind: 'channel', detail: 'SR01C:BPM1:X' }, ts: 3 };
+    emit(frame);
+
+    expect(strip).toHaveBeenCalledTimes(1);
+    expect(strip).toHaveBeenCalledWith(frame);
+    expect(document.querySelector('.agent-attention')).toBeNull();
+    expect(document.querySelector('.agent-flash')).toBeNull();
+  });
+
+  test("panel_focus with source:'agent' glows transiently (no badge); untagged has no agent styling", async () => {
+    const { emit, artifacts } = await bootWithSSE();
+
+    emit({ type: 'panel_focus', panel: 'artifacts', source: 'agent' });
+    expect(artifacts.classList.contains('agent-flash')).toBe(true);
+    expect(artifacts.classList.contains('agent-attention')).toBe(false);
+
+    // Same frame without the tag: no agent styling at all.
+    artifacts.classList.remove('agent-flash');
+    emit({ type: 'panel_focus', panel: 'artifacts' });
+    expect(artifacts.classList.contains('agent-flash')).toBe(false);
+    expect(artifacts.classList.contains('agent-attention')).toBe(false);
+  });
+
+  test('activateTab clears the badge when the panel surfaces (agent-driven focus)', async () => {
+    const { emit, artifacts } = await bootWithSSE();
+
+    emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 4 });
+    expect(artifacts.classList.contains('agent-attention')).toBe(true);
+
+    emit({ type: 'panel_focus', panel: 'artifacts', source: 'agent' });
+    expect(artifacts.classList.contains('agent-attention')).toBe(false);
+  });
+
+  test('an unhealthy-panel activation early-returns and keeps the badge', async () => {
+    const { emit } = await bootWithSSE();
+    const ariel = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="ariel"]'));
+    expect(ariel.classList.contains('disabled')).toBe(true); // never became healthy
+
+    emit({ type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 5 });
+    expect(ariel.classList.contains('agent-attention')).toBe(true);
+
+    emit({ type: 'panel_focus', panel: 'ariel' }); // activateTab bails on !healthy
+    expect(ariel.classList.contains('agent-attention')).toBe(true);
+  });
+
+  test('getActivePanel returns the surfaced panel id', async () => {
+    const { mod } = await bootWithSSE();
+    await vi.waitFor(() => expect(mod.getActivePanel()).toBe('artifacts'));
   });
 });

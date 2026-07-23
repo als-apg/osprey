@@ -18,13 +18,10 @@ import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { initDockIframeAdapter, adoptIframe, focusPanel, hidePanel, setKnownServicePanels } from './dock-iframe.js';
 import { initDockSync, withEchoSuppressed } from './dock-sync.js';
+import { flashElement } from '/design-system/js/highlight.js';
 import {
-  createRail,
-  addEntry,
-  setActive,
-  setHealth,
-  setEntryEnabled,
-  setEntryVisible,
+  createRail, addEntry, getEntry, setActive, setHealth,
+  setEntryEnabled, setEntryVisible, setEntryAttention,
 } from './panel-rail.js';
 
 // ---- Types ----
@@ -52,15 +49,19 @@ import {
 
 /**
  * SSE payloads broadcast on /api/files/events, discriminated on `type`.
+ * `source: 'agent'` marks a frame as agent-originated (absent = human/browser
+ * origin); absent optional keys are omitted by the server, never null.
  * @typedef {object} PanelFocusEvent
  * @property {'panel_focus'} type
  * @property {string} panel
  * @property {string} [url]
+ * @property {'agent'} [source]
  *
  * @typedef {object} PanelVisibilityEvent
  * @property {'panel_visibility'} type
  * @property {string} panel
  * @property {boolean} visible
+ * @property {'agent'} [source]
  *
  * @typedef {object} PanelRegisterEvent
  * @property {'panel_register'} type
@@ -69,8 +70,15 @@ import {
  * @property {string} [url]
  * @property {string} [healthEndpoint]
  * @property {string} [path]
+ * @property {'agent'} [source]
  *
- * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent} PanelSSEEvent
+ * @typedef {object} AgentActivityEvent
+ * @property {'agent_activity'} type
+ * @property {string} tool
+ * @property {{ kind: 'panel' | 'channel' | 'run' | 'artifact', panel?: string, detail?: string }} target
+ * @property {number} [ts]
+ *
+ * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent | AgentActivityEvent} PanelSSEEvent
  */
 
 // ---- Panel Registry ----
@@ -151,6 +159,22 @@ let allowRuntimePanels = false;
 // config order. Empty unless a facility opts in; feeds the "+" menu's Layouts section.
 /** @type {{name: string, panels: string[]}[]} */
 let panelPresets = [];
+
+// Activity-strip fallback for agent_activity frames the rail cannot anchor
+// (kinds 'channel'/'run'/'artifact', or a 'panel' kind whose id has no rail
+// entry). The no-op default keeps panel-manager fully functional standalone;
+// the activity-strip module registers the real handler via
+// setActivityStripHandler once it exists.
+/** @type {(frame: AgentActivityEvent) => void} */
+let onAgentActivity = () => {};
+
+/**
+ * SEAM: register the activity-strip handler for agent_activity frames that
+ * have no rail anchor. Frames arrive verbatim as broadcast (see
+ * AgentActivityEvent). Pass null to restore the no-op default.
+ * @param {((frame: AgentActivityEvent) => void) | null} handler
+ */
+export function setActivityStripHandler(handler) { onAgentActivity = handler ?? (() => {}); }
 
 // ---- Public API ----
 
@@ -316,6 +340,14 @@ export async function initPanelManager(panelId) {
   //   panel_register   {type, id, label, url, healthEndpoint, path}
   //                                             — add a runtime panel; do NOT
   //                                               auto-activate (URL may not be ready).
+  //   agent_activity   {type, tool, target, ts} — passive "the agent touched X"
+  //                                               signal: badge+glow the rail entry
+  //                                               for target.kind 'panel', otherwise
+  //                                               hand off to the strip seam.
+  //
+  // The first three may carry source:'agent' (agent-originated command): that
+  // adds a transient glow on the rail entry — never a persistent badge, the
+  // action itself already happened. Untagged frames behave exactly as before.
   createEventSource('/api/files/events', { // prefixed via createEventSource (api.js)
     onMessage: (raw) => {
       try {
@@ -325,9 +357,11 @@ export async function initPanelManager(panelId) {
           // Agent asked the panel to switch — honor unconditionally
           if (data.url) navigatePanel(data.panel, data.url);
           activateTab(data.panel);
+          if (data.source === 'agent') flashAgentGlow(data.panel);
 
         } else if (data.type === 'panel_visibility' && data.panel) {
           const { panel, visible } = data;
+          if (data.source === 'agent') flashAgentGlow(panel);
           // Update the visibility set and show/hide the matching rail entry
           if (visible) {
             visiblePanels.add(panel);
@@ -368,6 +402,14 @@ export async function initPanelManager(panelId) {
           setEntryVisible(railEl, data.id, true);
           // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
           // the user activates when they want it.
+          if (data.source === 'agent') flashAgentGlow(data.id);
+
+        } else if (data.type === 'agent_activity' && data.target) {
+          // kind 'panel' with a live rail entry → persistent badge + glow via
+          // setEntryAttention; everything the rail cannot anchor falls through
+          // to the activity-strip seam (no-op until a handler registers).
+          const t = data.target;
+          if (t.kind !== 'panel' || !t.panel || !setEntryAttention(railEl, t.panel, true)) onAgentActivity(data);
         }
 
       } catch { /* ignore malformed events */ }
@@ -376,6 +418,14 @@ export async function initPanelManager(panelId) {
 }
 
 // ---- Rail Rendering ----
+
+/**
+ * Transient agent glow on a rail entry — flash only, never the persistent
+ * badge (that is agent_activity's job via setEntryAttention). No-op for ids
+ * without an entry.
+ * @param {string} panelId
+ */
+function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (entry) flashElement(entry); }
 
 /**
  * Interaction closures + initial visibility handed to every rail render/append
@@ -638,6 +688,12 @@ export function activateTab(panelId, { userInitiated = false, auto = false } = {
   // — otherwise a panel closed with "×" reappears on its own.
   if (auto && !visiblePanels.has(panelId)) return;
 
+  // Past the guards the panel actually surfaces (rail click, agent focus,
+  // palette, dock — any source): its agent-attention badge is served, clear it.
+  // The guarded returns above deliberately keep the badge on panels that
+  // refused to surface.
+  setEntryAttention(railEl, panelId, false);
+
   activeTabId = panelId;
 
   // Reflect the active entry on the rail
@@ -842,6 +898,14 @@ export function getVisiblePanels() {
 export function getPresets() {
   return panelPresets;
 }
+
+/**
+ * Currently surfaced panel id — the `data-active-panel` stamp activateTab
+ * writes on the container — or null before init / with no active panel.
+ * Consumed by the agent-activity suppression table.
+ * @returns {string | null}
+ */
+export function getActivePanel() { return containerEl?.dataset.activePanel ?? null; }
 
 // ---- Empty State ----
 
