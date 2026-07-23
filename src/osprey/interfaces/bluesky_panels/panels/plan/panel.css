@@ -313,29 +313,46 @@ body.embedded .panel-chrome { display: none; }
   font-size: 11px;
   color: var(--color-amber);
 }
+/* Agent-draft banner: "agent drafted <plan> — View draft". Replaces the
+ * passive affordance while active (draft-client suppresses the affordance
+ * whenever the banner shows) and reads as the agent-activity accent family
+ * (same family as .agent-flash), a step stronger than the affordance's
+ * subtle tint: solid accent edge + filled action button. Lives inside
+ * .draft-status, so Simple mode hides it with the rest of the draft chrome. */
+.agent-draft-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-accent-light);
+  background: var(--accent-tint-12);
+  border: 1px solid var(--border-accent);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 5px;
+  padding: 3px 9px;
+}
+.agent-draft-banner-view {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+.agent-draft-banner-view:hover,
+.agent-draft-banner-view:focus-visible {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent-light);
+  outline: none;
+}
 
-/* Field-level flash: a server-held draft edit (agent or another tab) landed
- * on this field. Reflow-restarted by draft-client.js on every application
- * (classList.remove -> offsetWidth read -> classList.add) so two rapid
- * edits to the same field re-fire the animation rather than being a no-op
- * on the second `add`. Whole-value containers (chip wells, the axes table,
- * nested objects) flash the same way — `fields[name].el` is already their
- * outer wrapper, so no separate "container flash" rule is needed. Token-only
- * so it reads correctly in both themes. */
-@keyframes draft-flash-glow {
-  0% {
-    background-color: var(--accent-tint-20);
-    box-shadow: 0 0 0 3px var(--accent-tint-25);
-  }
-  100% {
-    background-color: transparent;
-    box-shadow: 0 0 0 3px transparent;
-  }
-}
-.draft-flash {
-  animation: draft-flash-glow 900ms ease-out;
-  border-radius: 6px;
-}
+/* Field-level flash on a landed draft edit now uses the shared design-system
+ * agent-activity flash (`.agent-flash` from /design-system/css/highlight.css,
+ * linked in index.html; fired via flashElement in draft-client.js). */
 
 /* Tab strip */
 .tabs {
