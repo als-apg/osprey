@@ -12,8 +12,8 @@
  */
 
 import { fetchJSON, createEventSource } from './api.js';
-import { getTheme } from '/design-system/js/theme-manager.js';
-import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, getMode } from './panel-iframe-sync.js';
+import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, buildEmbedSrc } from './panel-iframe-sync.js';
+import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { initDockIframeAdapter, adoptIframe, focusPanel, hidePanel, setKnownServicePanels } from './dock-iframe.js';
@@ -135,6 +135,15 @@ const panelState = {};
 // Visible panel ids — seeded from /api/panels at init; controls rail-entry
 // visibility. Toggling an id here is paired with setEntryVisible() on the rail.
 const visiblePanels = new Set();
+
+// Simple-UX chat-only first boot: while true, ensureActivePanel leaves the
+// workspace slot empty, so no dockview placeholder is ever created and the
+// chat keeps the full width. Seeded in initPanelManager (simple mode + empty
+// agent workspace, per /api/panels' workspace_has_artifacts); cleared one-way
+// by ANY panel activation (agent show/switch, rail click, palette) or a flip
+// to expert — once the workspace has appeared, the onboarding state is over
+// for this page lifetime. A reload re-derives it from the server flag.
+let workspaceSuppressed = false;
 
 // Default panel to activate first. The hardcoded value is the fallback used
 // when /api/panels doesn't pin one (kept in sync with
@@ -260,6 +269,14 @@ export async function initPanelManager(panelId) {
     for (const panel of PANELS) visiblePanels.add(panel.id);
   }
 
+  // Simple-UX onboarding: boot chat-only while the agent workspace is empty.
+  // html[data-ui-mode] is the resolved runtime mode (mode-boot.js) — it can
+  // out-rank the server's ui_mode default, so it is the authority here. Only
+  // set when /api/panels answered: a failed fetch keeps today's behavior.
+  workspaceSuppressed =
+    document.documentElement.getAttribute('data-ui-mode') === 'simple' &&
+    panelConfig != null && !panelConfig.workspace_has_artifacts;
+
   // Whether the human "+" menu may register URL panels (server config gate).
   allowRuntimePanels = !!panelConfig?.allow_runtime_panels;
 
@@ -347,7 +364,12 @@ export async function initPanelManager(panelId) {
         const data = /** @type {PanelSSEEvent} */ (raw);
 
         if (data.type === 'panel_focus' && data.panel) {
-          // Agent asked the panel to switch — honor unconditionally
+          // Agent asked the panel to switch — honor unconditionally. An
+          // explicit switch also ends the simple-UX chat-only suppression,
+          // even when activateTab still refuses (unhealthy panel): the intent
+          // to surface the workspace is clear, so the next health settle may
+          // fill the slot.
+          workspaceSuppressed = false;
           if (data.url) navigatePanel(data.panel, data.url);
           activateTab(data.panel);
           if (data.source === 'agent') flashAgentGlow(data.panel);
@@ -362,6 +384,17 @@ export async function initPanelManager(panelId) {
             visiblePanels.delete(panel);
           }
           setEntryVisible(railEl, panel, visible);
+
+          // Simple-UX reveal: showing a panel while the workspace is chat-only
+          // suppressed brings up the workspace ON that panel — this is the
+          // "agent produced an artifact, show_panel('artifacts')" onboarding
+          // path the panels-context SessionStart hook instructs. {auto: true}
+          // keeps the health guard: an unhealthy panel leaves the slot for a
+          // later settle (suppression is already cleared).
+          if (visible && workspaceSuppressed) {
+            workspaceSuppressed = false;
+            if (!activeTabId) activateTab(panel, { auto: true });
+          }
 
           // CC-1: if we just hid the currently active panel, switch away from it
           if (!visible && panel === activeTabId) {
@@ -544,6 +577,10 @@ async function initPanel(panel) {
  */
 function ensureActivePanel() {
   if (activeTabId) return;
+  // Simple-UX chat-only boot: nothing auto-claims the empty slot while the
+  // workspace is suppressed — an agent reveal, a rail click, or an expert
+  // flip ends the suppression and re-runs this policy.
+  if (workspaceSuppressed) return;
   const ds = panelState[DEFAULT_PANEL];
   if (!ds?.configLoaded) return;  // default may still claim the slot — wait
   // Hidden disqualifies the default exactly as unhealthy does; activateTab
@@ -664,6 +701,21 @@ export function broadcastMode() {
   }
 }
 
+/**
+ * React to the header Expert/Simple toggle — called by app.js's initModeToggle
+ * AFTER the html[data-ui-mode] swap and the dock's applyDockMode. The expert
+ * surface always shows the full workspace, so flipping to it ends the
+ * simple-UX chat-only suppression and lets the default panel claim the still-
+ * empty slot. Flipping to simple mid-session changes nothing here: a live
+ * workspace stays (suppression is a first-boot state, never re-armed).
+ * @param {'expert'|'simple'} mode
+ */
+export function handleUiModeFlip(mode) {
+  if (mode !== 'expert') return;
+  workspaceSuppressed = false;
+  ensureActivePanel();
+}
+
 // ---- Tab Switching ----
 
 /**
@@ -686,6 +738,10 @@ export function activateTab(panelId, { userInitiated = false, auto = false } = {
   // The guarded returns above deliberately keep the badge on panels that
   // refused to surface.
   setEntryAttention(railEl, panelId, false);
+
+  // Any surfaced panel means the workspace is open — the simple-UX chat-only
+  // suppression (if still armed) is over for this page lifetime.
+  workspaceSuppressed = false;
 
   activeTabId = panelId;
 
@@ -783,16 +839,9 @@ function navigatePanel(panelId, url) {
 
   if (!state.iframe) return;
 
-  // `url` (from the panel_focus SSE payload) is root-relative. `new URL(path,
-  // origin)` for a leading-slash path keeps the full path verbatim — it does
-  // not resolve against the origin's own path — so an already-prefixed path
-  // stays prefixed and an unprefixed one stays unprefixed. Do not strip or
-  // re-add window.__OSPREY_PREFIX__ here.
-  const embedUrl = new URL(url, window.location.origin);
-  embedUrl.searchParams.set('embedded', 'true');
-  embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
-  embedUrl.searchParams.set('mode', getMode());
-  state.iframe.src = embedUrl.toString();
+  // buildEmbedSrc preserves the already-server-prefixed root-relative url
+  // verbatim (never strip/re-add window.__OSPREY_PREFIX__ — see its docstring).
+  state.iframe.src = buildEmbedSrc(url);
   state.pendingUrl = null;
 }
 
@@ -814,12 +863,8 @@ function createIframe(panelId) {
   const targetUrl = state.pendingUrl || (state.url + panelPath);
   state.pendingUrl = null;
   // targetUrl is the already-prefixed, root-relative `state.url` (+ optional
-  // subpath); `new URL(path, origin)` preserves it verbatim — see navigatePanel().
-  const embedUrl = new URL(targetUrl, window.location.origin);
-  embedUrl.searchParams.set('embedded', 'true');
-  embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
-  embedUrl.searchParams.set('mode', getMode());
-  iframe.src = embedUrl.toString();
+  // subpath); buildEmbedSrc preserves it verbatim.
+  iframe.src = buildEmbedSrc(targetUrl);
   iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
 
   iframe.addEventListener('load', () => {
@@ -902,23 +947,11 @@ export function getActivePanel() { return containerEl?.dataset.activePanel ?? nu
 
 // ---- Empty State ----
 
-/** @param {string} message */
+/**
+ * Thin binding of the extracted placeholder card (panel-empty-state.js) onto
+ * this module's private container/content refs.
+ * @param {string} message
+ */
 function renderEmptyState(message) {
-  if (!contentEl) return;
-  // No active panel — restore the default padded card so the placeholder isn't
-  // left frameless by a previous canvas-painting panel's opt-out.
-  if (containerEl) delete containerEl.dataset.activePanel;
-  contentEl.innerHTML = `
-    <div class="artifacts-empty-state">
-      <div class="artifacts-empty-icon">
-        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
-          <path d="M12 2L2 7l10 5 10-5-10-5z" transform="translate(12 8) scale(1.2)"/>
-          <path d="M2 17l10 5 10-5" transform="translate(12 8) scale(1.2)"/>
-          <path d="M2 12l10 5 10-5" transform="translate(12 8) scale(1.2)"/>
-        </svg>
-      </div>
-      <div class="artifacts-empty-title">Services</div>
-      <div class="artifacts-empty-text">${message}</div>
-    </div>
-  `;
+  renderEmptyStateInto(containerEl, contentEl, message);
 }

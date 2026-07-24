@@ -2,7 +2,7 @@
 
 import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
 import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
-import { initPanelManager, broadcastMode } from './panel-manager.js';
+import { initPanelManager, broadcastMode, handleUiModeFlip } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -157,6 +157,10 @@ function initModeToggle() {
     // restore the expert layout. Runs after the CSS/attribute swap so the dock
     // reads the target mode; no-ops until the workspace shell exists.
     applyDockMode(mode);
+    // Panel half: a flip to expert ends the simple-UX chat-only suppression
+    // and lets the default panel claim a still-empty workspace slot. Runs
+    // after applyDockMode so the activation docks into the target layout.
+    handleUiModeFlip(mode);
   });
 }
 

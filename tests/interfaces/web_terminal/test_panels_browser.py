@@ -1144,6 +1144,10 @@ def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_br
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
+    # Non-empty workspace: an empty one makes a Simple hub boot chat-only
+    # (workspace suppressed) — this test's subject is the LOCKED simple
+    # layout, which needs the workspace docked.
+    (workspace / "seed_artifact.txt").write_text("seed\n")
 
     with _live_server(
         workspace,
@@ -1193,6 +1197,8 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
+    # Non-empty workspace — see test_simple_mode_locks_layout_and_hides_close_controls.
+    (workspace / "seed_artifact.txt").write_text("seed\n")
 
     with _live_server(
         workspace,
@@ -1246,6 +1252,44 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
         groups = _dock_groups(page)
         monitor_tabs = [t for g in groups for t in g["tabs"] if t == "MONITOR"]
         assert len(monitor_tabs) == 1, f"expected exactly one MONITOR tab: {groups}"
+
+        page.close()
+
+
+def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path, chromium_browser):
+    """Simple UX first boot with an EMPTY workspace is chat-only; show_panel reveals.
+
+    With no artifact in the agent workspace the hub docks only the chat/terminal
+    card — no WORKSPACE tab, a single dock group. An agent ``show_panel`` (the
+    panel-visibility POST the MCP tool issues, tagged ``source: agent``) then
+    brings the workspace up live on the shown panel.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()  # deliberately empty — the chat-only precondition
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        ui_mode="simple",
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
+        page.wait_for_timeout(1_000)
+
+        # Chat-only boot: the locked layout holds only the terminal/chat card.
+        assert _dock_locked(page) is True
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(0)
+        groups = _dock_groups(page)
+        assert [g["tabs"] for g in groups] == [[""]], groups
+
+        # Agent reveal: show_panel('artifacts') docks + activates the workspace.
+        r = requests.post(
+            f"{base_url}/api/panel-visibility",
+            json={"panel": "artifacts", "visible": True, "source": "agent"},
+        )
+        assert r.status_code == 200
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=5_000)
+        expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
 
         page.close()
 
