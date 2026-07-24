@@ -1,4 +1,4 @@
-# Image for the Bluesky Panels sidecar service (osprey.services.bluesky_panels): a
+# Image for the Bluesky Panels sidecar service (osprey.interfaces.bluesky_panels): a
 # FastAPI process serving the operator web panels and same-origin read-proxying
 # the bluesky bridge, reached by the web-terminal reverse proxy at /panel/{id}.
 #

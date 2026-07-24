@@ -144,11 +144,11 @@ def _project_root(tmp_path: Path, monkeypatch) -> Path:
 def _stub_sdk_helpers(monkeypatch):
     """Stub the deferred OSPREY helper imports so run_dispatch can be driven."""
     monkeypatch.setattr(
-        "osprey.interfaces.web_terminal.operator_session.build_clean_env",
+        "osprey.agent_runner.clean_env.build_clean_env",
         lambda **kw: {},
     )
     monkeypatch.setattr(
-        "osprey.interfaces.web_terminal.sdk_context.build_system_prompt",
+        "osprey.agent_runner.sdk_context.build_system_prompt",
         lambda *a, **k: "system",
     )
     monkeypatch.setattr(

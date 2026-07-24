@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 
-from osprey.interfaces.web_terminal.operator_session import build_clean_env
+from osprey.agent_runner.clean_env import build_clean_env
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 logger = logging.getLogger(__name__)

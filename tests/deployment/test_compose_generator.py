@@ -1192,6 +1192,22 @@ def test_openobserve_service_config_lookup_succeeds(tmp_path: Path) -> None:
     assert template_path == "./services/openobserve/docker-compose.yml.j2"
 
 
+def test_find_service_config_resolves_flat_names_only() -> None:
+    """Services resolve only by their flat short name under ``services:``. Dotted
+    spellings (``osprey.<name>`` / ``applications.<app>.<name>``) are not a
+    supported config shape — nothing populates a nested ``osprey:``/
+    ``applications:`` services block — so they resolve to ``(None, None)``, which
+    callers surface as a named "service not found" error.
+    """
+    from osprey.deployment.compose_generator import find_service_config
+
+    config = {"services": {"openobserve": {"path": "./services/openobserve"}}}
+
+    assert find_service_config(config, "openobserve")[0] is not None
+    assert find_service_config(config, "osprey.openobserve") == (None, None)
+    assert find_service_config(config, "applications.app.openobserve") == (None, None)
+
+
 # ---------------------------------------------------------------------------
 # postgresql service: per-project container_name (concurrent-deploy safety)
 #
@@ -1952,15 +1968,15 @@ def test_rendered_compose_omits_osprey_dev_on_memoized_build_failure(
 def test_wheel_cache_dir_creation_registers_atexit_cleanup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spy_wheel_build: list
 ) -> None:
-    from osprey.deployment import compose_generator
+    from osprey.deployment import compose_generator, wheel_build
     from osprey.deployment.compose_generator import (
         _copy_local_framework_for_override,
         _reset_wheel_build_cache,
     )
 
     registered: list = []
-    monkeypatch.setattr(compose_generator.atexit, "register", lambda fn: registered.append(fn))
-    monkeypatch.setattr(compose_generator, "_wheel_cache_cleanup_registered", False)
+    monkeypatch.setattr(wheel_build.atexit, "register", lambda fn: registered.append(fn))
+    monkeypatch.setattr(wheel_build, "_wheel_cache_cleanup_registered", False)
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()
@@ -1969,7 +1985,7 @@ def test_wheel_cache_dir_creation_registers_atexit_cleanup(
         "creating the wheel cache dir must register the reset hook with atexit"
     )
 
-    cache_dir = compose_generator._wheel_cache_dir
+    cache_dir = wheel_build._wheel_cache_dir
     assert cache_dir is not None and Path(cache_dir).is_dir()
     # The registered hook removes the dir and is safe to call twice
     # (explicitly now, and again at interpreter exit).
@@ -2114,13 +2130,13 @@ def test_staging_fails_closed_when_manifest_write_fails(
 ) -> None:
     """Even with a valid wheel, a failed manifest WRITE must fail staging
     (return False) and remove the already-copied wheel."""
-    from osprey.deployment import compose_generator
+    from osprey.deployment import wheel_build
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
 
     def _boom(cached_wheel, out_dir):  # type: ignore[no-untyped-def]
         raise OSError("disk full")
 
-    monkeypatch.setattr(compose_generator, "_write_local_requirements_manifest", _boom)
+    monkeypatch.setattr(wheel_build, "_write_local_requirements_manifest", _boom)
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()

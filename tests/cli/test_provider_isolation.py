@@ -14,8 +14,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.claude_cmd import chat_claude
-from osprey.cli.claude_code_resolver import (
+from osprey.build.claude_code_resolver import (
     MANAGED_ENV_VARS,
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
@@ -23,6 +22,7 @@ from osprey.cli.claude_code_resolver import (
     detect_managed_policy_conflicts,
     inject_provider_env,
 )
+from osprey.cli.claude_cmd import chat_claude
 from osprey.models.tiers import VALID_TIERS
 
 # ── MANAGED_ENV_VARS ─────────────────────────────────────────────
@@ -441,7 +441,7 @@ class TestChatProviderIsolation:
         i = captured_argv.index("--setting-sources")
         assert captured_argv[i + 1] == "project"
 
-    @patch("osprey.cli.claude_code_resolver.detect_managed_policy_conflicts")
+    @patch("osprey.build.claude_code_resolver.detect_managed_policy_conflicts")
     @patch("subprocess.run")
     def test_chat_refuses_on_managed_policy_conflict(
         self, mock_run, mock_detect, cli_runner, cborg_project
@@ -629,7 +629,7 @@ class TestProxyEnvWarning:
     cannot masquerade as a passing negative assertion.
     """
 
-    LOGGER = "osprey.cli.claude_code_resolver"
+    LOGGER = "osprey.build.claude_code_resolver"
 
     def _records(self, caplog):
         return [r for r in caplog.records if r.name == self.LOGGER]

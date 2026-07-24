@@ -278,7 +278,7 @@ class GenericJSONAdapter(FacilityAdapter):
             metadata.update(data["metadata"])
 
         return {
-            "entry_id": str(data["id"]),
+            "entry_id": str(data.get("id", "")),
             "source_system": self.source_system_name,
             "timestamp": timestamp,
             "author": data.get("author", ""),

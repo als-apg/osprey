@@ -51,6 +51,19 @@ class BaseDatabase(ABC):
         """Write current in-memory state to disk atomically."""
         self._atomic_write(Path(self.db_path), self._serialize())
 
+    def _build_channel_map(self) -> dict[str, dict]:
+        """Build the flat channel-name -> metadata lookup map.
+
+        Writable databases override this; ``_commit`` uses it to refresh
+        ``self.channel_map`` after each mutation.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not build a channel map")
+
+    def _commit(self) -> None:
+        """Finalize a mutation: rebuild the flat channel map and persist to disk."""
+        self.channel_map = self._build_channel_map()
+        self._persist()
+
     @staticmethod
     def _atomic_write(path: Path, data: dict | list) -> None:
         """Write JSON atomically: backup current file, write via temp, os.replace.

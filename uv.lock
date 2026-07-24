@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-13T20:41:03.378282Z"
+exclude-newer = "2026-07-15T17:48:41.758344Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -3906,7 +3906,7 @@ sheets = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerator-toolbox", extras = ["plot"] },
+    { name = "accelerator-toolbox", extras = ["plot"], specifier = ">=0.7.1" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "aiohttp", specifier = ">=3.10" },
     { name = "aiohttp-socks", specifier = ">=0.8.0" },

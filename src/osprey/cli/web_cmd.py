@@ -238,7 +238,7 @@ def _probe_auth_secret(project_dir: Path | None) -> tuple[list[str], list[str]]:
     if project_dir is None:
         return [], []
 
-    from osprey.cli.claude_code_resolver import load_provider_spec
+    from osprey.build.claude_code_resolver import load_provider_spec
 
     try:
         spec = load_provider_spec(project_dir)

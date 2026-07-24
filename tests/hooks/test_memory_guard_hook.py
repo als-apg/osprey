@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.project_utils import encode_claude_project_path
+from osprey.agent_runner.project_paths import encode_claude_project_path
 
 
 def _memory_dir_for(project_dir: str) -> Path:

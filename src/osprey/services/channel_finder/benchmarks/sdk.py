@@ -44,7 +44,7 @@ def _resolve_default_sdk_model(project_dir: Path) -> str:
     """
     import yaml  # type: ignore[import-untyped]
 
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
     config_path = project_dir / "config.yml"
     if not config_path.exists():
@@ -85,16 +85,21 @@ def init_project(
     benchmark runs now score the full tier-3 (2908-channel) surface, not a
     tier-1 subset.
     """
-    from click.testing import CliRunner
+    import subprocess
+    import sys
 
-    from osprey.cli.build_cmd import build
-    from osprey.cli.build_profile import default_tier_for_mode
+    from osprey.build.build_tiers import default_tier_for_mode
 
-    runner = CliRunner()
     effective_tier = tier
     if effective_tier is None and channel_finder_mode is not None:
         effective_tier = default_tier_for_mode(channel_finder_mode)
+    # Drive the CLI as a subprocess (black box) rather than importing the Click
+    # command: the benchmark harness must not depend on osprey.cli internals.
     args = [
+        sys.executable,
+        "-m",
+        "osprey",
+        "build",
         name,
         "--preset",
         template.replace("_", "-"),
@@ -111,8 +116,11 @@ def init_project(
         args.extend(["--tier", str(effective_tier)])
     if channel_finder_mode is not None:
         args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
-    result = runner.invoke(build, args)
-    assert result.exit_code == 0, f"osprey build failed: {result.output}"
+    result = subprocess.run(args, capture_output=True, text=True)
+    assert result.returncode == 0, (
+        f"osprey build failed (exit {result.returncode}):\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
     return project_dir

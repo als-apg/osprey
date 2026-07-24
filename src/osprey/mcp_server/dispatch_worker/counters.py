@@ -51,6 +51,11 @@ def install() -> None:
 
 
 def reset() -> None:
-    """Zero every counter. For test isolation only — never called in production."""
-    for cls in _counts:
-        _counts[cls] = 0
+    """Restore the pristine seeded state (known classes only, all zero).
+
+    For test isolation only — never called in production. Drops any stray
+    key added via :func:`increment`'s unknown-class tolerance so a reset
+    always yields the exact seeded shape.
+    """
+    _counts.clear()
+    _counts.update(dict.fromkeys(FAILURE_CLASSES, 0))

@@ -92,7 +92,7 @@ def _apply_e2e_overrides(spec: Any) -> Any:
     tier_to_model = dict(spec.tier_to_model)
     env_block = dict(spec.env_block)
     if force_model:
-        from osprey.cli.claude_code_resolver import TIER_MODEL_ENV_VARS
+        from osprey.build.claude_code_resolver import TIER_MODEL_ENV_VARS
 
         for tier in tier_to_model:
             tier_to_model[tier] = force_model
@@ -123,7 +123,7 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
             config before resolving — used by cross-provider model sweeps in
             the benchmark runner.
     """
-    from osprey.cli.claude_code_resolver import load_provider_spec
+    from osprey.build.claude_code_resolver import load_provider_spec
 
     # load_provider_spec reads config.yml and expands ${VAR} in provider config
     # (e.g. a custom provider's base_url: ${ARGO_PROD_URL}) against an
@@ -184,7 +184,7 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     # Overlay a project-level .env so freshly-configured keys win over stale
     # shell exports; strictly a superset of reading os.environ alone. Uses the
     # shared overlay helper (no circular import: resolver never imports primitives).
-    from osprey.cli.claude_code_resolver import _env_lookup
+    from osprey.build.claude_code_resolver import _env_lookup
 
     lookup: dict[str, str] = _env_lookup(project_dir)
 

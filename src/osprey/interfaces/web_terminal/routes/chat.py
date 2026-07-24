@@ -19,10 +19,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from osprey.agent_runner.clean_env import build_clean_env
 from osprey.interfaces.web_terminal.operator_session import (
     CLAUDE_SDK_AVAILABLE,
     OperatorSession,
-    build_clean_env,
 )
 
 logger = logging.getLogger(__name__)
