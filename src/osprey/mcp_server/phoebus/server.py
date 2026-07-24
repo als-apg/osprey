@@ -38,9 +38,11 @@ def create_server() -> FastMCP:
     # the workspace singletons — prime them so phoebus_snapshot can save PNGs.
     prime_config_builder()
 
-    workspace_root = resolve_workspace_root()
-    logger.info("Workspace root: %s", workspace_root)
-    initialize_workspace_singletons(workspace_root)
+    # Session working root used by other tools at call time; the artifact
+    # store itself is rooted at the shared data root inside
+    # initialize_workspace_singletons().
+    logger.info("Workspace root: %s", resolve_workspace_root())
+    initialize_workspace_singletons()
 
     # Import tool modules (each registers itself via @mcp.tool())
     with startup_timer("tool_imports"):

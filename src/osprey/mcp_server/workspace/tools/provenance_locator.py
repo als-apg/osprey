@@ -38,8 +38,8 @@ logger = logging.getLogger("osprey.mcp_server.tools.provenance_locator")
 # Env var OSPREY injects at launch carrying the forced session UUID. Kept in
 # sync with the injection sites (dispatch_worker.sdk_runner, web_terminal
 # operator_session / PTY launch), which set the same name. A dedicated var —
-# NOT OSPREY_SESSION_ID, which has an unrelated side effect (it relocates the
-# artifact store).
+# NOT OSPREY_SESSION_ID, which has unrelated side effects (it relocates
+# session-scoped agent data and tags saved artifacts).
 OSPREY_TELEMETRY_SESSION_ID_ENV = "OSPREY_TELEMETRY_SESSION_ID"
 # Optional ISO-8601 session-start OSPREY may inject to bound the lookback query.
 OSPREY_TELEMETRY_SESSION_START_ENV = "OSPREY_TELEMETRY_SESSION_START"

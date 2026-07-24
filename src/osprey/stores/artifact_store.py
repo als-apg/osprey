@@ -75,10 +75,11 @@ class ArtifactEntry:
     """Dispatch run that produced this artifact (``OSPREY_DISPATCH_RUN_ID``),
     empty for artifacts made outside a dispatch run.
 
-    Deliberately separate from ``session_id``: ``OSPREY_SESSION_ID`` also
-    relocates the whole store into ``_agent_data/sessions/<id>/`` (see
-    ``resolve_agent_data_root``), so it cannot be reused to tag a dispatch run
-    without moving its artifacts off the shared root the gallery reads."""
+    Deliberately separate from ``session_id``: a session id is not a run id —
+    ``OSPREY_SESSION_ID`` tags an interactive session's artifacts, while a
+    dispatch run needs its own scope so the worker can report and serve
+    exactly this run's artifacts. The store itself always lives on the shared
+    data root; both fields are index-level tags."""
     origin: str = ""
     """Provenance of the artifact within its run. Empty (the default) for the
     agent's own output. ``"input"`` marks a caller-supplied file ingested into

@@ -31,20 +31,17 @@ def _make_timeseries_data(n_points: int, n_channels: int = 2):
 
 
 @pytest.fixture
-def workspace(tmp_path, monkeypatch):
+def workspace(tmp_path):
     ws = tmp_path / "_agent_data"
     ws.mkdir()
     (ws / "artifacts").mkdir()
-    monkeypatch.setattr(
-        "osprey.mcp_server.workspace.tools.archiver_downsample.resolve_workspace_root",
-        lambda: ws,
-    )
     return ws
 
 
 @pytest.fixture
 def art_store(workspace):
-    return initialize_artifact_store(workspace)
+    """Initialize the ArtifactStore singleton the tool reads via get_artifact_store()."""
+    return initialize_artifact_store(workspace_root=workspace)
 
 
 class TestArchiverDownsampleBasic:
