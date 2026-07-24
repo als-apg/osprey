@@ -336,6 +336,44 @@ def resolve_ui_mode(configured: str) -> str:
     return DEFAULT_UI_MODE
 
 
+#: The two supported rail positions. ``left`` is the redesign's icon-rail
+#: column; ``top`` renders the same rail as a horizontal strip under the
+#: header — the arrangement operators know from the pre-redesign tab bar.
+RAIL_POSITIONS = ("left", "top")
+DEFAULT_RAIL_POSITION = "left"
+
+
+def resolve_rail_position(configured: str) -> str:
+    """Resolve the ``web.rail_position`` config value into a concrete position.
+
+    ``configured`` must be one of :data:`RAIL_POSITIONS` (``"left"`` or
+    ``"top"``). Anything else — a typo, ``None``, an empty string — is logged
+    as a warning and resolved to :data:`DEFAULT_RAIL_POSITION`.
+
+    Mirrors the warn+fallback shape of :func:`resolve_ui_mode`: it never
+    raises, so a bad value degrades to the safe default instead of blocking
+    server startup.
+
+    Args:
+        configured: The raw ``web.rail_position`` config value.
+
+    Returns:
+        A concrete position string in :data:`RAIL_POSITIONS` — the value
+        stamped onto ``<html data-rail-position>`` for the pre-paint
+        rail-boot rung, which only honors a real position.
+    """
+    if configured in RAIL_POSITIONS:
+        return configured
+
+    logger.warning(
+        "Unknown web.rail_position %r (expected one of %s); falling back to %r.",
+        configured,
+        list(RAIL_POSITIONS),
+        DEFAULT_RAIL_POSITION,
+    )
+    return DEFAULT_RAIL_POSITION
+
+
 def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     """Read web.panels and web.default_panel from config.yml.
 
@@ -692,6 +730,29 @@ def _create_lifespan(
             )
             app.state.web_ui_mode = DEFAULT_UI_MODE
 
+        # ── Rail position (SSR no-flash attribute) ──
+        # Same shape as web.ui_mode above: resolved once at startup and
+        # server-rendered onto <html data-rail-position> so the pre-paint
+        # rail-boot script first-paints the right rail orientation. GET
+        # /api/panels also carries rail_position, but first paint must never
+        # depend on that API field — this attribute is the authoritative rung.
+        # Fails open to the default position on any config-read error.
+        try:
+            from osprey.utils.workspace import load_osprey_config
+
+            configured_rail = (
+                load_osprey_config().get("web", {}).get("rail_position", DEFAULT_RAIL_POSITION)
+            )
+            app.state.web_rail_position = resolve_rail_position(configured_rail)
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not resolve web.rail_position (config load failed); "
+                "server-rendering fallback position %r",
+                DEFAULT_RAIL_POSITION,
+                exc_info=True,
+            )
+            app.state.web_rail_position = DEFAULT_RAIL_POSITION
+
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the
         # writes_enabled kill-switch baked into settings.json's permissions.deny)
@@ -918,6 +979,7 @@ def create_app(
         app_name = getattr(request.app.state, "app_name", "")
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
         web_ui_mode = getattr(request.app.state, "web_ui_mode", DEFAULT_UI_MODE)
+        web_rail_position = getattr(request.app.state, "web_rail_position", DEFAULT_RAIL_POSITION)
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
         return templates.TemplateResponse(
@@ -927,6 +989,7 @@ def create_app(
                 "app_name": app_name,
                 "web_theme_id": web_theme_id,
                 "web_ui_mode": web_ui_mode,
+                "web_rail_position": web_rail_position,
                 "terminal_user": terminal_user,
                 "landing_url": landing_url,
                 "url_prefix": url_prefix,

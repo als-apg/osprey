@@ -82,8 +82,8 @@ same safety hooks, then adds production capabilities. The most visible additions
      - A mock archiver serves historical data; the ``data-visualizer`` sub-agent
        turns it into interactive and publication-quality plots.
    * - **Operator skills**
-     - ``/diagnose``, ``/session-report``, ``setup-mode``, and ``demo-gallery``
-       support common control-room workflows.
+     - ``/diagnose``, ``/session-report``, ``setup-mode``, ``demo-gallery``, and
+       ``demo-ui`` support common control-room workflows.
    * - **Web terminal**
      - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
@@ -240,8 +240,11 @@ connection errors, configuration drift) and produces a structured root-cause
 report — it is for diagnosing the *assistant*, not the accelerator.
 
 **Other skills:** ``demo-gallery`` generates a showcase of plot and report
-artifacts to explore the gallery's capabilities, and ``setup-mode`` inspects and
-repairs the project's configuration when something looks misconfigured.
+artifacts to explore the gallery's capabilities, ``demo-ui`` runs a short
+scripted demonstration of the agent driving the web workspace — switching
+panel tabs, focusing artifacts, composing layouts — and ``setup-mode``
+inspects and repairs the project's configuration when something looks
+misconfigured.
 
 .. note::
 

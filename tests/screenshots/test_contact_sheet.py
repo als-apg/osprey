@@ -20,6 +20,7 @@ from docs.screenshots.contact_sheet import (
     DEMO_PLOT_ARTIFACT_ID,
     DEMO_SESSION_ID,
     DEMO_TRANSCRIPT_PATH,
+    EXTRA_VARIANTS,
     MAX_CARD_LINE_WIDTH,
     TRANSCRIPT_SENTINEL,
     VARIANTS,
@@ -233,12 +234,28 @@ def test_capture_variants_cover_dark_and_light() -> None:
 
 
 def test_capture_variant_filename_and_url() -> None:
-    """Mode is absent from both filename and URL until one is set."""
+    """Mode/rail are absent from both filename and URL until one is set."""
     assert _variant_filename("dark", None) == "web_terminal_dark.png"
     assert _variant_filename("light", "simple") == "web_terminal_light_simple.png"
+    assert (
+        _variant_filename("dark", "expert", rail="top") == "web_terminal_dark_expert_rail-top.png"
+    )
 
     assert _variant_url("http://h", "dark", None) == "http://h/?theme=dark"
     assert _variant_url("http://h", "light", "simple") == "http://h/?theme=light&mode=simple"
+    assert _variant_url("http://h", "dark", "expert", rail="top").endswith("&rail=top")
+
+
+def test_extra_variants_unique_filenames() -> None:
+    """The showcase extras never collide with the base matrix or each other."""
+    base = [_variant_filename(theme, mode) for theme, mode in VARIANTS]
+    extra = [_variant_filename(theme, mode, rail=rail) for theme, mode, rail in EXTRA_VARIANTS]
+    names = base + extra
+    assert len(names) == len(set(names))
+    # Every extra is either a retro theme or a top-rail card — the showcase
+    # never silently duplicates a base 2×2 cell.
+    for theme, _mode, rail in EXTRA_VARIANTS:
+        assert theme.startswith("retro") or rail is not None
 
 
 def test_capture_fake_session_is_discoverable(tmp_path: Path) -> None:

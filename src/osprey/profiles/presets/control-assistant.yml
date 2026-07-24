@@ -55,6 +55,7 @@ skills:
   - setup-mode      # Toggle between interactive and automated operating modes
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
+  - demo-ui         # Run a scripted demo of the agent driving the web workspace
   - writing-bluesky-plans  # Author, validate, and launch a session-tier plan (requires the Bluesky MCP server)
   - operating-bluesky-scans  # Stage, launch, and watch a registered scan through the shared draft (requires the Bluesky MCP server)
 

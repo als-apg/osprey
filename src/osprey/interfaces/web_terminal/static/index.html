@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ web_theme_id }}" data-ui-mode="{{ web_ui_mode }}">
+<html lang="en" data-theme="{{ web_theme_id }}" data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -25,6 +25,9 @@
 
   <!-- FOUC prevention: applies data-ui-mode (expert/simple) before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/mode-boot.js') }}"></script>
+
+  <!-- FOUC prevention: applies data-rail-position (left/top) before any CSS loads -->
+  <script src="{{ prefixed('/design-system/js/rail-boot.js') }}"></script>
 
   <!-- Design system tokens -->
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
@@ -349,6 +352,10 @@
   <!-- Activity strip: self-registering module (like osprey-theme-switcher);
        binds #activity-strip above to panel-manager's activity seam. -->
   <script type="module" src="{{ prefixed('/static/js/activity-strip.js') }}"></script>
+
+  <!-- One-time rail hint: self-registering module; waits out the welcome
+       overlay, then points operators from the old tab bar to the rail. -->
+  <script type="module" src="{{ prefixed('/static/js/rail-hint.js') }}"></script>
 
 </body>
 </html>

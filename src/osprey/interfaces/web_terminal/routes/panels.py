@@ -204,6 +204,10 @@ async def get_panels(request: Request):
     # "expert" default mirrors app.DEFAULT_UI_MODE — kept as a literal here to
     # avoid a routes->app import cycle.
     ui_mode = getattr(request.app.state, "web_ui_mode", "expert")
+    # Echo the resolved rail position (server-rendered onto
+    # <html data-rail-position>). "left" default mirrors
+    # app.DEFAULT_RAIL_POSITION — a literal for the same import-cycle reason.
+    rail_position = getattr(request.app.state, "web_rail_position", "left")
     project_key = _project_key(getattr(request.app.state, "project_cwd", None))
     return {
         "enabled": enabled,
@@ -215,6 +219,7 @@ async def get_panels(request: Request):
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
         "ui_mode": ui_mode,
+        "rail_position": rail_position,
         "project_key": project_key,
     }
 

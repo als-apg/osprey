@@ -51,7 +51,11 @@ const TERMINAL_WIDTH_FRACTION = 0.4;
  * @returns {number}
  */
 export function defaultServiceWidth() {
-  return Math.max(0, Math.round((window.innerWidth - RAIL_WIDTH) * (1 - TERMINAL_WIDTH_FRACTION)));
+  // The rail consumes horizontal space only as a left column; in top
+  // position it's a strip above the workspace, so the full width is ours.
+  const rail =
+    document.documentElement.getAttribute('data-rail-position') === 'top' ? 0 : RAIL_WIDTH;
+  return Math.max(0, Math.round((window.innerWidth - rail) * (1 - TERMINAL_WIDTH_FRACTION)));
 }
 
 /**
