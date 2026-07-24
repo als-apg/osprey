@@ -16,6 +16,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 - All artifact stores are now rooted at the shared data root, so artifacts saved
   from session-scoped writers (e.g. resumed web-terminal sessions) stay visible to
   the gallery.
+- `artifact_focus`/`artifact_pin` now report gallery failures honestly instead of
+  always claiming success.
 - `web.app_name` in `config.yml` now actually labels the web terminal header: the
   runtime read the key from a nested section nothing generates, so only the
   `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,
