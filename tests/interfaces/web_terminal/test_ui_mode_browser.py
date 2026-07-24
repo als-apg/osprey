@@ -123,6 +123,11 @@ def _hub_with_artifacts(tmp_path: Path, ui_mode: str) -> Iterator[tuple[str, obj
 
     workspace = tmp_path / "hub_ws"
     workspace.mkdir(exist_ok=True)
+    # One real artifact: a Simple hub with an EMPTY workspace boots chat-only
+    # (workspace suppressed — see panel-manager.js), so the artifacts iframe
+    # these tests observe would never mount. Mode propagation THROUGH the
+    # workspace is the subject here, so the workspace must be present.
+    (workspace / "seed_artifact.txt").write_text("hub-with-artifacts seed\n")
 
     with _run_app_server(create_artifacts_app(workspace_root=workspace)) as artifact_url:
         patches = [
