@@ -95,6 +95,12 @@ def _build_extra_env(
     locator must not carry those side effects.
     """
     extra_env: dict[str, str] = {}
+    # The PTY terminal IS the expert web surface — every session spawned here
+    # serves it, whatever web.ui_mode the deployment defaults to (the operator
+    # can flip modes live; the chat surface runs its own SDK sessions, marked
+    # "simple" in operator_session.py). The panels-context SessionStart hook
+    # reads this to tell the agent which UI the operator is looking at.
+    extra_env["OSPREY_WEB_UX"] = "expert"
     if claude_session_id:
         extra_env["OSPREY_SESSION_ID"] = claude_session_id
     if telemetry_session_id:

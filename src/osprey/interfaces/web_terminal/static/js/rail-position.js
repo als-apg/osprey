@@ -18,7 +18,9 @@ const DEFAULT_POSITION = 'left';
 /** Current rail position, read off <html>. @returns {"left"|"top"} */
 export function getRailPosition() {
   const value = document.documentElement.getAttribute('data-rail-position');
-  return VALID_POSITIONS.includes(value) ? /** @type {"left"|"top"} */ (value) : DEFAULT_POSITION;
+  return value != null && VALID_POSITIONS.includes(value)
+    ? /** @type {"left"|"top"} */ (value)
+    : DEFAULT_POSITION;
 }
 
 /**

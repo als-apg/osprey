@@ -32,6 +32,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- The web terminal's Simple mode now starts as a clean chat-first experience: with an empty agent workspace the page shows only the chat, and the WORKSPACE panel appears the moment the agent shares its first artifact (`show_panel`); a workspace that already holds artifacts opens as before. The OSPREY agent is told at session start which surface it serves — Simple sessions are instructed to bring up the WORKSPACE panel whenever they produce something the operator should see.
 - Web terminal: the panel rail can now sit along the top (`web.rail_position: top` or the panel "+" menu).
 - Web terminal: new `retro` theme family restoring the pre-redesign navy/teal look (`web.theme: retro`).
 - Agent actions are now highlighted live in the web terminal: the plan panel follows the OSPREY agent's drafts (with a banner instead of a switch when you have unsaved edits), panels the agent touches glow and carry an attention badge on the panel rail until you open them, and backend actions — channel writes, run launches — appear briefly in the status-bar activity strip.

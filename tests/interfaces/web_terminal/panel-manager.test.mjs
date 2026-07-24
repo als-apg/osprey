@@ -398,3 +398,115 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
     await vi.waitFor(() => expect(mod.getActivePanel()).toBe('artifacts'));
   });
 });
+
+describe('simple-UX chat-only first boot (workspace suppression)', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-ui-mode');
+  });
+
+  /**
+   * Boot the manager under a given html[data-ui-mode] with a healthy
+   * 'artifacts' panel and a server-reported workspace_has_artifacts flag.
+   * Resolves once the artifacts rail entry is enabled (healthy), i.e. past
+   * the point where auto-activation would have fired.
+   * @param {{ mode: 'simple'|'expert', hasArtifacts: boolean }} opts
+   */
+  async function boot({ mode, hasArtifacts }) {
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['artifacts'],
+          custom: [],
+          default: null,
+          visible: ['artifacts'],
+          active: null,
+          labels: {},
+          workspace_has_artifacts: hasArtifacts,
+        });
+      }
+      if (url === '/api/artifact-server') {
+        return jsonOk({ url: '/panel/artifacts', available: true });
+      }
+      return jsonOk({ status: 'ok' });
+    }));
+    const { emit } = stubEventSource();
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+
+    const entry = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
+    await vi.waitFor(() => expect(entry.classList.contains('disabled')).toBe(false));
+    return { emit, mod };
+  }
+
+  /** The activation observables: the workspace iframe and the active stamp. */
+  function workspaceOpen() {
+    const container = /** @type {HTMLElement} */ (document.getElementById('panel-manager'));
+    return {
+      iframe: document.querySelector('iframe[data-panel-id="artifacts"]'),
+      active: container.dataset.activePanel ?? null,
+    };
+  }
+
+  test('simple mode + empty workspace boots chat-only (no auto-activation)', async () => {
+    await boot({ mode: 'simple', hasArtifacts: false });
+    // Give any (wrong) deferred activation a chance to land before asserting.
+    await new Promise((r) => setTimeout(r, 25));
+    expect(workspaceOpen()).toEqual({ iframe: null, active: null });
+  });
+
+  test('simple mode with pre-existing artifacts activates the workspace as before', async () => {
+    await boot({ mode: 'simple', hasArtifacts: true });
+    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    expect(workspaceOpen().active).toBe('artifacts');
+  });
+
+  test('expert mode is untouched by an empty workspace', async () => {
+    await boot({ mode: 'expert', hasArtifacts: false });
+    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    expect(workspaceOpen().active).toBe('artifacts');
+  });
+
+  test("agent show_panel (panel_visibility) reveals the workspace on that panel", async () => {
+    const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
+    expect(workspaceOpen().iframe).toBeNull();
+
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, source: 'agent' });
+
+    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    expect(workspaceOpen().active).toBe('artifacts');
+  });
+
+  test('agent switch_panel (panel_focus) reveals the workspace', async () => {
+    const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
+    expect(workspaceOpen().iframe).toBeNull();
+
+    emit({ type: 'panel_focus', panel: 'artifacts', source: 'agent' });
+
+    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    expect(workspaceOpen().active).toBe('artifacts');
+  });
+
+  test('hiding a panel never reveals the workspace', async () => {
+    const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
+
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false, source: 'agent' });
+
+    await new Promise((r) => setTimeout(r, 25));
+    expect(workspaceOpen()).toEqual({ iframe: null, active: null });
+  });
+
+  test('flipping to expert ends the suppression and fills the empty slot', async () => {
+    const { mod } = await boot({ mode: 'simple', hasArtifacts: false });
+    expect(workspaceOpen().iframe).toBeNull();
+
+    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    mod.handleUiModeFlip('expert');
+
+    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    expect(workspaceOpen().active).toBe('artifacts');
+  });
+});

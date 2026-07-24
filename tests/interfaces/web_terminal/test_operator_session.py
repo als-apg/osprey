@@ -316,6 +316,54 @@ class TestOperatorSession:
         await session.stop()
 
     @pytest.mark.asyncio
+    async def test_start_marks_simple_web_surface_in_env(self):
+        """The operator chat IS the simple web UX — its sessions carry
+        OSPREY_WEB_UX=simple (alongside the telemetry vars) so the
+        panels-context SessionStart hook can tell the agent which UI the
+        operator is looking at. Injection follows the telemetry pattern: only
+        when an env dict was provided (None means inherit the process env)."""
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"})
+        captured_kwargs: dict = {}
+
+        def capture_options(**kwargs):
+            captured_kwargs.update(kwargs)
+            return MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+
+        with (
+            patch("osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", True),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.ClaudeAgentOptions",
+                side_effect=capture_options,
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.ClaudeSDKClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.validate_project_directory",
+                return_value=[],
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.build_system_prompt",
+                return_value={"type": "preset", "preset": "claude_code"},
+            ),
+            patch(
+                "osprey.interfaces.web_terminal.operator_session.get_facility_timezone",
+                return_value=None,
+            ),
+        ):
+            await session.start()
+
+        env = captured_kwargs.get("env")
+        assert env is not None
+        assert env["OSPREY_WEB_UX"] == "simple"
+        assert "OSPREY_TELEMETRY_SESSION_ID" in env
+        await session.stop()
+
+    @pytest.mark.asyncio
     async def test_start_requires_sdk(self):
         with patch("osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", False):
             session = OperatorSession(cwd="/tmp")
