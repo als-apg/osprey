@@ -206,6 +206,21 @@ def _dismiss_welcome_modal(page: Page) -> None:
     page.locator("#welcome-dismiss").click(timeout=15_000)
 
 
+def _flip_hub_theme(page: Page) -> None:
+    """Flip the hub's light/dark appearance via the header display-menu popover.
+
+    The always-visible ``osprey-theme-switcher`` was replaced on the hub by the
+    display-menu dot: the appearance control now lives inside a popover that must
+    be opened first, and its two options are explicit light/dark buttons (clicking
+    the already-active side no-ops in display-menu.js), so a flip means opening the
+    dot and clicking the option opposite the current theme.
+    """
+    current = page.evaluate("document.documentElement.getAttribute('data-theme')")
+    target = "light" if current == "dark" else "dark"
+    page.click("#display-menu-btn")
+    page.click(f'#display-menu-card .display-seg-option[data-appearance="{target}"]')
+
+
 def _collect_sentinel_errors(page: Page) -> list[str]:
     """Attach a console listener collecting sentinel-token error text.
 
@@ -293,7 +308,7 @@ def test_toggle_flips_theme_and_persists_across_reload(tmp_path, chromium_browse
         _dismiss_welcome_modal(page)
         assert page.evaluate("document.documentElement.getAttribute('data-theme')") == "dark"
 
-        page.click("osprey-theme-switcher .theme-switcher-mode")
+        _flip_hub_theme(page)
         expect(page.locator("html")).to_have_attribute("data-theme", "light", timeout=5_000)
 
         page.reload(wait_until="domcontentloaded")
@@ -338,7 +353,7 @@ def test_auto_follows_os_preference_until_explicit_choice(tmp_path, chromium_bro
         # Make an explicit choice; theme-manager no longer treats the
         # preference as 'auto', so a subsequent OS flip must be ignored.
         _dismiss_welcome_modal(page)
-        page.click("osprey-theme-switcher .theme-switcher-mode")
+        _flip_hub_theme(page)
         explicit_theme = page.evaluate("document.documentElement.getAttribute('data-theme')")
         assert explicit_theme in ("dark", "light")
 
@@ -396,7 +411,7 @@ def test_broadcast_reaches_embedded_iframe(tmp_path, chromium_browser):
                 == "dark"
             )
 
-            page.click("osprey-theme-switcher .theme-switcher-mode")
+            _flip_hub_theme(page)
             follower_frame.wait_for_function(
                 "document.documentElement.getAttribute('data-theme') === 'light'", timeout=5_000
             )
@@ -460,7 +475,7 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
             expect(follower_iframe).to_be_hidden(timeout=5_000)
 
             # Change theme while the panel is hidden.
-            page.click("osprey-theme-switcher .theme-switcher-mode")
+            _flip_hub_theme(page)
             expect(page.locator("html")).to_have_attribute("data-theme", "light", timeout=5_000)
 
             # Reactivate — activateTab() must resend the theme unconditionally.
@@ -518,7 +533,7 @@ def test_xterm_palette_switches_on_toggle(tmp_path, chromium_browser):
         dark_bg = _viewport_bg()
         assert dark_bg, "xterm viewport has no background color"
 
-        page.click("osprey-theme-switcher .theme-switcher-mode")
+        _flip_hub_theme(page)
         expect(page.locator("html")).to_have_attribute("data-theme", "light", timeout=5_000)
         # xterm re-renders asynchronously on the theme-change subscribe fire.
         page.wait_for_function(
