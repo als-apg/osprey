@@ -1,0 +1,86 @@
+/* OSPREY Web Terminal — Activity Strip
+ *
+ * Slim, fixed zone showing the most recent agent action ("agent wrote
+ * SR01:HCM1:SP"). Single-slot, latest-wins; populated by activity-strip.js
+ * through panel-manager's setActivityStripHandler seam.
+ *
+ * Layout stability: in the hub (index.html) the strip is the flexible middle
+ * region of the fixed-height footer status bar — text appears and disappears
+ * inside space the bar already reserves, never shifting the left/right item
+ * groups or the page. The floating variant (session.html, which has no status
+ * bar) is a fixed overlay, out of normal flow entirely.
+ *
+ * Design tokens only — correct across dark/light/apex/high-contrast.
+ */
+
+.status-activity {
+  /* Basis 0: the strip only ever fills free space and can never induce
+     shrinkage of the left/right status groups, regardless of entry length. */
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 var(--space-3);
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.activity-strip-entry {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  animation: activity-strip-fade-in var(--duration-fast) ease-out;
+}
+
+.activity-strip-verb {
+  color: var(--text-secondary);
+}
+
+.activity-strip-subject {
+  color: var(--accent);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Opacity-only entrance — never a layout-affecting property. */
+@keyframes activity-strip-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-strip-entry {
+    animation: none;
+  }
+}
+
+/* Floating variant for pages without a status bar (session.html): a fixed
+   overlay pinned bottom-center, invisible while empty. Out of normal flow, so
+   appearing/disappearing cannot shift the page layout. */
+.status-activity-floating {
+  position: fixed;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(90vw, 480px);
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  z-index: 100;
+}
+
+/* Empty-state hide must be non-display: the element is an aria-live region,
+   and a display:none region would enter the accessibility tree at the same
+   moment as its content, so screen readers could drop the announcement. An
+   opacity hide keeps the (empty) live region pre-existing its content. */
+.status-activity-floating:empty {
+  opacity: 0;
+  pointer-events: none;
+}

@@ -219,6 +219,18 @@ class VisualTarget:
     # the baseline shows the actual working interface.
     dismiss_welcome: bool = False
     wait_selector: str | None = None
+    # The web-terminal hub now boots a dockview workspace (dock-workspace.js)
+    # whose default artifacts panel docks as an overlay iframe (dock-iframe.js).
+    # Unlike the pre-dock split, the grid and its overlay settle a beat after the
+    # rail renders, so ``dock_shell`` targets wait for the dockview grid AND the
+    # auto-docked artifacts overlay iframe to be on screen before the screenshot —
+    # otherwise the baseline can capture a half-built (empty) grid.
+    dock_shell: bool = False
+    # UI-mode axis. Mode-aware surfaces capture the full theme x mode matrix
+    # (baseline ``{name}_{theme}_{mode}.png``); ``(None,)`` keeps a surface on
+    # the theme-only pair with the original ``{name}_{theme}.png`` names (the
+    # hub's static session/safety pages have no mode-dependent layout).
+    modes: tuple[str | None, ...] = (None,)
 
 
 def _artifacts_server(tmp_path: Path):
@@ -253,6 +265,15 @@ def _dispatch_dashboard_server(tmp_path: Path):
 
 def _multi_user_landing_server(tmp_path: Path):
     return _run_app_server(_create_multi_user_landing_app())
+
+
+def _okf_panel_server(tmp_path: Path):
+    from osprey.interfaces.okf_panel.app import create_app
+
+    # Reuse the okf_panel suite's on-disk fixture bundle so the baseline shows
+    # a populated tree + document instead of the guarded not-configured shell.
+    bundle = Path(__file__).parents[1] / "okf_panel" / "fixtures" / "bundle"
+    return _run_app_server(create_app(str(bundle)))
 
 
 # ---------------------------------------------------------------------------
@@ -291,13 +312,21 @@ def _web_terminal_static_page_server(tmp_path: Path):
     return _web_terminal_hub_server(tmp_path)
 
 
+# The full expert/simple pair every mode-aware surface captures.
+MODES: tuple[str, ...] = ("expert", "simple")
+
 TARGETS: list[VisualTarget] = [
     VisualTarget(
         "web_terminal_hub",
         _web_terminal_hub_server,
         path="/",
         dismiss_welcome=True,
-        wait_selector='button[data-panel-id="artifacts"]',
+        # Scope to the rail button: overlay iframes now also carry
+        # data-panel-id="artifacts" in the docked shell, so the bare attribute
+        # selector is ambiguous.
+        wait_selector='button.panel-rail-button[data-panel-id="artifacts"]',
+        dock_shell=True,
+        modes=MODES,
     ),
     VisualTarget(
         "web_terminal_session",
@@ -309,17 +338,29 @@ TARGETS: list[VisualTarget] = [
         _web_terminal_static_page_server,
         path="/static/safety.html",
     ),
-    VisualTarget("artifacts_gallery", _artifacts_server, path="/"),
-    VisualTarget("ariel", _ariel_server, path="/"),
-    VisualTarget("channel_finder", _channel_finder_server, path="/"),
+    VisualTarget("artifacts_gallery", _artifacts_server, path="/", modes=MODES),
+    VisualTarget("ariel", _ariel_server, path="/", modes=MODES),
+    VisualTarget("channel_finder", _channel_finder_server, path="/", modes=MODES),
     # D14/D15 regression guard: embedded mode must hide the standalone logo +
     # theme switcher (component self-hides via body.embedded) while keeping
     # the pipeline switcher + nav usable — see channel-finder-narrowing.
-    VisualTarget("channel_finder_embedded", _channel_finder_server, path="/?embedded=true"),
-    VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/"),
+    VisualTarget(
+        "channel_finder_embedded",
+        _channel_finder_server,
+        path="/?embedded=true",
+        modes=MODES,
+    ),
+    VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/", modes=MODES),
+    VisualTarget(
+        "okf_panel",
+        _okf_panel_server,
+        path="/",
+        wait_selector="#tree",
+        modes=MODES,
+    ),
     # Dispatch dashboard has no live dispatcher backend behind it here, so it
     # renders its genuine no-data empty state — a legitimate, stable baseline.
-    VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/"),
+    VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/", modes=MODES),
     # Scan panels (Phase-6): mounted at /plan, /results by the
     # sidecar (see ``_PANEL_MOUNTS`` in ``osprey.services.bluesky_panels.app``);
     # each wait_selector is a static top-level element present in the shell's
@@ -330,12 +371,14 @@ TARGETS: list[VisualTarget] = [
         _bluesky_panels_server,
         path="/plan/",
         wait_selector="#plan-tree",
+        modes=MODES,
     ),
     VisualTarget(
         "scan_panel_results",
         _bluesky_panels_server,
         path="/results/",
         wait_selector="#run-picker",
+        modes=MODES,
     ),
 ]
 
@@ -408,40 +451,59 @@ def _assert_matches_baseline(name: str, png_bytes: bytes, regen: bool) -> None:
 
 @pytest.mark.parametrize("target", TARGETS, ids=[t.name for t in TARGETS])
 def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytestconfig) -> None:
-    """Capture `target` in every theme and diff each against its baseline."""
+    """Capture `target` in every theme (x mode, when mode-aware) and diff each."""
     regen = bool(pytestconfig.getoption("--regen-baselines"))
 
     with target.server_factory(tmp_path) as base_url:
         for theme in THEMES:
-            page = chromium_browser.new_page(viewport=VIEWPORT)
-            try:
-                # target.path may already carry its own query string (e.g.
-                # channel_finder_embedded's "/?embedded=true"), so `theme`
-                # must be appended with "&" rather than blindly with "?".
-                separator = "&" if "?" in target.path else "?"
-                page.goto(
-                    f"{base_url}{target.path}{separator}theme={theme}",
-                    wait_until="domcontentloaded",
-                    timeout=15_000,
-                )
-                if target.wait_selector:
-                    expect(page.locator(target.wait_selector)).to_be_attached(timeout=10_000)
-                if target.dismiss_welcome:
-                    page.locator("#welcome-dismiss").click(timeout=15_000)
-                # Let async init (panel health polling, SSE-driven layout,
-                # font swaps) settle before the screenshot.
-                page.wait_for_timeout(600)
+            for mode in target.modes:
+                page = chromium_browser.new_page(viewport=VIEWPORT)
+                try:
+                    # target.path may already carry its own query string (e.g.
+                    # channel_finder_embedded's "/?embedded=true"), so `theme`
+                    # must be appended with "&" rather than blindly with "?".
+                    separator = "&" if "?" in target.path else "?"
+                    url = f"{base_url}{target.path}{separator}theme={theme}"
+                    if mode is not None:
+                        url += f"&mode={mode}"
+                    page.goto(url, wait_until="domcontentloaded", timeout=15_000)
+                    if target.wait_selector:
+                        expect(page.locator(target.wait_selector)).to_be_attached(timeout=10_000)
+                    if target.dismiss_welcome:
+                        page.locator("#welcome-dismiss").click(timeout=15_000)
+                    if target.dock_shell:
+                        # The dockview grid and the auto-docked artifacts overlay
+                        # iframe settle a beat after the rail renders; wait for both
+                        # so the baseline captures the built default layout, not a
+                        # half-constructed (empty) grid.
+                        expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
+                        expect(
+                            page.locator('.dock-iframe-overlay iframe[data-panel-id="artifacts"]')
+                        ).to_be_visible(timeout=10_000)
+                    # Let async init (panel health polling, SSE-driven layout,
+                    # font swaps) settle before the screenshot.
+                    page.wait_for_timeout(600)
 
-                applied_theme = page.evaluate("document.documentElement.getAttribute('data-theme')")
-                assert applied_theme == theme, (
-                    f"{target.name}: expected data-theme={theme!r}, got {applied_theme!r}"
-                )
+                    applied_theme = page.evaluate(
+                        "document.documentElement.getAttribute('data-theme')"
+                    )
+                    assert applied_theme == theme, (
+                        f"{target.name}: expected data-theme={theme!r}, got {applied_theme!r}"
+                    )
+                    if mode is not None:
+                        applied_mode = page.evaluate(
+                            "document.documentElement.getAttribute('data-ui-mode')"
+                        )
+                        assert applied_mode == mode, (
+                            f"{target.name}: expected data-ui-mode={mode!r}, got {applied_mode!r}"
+                        )
 
-                png_bytes = page.screenshot()
-            finally:
-                page.close()
+                    png_bytes = page.screenshot()
+                finally:
+                    page.close()
 
-            _assert_matches_baseline(f"{target.name}_{theme}", png_bytes, regen)
+                suffix = f"_{theme}" if mode is None else f"_{theme}_{mode}"
+                _assert_matches_baseline(f"{target.name}{suffix}", png_bytes, regen)
 
 
 @pytest.mark.parametrize("theme", THEMES)

@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Hook Debug Toggle & Log Viewer */
 
-import { fetchJSON, withPrefix } from './api.js';
+import { fetchJSON, apiRequest } from './api.js';
 
 /**
  * One row of the hook activity log, as returned by `/api/hooks/debug-log` (prefix-aware). All fields are optional because older log
@@ -37,14 +37,10 @@ export function initHookDebug() {
   toggle.addEventListener('change', async () => {
     const enabled = toggle.checked;
     try {
-      // Prefix-aware so this reaches the container under /u/<user>/ in
-      // multi-user deployments.
-      const res = await fetch(withPrefix('/api/config'), {
+      await apiRequest('/api/config', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates: { 'hooks.debug': enabled } }),
+        json: { updates: { 'hooks.debug': enabled } },
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       _showToast(bar, enabled ? 'Debug logging enabled' : 'Debug logging disabled');
     } catch (err) {
       console.error('Failed to toggle hook debug:', err);

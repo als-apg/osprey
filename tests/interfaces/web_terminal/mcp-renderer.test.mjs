@@ -188,7 +188,7 @@ describe('renderMcpJson', () => {
 
     renderContainer(MCP_JSON);
 
-    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/mcp-servers');
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/mcp-servers', { cache: 'no-store' });
   });
 
   test('falls back to "tools not available" when the fetch rejects', async () => {

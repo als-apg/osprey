@@ -22,7 +22,7 @@ system's actual contract is enforced:
   semantic token group name (``bg``, ``text``, ...).
 - **Promoted-primitive collisions** — no theme or interface extension
   token's emitted CSS name may collide with a promoted primitive scale
-  (``emit_css.py``'s ``_PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
+  (``naming.py``'s ``PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
   leading, space, radius, z, duration), which is theme-independent and
   cannot be overridden.
 - **Theme metadata** — every theme document's root ``$extensions`` must
@@ -30,6 +30,11 @@ system's actual contract is enforced:
   ``id``/``label``/``family``). ``family`` groups a ``{light, dark}`` pair
   (e.g. the built-in ``osprey`` family, or a future ``high-contrast``
   family) and selects which :func:`gates_for_family` tuple applies.
+- **Default flag** — at most one theme may declare ``$extensions.default:
+  true``, it must be a boolean, and the flagged theme must be dark (it
+  pins both ``emit_css``'s ``:root`` fallback and the JS emitters'
+  ``DEFAULT_FAMILY`` via the shared
+  :func:`~.model.default_flagged_stem` — see :func:`check_default_flag`).
 - **WCAG contrast gates** — see :data:`WCAG_GATES` (AA, the default/
   ``osprey``-family gates) and :data:`WCAG_GATES_AAA` (the ``high-contrast``
   family's gates), selected per theme by :func:`gates_for_family`; the
@@ -50,20 +55,22 @@ dot-path, per the generator's error-reporting contract.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from osprey.interfaces.design_system.generator.emit_css import (
-    _PROMOTED_PRIMITIVE_GROUPS,
-    css_variable_name,
-)
+from osprey.interfaces.design_system.errors import BundledValidationError
 from osprey.interfaces.design_system.generator.inherits import raw_inherits
 from osprey.interfaces.design_system.generator.model import (
     AliasStatus,
     ResolvedToken,
     TokenTree,
+)
+from osprey.interfaces.design_system.generator.naming import (
+    PROMOTED_PRIMITIVE_GROUPS,
+    css_variable_name,
+    promoted_css_name,
 )
 
 __all__ = [
@@ -85,6 +92,7 @@ __all__ = [
     "check_terminal_serialization",
     "check_theme_completeness",
     "check_theme_metadata",
+    "check_default_flag",
     "check_interface_mode_completeness",
     "check_namespace_collisions",
     "check_promoted_primitive_collisions",
@@ -114,11 +122,14 @@ class ValidationRule(StrEnum):
     #: An extension token's namespace collides with a semantic group name.
     NAMESPACE_COLLISION = "namespace_collision"
     #: A theme or interface extension token's emitted CSS name collides
-    #: with a promoted primitive scale (see :data:`_PROMOTED_PRIMITIVE_GROUPS`
-    #: in ``emit_css.py``).
+    #: with a promoted primitive scale (see :data:`PROMOTED_PRIMITIVE_GROUPS`
+    #: in ``naming.py``).
     PROMOTED_PRIMITIVE_COLLISION = "promoted_primitive_collision"
     #: A theme document's ``$extensions`` metadata is missing or invalid.
     INVALID_THEME_METADATA = "invalid_theme_metadata"
+    #: The ``$extensions.default`` flag is non-boolean, declared true by
+    #: more than one theme, or set on a non-dark theme.
+    INVALID_DEFAULT_FLAG = "invalid_default_flag"
     #: A ``terminal.*``/``terminal.ansi.*`` value isn't xterm-safe.
     TERMINAL_SERIALIZATION = "terminal_serialization"
     #: An interface extension document is missing a mode group a theme
@@ -150,16 +161,12 @@ class ValidationError:
         return f"{location}: {self.message}"
 
 
-class TokenValidationError(ValueError):
+class TokenValidationError(BundledValidationError[ValidationError]):
     """Raised by :func:`assert_valid` bundling every :class:`ValidationError`.
 
     Attributes:
         errors: Every validation failure, in the order they were found.
     """
-
-    def __init__(self, errors: Sequence[ValidationError]) -> None:
-        self.errors = list(errors)
-        super().__init__("\n".join(str(error) for error in self.errors))
 
 
 # --- Color parsing ------------------------------------------------------------
@@ -680,6 +687,74 @@ def _interface_inherits(
     return valid
 
 
+def check_default_flag(tree: TokenTree) -> list[ValidationError]:
+    """Require a well-formed, unambiguous ``$extensions.default`` flag.
+
+    The flag selects the product-default theme via the shared
+    :func:`~.model.default_flagged_stem`, which both ``emit_css`` (the
+    ``:root`` fallback) and the JS emitters (``DEFAULT_FAMILY``) consume.
+    Ambiguity here would make the emitters' tiebreaks — not the author —
+    pick the default, so it is rejected outright: the flag must be a
+    boolean, at most one theme may set it true, and the flagged theme must
+    be dark (a light ``:root`` fallback is not emittable — ``emit_css``
+    would silently ignore the flag).
+
+    Args:
+        tree: The loaded token tree.
+
+    Returns:
+        One error per malformed flag, plus one for a duplicate
+        declaration.
+    """
+    errors: list[ValidationError] = []
+    flagged: list[str] = []
+    for stem, metadata in tree.theme_metadata.items():
+        if "default" not in metadata:
+            continue
+        source_file = _document_source_file(stem, tree.themes.get(stem, {}))
+        value = metadata["default"]
+        if not isinstance(value, bool):
+            errors.append(
+                ValidationError(
+                    rule=ValidationRule.INVALID_DEFAULT_FLAG,
+                    message=f"$extensions.default must be a boolean, got {value!r}",
+                    source_file=source_file,
+                    path="",
+                )
+            )
+            continue
+        if not value:
+            continue
+        if metadata.get("mode") != "dark":
+            errors.append(
+                ValidationError(
+                    rule=ValidationRule.INVALID_DEFAULT_FLAG,
+                    message=(
+                        "$extensions.default: true must be set on a dark theme — "
+                        "the flag pins emit_css's :root fallback, which is always dark"
+                    ),
+                    source_file=source_file,
+                    path="",
+                )
+            )
+        flagged.append(stem)
+
+    if len(flagged) > 1:
+        first = flagged[0]
+        errors.append(
+            ValidationError(
+                rule=ValidationRule.INVALID_DEFAULT_FLAG,
+                message=(
+                    "at most one theme may declare $extensions.default: true, "
+                    f"got {len(flagged)}: {', '.join(sorted(flagged))}"
+                ),
+                source_file=_document_source_file(first, tree.themes.get(first, {})),
+                path="",
+            )
+        )
+    return errors
+
+
 def check_interface_mode_completeness(tree: TokenTree) -> list[ValidationError]:
     """Require each interface extension document to cover every theme's mode.
 
@@ -791,8 +866,8 @@ def check_promoted_primitive_collisions(tree: TokenTree) -> list[ValidationError
     """Reject theme/interface tokens whose emitted CSS name collides with a promoted primitive.
 
     ``emit_css.py`` promotes an ordered tuple of core.json primitive groups
-    (``_PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight, leading, space,
-    radius, z, duration) directly to root-level CSS custom properties,
+    (``naming.py``'s ``PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
+    leading, space, radius, z, duration) directly to root-level CSS custom properties,
     emitted once in the default ``:root`` block and never per-theme. These
     scales are theme-independent by construction, so no theme's semantic
     token and no interface's extension token may emit the same CSS custom
@@ -806,9 +881,9 @@ def check_promoted_primitive_collisions(tree: TokenTree) -> list[ValidationError
         name collides with a promoted primitive.
     """
     promoted_names = {
-        f"--{path.replace('.', '-')}"
+        promoted_css_name(path)
         for path in tree.primitives
-        if path.split(".", 1)[0] in _PROMOTED_PRIMITIVE_GROUPS
+        if path.split(".", 1)[0] in PROMOTED_PRIMITIVE_GROUPS
     }
     if not promoted_names:
         return []
@@ -932,6 +1007,7 @@ def validate_token_tree(tree: TokenTree) -> list[ValidationError]:
     errors.extend(check_terminal_serialization(tree))
     errors.extend(check_theme_completeness(tree))
     errors.extend(check_theme_metadata(tree))
+    errors.extend(check_default_flag(tree))
     errors.extend(check_interface_mode_completeness(tree))
     errors.extend(check_namespace_collisions(tree))
     errors.extend(check_promoted_primitive_collisions(tree))

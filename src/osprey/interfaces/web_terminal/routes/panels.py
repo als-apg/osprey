@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import logging
 import socket
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -121,6 +123,21 @@ def _browser_panel_url(cp: dict) -> str:
     return f"{prefix}/panel/{cp['id']}"
 
 
+def _project_key(project_cwd: str | None) -> str:
+    """Return a stable, opaque per-project key for client-side layout persistence.
+
+    The key is the first 16 hex chars of the sha256 digest of the *resolved*
+    project directory path. Resolving first means equivalent paths (symlinks,
+    trailing slashes, ``.`` segments) collapse to one key, so the same project
+    yields the same key across server restarts, while distinct projects differ.
+
+    Used by the client as the ``osprey-dock-layout-<project_key>`` localStorage
+    suffix, so one browser origin can persist a separate dock layout per project.
+    """
+    resolved = str(Path(project_cwd).resolve()) if project_cwd else ""
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+
+
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.
@@ -141,7 +158,19 @@ async def get_panels(request: Request):
             "labels":   {id: label},    # display labels for enabled built-in panels
             "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
             "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
+            "ui_mode":  str,            # resolved web.ui_mode ("expert" | "simple")
+            "project_key": str,         # stable 16-hex per-project key (layout persistence)
         }
+
+    ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
+    a truncated sha256 of the resolved project directory). The client uses it as
+    the ``osprey-dock-layout-<project_key>`` localStorage suffix so dock layouts
+    persist independently per project on a shared browser origin.
+
+    ``ui_mode`` mirrors the server-rendered ``<html data-ui-mode>`` attribute so
+    the client can read the resolved mode after boot. First paint must never
+    depend on this field — the SSR attribute is the authoritative first-paint
+    rung; this is the API-side echo for later client mode resolution.
 
     ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
     at startup against the live panel set and carried in config order. It is
@@ -171,6 +200,11 @@ async def get_panels(request: Request):
     labels = {pid: BUILTIN_PANEL_LABELS[pid] for pid in enabled if pid in BUILTIN_PANEL_LABELS}
     allow_runtime = bool(getattr(request.app.state, "allow_runtime_panels", False))
     presets = list(getattr(request.app.state, "panel_presets", []))
+    # Echo the resolved UI mode (server-rendered onto <html data-ui-mode>).
+    # "expert" default mirrors app.DEFAULT_UI_MODE — kept as a literal here to
+    # avoid a routes->app import cycle.
+    ui_mode = getattr(request.app.state, "web_ui_mode", "expert")
+    project_key = _project_key(getattr(request.app.state, "project_cwd", None))
     return {
         "enabled": enabled,
         "custom": custom,
@@ -180,6 +214,8 @@ async def get_panels(request: Request):
         "labels": labels,
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
+        "ui_mode": ui_mode,
+        "project_key": project_key,
     }
 
 
@@ -197,6 +233,7 @@ def _known_panel_ids(request: Request) -> set[str]:
 class PanelFocusRequest(BaseModel):
     panel: str
     url: str | None = None
+    source: Literal["agent"] | None = None
 
 
 @router.get("/api/panel-focus")
@@ -221,6 +258,8 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     event: dict = {"type": "panel_focus", "panel": body.panel}
     if body.url:
         event["url"] = _prefix_path(body.url)
+    if body.source:
+        event["source"] = body.source
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "active_panel": body.panel}
 
@@ -228,6 +267,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
 class PanelVisibilityRequest(BaseModel):
     panel: str
     visible: bool
+    source: Literal["agent"] | None = None
 
 
 @router.post("/api/panel-visibility")
@@ -253,9 +293,10 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     else:
         visible_panels = [p for p in visible_panels if p != body.panel]
     request.app.state.visible_panels = visible_panels
-    request.app.state.broadcaster.broadcast(
-        {"type": "panel_visibility", "panel": body.panel, "visible": body.visible}
-    )
+    event: dict = {"type": "panel_visibility", "panel": body.panel, "visible": body.visible}
+    if body.source:
+        event["source"] = body.source
+    request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "panel": body.panel, "visible": body.visible}
 
 
@@ -395,6 +436,7 @@ class PanelRegisterRequest(BaseModel):
     url: str
     path: str = "/"
     health_endpoint: str | None = None
+    source: Literal["agent"] | None = None
 
 
 @router.post("/api/panels/register")
@@ -477,16 +519,17 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     request.app.state.visible_panels = visible_panels
 
     browser_url = f"{compute_url_prefix()}/panel/{body.id}"
-    request.app.state.broadcaster.broadcast(
-        {
-            "type": "panel_register",
-            "id": body.id,
-            "label": body.label,
-            "url": browser_url,  # rewritten for the browser
-            "healthEndpoint": body.health_endpoint,
-            "path": body.path,
-        }
-    )
+    event: dict = {
+        "type": "panel_register",
+        "id": body.id,
+        "label": body.label,
+        "url": browser_url,  # rewritten for the browser
+        "healthEndpoint": body.health_endpoint,
+        "path": body.path,
+    }
+    if body.source:
+        event["source"] = body.source
+    request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "id": body.id, "label": body.label, "url": browser_url}
 
 

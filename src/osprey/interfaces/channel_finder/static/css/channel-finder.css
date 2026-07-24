@@ -1765,3 +1765,92 @@ textarea.form-input {
     display: flex;
   }
 }
+
+/* ================================================================
+   UI Mode: Simple
+   Third presentation axis (independent of theme + embedded). Every
+   delta gates on html[data-ui-mode="simple"]; Expert (the default) is
+   left untouched, so it stays pixel-identical to today. The plain
+   result cards (.cf-simple-*) are only emitted into the DOM by the
+   in-context renderer under Simple mode, so they need no mode guard.
+   ================================================================ */
+
+/* Header: drop the Explore/Feedback tabs, the pipeline switcher and the
+   stats badges — Simple keeps only the wordmark + theme toggle. */
+html[data-ui-mode="simple"] .header-nav,
+html[data-ui-mode="simple"] .pipeline-switcher,
+html[data-ui-mode="simple"] .stats-badges {
+  display: none;
+}
+
+/* Section header: keep the title (centred over the search), drop the
+   descriptive subtitle, db-source badge, description toggle and schema
+   diagram — all dense/pipeline chrome. */
+html[data-ui-mode="simple"] .section-header {
+  justify-content: center;
+  text-align: center;
+}
+
+html[data-ui-mode="simple"] .section-subtitle,
+html[data-ui-mode="simple"] .db-source-badge,
+html[data-ui-mode="simple"] .miller-toggle,
+html[data-ui-mode="simple"] .db-schema-section {
+  display: none;
+}
+
+/* Search box front and centre: the filter bar becomes a single large
+   input. Hide the "Filter:" / "N of M" labels (Simple prints its own
+   friendly count above the cards) and the inline Add-Channel button. */
+html[data-ui-mode="simple"] .filter-bar {
+  max-width: 720px;
+  margin: 0 auto var(--cf-space-5);
+  padding: var(--cf-space-2) var(--cf-space-3);
+}
+
+html[data-ui-mode="simple"] .filter-bar .filter-label,
+html[data-ui-mode="simple"] #ic-add-channel {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .filter-input {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  padding: var(--cf-space-2) var(--cf-space-3);
+}
+
+/* Plain result cards: address prominent, plain-language description below. */
+.cf-simple-count {
+  max-width: 720px;
+  margin: 0 auto var(--cf-space-3);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-sm);
+}
+
+.cf-simple-card-list {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cf-space-2);
+}
+
+.cf-simple-card {
+  background: var(--surface-card);
+  border: 1px solid var(--neutral-tint-10);
+  border-radius: var(--cf-radius-md);
+  padding: var(--cf-space-3) var(--cf-space-4);
+}
+
+.cf-simple-card-name {
+  font-family: var(--cf-font-pv);
+  color: var(--color-amber);
+  font-size: var(--cf-text-base);
+  letter-spacing: 0.02em;
+}
+
+.cf-simple-card-desc {
+  margin-top: var(--cf-space-1);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-sm);
+  line-height: 1.5;
+}

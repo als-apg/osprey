@@ -1,77 +1,50 @@
 /* OSPREY Web Terminal — Files Panel + Layout */
 
-/* ---- Resize Handle ---- */
-
-.resize-handle {
-  width: 5px;
-  cursor: col-resize;
-  background: var(--border-default);
-  position: relative;
-  flex-shrink: 0;
-  z-index: 10;
-  transition: background var(--wt-transition-fast);
-}
-
-.resize-handle:hover,
-.resize-handle.dragging {
-  background: var(--color-accent);
-}
-
-.resize-handle-grip {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  opacity: 0;
-  transition: opacity var(--wt-transition-fast);
-}
-
-.resize-handle:hover .resize-handle-grip,
-.resize-handle.dragging .resize-handle-grip {
-  opacity: 1;
-}
-
-.resize-handle-grip::before,
-.resize-handle-grip::after {
-  content: '';
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--color-accent-light);
-}
-
-body.resizing {
-  cursor: col-resize !important;
-  user-select: none !important;
-  -webkit-user-select: none !important;
-}
-
-body.resizing iframe {
-  pointer-events: none !important;
-}
-
 /* ---- Files Panel ---- */
 
 .files-panel {
   flex: 1 1 60%;
   min-width: 240px;
   display: flex;
-  background: var(--bg-panel);
-  border-left: 1px solid var(--border-default);
+  background: var(--bg-primary);
+  padding: var(--space-2);
+  box-sizing: border-box;
   overflow: hidden;
 }
 
 /* ---- Panel Content Area ---- */
 
+/* Default: a flat card framing the active panel's iframe (hairline border, 2px
+   radius, panel surface) so a panel that does NOT paint its own full-bleed
+   canvas still reads as an intentional framed embed. The iframe fills the card
+   (absolute inset 0) and clips to the radius via overflow:hidden. Panels that DO
+   paint their own canvas opt out below (see the data-active-panel rule). */
 .panel-content {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+}
+
+/* Workspace seam (frame 2a): the artifacts app paints its OWN --bg-primary
+   canvas + two cards, so the hub must not wrap it in a second bordered card
+   (card→canvas→cards). panel-manager stamps the active panel id on #right-panel;
+   the artifacts panel drops the hub card chrome AND the region padding so the
+   app's own 8px gutter is the only inset — an exact frame-2a match. Other panels
+   keep the padded card above. Inverted-scoped (opt-out) so a panel without its
+   own canvas is never left frameless. */
+#right-panel[data-active-panel="artifacts"] {
+  padding: 0;
+}
+
+#right-panel[data-active-panel="artifacts"] .panel-content {
+  background: none;
+  border: none;
+  border-radius: 0;
 }
 
 .panel-content .panel-iframe {
@@ -334,11 +307,11 @@ body.resizing iframe {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   border-top: 1px solid var(--border-default);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -356,6 +329,17 @@ body.resizing iframe {
   gap: var(--space-1);
 }
 
+/* External documentation link — the header book icon's home after frame 2a
+   stripped it from the hub chrome. Stays visible in both modes. */
+.status-link {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.status-link:hover {
+  color: var(--accent);
+}
+
 .status-dot {
   width: 5px;
   height: 5px;
@@ -364,11 +348,18 @@ body.resizing iframe {
 }
 
 .status-dot.live {
-  background: var(--color-accent-light);
+  background: var(--color-success);
 }
 
 .status-dot.error {
   background: var(--color-error);
+}
+
+/* Simple mode (frame 2b): drop the terminal-dimensions readout from the footer;
+   the WS health dot and clock stay. Pure display gating so expert restores it on
+   a live toggle-back. */
+html[data-ui-mode="simple"] #term-dims {
+  display: none;
 }
 
 /* ---- Responsive ---- */
@@ -380,16 +371,14 @@ body.resizing iframe {
 
   .terminal-panel {
     min-width: unset;
+    /* Stacked layout: the panel column comes first in the DOM now, so the
+       separator hairline moves to the terminal below it. */
+    border-top: 1px solid var(--border-default);
   }
 
   .files-panel {
     width: 100% !important;
     min-width: unset;
     border-left: none;
-    border-top: 1px solid var(--border-default);
-  }
-
-  .resize-handle {
-    display: none;
   }
 }

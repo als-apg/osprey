@@ -129,6 +129,26 @@
   border-bottom: none;
 }
 
+/* Transient highlight applied by revealSetting() (settings.js) when the command
+   palette jumps to a field: a brief accent wash + rounded frame that fades out,
+   drawing the eye to the just-revealed row. The class is removed after the flash
+   window, so the animation is one-shot. */
+.settings-field-flash {
+  animation: settings-field-flash var(--wt-transition-slow, 300ms) ease-out;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes settings-field-flash {
+  from {
+    background: var(--accent-tint-20);
+    box-shadow: 0 0 0 2px var(--color-accent);
+  }
+  to {
+    background: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
 .settings-field-label {
   font-family: var(--font-mono);
   font-size: var(--text-base);

@@ -8,6 +8,7 @@
 import { searchApi } from './api.js';
 import {
   renderEntryCard,
+  renderEntryCardSimple,
   renderAnswerBox,
   renderDiagnosticsBar,
   renderLoading,
@@ -17,6 +18,18 @@ import {
 } from './components.js';
 import { getCurrentMode, getAdvancedParams, closeAdvancedPanel } from './advanced-options.js';
 import { showEntry } from './entries-detail.js';
+
+/**
+ * Read the resolved UI mode (presentation axis, independent of the search
+ * mode). mode-boot.js has already stamped data-ui-mode on <html>; anything
+ * other than "simple" is treated as "expert".
+ * @returns {'expert'|'simple'}
+ */
+function getUiMode() {
+  return document.documentElement.getAttribute('data-ui-mode') === 'simple'
+    ? 'simple'
+    : 'expert';
+}
 
 /**
  * @typedef {Object} SearchResults
@@ -34,6 +47,9 @@ let currentQuery = '';
 let isSearching = false;
 /** @type {SearchResults|null} */
 let lastResults = null;
+// The search mode of the last render, kept so a live Expert<->Simple UI-mode
+// flip can re-render the same results without re-running the query.
+let lastSearchMode = 'keyword';
 
 /**
  * Wire up delegated click handling for entry cards and cited-source links.
@@ -157,6 +173,13 @@ function renderSearchResults(results, mode = 'keyword') {
   const resultsContainer = document.getElementById('search-results');
   if (!resultsContainer) return;
 
+  lastSearchMode = mode;
+
+  if (getUiMode() === 'simple') {
+    renderSearchResultsSimple(resultsContainer, results);
+    return;
+  }
+
   // Build results header
   const modesUsed = results.search_modes_used?.join(', ') || 'none';
   const execTime = results.execution_time_ms || 0;
@@ -204,6 +227,60 @@ function renderSearchResults(results, mode = 'keyword') {
   }
 
   resultsContainer.innerHTML = html;
+}
+
+/**
+ * Render search results for Simple mode (frame 1b): the plain-language answer
+ * (when present), a friendly "N entries found — newest first" header, and
+ * plain result cards. Deliberately omits the score/mode diagnostics chrome
+ * that the Expert render carries.
+ * @param {HTMLElement} container - The #search-results container
+ * @param {SearchResults} results - Search results from API
+ */
+function renderSearchResultsSimple(container, results) {
+  let html = '';
+
+  if (results.answer) {
+    html += renderAnswerBox(results.answer, results.sources);
+  }
+
+  const entries = results.entries ?? [];
+  if (entries.length === 0) {
+    html += renderEmptyState(
+      'No entries found',
+      'Try different words, or browse all entries.'
+    );
+    container.innerHTML = html;
+    return;
+  }
+
+  const count = results.total_results;
+  const noun = count === 1 ? 'entry' : 'entries';
+  html += `
+    <div class="results-header results-header-simple">
+      <span class="results-count"><strong>${count}</strong> ${noun} found &mdash; newest first</span>
+    </div>
+  `;
+
+  html += '<div class="results-list">';
+  entries.forEach(entry => {
+    html += renderEntryCardSimple(entry);
+  });
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+/**
+ * Re-render the current results after a live Expert<->Simple UI-mode flip.
+ * mode-boot.js / the app.js message listener has already stamped the new
+ * data-ui-mode on <html>; this just repaints the existing results (if any)
+ * into the layout that mode calls for. No-op when nothing has been searched.
+ */
+export function onUiModeChange() {
+  if (lastResults) {
+    renderSearchResults(lastResults, lastSearchMode);
+  }
 }
 
 /**

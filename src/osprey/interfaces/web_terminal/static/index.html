@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ web_theme_id }}">
+<html lang="en" data-theme="{{ web_theme_id }}" data-ui-mode="{{ web_ui_mode }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -23,9 +23,13 @@
   <!-- FOUC prevention: applies data-theme before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
 
+  <!-- FOUC prevention: applies data-ui-mode (expert/simple) before any CSS loads -->
+  <script src="{{ prefixed('/design-system/js/mode-boot.js') }}"></script>
+
   <!-- Design system tokens -->
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/highlight.css') }}">
 
   <!-- Family-picker theme switcher: self-registering Custom Element -->
   <script type="module" src="{{ prefixed('/design-system/js/components/osprey-theme-switcher.js') }}"></script>
@@ -51,14 +55,27 @@
   <!-- marked.js -->
   <script src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
 
+  <!-- DOMPurify: sanitizes marked's HTML output before it reaches the DOM -->
+  <script src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
+
+  <!-- dockview: docking workspace. UMD global window['dockview-core']. CSS before
+       the OSPREY styles below so our theming can override the base dockview rules. -->
+  <link rel="stylesheet" href="{{ prefixed(vendor_url('dockview-core css', '/static/vendor/dockview.css')) }}">
+  <!-- OSPREY theme bridge: remaps dockview's --dv-* onto design tokens. Must load
+       AFTER dockview.css so these overrides win the cascade. -->
+  <link rel="stylesheet" href="{{ prefixed('/static/css/dockview-overrides.css') }}">
+  <script src="{{ prefixed(vendor_url('dockview-core', '/static/vendor/dockview-core.min.js')) }}"></script>
+
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/files.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/operator.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/palette.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
@@ -75,58 +92,116 @@
       <span class="header-title">Web Terminal</span>
     </div>
     <div class="header-right">
-      <div class="header-tabs" id="header-tabs">
-        <!-- Populated by panel-manager.js -->
-      </div>
-      <!-- Add-panel control (browser-tab style "+"); menu populated by panel-add-menu.js -->
-      <div class="panel-add" id="panel-add">
-        <button class="panel-add-btn" id="panel-add-btn" type="button"
-                title="Add panel" aria-label="Add panel"
-                aria-haspopup="true" aria-expanded="false">+</button>
-        <div class="panel-add-menu" id="panel-add-menu" aria-label="Add panel"></div>
-      </div>
       <div class="header-actions">
+        <!-- Expert/Simple mode toggle. The active segment is CSS-driven off
+             html[data-ui-mode], so it reflects the resolved mode pre-paint;
+             app.js's initModeToggle() delegates clicks off #mode-toggle to
+             swap the attribute, persist, and broadcast to panels. -->
+        <div class="header-mode-toggle" id="mode-toggle" role="group" aria-label="UI mode">
+          <button class="mode-segment" data-mode="expert" type="button">
+            <span class="mode-segment-icon" aria-hidden="true">&#x269b;</span>Expert
+          </button>
+          <button class="mode-segment" data-mode="simple" type="button">
+            <span class="mode-segment-icon" aria-hidden="true">&#x25c9;</span>Simple
+          </button>
+        </div>
         {% if terminal_user %}<span class="header-app-name" id="header-user-name" title="Logged in as {{ terminal_user }}">{{ terminal_user }}</span>{% endif %}
         {% if app_name %}<span class="header-app-name" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
-        <a class="header-icon-btn" id="docs-link" href="https://als-apg.github.io/osprey/" title="Documentation" target="_blank" rel="noopener">&#128214;</a>
         <osprey-theme-switcher></osprey-theme-switcher>
+        <!-- Command palette trigger (frame). Reads as a search bar; behaviour
+             (Cmd/Ctrl+K, filtering, keyboard nav) is wired by a later JS task.
+             CSS-hidden in simple UI mode. -->
+        <button id="command-palette-btn" class="command-palette-trigger" type="button"
+                aria-label="Open command palette"
+                title="Search settings, panels &amp; actions (Cmd/Ctrl+K)">
+          <span class="command-palette-trigger-icon" aria-hidden="true">&#128269;</span>
+          <span class="command-palette-trigger-label">Search</span>
+          <span class="command-palette-kbd" aria-hidden="true">&#8984;K</span>
+        </button>
         <button class="header-icon-btn" data-drawer-trigger="settings-drawer" title="Settings">&#9881;</button>
+        <!-- Simple-mode help chip (frame 2b). CSS-gated off html[data-ui-mode]:
+             hidden in expert, shown in simple. An anchor to the safety guide so
+             it needs no JS and reacts to live mode flips purely through CSS. -->
+        <a class="header-icon-btn header-help-chip" href="{{ prefixed('/static/safety.html') }}"
+           target="_blank" rel="noopener" title="Help" aria-label="Help">?</a>
         {% if landing_url %}<button class="header-icon-btn" id="logout-btn" data-landing-url="{{ landing_url }}" title="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page" aria-label="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page"><span aria-hidden="true">&#128682;</span></button>{% endif %}
       </div>
     </div>
   </header>
 
-  <!-- Main Split Pane -->
-  <div class="main-container">
+  <!-- Shell body: the left rail column beside the resizable terminal/workspace split -->
+  <div class="shell-body">
 
-    <!-- Terminal Panel (Left) -->
-    <div class="terminal-panel">
-      <div class="terminal-header">
-        <span class="session-led" id="session-led"></span>
-        <span class="terminal-label" id="terminal-label">Session</span>
-        <div class="session-selector" id="session-selector"></div>
-        <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
-      </div>
-      <div class="terminal-body" id="terminal-body">
-        <div id="terminal-container"></div>
-        <div id="operator-container" class="operator-container"></div>
-        <div class="terminal-bezel"></div>
-      </div>
-    </div>
-
-    <!-- Resize Handle -->
-    <div class="resize-handle" id="resize-handle">
-      <div class="resize-handle-grip"></div>
-    </div>
-
-    <!-- Right Panel — Tabbed service panes -->
-    <div class="files-panel" id="right-panel">
-      <div class="panel-content" id="panel-content">
-        <!-- Active tab's iframe or empty state -->
+    <!-- Left icon rail: one entry per enabled panel + the add-panel control,
+         stacked in a single 74px column. Entries are populated by
+         panel-manager.js through panel-rail.js; the "+" menu by panel-add-menu.js. -->
+    <div class="panel-rail-region">
+      <nav class="panel-rail" id="panel-rail" role="tablist" aria-label="Panels">
+        <!-- Populated by panel-manager.js -->
+      </nav>
+      <div class="panel-add" id="panel-add">
+        <button class="panel-add-btn" id="panel-add-btn" type="button"
+                title="Add panel" aria-label="Add panel"
+                aria-haspopup="true" aria-expanded="false">&#xff0b;</button>
+        <div class="panel-add-menu" id="panel-add-menu" aria-label="Add panel"></div>
       </div>
     </div>
 
-  </div>
+    <!-- Dockview workspace: fills the row beside the rail. #dock-root is the
+         dockview-managed grid; dock-workspace.js adopts the terminal card below
+         into the shell's one native dockview panel at boot. Service panels dock
+         as overlay-backed placeholders (dock-iframe.js) — the first opens left
+         of the terminal at the old 60/40 split.
+         (#right-panel keeps its historical id — a frozen contract with
+         panel-manager/tests, not a position.) -->
+    <div class="main-container">
+
+      <!-- Dockview mounts its managed grid here. -->
+      <div class="dock-root" id="dock-root"></div>
+
+      <!-- Source subtrees parked here at load — kept OUT of #dock-root because
+           dockview fully manages its root's children. `display: contents` lets
+           them lay out normally during the (paint-free) boot tick so xterm opens
+           against a sized element. The terminal card is ADOPTED (moved, not
+           cloned) into its dockview panel; #right-panel is the FALLBACK iframe
+           host only (no dockview) and is hidden by dock-workspace.js in docked
+           mode. -->
+      <div class="dock-panel-sources" id="dock-panel-sources">
+
+        <!-- Panel column: fallback-mode service-iframe host + empty state. -->
+        <div class="files-panel" id="right-panel">
+          <div class="panel-content" id="panel-content">
+            <!-- Active panel's iframe or empty state -->
+          </div>
+        </div>
+
+        <!-- Terminal / chat card -->
+        <div class="terminal-panel">
+          <div class="terminal-card">
+            <div class="terminal-header">
+              <span class="session-led" id="session-led"></span>
+              <span class="terminal-label" id="terminal-label">Session</span>
+              <!-- Simple-mode label: a static plain-language "Connected" that replaces
+                   the mono SESSION <hex> + selector. CSS-gated off html[data-ui-mode]
+                   so the swap tracks live mode flips; terminal.js keeps writing the
+                   (now hidden) #terminal-label harmlessly, and expert restores on
+                   toggle-back. -->
+              <span class="terminal-label-simple">Connected</span>
+              <div class="session-selector" id="session-selector"></div>
+              <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
+            </div>
+            <div class="terminal-body" id="terminal-body">
+              <div id="terminal-container"></div>
+              <div id="operator-container" class="operator-container"></div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.dock-panel-sources -->
+
+    </div><!-- /.main-container -->
+
+  </div><!-- /.shell-body -->
 
   <!-- Status Bar -->
   <footer class="status-bar">
@@ -143,7 +218,14 @@
       </div>
       <div class="status-item" id="term-dims">--x--</div>
     </div>
+    <!-- Agent activity strip: most recent agent action ("agent wrote …").
+         Flexible middle region of this fixed-height bar, so entries appear
+         inside reserved space and never shift the layout. Populated by
+         activity-strip.js via panel-manager's setActivityStripHandler seam. -->
+    <div class="status-activity" id="activity-strip" role="status" aria-live="polite"></div>
     <div class="status-right">
+      <a class="status-item status-link" id="docs-link" href="https://als-apg.github.io/osprey/"
+         target="_blank" rel="noopener">Docs</a>
       <div class="status-item" id="status-clock">--:--:--</div>
     </div>
   </footer>
@@ -234,6 +316,10 @@
 
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>
+
+  <!-- Activity strip: self-registering module (like osprey-theme-switcher);
+       binds #activity-strip above to panel-manager's activity seam. -->
+  <script type="module" src="{{ prefixed('/static/js/activity-strip.js') }}"></script>
 
 </body>
 </html>

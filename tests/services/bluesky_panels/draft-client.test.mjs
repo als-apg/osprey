@@ -6,8 +6,9 @@
  *
  * Two layers are exercised:
  *  - The pure reducers (`reduceFrame`, `reduceReset`, `computeDelta`,
- *    `shouldShowAffordance`, `resolvePinnedRevision`) with plain frame
- *    objects — no DOM, no network, no `EventSource` (happy-dom has none).
+ *    `shouldShowAffordance`, `shouldAutoSwitch`, `shouldShowAgentDraftBanner`,
+ *    `resolvePinnedRevision`) with plain frame objects — no DOM, no network,
+ *    no `EventSource` (happy-dom has none).
  *  - `createDraftClient(deps)`, driven with a fake `sseFactory` (captures the
  *    `onFrame` callback so a test can push frames as plain objects) and a
  *    real `renderSchemaForm` collector over a small ORM-shaped schema, so the
@@ -23,6 +24,8 @@ import {
   reduceReset,
   computeDelta,
   shouldShowAffordance,
+  shouldAutoSwitch,
+  shouldShowAgentDraftBanner,
   resolvePinnedRevision,
   createDraftClient,
   createSSEConnection,
@@ -31,6 +34,7 @@ import {
   classifyLaunchResponse,
   resultsPanelUrl,
   buildLaunchBanner,
+  buildAgentDraftBanner,
 } from '../../../src/osprey/services/bluesky_panels/panels/plan/draft-client.js';
 import { renderSchemaForm } from '../../../src/osprey/services/bluesky_panels/panels/plan/schema-form.js';
 
@@ -269,6 +273,165 @@ describe('shouldShowAffordance', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Auto-switch / agent-draft banner (agent-activity highlighting)
+// ---------------------------------------------------------------------------
+
+const T1 = '2026-07-23T10:00:00+00:00';
+const T2 = '2026-07-23T10:05:00+00:00';
+
+/**
+ * @param {string} updatedAt
+ * @param {string} [updatedBy]
+ */
+function agentDraft(updatedAt, updatedBy = 'mcp-agent') {
+  return { plan_name: 'orm', plan_args: { num: 4 }, updated_by: updatedBy, updated_at: updatedAt };
+}
+
+describe('lastUpdatedBy/lastUpdatedAt maintenance', () => {
+  test('reduceReset copies the pair from the snapshot draft, null when the draft is null', () => {
+    let state = createInitialState('tab-1');
+    state = reduceReset(state, { draft: agentDraft(T1), revision: 1 });
+    expect(state.lastUpdatedBy).toBe('mcp-agent');
+    expect(state.lastUpdatedAt).toBe(T1);
+    state = reduceReset(state, { draft: null, revision: 2 });
+    expect(state.lastUpdatedBy).toBeNull();
+    expect(state.lastUpdatedAt).toBeNull();
+  });
+
+  test('reduceFrame maintains the pair on both the apply and echo paths', () => {
+    let state = createInitialState('tab-1');
+    state = reduceReset(state, { draft: null, revision: 5 });
+    const applied = reduceFrame(state, {
+      type: 'change',
+      draft: agentDraft(T1),
+      changed: ['num'],
+      revision: 6,
+      origin: 'mcp-agent',
+    });
+    expect(applied.action.type).toBe('apply');
+    expect(applied.state.lastUpdatedBy).toBe('mcp-agent');
+    expect(applied.state.lastUpdatedAt).toBe(T1);
+
+    const echoed = reduceFrame(applied.state, {
+      type: 'change',
+      draft: agentDraft(T2, 'tab-1'),
+      changed: ['num'],
+      revision: 7,
+      origin: 'tab-1',
+    });
+    expect(echoed.action.type).toBe('echo');
+    expect(echoed.state.lastUpdatedBy).toBe('tab-1');
+    expect(echoed.state.lastUpdatedAt).toBe(T2);
+  });
+});
+
+describe('shouldAutoSwitch / shouldShowAgentDraftBanner', () => {
+  test('a reconnect hello with unchanged updated_at never switches', () => {
+    let prev = createInitialState('tab-1');
+    prev = reduceReset(prev, { draft: agentDraft(T1), revision: 3 });
+    const reduced = reduceFrame(prev, { type: 'hello', draft: agentDraft(T1), revision: 3 });
+    expect(shouldAutoSwitch(prev, reduced)).toEqual({ switch: false, banner: false });
+  });
+
+  test('a hello repeating an updated_at already seen via a live frame never switches', () => {
+    let prev = createInitialState('tab-1');
+    prev = reduceReset(prev, { draft: null, revision: 5 });
+    const live = reduceFrame(prev, {
+      type: 'change',
+      draft: agentDraft(T1),
+      changed: ['num'],
+      revision: 6,
+      origin: 'mcp-agent',
+    });
+    // The live agent frame itself does switch (unbound, clean form)...
+    expect(shouldAutoSwitch(prev, live)).toEqual({ switch: true, banner: false });
+    // ...but a subsequent hello re-carrying the same updated_at does not.
+    prev = live.state;
+    const hello = reduceFrame(prev, { type: 'hello', draft: agentDraft(T1), revision: 6 });
+    expect(shouldAutoSwitch(prev, hello)).toEqual({ switch: false, banner: false });
+  });
+
+  test('first-open (lastAppliedRevision === null) with an agent draft present switches', () => {
+    const prev = createInitialState('tab-1');
+    const reduced = reduceFrame(prev, { type: 'hello', draft: agentDraft(T1), revision: 4 });
+    expect(shouldAutoSwitch(prev, reduced)).toEqual({ switch: true, banner: false });
+  });
+
+  test('formDirty suppresses the switch and raises the banner instead', () => {
+    let prev = createInitialState('tab-1');
+    prev = { ...prev, formDirty: true, selectedName: 'grid_scan' };
+    prev = reduceReset(prev, { draft: null, revision: 5 });
+    const reduced = reduceFrame(prev, {
+      type: 'change',
+      draft: agentDraft(T1),
+      changed: ['num'],
+      revision: 6,
+      origin: 'mcp-agent',
+    });
+    expect(shouldAutoSwitch(prev, reduced)).toEqual({ switch: false, banner: true });
+  });
+
+  test('an operator-tab origin (non-agent UUID) neither switches nor banners', () => {
+    const otherTab = 'b1c2d3e4-0000-4000-8000-000000000000';
+    let prev = createInitialState('tab-1');
+    prev = { ...prev, formDirty: true, selectedName: 'grid_scan' };
+    prev = reduceReset(prev, { draft: null, revision: 5 });
+    const reduced = reduceFrame(prev, {
+      type: 'change',
+      draft: agentDraft(T1, otherTab),
+      changed: ['num'],
+      revision: 6,
+      origin: otherTab,
+    });
+    expect(shouldAutoSwitch(prev, reduced)).toEqual({ switch: false, banner: false });
+  });
+
+  test('clear / plan-change while bannered recomputes the banner to false', () => {
+    let prev = createInitialState('tab-1');
+    prev = { ...prev, formDirty: true, selectedName: 'grid_scan' };
+    prev = reduceReset(prev, { draft: agentDraft(T1), revision: 6 });
+    expect(shouldShowAgentDraftBanner(prev)).toBe(true);
+
+    const cleared = reduceFrame(prev, { type: 'clear', draft: null, revision: 7, origin: 'mcp-agent' });
+    expect(shouldShowAgentDraftBanner(cleared.state)).toBe(false);
+    expect(shouldAutoSwitch(prev, cleared)).toEqual({ switch: false, banner: false });
+
+    const moved = reduceFrame(prev, {
+      type: 'plan-change',
+      draft: { plan_name: 'grid_scan', plan_args: {}, updated_by: 'mcp-agent', updated_at: T2 },
+      changed: [],
+      revision: 7,
+      origin: 'mcp-agent',
+    });
+    // The draft now names the very plan being viewed — nothing to banner.
+    expect(shouldShowAgentDraftBanner(moved.state)).toBe(false);
+  });
+
+  test('a null last-seen updated_at compares as always-in-the-past: an agent reset after a no-draft baseline switches', () => {
+    let prev = createInitialState('tab-1');
+    prev = reduceReset(prev, { draft: null, revision: 3 });
+    expect(prev.lastUpdatedAt).toBeNull();
+    const next = reduceReset(prev, { draft: agentDraft(T1), revision: 4 });
+    expect(shouldAutoSwitch(prev, { state: next, action: { type: 'reset' } })).toEqual({
+      switch: true,
+      banner: false,
+    });
+  });
+
+  test('a reset with a null draft never switches, even first-ever', () => {
+    const prev = createInitialState('tab-1');
+    const reduced = reduceFrame(prev, { type: 'hello', draft: null, revision: 1 });
+    expect(shouldAutoSwitch(prev, reduced)).toEqual({ switch: false, banner: false });
+
+    const later = reduceReset(reduced.state, { draft: null, revision: 2 });
+    expect(shouldAutoSwitch(reduced.state, { state: later, action: { type: 'reset' } })).toEqual({
+      switch: false,
+      banner: false,
+    });
+  });
+});
+
 describe('computeDelta', () => {
   test('a present key goes into plan_args_patch', () => {
     const { plan_args_patch, remove } = computeDelta({ num: 4, span_a: 1.5 }, ['num']);
@@ -335,6 +498,7 @@ function makeHarness(overrides = {}, schema = ORM_SCHEMA) {
     deleteDraft: vi.fn(async () => {}),
     onBoundChange: vi.fn(),
     onAffordance: vi.fn(),
+    onAgentDraftBanner: vi.fn(),
     onUnknownPlanBanner: vi.fn(),
     onAgentEditNote: vi.fn(),
     onPatchRejected: vi.fn(),
@@ -456,7 +620,7 @@ describe('createDraftClient — binding transitions', () => {
     expect(harness.client.isBound()).toBe(true);
 
     const numEl = harness.getCollector().fields.num.el;
-    expect(numEl.classList.contains('draft-flash')).toBe(false);
+    expect(numEl.classList.contains('agent-flash')).toBe(false);
 
     harness.push({
       type: 'change',
@@ -468,7 +632,7 @@ describe('createDraftClient — binding transitions', () => {
     await flushMicrotasks();
 
     expect(harness.getCollector()()).toEqual({ num: 4 });
-    expect(numEl.classList.contains('draft-flash')).toBe(true);
+    expect(numEl.classList.contains('agent-flash')).toBe(true);
     expect(harness.deps.onAgentEditNote).toHaveBeenCalledWith(['num']);
   });
 
@@ -490,7 +654,7 @@ describe('createDraftClient — binding transitions', () => {
     await flushMicrotasks();
 
     expect(applyValuesSpy).not.toHaveBeenCalled();
-    expect(numEl.classList.contains('draft-flash')).toBe(false);
+    expect(numEl.classList.contains('agent-flash')).toBe(false);
     expect(harness.deps.onAgentEditNote).not.toHaveBeenCalled();
   });
 
@@ -987,12 +1151,17 @@ describe('createDraftClient — cross-plan rebind reuses selectPlan (reentrancy)
     });
     ref.harness = harness;
 
+    // Not a once-mock: the first-open hello below legitimately auto-switches
+    // (shouldAutoSwitch's first-ever-reset rule), whose re-entrant selectPlan
+    // performs its own bind fetch alongside the explicit selection's.
+    harness.deps.getDraft.mockResolvedValue({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
     harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    await settleAsyncWork();
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
+    harness.deps.selectPlan.mockClear();
 
-    harness.deps.getDraft.mockResolvedValueOnce({
+    harness.deps.getDraft.mockResolvedValue({
       draft: { plan_name: 'grid_scan', plan_args: { num: 2 } },
       revision: 2,
     });
@@ -1003,7 +1172,7 @@ describe('createDraftClient — cross-plan rebind reuses selectPlan (reentrancy)
       revision: 2,
       origin: 'mcp-agent',
     });
-    await flushMicrotasks();
+    await settleAsyncWork();
 
     expect(harness.deps.selectPlan).toHaveBeenCalledTimes(1);
     expect(harness.deps.selectPlan).toHaveBeenCalledWith('grid_scan');
@@ -1012,6 +1181,379 @@ describe('createDraftClient — cross-plan rebind reuses selectPlan (reentrancy)
     expect(harness.getCollector()()).toEqual({ num: 2 });
 
     harness.client.destroy();
+  });
+});
+
+describe('createDraftClient — agent auto-switch wiring', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  /** A harness whose selectPlan re-enters onPlanSelected, like the real panel. */
+  function makeReentrantHarness() {
+    const ref = /** @type {{ harness?: any }} */ ({});
+    const harness = makeHarness({
+      selectPlan: vi.fn(async (/** @type {string} */ name) => {
+        await ref.harness.client.onPlanSelected(name);
+      }),
+    });
+    ref.harness = harness;
+    return harness;
+  }
+
+  test('an unbound agent frame auto-switches via deps.selectPlan and flashes ALL applied keys (not changed[])', async () => {
+    const harness = makeReentrantHarness();
+    harness.push({ type: 'hello', draft: null, revision: 0 });
+    await harness.client.onPlanSelected('grid_scan');
+    expect(harness.deps.selectPlan).not.toHaveBeenCalled();
+
+    const draft = { plan_name: 'orm', plan_args: { num: 4, span_a: 1.5 }, updated_by: 'mcp-agent', updated_at: T1 };
+    harness.deps.getDraft.mockResolvedValue({ draft, revision: 1 });
+    harness.push({ type: 'change', draft, changed: ['num'], revision: 1, origin: 'mcp-agent' });
+    await settleAsyncWork();
+
+    expect(harness.deps.selectPlan).toHaveBeenCalledTimes(1);
+    expect(harness.deps.selectPlan).toHaveBeenCalledWith('orm');
+    expect(harness.client.isBound()).toBe(true);
+    // The whole applied arg set flashes — the frame's changed[] named only
+    // 'num', but span_a is agent-authored content newly on screen too.
+    expect(harness.getCollector().fields.num.el.classList.contains('agent-flash')).toBe(true);
+    expect(harness.getCollector().fields.span_a.el.classList.contains('agent-flash')).toBe(true);
+
+    harness.client.destroy();
+  });
+
+  test('an operator-tab-origin frame never auto-switches (echo or foreign UUID)', async () => {
+    const harness = makeReentrantHarness();
+    harness.push({ type: 'hello', draft: null, revision: 0 });
+    await harness.client.onPlanSelected('grid_scan');
+
+    const otherTab = 'b1c2d3e4-0000-4000-8000-000000000000';
+    harness.push({
+      type: 'change',
+      draft: { plan_name: 'orm', plan_args: { num: 4 }, updated_by: otherTab, updated_at: T1 },
+      changed: ['num'],
+      revision: 1,
+      origin: otherTab,
+    });
+    await settleAsyncWork();
+    expect(harness.deps.selectPlan).not.toHaveBeenCalled();
+
+    // Own-origin echo likewise never switches.
+    harness.push({
+      type: 'change',
+      draft: { plan_name: 'orm', plan_args: { num: 5 }, updated_by: 'tab-1', updated_at: T2 },
+      changed: ['num'],
+      revision: 2,
+      origin: 'tab-1',
+    });
+    await settleAsyncWork();
+    expect(harness.deps.selectPlan).not.toHaveBeenCalled();
+
+    harness.client.destroy();
+  });
+
+  test('an unbound manual edit sets formDirty: no PATCH, no switch, banner decision exposed; re-selection clears it', async () => {
+    const harness = makeReentrantHarness();
+    harness.push({ type: 'hello', draft: null, revision: 0 });
+    await harness.client.onPlanSelected('grid_scan');
+    expect(harness.client.getAgentDraftBannerPlan()).toBeNull();
+
+    // Unbound manual edit: dirties the form, never schedules a PATCH.
+    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    numInput.value = '7';
+    numInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await settleAsyncWork();
+    expect(harness.deps.patchDraft).not.toHaveBeenCalled();
+
+    const draft = { plan_name: 'orm', plan_args: { num: 4 }, updated_by: 'mcp-agent', updated_at: T1 };
+    harness.push({ type: 'change', draft, changed: ['num'], revision: 1, origin: 'mcp-agent' });
+    await settleAsyncWork();
+
+    // Dirty form: the switch is suppressed, the banner decision is exposed.
+    expect(harness.deps.selectPlan).not.toHaveBeenCalled();
+    expect(harness.client.getAgentDraftBannerPlan()).toBe('orm');
+
+    // Re-selecting a plan abandons the manual edits and clears formDirty, so
+    // the next agent frame switches again.
+    harness.deps.getDraft.mockResolvedValue({ draft: null, revision: 1 });
+    await harness.client.onPlanSelected('grid_scan');
+    expect(harness.client.getAgentDraftBannerPlan()).toBeNull();
+    const draft2 = { plan_name: 'orm', plan_args: { num: 5 }, updated_by: 'mcp-agent', updated_at: T2 };
+    harness.deps.getDraft.mockResolvedValue({ draft: draft2, revision: 2 });
+    harness.push({ type: 'change', draft: draft2, changed: ['num'], revision: 2, origin: 'mcp-agent' });
+    await settleAsyncWork();
+    expect(harness.deps.selectPlan).toHaveBeenCalledWith('orm');
+    expect(harness.client.isBound()).toBe(true);
+
+    harness.client.destroy();
+  });
+
+  test('a first-open hello with a draft present auto-switches and flashes the applied args', async () => {
+    const harness = makeReentrantHarness();
+    const draft = { plan_name: 'orm', plan_args: { num: 3 }, updated_by: 'mcp-agent', updated_at: T1 };
+    harness.deps.getDraft.mockResolvedValue({ draft, revision: 2 });
+    harness.push({ type: 'hello', draft, revision: 2 });
+    await settleAsyncWork();
+
+    expect(harness.deps.selectPlan).toHaveBeenCalledTimes(1);
+    expect(harness.deps.selectPlan).toHaveBeenCalledWith('orm');
+    expect(harness.client.isBound()).toBe(true);
+    expect(harness.getCollector().fields.num.el.classList.contains('agent-flash')).toBe(true);
+
+    harness.client.destroy();
+  });
+
+  test('a reconnect hello repeating an already-seen updated_at does not re-switch', async () => {
+    const harness = makeReentrantHarness();
+    const draft = { plan_name: 'orm', plan_args: { num: 3 }, updated_by: 'mcp-agent', updated_at: T1 };
+    harness.deps.getDraft.mockResolvedValue({ draft, revision: 2 });
+    harness.push({ type: 'hello', draft, revision: 2 });
+    await settleAsyncWork();
+    expect(harness.deps.selectPlan).toHaveBeenCalledTimes(1);
+
+    // The operator navigates away; a reconnect hello re-carries the SAME
+    // updated_at — a routine reconnect, not new agent work: no switch-back.
+    harness.deps.getDraft.mockResolvedValue({ draft: null, revision: 2 });
+    await harness.client.onPlanSelected('grid_scan');
+    harness.deps.selectPlan.mockClear();
+    harness.deps.getDraft.mockResolvedValue({ draft, revision: 2 });
+    harness.push({ type: 'hello', draft, revision: 2 });
+    await settleAsyncWork();
+    expect(harness.deps.selectPlan).not.toHaveBeenCalled();
+
+    harness.client.destroy();
+  });
+
+  test('an unknown draft plan never switches (banner path instead)', async () => {
+    const harness = makeReentrantHarness();
+    harness.setKnownPlanNames(['orm']);
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'phantom', plan_args: {}, updated_by: 'mcp-agent', updated_at: T1 },
+      revision: 1,
+    });
+    await settleAsyncWork();
+    expect(harness.deps.selectPlan).not.toHaveBeenCalled();
+    expect(harness.deps.onUnknownPlanBanner).toHaveBeenLastCalledWith('phantom');
+
+    harness.client.destroy();
+  });
+});
+
+describe('createDraftClient — agent-draft banner (declarative UI)', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  /**
+   * A harness whose onAgentDraftBanner renders the real banner DOM into a
+   * live container via buildAgentDraftBanner, wired exactly like panel.js:
+   * removed on null, rebuilt from the plan name otherwise, with the view
+   * action re-entering deps.selectPlan (which re-enters onPlanSelected, like
+   * the real panel's selectPlan).
+   */
+  function makeBannerHarness() {
+    const bannerEl = document.createElement('div');
+    bannerEl.hidden = true;
+    document.body.appendChild(bannerEl);
+    const ref = /** @type {{ harness?: any }} */ ({});
+    const harness = makeHarness({
+      selectPlan: vi.fn(async (/** @type {string} */ name) => {
+        await ref.harness.client.onPlanSelected(name);
+      }),
+      onAgentDraftBanner: vi.fn((/** @type {string|null} */ planName) => {
+        if (planName === null) {
+          bannerEl.hidden = true;
+          bannerEl.replaceChildren();
+          return;
+        }
+        bannerEl.replaceChildren(
+          buildAgentDraftBanner(document, planName, (/** @type {string} */ name) => {
+            void ref.harness.deps.selectPlan(name);
+          })
+        );
+        bannerEl.hidden = false;
+      }),
+    });
+    ref.harness = harness;
+    return { harness, bannerEl };
+  }
+
+  /**
+   * Arm the banner predicate: viewing grid_scan with a dirty (unbound) form
+   * when an agent draft lands on orm.
+   *
+   * @param {any} harness
+   */
+  async function armBanner(harness) {
+    harness.push({ type: 'hello', draft: null, revision: 0 });
+    await harness.client.onPlanSelected('grid_scan');
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
+    numInput.value = '7';
+    numInput.dispatchEvent(new Event('input', { bubbles: true })); // formDirty
+    const draft = { plan_name: 'orm', plan_args: { num: 4 }, updated_by: 'mcp-agent', updated_at: T1 };
+    harness.deps.getDraft.mockResolvedValue({ draft, revision: 1 });
+    harness.push({ type: 'change', draft, changed: ['num'], revision: 1, origin: 'mcp-agent' });
+    await settleAsyncWork();
+  }
+
+  test('dirty form + agent draft on another plan → banner appears with the plan name', async () => {
+    const { harness, bannerEl } = makeBannerHarness();
+    await armBanner(harness);
+
+    expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith('orm');
+    expect(bannerEl.hidden).toBe(false);
+    expect(bannerEl.textContent).toContain('agent drafted orm');
+    const viewBtn = /** @type {HTMLButtonElement|null} */ (
+      bannerEl.querySelector('button.agent-draft-banner-view')
+    );
+    expect(viewBtn).not.toBeNull();
+    if (!viewBtn) throw new Error('unreachable: view button asserted non-null');
+    expect(viewBtn.dataset.planName).toBe('orm');
+    // No auto-switch happened — the banner is precisely its dirty-form complement.
+    expect(harness.deps.selectPlan).not.toHaveBeenCalled();
+
+    harness.client.destroy();
+  });
+
+  test('the banner survives a re-render: another unbound frame apply with the predicate still true', async () => {
+    const { harness, bannerEl } = makeBannerHarness();
+    await armBanner(harness);
+
+    const draft2 = { plan_name: 'orm', plan_args: { num: 5 }, updated_by: 'mcp-agent', updated_at: T2 };
+    harness.deps.getDraft.mockResolvedValue({ draft: draft2, revision: 2 });
+    harness.push({ type: 'change', draft: draft2, changed: ['num'], revision: 2, origin: 'mcp-agent' });
+    await settleAsyncWork();
+
+    expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith('orm');
+    expect(bannerEl.hidden).toBe(false);
+    expect(bannerEl.textContent).toContain('agent drafted orm');
+
+    harness.client.destroy();
+  });
+
+  test('the banner disappears when the draft is cleared (null draft frame)', async () => {
+    const { harness, bannerEl } = makeBannerHarness();
+    await armBanner(harness);
+    expect(bannerEl.hidden).toBe(false);
+
+    harness.push({ type: 'clear', draft: null, revision: 2, origin: 'mcp-agent' });
+    await settleAsyncWork();
+
+    expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith(null);
+    expect(bannerEl.hidden).toBe(true);
+    expect(bannerEl.childNodes).toHaveLength(0);
+
+    harness.client.destroy();
+  });
+
+  test('the banner disappears on navigate-to-draft (onPlanSelected to the drafted plan)', async () => {
+    const { harness, bannerEl } = makeBannerHarness();
+    await armBanner(harness);
+    expect(bannerEl.hidden).toBe(false);
+
+    await harness.client.onPlanSelected('orm');
+
+    expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith(null);
+    expect(bannerEl.hidden).toBe(true);
+    // Selecting the drafted plan binds (the draft names it), which is what
+    // makes the predicate — and hence the banner — go false for good.
+    expect(harness.client.isBound()).toBe(true);
+    expect(harness.client.getAgentDraftBannerPlan()).toBeNull();
+
+    harness.client.destroy();
+  });
+
+  test('clicking the view action calls selectPlan with the draft plan name and self-clears', async () => {
+    const { harness, bannerEl } = makeBannerHarness();
+    await armBanner(harness);
+
+    const viewBtn = /** @type {HTMLButtonElement} */ (
+      bannerEl.querySelector('button.agent-draft-banner-view')
+    );
+    viewBtn.click();
+    await settleAsyncWork();
+
+    expect(harness.deps.selectPlan).toHaveBeenCalledTimes(1);
+    expect(harness.deps.selectPlan).toHaveBeenCalledWith('orm');
+    // selectPlan → onPlanSelected('orm') binds and clears formDirty, so the
+    // banner predicate goes false and the banner removes itself.
+    expect(harness.client.isBound()).toBe(true);
+    expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith(null);
+    expect(bannerEl.hidden).toBe(true);
+
+    harness.client.destroy();
+  });
+
+  test('the passive affordance is suppressed while the banner is active', async () => {
+    const { harness } = makeBannerHarness();
+    await armBanner(harness);
+
+    expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith('orm');
+    expect(harness.deps.onAffordance).toHaveBeenLastCalledWith(null);
+    expect(harness.deps.onAffordance).not.toHaveBeenCalledWith('orm');
+
+    harness.client.destroy();
+  });
+
+  test('dirtying the form AFTER the agent draft landed surfaces the banner immediately', async () => {
+    const { harness, bannerEl } = makeBannerHarness();
+    // Agent draft exists on orm, but the operator navigates to grid_scan
+    // with a clean form (a navigate-away after the auto-switch already
+    // happened) — no banner yet.
+    const draft = { plan_name: 'orm', plan_args: { num: 4 }, updated_by: 'mcp-agent', updated_at: T1 };
+    harness.deps.getDraft.mockResolvedValue({ draft, revision: 1 });
+    harness.push({ type: 'hello', draft, revision: 1 });
+    await settleAsyncWork();
+    await harness.client.onPlanSelected('grid_scan');
+    expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith(null);
+
+    // The operator's first manual edit arms formDirty — the banner must
+    // appear at the flip, not wait for the next frame.
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
+    numInput.value = '7';
+    numInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith('orm');
+    expect(bannerEl.hidden).toBe(false);
+
+    harness.client.destroy();
+  });
+});
+
+describe('buildAgentDraftBanner', () => {
+  test('renders the note and view action; the click callback receives the plan name', () => {
+    const onView = vi.fn();
+    const frag = buildAgentDraftBanner(document, 'orm', onView);
+    const host = document.createElement('div');
+    host.appendChild(frag);
+
+    expect(host.textContent).toContain('agent drafted orm');
+    const btn = /** @type {HTMLButtonElement|null} */ (host.querySelector('button.agent-draft-banner-view'));
+    expect(btn).not.toBeNull();
+    if (!btn) throw new Error('unreachable: button asserted non-null');
+    expect(btn.dataset.planName).toBe('orm');
+    btn.click();
+    expect(onView).toHaveBeenCalledWith('orm');
+  });
+
+  test('an HTML-bearing plan name never becomes markup — text node only', () => {
+    const evil = '<img src=x onerror=alert(1)>';
+    const frag = buildAgentDraftBanner(document, evil, vi.fn());
+    const host = document.createElement('div');
+    host.appendChild(frag);
+
+    expect(host.querySelector('img')).toBeNull();
+    expect(host.textContent).toContain(`agent drafted ${evil}`);
+    const btn = /** @type {HTMLButtonElement|null} */ (host.querySelector('button.agent-draft-banner-view'));
+    expect(btn).not.toBeNull();
+    if (!btn) throw new Error('unreachable: button asserted non-null');
+    expect(btn.dataset.planName).toBe(evil);
   });
 });
 
@@ -1404,4 +1946,13 @@ async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+/**
+ * Drain the WHOLE microtask queue (a macrotask hop — real timers only): the
+ * auto-switch chain re-enters selectPlan -> onPlanSelected -> bind, which is
+ * deeper than flushMicrotasks' fixed three ticks can interleave through.
+ */
+async function settleAsyncWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }

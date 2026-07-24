@@ -28,7 +28,7 @@
  */
 
 import { escapeHtml } from '/design-system/js/dom.js';
-import { resetFetchCache, withPrefix } from './data.js';
+import { resetFetchCache, apiRequest } from './data.js';
 import { createScaffoldGalleryDetailContent } from './detail-content.js';
 
 /**
@@ -102,18 +102,11 @@ export function createScaffoldGalleryDetail(gallery) {
       return;
     }
 
-    fetch(withPrefix('/api/scaffold/create'), { // prefix-aware
+    apiRequest('/api/scaffold/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, name: sanitized }),
+      json: { category, name: sanitized },
+      errorPrefix: 'Create failed',
     })
-      .then(async (res) => {
-        if (!res.ok) {
-          const detail = await res.json().catch(() => ({}));
-          throw new Error(detail.detail || `Create failed (HTTP ${res.status})`);
-        }
-        return res.json();
-      })
       .then((result) => {
         resetFetchCache();
         gallery.load().then(() => {

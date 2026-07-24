@@ -9,8 +9,18 @@
   follows it -- no raw color literals anywhere in this file.
 -->
 <script src="/design-system/js/theme-boot.js"></script>
+<!--
+  Pre-paint UI-mode boot: stamps data-ui-mode (expert|simple) from the host's
+  `?mode=` before first paint, the same zero-dep contract as theme-boot above.
+  Live Expert<->Simple flips arrive as the hub's `osprey-mode-change`
+  postMessage, handled in panel.js.
+-->
+<script src="/design-system/js/mode-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
+<!-- Shared agent-activity flash (.agent-flash), fired by draft-client.js via
+     flashElement() when agent draft edits land on the form. -->
+<link rel="stylesheet" href="/design-system/css/highlight.css">
 <!-- Self-hosted brand fonts (Outfit / JetBrains Mono). Root-absolute so it
      resolves against the serving host in every embedding context. -->
 <link rel="stylesheet" href="/static/fonts/fonts.css">

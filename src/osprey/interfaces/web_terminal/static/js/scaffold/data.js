@@ -18,7 +18,7 @@
  * @module scaffold/data
  */
 
-import { fetchJSON, withPrefix } from '../api.js';
+import { fetchJSON, apiRequest } from '../api.js';
 
 // ---- Shared Fetch Cache ---- //
 
@@ -42,7 +42,7 @@ export function resetFetchCache() {
 
 // Re-exported so the sibling scaffold write-action modules (edit.js,
 // detail.js) share api.js's one copy instead of each keeping their own.
-export { withPrefix };
+export { apiRequest };
 
 // ---- Data Actions ---- //
 
@@ -111,15 +111,11 @@ export async function loadArtifacts(state, opts = {}) {
  * @returns {Promise<void>}
  */
 export async function registerUntrackedFile(canonicalName) {
-  const resp = await fetch(withPrefix('/api/scaffold/untracked/register'), { // prefix-aware
+  await apiRequest('/api/scaffold/untracked/register', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: canonicalName }),
+    json: { name: canonicalName },
+    errorPrefix: 'Register failed',
   });
-  if (!resp.ok) {
-    const detail = await resp.json().catch(() => ({}));
-    throw new Error(detail.detail || `Register failed (HTTP ${resp.status})`);
-  }
 }
 
 /**
@@ -131,14 +127,10 @@ export async function registerUntrackedFile(canonicalName) {
 export async function deleteUntrackedFile(canonicalName) {
   if (!confirm(`Delete "${canonicalName}"? This file will be removed from disk.`)) return false;
 
-  const resp = await fetch(
-    withPrefix(`/api/scaffold/untracked/${encodeURIComponent(canonicalName)}`), // prefix-aware
-    { method: 'DELETE' }
-  );
-  if (!resp.ok) {
-    const detail = await resp.json().catch(() => ({}));
-    throw new Error(detail.detail || `Delete failed (HTTP ${resp.status})`);
-  }
+  await apiRequest(`/api/scaffold/untracked/${encodeURIComponent(canonicalName)}`, {
+    method: 'DELETE',
+    errorPrefix: 'Delete failed',
+  });
   return true;
 }
 
@@ -186,8 +178,9 @@ export function createScaffoldDataActions(domain, callbacks) {
 
   /**
    * Full reload after a mutating action: invalidates the shared cache first.
-   * Does not catch its own errors — callers (registerUntracked/deleteUntracked
-   * below) are the only callers and already wrap this in error handling.
+   * Does not catch its own errors — every caller (registerUntracked/
+   * deleteUntracked below, and the edit-flow actions reaching it via the
+   * gallery's reloadFull delegate) wraps it in its own error handling.
    */
   async function reloadFull() {
     const result = await loadArtifacts(domain, { skipCache: true });

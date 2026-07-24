@@ -5,6 +5,10 @@
        before any stylesheet. Live theme changes are handled by the
        theme-manager FOLLOWER role in app.js. -->
   <script src="/design-system/js/theme-boot.js"></script>
+  <!-- Mode boot: applies data-ui-mode (expert/simple) pre-paint, same zero-dep
+       contract as theme-boot. Live mode flips arrive via the hub's
+       'osprey-mode-change' postMessage, handled in app.js. -->
+  <script src="/design-system/js/mode-boot.js"></script>
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
   <meta charset="UTF-8">
@@ -50,6 +54,10 @@
             <a href="#create" class="nav-link" data-view="create">New Entry</a>
             <a href="#status" class="nav-link" data-view="status">Status</a>
           </nav>
+          <!-- Simple mode (frame 1b): the four-tab strip collapses to a single
+               plain-language link. CSS-gated off html[data-ui-mode="simple"];
+               hidden (and out of the tab order) in expert mode. -->
+          <a href="#browse" class="nav-simple-link" data-view="browse">Browse all entries &rarr;</a>
         </div>
         <div class="header-right">
           <span class="status-indicator" id="health-indicator">

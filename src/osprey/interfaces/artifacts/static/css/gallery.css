@@ -94,10 +94,21 @@
   /* === Layout === */
   --container-max: 1600px;
   --header-height: 52px;
-  --sidebar-width: 320px;
+  /* Browse-view shell constants live in the shared token pipeline
+     (--art-panel-radius/-gap and --art-browser-band-height, artifacts.json):
+     the card radius, the canvas gutter, and the browser band's list-strip
+     height. */
 }
 
-/* When embedded in web terminal, hide logo (tab bar shows module name) */
+/* In the web-terminal shell the host chrome supplies the wordmark, theme
+   toggle and status (and the rail names the active module), so the whole
+   app header is hidden and the browse view's two cards fill the panel
+   (frame 2a). Standalone, the header stays as a slim wordmark + theme +
+   status bar above the cards. */
+body.embedded .header { display: none; }
+/* Explicit branding rule alongside the whole-header hide: display does not
+   inherit, so the D15 embedded contract (computed display:none on .logo)
+   needs the logo named directly, not just its hidden ancestor. */
 body.embedded .logo { display: none; }
 
 /* ================================================================
@@ -402,16 +413,69 @@ code {
 }
 
 /* ================================================================
-   Filter Bar
+   Browser-column card header (title + count + All Sessions + refresh)
+   ================================================================ */
+
+.browser-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-1);
+  padding: var(--art-space-2) var(--art-space-3);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.browser-card-title {
+  font-family: var(--font-display);
+  font-size: var(--art-text-xs);
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-artifact-count {
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* All Sessions sits at the trailing edge, refresh after it. Compact (tight
+   padding, no extra tracking) to keep the band header a slim single row
+   alongside the title + count. */
+.browser-card-header .btn-session-toggle {
+  margin-left: auto;
+  padding: 3px var(--art-space-2);
+  letter-spacing: var(--tracking-normal);
+  flex-shrink: 0;
+}
+
+/* Compact icon refresh control, matching the band header's slim single-row
+   scale rather than the header's default 28px square button. */
+.browser-card-header .btn-header-refresh {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.browser-card-header .btn-header-refresh .refresh-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ================================================================
+   Filter Bar (chips row inside the browser-column card)
    ================================================================ */
 
 .filter-bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
+  padding: var(--art-space-2) var(--art-space-3) 0;
   flex-wrap: wrap;
   flex-shrink: 0;
 }
@@ -523,82 +587,39 @@ code {
    Browse View — Split Pane Layout
    ================================================================ */
 
+/* Two stacked cards floating on the neutral canvas: 8px gutter around the
+   pair (padding) and between them (gap). A compact browser band on top —
+   count/actions header, filter chips, Types/Activity + filter, and a short
+   scrollable artifact list — with the artifact detail card dominant below,
+   at all panel widths. The canvas (--bg-primary) shows through the gutters. */
 .browse-layout {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  gap: var(--art-panel-gap);
+  padding: var(--art-panel-gap);
+  background: var(--bg-primary);
 }
 
-/* ---- Sidebar ---- */
+/* ---- Browser band (top card) ---- */
 
 .browse-sidebar {
-  width: var(--sidebar-width);
-  min-width: 48px;
-  max-width: calc(100vw - 48px);
   background: var(--bg-panel);
-  border-right: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--art-panel-radius);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   flex-shrink: 0;
 }
 
-/* ---- Resize Handle ---- */
-
+/* Resize handle retired with the two-column split — the browser is now a
+   full-width band, not a resizable left column. The element stays in the DOM
+   (gallery.js binds it) but is inert. */
 .resize-handle {
-  width: 5px;
-  cursor: col-resize;
-  background: var(--border-default);
-  position: relative;
-  flex-shrink: 0;
-  z-index: 10;
-  transition: background var(--transition-fast);
-}
-
-.resize-handle:hover,
-.resize-handle.dragging {
-  background: var(--color-accent-dark);
-}
-
-.resize-handle-grip {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 3px;
-  height: 32px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.resize-handle:hover .resize-handle-grip,
-.resize-handle.dragging .resize-handle-grip {
-  opacity: 1;
-}
-
-.resize-handle-grip::before,
-.resize-handle-grip::after {
-  content: '';
-  width: 3px;
-  height: 3px;
-  border-radius: var(--art-radius-full);
-  background: var(--color-accent-light);
-}
-
-/* Prevent text selection and iframe pointer capture while dragging */
-body.resizing {
-  cursor: col-resize !important;
-  user-select: none !important;
-  -webkit-user-select: none !important;
-}
-
-body.resizing iframe {
-  pointer-events: none !important;
+  display: none;
 }
 
 .sidebar-header {
@@ -616,14 +637,29 @@ body.resizing iframe {
   align-items: stretch;
 }
 
-/* Mode toggle (Types / Activity) */
+/* Mode toggle (Types / Activity) — its natural width, so the inline filter
+   beside it takes the rest of the row (frame 2a). */
 .sidebar-mode-toggle {
   display: flex;
+  flex: 0 0 auto;
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--art-radius-md);
   padding: 2px;
   gap: 2px;
+}
+
+/* Compact the Types/Activity buttons so the inline filter keeps usable
+   width in the ~220px browser column (matches frame 2a's proportions). */
+.sidebar-controls-row .mode-btn {
+  padding: 5px var(--art-space-2);
+  letter-spacing: var(--tracking-normal);
+  gap: 3px;
+}
+
+.sidebar-controls-row .mode-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 .mode-btn {
@@ -675,6 +711,11 @@ body.resizing iframe {
   flex-shrink: 0;
 }
 
+/* Explicit — a `display: flex` rule outranks the UA `[hidden]` default. */
+.sidebar-layout-toggle[hidden] {
+  display: none;
+}
+
 .layout-btn {
   display: inline-flex;
   align-items: center;
@@ -700,9 +741,12 @@ body.resizing iframe {
   background: var(--accent-tint-08);
 }
 
-/* Sidebar search */
+/* Sidebar search — sits inline beside the mode toggle (frame 2a), taking
+   the remaining row width. */
 .sidebar-search {
   position: relative;
+  flex: 1;
+  min-width: 0;
 }
 
 .sidebar-search-icon {
@@ -737,9 +781,11 @@ body.resizing iframe {
   border-color: var(--color-accent-dark);
 }
 
-/* Sidebar body */
+/* Sidebar body — a short, bounded scrollable strip (frame: browser band on
+   top). Fixed height so the artifact detail card below stays dominant; the
+   list scrolls within this height rather than growing the band. */
 .sidebar-body {
-  flex: 1;
+  height: var(--art-browser-band-height);
   overflow-y: auto;
   padding: var(--art-space-2) 0;
 }
@@ -1216,7 +1262,10 @@ body.resizing iframe {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--bg-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--art-panel-radius);
+  overflow: hidden;
   position: relative;
 }
 
@@ -1394,6 +1443,295 @@ body.resizing iframe {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--neutral-tint-10);
   padding-bottom: var(--art-space-2);
+}
+
+/* ================================================================
+   Simple Mode — latest-result card + session-results list (frame 2b)
+   ================================================================ */
+
+/* Mode gating: the browse (Expert) view is the default; the Simple view is
+   shown only under html[data-ui-mode="simple"]. The id+attribute selectors
+   outrank .view.active without needing !important. */
+#view-artifacts-simple {
+  display: none;
+}
+
+:root[data-ui-mode="simple"] #view-artifacts-browse {
+  display: none;
+}
+
+:root[data-ui-mode="simple"] #view-artifacts-simple {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  animation: fadeIn var(--transition-base);
+}
+
+/* Vertical stack of two cards on the neutral canvas, same gutter/card
+   treatment as the Expert two-card layout. */
+.simple-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: var(--art-panel-gap);
+  padding: var(--art-panel-gap);
+  background: var(--bg-primary);
+}
+
+.simple-result-card,
+.simple-list-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--art-panel-radius);
+  overflow: hidden;
+}
+
+/* Latest result fills; the session list takes its natural height (capped). */
+.simple-result-card {
+  flex: 1;
+  min-height: 0;
+}
+
+.simple-list-card {
+  flex-shrink: 0;
+  max-height: 40%;
+}
+
+/* ---- Latest-result card ---- */
+
+.simple-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.simple-result {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.simple-result-header {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-3);
+  padding: var(--art-space-3) var(--art-space-4);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.simple-result-title {
+  font-family: var(--font-display);
+  font-size: var(--art-text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.simple-result-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--art-space-2);
+  flex-shrink: 0;
+}
+
+.simple-result-preview {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.simple-result-preview iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  position: absolute;
+  inset: 0;
+}
+
+.simple-result-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  margin: auto;
+  position: absolute;
+  inset: 0;
+}
+
+/* Non-previewable types (json/text/...) fall back to thumbnailHtml's summary
+   dump or type-icon placeholder. Those carry no sizing of their own outside a
+   .gallery-card-thumb, so give them a full-bleed, sensibly-scaled layout here. */
+.simple-result-preview .thumb-summary,
+.simple-result-preview .thumb-placeholder {
+  position: absolute;
+  inset: 0;
+}
+
+.simple-result-preview .thumb-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--art-space-2);
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.simple-result-preview .thumb-placeholder svg {
+  width: 48px;
+  height: 48px;
+}
+
+.simple-result-preview .thumb-placeholder span {
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.simple-result-preview .thumb-summary {
+  padding: var(--art-space-4);
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  line-height: var(--art-leading-normal);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow: auto;
+}
+
+.simple-result-caption {
+  flex-shrink: 0;
+  padding: var(--art-space-3) var(--art-space-4);
+  font-size: var(--art-text-sm);
+  color: var(--text-secondary);
+  line-height: var(--art-leading-normal);
+  border-top: 1px solid var(--neutral-tint-10);
+}
+
+/* ---- Session-results list card ---- */
+
+.simple-list-header {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-2);
+  padding: var(--art-space-2) var(--art-space-4);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.simple-list-title {
+  font-family: var(--font-display);
+  font-size: var(--art-text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.simple-list-count {
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  color: var(--text-muted);
+}
+
+.simple-show-all {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  color: var(--color-accent-light);
+  padding: 0;
+}
+
+.simple-show-all:hover {
+  color: var(--color-accent);
+}
+
+.simple-list-body {
+  overflow-y: auto;
+  padding: var(--art-space-1) 0;
+}
+
+.simple-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-2);
+  padding: var(--art-space-2) var(--art-space-4);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background var(--transition-fast);
+}
+
+.simple-list-item:hover {
+  background: var(--surface-hover);
+}
+
+.simple-list-item.selected {
+  background: var(--accent-tint-08);
+  border-left-color: var(--color-accent);
+}
+
+.simple-list-item-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.simple-list-item-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.simple-list-item.selected .simple-list-item-icon {
+  color: var(--color-accent-light);
+}
+
+.simple-list-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--art-text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.simple-list-item.selected .simple-list-item-name {
+  color: var(--text-primary);
+}
+
+.simple-list-item-time {
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* NEW badge — tinted-green pill, matching the Expert tree's "new" badge
+   treatment (theme-safe in both light and dark, unlike a filled pill). */
+.simple-badge-new {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border: 1px solid color-mix(in srgb, var(--color-success) 20%, transparent);
+  border-radius: 2px;
+  padding: 1px 5px;
+  flex-shrink: 0;
 }
 
 /* ================================================================
@@ -1708,26 +2046,6 @@ body.resizing iframe {
    ================================================================ */
 
 @media (max-width: 768px) {
-  .browse-layout {
-    flex-direction: column;
-  }
-
-  .browse-sidebar {
-    width: 100% !important;
-    min-width: unset;
-    max-width: unset;
-    max-height: 40vh;
-    border-bottom: 1px solid var(--border-default);
-  }
-
-  .resize-handle {
-    display: none;
-  }
-
-  .browse-preview-pane {
-    min-height: 50vh;
-  }
-
   .nav { display: none; }
 
   .filter-bar {
@@ -1747,11 +2065,6 @@ body.resizing iframe {
 
   .context-info-cards {
     grid-template-columns: 1fr;
-  }
-
-  body.fullscreen-mode .browse-sidebar {
-    display: none;
-    max-height: 0;
   }
 }
 

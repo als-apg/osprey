@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Agent Settings Panel */
 
-import { fetchJSON, withPrefix } from './api.js';
+import { fetchJSON, apiRequest } from './api.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 
 /**
@@ -120,13 +120,14 @@ function initSettingsWarningGate() {
   const trigger = document.querySelector('[data-drawer-trigger="settings-drawer"]');
   if (!trigger) return;
 
-  trigger.addEventListener('click', () => {
+  trigger.addEventListener('click', async () => {
+    // Toggle-close stays FIRST, ahead of the gate: an already-open drawer
+    // closes without re-running the warning. The gate never owns the toggle.
     if (settingsDrawer?.hasAttribute('open')) {
-      settingsDrawer?.close();
+      settingsDrawer.close();
       return;
     }
-    if (warningGatePending) return; // a check or the dialog itself is already in flight
-    maybeWarnThenOpen();
+    if (await runWarningGate()) settingsDrawer?.open();
   });
 }
 
@@ -136,8 +137,24 @@ function initSettingsWarningGate() {
 // gear (every later click a no-op, only a reload recovering).
 const HEALTH_CHECK_TIMEOUT_MS = 4000;
 
-async function maybeWarnThenOpen() {
+/**
+ * Encapsulate ONLY the gate decision — the re-entrancy guard, the /health
+ * check, and the first-per-session warning dialog. It never opens or closes
+ * the drawer; callers do that on a true result. This is the sole gate path;
+ * every gated seam (the gear trigger, openDrawerTab, revealSetting) routes
+ * through it.
+ *
+ * Resolves true when the user may proceed: acknowledgment for this server
+ * session is already stored, OR the user clicks Proceed. Resolves false on
+ * Cancel, Escape, dialog-build failure, or a re-entrant call made while a
+ * gate is already pending (the second caller does not spawn a second dialog).
+ * @returns {Promise<boolean>}
+ */
+async function runWarningGate() {
+  if (warningGatePending) return false; // a check or the dialog is already in flight
   warningGatePending = true;
+  /** @type {string|null} */
+  let serverSession = null;
   let timeoutId;
   try {
     const timeout = new Promise((_, reject) => {
@@ -149,100 +166,198 @@ async function maybeWarnThenOpen() {
     healthCheck.catch(() => {});
     const health = await Promise.race([healthCheck, timeout]);
     clearTimeout(timeoutId);
-    const serverSession = health.session_id;
-    if (!serverSession || localStorage.getItem(SETTINGS_WARNING_KEY) !== serverSession) {
-      safelyShowSettingsWarning(serverSession);
-      return;
+    serverSession = health.session_id ?? null;
+    // Already acknowledged this server session — proceed without the dialog.
+    if (serverSession && localStorage.getItem(SETTINGS_WARNING_KEY) === serverSession) {
+      warningGatePending = false;
+      return true;
     }
   } catch {
     // Health endpoint unreachable, or slow enough to hit the timeout above —
     // show the warning to be safe (fail-safe-to-warning; the flag clears via
     // the dialog's own cleanup() once dismissed).
     clearTimeout(timeoutId);
-    safelyShowSettingsWarning(null);
-    return;
+    serverSession = null;
   }
-  warningGatePending = false;
-  settingsDrawer?.open();
-}
-
-/**
- * Defense-in-depth: if building/showing the dialog itself throws (e.g. DOM
- * corruption), reset the gate rather than leaving it permanently pending.
- * @param {string|null} serverSession
- */
-function safelyShowSettingsWarning(serverSession) {
+  // Show the warning; its dismissal resolves the gate. Defense-in-depth: if
+  // building/showing the dialog throws, reset the gate and decline rather
+  // than leaving it permanently pending.
   try {
-    showSettingsWarning(serverSession);
+    return await showSettingsWarning(serverSession);
   } catch (error) {
     warningGatePending = false;
     console.error('osprey web_terminal: failed to show the settings warning dialog; gate reset', error);
+    return false;
   }
 }
 
 /**
- * Show a first-time warning dialog before opening the settings drawer.
- * Persists acknowledgment per server session so it reappears on restart.
+ * Build the first-time warning dialog. Persists acknowledgment per server
+ * session so it reappears on restart. Resolves true if the user clicks
+ * Proceed, false on Cancel or Escape. The DOM/animation/Escape-cleanup are
+ * unchanged from the pre-Promise gate; only the terminal action differs —
+ * each dismissal path settles this promise instead of opening the drawer.
  * @param {string|null} serverSession
+ * @returns {Promise<boolean>}
  */
 function showSettingsWarning(serverSession) {
-  const overlay = document.createElement('div');
-  overlay.className = 'settings-warning-overlay';
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'settings-warning-overlay';
 
-  const dialog = document.createElement('div');
-  dialog.className = 'settings-warning-dialog';
+    const dialog = document.createElement('div');
+    dialog.className = 'settings-warning-dialog';
 
-  dialog.innerHTML = `
-    <div class="settings-warning-icon">⚠</div>
-    <div class="settings-warning-title">Expert Configuration Area</div>
-    <div class="settings-warning-body">
-      <p>These settings directly control <strong>agent behavior</strong>,
-      <strong>safety hooks</strong>, and <strong>security policies</strong>.</p>
-      <p>Incorrect changes can <strong>disable safety checks</strong>,
-      bypass human approval requirements, or allow unvalidated writes
-      to control system hardware.</p>
-      <p>Only modify these settings if you understand the safety
-      implications of each option.</p>
-    </div>
-    <div class="settings-warning-actions">
-      <button class="settings-warning-cancel">Cancel</button>
-      <button class="settings-warning-proceed">I Understand, Proceed</button>
-    </div>
-  `;
+    dialog.innerHTML = `
+      <div class="settings-warning-icon">⚠</div>
+      <div class="settings-warning-title">Expert Configuration Area</div>
+      <div class="settings-warning-body">
+        <p>These settings directly control <strong>agent behavior</strong>,
+        <strong>safety hooks</strong>, and <strong>security policies</strong>.</p>
+        <p>Incorrect changes can <strong>disable safety checks</strong>,
+        bypass human approval requirements, or allow unvalidated writes
+        to control system hardware.</p>
+        <p>Only modify these settings if you understand the safety
+        implications of each option.</p>
+      </div>
+      <div class="settings-warning-actions">
+        <button class="settings-warning-cancel">Cancel</button>
+        <button class="settings-warning-proceed">I Understand, Proceed</button>
+      </div>
+    `;
 
-  overlay.appendChild(dialog);
-  document.body.appendChild(overlay);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
 
-  // Animate in
-  requestAnimationFrame(() => overlay.classList.add('visible'));
+    // Animate in
+    requestAnimationFrame(() => overlay.classList.add('visible'));
 
-  // Unconditional on every dismissal path (Cancel, Proceed, Escape) — leaves
-  // no stale `keydown` listener behind and always resolves the pending gate.
-  const cleanup = () => {
-    document.removeEventListener('keydown', onKey);
-    warningGatePending = false;
-    overlay.classList.remove('visible');
-    overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
-    // Fallback removal if transition doesn't fire
-    setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
-  };
+    // Unconditional on every dismissal path (Cancel, Proceed, Escape) — leaves
+    // no stale `keydown` listener behind and always clears the pending gate.
+    const cleanup = () => {
+      document.removeEventListener('keydown', onKey);
+      warningGatePending = false;
+      overlay.classList.remove('visible');
+      overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+      // Fallback removal if transition doesn't fire
+      setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+    };
 
-  /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-cancel')).addEventListener('click', cleanup);
+    // Cancel/Escape decline the gate; Proceed acknowledges + accepts. The gate
+    // decision is all this resolves — the caller owns opening the drawer.
+    const cancel = () => {
+      cleanup();
+      resolve(false);
+    };
 
-  /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-proceed')).addEventListener('click', () => {
-    if (serverSession) {
-      localStorage.setItem(SETTINGS_WARNING_KEY, serverSession);
-    }
-    cleanup();
-    settingsDrawer?.open();
+    /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-cancel')).addEventListener('click', cancel);
+
+    /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-proceed')).addEventListener('click', () => {
+      if (serverSession) {
+        localStorage.setItem(SETTINGS_WARNING_KEY, serverSession);
+      }
+      cleanup();
+      resolve(true);
+    });
+
+    // Escape key cancels
+    /** @param {KeyboardEvent} e */
+    const onKey = (e) => {
+      if (e.key === 'Escape') cancel();
+    };
+    document.addEventListener('keydown', onKey);
   });
+}
 
-  // Escape key cancels
-  /** @param {KeyboardEvent} e */
-  const onKey = (e) => {
-    if (e.key === 'Escape') cleanup();
-  };
-  document.addEventListener('keydown', onKey);
+/**
+ * Open the settings drawer to a specific tab, always THROUGH the warning gate
+ * (never bypassing it). The single gated seam the command palette builds on.
+ * @param {string} tabId  e.g. 'tab-config' | 'tab-behavior' | 'tab-safety'
+ * @returns {Promise<boolean>} true once the target tab is active; false if the
+ *   gate was declined, the tab is missing, or the drawer's unsaved-changes
+ *   guard vetoed the switch (observable as the tab NOT gaining `.active`).
+ */
+export async function openDrawerTab(tabId) {
+  if (!(await runWarningGate())) return false;
+  // Resolve the tab (scoped to this drawer) BEFORE opening, so a bogus tabId
+  // returns false without leaving an empty drawer visibly open.
+  const tab = /** @type {HTMLElement|null} */ (
+    settingsDrawer?.querySelector(`.drawer-tab[data-tab="${tabId}"]`) ?? null
+  );
+  if (!tab) return false;
+  settingsDrawer?.open();
+  // The drawer component activates a tab via its delegated click handler; a
+  // vetoed switch returns early WITHOUT adding `.active`. No polling, no retry.
+  tab.click();
+  return tab.classList.contains('active');
+}
+
+// revealSetting waits this long for the lazily-rendered config form to paint
+// the target field before degrading gracefully (Config tab left open, no jump).
+const REVEAL_POLL_MS = 100;
+const REVEAL_MAX_POLLS = 20;
+
+// Short-lived class flashed on a revealed field. The keyframe/transition
+// styling lives in CSS; this module only adds it and removes it after a beat.
+const FIELD_FLASH_CLASS = 'settings-field-flash';
+const FIELD_FLASH_MS = 1600;
+
+/**
+ * Open the settings drawer to the Config tab and jump to a single config
+ * field: expand its section, scroll it into view, and flash-highlight it.
+ * Routes through openDrawerTab (hence the warning gate). Degrades gracefully
+ * — no throw, no highlight — if the gate is declined, the tab is vetoed, or
+ * the field never renders.
+ * @param {string} dotKey  e.g. 'control_system.write_verification'
+ * @returns {Promise<void>}
+ */
+export async function revealSetting(dotKey) {
+  const ok = await openDrawerTab('tab-config');
+  if (!ok) return;
+
+  // Force form view — [data-key] fields exist ONLY there, and currentMode
+  // persists across tab activations (the tab may have been left in raw mode).
+  switchMode('form');
+
+  const field = await waitForConfigField(dotKey);
+  if (!field) return; // lazy render timed out; leave the Config tab open
+
+  const section = field.closest('.settings-section');
+  if (section) section.classList.add('expanded');
+  const target = field.closest('.settings-field') || field;
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.classList.add(FIELD_FLASH_CLASS);
+  setTimeout(() => target.classList.remove(FIELD_FLASH_CLASS), FIELD_FLASH_MS);
+}
+
+/**
+ * Poll for the lazily-rendered form input carrying data-key === dotKey.
+ * Matches by dataset.key rather than an attribute selector so dotted keys
+ * need no CSS escaping and no selector injection is possible.
+ * @param {string} dotKey
+ * @returns {Promise<HTMLElement|null>} the element, or null on timeout
+ */
+function waitForConfigField(dotKey) {
+  return new Promise((resolve) => {
+    let polls = 0;
+    const check = () => {
+      const form = document.getElementById('settings-form');
+      if (form) {
+        const fields = /** @type {NodeListOf<HTMLElement>} */ (form.querySelectorAll('[data-key]'));
+        const match = Array.from(fields).find((el) => el.dataset.key === dotKey);
+        if (match) {
+          resolve(match);
+          return;
+        }
+      }
+      if (++polls >= REVEAL_MAX_POLLS) {
+        resolve(null);
+        return;
+      }
+      setTimeout(check, REVEAL_POLL_MS);
+    };
+    check();
+  });
 }
 
 async function loadConfig() {
@@ -552,15 +667,11 @@ async function applySettings() {
       // Raw mode: send the full YAML text as-is (user is responsible for content)
       const textarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('settings-raw-editor'));
       const yamlContent = textarea ? textarea.value : '';
-      const saveResp = await fetch(withPrefix('/api/config'), { // prefix-aware
+      await apiRequest('/api/config', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw: yamlContent }),
+        json: { raw: yamlContent },
+        errorPrefix: 'Save failed',
       });
-      if (!saveResp.ok) {
-        const detail = await saveResp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Save failed (HTTP ${saveResp.status})`);
-      }
     } else {
       // Form mode: send only changed fields via PATCH — server uses ruamel.yaml
       // to apply them without stripping comments or reordering the file.
@@ -570,15 +681,11 @@ async function applySettings() {
         if (applyBtn) applyBtn.disabled = false;
         return;
       }
-      const patchResp = await fetch(withPrefix('/api/config'), { // prefix-aware
+      await apiRequest('/api/config', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
+        json: { updates },
+        errorPrefix: 'Patch failed',
       });
-      if (!patchResp.ok) {
-        const detail = await patchResp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Patch failed (HTTP ${patchResp.status})`);
-      }
     }
     configSaved = true;
 

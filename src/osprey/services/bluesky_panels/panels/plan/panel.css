@@ -313,29 +313,46 @@ body.embedded .panel-chrome { display: none; }
   font-size: 11px;
   color: var(--color-amber);
 }
+/* Agent-draft banner: "agent drafted <plan> — View draft". Replaces the
+ * passive affordance while active (draft-client suppresses the affordance
+ * whenever the banner shows) and reads as the agent-activity accent family
+ * (same family as .agent-flash), a step stronger than the affordance's
+ * subtle tint: solid accent edge + filled action button. Lives inside
+ * .draft-status, so Simple mode hides it with the rest of the draft chrome. */
+.agent-draft-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-accent-light);
+  background: var(--accent-tint-12);
+  border: 1px solid var(--border-accent);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 5px;
+  padding: 3px 9px;
+}
+.agent-draft-banner-view {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+.agent-draft-banner-view:hover,
+.agent-draft-banner-view:focus-visible {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent-light);
+  outline: none;
+}
 
-/* Field-level flash: a server-held draft edit (agent or another tab) landed
- * on this field. Reflow-restarted by draft-client.js on every application
- * (classList.remove -> offsetWidth read -> classList.add) so two rapid
- * edits to the same field re-fire the animation rather than being a no-op
- * on the second `add`. Whole-value containers (chip wells, the axes table,
- * nested objects) flash the same way — `fields[name].el` is already their
- * outer wrapper, so no separate "container flash" rule is needed. Token-only
- * so it reads correctly in both themes. */
-@keyframes draft-flash-glow {
-  0% {
-    background-color: var(--accent-tint-20);
-    box-shadow: 0 0 0 3px var(--accent-tint-25);
-  }
-  100% {
-    background-color: transparent;
-    box-shadow: 0 0 0 3px transparent;
-  }
-}
-.draft-flash {
-  animation: draft-flash-glow 900ms ease-out;
-  border-radius: 6px;
-}
+/* Field-level flash on a landed draft edit now uses the shared design-system
+ * agent-activity flash (`.agent-flash` from /design-system/css/highlight.css,
+ * linked in index.html; fired via flashElement in draft-client.js). */
 
 /* Tab strip */
 .tabs {
@@ -875,4 +892,46 @@ code {
   .tree { max-height: 36vh; }
   .form-row { grid-template-columns: 1fr; }
   .foot-row { flex-direction: column; align-items: stretch; }
+}
+
+/* ---- UI-mode axis: Simple (operator-facing) deltas ----
+ *
+ * Expert stays pixel-identical: every rule below is gated on
+ * html[data-ui-mode="simple"]. Simple keeps the operator's job — pick a plan,
+ * set the essential parameters, launch — and strips the expert scaffolding:
+ * the Source (raw code) tab, the shared-draft binding chrome, the trust/
+ * provenance internals (sidebar status dots, provenance folder headers, the
+ * detail status line), and the connector-arming footnote. Validation still
+ * surfaces in plain language: the unvalidated-note, the launch-outcome banner,
+ * the draft-rejected banner and the root error all stay visible, and the live
+ * parameter readout is kept as friendly guidance. The Launch action is
+ * promoted to a single full-width primary affordance. Token-only, both themes.
+ */
+
+/* Flatten the sidebar to a plain plan list: no trust dots, no provenance
+ * folder headers (the <details> stay open, so their rows show ungrouped). */
+html[data-ui-mode="simple"] .plan-row .dot,
+html[data-ui-mode="simple"] .folder-summary {
+  display: none;
+}
+
+/* Drop the expert detail scaffolding. */
+html[data-ui-mode="simple"] .tabs,
+html[data-ui-mode="simple"] .status-line,
+html[data-ui-mode="simple"] #session-note,
+html[data-ui-mode="simple"] .draft-status,
+html[data-ui-mode="simple"] #draft-unknown-banner,
+html[data-ui-mode="simple"] .detail-foot .footnote {
+  display: none;
+}
+
+/* Promote Launch to a single, prominent, full-width primary action. */
+html[data-ui-mode="simple"] .foot-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+html[data-ui-mode="simple"] #launch-btn {
+  width: 100%;
+  font-size: 15px;
+  padding: 12px 18px;
 }

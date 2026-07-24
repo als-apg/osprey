@@ -49,7 +49,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from osprey.interfaces.design_system.generator.model import TokenTree
+from osprey.interfaces.design_system.generator.model import TokenTree, default_flagged_stem
 from osprey.interfaces.design_system.generator.validate import VALID_THEME_MODES
 
 __all__ = [
@@ -191,13 +191,16 @@ def build_theme_defaults(entries: Sequence[ThemeManifestEntry]) -> dict[str, dic
 def _default_family(tree: TokenTree, defaults: dict[str, dict[str, str]]) -> str | None:
     """The fallback family for ``auto`` when no better signal is available.
 
-    Prefer the family of a theme explicitly flagged ``$extensions.default:
-    true`` -- this pins ``DEFAULT_FAMILY`` deterministically, independent
-    of filename/manifest order, so a family whose files sort before the
-    canonical one can never silently become the product default. When no
-    theme is flagged, fall back to the first family declared in the
-    manifest (insertion order, itself manifest/filename order -- the
-    historical behavior).
+    Prefer the family of the theme flagged ``$extensions.default: true``
+    (resolved by the shared :func:`~.model.default_flagged_stem`, the same
+    source ``emit_css``'s ``:root``-fallback selection uses -- so the CSS
+    and JS artifacts cannot disagree about the product default). The flag
+    pins ``DEFAULT_FAMILY`` deterministically, independent of filename/
+    manifest order, so a family whose files sort before the canonical one
+    can never silently become the product default. When no theme is
+    flagged, fall back to the first family declared in the manifest
+    (insertion order, itself manifest/filename order -- the historical
+    behavior).
 
     Shared by :func:`render_tokens_js` (which exports it as
     ``DEFAULT_FAMILY`` for ``theme-manager.js`` to read) and
@@ -212,11 +215,11 @@ def _default_family(tree: TokenTree, defaults: dict[str, dict[str, str]]) -> str
     Returns:
         The default family key, or ``None`` if ``defaults`` is empty.
     """
-    for metadata in tree.theme_metadata.values():
-        if metadata.get("default") is True:
-            family = metadata.get("family")
-            if family in defaults:
-                return family
+    flagged = default_flagged_stem(tree)
+    if flagged is not None:
+        family = tree.theme_metadata[flagged].get("family")
+        if family in defaults:
+            return family
     return next(iter(defaults), None)
 
 

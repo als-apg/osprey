@@ -1,17 +1,28 @@
 // @ts-check
-/* OSPREY Web Terminal — Tabbed Panel Manager
+/* OSPREY Web Terminal — Panel Manager
  *
- * Manages horizontal header tabs for the right panel. Each tab corresponds
- * to an embedded service (Workspace, ARIEL logbook, etc.) loaded in an
- * iframe. Tabs show health LEDs, iframes are lazy-loaded and cached so
- * switching between tabs is instant.
+ * Manages the left icon rail for the right panel. Each rail entry corresponds
+ * to an embedded service (Workspace, ARIEL logbook, etc.) loaded in an iframe.
+ * Entries show health LEDs, iframes are lazy-loaded and cached so switching
+ * between panels is instant.
+ *
+ * This module owns the panel state machine (health polling, SSE-driven
+ * focus/visibility/registration, iframe lifecycle) and drives the rail's DOM
+ * through panel-rail.js's imperative API — it never touches rail markup itself.
  */
 
 import { fetchJSON, createEventSource } from './api.js';
 import { getTheme } from '/design-system/js/theme-manager.js';
-import { getCurrentSessionId } from './terminal.js';
+import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, getMode } from './panel-iframe-sync.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
+import { initDockIframeAdapter, adoptIframe, focusPanel, hidePanel, setKnownServicePanels } from './dock-iframe.js';
+import { initDockSync, withEchoSuppressed } from './dock-sync.js';
+import { flashElement } from '/design-system/js/highlight.js';
+import {
+  createRail, addEntry, getEntry, setActive, setHealth,
+  setEntryEnabled, setEntryVisible, setEntryAttention,
+} from './panel-rail.js';
 
 // ---- Types ----
 
@@ -38,15 +49,19 @@ import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-com
 
 /**
  * SSE payloads broadcast on /api/files/events, discriminated on `type`.
+ * `source: 'agent'` marks a frame as agent-originated (absent = human/browser
+ * origin); absent optional keys are omitted by the server, never null.
  * @typedef {object} PanelFocusEvent
  * @property {'panel_focus'} type
  * @property {string} panel
  * @property {string} [url]
+ * @property {'agent'} [source]
  *
  * @typedef {object} PanelVisibilityEvent
  * @property {'panel_visibility'} type
  * @property {string} panel
  * @property {boolean} visible
+ * @property {'agent'} [source]
  *
  * @typedef {object} PanelRegisterEvent
  * @property {'panel_register'} type
@@ -55,8 +70,15 @@ import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-com
  * @property {string} [url]
  * @property {string} [healthEndpoint]
  * @property {string} [path]
+ * @property {'agent'} [source]
  *
- * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent} PanelSSEEvent
+ * @typedef {object} AgentActivityEvent
+ * @property {'agent_activity'} type
+ * @property {string} tool
+ * @property {{ kind: 'panel' | 'channel' | 'run' | 'artifact', panel?: string, detail?: string }} target
+ * @property {number} [ts]
+ *
+ * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent | AgentActivityEvent} PanelSSEEvent
  */
 
 // ---- Panel Registry ----
@@ -66,32 +88,32 @@ const PANELS = [
   {
     id: 'artifacts',
     label: 'WORKSPACE',
-    configEndpoint: '/api/artifact-server', // data string; fetchJSON prefixes it in initPanel()
+    configEndpoint: '/api/artifact-server',
     healthEndpoint: null,    // embedded same-origin — skip health polling
     statusBarId: null,       // no dedicated status-bar item
   },
   {
     id: 'ariel',
     label: 'ARIEL',
-    configEndpoint: '/api/ariel-server', // data string; fetchJSON prefixes it in initPanel()
+    configEndpoint: '/api/ariel-server',
     statusBarId: 'ariel-status',
   },
   {
     id: 'channel-finder',
     label: 'CHANNELS',
-    configEndpoint: '/api/channel-finder-server', // data string; fetchJSON prefixes it in initPanel()
+    configEndpoint: '/api/channel-finder-server',
     statusBarId: 'channel-finder-status',
   },
   {
     id: 'lattice',
     label: 'LATTICE',
-    configEndpoint: '/api/lattice-server', // data string; fetchJSON prefixes it in initPanel()
+    configEndpoint: '/api/lattice-server',
     statusBarId: null,
   },
   {
     id: 'okf',
     label: 'KNOWLEDGE',
-    configEndpoint: '/api/okf-server', // data string; fetchJSON prefixes it in initPanel()
+    configEndpoint: '/api/okf-server',
     statusBarId: null,
   },
   {
@@ -105,10 +127,10 @@ const PANELS = [
 
 // ---- State ----
 
-let containerEl = null;
+let containerEl = /** @type {HTMLElement | null} */ (null);
 // Assigned once in initPanelManager and guarded there; other functions run
 // only after that, so the refs are treated as non-null past init.
-let tabsEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
+let railEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
 let contentEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
 /** @type {string | null} */
 let activeTabId = null;
@@ -117,8 +139,8 @@ let activeTabId = null;
 /** @type {Record<string, PanelState>} */
 const panelState = {};
 
-// Visible panel ids — seeded from /api/panels at init; controls tab-hidden visibility.
-// Task 3.2 toggles individual ids here and flips .tab-hidden on the button.
+// Visible panel ids — seeded from /api/panels at init; controls rail-entry
+// visibility. Toggling an id here is paired with setEntryVisible() on the rail.
 const visiblePanels = new Set();
 
 // Default panel to activate first. The hardcoded value is the fallback used
@@ -138,6 +160,22 @@ let allowRuntimePanels = false;
 /** @type {{name: string, panels: string[]}[]} */
 let panelPresets = [];
 
+// Activity-strip fallback for agent_activity frames the rail cannot anchor
+// (kinds 'channel'/'run'/'artifact', or a 'panel' kind whose id has no rail
+// entry). The no-op default keeps panel-manager fully functional standalone;
+// the activity-strip module registers the real handler via
+// setActivityStripHandler once it exists.
+/** @type {(frame: AgentActivityEvent) => void} */
+let onAgentActivity = () => {};
+
+/**
+ * SEAM: register the activity-strip handler for agent_activity frames that
+ * have no rail anchor. Frames arrive verbatim as broadcast (see
+ * AgentActivityEvent). Pass null to restore the no-op default.
+ * @param {((frame: AgentActivityEvent) => void) | null} handler
+ */
+export function setActivityStripHandler(handler) { onAgentActivity = handler ?? (() => {}); }
+
 // ---- Public API ----
 
 /**
@@ -148,14 +186,25 @@ export async function initPanelManager(panelId) {
   containerEl = document.getElementById(panelId);
   if (!containerEl) return;
 
-  tabsEl = /** @type {HTMLElement} */ (document.getElementById('header-tabs'));
+  railEl = /** @type {HTMLElement} */ (document.getElementById('panel-rail'));
   contentEl = /** @type {HTMLElement} */ (containerEl.querySelector('#panel-content') || containerEl.querySelector('.panel-content'));
-  if (!tabsEl || !contentEl) return;
+  if (!railEl || !contentEl) return;
+
+  // Hand the iframe adapter its fallback mount host. When the dockview shell is
+  // up, panel iframes live in the adapter's overlay layer instead (dockview
+  // re-parents panel content on regroup, which reloads iframes — see the
+  // dock-spike verdict and dock-iframe.js); without a shell they mount here.
+  initDockIframeAdapter({ fallbackHost: contentEl });
+
+  // Bridge dockview gestures back to the server-owned panel state: a human dock
+  // tab focus / close POSTs the same setPanelFocus / setPanelVisibility the rail
+  // and agent use. Wires lazily once the dockview shell is up; no-ops without it.
+  initDockSync();
 
   // Fetch panel config and filter PANELS before rendering
   let panelConfig = null;
   try {
-    panelConfig = await fetchJSON('/api/panels'); // fetchJSON prefixes this internally
+    panelConfig = await fetchJSON('/api/panels');
     const enabledSet = new Set(panelConfig.enabled || []);
 
     // Filter built-in panels to only enabled ones
@@ -224,28 +273,32 @@ export async function initPanelManager(panelId) {
   // Config-defined layouts for the "+" menu's Layouts section (empty by default).
   panelPresets = panelConfig?.presets || [];
 
-  // Render tab buttons
-  renderTabs();
+  // Registry final for this load — the adapter may now prune any restored
+  // placeholder whose service no longer exists (reconcile keeps all iframe:*).
+  setKnownServicePanels(PANELS.map((p) => p.id));
+
+  // Render the rail entries
+  renderRail();
 
   // Wire the header "+" control (add menu + Layouts). wirePanelHeaderControls
   // owns the getElementById lookups and the initPanelAddMenu call; the menu is a
   // dumb view reading state through these closures and calling back into the same
   // visibility/register paths the agent uses.
   wirePanelHeaderControls({
-    getHiddenPanels: () => PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label })),
+    getHiddenPanels,
     allowUrlPanels: () => allowRuntimePanels,
     onShowPanel: showPanel,
     onRegisterUrl: registerUrlPanel,
-    getPresets: () => panelPresets,
+    getPresets,
     onApplyPreset: applyMenuPreset,
   });
 
-  // Keyboard close: Delete/Backspace on a focused tab hides that panel (the "×"
-  // is mouse-only/decorative). Delegated — one listener rather than one per tab.
-  tabsEl.addEventListener('keydown', (e) => {
+  // Keyboard close: Delete/Backspace on a focused entry hides that panel (the
+  // "×" is mouse-only/decorative). Delegated — one listener, not one per entry.
+  railEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     if (!(e.target instanceof HTMLElement)) return;
-    const id = e.target.closest('.header-tab')?.getAttribute('data-panel-id');
+    const id = e.target.closest('.panel-rail-button')?.getAttribute('data-panel-id');
     if (id) { e.preventDefault(); setPanelVisibility(id, false); }
   });
 
@@ -261,12 +314,11 @@ export async function initPanelManager(panelId) {
       if (ps && cp.url) {
         ps.url = cp.url;
         ps.configLoaded = true;
-        if (cp.healthEndpoint) {
+        if (!cp.healthEndpoint) {
+          assumeHealthy(cp);
+        } else {
           const panel = PANELS.find(p => p.id === cp.id);
           if (panel) startHealthPolling(panel);
-        } else {
-          ps.healthy = true;
-          updateTabState(cp.id);  // no poll loop will ever repaint this tab
         }
       }
     }
@@ -281,12 +333,21 @@ export async function initPanelManager(panelId) {
   //
   //   panel_focus      {type, panel, url?}      — explicit switch_panel MCP call;
   //                                               always honor (user asked for it).
-  //   panel_visibility {type, panel, visible}   — show/hide a tab; if the active
-  //                                               tab is hidden, switch to the next
-  //                                               visible+healthy panel or empty state.
+  //   panel_visibility {type, panel, visible}   — show/hide a rail entry; if the
+  //                                               active panel is hidden, switch to
+  //                                               the next visible+healthy panel or
+  //                                               empty state.
   //   panel_register   {type, id, label, url, healthEndpoint, path}
   //                                             — add a runtime panel; do NOT
   //                                               auto-activate (URL may not be ready).
+  //   agent_activity   {type, tool, target, ts} — passive "the agent touched X"
+  //                                               signal: badge+glow the rail entry
+  //                                               for target.kind 'panel', otherwise
+  //                                               hand off to the strip seam.
+  //
+  // The first three may carry source:'agent' (agent-originated command): that
+  // adds a transient glow on the rail entry — never a persistent badge, the
+  // action itself already happened. Untagged frames behave exactly as before.
   createEventSource('/api/files/events', { // prefixed via createEventSource (api.js)
     onMessage: (raw) => {
       try {
@@ -296,22 +357,29 @@ export async function initPanelManager(panelId) {
           // Agent asked the panel to switch — honor unconditionally
           if (data.url) navigatePanel(data.panel, data.url);
           activateTab(data.panel);
+          if (data.source === 'agent') flashAgentGlow(data.panel);
 
         } else if (data.type === 'panel_visibility' && data.panel) {
           const { panel, visible } = data;
-          // Update the visibility set and flip .tab-hidden on the button
+          if (data.source === 'agent') flashAgentGlow(panel);
+          // Update the visibility set and show/hide the matching rail entry
           if (visible) {
             visiblePanels.add(panel);
           } else {
             visiblePanels.delete(panel);
           }
-          const btn = tabsEl.querySelector(`[data-panel-id="${panel}"]`);
-          if (btn) btn.classList.toggle('tab-hidden', !visible);
+          setEntryVisible(railEl, panel, visible);
 
-          // CC-1: if we just hid the currently active tab, switch away from it
+          // CC-1: if we just hid the currently active panel, switch away from it
           if (!visible && panel === activeTabId) {
             // Conceal the outgoing iframe immediately so it doesn't bleed through
-            panelState[panel]?.iframe?.classList.add('hidden');
+            // (adapter drops its dock placeholder and suppresses the overlay iframe;
+            // the cached element is kept for a later re-show). Wrapped in the echo
+            // guard: dropping the placeholder makes dockview auto-activate the
+            // stacked neighbor, and that programmatic active-panel change is a
+            // server-applied echo — it must not POST focus back (the deliberate
+            // non-POSTing fallback below owns where focus lands).
+            withEchoSuppressed(() => hidePanel(panel));
             // Find the first panel that is visible, healthy, and not the one being hidden
             const fallback = PANELS.find(
               p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
@@ -326,14 +394,22 @@ export async function initPanelManager(panelId) {
           }
 
         } else if (data.type === 'panel_register' && data.id) {
-          // Seed visibility before addPanel so buildTabButton produces a visible tab
+          // Seed visibility before addPanel so the appended entry starts visible
           visiblePanels.add(data.id);
           addPanel(data);
-          // Guarantee no .tab-hidden in case the set was already populated (re-register path)
-          const btn = tabsEl.querySelector(`[data-panel-id="${data.id}"]`);
-          if (btn) btn.classList.remove('tab-hidden');
+          // Guarantee the entry is shown in case the set was already populated
+          // (re-register path, where addEntry keeps the existing entry as-is)
+          setEntryVisible(railEl, data.id, true);
           // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
           // the user activates when they want it.
+          if (data.source === 'agent') flashAgentGlow(data.id);
+
+        } else if (data.type === 'agent_activity' && data.target) {
+          // kind 'panel' with a live rail entry → persistent badge + glow via
+          // setEntryAttention; everything the rail cannot anchor falls through
+          // to the activity-strip seam (no-op until a handler registers).
+          const t = data.target;
+          if (t.kind !== 'panel' || !t.panel || !setEntryAttention(railEl, t.panel, true)) onAgentActivity(data);
         }
 
       } catch { /* ignore malformed events */ }
@@ -341,60 +417,44 @@ export async function initPanelManager(panelId) {
   });
 }
 
-// ---- Tab Rendering ----
+// ---- Rail Rendering ----
 
 /**
- * Build a single tab button element for a given panel spec.
- * Shared by renderTabs() (initial render) and addPanel() (runtime additions)
- * so both paths produce byte-identical DOM nodes.
- *
- * Applies .tab-hidden when the panel id is absent from visiblePanels.
- * Task 3.2 toggles that class (and the visiblePanels set) on show/hide SSE events.
- * @param {Panel} panel
+ * Transient agent glow on a rail entry — flash only, never the persistent
+ * badge (that is agent_activity's job via setEntryAttention). No-op for ids
+ * without an entry.
+ * @param {string} panelId
  */
-function buildTabButton(panel) {
-  const tab = document.createElement('button');
-  tab.className = 'header-tab disabled';
-  tab.dataset.panelId = panel.id;
-  tab.title = panel.label;
-  // Build children via DOM to avoid XSS — panel.label comes from server JSON / SSE
-  const led = document.createElement('span');
-  led.className = 'tab-led offline';
-  tab.appendChild(led);
-  tab.appendChild(document.createTextNode(panel.label));
-  tab.addEventListener('click', () => activateTab(panel.id, { userInitiated: true }));
-  // Per-tab close "×" (browser-tab style, revealed on hover via CSS). Decorative
-  // (aria-hidden) so it is not an interactive control nested inside the tab
-  // button; keyboard users close via Delete on the focused tab (see init).
-  const close = document.createElement('span');
-  close.className = 'tab-close';
-  close.setAttribute('aria-hidden', 'true');
-  close.title = `Close ${panel.label}`;
-  close.textContent = '×';
-  close.addEventListener('click', (e) => {
-    e.stopPropagation();  // don't activate the tab we're closing
-    setPanelVisibility(panel.id, false);
-  });
-  tab.appendChild(close);
-  if (!visiblePanels.has(panel.id)) tab.classList.add('tab-hidden');
-  return tab;
+function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (entry) flashElement(entry); }
+
+/**
+ * Interaction closures + initial visibility handed to every rail render/append
+ * call. Routing activation and close through here keeps a human click/"×" and
+ * an agent MCP call indistinguishable downstream (both hit activateTab /
+ * setPanelVisibility). `visible` is the live set, so panel-rail builds each new
+ * entry hidden when its id is absent from the server's visible set.
+ */
+function railOptions() {
+  return {
+    onActivate: (/** @type {string} */ id) => activateTab(id, { userInitiated: true }),
+    onClose: (/** @type {string} */ id) => setPanelVisibility(id, false),
+    visible: visiblePanels,
+  };
 }
 
-function renderTabs() {
-  tabsEl.innerHTML = '';
-  for (const panel of PANELS) {
-    tabsEl.appendChild(buildTabButton(panel));
-  }
+/** Destructive full render of the rail from the current PANELS list. */
+function renderRail() {
+  createRail(railEl, PANELS.map((p) => ({ id: p.id, label: p.label })), railOptions());
 }
 
 /**
- * Register a runtime panel and append its tab without wiping existing tabs.
+ * Register a runtime panel and append its rail entry without wiping existing ones.
  *
  * spec shape (matches the panel_register SSE broadcast payload):
  *   { id, label, url, healthEndpoint, path }
  *
  * Guard: if panelState[id] already exists (re-register), refresh the url
- * in-place rather than duplicating the tab or state.
+ * in-place rather than duplicating the entry or state.
  * @param {PanelRegisterEvent} spec
  */
 function addPanel(spec) {
@@ -413,6 +473,8 @@ function addPanel(spec) {
     path: spec.path || '/',
   };
   PANELS.push(normalized);
+  // Keep the adapter's known-service set current (never orphan a runtime panel).
+  setKnownServicePanels(PANELS.map((p) => p.id));
 
   panelState[spec.id] = {
     url: null,
@@ -423,9 +485,10 @@ function addPanel(spec) {
     configLoaded: false,
   };
 
-  // Append exactly one tab. NEVER call renderTabs() here — it does
-  // innerHTML='' which wipes every live tab's active/disabled/LED state.
-  tabsEl.appendChild(buildTabButton(normalized));
+  // Append exactly one entry. addEntry is non-destructive — never a full
+  // re-render — so every live entry keeps its active/disabled/LED state, and it
+  // is idempotent by id, which also guards the re-register path.
+  addEntry(railEl, { id: normalized.id, label: normalized.label }, railOptions());
 
   // Seed url and health, mirroring the custom-panel block in initPanelManager
   if (spec.url) {
@@ -433,8 +496,7 @@ function addPanel(spec) {
     ps.url = spec.url;
     ps.configLoaded = true;
     if (!spec.healthEndpoint) {
-      ps.healthy = true;
-      updateTabState(spec.id);
+      assumeHealthy(normalized);
     } else {
       startHealthPolling(normalized);
     }
@@ -466,8 +528,7 @@ async function initPanel(panel) {
     // External panels (healthEndpoint === null) skip health polling —
     // mark healthy immediately so the tab is enabled.
     if (panel.healthEndpoint == null) {  // null or undefined → skip polling
-      state.healthy = true;
-      updateTabState(panel.id);
+      assumeHealthy(panel);
     } else {
       startHealthPolling(panel);
     }
@@ -543,37 +604,42 @@ async function pollHealth(panel) {
     });
     const wasHealthy = state.healthy;
     state.healthy = resp.ok;
-    updateTabState(panel.id);
+    updateTabState(panel);
     updateStatusBar(panel);
 
-    // First time healthy — let the shared policy decide whether this
-    // newly-healthy panel should take an empty slot.
-    if (state.healthy && !wasHealthy) { ensureActivePanel(); }
+    // First time healthy — enable the entry, then let the shared policy decide
+    // whether this newly-healthy panel should take an empty slot.
+    if (state.healthy && !wasHealthy) {
+      setEntryEnabled(railEl, panel.id, true);
+      ensureActivePanel();
+    }
   } catch {
     state.healthy = false;
-    updateTabState(panel.id);
+    updateTabState(panel);
     updateStatusBar(panel);
   } finally {
     state.polling = false;
   }
 }
 
-// ---- Tab State ----
+// ---- Entry State ----
+
+/** @param {Panel} panel */
+function updateTabState(panel) {
+  setHealth(railEl, panel.id, panelState[panel.id].healthy);
+}
 
 /**
- * Repaint a tab's visual state from panelState: the LED class, and — once
- * healthy — the initial 'disabled' state (tabs are never re-disabled).
- * @param {string} panelId
+ * A panel with no health endpoint is assumed permanently healthy: mark it so,
+ * enable its rail entry, and paint the LED green. Consolidates the built-in,
+ * custom-config, and runtime-addPanel paths so none can enable an entry while
+ * leaving its LED at the offline default.
+ * @param {Panel} panel
  */
-function updateTabState(panelId) {
-  const tab = tabsEl.querySelector(`[data-panel-id="${panelId}"]`);
-  if (!tab) return;
-
-  if (panelState[panelId].healthy) tab.classList.remove('disabled');
-  const led = tab.querySelector('.tab-led');
-  if (led) {
-    led.className = 'tab-led ' + (panelState[panelId].healthy ? 'healthy' : 'offline');
-  }
+function assumeHealthy(panel) {
+  panelState[panel.id].healthy = true;
+  setEntryEnabled(railEl, panel.id, true);
+  updateTabState(panel);
 }
 
 /** @param {Panel} panel */
@@ -593,57 +659,28 @@ function updateStatusBar(panel) {
   }
 }
 
-// ---- Theme Sync ----
-
 /**
- * Send the hub's current theme to one iframe. Always sends — never
- * conditioned on whether the id differs from the last send — because a
- * hidden iframe can read empty custom properties on Firefox and needs a
- * fresh, unconditional resend once it's visible again (theme-manager's
- * hidden-iframe protocol; see that module's docstring). Broadcasting to
- * every iframe on every hub theme change is theme-manager's own job (hub
- * role); this is only the two per-iframe trigger points panel-manager
- * owns: iframe creation and tab activation.
- *
- * 'osprey-theme-change' is the one message type theme-manager's follower
- * role (and every embedded interface) actually listens for.
- * @param {HTMLIFrameElement | null} iframe
+ * Broadcast the current UI mode to every panel iframe — the hub-role fan-out
+ * the header toggle fires after it swaps <html data-ui-mode>. Mirrors
+ * theme-manager's own theme _broadcast(); the mode axis has no such manager, so
+ * panel-manager drives it over its own iframes.
  */
-function sendThemeToIframe(iframe) {
-  if (!iframe?.contentWindow) return;
-  try {
-    iframe.contentWindow.postMessage({ type: 'osprey-theme-change', theme: getTheme() }, window.location.origin);
-  } catch { /* cross-origin */ }
-}
-
-/**
- * Send the hub's active session id to one iframe — the twin of
- * sendThemeToIframe(), owned by the same two per-iframe trigger points
- * (iframe creation and tab activation). Guards on a missing contentWindow
- * (a not-yet-loaded or detached iframe) and on there being no active
- * session yet, and swallows the cross-origin postMessage throw the same
- * way its theme twin does.
- *
- * 'osprey-session-change' is the message type embedded interfaces listen
- * for to scope their view to the hub's active session.
- * @param {HTMLIFrameElement | null} iframe
- */
-function sendSessionToIframe(iframe) {
-  if (!iframe?.contentWindow) return;
-  const sid = getCurrentSessionId();
-  if (!sid) return;
-  try {
-    iframe.contentWindow.postMessage({ type: 'osprey-session-change', session_id: sid }, window.location.origin);
-  } catch { /* cross-origin */ }
+export function broadcastMode() {
+  for (const panel of PANELS) {
+    sendModeToIframe(panelState[panel.id]?.iframe ?? null);
+  }
 }
 
 // ---- Tab Switching ----
 
 /**
+ * Focus an already-visible panel. Cross-module callers (the command palette's
+ * "Focus panel" pick) MUST pass `{ userInitiated: true }` so the switch is
+ * reported to the server via setPanelFocus — omitting it focuses locally only.
  * @param {string} panelId
  * @param {{ userInitiated?: boolean, auto?: boolean }} [options]
  */
-function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
+export function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
   const state = panelState[panelId];
   if (!state || !state.healthy) return;
   // A panel becoming healthy is not a request to show it. The server owns the
@@ -651,32 +688,47 @@ function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
   // — otherwise a panel closed with "×" reappears on its own.
   if (auto && !visiblePanels.has(panelId)) return;
 
+  // Past the guards the panel actually surfaces (rail click, agent focus,
+  // palette, dock — any source): its agent-attention badge is served, clear it.
+  // The guarded returns above deliberately keep the badge on panels that
+  // refused to surface.
+  setEntryAttention(railEl, panelId, false);
+
   activeTabId = panelId;
 
-  // Update tab active states
-  for (const tab of tabsEl.querySelectorAll('.header-tab')) {
-    tab.classList.toggle('active', /** @type {HTMLElement} */ (tab).dataset.panelId === panelId);
-  }
+  // Reflect the active entry on the rail
+  setActive(railEl, panelId);
 
-  // Hide all iframes
-  for (const panel of PANELS) {
-    const ps = panelState[panel.id];
-    if (ps.iframe) ps.iframe.classList.add('hidden');
-  }
+  // Stamp the active panel id on the content container so CSS can shape the
+  // workspace region per-panel — e.g. a panel that paints its own full-bleed
+  // canvas opts out of the hub's card chrome (see files.css [data-active-panel]).
+  if (containerEl) containerEl.dataset.activePanel = panelId;
 
-  // Show or create the selected iframe. isConnected guards a cached ref that was
-  // detached by renderEmptyState's innerHTML wipe — rebuild (and clear the stale
-  // empty-state placeholder) rather than re-showing a node no longer in the DOM.
-  if (state.iframe && state.iframe.isConnected) {
-    state.iframe.classList.remove('hidden');
-  } else {
-    contentEl.querySelector('.artifacts-empty-state')?.remove();
-    createIframe(panelId);
-  }
+  // Clear any stale empty-state placeholder before revealing a panel. isConnected
+  // guards a cached ref that was detached by renderEmptyState's innerHTML wipe
+  // (fallback mode, where iframes live in #panel-content) — rebuild rather than
+  // re-show a node no longer in the DOM. In overlay mode iframes live outside
+  // #panel-content, so the wipe never detaches them and the cached ref is reused.
+  contentEl.querySelector('.artifacts-empty-state')?.remove();
 
-  // Re-send current theme and session ID to the newly visible iframe
+  // Create the iframe (first activation) and bring it forward, suppressing the
+  // others. Both run inside the dock-sync echo guard: createIframe's adoptIframe
+  // adds a dockview placeholder that auto-activates, and focusPanel drives a
+  // programmatic active-tab change — each is an applied echo (server- or rail-
+  // driven), never a fresh human dock gesture, so neither must POST focus back.
+  // The adapter maps focus onto dockview's active-tab geometry in overlay mode,
+  // or a plain display toggle in fallback mode.
+  withEchoSuppressed(() => {
+    if (!state.iframe || !state.iframe.isConnected) {
+      createIframe(panelId);
+    }
+    focusPanel(panelId);
+  });
+
+  // Re-send current theme, mode and session ID to the newly visible iframe
   // (handles edge cases where a postMessage was missed while hidden/loading)
   sendThemeToIframe(state.iframe);
+  sendModeToIframe(state.iframe);
   sendSessionToIframe(state.iframe);
 
   // Report user-initiated tab switches to the server (avoids SSE feedback loop)
@@ -687,9 +739,10 @@ function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
 //
 // These back the human add/remove controls. The command POSTs live in
 // panel-commands.js and the server's SSE echo drives the DOM, so a human
-// action and an agent MCP call are indistinguishable downstream. The per-tab
-// "×" calls setPanelVisibility(id, false) directly (see buildTabButton); the
-// "+" menu's reveal path needs a local focus too, so it goes through showPanel.
+// action and an agent MCP call are indistinguishable downstream. The per-entry
+// "×" calls setPanelVisibility(id, false) directly (the rail's onClose closure,
+// see railOptions); the "+" menu's reveal path needs a local focus too, so it
+// goes through showPanel.
 
 /**
  * Reveal a hidden panel and focus it (a "Show panel" menu pick). The visibility
@@ -697,7 +750,7 @@ function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
  * when it's healthy (and no-ops otherwise, leaving the tab visible but unfocused).
  * @param {string} panelId
  */
-function showPanel(panelId) {
+export function showPanel(panelId) {
   setPanelVisibility(panelId, true);
   activateTab(panelId, { userInitiated: true });
 }
@@ -710,7 +763,7 @@ function showPanel(panelId) {
  * focus is a purely-local activateTab (no visibility re-POST for the primary).
  * @param {string[]} panels
  */
-function applyMenuPreset(panels) {
+export function applyMenuPreset(panels) {
   applyPreset(panels, {
     getVisible: () => visiblePanels,
     getKnown: () => new Set(PANELS.map(p => p.id)),
@@ -745,6 +798,7 @@ function navigatePanel(panelId, url) {
   const embedUrl = new URL(url, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
+  embedUrl.searchParams.set('mode', getMode());
   state.iframe.src = embedUrl.toString();
   state.pendingUrl = null;
 }
@@ -764,31 +818,37 @@ function createIframe(panelId) {
   // the iframe loads the UI root rather than the API root.
   const panel = PANELS.find(p => p.id === panelId);
   const panelPath = panel?.path && panel.path !== '/' ? panel.path : '';
-  const baseUrl = state.pendingUrl || (state.url + panelPath);
-  const targetUrl = baseUrl;
+  const targetUrl = state.pendingUrl || (state.url + panelPath);
   state.pendingUrl = null;
-  // state.url is already the server-prefixed `<prefix>/panel/<id>` (2.2), so
-  // targetUrl is root-relative and already carries the prefix. `new URL(path,
-  // origin)` for a leading-slash path preserves the full path verbatim —
-  // see the matching comment in navigatePanel() above.
+  // targetUrl is the already-prefixed, root-relative `state.url` (+ optional
+  // subpath); `new URL(path, origin)` preserves it verbatim — see navigatePanel().
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
+  embedUrl.searchParams.set('mode', getMode());
   iframe.src = embedUrl.toString();
   iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
 
   iframe.addEventListener('load', () => {
     iframe.classList.add('loaded');
-    // Sync theme + session immediately so there's no flash of the wrong
-    // theme and the embedded app scopes to the active session.
+    // Sync theme + mode + session immediately so there's no flash of the wrong
+    // theme/mode and the embedded app scopes to the active session.
     sendThemeToIframe(iframe);
+    sendModeToIframe(iframe);
     sendSessionToIframe(iframe);
   });
 
-  contentEl.appendChild(iframe);
+  // Hand the element to the dock adapter, which mounts it in the overlay layer
+  // (dockview shell present) or in #panel-content (fallback). The adapter owns
+  // the iframe's geometry from here; panel-manager keeps owning its src, sandbox,
+  // health and the theme/mode/session postMessage protocol above.
   state.iframe = iframe;
+  adoptIframe(panelId, iframe, { title: panel?.label || panelId });
 
-  // Forward resize events to the iframe so embedded apps re-render
+  // Forward resize events to the iframe so embedded apps re-render. Observing
+  // #panel-content covers the fallback (in-content) mount and the workspace-panel
+  // resizes; the adapter additionally re-dispatches resize when it re-lays the
+  // overlay iframe to a new dock rectangle.
   const observer = new ResizeObserver(() => {
     if (iframe.contentWindow) {
       try {
@@ -801,11 +861,60 @@ function createIframe(panelId) {
   observer.observe(contentEl);
 }
 
+// ---- Command Palette Accessors ----
+//
+// Thin read-only getters over this module's private panel state (PANELS,
+// visiblePanels, activeTabId, panelPresets), letting the command-palette module
+// enumerate panels without owning any of that state. They derive from the live
+// state on every call — no new module-level variable — and pair with the
+// re-exported showPanel / activateTab / applyMenuPreset actions so the palette
+// drives the same visibility/focus/layout paths the "+" menu uses.
+
+/**
+ * Known-but-hidden panels, in PANELS order. Shared with the "+" add menu (the
+ * wirePanelHeaderControls getHiddenPanels closure calls this, so both surfaces
+ * enumerate identically).
+ * @returns {Array<{id: string, label: string}>}
+ */
+export function getHiddenPanels() {
+  return PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label }));
+}
+
+/**
+ * Visible panels excluding the active one, in PANELS order. "Focus" on the
+ * already-active panel is a no-op, so activeTabId is filtered out.
+ * @returns {Array<{id: string, label: string}>}
+ */
+export function getVisiblePanels() {
+  return PANELS.filter(p => visiblePanels.has(p.id) && p.id !== activeTabId).map(p => ({ id: p.id, label: p.label }));
+}
+
+/**
+ * Config-defined layout presets ("Layouts"), in config order. Shared with the
+ * "+" menu's Layouts section (the wirePanelHeaderControls getPresets closure
+ * calls this). Empty unless a facility opts in.
+ * @returns {Array<{name: string, panels: string[]}>}
+ */
+export function getPresets() {
+  return panelPresets;
+}
+
+/**
+ * Currently surfaced panel id — the `data-active-panel` stamp activateTab
+ * writes on the container — or null before init / with no active panel.
+ * Consumed by the agent-activity suppression table.
+ * @returns {string | null}
+ */
+export function getActivePanel() { return containerEl?.dataset.activePanel ?? null; }
+
 // ---- Empty State ----
 
 /** @param {string} message */
 function renderEmptyState(message) {
   if (!contentEl) return;
+  // No active panel — restore the default padded card so the placeholder isn't
+  // left frameless by a previous canvas-painting panel's opt-out.
+  if (containerEl) delete containerEl.dataset.activePanel;
   contentEl.innerHTML = `
     <div class="artifacts-empty-state">
       <div class="artifacts-empty-icon">

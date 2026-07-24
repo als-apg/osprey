@@ -859,3 +859,75 @@ body.drag-active .figure-plot {
     display: none !important;
   }
 }
+
+/* ── Simple Mode — one primary surface, calmer chrome ──────
+ *
+ * Expert (the default) is the full multi-panel dashboard. Simple promotes
+ * the Optics figure — the canonical lattice visualization — to a single
+ * hero surface and strips the expert-only chrome: the dense stat chips, the
+ * controls/settings sidebar, the on-demand verification figures, and the
+ * layout/verify/baseline actions. A plain-language status line stands in for
+ * the numeric readouts. Everything here is presentational and gated on
+ * html[data-ui-mode="simple"]; Expert renders pixel-identically. */
+
+/* Plain-language status line — hidden in Expert, replaces the stat chips. */
+.lattice-simple-status {
+  display: none;
+}
+
+:root[data-ui-mode="simple"] .lattice-simple-status {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Hide expert-only chrome: dense numeric chips, controls sidebar, and the
+   expert action buttons (panel layout, verify, baseline). */
+:root[data-ui-mode="simple"] #stats-row .stat-chip,
+:root[data-ui-mode="simple"] #btn-layout,
+:root[data-ui-mode="simple"] #btn-verify,
+:root[data-ui-mode="simple"] #btn-baseline,
+:root[data-ui-mode="simple"] #sidebar {
+  display: none;
+}
+
+/* Promote Optics to the single hero surface; hide the other fast figures
+   and the whole verification row. The #figure-area prefix lifts specificity
+   above the .layout-stacked rules so the hero fills in either layout mode. */
+:root[data-ui-mode="simple"] #figure-area .verification-row,
+:root[data-ui-mode="simple"] #figure-area #cell-resonance,
+:root[data-ui-mode="simple"] #figure-area #cell-chromaticity,
+:root[data-ui-mode="simple"] #figure-area #cell-footprint {
+  display: none;
+}
+
+:root[data-ui-mode="simple"] #figure-area {
+  overflow: hidden;
+}
+
+:root[data-ui-mode="simple"] #figure-area .figure-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  flex: 1;
+}
+
+:root[data-ui-mode="simple"] #figure-area .figure-grid .figure-cell {
+  min-height: 0;
+}
+
+/* Calmer figure chrome: drag-to-rearrange is an expert interaction (the
+   sidebar it complements is hidden), so drop the drag-dot affordance and the
+   grab cursor from the hero's header. */
+:root[data-ui-mode="simple"] .figure-header {
+  cursor: default;
+}
+
+:root[data-ui-mode="simple"] .figure-header::before {
+  display: none;
+}

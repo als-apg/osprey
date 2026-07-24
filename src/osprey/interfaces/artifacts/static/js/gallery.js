@@ -5,7 +5,8 @@
  * Single gallery for all artifacts with type filtering, pin flag,
  * and inline timeseries rendering.
  */
-import { initTheme, subscribe, chartSeries } from "/design-system/js/theme-manager.js";
+import { initTheme, subscribe } from "/design-system/js/theme-manager.js";
+import { onModeChange } from "/design-system/js/frame-params.js";
 import { applyEmbedded } from "/design-system/js/frame-params.js";
 import "/design-system/js/components/osprey-theme-switcher.js";
 import {
@@ -18,13 +19,24 @@ import {
   setCurrentSessionId,
   getShowAllSessions,
   setShowAllSessions,
+  getRecentArtifacts,
+  fileUrl,
   fetchArtifacts as fetchArtifactsData,
   fetchFocus,
 } from "./state.js";
-import { initTypeRegistry } from "./types.js";
+import {
+  initTypeRegistry,
+  thumbnailHtml,
+  typeIcon,
+  formatTime,
+  formatFullTime,
+  isNewThisSession,
+  openUrl,
+  escapeHtml,
+} from "./types.js";
 import { initSplitPaneResize, createSidebarRenderer } from "./render.js";
 import { createPreviewRenderer } from "./preview.js";
-import { renderTimeseriesView, _tsChartTheme } from "./timeseries.js";
+import { renderTimeseriesView, restyleVisibleChart } from "./timeseries.js";
 
 // ---- DOM Refs ----
 
@@ -35,6 +47,27 @@ const searchInput = /** @type {HTMLInputElement} */ (document.getElementById("se
 const sidebarBody = /** @type {HTMLElement} */ (document.getElementById("sidebar-body"));
 const sidebar = document.getElementById("browse-sidebar");
 const resizeHandle = document.getElementById("resize-handle");
+
+// ---- Simple-mode DOM refs (frame 2b) ----
+const simpleEmpty = document.getElementById("simple-empty");
+const simpleResult = document.getElementById("simple-result");
+const simpleResultTitle = document.getElementById("simple-result-title");
+const simpleResultBadge = /** @type {HTMLElement} */ (document.getElementById("simple-result-badge"));
+const simpleOpenFull = /** @type {HTMLAnchorElement} */ (document.getElementById("simple-open-full"));
+const simpleSave = /** @type {HTMLAnchorElement} */ (document.getElementById("simple-save"));
+const simpleResultPreview = document.getElementById("simple-result-preview");
+const simpleResultCaption = document.getElementById("simple-result-caption");
+const simpleListCount = document.getElementById("simple-list-count");
+const simpleListBody = /** @type {HTMLElement} */ (document.getElementById("simple-list-body"));
+const simpleShowAll = /** @type {HTMLElement} */ (document.getElementById("simple-show-all"));
+
+// Page-load timestamp for the "NEW" badge (an artifact created this session).
+// Independent of render.js's own _sessionStart; both are just page-load time.
+const _sessionStart = new Date().toISOString();
+// Simple mode's session list truncates to the most recent few until the user
+// clicks "Show all"; latched here so re-renders (SSE, fetch) keep it expanded.
+let simpleShowAllResults = false;
+const SIMPLE_LIST_LIMIT = 6;
 
 // ---- State ----
 // artifacts/selectedArtifact/focusedArtifact/activeFilter/currentSessionId/
@@ -78,7 +111,7 @@ sidebarRenderer = createSidebarRenderer({
 
 // ---- Health / Header UI ----
 // escapeHtml/formatSize/formatTime/formatFullTime/formatDate/openUrl/
-// isNewThisSession/sendToTerminal/requestColorPass/typeBadge/typeColor now
+// isNewThisSession/requestColorPass/typeBadge/typeColor now
 // live in types.js, consumed directly by render.js/preview.js instead of
 // through this module; updateHealth/updateHeaderCount stay here — they
 // touch this module's own top-level DOM refs (healthDot/headerCount), not
@@ -91,6 +124,84 @@ function updateHealth(ok) {
 
 function updateHeaderCount() {
   if (headerCount) /** @type {any} */ (headerCount).textContent = getArtifacts().length;
+}
+
+// ---- Simple Mode (frame 2b) ----
+// The Simple layout renders from the same artifact list + selection/focus
+// state as Expert, into its own #view-artifacts-simple section (shown only
+// under html[data-ui-mode="simple"]). renderSimple() is called alongside the
+// sidebar re-render on every data change, so switching modes shows fresh
+// content instantly. It writes into hidden DOM in Expert mode, which is cheap.
+
+/**
+ * The artifact Simple mode shows in the big latest-result card: the
+ * user-selected one if it's still in the list, else the agent-focused one,
+ * else the newest.
+ * @param {any[]} recent - newest-first artifact list
+ * @returns {any|null}
+ */
+function simpleResultArtifact(recent) {
+  const sel = getSelectedArtifact();
+  if (sel && recent.some((a) => a.id === sel.id)) return sel;
+  const foc = getFocusedArtifact();
+  if (foc && recent.some((a) => a.id === foc.id)) return foc;
+  return recent[0] || null;
+}
+
+/**
+ * Simple mode's inline preview. Reuses types.js's thumbnailHtml (same
+ * <img>/<iframe> markup the Expert preview builds) — the result card's CSS
+ * sizes it full-bleed rather than as a thumbnail.
+ * @param {any} a
+ * @returns {string}
+ */
+function simplePreviewHtml(a) {
+  return thumbnailHtml(a);
+}
+
+/** @returns {void} */
+function renderSimple() {
+  if (!simpleListBody) return;
+  // Only the active Simple layout needs rebuilding: in Expert mode this DOM is
+  // hidden, so skip the sort + innerHTML churn on every SSE/fetch event. The
+  // osprey-mode-change handler re-renders on the switch into Simple, so the
+  // view is always fresh when shown.
+  if (document.documentElement.dataset.uiMode !== "simple") return;
+  const recent = getRecentArtifacts();
+  const latest = simpleResultArtifact(recent);
+
+  if (!latest) {
+    simpleEmpty?.classList.remove("hidden");
+    simpleResult?.classList.add("hidden");
+  } else {
+    simpleEmpty?.classList.add("hidden");
+    simpleResult?.classList.remove("hidden");
+    if (simpleResultTitle) simpleResultTitle.textContent = latest.title;
+    if (simpleResultBadge) simpleResultBadge.hidden = !isNewThisSession(latest, _sessionStart);
+    if (simpleOpenFull) simpleOpenFull.href = openUrl(latest);
+    if (simpleSave) { simpleSave.href = fileUrl(latest); simpleSave.setAttribute("download", latest.filename); }
+    if (simpleResultPreview) simpleResultPreview.innerHTML = simplePreviewHtml(latest);
+    if (simpleResultCaption) {
+      simpleResultCaption.textContent =
+        latest.description || `${latest.title} · ${formatFullTime(latest.timestamp)}`;
+    }
+  }
+
+  if (simpleListCount) simpleListCount.textContent = String(recent.length);
+  if (simpleShowAll) simpleShowAll.hidden = recent.length <= SIMPLE_LIST_LIMIT;
+  const shown = simpleShowAllResults ? recent : recent.slice(0, SIMPLE_LIST_LIMIT);
+  const selId = latest?.id;
+  simpleListBody.innerHTML = shown
+    .map(
+      (a) => `
+    <div class="simple-list-item ${a.id === selId ? "selected" : ""}" data-id="${escapeHtml(a.id)}">
+      <span class="simple-list-item-icon">${typeIcon(a.artifact_type)}</span>
+      <span class="simple-list-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
+      ${isNewThisSession(a, _sessionStart) ? '<span class="simple-badge-new">NEW</span>' : ""}
+      <span class="simple-list-item-time">${escapeHtml(formatTime(a.timestamp))}</span>
+    </div>`
+    )
+    .join("");
 }
 
 // ---- API ----
@@ -107,6 +218,7 @@ function fetchArtifacts() {
       updateHeaderCount();
       sidebarRenderer.rebuildTypeChips();
       sidebarRenderer.renderSidebar();
+      renderSimple();
     },
   });
 }
@@ -219,6 +331,7 @@ function applyFocus(artifact, wantFullscreen) {
   setFocusedArtifact(artifact);
   sidebarRenderer.renderSidebar();
   previewRenderer.renderPreview();
+  renderSimple();
   if (wantFullscreen) previewRenderer.enterFullscreen(artifact);
 }
 
@@ -264,6 +377,7 @@ function connectSSE() {
       updateHeaderCount();
       sidebarRenderer.rebuildTypeChips();
       sidebarRenderer.renderSidebar();
+      renderSimple();
       return;
     }
 
@@ -279,6 +393,7 @@ function connectSSE() {
           previewRenderer.renderPreview();
         }
         sidebarRenderer.renderSidebar();
+        renderSimple();
       }
       return;
     }
@@ -331,36 +446,9 @@ function _forwardThemeToPreviewFrames(theme) {
   });
 }
 
-function _restyleTimeseriesChart() {
-  // Target the actual Plotly graph div inside the container, not the
-  // outer #ts-viewport wrapper.
-  const tsChart = document.querySelector("#ts-viewport [data-ts-chart]");
-  if (!tsChart || typeof Plotly === "undefined") return;
-  const t = _tsChartTheme();
-  try {
-    Plotly.relayout(tsChart, {
-      paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
-      "font.color": t.font.color,
-      "xaxis.gridcolor": t.xaxis.gridcolor, "xaxis.linecolor": t.line,
-      "yaxis.gridcolor": t.yaxis.gridcolor, "yaxis.linecolor": t.line,
-      "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
-    });
-    // relayout doesn't touch trace colors, so the data lines and their legend
-    // dots keep the prior theme's palette until reload. Restyle each trace's
-    // line+marker to the current series palette so they re-theme live too.
-    const series = chartSeries();
-    const traces = /** @type {any} */ (tsChart).data || [];
-    if (series.length && traces.length) {
-      const colors = traces.map((/** @type {any} */ _t, /** @type {number} */ i) => series[i % series.length]);
-      Plotly.restyle(tsChart, { "line.color": colors, "marker.color": colors });
-    }
-  // eslint-disable-next-line no-empty -- intentional empty catch: Plotly relayout is best-effort restyle
-  } catch {}
-}
-
 subscribe((theme) => {
   _forwardThemeToPreviewFrames(theme);
-  _restyleTimeseriesChart();
+  restyleVisibleChart();
 });
 
 // Session changes are unrelated to theming and stay a plain message
@@ -376,6 +464,11 @@ window.addEventListener("message", (e) => {
   }
 });
 
+// Live Expert<->Simple switch broadcast by the hub — the shared receive-side
+// helper stamps data-ui-mode; re-render Simple so its content is fresh on
+// arrival.
+onModeChange(() => renderSimple());
+
 // ---- Init ----
 
 initSplitPaneResize(resizeHandle, sidebar);
@@ -387,6 +480,23 @@ if (allSessionsBtn) {
     setShowAllSessions(!getShowAllSessions());
     allSessionsBtn.classList.toggle("active", getShowAllSessions());
     fetchArtifacts();
+  });
+}
+
+// Simple mode: clicking a session-list row promotes it to the shown result.
+if (simpleListBody) {
+  simpleListBody.addEventListener("click", (e) => {
+    const row = /** @type {HTMLElement} */ (e.target).closest(".simple-list-item");
+    if (!row) return;
+    const id = row.getAttribute("data-id");
+    const a = getArtifacts().find((x) => x.id === id);
+    if (a) { setSelectedArtifact(a); renderSimple(); }
+  });
+}
+if (simpleShowAll) {
+  simpleShowAll.addEventListener("click", () => {
+    simpleShowAllResults = true;
+    renderSimple();
   });
 }
 initTypeRegistry().then(() => {

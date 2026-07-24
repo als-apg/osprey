@@ -77,10 +77,7 @@ function makeEditGallery(overrides = {}) {
   return /** @type {TestEditGallery} */ ({
     selectedArtifact: null,
     artifacts: [],
-    categoryFilter: () => true,
-    categoryOverrides: {},
-    categoryRemaps: {},
-    summary: { total: 0, framework: 0, userOwned: 0 },
+    reloadFull: vi.fn(async () => {}),
     currentView: 'detail',
     detailMode: 'edit',
     editDirty: false,
@@ -331,6 +328,9 @@ describe('saveOverride', () => {
       selectedArtifact: { name: 'a', status: 'user-owned' },
       editDirty: true,
     });
+    gallery.reloadFull = vi.fn(async () => {
+      gallery.artifacts = [{ name: 'a', status: 'user-owned' }];
+    });
     const textarea = document.createElement('textarea');
     textarea.className = 'prompts-edit-textarea';
     textarea.value = 'new content';
@@ -499,6 +499,9 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
     }));
 
     const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+    gallery.reloadFull = vi.fn(async () => {
+      gallery.artifacts = [{ name: 'a', category: 'agents', status: 'user-owned' }];
+    });
     const edit = createScaffoldGalleryEdit(gallery);
     await edit.takeOwnership();
 
@@ -551,22 +554,27 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
     );
   });
 
-  test('handleEditFramework claims the file, refetches artifacts, and switches to edit mode', async () => {
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url.includes('/claim')) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ artifacts: [{ name: 'a', category: 'agents', status: 'user-owned' }] }),
-      });
-    }));
+  test('handleEditFramework claims the file, reloads via the data pipeline, and reopens in edit mode', async () => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    ));
 
     const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+    // Mimic the real reloadFull's onLoaded side effect: the gallery view is
+    // re-rendered (which flips visibility back to the grid) — so the action
+    // must reopen the detail view itself via openDetail.
+    gallery.reloadFull = vi.fn(async () => {
+      gallery.artifacts = [{ name: 'a', category: 'agents', status: 'user-owned' }];
+      gallery.renderGallery();
+    });
     const edit = createScaffoldGalleryEdit(gallery);
     await edit.handleEditFramework();
 
+    expect(gallery.reloadFull).toHaveBeenCalledOnce();
+    expect(gallery.openDetail).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'a', status: 'user-owned' })
+    );
     expect(gallery.detailMode).toBe('edit');
-    expect(gallery.selectedArtifact.status).toBe('user-owned');
-    expect(gallery.renderDetailHeader).toHaveBeenCalledOnce();
     expect(gallery.renderDetailModes).toHaveBeenCalledOnce();
     expect(gallery.renderDetailContent).toHaveBeenCalledOnce();
   });
@@ -628,39 +636,34 @@ describe('closeDetail', () => {
 // ---------------------------------------------------------------------------
 
 describe('reloadAndReopen', () => {
-  test('reopens the same artifact by name after refetching, recomputing the summary', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({
-        artifacts: [
-          { name: 'a', category: 'agents', status: 'user-owned' },
-          { name: 'b', category: 'rules', status: 'framework' },
-        ],
-      }),
-    })));
-
+  test('reloads via the gallery data pipeline, then reopens the same artifact by name', async () => {
     const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+    gallery.reloadFull = vi.fn(async () => {
+      gallery.artifacts = [
+        { name: 'a', category: 'agents', status: 'user-owned' },
+        { name: 'b', category: 'rules', status: 'framework' },
+      ];
+    });
     const edit = createScaffoldGalleryEdit(gallery);
 
     await edit.reloadAndReopen();
 
-    expect(gallery.summary).toEqual({ total: 2, framework: 1, userOwned: 1 });
+    expect(gallery.reloadFull).toHaveBeenCalledOnce();
     expect(gallery.openDetail).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'a', status: 'user-owned' })
     );
+    // The gallery re-render happens inside the real reloadFull's onLoaded
+    // callback; the edit module itself only renders on the fallback path.
     expect(gallery.renderGallery).not.toHaveBeenCalled();
   });
 
   test('falls back to the gallery grid when the artifact no longer exists (e.g. deleted)', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ artifacts: [] }),
-    })));
-
     const gallery = makeEditGallery({ selectedArtifact: { name: 'gone', status: 'user-owned' } });
     const edit = createScaffoldGalleryEdit(gallery);
 
     await edit.reloadAndReopen();
 
+    expect(gallery.reloadFull).toHaveBeenCalledOnce();
     expect(gallery.openDetail).not.toHaveBeenCalled();
     expect(gallery.renderGallery).toHaveBeenCalledOnce();
   });

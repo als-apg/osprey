@@ -39,6 +39,7 @@ __all__ = [
     "RawToken",
     "ResolvedToken",
     "TokenTree",
+    "default_flagged_stem",
     "load_json_document",
     "flatten_document",
     "resolve_document",
@@ -189,6 +190,29 @@ class TokenTree:
     interfaces: dict[str, dict[str, ResolvedToken]]
     theme_metadata: dict[str, dict[str, Any]]
     interface_metadata: dict[str, dict[str, Any]]
+
+
+def default_flagged_stem(tree: TokenTree) -> str | None:
+    """Stem of the theme flagged ``$extensions.default: true``, if any.
+
+    The single source for "which theme is the product default" — both the
+    CSS emitter (the ``:root`` fallback theme) and the JS emitters
+    (``DEFAULT_FAMILY``) resolve their defaults from this flag, so sharing
+    the lookup is what guarantees the two generated artifacts agree.
+    ``validate.py``'s ``check_default_flag`` enforces that at most one
+    theme carries the flag (and that it is a dark theme), so the
+    first-in-metadata-order tiebreak here is unreachable on a valid tree.
+
+    Args:
+        tree: The loaded token tree.
+
+    Returns:
+        The flagged theme's stem, or ``None`` when no theme is flagged.
+    """
+    for stem, metadata in tree.theme_metadata.items():
+        if metadata.get("default") is True:
+            return stem
+    return None
 
 
 def load_json_document(path: Path) -> dict[str, Any]:

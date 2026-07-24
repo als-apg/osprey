@@ -5,6 +5,7 @@
 // deliberate starting point — tighten to real vendor types incrementally.
 declare const Plotly: any;
 declare const marked: any;
+declare const DOMPurify: any;
 declare const hljs: any;
 declare const katex: any;
 declare const Terminal: any;

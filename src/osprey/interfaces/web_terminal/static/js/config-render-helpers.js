@@ -1,15 +1,16 @@
 // @ts-check
 /* OSPREY Web Terminal — shared config-renderer helpers
  *
- * A small neutral leaf module for the three helpers `renderSettingsJson`
+ * A small neutral leaf module for the helpers `renderSettingsJson`
  * (config-renderers.js), `renderSettingsJsonEditor` (settings-editor.js),
- * and `renderMcpJson` (mcp-renderer.js) all need: a section-header builder,
- * the permission-entry grouping logic, and a hook counter. Keeping these in
- * a neutral leaf dissolves what would otherwise be two circular imports
- * (config-renderers.js <-> settings-editor.js and config-renderers.js <->
- * mcp-renderer.js) into plain one-directional dependencies: this module has
- * no dependency on any of its three consumers, so none of them need to
- * import from each other to share this logic.
+ * and `renderMcpJson` (mcp-renderer.js) need: a section-header builder, the
+ * permission-entry grouping logic, and the per-event hooks tree renderer.
+ * Keeping these in a neutral leaf dissolves what would otherwise be two
+ * circular imports (config-renderers.js <-> settings-editor.js and
+ * config-renderers.js <-> mcp-renderer.js) into plain one-directional
+ * dependencies: this module has no dependency on any of its three
+ * consumers, so none of them need to import from each other to share this
+ * logic.
  *
  * @module config-render-helpers
  */
@@ -76,15 +77,88 @@ export function _groupPermissions(entries) {
 
 /**
  * Count the total number of hooks across every matcher group of a single
- * hook event (e.g. `PreToolUse`), for the event header's count badge.
+ * hook event (e.g. `PreToolUse`), for the event header's count badge. Only
+ * {@link _renderHookEvents} needs it, so it stays module-private.
  *
  * @param {Array<{hooks?: Array<unknown>}>} hookGroups
  * @returns {number}
  */
-export function _countHooks(hookGroups) {
+function _countHooks(hookGroups) {
   let count = 0;
   for (const g of hookGroups) {
     count += (g.hooks || []).length;
   }
   return count;
+}
+
+/**
+ * @typedef {object} HookGroup
+ * @property {string} [matcher]
+ * @property {Array<{command?: string, timeout?: number}>} [hooks]
+ */
+
+/**
+ * Render the collapsible per-event hooks tree: one `.config-hook-event` per
+ * event with a chevron + name + count-badge header (click toggles
+ * `expanded`), matcher groups, and per-hook script-name/timeout entries.
+ * Shared by the read-only settings.json renderer (config-renderers.js) and
+ * the editor's read-only Hooks section (settings-editor.js); each caller
+ * wraps the fragment in its own titled section. Text lands via textContent
+ * only — no HTML sink.
+ *
+ * @param {Record<string, HookGroup[]>} hooks
+ * @returns {DocumentFragment}
+ */
+export function _renderHookEvents(hooks) {
+  const frag = document.createDocumentFragment();
+
+  for (const [eventName, hookGroups] of Object.entries(hooks)) {
+    const eventSection = _el('div', 'config-hook-event');
+    const eventHeader = _el('div', 'config-hook-event-header');
+
+    const chevron = _el('span', 'config-hook-chevron');
+    chevron.textContent = '▶';
+    eventHeader.appendChild(chevron);
+
+    const nameSpan = _el('span', '');
+    nameSpan.textContent = eventName;
+    eventHeader.appendChild(nameSpan);
+
+    const countSpan = _el('span', 'config-hook-count');
+    countSpan.textContent = String(_countHooks(hookGroups));
+    eventHeader.appendChild(countSpan);
+
+    eventHeader.addEventListener('click', () => eventSection.classList.toggle('expanded'));
+    eventSection.appendChild(eventHeader);
+
+    const eventBody = _el('div', 'config-hook-event-body');
+    for (const group of hookGroups) {
+      const matcherEl = _el('div', 'config-hook-matcher');
+      const matcherLabel = _el('span', 'config-hook-matcher-label');
+      matcherLabel.textContent = group.matcher || '*';
+      matcherEl.appendChild(matcherLabel);
+
+      for (const hook of (group.hooks || [])) {
+        const hookEl = _el('div', 'config-hook-entry');
+        const cmd = hook.command || '';
+        const scriptName = (cmd.split('/').pop() || '').replace(/"/g, '').replace(/\.py$/, '');
+
+        const scriptSpan = _el('span', 'config-hook-script');
+        scriptSpan.textContent = scriptName;
+        hookEl.appendChild(scriptSpan);
+
+        if (hook.timeout) {
+          const timeoutSpan = _el('span', 'config-hook-timeout');
+          timeoutSpan.textContent = hook.timeout + 's';
+          hookEl.appendChild(timeoutSpan);
+        }
+        matcherEl.appendChild(hookEl);
+      }
+      eventBody.appendChild(matcherEl);
+    }
+    eventSection.appendChild(eventBody);
+    frag.appendChild(eventSection);
+  }
+
+  return frag;
 }

@@ -23,8 +23,10 @@
   <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/highlight.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/fonts/apex-fonts.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/session.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
 </head>
 <body>
 
@@ -50,7 +52,15 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Agent activity strip (floating variant — this page has no status bar):
+     hidden while empty, fixed overlay so it never shifts the layout. -->
+<div class="status-activity status-activity-floating" id="activity-strip" role="status" aria-live="polite"></div>
+
 <script type="module" src="{{ prefixed('/static/js/session.js') }}"></script>
+
+<!-- Activity strip: self-registering module; binds #activity-strip above to
+     panel-manager's activity seam (inert until a panel-manager runs here). -->
+<script type="module" src="{{ prefixed('/static/js/activity-strip.js') }}"></script>
 
 </body>
 </html>

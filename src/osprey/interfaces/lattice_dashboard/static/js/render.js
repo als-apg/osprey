@@ -257,9 +257,20 @@ export function createRenderer(figureNames, callbacks) {
 
     // Lattice name
     const latticeName = state.base_lattice || 'No lattice loaded';
+    const latticeShort = latticeName.split('/').pop() || latticeName;
     const latticeNameEl = document.getElementById('lattice-name');
     if (latticeNameEl) {
-      latticeNameEl.textContent = latticeName.split('/').pop() || latticeName;
+      latticeNameEl.textContent = latticeShort;
+    }
+
+    // Simple-mode status line (hidden in Expert via CSS): a plain-language
+    // stand-in for the dense stat chips. Updated on every state render so it
+    // is correct the moment the mode is flipped to simple.
+    const simpleStatusEl = document.getElementById('lattice-simple-status');
+    if (simpleStatusEl) {
+      simpleStatusEl.textContent = state.base_lattice
+        ? `Showing lattice optics for ${latticeShort}`
+        : 'No lattice loaded yet';
     }
 
     // Summary stats
