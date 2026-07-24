@@ -11,7 +11,7 @@
   "use strict";
 
   const STORAGE_KEY = "osprey-theme";
-  const VALID_IDS = ["apex-dark", "apex-light", "dark", "high-contrast-dark", "high-contrast-light", "light"];
+  const VALID_IDS = ["apex-dark", "apex-light", "dark", "high-contrast-dark", "high-contrast-light", "light", "retro-dark", "retro-light"];
   // Per-family {mode: id} map: DEFAULTS[family][mode]. Typed as a
   // Record (not the narrower literal shape object-literal inference would
   // give it) because resolveAuto() below indexes it with a general
@@ -29,6 +29,10 @@
     "high-contrast": {
       "dark": "high-contrast-dark",
       "light": "high-contrast-light"
+    },
+    "retro": {
+      "dark": "retro-dark",
+      "light": "retro-light"
     }
   };
   // id -> family, so a valid server-rendered data-theme id can supply the
@@ -41,7 +45,9 @@
     "dark": "osprey",
     "high-contrast-dark": "high-contrast",
     "high-contrast-light": "high-contrast",
-    "light": "osprey"
+    "light": "osprey",
+    "retro-dark": "retro",
+    "retro-light": "retro"
   };
   // Fallback family for 'auto' when no server data-theme attribute is
   // present/valid: the first family declared in the manifest.
