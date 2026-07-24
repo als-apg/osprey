@@ -19,23 +19,22 @@ def _get_session_summary():
 
 
 @pytest.fixture
-def workspace(tmp_path, monkeypatch):
+def workspace(tmp_path):
     """Set up a temporary workspace with an artifacts dir."""
     ws = tmp_path / "_agent_data"
     ws.mkdir()
     (ws / "artifacts").mkdir()
-    monkeypatch.setenv("OSPREY_WORKSPACE", str(ws))
-    monkeypatch.setattr(
-        "osprey.mcp_server.workspace.tools.session_summary.resolve_workspace_root",
-        lambda: ws,
-    )
     return ws
 
 
 @pytest.fixture
 def art_store(workspace):
-    """Initialize an artifact store in the test workspace."""
-    return initialize_artifact_store(workspace)
+    """Initialize the ArtifactStore singleton in the test workspace.
+
+    The tool reads the singleton (``get_artifact_store``), so the store must
+    be initialized rather than monkeypatched onto a workspace resolver.
+    """
+    return initialize_artifact_store(workspace_root=workspace)
 
 
 class TestSessionSummaryEmpty:
