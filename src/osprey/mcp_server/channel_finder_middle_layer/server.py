@@ -27,38 +27,39 @@ mcp = FastMCP("channel-finder-mml")
 # ---------------------------------------------------------------------------
 def create_server() -> FastMCP:
     """Initialize the registry and import tool modules, then return the server."""
-    from osprey.mcp_server.startup import (
-        initialize_workspace_singletons,
-        prime_config_builder,
+    from osprey.mcp_server.channel_finder_common import build_cf_server
+
+    def _initialize_context() -> object:
+        from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+            initialize_cf_ml_context,
+        )
+
+        return initialize_cf_ml_context()
+
+    def _import_tools() -> None:
+        # Import tool modules (each registers itself via @mcp.tool())
+        from osprey.mcp_server.channel_finder_middle_layer.tools import (  # noqa: F401
+            get_common_names,
+            inspect_fields,
+            list_channels,
+            list_families,
+            list_systems,
+            statistics,
+            validate,
+        )
+
+        # query_channels requires duckdb (optional dependency)
+        try:
+            from osprey.mcp_server.channel_finder_middle_layer.tools import (  # noqa: F401
+                query_channels,
+            )
+        except ImportError:
+            logger.info("query_channels tool unavailable (duckdb not installed)")
+
+    return build_cf_server(
+        mcp=mcp,
+        logger=logger,
+        initialize_context=_initialize_context,
+        import_tools=_import_tools,
+        ready_message="Channel Finder MML MCP server initialised with all tools registered",
     )
-    from osprey.utils.workspace import resolve_workspace_root
-
-    prime_config_builder()
-
-    from osprey.mcp_server.channel_finder_middle_layer.server_context import (
-        initialize_cf_ml_context,
-    )
-
-    initialize_cf_ml_context()
-    workspace_root = resolve_workspace_root()
-    initialize_workspace_singletons(workspace_root)
-
-    # Import tool modules (each registers itself via @mcp.tool())
-    from osprey.mcp_server.channel_finder_middle_layer.tools import (  # noqa: F401
-        get_common_names,
-        inspect_fields,
-        list_channels,
-        list_families,
-        list_systems,
-        statistics,
-        validate,
-    )
-
-    # query_channels requires duckdb (optional dependency)
-    try:
-        from osprey.mcp_server.channel_finder_middle_layer.tools import query_channels  # noqa: F401
-    except ImportError:
-        logger.info("query_channels tool unavailable (duckdb not installed)")
-
-    logger.info("Channel Finder MML MCP server initialised with all tools registered")
-    return mcp

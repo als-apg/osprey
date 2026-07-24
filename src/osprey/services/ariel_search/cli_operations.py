@@ -883,6 +883,25 @@ async def get_purge_info(config_dict: dict) -> PurgeInfo:
     return PurgeInfo(entry_count=entry_count, embedding_tables=embedding_tables)
 
 
+async def _unrecord_embedding_migration(cur) -> None:
+    """Remove the text_embedding row from the migration bookkeeping table.
+
+    Purging drops the migration-owned ``text_embeddings_*`` tables; leaving the
+    migration recorded as applied would make a subsequent ``osprey ariel
+    migrate`` a silent no-op, so the tables would never be recreated.
+    """
+    await cur.execute(
+        """
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables
+                       WHERE table_schema = 'public' AND table_name = 'ariel_migrations') THEN
+                DELETE FROM ariel_migrations WHERE name = 'text_embedding';
+            END IF;
+        END $$
+        """
+    )
+
+
 async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _ProgressCb = None):
     """Execute the actual purge operation."""
     from osprey.services.ariel_search import ARIELConfig
@@ -904,6 +923,7 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
                         await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")  # noqa: S608
                         if progress:
                             progress(f"  Dropped {table}")
+                    await _unrecord_embedding_migration(cur)
                     if progress:
                         progress("\n✓ Embedding tables purged. Entries preserved.")
                 else:
@@ -916,6 +936,7 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
                     embedding_tables = [r[0] for r in await cur.fetchall()]
                     for table in embedding_tables:
                         await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")  # noqa: S608
+                    await _unrecord_embedding_migration(cur)
                     if progress:
                         progress("\n✓ All ARIEL data purged.")
     finally:

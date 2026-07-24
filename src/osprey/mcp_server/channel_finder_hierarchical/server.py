@@ -30,29 +30,29 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 def create_server() -> FastMCP:
     """Initialize the registry and import tool modules, then return the server."""
-    from osprey.mcp_server.startup import (
-        initialize_workspace_singletons,
-        prime_config_builder,
+    from osprey.mcp_server.channel_finder_common import build_cf_server
+
+    def _initialize_context() -> object:
+        from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+            initialize_cf_hier_context,
+        )
+
+        return initialize_cf_hier_context()
+
+    def _import_tools() -> None:
+        # Import tool modules (each registers itself via @mcp.tool())
+        from osprey.mcp_server.channel_finder_hierarchical.tools import (  # noqa: F401
+            build_channels,
+            get_options,
+            view_examples,
+        )
+
+    return build_cf_server(
+        mcp=mcp,
+        logger=logger,
+        initialize_context=_initialize_context,
+        import_tools=_import_tools,
+        ready_message=(
+            "Channel Finder Hierarchical MCP server initialised with all tools registered"
+        ),
     )
-    from osprey.utils.workspace import resolve_workspace_root
-
-    prime_config_builder()
-
-    from osprey.mcp_server.channel_finder_hierarchical.server_context import (
-        initialize_cf_hier_context,
-    )
-
-    initialize_cf_hier_context()
-
-    workspace_root = resolve_workspace_root()
-    initialize_workspace_singletons(workspace_root)
-
-    # Import tool modules (each registers itself via @mcp.tool())
-    from osprey.mcp_server.channel_finder_hierarchical.tools import (  # noqa: F401
-        build_channels,
-        get_options,
-        view_examples,
-    )
-
-    logger.info("Channel Finder Hierarchical MCP server initialised with all tools registered")
-    return mcp

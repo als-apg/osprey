@@ -6,7 +6,7 @@ they are using:
 
 - the Bluesky MCP server (``osprey.mcp_server.bluesky.server_context``), the
   agent's path to the bridge, and
-- the operator panels sidecar (``osprey.services.bluesky_panels``), the
+- the operator panels sidecar (``osprey.interfaces.bluesky_panels``), the
   browser's path to the bridge.
 
 If those two ever drift in how they resolve the bridge URL or the launch token

@@ -1,6 +1,6 @@
 {
   "$description": "Artifacts-only extension tokens: the 'memory domain' violet accent (art-violet-*) plus the workspace browse-shell constants (art-panel-*, art-browser-band-height). The violet source is artifacts/static/css/gallery.css lines 34-38 (dark) and 161-164 (light) — a decorative brand accent (not body text), so the high-contrast family opts out via $extensions.inherits rather than duplicating an identical group: these saturated violet values already read at equal-or-better contrast against high-contrast's more extreme (near-black/near-white) backgrounds than they do against dark/light's own. The art-panel-*/art-browser-band-height group is the stacked two-card browse shell (a compact browser band above a dominant detail card): theme-independent layout constants (identical in both groups, mirroring web_terminal.json's wt-header-height pattern) so the high-contrast/apex families inherit them unchanged too.",
-  "$extensions": { "inherits": { "high-contrast-dark": "dark", "high-contrast-light": "light", "apex-dark": "dark", "apex-light": "light" } },
+  "$extensions": { "inherits": { "high-contrast-dark": "dark", "high-contrast-light": "light", "apex-dark": "dark", "apex-light": "light", "retro-dark": "dark", "retro-light": "light" } },
   "dark": {
     "art-violet": {
       "base": { "$value": "{color.violet.200}", "$type": "color" },

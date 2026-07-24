@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import ipaddress
 import logging
+import os
 import socket
 from pathlib import Path
 from typing import Literal
@@ -138,6 +139,33 @@ def _project_key(project_cwd: str | None) -> str:
     return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
 
 
+def _workspace_has_artifacts(base: Path | None) -> bool:
+    """True when the agent workspace holds at least one regular file.
+
+    Dot-entries (``.DS_Store``, ``.gitkeep``, hidden dirs) don't count — a
+    workspace seeded only with housekeeping files must still read empty, so
+    the simple UX's chat-only first boot isn't defeated by scaffolding. The
+    walk stops at the first hit; unreadable directories are skipped.
+    """
+    if base is None:
+        return False
+    stack = [os.fspath(base)]
+    while stack:
+        directory = stack.pop()
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if entry.name.startswith("."):
+                        continue
+                    if entry.is_file(follow_symlinks=False):
+                        return True
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(entry.path)
+        except OSError:
+            continue
+    return False
+
+
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.
@@ -160,6 +188,7 @@ async def get_panels(request: Request):
             "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
             "ui_mode":  str,            # resolved web.ui_mode ("expert" | "simple")
             "project_key": str,         # stable 16-hex per-project key (layout persistence)
+            "workspace_has_artifacts": bool,  # any non-hidden file under the agent workspace
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
@@ -190,6 +219,12 @@ async def get_panels(request: Request):
 
     ``labels`` covers only the enabled built-in panels; custom panels carry
     their own ``label`` field in the ``custom`` list.
+
+    ``workspace_has_artifacts`` reports whether the agent workspace already
+    holds any (non-hidden) file. The simple UX uses it to decide whether the
+    first paint is chat-only (empty workspace) or includes the WORKSPACE
+    panel; recomputed per request so a reload after the first artifact lands
+    sees ``true``.
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
@@ -204,7 +239,12 @@ async def get_panels(request: Request):
     # "expert" default mirrors app.DEFAULT_UI_MODE — kept as a literal here to
     # avoid a routes->app import cycle.
     ui_mode = getattr(request.app.state, "web_ui_mode", "expert")
+    # Echo the resolved rail position (server-rendered onto
+    # <html data-rail-position>). "left" default mirrors
+    # app.DEFAULT_RAIL_POSITION — a literal for the same import-cycle reason.
+    rail_position = getattr(request.app.state, "web_rail_position", "left")
     project_key = _project_key(getattr(request.app.state, "project_cwd", None))
+    has_artifacts = _workspace_has_artifacts(getattr(request.app.state, "workspace_dir", None))
     return {
         "enabled": enabled,
         "custom": custom,
@@ -215,7 +255,9 @@ async def get_panels(request: Request):
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
         "ui_mode": ui_mode,
+        "rail_position": rail_position,
         "project_key": project_key,
+        "workspace_has_artifacts": has_artifacts,
     }
 
 

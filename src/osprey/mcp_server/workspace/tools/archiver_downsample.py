@@ -8,12 +8,9 @@ keeping the payload small enough for inline report generation.
 import json
 import logging
 
-from fastmcp.exceptions import ToolError
-
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
-from osprey.utils.workspace import resolve_workspace_root
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_downsample")
 
@@ -42,19 +39,9 @@ async def archiver_downsample(
         JSON with labels, datasets, original_points, downsampled_points,
         and time_range suitable for Chart.js.
     """
-    try:
-        workspace_root = resolve_workspace_root()
-    except ToolError:
-        raise
-    except Exception as e:
-        return make_error(
-            "internal_error",
-            f"Could not resolve workspace root: {e}",
-        )
+    from osprey.stores.artifact_store import get_artifact_store
 
-    from osprey.stores.artifact_store import ArtifactStore
-
-    store = ArtifactStore(workspace_root=workspace_root)
+    store = get_artifact_store()
     entry = store.get_entry(entry_id)
 
     if entry is None:

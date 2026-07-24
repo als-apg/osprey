@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.artifacts import resolve as resolve_mod
+from osprey.agent_runner import artifact_resolve as resolve_mod
 from osprey.stores.artifact_store import ArtifactStore
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"

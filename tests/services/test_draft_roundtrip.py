@@ -6,14 +6,14 @@ This is the ONE test that exercises the full chain end to end -- everything
 else (per-router unit tests, per-field validation, launch-token gating) is
 covered elsewhere:
 
-- ``tests/services/bluesky_panels/test_draft_relay.py`` / ``test_launch.py``
+- ``tests/interfaces/bluesky_panels/test_draft_relay.py`` / ``test_launch.py``
   cover the sidecar's routers in isolation (mocked bridge).
 - ``tests/services/bluesky_bridge/test_draft.py`` covers the bridge draft
   module's SSE wire format and per-field validation directly.
 - ``tests/services/bluesky_bridge/test_launch_validation_gate.py`` covers
   the launch-time session-plan validation gate.
 
-Here, the real ``osprey.services.bluesky_panels.app`` sidecar is wired to the
+Here, the real ``osprey.interfaces.bluesky_panels.app`` sidecar is wired to the
 real ``osprey.services.bluesky_bridge.app`` bridge via
 ``httpx.ASGITransport`` (no real bridge process, no container) -- so a PATCH
 sent through the sidecar's ``/draft`` relay actually lands on the bridge's
@@ -54,13 +54,13 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.bluesky_panels.app import app as sidecar_app
 from osprey.services.bluesky_bridge import draft as bridge_draft
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.app import app as bridge_app
 from osprey.services.bluesky_bridge.app import set_runner_factory
 from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry as bridge_run_registry
-from osprey.services.bluesky_panels.app import app as sidecar_app
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"

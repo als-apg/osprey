@@ -17,7 +17,7 @@ import termios
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 
-from osprey.interfaces.web_terminal.env_utils import build_base_child_env
+from osprey.agent_runner.clean_env import build_base_child_env
 from osprey.utils.logger import get_logger
 
 logger = get_logger("pty_manager")

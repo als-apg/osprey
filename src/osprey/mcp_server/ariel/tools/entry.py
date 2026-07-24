@@ -43,7 +43,7 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     """
     import tempfile
 
-    from osprey.interfaces.artifacts.resolve import resolve_artifact_path
+    from osprey.agent_runner.artifact_resolve import resolve_artifact_path
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()

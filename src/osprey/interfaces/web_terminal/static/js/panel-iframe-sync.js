@@ -94,3 +94,25 @@ export function getMode() {
 export function sendModeToIframe(iframe) {
   postToIframe(iframe, { type: 'osprey-mode-change', mode: getMode() });
 }
+
+/**
+ * Build the src for a panel embed — the load-time half of the host→follower
+ * contract whose live half is the postMessage senders above: the target URL
+ * stamped with `embedded` plus the current theme and mode, so the panel first-
+ * paints in the right state before any message arrives.
+ *
+ * `targetUrl` (a panel's server-reported url, or a panel_focus SSE payload) is
+ * root-relative and ALREADY server-prefixed. `new URL(path, origin)` keeps a
+ * leading-slash path verbatim — it does not resolve against the origin's own
+ * path — so a prefixed path stays prefixed and an unprefixed one stays
+ * unprefixed. Never strip or re-add window.__OSPREY_PREFIX__ here.
+ * @param {string} targetUrl
+ * @returns {string}
+ */
+export function buildEmbedSrc(targetUrl) {
+  const embedUrl = new URL(targetUrl, window.location.origin);
+  embedUrl.searchParams.set('embedded', 'true');
+  embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
+  embedUrl.searchParams.set('mode', getMode());
+  return embedUrl.toString();
+}

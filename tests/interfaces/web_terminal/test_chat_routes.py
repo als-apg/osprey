@@ -1049,3 +1049,33 @@ class TestChatStripOnTheWire:
             assert "total_cost_usd" not in e
             assert "duration_ms" not in e
             assert "num_turns" not in e
+
+
+# ---------------------------------------------------------------------------
+# Pure-helper contracts (terminal detection + SSE wire format)
+# ---------------------------------------------------------------------------
+
+
+class TestIsTerminal:
+    """is_terminal_event: which chat events end a turn's event stream."""
+
+    def test_result_is_terminal(self):
+        assert chat_module.is_terminal_event({"type": "result"}) is True
+
+    def test_fatal_error_is_terminal(self):
+        assert chat_module.is_terminal_event({"type": "error", "error_type": "Boom"}) is True
+
+    def test_assistant_message_error_is_not_terminal(self):
+        """A per-message SDK error is recoverable — the stream must continue."""
+        assert (
+            chat_module.is_terminal_event({"type": "error", "error_type": "AssistantMessageError"})
+            is False
+        )
+
+    def test_text_is_not_terminal(self):
+        assert chat_module.is_terminal_event({"type": "text", "content": "hi"}) is False
+
+
+class TestSseFormatting:
+    def test_formats_as_sse_data_line(self):
+        assert chat_module._sse({"type": "text"}) == 'data: {"type": "text"}\n\n'

@@ -315,7 +315,12 @@ async def test_artifact_focus_emits_artifact(tmp_path, monkeypatch):
 
     from osprey.mcp_server.workspace.tools.focus_tools import artifact_focus
 
-    with patch(f"{_FOCUS_MOD}.notify_agent_activity") as notify:
+    # Gallery acknowledges the POST — focus reports gallery failures as tool
+    # errors, and this test is about the notify seam, not the gallery.
+    with (
+        patch(f"{_FOCUS_MOD}._post_json_with_response", return_value=(200, {"status": "ok"})),
+        patch(f"{_FOCUS_MOD}.notify_agent_activity") as notify,
+    ):
         result = await get_tool_fn(artifact_focus)(artifact_id=artifact_id)
 
     data = extract_response_dict(result)
@@ -348,9 +353,17 @@ async def test_focus_result_unchanged_when_terminal_down(tmp_path, monkeypatch):
     from osprey.mcp_server.workspace.tools.focus_tools import artifact_focus
 
     port = _free_port()
-    with patch(
-        "osprey.mcp_server.http.web_terminal_url",
-        return_value=f"http://127.0.0.1:{port}",
+    # Gallery acknowledges the POST (a gallery failure is a tool error by
+    # contract); only the TERMINAL is down here — the notify half under test.
+    with (
+        patch(
+            "osprey.mcp_server.workspace.tools.focus_tools._post_json_with_response",
+            return_value=(200, {"status": "ok"}),
+        ),
+        patch(
+            "osprey.mcp_server.http.web_terminal_url",
+            return_value=f"http://127.0.0.1:{port}",
+        ),
     ):
         result = await get_tool_fn(artifact_focus)(artifact_id=artifact_id)
 

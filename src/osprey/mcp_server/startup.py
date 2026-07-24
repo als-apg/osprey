@@ -4,7 +4,6 @@ import logging
 import sys
 import time
 from contextlib import contextmanager
-from pathlib import Path
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -115,12 +114,22 @@ def prime_config_builder() -> None:
             logger.warning("ConfigBuilder priming failed (non-fatal): %s", exc)
 
 
-def initialize_workspace_singletons(workspace_root: Path) -> None:
-    """Initialize ArtifactStore singleton for a workspace."""
+def initialize_workspace_singletons() -> None:
+    """Initialize the ArtifactStore singleton on the SHARED data root.
+
+    The artifact store is served by long-lived daemons (the artifact gallery)
+    that read the shared ``_agent_data/`` root. Session isolation is handled
+    at the index level via ``ArtifactEntry.session_id`` — never in the store
+    path. Rooting the store at the session-relocated path
+    (``resolve_agent_data_root`` appends ``sessions/<id>/`` when
+    ``OSPREY_SESSION_ID`` is set) would make a session's artifacts invisible
+    to the gallery.
+    """
     from osprey.stores.artifact_store import initialize_artifact_store
+    from osprey.utils.workspace import resolve_shared_data_root
 
     with startup_timer("workspace_singletons"):
-        initialize_artifact_store(workspace_root=workspace_root)
+        initialize_artifact_store(workspace_root=resolve_shared_data_root())
 
 
 def run_mcp_server(server_module: str) -> None:

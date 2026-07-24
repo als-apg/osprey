@@ -2,7 +2,7 @@
 
 import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
 import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
-import { initPanelManager, broadcastMode } from './panel-manager.js';
+import { initPanelManager, broadcastMode, handleUiModeFlip } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -14,6 +14,7 @@ import { initTheme } from '/design-system/js/theme-manager.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initDisplayMenu } from './display-menu.js';
+import { getRailPosition, setRailPosition } from './rail-position.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -42,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initLogoutButton();
   initModeToggle();
   initDisplayMenu();
+  initRailPosition();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
@@ -155,7 +157,28 @@ function initModeToggle() {
     // restore the expert layout. Runs after the CSS/attribute swap so the dock
     // reads the target mode; no-ops until the workspace shell exists.
     applyDockMode(mode);
+    // Panel half: a flip to expert ends the simple-UX chat-only suppression
+    // and lets the default panel claim a still-empty workspace slot. Runs
+    // after applyDockMode so the activation docks into the target layout.
+    handleUiModeFlip(mode);
   });
+}
+
+/**
+ * Adopt a one-shot `?rail=` as an explicit choice. rail-boot.js already
+ * stamped the attribute pre-paint; re-setting it through setRailPosition
+ * persists it and strips the param, so a reload (or a stale bookmark of the
+ * bare URL) keeps the arrangement the link put the operator in. No `?rail=`
+ * means nothing to adopt — the boot-resolved position already IS the stored
+ * or configured one.
+ */
+function initRailPosition() {
+  try {
+    if (!new URLSearchParams(window.location.search).has('rail')) return;
+  } catch {
+    return;
+  }
+  setRailPosition(getRailPosition());
 }
 
 /**

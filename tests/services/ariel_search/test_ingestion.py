@@ -198,6 +198,21 @@ class TestALSLogbookAdapter:
         assert entries[0]["author"] == "jsmith"
         assert "RF cavity" in entries[0]["raw_text"]
 
+    def test_convert_entry_missing_id_degrades(self):
+        """A payload without ``id`` yields an empty entry_id, never a KeyError.
+
+        Every other field in the ALS converter is read defensively; the id must
+        degrade the same way (matching the jlab/ornl adapters) so a malformed
+        entry is skipped by the fetch loop's ``except`` instead of aborting.
+        """
+        config = self._make_config("/fake/path.jsonl")
+        adapter = ALSLogbookAdapter(config)
+
+        entry = adapter._convert_entry({"subject": "no id here", "author": "nobody"})
+
+        assert entry["entry_id"] == ""
+        assert entry["author"] == "nobody"
+
     @pytest.mark.asyncio
     async def test_fetch_entries_with_since_filter(self):
         """Since filter excludes older entries."""
@@ -348,6 +363,18 @@ class TestGenericJSONAdapter:
         assert len(entries) == 5
         assert entries[0]["entry_id"] == "GEN-001"
         assert entries[0]["author"] == "jdoe"
+
+    def test_convert_entry_missing_id_degrades(self):
+        """A payload without ``id`` yields an empty entry_id, never a KeyError."""
+        config = self._make_config("/fake/path.json")
+        adapter = GenericJSONAdapter(config)
+
+        entry = adapter._convert_entry(
+            {"text": "no id here", "author": "nobody", "timestamp": "2024-01-01T00:00:00Z"}
+        )
+
+        assert entry["entry_id"] == ""
+        assert entry["author"] == "nobody"
 
     @pytest.mark.asyncio
     async def test_fetch_with_limit(self):

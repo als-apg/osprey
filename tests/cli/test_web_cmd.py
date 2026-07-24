@@ -512,7 +512,7 @@ class TestWebCommandPreflightWiring:
 
 def _stub_spec(**overrides):
     """Build a minimal ClaudeCodeModelSpec for Probe 2 tests without a real config.yml."""
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelSpec
+    from osprey.build.claude_code_resolver import ClaudeCodeModelSpec
 
     defaults = {
         "provider": "als-apg",
@@ -539,7 +539,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.cli.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
         own_port = _free_port()
@@ -563,7 +563,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.cli.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.setenv("ALS_APG_API_KEY", "")
         own_port = _free_port()
@@ -586,7 +586,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.cli.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
         own_port = _free_port()
@@ -610,7 +610,7 @@ class TestPreflightAuthSecret:
             needs_proxy=False,
         )
         monkeypatch.setattr(
-            "osprey.cli.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: spec
         )
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         own_port = _free_port()
@@ -628,7 +628,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.cli.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: None
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: None
         )
         own_port = _free_port()
 
@@ -645,7 +645,7 @@ class TestPreflightAuthSecret:
         self._stub_launch(monkeypatch)
         self._stub_clean_ports(monkeypatch)
         monkeypatch.setattr(
-            "osprey.cli.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: _stub_spec()
         )
         monkeypatch.setenv("ALS_APG_API_KEY", "present")
 
@@ -671,7 +671,7 @@ class TestPreflightConfigValidity:
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
         # No provider configured — keep Probe 2 out of these tests' way.
         monkeypatch.setattr(
-            "osprey.cli.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: None
+            "osprey.build.claude_code_resolver.load_provider_spec", lambda *_a, **_kw: None
         )
 
     def _stub_clean_ports(self, monkeypatch):

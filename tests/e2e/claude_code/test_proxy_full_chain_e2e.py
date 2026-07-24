@@ -19,7 +19,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
+from osprey.build.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
 from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
 
 OLLAMA_BASE = "http://localhost:11434/v1"

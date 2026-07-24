@@ -112,7 +112,9 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "allow_runtime_panels",
         "presets",
         "ui_mode",
+        "rail_position",
         "project_key",
+        "workspace_has_artifacts",
     }
 
 
@@ -122,3 +124,64 @@ def test_project_key_matches_documented_construction(tmp_path):
     full = hashlib.sha256(str(Path(tmp_path).resolve()).encode("utf-8")).hexdigest()
     assert body["project_key"] == full[:16]
     assert len(body["project_key"]) == 16
+
+
+# ---- workspace_has_artifacts (simple-UX chat-only first boot) ----
+
+
+def _make_workspace_app(project_cwd, workspace_dir):
+    app = _make_app(project_cwd)
+    app.state.workspace_dir = workspace_dir
+    return app
+
+
+def test_workspace_flag_absent_state_is_false(tmp_path):
+    """No workspace_dir on app.state (bare router) → flag is False, not an error."""
+    assert _panels(_make_app(tmp_path))["workspace_has_artifacts"] is False
+
+
+def test_workspace_flag_empty_dir_is_false(tmp_path):
+    ws = tmp_path / "_agent_data"
+    ws.mkdir()
+    assert _panels(_make_workspace_app(tmp_path, ws))["workspace_has_artifacts"] is False
+
+
+def test_workspace_flag_hidden_files_do_not_count(tmp_path):
+    """Housekeeping dotfiles (and files under dot-dirs) must not defeat the
+    chat-only first boot — the workspace still reads empty."""
+    ws = tmp_path / "_agent_data"
+    (ws / ".cache").mkdir(parents=True)
+    (ws / ".DS_Store").write_text("x")
+    (ws / ".cache" / "state.json").write_text("{}")
+    assert _panels(_make_workspace_app(tmp_path, ws))["workspace_has_artifacts"] is False
+
+
+def test_workspace_flag_true_for_toplevel_file(tmp_path):
+    ws = tmp_path / "_agent_data"
+    ws.mkdir()
+    (ws / "orbit_plot.png").write_bytes(b"\x89PNG")
+    assert _panels(_make_workspace_app(tmp_path, ws))["workspace_has_artifacts"] is True
+
+
+def test_workspace_flag_true_for_nested_file(tmp_path):
+    """Session subdirectories count — the watcher covers all sessions."""
+    ws = tmp_path / "_agent_data"
+    (ws / "session-abc").mkdir(parents=True)
+    (ws / "session-abc" / "report.html").write_text("<html></html>")
+    assert _panels(_make_workspace_app(tmp_path, ws))["workspace_has_artifacts"] is True
+
+
+def test_workspace_flag_missing_dir_is_false(tmp_path):
+    """A configured-but-not-yet-created workspace dir reads empty, no error."""
+    ws = tmp_path / "does-not-exist"
+    assert _panels(_make_workspace_app(tmp_path, ws))["workspace_has_artifacts"] is False
+
+
+def test_workspace_flag_recomputed_per_request(tmp_path):
+    """The first artifact flips the flag on the next request (no caching)."""
+    ws = tmp_path / "_agent_data"
+    ws.mkdir()
+    app = _make_workspace_app(tmp_path, ws)
+    assert _panels(app)["workspace_has_artifacts"] is False
+    (ws / "result.csv").write_text("a,b\n")
+    assert _panels(app)["workspace_has_artifacts"] is True

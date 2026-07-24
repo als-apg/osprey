@@ -13,11 +13,9 @@ Usage in tools:
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
+from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
 
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
@@ -50,7 +48,7 @@ class ChannelFinderMLContext:
         if self._initialized:
             return
 
-        self._raw_config = self._load_config()
+        self._raw_config = load_cf_config(logger)
 
         cf_config = self._raw_config.get("channel_finder", {})
         ml_config = cf_config.get("pipelines", {}).get("middle_layer", {})
@@ -58,7 +56,7 @@ class ChannelFinderMLContext:
         db_path = db_config.get("path")
 
         if db_path:
-            db_path = self._resolve_path(db_path)
+            db_path = resolve_cf_path(db_path)
 
             from osprey.services.channel_finder.databases.middle_layer import (
                 MiddleLayerDatabase,
@@ -75,7 +73,7 @@ class ChannelFinderMLContext:
 
         duckdb_path = db_config.get("duckdb_path")
         if duckdb_path:
-            self._duckdb_path = self._resolve_path(duckdb_path)
+            self._duckdb_path = resolve_cf_path(duckdb_path)
             logger.info("ChannelFinderMLContext: DuckDB path configured at %s", self._duckdb_path)
 
         facility = self._raw_config.get("facility", {})
@@ -107,32 +105,6 @@ class ChannelFinderMLContext:
     def duckdb_path(self) -> str | None:
         """Path to the DuckDB channel database, or None if not configured."""
         return self._duckdb_path
-
-    def _resolve_path(self, path_str: str) -> str:
-        """Resolve path relative to config file directory."""
-        config_path = Path(
-            os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-        )
-        p = Path(path_str)
-        if not p.is_absolute():
-            p = config_path.parent / p
-        return str(p.resolve())
-
-    @staticmethod
-    def _load_config() -> dict[str, Any]:
-        """Load config.yml from OSPREY_CONFIG env var or cwd."""
-        config_path = Path(
-            os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-        )
-        raw: dict[str, Any] = {}
-        if config_path.exists():
-            with open(config_path) as f:
-                raw = yaml.safe_load(f) or {}
-            logger.info("ChannelFinderMLContext: config loaded from %s", config_path)
-        else:
-            logger.warning("Config file not found: %s", config_path)
-
-        return raw
 
 
 # ---------------------------------------------------------------------------

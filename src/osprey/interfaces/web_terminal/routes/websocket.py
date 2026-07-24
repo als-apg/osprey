@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 
-from osprey.interfaces.web_terminal.operator_session import build_clean_env
+from osprey.agent_runner.clean_env import build_clean_env
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 logger = logging.getLogger(__name__)
@@ -90,10 +90,17 @@ def _build_extra_env(
     forced onto (via ``--session-id``); it is handed to the workspace
     provenance_locator tool so a filed issue can point back to this session's
     telemetry. Kept separate from ``claude_session_id`` — which drives
-    ``OSPREY_SESSION_ID`` (artifact-store relocation) and stays unset for new
-    sessions — because the telemetry locator must NOT relocate the artifact store.
+    ``OSPREY_SESSION_ID`` (session-scoped agent-data relocation and artifact
+    session tagging) and stays unset for new sessions — because the telemetry
+    locator must not carry those side effects.
     """
     extra_env: dict[str, str] = {}
+    # The PTY terminal IS the expert web surface — every session spawned here
+    # serves it, whatever web.ui_mode the deployment defaults to (the operator
+    # can flip modes live; the chat surface runs its own SDK sessions, marked
+    # "simple" in operator_session.py). The panels-context SessionStart hook
+    # reads this to tell the agent which UI the operator is looking at.
+    extra_env["OSPREY_WEB_UX"] = "expert"
     if claude_session_id:
         extra_env["OSPREY_SESSION_ID"] = claude_session_id
     if telemetry_session_id:
@@ -145,7 +152,7 @@ async def terminal_ws(websocket: WebSocket):
         # filed issue's provenance pointer then resolves. Leave claude_session_id
         # None so the new-session snapshot/discovery path is unchanged: discovery
         # simply finds the id we forced. (Not claude_session_id, which would set
-        # OSPREY_SESSION_ID and relocate the artifact store.)
+        # OSPREY_SESSION_ID and relocate session-scoped agent data.)
         telemetry_session_id = str(uuid.uuid4())
         command = [*base_shell_command, "--session-id", telemetry_session_id]
         claude_session_id = None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from osprey.cli.project_utils import encode_claude_project_path
+from osprey.agent_runner.project_paths import encode_claude_project_path
 
 
 class TestEncodeClaudeProjectPath:

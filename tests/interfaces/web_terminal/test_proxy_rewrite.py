@@ -180,7 +180,7 @@ class TestPanelBundleRewriteCollisions:
         import re
         from pathlib import Path
 
-        import osprey.services.bluesky_panels as bp
+        import osprey.interfaces.bluesky_panels as bp
         from osprey.interfaces.web_terminal.routes.proxy import _REWRITE_PREFIXES
 
         panels_dir = Path(bp.__file__).parent / "panels"

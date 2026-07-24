@@ -17,6 +17,29 @@
   pointer-events: none;
 }
 
+/* CRT scanline + vignette over the whole overlay — token-gated: the
+   --wt-crt-* opacities are 0 in every flat theme, so both pseudo-elements
+   are inert everywhere except the retro family. */
+.welcome-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--wt-welcome-scanline-bg);
+  pointer-events: none;
+  z-index: 1;
+  opacity: var(--wt-crt-scanline-opacity);
+}
+
+.welcome-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 50%, var(--overlay-black-60) 100%);
+  pointer-events: none;
+  z-index: 1;
+  opacity: var(--wt-crt-vignette-opacity);
+}
+
 .welcome-terminal {
   position: relative;
   z-index: 2;
@@ -457,6 +480,7 @@ html[data-ui-mode="simple"] .header-help-chip {
    add-panel control, both sharing the same 4px vertical rhythm so the "+" reads
    as the last cell in the column. It replaces the old horizontal header tabs. */
 .panel-rail-region {
+  position: relative; /* anchors the one-time .rail-hint callout */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -753,6 +777,149 @@ html[data-ui-mode="simple"] .header-help-chip {
 .panel-add-submit:hover { background: var(--color-accent-light); color: var(--bg-primary); }
 .panel-add-submit:disabled { opacity: 0.5; cursor: default; }
 
+/* ============================================================
+   Rail position: top — the same rail DOM rendered as a horizontal
+   strip under the header, echoing the pre-redesign tab bar. Gated
+   entirely off html[data-rail-position]; the left-column rules above
+   remain the default. Chrome-only: dockview/panel DOM is untouched.
+   ============================================================ */
+
+html[data-rail-position="top"] .shell-body {
+  flex-direction: column;
+}
+
+html[data-rail-position="top"] .panel-rail-region {
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  height: 40px;
+  padding: 0 10px;
+  border-right: none;
+  border-bottom: 1px solid var(--border-default);
+}
+
+html[data-rail-position="top"] .panel-rail {
+  flex-direction: row;
+  align-items: stretch;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  min-height: auto;
+  overflow-y: hidden;
+  overflow-x: auto; /* scrollbar already hidden by the base rules above */
+}
+
+/* Horizontal pill: icon + label side by side, old-tab active underline. */
+html[data-rail-position="top"] .panel-rail-button {
+  flex-direction: row;
+  gap: 6px;
+  width: auto;
+  height: 100%;
+  padding: 0 14px;
+  border-left: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Active state deliberately echoes the old header tabs: accent-colored
+   label with an accent underline (teal under the retro family, blue
+   under the flat themes) instead of the column rail's amber left edge. */
+html[data-rail-position="top"] .panel-rail-button.active {
+  background: transparent;
+  color: var(--color-accent-light);
+  border-bottom-color: var(--color-accent-light);
+}
+
+/* Old header-tab typography for the label riding beside the icon. */
+html[data-rail-position="top"] .panel-rail-label {
+  font-size: var(--text-lg);
+  font-family: var(--font-display);
+}
+
+/* Pinned children: the LED keeps its top-right corner; the close "×"
+   tucks tighter into the top-left so it clears the now-centered icon. */
+html[data-rail-position="top"] .panel-rail-close {
+  top: 2px;
+  left: 2px;
+}
+
+html[data-rail-position="top"] .panel-add {
+  height: 100%;
+}
+
+html[data-rail-position="top"] .panel-add-btn {
+  width: 40px;
+  height: 100%;
+  border-radius: 0;
+}
+
+/* Popover drops BELOW the + button instead of beside the column. */
+html[data-rail-position="top"] .panel-add-menu {
+  top: calc(100% + 8px);
+  left: 0;
+}
+
+/* ---- One-time rail hint ---- */
+
+/* Small elevated callout anchored just right of the rail column (its
+   positioning parent is .panel-rail-region, which must stay unclipped for
+   the "+" popover anyway). Shown at most once ever; see rail-hint.js. */
+.rail-hint {
+  position: absolute;
+  top: 10px;
+  left: calc(74px + 8px); /* rail column width + the popover's 8px gutter */
+  width: 240px;
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-dropdown);
+  z-index: var(--z-dropdown);
+}
+
+/* Under a top rail the hint would float detached mid-screen; rail-hint.js
+   already suppresses it there, this is belt-and-braces for a mid-hint flip. */
+html[data-rail-position="top"] .rail-hint {
+  display: none;
+}
+
+.rail-hint-text {
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  line-height: var(--leading-normal);
+}
+
+.rail-hint-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* Buttons match the "+ New" chip idiom (.new-session-btn) — bg-elevated
+   fill, hairline border — minus its header-specific margin. */
+.rail-hint-move,
+.rail-hint-dismiss {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.rail-hint-move:hover,
+.rail-hint-dismiss:hover {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+  background: var(--accent-tint-08);
+}
+
 /* ---- Main layout ---- */
 
 .shell-body {
@@ -915,6 +1082,43 @@ html[data-ui-mode="simple"] .header-help-chip {
   padding: var(--space-2);
   box-sizing: border-box;
   background: var(--bg-terminal);
+}
+
+/* ============================================================
+   CRT treatment — token-gated. Every effect below reads a --wt-crt-*
+   token that is 0/none in the flat themes, so these rules are inert
+   everywhere except the retro family. Overlays are pseudo-elements
+   (the old .terminal-bezel DOM node stays gone).
+   ============================================================ */
+
+/* Scanlines over the terminal surface. */
+.terminal-body::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: var(--wt-crt-scanline-bg);
+  opacity: var(--wt-crt-scanline-opacity);
+}
+
+/* Bezel inset. */
+.terminal-body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: var(--wt-crt-bezel-shadow);
+}
+
+/* Accent inner glow while the PTY is connected (.active tracks the
+   WebSocket — see terminal.js setConnected). On the element itself, like
+   the pre-redesign rule, NOT comma-joined with the bezel: either token can
+   be `none`, and a shadow list containing `none` is invalid CSS (the whole
+   declaration would be dropped, silently killing the other effect). */
+.terminal-body.active {
+  box-shadow: var(--wt-crt-glow-shadow);
 }
 
 /* xterm.js overrides */

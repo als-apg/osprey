@@ -11,7 +11,7 @@ import os
 import pytest
 import yaml
 
-from osprey.cli.claude_code_resolver import MANAGED_ENV_VARS
+from osprey.build.claude_code_resolver import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 

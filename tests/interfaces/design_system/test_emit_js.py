@@ -687,13 +687,16 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
         "high-contrast-light",
         "apex-dark",
         "apex-light",
+        "retro-dark",
+        "retro-light",
     }
     assert {entry["mode"] for entry in themes} == {"dark", "light"}
-    assert {entry["family"] for entry in themes} == {"osprey", "high-contrast", "apex"}
+    assert {entry["family"] for entry in themes} == {"osprey", "high-contrast", "apex", "retro"}
     assert _exported_const(tokens_js, "DEFAULTS") == {
         "osprey": {"dark": "dark", "light": "light"},
         "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
         "apex": {"dark": "apex-dark", "light": "apex-light"},
+        "retro": {"dark": "retro-dark", "light": "retro-light"},
     }
 
     literals = _boot_globals(boot_js)
@@ -704,11 +707,14 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
         "high-contrast-light",
         "apex-dark",
         "apex-light",
+        "retro-dark",
+        "retro-light",
     }
     assert literals["DEFAULTS"] == {
         "osprey": {"dark": "dark", "light": "light"},
         "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
         "apex": {"dark": "apex-dark", "light": "apex-light"},
+        "retro": {"dark": "retro-dark", "light": "retro-light"},
     }
     assert literals["FAMILY_BY_ID"] == {
         "dark": "osprey",
@@ -717,6 +723,8 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
         "high-contrast-light": "high-contrast",
         "apex-dark": "apex",
         "apex-light": "apex",
+        "retro-dark": "retro",
+        "retro-light": "retro",
     }
     # osprey stays the product default even though apex-*.json sorts before
     # dark.json — dark.json carries $extensions.default: true (see the

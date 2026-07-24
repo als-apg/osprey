@@ -63,13 +63,14 @@ and rebuild — never rename by find-and-replace in the generated CSS.
 
 ## 4. Themes
 
-Six themes, three families × two modes:
+Eight themes, four families × two modes:
 
 | Family | Dark | Light |
 |---|---|---|
 | `osprey` (default) | `dark` | `light` |
 | `apex` | `apex-dark` | `apex-light` |
 | `high-contrast` (WCAG AAA) | `high-contrast-dark` | `high-contrast-light` |
+| `retro` (pre-redesign navy/teal) | `retro-dark` | `retro-light` |
 
 A theme is selected by the `data-theme="<id>"` attribute on `<html>`, applied
 pre-paint by `theme-boot.js` to avoid a flash of the wrong theme. The theme
