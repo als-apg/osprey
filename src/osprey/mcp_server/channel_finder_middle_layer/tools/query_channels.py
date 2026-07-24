@@ -12,6 +12,7 @@ from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
+from osprey.services.channel_finder.databases.duckdb_fts import ensure_fts
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.query_channels")
 
@@ -76,7 +77,7 @@ def query_channels(sql: str) -> str:
 
         con = duckdb.connect(duckdb_path, read_only=True)
         try:
-            con.execute("LOAD fts;")
+            ensure_fts(con)
             result = con.execute(stripped)
             columns = [desc[0] for desc in result.description]
             rows = result.fetchmany(_MAX_ROWS)

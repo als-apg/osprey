@@ -25,7 +25,7 @@ from osprey.services.channel_finder.databases import duckdb_import as dimp  # no
 @pytest.fixture(autouse=True)
 def _no_fts(monkeypatch: pytest.MonkeyPatch):
     """Disable FTS install/index so imports stay hermetic (no network/file)."""
-    monkeypatch.setattr(dimp, "_install_fts", lambda con: None)
+    monkeypatch.setattr(dimp, "ensure_fts", lambda con: None)
     monkeypatch.setattr(dimp, "_create_fts_index", lambda con: None)
 
 
