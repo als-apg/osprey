@@ -99,7 +99,7 @@ function boot() {
 }
 
 // Skip the self-boot under vitest — tests drive maybeShowRailHint directly.
-if (typeof window !== 'undefined' && !window.__vitest_worker__) {
+if (typeof window !== 'undefined' && !(/** @type {any} */ (window).__vitest_worker__)) {
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot, { once: true });
   } else {

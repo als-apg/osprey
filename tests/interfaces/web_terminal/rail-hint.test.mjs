@@ -32,7 +32,9 @@ describe('first-visit rail hint', () => {
     expect(maybeShowRailHint()).toBe(true);
     expect(document.querySelector('.rail-hint')).not.toBe(null);
 
-    document.querySelector('.rail-hint-dismiss').click();
+    const dismiss = document.querySelector('.rail-hint-dismiss');
+    if (!(dismiss instanceof HTMLElement)) throw new Error('expected the rail-hint dismiss button');
+    dismiss.click();
 
     expect(document.querySelector('.rail-hint')).toBe(null);
     expect(localStorage.getItem('osprey-rail-hint-dismissed-v1')).toBe('1');
@@ -42,7 +44,9 @@ describe('first-visit rail hint', () => {
   test("'Move to top' flips the rail and dismisses", () => {
     maybeShowRailHint();
 
-    document.querySelector('.rail-hint-move').click();
+    const move = document.querySelector('.rail-hint-move');
+    if (!(move instanceof HTMLElement)) throw new Error('expected the rail-hint move button');
+    move.click();
 
     expect(document.documentElement.getAttribute('data-rail-position')).toBe('top');
     expect(document.querySelector('.rail-hint')).toBe(null);
