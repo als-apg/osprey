@@ -26,6 +26,7 @@ import {
 } from './panel-manager.js';
 import { openDrawerTab, revealSetting } from './settings.js';
 import { startNewSession } from './sessions.js';
+import { setRailPosition } from './rail-position.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 
 /** True on macOS/iPadOS, where the palette hotkey is Cmd+K instead of Ctrl+K. */
@@ -52,6 +53,10 @@ function buildPaletteDeps() {
     { label: 'New session', run: () => { startNewSession(); } },
     // Reuse the wired mode-toggle handler rather than re-implementing the flip.
     { label: 'Switch to Simple mode', run: () => document.querySelector('.mode-segment[data-mode="simple"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) },
+    // Both rail directions are always offered (the palette is searched, not
+    // browsed) — flipping to the current position is a harmless no-op.
+    { label: 'Move panel rail to top', run: () => setRailPosition('top') },
+    { label: 'Move panel rail to left', run: () => setRailPosition('left') },
     // Drawer tabs always go THROUGH openDrawerTab's warning gate.
     { label: 'Open Settings', run: () => { openDrawerTab('tab-config'); } },
     { label: 'Open Memory gallery', run: () => { openDrawerTab('tab-memory'); } },

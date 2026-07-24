@@ -23,12 +23,14 @@ matches automatically, in light or dark. You can also design your own.
 Choosing a theme
 ----------------
 
-Themes come in **families**. OSPREY ships three:
+Themes come in **families**. OSPREY ships four:
 
 - **osprey** — the default look, in light and dark.
 - **high-contrast** — a stronger-contrast family for accessibility, also in
   light and dark.
 - **apex** — a warm, gold-accented alternative look, also in light and dark.
+- **retro** — the navy-and-teal look of the pre-redesign web terminal,
+  kept for teams who prefer the familiar appearance.
 
 The switcher in the header lets you change family and flip between light and
 dark; it remembers your choice, and an ``auto`` setting follows your operating
@@ -68,6 +70,21 @@ across reloads.
 
    ``web.theme`` (the browser interfaces) is separate from ``cli.theme`` (the
    colors of OSPREY's plain terminal output). They never affect each other.
+
+Restoring the pre-redesign look
+-------------------------------
+
+Deployments upgrading from the pre-redesign web terminal can bring back the
+familiar appearance with two settings in ``config.yml``:
+
+.. code-block:: yaml
+
+   web:
+     theme: retro            # the original navy/teal palette
+     rail_position: top      # panel buttons along the top, like the old tabs
+
+Each user can still override both from the interface: the theme from the
+theme switcher in the header, and the rail position from the panel "+" menu.
 
 .. dropdown:: Going deeper — the design system
    :icon: paintbrush

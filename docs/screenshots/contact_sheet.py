@@ -482,6 +482,18 @@ _FULL_MATRIX_ORDERED: list[tuple[str, str]] = [
     ("light", "simple"),
 ]
 
+#: Transition-showcase captures beyond the base matrix, as (theme, mode, rail)
+#: rows: the horizontal (pre-redesign-arrangement) rail, and the retro theme
+#: family — the flat shell wearing the old palette, and the full retro look
+#: (palette + top rail). Hub-only; the base 2×2 and the per-panel sections are
+#: untouched.
+EXTRA_VARIANTS: list[tuple[str, str | None, str | None]] = [
+    ("dark", "expert", "top"),
+    ("retro-dark", "expert", None),
+    ("retro-dark", "expert", "top"),
+    ("retro-light", "expert", None),
+]
+
 
 class CapturedVariant(NamedTuple):
     """One captured variant and the labels the contact sheet shows for it."""
@@ -494,6 +506,9 @@ class CapturedVariant(NamedTuple):
     #: shell (the original sheet), or a :data:`PANEL_SURFACES` id for one of
     #: the per-subpanel 2×2 sections.
     surface: str = "hub"
+    #: Rail position for the :data:`EXTRA_VARIANTS` showcase cards (``"top"``),
+    #: or ``None`` for the default left rail.
+    rail: str | None = None
 
 
 _TERMINAL_VIEWPORT = {"width": 1280, "height": 800}
@@ -505,21 +520,27 @@ _SETTLE_MS = 600  # let the theme swap + layout settle (mirrors the visual suite
 _PLOTLY_MS = 2_000  # Plotly draws async; give the preview time before shooting
 
 
-def _variant_filename(theme: str, mode: str | None, accent: str | None = None) -> str:
-    """Output PNG name for one variant (mode/accent suffixes only when set)."""
+def _variant_filename(
+    theme: str, mode: str | None, accent: str | None = None, rail: str | None = None
+) -> str:
+    """Output PNG name for one variant (mode/accent/rail suffixes only when set)."""
     stem = f"web_terminal_{theme}"
     if mode is not None:
         stem += f"_{mode}"
     if accent is not None:
         stem += f"_{accent}"
+    if rail is not None:
+        stem += f"_rail-{rail}"
     return f"{stem}.png"
 
 
-def _variant_url(base_url: str, theme: str, mode: str | None) -> str:
-    """Hub URL carrying ``?theme=`` and, when set, ``&mode=``."""
+def _variant_url(base_url: str, theme: str, mode: str | None, rail: str | None = None) -> str:
+    """Hub URL carrying ``?theme=`` and, when set, ``&mode=`` / ``&rail=``."""
     url = f"{base_url}/?theme={theme}"
     if mode is not None:
         url += f"&mode={mode}"
+    if rail is not None:
+        url += f"&rail={rail}"
     return url
 
 
@@ -829,6 +850,7 @@ def _capture_variant(
     mode: str | None,
     out_dir: Path,
     accent: str | None = None,
+    rail: str | None = None,
 ) -> CapturedVariant:
     """Drive one theme/mode variant to a viewport PNG; return its metadata."""
     session_file = hub.session_dir / f"{DEMO_SESSION_ID}.jsonl"
@@ -838,8 +860,14 @@ def _capture_variant(
 
     page = browser.new_page(viewport=_TERMINAL_VIEWPORT)
     try:
+        # Pre-dismiss the one-time rail hint: it floats over the dock tab strip
+        # on a fresh profile, and every capture here runs on a fresh profile —
+        # the sheet documents the shells, not the onboarding callout.
+        page.add_init_script(
+            "try { localStorage.setItem('osprey-rail-hint-dismissed-v1', '1') } catch (e) {}"
+        )
         page.goto(
-            _variant_url(hub.base_url, theme, mode),
+            _variant_url(hub.base_url, theme, mode, rail),
             wait_until="domcontentloaded",
             timeout=_NAV_TIMEOUT_MS,
         )
@@ -897,9 +925,9 @@ def _capture_variant(
         page.wait_for_timeout(_SETTLE_MS)
 
         png = page.screenshot()
-        dest = out_dir / _variant_filename(theme, mode, accent)
+        dest = out_dir / _variant_filename(theme, mode, accent, rail)
         dest.write_bytes(png)
-        return CapturedVariant(theme=theme, mode=mode, accent=accent, filename=dest.name)
+        return CapturedVariant(theme=theme, mode=mode, accent=accent, filename=dest.name, rail=rail)
     finally:
         page.close()
 
@@ -1119,6 +1147,11 @@ def capture_contact_sheet(out_dir: Path, *, accents: bool = False) -> Path:
         with hermetic_hub() as hub:
             for theme, mode, accent in _effective_variants(accents):
                 captured.append(_capture_variant(browser, hub, theme, mode, out_dir, accent))
+            # Transition-showcase extras (top rail, retro family) — appended
+            # after the base matrix so the completeness assertion below stays a
+            # pure statement about the required 2×2.
+            for theme, mode, rail in EXTRA_VARIANTS:
+                captured.append(_capture_variant(browser, hub, theme, mode, out_dir, rail=rail))
         _assert_all_variants_captured(captured, accents)
         # Per-subpanel 2×2 sections (accent A/B stays a hub-only concern).
         captured.extend(capture_panel_sections(out_dir, browser))
@@ -1148,10 +1181,12 @@ def _git_rev() -> str:
 
 
 def _variant_label(cv: CapturedVariant) -> str:
-    """Human variant name, e.g. ``"Dark · Simple · teal"`` (accent/mode optional)."""
+    """Human variant name, e.g. ``"Dark · Simple · teal"`` (accent/mode/rail optional)."""
     parts = [cv.theme.capitalize(), (cv.mode or "default").capitalize()]
     if cv.accent:
         parts.append(cv.accent)
+    if cv.rail:
+        parts.append(f"rail-{cv.rail}")
     return " · ".join(parts)
 
 
