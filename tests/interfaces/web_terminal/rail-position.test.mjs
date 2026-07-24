@@ -61,7 +61,7 @@ describe('rail-position runtime setter', () => {
   });
 
   test('invalid position is a no-op', () => {
-    setRailPosition('diagonal');
+    setRailPosition(/** @type {any} */ ('diagonal'));
 
     expect(document.documentElement.getAttribute('data-rail-position')).toBe('left');
     expect(localStorage.getItem('osprey-rail-position')).toBe(null);
