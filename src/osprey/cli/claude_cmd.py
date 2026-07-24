@@ -284,7 +284,7 @@ def status(project):
       # Show status for a specific project
       osprey claude status --project /path/to/project
     """
-    from osprey.cli.claude_code_resolver import (
+    from osprey.build.claude_code_resolver import (
         AGENT_DEFAULT_TIERS,
         load_provider_spec,
     )
@@ -449,7 +449,7 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
         raise SystemExit(1) from e
 
     # ── Provider isolation: inject env block + auth, scrub managed vars ──
-    from osprey.cli.claude_code_resolver import (
+    from osprey.build.claude_code_resolver import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
         inject_provider_env,

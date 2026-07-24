@@ -25,64 +25,44 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from pydantic import BaseModel, Field
 
 from . import draft, live_rows
+from .models import (
+    DraftRunRequest,
+    PlanSessionWriteRequest,
+    PlanValidateRequest,
+    RunRequest,
+)
 from .plan_runner import FakePlanRunner, PlanRunner
 from .plan_types import Provenance
 from .plan_validation import hash_plan_body, validate_plan
+from .runner_wiring import (
+    _BRIDGE_ONLY_MODULES,
+    _DEMO_RUNNER_ENV,
+    _EPICS_LIKE_CONNECTOR_TYPES,
+    _EPICS_SUBSTRATE_ENV,
+    _TILED_API_KEY_ENV,
+    _TILED_URI_ENV,
+    _build_tiled_writer_factory,
+    _is_demo_runner_enabled,
+    _is_epics_substrate_enabled,
+    _resolve_control_system_type,
+)
 from .runs import Run, do_launch, registry
 from .security import verify_launch_token
 from .session_dir import resolve_session_plan_dir
+from .validation import (
+    _assert_limits_readable_if_writable,
+    _launch_validation_gate,
+    _request_field,
+    _validate_launchable_request,
+)
 from .validation_record import validation_records
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.app")
-
-# Root package names the demo-runner lifespan hook below is allowed to fail
-# on — i.e. the bridge running without the bluesky stack importable. The stack
-# is a core dependency, so this normally succeeds; the guard stays for slimmed
-# images or partial installs. An ImportError naming anything else (e.g. a module
-# missing an expected attribute, or an unrelated third-party import broke) is a
-# genuine bug and must not be swallowed as "bluesky is just absent".
-_BRIDGE_ONLY_MODULES = {"bluesky", "ophyd", "ophyd_async", "tiled"}
-
-# Opt-in flag (task 2.14a): when truthy (see `_is_demo_runner_enabled`) AND
-# bluesky/ophyd-async are importable, `_lifespan` wires a real bluesky-backed
-# `BlueskyPlanRunner` against mock devices — the deploy smoke demo's PlanRunner
-# (PLAN.md), never a facility's real-hardware wiring. The deploy template
-# only renders this var at all when the demo runner is wanted (house
-# convention, matching `container_lifecycle.py`'s `DEV_MODE="true"`), so
-# "absent" is the off state — but the check itself accepts a few equivalent
-# truthy spellings rather than one exact string, so neither half of this
-# seam (this hook vs. whatever template/generator sets the var) can drift
-# out of sync with the other again.
-_DEMO_RUNNER_ENV = "BLUESKY_DEMO_RUNNER"
-_TRUTHY_VALUES = {"1", "true", "yes", "on"}
-
-# Opt-in flag (task 2.3): when truthy (see `_is_epics_substrate_enabled`) AND
-# bluesky/ophyd-async are importable, `_lifespan` wires a real bluesky-backed
-# `BlueskyPlanRunner` against real EPICS devices — Channel Access clients of
-# whatever IOC the deploy points at (a virtual accelerator, or real
-# hardware), never mock devices. The PV list comes entirely from
-# `BLUESKY_EPICS_MOTORS`/`BLUESKY_EPICS_DETECTORS` (see
-# `devices/_specs_from_env.py`), never the VA manifest — this process cannot
-# import that. If both this flag and `_DEMO_RUNNER_ENV` are set, this one
-# wins (see `_lifespan`): an operator who explicitly asked for real EPICS
-# must never silently get the mock demo instead.
-_EPICS_SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-
-# Task 2.5: when set, both runner-factory branches below subscribe a
-# `TiledWriter` (via `_FaultIsolatedTiledWriter`, see `plan_runner_bluesky.py`) so
-# run data survives a bridge restart. Orthogonal to `_DEMO_RUNNER_ENV`/
-# `_EPICS_SUBSTRATE_ENV` — it augments whichever runner those two flags pick,
-# rather than picking one itself. `BLUESKY_TILED_API_KEY` grants catalog
-# access only, never launch authority — see `container_lifecycle.py`'s
-# `_SERVICE_TOKEN_VARS`.
-_TILED_URI_ENV = "BLUESKY_TILED_URI"
-_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 # The `PlanRunner` implementation `do_launch` builds for every launch.
 _runner_factory: Callable[[], PlanRunner] = FakePlanRunner
@@ -117,160 +97,6 @@ def set_runner_factory(factory: Callable[[], PlanRunner]) -> None:
     """
     global _runner_factory
     _runner_factory = factory
-
-
-def _is_demo_runner_enabled() -> bool:
-    """True if `BLUESKY_DEMO_RUNNER` is set to any of `_TRUTHY_VALUES` (case/whitespace-insensitive).
-
-    Absent, empty, or any other value (e.g. "false") is off — deliberately
-    liberal on the "on" spellings, but never guesses at "on" from an
-    unrecognized value.
-    """
-    return os.environ.get(_DEMO_RUNNER_ENV, "").strip().lower() in _TRUTHY_VALUES
-
-
-def _is_epics_substrate_enabled() -> bool:
-    """True if `BLUESKY_EPICS_SUBSTRATE` is set to any of `_TRUTHY_VALUES`.
-
-    Same liberal-on-"on"-spellings parsing as `_is_demo_runner_enabled` —
-    see that function's docstring for why.
-    """
-    return os.environ.get(_EPICS_SUBSTRATE_ENV, "").strip().lower() in _TRUTHY_VALUES
-
-
-# Connector types the EPICS-substrate branch knows how to build a gateway-less
-# `type_config` for — real Channel Access, whether against a virtual
-# accelerator soft-IOC or live hardware.
-_EPICS_LIKE_CONNECTOR_TYPES = ("virtual_accelerator", "epics")
-
-
-def _resolve_control_system_type() -> str:
-    """Read `control_system.type` from the bridge's mounted project config.
-
-    Single source of truth (Connector = the single control-system interface):
-    one config line flips the whole Bluesky stack between the mock connector and
-    real Channel Access (virtual accelerator or live hardware) — see the
-    `control-assistant` preset's `config.control_system.type` comment.
-
-    Fail-SAFE default: `"mock"` whenever the config can't be read at all (no
-    project config context — most unit-test environments — or a transient
-    lookup failure), never `"virtual_accelerator"`/`"epics"` — the mock
-    connector never touches Channel Access, so an unreadable config can never
-    silently connect to real hardware. Mirrors
-    `_assert_limits_readable_if_writable`'s "no project config context ->
-    treat as absent, don't block" handling of the same exception set.
-    """
-    from osprey.utils.config import get_config_value
-
-    try:
-        control_system_type = get_config_value("control_system.type", "mock")
-    except (FileNotFoundError, KeyError, RuntimeError):
-        return "mock"
-
-    if not control_system_type or not isinstance(control_system_type, str):
-        return "mock"
-    return control_system_type
-
-
-def _build_tiled_writer_factory() -> Callable[[], Any] | None:
-    """Build the `tiled_writer_factory` `BlueskyPlanRunner` accepts, or `None` if Tiled is unconfigured.
-
-    Reads `BLUESKY_TILED_URI` fresh on every call (never cached), so each
-    launch's `BlueskyPlanRunner` picks up the current env — matching
-    `do_launch`'s "fresh runner per launch" contract (`plan_runner_bluesky.py`'s
-    `_FaultIsolatedTiledWriter` docstring: "no cross-run state to reset").
-    `None` when the URI is unset: `BlueskyPlanRunner.__init__` treats that as "no
-    Tiled subscription", identical to Phase 1's no-Tiled-server behavior.
-
-    The returned closure imports `TiledWriter` from
-    `bluesky.callbacks.tiled_writer` — NOT from `tiled` (TR2) — lazily,
-    inside itself, so this module stays import-clean of both `bluesky` and
-    `tiled` (`_BRIDGE_ONLY_MODULES`) even when a caller holds onto the
-    returned factory without ever invoking it.
-    """
-    uri = os.environ.get(_TILED_URI_ENV)
-    if not uri:
-        return None
-
-    def factory() -> Any:
-        from bluesky.callbacks.tiled_writer import TiledWriter
-
-        return TiledWriter.from_uri(uri, api_key=os.environ[_TILED_API_KEY_ENV])
-
-    return factory
-
-
-def _assert_limits_readable_if_writable() -> None:
-    """Refuse startup if writes are enabled but the limits database can't be read.
-
-    Fail-OPEN by design (task 3.1): this is the ONLY combination that refuses
-    startup — ``control_system.writes_enabled`` AND
-    ``control_system.limits_checking.enabled`` both true, AND the limits
-    database is missing, unreadable, or unparseable. Every other combination
-    starts normally: writes disabled (read-only posture) never even probes
-    the database; writes enabled with limits checking disabled needs no
-    database at all; writes enabled with a readable database is the healthy
-    case. A writable deploy with no working limits enforcement is the one
-    unsafe posture this guard exists to catch before any connector/CA work
-    begins.
-
-    Mirrors `LimitsValidator.from_config`'s ``database_path`` resolution
-    (a relative path resolved against the ``CONFIG_FILE`` env var's directory
-    when set, falling back to ``project_root`` otherwise — container-correct,
-    since the deploy flattens ``project_root`` in as the HOST build path,
-    while ``CONFIG_FILE`` points at the config actually mounted in-container),
-    but probes readability via `LimitsValidator._load_limits_database`
-    directly rather than calling `from_config` — `from_config` swallows every
-    load failure to `None`, which would hide the exact failure this guard
-    must detect and raise on.
-
-    No project config context at all (e.g. running outside a configured
-    OSPREY project — most unit-test environments) is treated the same way
-    `LimitsValidator.from_config` treats it: nothing to probe, so this
-    returns without blocking startup, rather than raising on the config
-    lookup itself.
-
-    Raises:
-        RuntimeError: naming which condition failed (config keys, and
-            whether the database path was configured/found/parseable) —
-            never the database's file contents or any other secret value.
-    """
-    from osprey.utils.config import get_config_value
-
-    try:
-        writes_enabled = get_config_value("control_system.writes_enabled", False)
-        limits_enabled = get_config_value("control_system.limits_checking.enabled", False)
-        db_path = get_config_value("control_system.limits_checking.database_path", None)
-        project_root = get_config_value("project_root", None)
-    except (FileNotFoundError, KeyError, RuntimeError):
-        return
-
-    if not writes_enabled:
-        return
-    if not limits_enabled:
-        return
-
-    if not db_path or not isinstance(db_path, str):
-        raise RuntimeError(
-            "refusing to start writable: control_system.writes_enabled and "
-            "control_system.limits_checking.enabled are both set, but "
-            "control_system.limits_checking.database_path is not configured"
-        )
-
-    from osprey.connectors.control_system.limits_validator import LimitsValidator
-
-    # Same relative-path resolution as `LimitsValidator.from_config`.
-    db_path = LimitsValidator.resolve_database_path(db_path, project_root)
-
-    try:
-        LimitsValidator._load_limits_database(db_path)
-    except Exception as exc:
-        raise RuntimeError(
-            "refusing to start writable: control_system.writes_enabled and "
-            "control_system.limits_checking.enabled are both set, but the "
-            "configured control_system.limits_checking.database_path could "
-            "not be read or parsed"
-        ) from exc
 
 
 async def _wire_epics_substrate_runner() -> Any | None:
@@ -525,19 +351,6 @@ app = FastAPI(title="OSPREY Bluesky Bridge", lifespan=_lifespan)
 app.include_router(draft.router)
 
 
-class RunRequest(BaseModel):
-    """A scan launch intent (`POST /runs`).
-
-    Intentionally generic: `plan_name` names a plan the registry (`plans.py`,
-    plus any facility-injected plans from `plan_loader.py`) resolves, and
-    `plan_args` is forwarded to the runner unmodified via `do_launch` ->
-    `PlanRunner.reinitialize(run.request)`.
-    """
-
-    plan_name: str
-    plan_args: dict[str, Any] = Field(default_factory=dict)
-
-
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -553,15 +366,6 @@ def create_run(request: RunRequest) -> dict:
 def list_runs(limit: int = 20) -> list[dict]:
     """This bridge process's tracked runs, newest first (in-memory only)."""
     return [run.to_dict() for run in registry.list(limit=limit)]
-
-
-def _request_field(request: Any, field: str, default: Any = None) -> Any:
-    """Read ``field`` off a stored launch intent, which may be a plain dict
-    (re-hydrated JSON) or a ``RunRequest``-shaped object — the lifecycle core
-    (``runs.py``) treats ``request`` as opaque, so both shapes occur."""
-    if isinstance(request, dict):
-        return request.get(field, default)
-    return getattr(request, field, default)
 
 
 @app.get("/runs/{run_id}")
@@ -582,76 +386,6 @@ def get_run(run_id: str) -> dict:
         out["plan_name"] = plan_name
         out["plan_args"] = _request_field(request, "plan_args", {})
     return out
-
-
-def _launch_validation_gate(run: Run) -> None:
-    """Refuse to launch a session/unreviewed plan with no CURRENT passing validation record.
-
-    Thin `Run`-shaped adapter over :func:`_validate_launchable_request` — the
-    signature `runs.do_launch` expects for its dependency-injected
-    ``validator``. `POST /draft/run` calls the request-level helper directly,
-    *before* minting a run record, so a gate rejection there leaves nothing
-    behind in the registry at all.
-    """
-    _validate_launchable_request(run.request)
-
-
-def _validate_launchable_request(request: Any) -> None:
-    """Refuse to launch a session/unreviewed plan with no CURRENT passing validation record.
-
-    Defense-in-depth alongside task 2.4's session-layer LOAD gate
-    (`plan_loader.py`'s `_load_plan_file`): that gate already keeps an
-    unvalidated session/unreviewed file out of `get_facility_plans().plans`
-    entirely, so in the common case this validator finds nothing to reject.
-    It exists for the narrow race the load gate can't close on its own — the
-    `PlanSpec` `get_facility_plans()` returned to resolve this run's
-    `plan_name` moments earlier could be stale by the time launch runs (e.g.
-    the session file was edited in between) — so this independently re-reads
-    the file straight from `resolve_session_plan_dir()` and re-hashes its
-    CURRENT content with `hash_plan_body`, the same normalization the record
-    was keyed on, rather than trusting the earlier snapshot.
-
-    Raises `HTTPException(409, ...)` for any plan name backed by a file in
-    `resolve_session_plan_dir()` whose current content has no passing
-    record — whether or not `get_facility_plans()` currently registers it.
-    A name the load gate is quarantining *right now* for lacking a record
-    resolves to no `PlanSpec` at all, but its file still exists under the
-    session directory; treating that as `session` provenance too (rather than
-    "not found") is what turns an already-quarantined plan's launch attempt
-    into this clear 409 instead of a confusing "unknown plan" failure further
-    downstream. A non-session provenance (`shipped`/`preset`/`facility`), or a
-    name with neither a `PlanSpec` nor a session-dir file at all, is left
-    alone — `PlanRunner.reinitialize`'s own "unknown plan" handling is the right
-    place for the latter.
-    """
-    plan_name = _request_field(request, "plan_name")
-    if not plan_name:
-        return
-
-    from .plan_loader import get_facility_plans
-
-    spec = get_facility_plans().plans.get(plan_name)
-    plan_path = resolve_session_plan_dir() / f"{plan_name}.py"
-    if spec is not None:
-        is_session = spec.provenance in ("session", "unreviewed")
-    else:
-        is_session = plan_path.is_file()
-
-    if not is_session or not plan_path.is_file():
-        # Not a session-tier plan at all, or its file has since vanished —
-        # either way there is nothing here to re-hash; `PlanRunner.reinitialize`
-        # will hit its own "unknown plan" path if the name doesn't resolve.
-        return
-
-    content = plan_path.read_text(encoding="utf-8")
-    if not validation_records.has_passing_record(hash_plan_body(content)):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"session plan {plan_name!r} has no passing validation record; "
-                "validate it before launching"
-            ),
-        )
 
 
 @app.post("/runs/{run_id}/launch")
@@ -675,18 +409,6 @@ def launch_run(run_id: str, x_launch_token: str = Header(default="")) -> dict:
     if launched_run.launched_by is None:
         launched_run.launched_by = "agent"
     return launched_run.to_dict()
-
-
-class DraftRunRequest(BaseModel):
-    """Body for `POST /draft/run`: launch the shared draft at a pinned revision.
-
-    ``draft_revision`` is the caller's last-seen draft revision (from `GET
-    /draft`, a PATCH response, or an SSE frame). The launched
-    ``plan_name``/``plan_args`` come exclusively from the server-side draft
-    snapshot taken at that exact revision — never from this body.
-    """
-
-    draft_revision: int
 
 
 def _mint_and_launch_draft_snapshot(snapshot: draft.LaunchSnapshot) -> Run:
@@ -881,24 +603,6 @@ def _sanitize_plan_name(name: str) -> str:
     return name
 
 
-class PlanSessionWriteRequest(BaseModel):
-    """Request body for `POST /plans/session`: author a session-tier plan file.
-
-    ``body`` is the author's own source (``PARAMS`` + ``build_plan``, per the
-    layered directory catalog's file contract) — it is never exec'd by this
-    route. The remaining fields become the generated `PLAN_METADATA` block
-    prepended to it; together they must satisfy `plan_metadata.PlanMetadata`'s
-    contract once the session-tier load gate (task 2.4) parses the file.
-    """
-
-    name: str
-    description: str = ""
-    category: str
-    required_devices: list[str] = Field(default_factory=list)
-    writes: bool
-    body: str
-
-
 @app.post("/plans/session")
 def write_session_plan(request: PlanSessionWriteRequest) -> dict:
     """Author a session-tier plan file. NEVER imports or execs it.
@@ -931,21 +635,6 @@ def write_session_plan(request: PlanSessionWriteRequest) -> dict:
     plan_path.write_text(final_content, encoding="utf-8")
 
     return {"name": name, "content_hash": hash_plan_body(final_content)}
-
-
-class PlanValidateRequest(BaseModel):
-    """Request body for `POST /plans/validate`: validate a session plan by name.
-
-    ``sample_args`` supplies the stage-3 dry run's `PARAMS` field values
-    directly (the simpler of the two options `plan_validation.py`'s docstring
-    calls out — deriving minimal samples from the `PARAMS` schema would need
-    per-type generation logic this bridge does not otherwise have); omit it
-    for a `PARAMS` with no required fields.
-    """
-
-    name: str
-    sample_args: dict[str, Any] | None = None
-    dry_run_timeout: float = 30.0
 
 
 @app.post("/plans/validate")

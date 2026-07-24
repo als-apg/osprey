@@ -210,7 +210,7 @@ async def retention_loop(
 
     ``store_factory`` builds a fresh ``ArtifactStore`` each cycle (the worker's
     module singleton is rooted at the wrong CWD — see
-    ``osprey.interfaces.artifacts.resolve._get_store``). ``in_flight_run_ids`` is
+    ``osprey.agent_runner.artifact_resolve._get_store``). ``in_flight_run_ids`` is
     re-read each cycle so a run that starts mid-sweep-interval is protected.
 
     A failing sweep is logged and the loop continues — retention must never take

@@ -53,8 +53,7 @@ def update_manifest_add_user_owned(
     name: str,
 ) -> None:
     """Add a user_owned entry to .osprey-manifest.json."""
-    from osprey.cli.templates import manifest as manifest_mod
-    from osprey.cli.templates.manifest import MANIFEST_FILENAME
+    from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
 
     manifest_path = project_dir / MANIFEST_FILENAME
     if not manifest_path.exists():
@@ -88,10 +87,10 @@ def update_manifest_add_user_owned(
                     ) as tmp:
                         tmp.write(rendered)
                         tmp_path = Path(tmp.name)
-                    framework_hash = f"sha256:{manifest_mod.sha256_file(tmp_path)}"
+                    framework_hash = f"sha256:{sha256_file(tmp_path)}"
                     tmp_path.unlink(missing_ok=True)
                 else:
-                    framework_hash = f"sha256:{manifest_mod.sha256_file(template_file)}"
+                    framework_hash = f"sha256:{sha256_file(template_file)}"
             except Exception:
                 pass
 
@@ -109,7 +108,7 @@ def update_manifest_add_user_owned(
 
 def update_manifest_remove_user_owned(project_dir: Path, name: str) -> None:
     """Remove a user_owned entry from .osprey-manifest.json."""
-    from osprey.cli.templates.manifest import MANIFEST_FILENAME
+    from osprey.build.manifest import MANIFEST_FILENAME
 
     manifest_path = project_dir / MANIFEST_FILENAME
     if not manifest_path.exists():

@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from osprey.cli.claude_code_resolver import (
+from osprey.build.claude_code_resolver import (
     AGENT_DEFAULT_TIERS,
     CLAUDE_CODE_PROVIDERS,
     VALID_TIERS,
@@ -616,7 +616,7 @@ class TestLoadProviderSpec:
 
     def test_expands_custom_base_url_from_dotenv(self, tmp_path, monkeypatch):
         """${VAR} in a custom provider base_url is expanded from the project .env."""
-        from osprey.cli.claude_code_resolver import load_provider_spec
+        from osprey.build.claude_code_resolver import load_provider_spec
 
         monkeypatch.delenv("ARGO_PROD_URL", raising=False)
         proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://argo.example/v1\n")
@@ -632,7 +632,7 @@ class TestLoadProviderSpec:
 
     def test_expands_from_os_environ_when_no_dotenv(self, tmp_path, monkeypatch):
         """${VAR} also resolves from os.environ when there is no .env."""
-        from osprey.cli.claude_code_resolver import load_provider_spec
+        from osprey.build.claude_code_resolver import load_provider_spec
 
         monkeypatch.setenv("ARGO_PROD_URL", "https://argo.from-env/v1")
         proj = _write_project(tmp_path, ARGO_CONFIG)
@@ -645,7 +645,7 @@ class TestLoadProviderSpec:
 
     def test_dotenv_overrides_os_environ(self, tmp_path, monkeypatch):
         """A project .env value wins over a stale shell export."""
-        from osprey.cli.claude_code_resolver import load_provider_spec
+        from osprey.build.claude_code_resolver import load_provider_spec
 
         monkeypatch.setenv("ARGO_PROD_URL", "https://stale-shell/v1")
         proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://fresh-dotenv/v1\n")
@@ -658,7 +658,7 @@ class TestLoadProviderSpec:
 
     def test_native_config_byte_identical(self, tmp_path):
         """A literal-URL native config resolves identically to the raw resolver."""
-        from osprey.cli.claude_code_resolver import load_provider_spec
+        from osprey.build.claude_code_resolver import load_provider_spec
 
         proj = _write_project(tmp_path, CBORG_CONFIG)
         loaded = load_provider_spec(proj)
@@ -667,21 +667,21 @@ class TestLoadProviderSpec:
 
     def test_provider_override(self, tmp_path):
         """provider= overrides claude_code.provider before resolving."""
-        from osprey.cli.claude_code_resolver import load_provider_spec
+        from osprey.build.claude_code_resolver import load_provider_spec
 
         proj = _write_project(tmp_path, CBORG_CONFIG)
         spec = load_provider_spec(proj, provider="anthropic")
         assert spec.provider == "anthropic"
 
     def test_returns_none_when_no_provider(self, tmp_path):
-        from osprey.cli.claude_code_resolver import load_provider_spec
+        from osprey.build.claude_code_resolver import load_provider_spec
 
         proj = _write_project(tmp_path, "api:\n  providers: {}\n")
         assert load_provider_spec(proj) is None
 
     def test_does_not_mutate_os_environ(self, tmp_path, monkeypatch):
         """Resolving against the .env overlay must not leak into os.environ."""
-        from osprey.cli.claude_code_resolver import load_provider_spec
+        from osprey.build.claude_code_resolver import load_provider_spec
 
         monkeypatch.delenv("ARGO_PROD_URL", raising=False)
         proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://argo.example/v1\n")

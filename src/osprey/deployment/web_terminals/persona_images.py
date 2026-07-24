@@ -16,11 +16,11 @@ from typing import cast
 
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
-    _staged_dev_artifact_paths,
     resolve_project_name,
 )
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.web_terminals.personas import effective_image_source
+from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger

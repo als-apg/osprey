@@ -148,6 +148,58 @@ def test_webhook_unconfigured_token_fails_closed_503(triggers_yml, monkeypatch):
     assert resp.json() == {"detail": "Server misconfigured"}
 
 
+def test_create_server_fails_loud_on_malformed_triggers(tmp_path, monkeypatch):
+    """A malformed triggers.yml must crash ``create_server()`` at boot, not start
+    the dispatcher with silently-dropped triggers.
+
+    ``load_triggers`` raises ``ValueError`` on a bad file, and ``create_server``
+    only guards ``FileNotFoundError`` — so the ValueError must propagate. This is
+    the container-boot contract: fail loud rather than come up degraded. (The
+    per-field validation itself is covered in test_trigger_config.py; this pins
+    that create_server does not swallow it.)
+    """
+    bad = tmp_path / "triggers.yml"
+    # A trigger missing the required action.prompt -> ValueError from load_triggers.
+    bad.write_text(
+        "dispatcher:\n"
+        "  dispatch_target: http://localhost:9999\n"
+        "triggers:\n"
+        "  - name: broken\n"
+        "    source: webhook\n"
+        "    action: {}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TRIGGERS_YML", str(bad))
+
+    with pytest.raises(ValueError, match="broken"):
+        server.create_server()
+
+
+def test_create_server_degrades_when_triggers_missing(tmp_path, monkeypatch):
+    """A missing triggers.yml must NOT crash the dispatcher: it starts with zero
+    triggers, health is OK, and every /webhook resolves to 404.
+
+    This degraded-startup branch (``except FileNotFoundError`` -> empty trigger
+    list, DISPATCH_TARGET-env dispatcher config) lets the dispatcher boot for a
+    health check even before a triggers file is mounted.
+    """
+    monkeypatch.setenv("TRIGGERS_YML", str(tmp_path / "does-not-exist.yml"))
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "secret")
+
+    app = server.create_server().http_app()
+    with TestClient(app) as client:
+        health = client.get("/health")
+        assert health.status_code == 200
+        assert health.json()["trigger_count"] == 0
+
+        resp = client.post(
+            "/webhook/anything",
+            json={},
+            headers={"Authorization": "Bearer secret"},
+        )
+    assert resp.status_code == 404
+
+
 def test_webhook_disabled_returns_409(app):
     with TestClient(app) as client:
         # Disable the trigger via the status route first.

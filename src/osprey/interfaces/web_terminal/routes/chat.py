@@ -23,13 +23,13 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from osprey.agent_runner.clean_env import build_clean_env
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
     CLAUDE_SDK_AVAILABLE,
     OperatorSession,
     TurnInProgressError,
     TurnSilenceTimeout,
-    build_clean_env,
     is_terminal_event,
 )
 

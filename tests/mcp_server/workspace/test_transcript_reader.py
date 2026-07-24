@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.project_utils import encode_claude_project_path
+from osprey.agent_runner.project_paths import encode_claude_project_path
 from osprey.mcp_server.workspace.transcript_reader import (
     MAX_CHAT_MESSAGE_LENGTH,
     MAX_ERROR_RESULT_LENGTH,

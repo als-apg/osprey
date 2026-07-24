@@ -860,7 +860,7 @@ class TestRequirementsRecording:
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         _create_project_venv(project_path, self._make_profile(["numpy>=1.24", "pandas"]))
@@ -880,7 +880,7 @@ class TestRequirementsRecording:
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         _create_project_venv(project_path, self._make_profile([], osprey_install="pip"))
@@ -973,7 +973,7 @@ class TestCreateProjectVenv:
             calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
         _create_project_venv(tmp_path, self._make_profile(["numpy>=1.24", "pandas"]))
@@ -1003,7 +1003,7 @@ class TestCreateProjectVenv:
             calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.delenv("UV", raising=False)
         monkeypatch.setattr("shutil.which", lambda name: None)
 
@@ -1028,7 +1028,7 @@ class TestCreateProjectVenv:
                 args=cmd, returncode=1, stdout="", stderr="venv error"
             )
 
-        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to create project venv"):
@@ -1051,7 +1051,7 @@ class TestCreateProjectVenv:
                 args=cmd, returncode=1, stdout="", stderr="ERROR: No matching distribution"
             )
 
-        monkeypatch.setattr("osprey.cli.build_cmd.subprocess.run", fake_run)
+        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
@@ -1096,7 +1096,7 @@ class TestResolveOspreySpec:
         fake = self._fake_dist(
             direct_url={"url": "file:///abs/path/to/osprey", "dir_info": {"editable": True}},
         )
-        monkeypatch.setattr("osprey.cli.build_cmd.distribution", lambda _name: fake)
+        monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
 
         spec, label = _resolve_osprey_spec("local")
         assert spec == "/abs/path/to/osprey"
@@ -1110,7 +1110,7 @@ class TestResolveOspreySpec:
             version="2026.5.0",
             direct_url={"url": "https://pypi/...", "archive_info": {"hash": "sha256=abc"}},
         )
-        monkeypatch.setattr("osprey.cli.build_cmd.distribution", lambda _name: fake)
+        monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
 
         spec, label = _resolve_osprey_spec("local")
         assert spec == "osprey-framework==2026.5.0"
@@ -1121,7 +1121,7 @@ class TestResolveOspreySpec:
         from osprey.cli.build_cmd import _resolve_osprey_spec
 
         fake = self._fake_dist(version="2026.5.0", direct_url=None)
-        monkeypatch.setattr("osprey.cli.build_cmd.distribution", lambda _name: fake)
+        monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
 
         spec, _label = _resolve_osprey_spec("local")
         assert spec == "osprey-framework==2026.5.0"
@@ -1145,14 +1145,14 @@ class TestResolveOspreySpec:
         """If metadata is unavailable but a source tree exists at parents[3], use it."""
         from importlib.metadata import PackageNotFoundError
 
-        from osprey.cli import build_cmd
+        from osprey.cli import build_environment
 
         def _missing(_name):
             raise PackageNotFoundError
 
-        monkeypatch.setattr(build_cmd, "distribution", _missing)
-        # Real build_cmd.py is in a source checkout (pyproject.toml at parents[3]).
-        spec, _label = build_cmd._resolve_osprey_spec("local")
+        monkeypatch.setattr(build_environment, "distribution", _missing)
+        # Real build_environment.py is in a source checkout (pyproject.toml at parents[3]).
+        spec, _label = build_environment._resolve_osprey_spec("local")
         assert (Path(spec) / "pyproject.toml").exists()
 
 

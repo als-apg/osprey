@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.interfaces.web_terminal.operator_session import build_clean_env
+from osprey.agent_runner.clean_env import build_clean_env
 
 # ---------------------------------------------------------------------------
 # build_clean_env — OSPREY_HOOK_DEBUG is NOT propagated

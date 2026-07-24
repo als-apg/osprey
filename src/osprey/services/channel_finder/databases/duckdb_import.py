@@ -18,12 +18,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 from datetime import UTC, datetime
-from pathlib import Path
 
 import duckdb
 
+from osprey.services.channel_finder.databases.duckdb_fts import ensure_fts
 from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 
 logger = logging.getLogger(__name__)
@@ -72,24 +71,9 @@ CREATE TABLE IF NOT EXISTS device_map (
 """
 
 
-def _install_fts(con: duckdb.DuckDBPyConnection) -> None:
-    """Install and load the FTS extension, preferring a bundled local copy."""
-    bundled = Path("data/duckdb_extensions/fts.duckdb_extension")
-    if bundled.exists():
-        logger.info("Installing FTS extension from bundled file: %s", bundled)
-        con.execute(f"INSTALL '{bundled.resolve()}'")
-    else:
-        logger.info("No bundled FTS extension found, downloading from repository")
-        proxy = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY", "")
-        if proxy:
-            con.execute(f"SET http_proxy = '{proxy}'")
-        con.execute("INSTALL fts")
-    con.execute("LOAD fts")
-
-
 def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Create tables if they don't already exist."""
-    _install_fts(con)
+    ensure_fts(con)
     for stmt in _SCHEMA_SQL.strip().split(";"):
         stmt = stmt.strip()
         if stmt:

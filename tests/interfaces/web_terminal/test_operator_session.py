@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from osprey.agent_runner.clean_env import build_clean_env
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
     OperatorRegistry,
@@ -17,7 +18,6 @@ from osprey.interfaces.web_terminal.operator_session import (
     TurnInProgressError,
     _format_tool_name,
     _message_to_events,
-    build_clean_env,
     validate_project_directory,
 )
 

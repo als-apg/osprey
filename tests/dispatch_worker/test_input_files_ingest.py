@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.artifacts import resolve as resolve_mod
+from osprey.agent_runner import artifact_resolve as resolve_mod
 from osprey.mcp_server.dispatch_worker import dispatch_api
 from osprey.mcp_server.dispatch_worker.dispatch_api import DispatchRequest, InputFile
 from osprey.stores.artifact_store import ArtifactStore

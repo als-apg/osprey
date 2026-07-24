@@ -12,13 +12,13 @@ import base64
 
 import pytest
 
-from osprey.cli import claude_code_resolver as resolver
-from osprey.cli.claude_code_resolver import (
+from osprey.build import claude_code_resolver as resolver
+from osprey.build.claude_code_resolver import (
     MANAGED_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
 )
-from osprey.cli.claude_code_telemetry import (
+from osprey.build.claude_code_telemetry import (
     TELEMETRY_ENV_VARS,
     TelemetryConfigError,
     _build_telemetry_env,

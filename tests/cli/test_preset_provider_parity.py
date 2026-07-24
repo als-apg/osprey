@@ -24,7 +24,7 @@ import pytest
 import yaml
 
 import osprey
-from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
 TEMPLATES = Path(osprey.__file__).parent / "templates"
 
