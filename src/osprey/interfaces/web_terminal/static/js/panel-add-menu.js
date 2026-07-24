@@ -20,9 +20,14 @@
  * active dock group (dock-sync.dockPanelBesideActive) before the reveal POST, so
  * it lands where the operator is working rather than on the adapter's default
  * anchor. That call no-ops without a dockview shell, keeping the menu portable.
+ *
+ * One chrome coupling of the same kind: a footer row flips the rail position
+ * (rail-position.js) — pure host-chrome state, so it's imported directly
+ * rather than threaded through the parent's closures.
  */
 
 import { dockPanelBesideActive } from './dock-sync.js';
+import { getRailPosition, setRailPosition } from './rail-position.js';
 
 /**
  * @typedef {object} HiddenPanel
@@ -196,6 +201,24 @@ export function initPanelAddMenu(opts) {
       menuEl.appendChild(divider);
       menuEl.appendChild(buildUrlForm());
     }
+
+    // ---- Footer: flip the rail position (host chrome, not panel state) ----
+    // One row whose label reflects the flip AWAY from the current position;
+    // render() runs on every open, so the label is always current.
+    const railDivider = document.createElement('div');
+    railDivider.className = 'panel-add-divider';
+    menuEl.appendChild(railDivider);
+    const railTarget = getRailPosition() === 'top' ? 'left' : 'top';
+    const railItem = document.createElement('button');
+    railItem.type = 'button';
+    railItem.className = 'panel-add-item';
+    railItem.dataset.railTarget = railTarget;
+    railItem.textContent = railTarget === 'top' ? 'Rail: move to top' : 'Rail: move to left';
+    railItem.addEventListener('click', () => {
+      setRailPosition(railTarget);
+      closeMenu();
+    });
+    menuEl.appendChild(railItem);
   }
 
   /** @param {string} text @returns {HTMLElement} */

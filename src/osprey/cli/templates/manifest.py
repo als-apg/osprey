@@ -64,6 +64,7 @@ REGEN_TRACKED_FILES = [
     ".claude/skills/session-report/reference.md",
     ".claude/skills/setup-mode/SKILL.md",
     ".claude/skills/demo-gallery/SKILL.md",
+    ".claude/skills/demo-ui/SKILL.md",
     ".claude/skills/writing-bluesky-plans/SKILL.md",
     ".claude/skills/operating-bluesky-scans/SKILL.md",
     ".claude/rules/timezone.md",

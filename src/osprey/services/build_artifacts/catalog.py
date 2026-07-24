@@ -270,6 +270,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Artifact Gallery demo showcase skill",
         ),
         BuildArtifact(
+            canonical_name="skills/demo-ui",
+            template_path="claude/skills/demo-ui/SKILL.md",
+            output_path=".claude/skills/demo-ui/SKILL.md",
+            description="Scripted web-workspace UI demonstration skill",
+        ),
+        BuildArtifact(
             canonical_name="skills/sim-scenarios",
             template_path="claude/skills/sim-scenarios/SKILL.md",
             output_path=".claude/skills/sim-scenarios/SKILL.md",

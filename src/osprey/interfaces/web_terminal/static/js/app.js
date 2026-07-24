@@ -13,6 +13,7 @@ import { initCommandPalette } from './palette-boot.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
+import { getRailPosition, setRailPosition } from './rail-position.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -40,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initNewSessionButton();
   initLogoutButton();
   initModeToggle();
+  initRailPosition();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
@@ -157,6 +159,23 @@ function initModeToggle() {
     // after applyDockMode so the activation docks into the target layout.
     handleUiModeFlip(mode);
   });
+}
+
+/**
+ * Adopt a one-shot `?rail=` as an explicit choice. rail-boot.js already
+ * stamped the attribute pre-paint; re-setting it through setRailPosition
+ * persists it and strips the param, so a reload (or a stale bookmark of the
+ * bare URL) keeps the arrangement the link put the operator in. No `?rail=`
+ * means nothing to adopt — the boot-resolved position already IS the stored
+ * or configured one.
+ */
+function initRailPosition() {
+  try {
+    if (!new URLSearchParams(window.location.search).has('rail')) return;
+  } catch {
+    return;
+  }
+  setRailPosition(getRailPosition());
 }
 
 /**

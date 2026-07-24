@@ -41,6 +41,18 @@ export const THEMES = [
     "label": "Light",
     "mode": "light",
     "family": "osprey"
+  },
+  {
+    "id": "retro-dark",
+    "label": "Retro",
+    "mode": "dark",
+    "family": "retro"
+  },
+  {
+    "id": "retro-light",
+    "label": "Retro",
+    "mode": "light",
+    "family": "retro"
   }
 ];
 
@@ -56,6 +68,10 @@ export const DEFAULTS = {
   "high-contrast": {
     "dark": "high-contrast-dark",
     "light": "high-contrast-light"
+  },
+  "retro": {
+    "dark": "retro-dark",
+    "light": "retro-light"
   }
 };
 
