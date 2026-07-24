@@ -11,6 +11,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Changed
+
+- Web terminal header: the Expert/Simple toggle and theme controls are collapsed
+  into a single display-menu dot that opens a popover with appearance
+  (light/dark), view, and theme-family pickers.
+
 ### Fixed
 
 - `web.app_name` in `config.yml` now actually labels the web terminal header: the
