@@ -43,3 +43,9 @@ def test_hooks_env_still_merged():
     env = _build_extra_env(_ws(hooks_env={"OSPREY_HOOK_X": "1"}), None, "t")
     assert env["OSPREY_HOOK_X"] == "1"
     assert env["OSPREY_TELEMETRY_SESSION_ID"] == "t"
+
+
+def test_every_pty_session_is_marked_expert_surface():
+    """PTY sessions serve the expert web surface — new and resumed alike."""
+    assert _build_extra_env(_ws(), None, None)["OSPREY_WEB_UX"] == "expert"
+    assert _build_extra_env(_ws(), "sid", "sid")["OSPREY_WEB_UX"] == "expert"

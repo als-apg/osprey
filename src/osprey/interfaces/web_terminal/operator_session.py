@@ -285,6 +285,11 @@ class OperatorSession:
         if session_env is not None:
             session_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
             session_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
+            # Mark the web surface this session serves: the operator chat IS the
+            # simple UX. The panels-context SessionStart hook reads this to tell
+            # the agent which UI the operator is looking at (the PTY terminal
+            # sets "expert" — see routes/websocket.py's _build_extra_env).
+            session_env["OSPREY_WEB_UX"] = "simple"
 
         options = ClaudeAgentOptions(
             system_prompt=build_system_prompt(get_facility_timezone()),
