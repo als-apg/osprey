@@ -30,9 +30,12 @@ Themes come in **families**. OSPREY ships three:
   light and dark.
 - **apex** — a warm, gold-accented alternative look, also in light and dark.
 
-The switcher in the header lets you change family and flip between light and
-dark; it remembers your choice, and an ``auto`` setting follows your operating
-system's light/dark preference.
+In the terminal, click the small round dot at the top right to open the
+display menu — it holds the light/dark switch, the Expert/Simple view toggle,
+and the theme family picker. Panels opened as standalone pages show the same
+theme controls inline in their own header, as pictured below. Your choice is
+remembered, and an ``auto`` setting follows your operating system's light/dark
+preference.
 
 .. grid:: 1 1 2 2
    :gutter: 2

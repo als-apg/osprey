@@ -34,8 +34,9 @@ The window has three working areas plus a header:
 - **Side panels** — your control-system tools (Channel Finder, ARIEL, the
   lattice dashboard, and so on), opened from the icon rail and arranged as
   dockable tiles. See :doc:`panels`.
-- **Header** — the theme switcher (:doc:`theming`), a settings drawer, and an
-  optional name badge to tell one deployment from another.
+- **Header** — the display menu (a small dot holding the light/dark,
+  Expert/Simple, and theme controls — see :doc:`theming`), a settings drawer,
+  and an optional name badge to tell one deployment from another.
 
 The settings drawer lets you read and edit the project's ``config.yml`` — and
 the agent's own setup and memory files — from the browser, so you rarely need

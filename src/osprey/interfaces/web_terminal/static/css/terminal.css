@@ -215,22 +215,137 @@
   background: var(--bg-elevated);
 }
 
-/* Segmented Expert/Simple toggle. The active segment is driven purely off
-   html[data-ui-mode] so it already reflects the resolved mode before any script
-   runs. */
-.header-mode-toggle {
+/* ---- Display menu (the header dot) ----
+
+   Every display preference — Appearance (light/dark), View (Expert/Simple),
+   Theme family — collapses behind one circular dot; clicking it opens a
+   popover card (display-menu.js). The dot's core is filled with the active
+   theme's accent token, so it quietly reflects whatever skin is on. */
+.display-menu {
+  position: relative;
   display: flex;
   flex-shrink: 0;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  overflow: hidden;
 }
 
-.mode-segment {
+.display-menu-dot {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.display-menu-dot-core {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  transition: transform var(--wt-transition-fast);
+}
+
+.display-menu-dot:hover,
+.display-menu-dot[aria-expanded="true"] {
+  border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+.display-menu-dot:hover .display-menu-dot-core,
+.display-menu-dot[aria-expanded="true"] .display-menu-dot-core {
+  transform: scale(1.3);
+}
+
+/* The popover card: drops below the dot, right-aligned to it. */
+.display-menu-card {
+  display: none;
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  min-width: 230px;
+  padding: var(--space-3);
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  z-index: var(--z-dropdown);
+}
+
+.display-menu-card.open {
+  display: flex;
+  animation: display-menu-in var(--wt-transition-fast);
+}
+
+@keyframes display-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.display-menu-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.display-menu-heading {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+/* Two-option segmented control with a sliding thumb (the ::before). The
+   thumb spans one cell of the 2-column grid; the active side is expressed as
+   a translateX so a pick glides rather than jumps. */
+.display-menu-seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.display-menu-seg::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  transition: transform var(--wt-transition-normal);
+}
+
+/* View thumb: CSS-driven off html[data-ui-mode], so it is correct pre-paint
+   and tracks live flips with no JS sync (segments are expert, then simple). */
+html[data-ui-mode="simple"] #mode-toggle::before {
+  transform: translateX(100%);
+}
+
+/* Appearance thumb: display-menu.js mirrors the resolved light/dark mode
+   into data-active (options are light, then dark). */
+.display-menu-appearance[data-active="dark"]::before {
+  transform: translateX(100%);
+}
+
+.display-seg-option {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 5px 10px;
   font-family: var(--font-display);
   font-size: var(--text-base);
   font-weight: var(--weight-regular);
@@ -239,27 +354,62 @@
   border: none;
   cursor: pointer;
   white-space: nowrap;
-  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+  transition: color var(--wt-transition-fast);
 }
 
-.mode-segment + .mode-segment {
-  border-left: 1px solid var(--border-default);
-}
-
-.mode-segment:hover {
+.display-seg-option:hover {
   color: var(--text-primary);
 }
 
 html[data-ui-mode="expert"] .mode-segment[data-mode="expert"],
-html[data-ui-mode="simple"] .mode-segment[data-mode="simple"] {
-  background: var(--bg-elevated);
+html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
+.display-menu-appearance[data-active="light"] .display-seg-option[data-appearance="light"],
+.display-menu-appearance[data-active="dark"] .display-seg-option[data-appearance="dark"] {
   color: var(--text-primary);
   font-weight: var(--weight-medium);
 }
 
+.display-seg-icon,
 .mode-segment-icon {
   font-size: var(--text-md);
   line-height: var(--leading-none);
+}
+
+/* Theme family pills (one per THEMES family, built by display-menu.js). */
+.display-menu-families {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.display-family-pill {
+  padding: 4px 10px;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.display-family-pill:hover {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+}
+
+.display-family-pill.active {
+  color: var(--text-primary);
+  border-color: var(--color-accent);
+  background: var(--accent-tint-06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .display-menu-card.open { animation: none; }
+  .display-menu-seg::before,
+  .display-menu-dot-core { transition: none; }
 }
 
 /* ---- Simple-mode shell density (frame 2b) ----

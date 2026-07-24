@@ -182,13 +182,22 @@ class TestRenderedDataTheme:
             body = client.get("/").text
             assert 'data-theme="dark"' in body
 
-    def test_switcher_element_mounted(self, workspace_dir):
-        """The binary theme-toggle button is replaced by <osprey-theme-switcher>."""
+    def test_display_menu_mounted(self, workspace_dir):
+        """The hub header mounts the display menu (dot + popover card).
+
+        The always-visible ``<osprey-theme-switcher>`` and the old binary
+        ``#theme-toggle`` button are both gone from the hub page — theme
+        controls live inside the display-menu card (standalone fleet pages
+        such as session.html keep the shared switcher component).
+        """
         gen = _make_client(workspace_dir, "osprey")
         client = next(gen)
         try:
             body = client.get("/").text
-            assert "<osprey-theme-switcher></osprey-theme-switcher>" in body
+            assert 'id="display-menu-btn"' in body
+            assert 'id="display-menu-card"' in body
+            assert 'id="mode-toggle"' in body
+            assert "<osprey-theme-switcher>" not in body
             assert 'id="theme-toggle"' not in body
         finally:
             next(gen, None)

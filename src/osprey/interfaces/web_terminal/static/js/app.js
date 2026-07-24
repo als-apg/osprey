@@ -13,6 +13,7 @@ import { initCommandPalette } from './palette-boot.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
+import { initDisplayMenu } from './display-menu.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -40,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initNewSessionButton();
   initLogoutButton();
   initModeToggle();
+  initDisplayMenu();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
@@ -124,7 +126,8 @@ export function initLogoutButton() {
 /* ---- UI Mode Toggle (Expert / Simple) ---- */
 
 /**
- * Wire the header segmented Expert/Simple toggle. The active segment is styled
+ * Wire the Expert/Simple toggle (the View row inside the header display-menu
+ * popover — see display-menu.js). The active segment is styled
  * purely off html[data-ui-mode] (see terminal.css), and mode-boot.js already
  * resolved the initial mode pre-paint; this only handles the runtime flip:
  * swap the attribute, persist the explicit choice, drop a leftover one-shot

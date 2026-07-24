@@ -31,9 +31,6 @@
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/highlight.css') }}">
 
-  <!-- Family-picker theme switcher: self-registering Custom Element -->
-  <script type="module" src="{{ prefixed('/design-system/js/components/osprey-theme-switcher.js') }}"></script>
-
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="{{ prefixed('/static/fonts/fonts.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/fonts/apex-fonts.css') }}">
@@ -93,21 +90,8 @@
     </div>
     <div class="header-right">
       <div class="header-actions">
-        <!-- Expert/Simple mode toggle. The active segment is CSS-driven off
-             html[data-ui-mode], so it reflects the resolved mode pre-paint;
-             app.js's initModeToggle() delegates clicks off #mode-toggle to
-             swap the attribute, persist, and broadcast to panels. -->
-        <div class="header-mode-toggle" id="mode-toggle" role="group" aria-label="UI mode">
-          <button class="mode-segment" data-mode="expert" type="button">
-            <span class="mode-segment-icon" aria-hidden="true">&#x269b;</span>Expert
-          </button>
-          <button class="mode-segment" data-mode="simple" type="button">
-            <span class="mode-segment-icon" aria-hidden="true">&#x25c9;</span>Simple
-          </button>
-        </div>
         {% if terminal_user %}<span class="header-app-name" id="header-user-name" title="Logged in as {{ terminal_user }}">{{ terminal_user }}</span>{% endif %}
         {% if app_name %}<span class="header-app-name" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
-        <osprey-theme-switcher></osprey-theme-switcher>
         <!-- Command palette trigger (frame). Reads as a search bar; behaviour
              (Cmd/Ctrl+K, filtering, keyboard nav) is wired by a later JS task.
              CSS-hidden in simple UI mode. -->
@@ -118,6 +102,51 @@
           <span class="command-palette-trigger-label">Search</span>
           <span class="command-palette-kbd" aria-hidden="true">&#8984;K</span>
         </button>
+        <!-- Display menu: the header dot. Collapses the Expert/Simple mode
+             toggle and both theme axes (light/dark + family) into one popover
+             card so the header stays quiet. display-menu.js owns open/close
+             and the two theme rows; the View row keeps the #mode-toggle /
+             .mode-segment contract, so app.js's initModeToggle() still owns
+             the mode flip and the active segment stays CSS-driven off
+             html[data-ui-mode]. The family pills are populated by
+             display-menu.js from the tokens.js THEMES registry. -->
+        <div class="display-menu" id="display-menu">
+          <button class="display-menu-dot" id="display-menu-btn" type="button"
+                  title="Display preferences" aria-label="Display preferences"
+                  aria-haspopup="true" aria-expanded="false">
+            <span class="display-menu-dot-core" aria-hidden="true"></span>
+          </button>
+          <div class="display-menu-card" id="display-menu-card" role="group" aria-label="Display preferences">
+            <div class="display-menu-row">
+              <span class="display-menu-heading">Appearance</span>
+              <div class="display-menu-seg display-menu-appearance" id="appearance-toggle" role="group" aria-label="Light or dark appearance">
+                <button class="display-seg-option" data-appearance="light" type="button" aria-pressed="false">
+                  <svg class="display-seg-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>Light
+                </button>
+                <button class="display-seg-option" data-appearance="dark" type="button" aria-pressed="false">
+                  <svg class="display-seg-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>Dark
+                </button>
+              </div>
+            </div>
+            <div class="display-menu-row">
+              <span class="display-menu-heading">View</span>
+              <div class="display-menu-seg" id="mode-toggle" role="group" aria-label="UI mode">
+                <button class="display-seg-option mode-segment" data-mode="expert" type="button">
+                  <span class="display-seg-icon mode-segment-icon" aria-hidden="true">&#x269b;</span>Expert
+                </button>
+                <button class="display-seg-option mode-segment" data-mode="simple" type="button">
+                  <span class="display-seg-icon mode-segment-icon" aria-hidden="true">&#x25c9;</span>Simple
+                </button>
+              </div>
+            </div>
+            <div class="display-menu-row">
+              <span class="display-menu-heading">Theme</span>
+              <div class="display-menu-families" id="family-picker" role="group" aria-label="Theme family">
+                <!-- One pill per theme family, rendered by display-menu.js -->
+              </div>
+            </div>
+          </div>
+        </div>
         <button class="header-icon-btn" data-drawer-trigger="settings-drawer" title="Settings">&#9881;</button>
         <!-- Simple-mode help chip (frame 2b). CSS-gated off html[data-ui-mode]:
              hidden in expert, shown in simple. An anchor to the safety guide so

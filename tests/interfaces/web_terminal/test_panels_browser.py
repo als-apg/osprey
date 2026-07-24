@@ -1215,6 +1215,8 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
         )
 
         # Flip to expert — dock unlocks and the expert layout is restored.
+        # (The mode toggle lives inside the display-menu popover — open it first.)
+        page.locator("#display-menu-btn").click()
         page.locator('#mode-toggle .mode-segment[data-mode="expert"]').click()
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "expert", timeout=5_000)
         page.wait_for_timeout(1_200)

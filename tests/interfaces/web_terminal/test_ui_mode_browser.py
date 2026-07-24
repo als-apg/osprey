@@ -184,6 +184,10 @@ def _stored_mode(page: Page) -> str | None:
 
 
 def _click_segment(page: Page, mode: str) -> None:
+    # The mode toggle lives inside the header display-menu popover (the dot);
+    # open it first. A mode pick closes the card again, so every call starts
+    # from the collapsed state.
+    page.locator("#display-menu-btn").click()
     page.locator(f'#mode-toggle .mode-segment[data-mode="{mode}"]').click()
 
 

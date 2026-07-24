@@ -134,6 +134,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   test must declare its lane (gated per matrix cell and in CI); 19 non-LLM e2e
   files moved to the matrix exclusion list. The `e2e_benchmark` marker was
   renamed to `channel_finder_benchmark` to say what it actually covers.
+- Web terminal header: the Expert/Simple toggle and theme controls are collapsed
+  into a single display-menu dot that opens a popover with appearance
+  (light/dark), view, and theme-family pickers.
 
 ### Fixed
 
