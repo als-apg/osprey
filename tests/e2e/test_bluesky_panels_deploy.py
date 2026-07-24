@@ -1,7 +1,7 @@
 """Full-stack Docker integration test for the Phase-6 "Operator Interfaces"
 scan panels (task 4.3, bluesky-panels-deploy-e2e) -- the gold-standard proof
 that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge +
-co-deployed Tiled + the bluesky-panels sidecar + its three web panels) boots as
+co-deployed Tiled + the bluesky-panels sidecar + its two web panels) boots as
 real containers and drives a real scan end to end through the sidecar.
 
 Reuses ``tests/e2e/_orm_stack.py`` (the single source for FR11's VA-backed
@@ -20,7 +20,7 @@ is the bluesky-panels sidecar's port, so this module calls ``override_yaml``/
 ``build_project_subprocess`` does internally) and appends one extra
 ``--set bluesky_panels.port=...`` override.
 
-Plan discovery (test 4/5's headline): ``GET /plans`` through the sidecar's
+Plan discovery (test 3/4's headline): ``GET /plans`` through the sidecar's
 read-proxy is scanned for a plan whose ``metadata.writes`` is ``True`` (the
 only plans that actually drive a device); each candidate's
 ``GET /plans/{name}/source`` is then checked for ``validated: true``. The
@@ -36,25 +36,19 @@ discovery loop. This keeps the coupling to the shipped plan catalog minimal
 -- the catalog is drafts, not a fixed contract this test should pin by name.
 
 Per-function flaky, NOT module-level (mirrors ``test_va_substrate_equivalence
-.py``'s documented convention): tests 1-5 accept one rerun on a genuinely
-flaky HTTP/timing assertion. Both the sidecar's negative write-surface proof
-(test 7: no ``/stop``, no unbounded ``POST /runs``) and the container-mutating
-VA-stop test (test 6) stay STRICT with no flaky marker at all -- a
-module-level ``flaky`` mark would silently sweep that safety proof into
-lenient reruns, exactly the bug the va-substrate module docstring warns about.
-``test_va_stopped_degrades_health`` (6) is DEFINED after the negative test 7
-so that, in pytest's definition order, the container-mutating VA-stop test
-runs LAST; it restores the VA container in a ``finally`` so a failed assertion
-never leaves the stack degraded for a later run.
+.py``'s documented convention): tests 1-4 accept one rerun on a genuinely
+flaky HTTP/timing assertion. The sidecar's negative write-surface proof
+(test 5: no ``/stop``, no unbounded ``POST /runs``) stays STRICT with no flaky
+marker at all -- a module-level ``flaky`` mark would silently sweep that
+safety proof into lenient reruns, exactly the bug the va-substrate module
+docstring warns about.
 
 CONTAINER SAFETY: every docker/compose invocation below names an EXACT
 resource (``<project>-bluesky-bridge``, ``<project>-virtual-accelerator``,
 ``<project>-bluesky-panels``, images ``<project>-bluesky-bridge:local``/
 ``<project>-va:local``/``<project>-bluesky-panels:local``) -- never ``system prune``,
 never ``--volumes``, never a wildcard ``docker rm``/``rmi``. Teardown goes
-through ``osprey deploy down`` (the shipped compose path), and the one
-mid-test ``docker stop``/``docker start`` (test 6) names the VA container
-exactly, restoring it before the fixture's own teardown runs.
+through ``osprey deploy down`` (the shipped compose path).
 
 Gating: needs Docker; the VA image builds natively for the host arch (PyAT/
 softioc compile from source on Apple Silicon -- slow on a cold image cache).
@@ -118,13 +112,11 @@ BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 # bridge + tiled all wait on it via depends_on/service_healthy chains.
 DEPLOY_UP_TIMEOUT_SEC = 1200
 HEALTH_TIMEOUT_SEC = 300.0
-ROLLUP_TIMEOUT_SEC = 180.0
 SCAN_TIMEOUT_SEC = 90.0
-VA_DEGRADE_TIMEOUT_SEC = 60.0
 
 # Module-level pytestmark deliberately carries NO `flaky` marker -- see the
 # module docstring's "Per-function flaky" note. `flaky` is applied per
-# function below to tests 1-6 only.
+# function below to tests 1-4 only.
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.slow,
@@ -181,48 +173,6 @@ def _wait_for_health(url: str, timeout: float) -> None:
             last_err = str(exc)
         time.sleep(1.0)
     raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
-def _wait_for_rollup(url: str, expected: str, timeout: float) -> dict[str, Any]:
-    """Poll ``url`` (a ``/health/full`` endpoint) until its ``rollup`` field
-    equals ``expected``, returning the last body. Never raises on a probe
-    failure mid-poll -- only on the overall timeout."""
-    deadline = time.monotonic() + timeout
-    last_body: dict[str, Any] = {}
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 - localhost
-                if resp.status == 200:
-                    last_body = json.loads(resp.read().decode("utf-8"))
-                    if last_body.get("rollup") == expected:
-                        return last_body
-        except (urllib.error.URLError, ConnectionError, OSError, ValueError):
-            pass
-        time.sleep(1.0)
-    raise AssertionError(
-        f"timed out after {timeout:.0f}s waiting for rollup=={expected!r} at {url} "
-        f"(last body: {last_body})"
-    )
-
-
-def _wait_for_rollup_not(url: str, unexpected: str, timeout: float) -> dict[str, Any]:
-    """Poll ``url`` until its ``rollup`` field DIFFERS from ``unexpected``."""
-    deadline = time.monotonic() + timeout
-    last_body: dict[str, Any] = {}
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 - localhost
-                if resp.status == 200:
-                    last_body = json.loads(resp.read().decode("utf-8"))
-                    if last_body.get("rollup") != unexpected:
-                        return last_body
-        except (urllib.error.URLError, ConnectionError, OSError, ValueError):
-            pass
-        time.sleep(1.0)
-    raise AssertionError(
-        f"timed out after {timeout:.0f}s waiting for rollup != {unexpected!r} at {url} "
-        f"(last body: {last_body})"
-    )
 
 
 def _request(
@@ -470,7 +420,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_rollup(f"{BLUESKY_PANELS_URL}/health/full", "ok", ROLLUP_TIMEOUT_SEC)
+        _wait_for_health(f"{BLUESKY_PANELS_URL}/health", HEALTH_TIMEOUT_SEC)
 
         plan_name, plan_args = _discover_writes_plan(correctors, bpms, limits)
 
@@ -509,39 +459,14 @@ def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 def test_panels_served_200(deployed_stack: DeployedStack) -> None:
-    for path in ("/plan/", "/results/", "/health-panel/"):
+    for path in ("/plan/", "/results/"):
         status, body = _get_html(path)
         assert status == 200, f"GET {path} failed: {status}"
         assert "<html" in body.lower(), f"GET {path} did not return HTML: {body[:200]!r}"
 
 
 # ---------------------------------------------------------------------------
-# 3. Health rollup
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_health_full_rollup_healthy(deployed_stack: DeployedStack) -> None:
-    status, body = _sidecar_get("/health/full")
-    assert status == 200, f"GET /health/full failed: {status} {body}"
-    assert body.get("rollup") == "ok", f"expected an 'ok' rollup: {body}"
-
-    services = {s["name"]: s for s in body.get("services", [])}
-    for name in ("bridge", "tiled", "va_ioc"):
-        assert name in services, f"missing {name!r} in /health/full services: {body}"
-        assert services[name]["status"] == "ok", f"{name} not ok: {services[name]}"
-
-    # The VA IOC is Channel Access (raw TCP), never HTTP -- its detail text
-    # must say so, distinct from the bridge/tiled HTTP probes.
-    va_detail = services["va_ioc"]["detail"]
-    assert "tcp" in va_detail.lower(), f"va_ioc detail doesn't read as a TCP probe: {va_detail!r}"
-    for name in ("bridge", "tiled"):
-        detail = services[name]["detail"]
-        assert "200" in detail, f"{name} detail doesn't read as an HTTP probe: {detail!r}"
-
-
-# ---------------------------------------------------------------------------
-# 4. HEADLINE: scan via the sidecar's launch route
+# 3. HEADLINE: scan via the sidecar's launch route
 # ---------------------------------------------------------------------------
 
 
@@ -586,7 +511,7 @@ def test_plan_via_sidecar_launch_completes(deployed_stack: DeployedStack) -> Non
 
 
 # ---------------------------------------------------------------------------
-# 5. Isolation: the same plan driven straight via the bridge
+# 4. Isolation: the same plan driven straight via the bridge
 # ---------------------------------------------------------------------------
 
 
@@ -621,7 +546,7 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. NEGATIVE (strict, no flaky): no stop / no unbounded create surfaced
+# 5. NEGATIVE (strict, no flaky): no stop / no unbounded create surfaced
 # ---------------------------------------------------------------------------
 # Placed before test 6 so the VA-stop test runs last among the container-
 # mutating tests, while this negative proof (container-neutral) can run in
@@ -645,38 +570,3 @@ def test_sidecar_exposes_no_stop_or_unbounded_create_route(
     assert status == 405, (
         f"sidecar must not expose unbounded POST /runs (only /runs/launch), got {status}: {body}"
     )
-
-
-# ---------------------------------------------------------------------------
-# 6. VA stopped degrades health (LAST among container-mutating tests)
-# ---------------------------------------------------------------------------
-
-
-def test_va_stopped_degrades_health(deployed_stack: DeployedStack) -> None:
-    try:
-        stop = subprocess.run(
-            ["docker", "stop", VA_CONTAINER], capture_output=True, text=True, timeout=30
-        )
-        assert stop.returncode == 0, f"docker stop {VA_CONTAINER} failed: {stop.stderr}"
-
-        body = _wait_for_rollup_not(
-            f"{BLUESKY_PANELS_URL}/health/full", "ok", VA_DEGRADE_TIMEOUT_SEC
-        )
-        services = {s["name"]: s for s in body.get("services", [])}
-        assert services["va_ioc"]["status"] == "unhealthy", f"va_ioc did not degrade: {body}"
-        assert services["bridge"]["status"] == "ok", f"bridge unexpectedly degraded: {body}"
-        assert services["tiled"]["status"] == "ok", f"tiled unexpectedly degraded: {body}"
-        assert body.get("rollup") == "unhealthy", f"rollup did not degrade to unhealthy: {body}"
-    finally:
-        start = subprocess.run(
-            ["docker", "start", VA_CONTAINER], capture_output=True, text=True, timeout=30
-        )
-        if start.returncode != 0:
-            print(  # noqa: T201 - surface restore issues in CI logs
-                f"docker start {VA_CONTAINER} failed: {start.stderr}"
-            )
-        else:
-            try:
-                _wait_for_rollup(f"{BLUESKY_PANELS_URL}/health/full", "ok", HEALTH_TIMEOUT_SEC)
-            except AssertionError as exc:
-                print(f"VA restore health-wait did not observe an 'ok' rollup: {exc}")  # noqa: T201

@@ -58,7 +58,8 @@ OSPREY's build inputs form a three-layer hierarchy:
 - **Preset** — bundled upstream, lives in ``src/osprey/profiles/presets/``.
   Edited only by PR'ing OSPREY itself. A preset may itself extend another
   preset (e.g. ``operator`` extends ``control-assistant``).
-  Examples: ``hello-world``, ``control-assistant``, ``ariel-standalone``.
+  Examples: ``hello-world``, ``control-assistant``, ``ariel-standalone``,
+  ``channel-finder-standalone``.
 - **Profile** — user-owned, lives in *your* repo as a directory. Has
   ``extends: <preset-name>`` (or a path) and overrides only what your
   facility needs. This is your durable source-of-truth for customizations.

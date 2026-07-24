@@ -1,8 +1,8 @@
 """Tests for the ``bluesky_panels:`` block of the build-profile schema.
 
 Covers the :class:`BlueskyPanelsConfig` dataclass, the ``BuildProfile.validate``
-exemption that lets the three non-builtin scan-panel web_panels ids
-(``plan``, ``results``, ``health``) validate without a
+exemption that lets the non-builtin scan-panel web_panels ids
+(``plan``, ``results``) validate without a
 pre-existing ``web.panels.<id>.url`` when a ``bluesky_panels`` block is present
 (their urls are derived post-build by ``_inject_bluesky_panels``), and a
 regression guard that the shipped control-assistant preset/profile still
@@ -36,12 +36,12 @@ def test_no_bluesky_panels_validates(tmp_path: Path) -> None:
 def test_bluesky_panels_ids_validate_without_url_when_bluesky_panels_present(
     tmp_path: Path,
 ) -> None:
-    """The three scan-panel ids need no manual web.panels.<id>.url override
+    """The scan-panel ids need no manual web.panels.<id>.url override
     when a bluesky_panels block is present — the urls are derived post-build by
     _inject_bluesky_panels, which runs after this validator."""
     profile = BuildProfile(
         name="x",
-        web_panels=["plan", "results", "health"],
+        web_panels=["plan", "results"],
         bluesky_panels=BlueskyPanelsConfig(),
     )
     profile.validate(tmp_path)  # must not raise
@@ -167,7 +167,7 @@ def test_control_assistant_profile_validates() -> None:
     """The shipped control-assistant preset/profile validates cleanly.
 
     This is a regression guard task 3.3 (tutorial-config) re-runs after
-    adding the bluesky_panels block + the three scan-panel web_panels ids to
+    adding the bluesky_panels block + the scan-panel web_panels ids to
     this preset — it must keep validating once that wiring lands.
     """
     presets_dir = bp._presets_dir()
@@ -263,12 +263,6 @@ class TestControlAssistantTurnkeyScanPanels:
     def test_control_assistant_scan_results_panel(self, turnkey_scan_config: dict) -> None:
         panel = turnkey_scan_config["web"]["panels"]["results"]
         assert panel["path"] == "/results/"
-        assert panel["url"]
-
-    def test_control_assistant_scan_health_panel(self, turnkey_scan_config: dict) -> None:
-        panel = turnkey_scan_config["web"]["panels"]["health"]
-        assert panel["path"] == "/health-panel/"
-        assert panel["health_endpoint"] == "/health"
         assert panel["url"]
 
 

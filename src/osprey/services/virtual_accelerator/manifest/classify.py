@@ -94,6 +94,14 @@ def classify_partition(path: dict[str, str]) -> str:
 RECORD_TYPE_BINARY = "bi"
 RECORD_TYPE_ANALOG = "ai"
 RECORD_TYPE_STRING = "stringin"
+# The two remaining gateway channel shapes: a 512-byte char waveform ("long
+# string", e.g. a status/message channel wider than stringin's 40 bytes) and
+# a multi-bit binary (discrete enum state). `derive_record_type` never emits
+# either -- the tutorial namespace has no such channel -- but a file-backed
+# manifest (see loaders.load_manifest_file) may declare them, and
+# ioc/records.py dispatches on them like any other record type.
+RECORD_TYPE_LONG_STRING = "longstringin"
+RECORD_TYPE_MBB = "mbbi"
 
 # Field/subfield tokens that indicate a two-state boolean signal rather than
 # a continuous measurement.

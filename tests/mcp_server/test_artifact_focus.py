@@ -1,5 +1,7 @@
 """Tests for the artifact_focus MCP tool."""
 
+from unittest.mock import patch
+
 import pytest
 
 from tests.mcp_server.conftest import (
@@ -37,7 +39,7 @@ class TestArtifactFocusTool:
 
     @pytest.mark.asyncio
     async def test_focus_valid_artifact(self, tmp_path, monkeypatch):
-        """Focusing a valid artifact returns success (gallery POST is non-fatal)."""
+        """Focusing a valid artifact returns success when the gallery accepts."""
         monkeypatch.chdir(tmp_path)
 
         # First save an artifact
@@ -50,9 +52,13 @@ class TestArtifactFocusTool:
         save_data = extract_response_dict(save_result)
         artifact_id = save_data["artifact_id"]
 
-        # Now focus on it
+        # Now focus on it (gallery acknowledges the POST)
         fn = _get_artifact_focus()
-        result = await fn(artifact_id=artifact_id)
+        with patch(
+            "osprey.mcp_server.workspace.tools.focus_tools._post_json_with_response",
+            return_value=(200, {"status": "ok"}),
+        ):
+            result = await fn(artifact_id=artifact_id)
 
         data = extract_response_dict(result)
         assert data["status"] == "success"

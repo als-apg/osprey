@@ -17,6 +17,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   payload omits its `id`: the ALS and generic adapters now fall back to an empty
   entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
   fetch loop caught and dropped the entry on.
+- All artifact stores are now rooted at the shared data root, so artifacts saved
+  from session-scoped writers (e.g. resumed web-terminal sessions) stay visible to
+  the gallery.
+- `artifact_focus`/`artifact_pin` now report gallery failures honestly instead of
+  always claiming success.
 - `web.app_name` in `config.yml` now actually labels the web terminal header: the
   runtime read the key from a nested section nothing generates, so only the
   `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,
@@ -31,6 +36,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- A `channel-finder-standalone` preset packages OSPREY's natural-language channel/PV address finder — the channel-finder pipeline plus its interactive CHANNELS web panel — as a standalone, read-only deployment with no control-system stack, archiver, logbook, or Python executor. It ships a bundled demo hierarchical database so it runs out of the box; `channel_finder_mode` selects the `in_context`, `hierarchical`, or `middle_layer` pipeline.
+- The control-assistant preset now ships the KNOWLEDGE panel, a browser for the project's facility knowledge bundle. Existing projects gain the tab by adding `okf` to `web_panels` and rebuilding.
 - Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.
 - Broad unit-test coverage for previously untested modules across services (migration engine, channel-finder data layer and tools, python-executor sandbox plumbing), interfaces (lattice-dashboard physics workers, web-terminal file/chat/scaffold routes incl. the path-traversal guard), CLI menus, MCP servers, registry loader/export, deployment, template hooks, and utilities.
 - A bluesky scan plan can now be hidden from the agent without turning off the whole scan server. Set `bluesky.excluded_plans` on the profile of the project that deploys the bridge; the deploy render carries it into the bridge as the `BLUESKY_EXCLUDED_PLANS` environment variable. An excluded plan is both absent from the agent's plan list and non-runnable — it cannot be staged or launched by name. The bare config key is a local/development convenience; the environment variable is the production channel.
@@ -151,6 +158,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
+- Retired the Bluesky scan stack's HEALTH panel and the sidecar's `/health/full` rollup. Service status for the whole deployment is shown by the SYSTEM tab; `web_panels: [health]` entries should be removed from project configs.
 - Retired the Tuning optimization panel and its companion web server. It is no longer a built-in panel, and `web_panels: [tuning]` entries should be removed from project configs.
 - Dropped the unused `basePath` iframe query parameter from the Web Terminal.
 - Retired the tier-2 channel databases and their benchmark query set; build profiles can no longer select tier 2.

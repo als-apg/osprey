@@ -69,6 +69,17 @@ class EngineSource:
             directory-level atomic-rename swap is always observed.
         noise_level: Relative noise fraction for the legacy-fallback
             synthesis path (mirrors ``MockConnector``'s own default).
+        setpoint_echo_records: Optional ``address -> record`` map of sp-echo
+            READBACK records whose current values are synced into the engine
+            (``engine.write``) at the top of every poll tick, BEFORE the
+            driven records are computed. This is what lets a machine-file
+            expression channel (e.g. a camera response curve) depend on the
+            latest accepted setpoint state when the engine is the only
+            physics in the process -- the no-lattice entrypoint path wires
+            it. With a PhysicsBridge, physics coupling flows through the
+            bridge instead and this stays ``None`` (the default; behaviour
+            unchanged). Addresses the engine does not serve are dropped at
+            construction.
     """
 
     def __init__(
@@ -79,12 +90,18 @@ class EngineSource:
         data_dir: Path,
         *,
         noise_level: float = DEFAULT_NOISE_LEVEL,
+        setpoint_echo_records: dict[str, Any] | None = None,
     ) -> None:
         self._engine = engine
         self._records = dict(static_noisy_records)
         self._noise_level = noise_level
         self._rng = np.random.default_rng()
         self._legacy_base: dict[str, float] = {}
+        self._setpoint_echo_records = {
+            address: record
+            for address, record in (setpoint_echo_records or {}).items()
+            if engine_serves(engine, address)
+        }
 
         self._channel_info: dict[str, tuple[str, bool]] = {
             c["address"]: (c["record_type"], bool(c["noise"]))
@@ -106,6 +123,20 @@ class EngineSource:
             yet), even though it establishes the baseline signature.
         """
         switched = self._detect_scenario_switch()
+        # Sync accepted setpoint state into the engine first, so every
+        # expression evaluated below sees this tick's setpoints.
+        for address, record in self._setpoint_echo_records.items():
+            try:
+                self._engine.write(address, record.get())
+            except Exception:  # noqa: BLE001 -- same isolation rationale as below
+                import traceback
+
+                print(
+                    f"EngineSource: failed to sync setpoint echo {address!r} into the engine:",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                traceback.print_exc()
         for address, record in self._records.items():
             try:
                 record.set(self._read_value(address))

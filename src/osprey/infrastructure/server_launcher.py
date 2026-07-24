@@ -127,9 +127,12 @@ class ServerLauncher:
                 import uvicorn
 
                 if self._pass_workspace:
-                    from osprey.utils.workspace import resolve_workspace_root
+                    from osprey.utils.workspace import resolve_shared_data_root
 
-                    app = self._app_factory(workspace_root=resolve_workspace_root())
+                    # Launched servers are daemons serving the shared store (they
+                    # may be auto-launched from a session-scoped MCP process on
+                    # first artifact save).
+                    app = self._app_factory(workspace_root=resolve_shared_data_root())
                 else:
                     app = self._app_factory()
                 uvicorn.run(app, host=host, port=port, log_level="warning")

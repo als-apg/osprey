@@ -169,8 +169,14 @@ def test_prime_config_builder_survives_category_load_failure(monkeypatch):
 
 @pytest.mark.unit
 def test_initialize_workspace_singletons(tmp_path):
-    with patch("osprey.stores.artifact_store.initialize_artifact_store") as init:
-        startup.initialize_workspace_singletons(tmp_path)
+    """The artifact store is rooted at the SHARED data root, never a
+    session-relocated path — session isolation lives in the index."""
+    with (
+        patch("osprey.stores.artifact_store.initialize_artifact_store") as init,
+        patch("osprey.utils.workspace.resolve_shared_data_root", return_value=tmp_path) as resolve,
+    ):
+        startup.initialize_workspace_singletons()
+    resolve.assert_called_once_with()
     init.assert_called_once_with(workspace_root=tmp_path)
 
 

@@ -60,6 +60,14 @@ services:
       # Passthrough from the project .env; unset -> no fault.
       VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"
       VA_CORR_GAIN: "${VA_CORR_GAIN:-}"
+      # Facility-neutral source configuration (entrypoint.py + Dockerfile CMD
+      # read these; empty means default): the entrypoint module to run, the
+      # file-backed channel manifest, and whether the PyAT lattice is
+      # constructed. Passthrough from the project .env; unset -> the
+      # historical built-in behavior.
+      VA_ENTRYPOINT_MODULE: "${VA_ENTRYPOINT_MODULE:-}"
+      VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"
+      VA_LATTICE: "${VA_LATTICE:-}"
       TZ: {{ system.timezone }}
     # Bind-mount source is relative to the compose project directory
     # (build/services/), not this file's own subdir — hence the ../../ prefix

@@ -11,11 +11,7 @@ import logging
 from collections import Counter
 from pathlib import Path
 
-from fastmcp.exceptions import ToolError
-
-from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
-from osprey.utils.workspace import resolve_workspace_root
 
 logger = logging.getLogger("osprey.mcp_server.tools.session_summary")
 
@@ -54,20 +50,10 @@ async def session_summary() -> str:
     Returns:
         JSON with entries[], and totals.
     """
-    try:
-        workspace_root = resolve_workspace_root()
-    except ToolError:
-        raise
-    except Exception as e:
-        return make_error(
-            "internal_error",
-            f"Could not resolve workspace root: {e}",
-        )
+    # --- Unified artifact store (shared-root singleton) ---
+    from osprey.stores.artifact_store import get_artifact_store
 
-    # --- Unified artifact store ---
-    from osprey.stores.artifact_store import ArtifactStore
-
-    store = ArtifactStore(workspace_root=workspace_root)
+    store = get_artifact_store()
     all_entries = store.list_entries()
 
     entries = []

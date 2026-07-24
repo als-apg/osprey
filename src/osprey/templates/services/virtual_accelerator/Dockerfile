@@ -97,7 +97,13 @@ RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
     fi \
     && rm -rf /tmp/ctx
 
-CMD ["python", "-m", "osprey.services.virtual_accelerator.entrypoint"]
+# The entrypoint module is configuration, not a bake-time constant: a
+# facility may supply its own entrypoint module (e.g. one serving a
+# file-backed manifest with no lattice) without rebuilding the image.
+# `exec` replaces the shell so SIGTERM reaches python directly and the
+# IOC's wait_for_quit() shutdown path still runs on `docker stop`.
+# `:-` treats the compose passthrough's empty string the same as unset.
+CMD ["/bin/sh", "-c", "exec python -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}"]
 
 # Project metadata, kept as the final metadata-only layer so the shared deps
 # cache chain above stays identical across projects (a per-project value here

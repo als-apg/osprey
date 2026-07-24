@@ -112,12 +112,6 @@ def test_inject_bluesky_panels_registers_three_web_panels(tmp_path: Path) -> Non
     assert results["label"] == "RESULTS"
     assert "health_endpoint" not in results
 
-    health = panels["health"]
-    assert health["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
-    assert health["path"] == "/health-panel/"
-    assert health["label"] == "HEALTH"
-    assert health["health_endpoint"] == "/health"
-
 
 def test_inject_bluesky_panels_derives_url_from_custom_port(tmp_path: Path) -> None:
     """A non-default bluesky_panels.port is reflected in the derived panel urls."""
@@ -130,7 +124,6 @@ def test_inject_bluesky_panels_derives_url_from_custom_port(tmp_path: Path) -> N
     panels = _read_config(project_path)["web"]["panels"]
     assert panels["plan"]["url"] == "${BLUESKY_PANELS_URL:-http://localhost:9999}"
     assert panels["results"]["url"] == "${BLUESKY_PANELS_URL:-http://localhost:9999}"
-    assert panels["health"]["url"] == "${BLUESKY_PANELS_URL:-http://localhost:9999}"
 
 
 def test_inject_bluesky_panels_explicit_url_override_wins(tmp_path: Path) -> None:
@@ -170,7 +163,7 @@ def test_inject_bluesky_panels_explicit_path_label_override_wins(tmp_path: Path)
         extra={
             "web": {
                 "panels": {
-                    "health": {"path": "/custom-health/", "label": "CUSTOM"},
+                    "results": {"path": "/custom-results/", "label": "CUSTOM"},
                 }
             }
         },
@@ -178,12 +171,11 @@ def test_inject_bluesky_panels_explicit_path_label_override_wins(tmp_path: Path)
 
     _inject_bluesky_panels(BlueskyPanelsConfig(port=8095), project_path=project_path)
 
-    health = _read_config(project_path)["web"]["panels"]["health"]
-    assert health["path"] == "/custom-health/"
-    assert health["label"] == "CUSTOM"
-    # Derived url and health_endpoint are still filled in.
-    assert health["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
-    assert health["health_endpoint"] == "/health"
+    results = _read_config(project_path)["web"]["panels"]["results"]
+    assert results["path"] == "/custom-results/"
+    assert results["label"] == "CUSTOM"
+    # Derived url is still filled in.
+    assert results["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
 
 
 def test_inject_bluesky_panels_missing_config_yml_is_noop(tmp_path: Path) -> None:

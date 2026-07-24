@@ -1,0 +1,53 @@
+# {{ project_name }}
+
+An OSPREY deployment scoped to the **channel finder** — natural-language
+channel/PV address lookup plus the interactive CHANNELS web panel. No
+control-system runtime, no archiver, no logbook (ARIEL), no Python executor.
+
+## Quick Start
+
+```bash
+osprey web                # Open the web terminal — CHANNELS panel + agent chat
+```
+
+The bundle ships a demo **hierarchical** channel database
+(`data/channel_databases/hierarchical.json`), so the CHANNELS panel works out of
+the box with no external service.
+
+## What's Enabled
+
+- **CHANNELS web panel** — browse the channel database structure
+  (system → family → device → field) and resolve descriptions to addresses.
+- **channel-finder subagent** — indexed hierarchy traversal that resolves
+  natural-language signal descriptions to real channel/PV addresses.
+
+## What's Off by Default
+
+- **Control system, archiver, logbook (ARIEL), Python executor** — all disabled.
+  This deployment returns *addresses*, not values, and never writes to hardware.
+
+## First-Use Checklist
+
+1. **Edit `.claude/rules/facility.md`** to describe your facility naming scheme.
+   The default ships with placeholder content; it is auto-claimed as user-owned,
+   so `osprey claude regen` preserves your edits.
+2. Set `ANTHROPIC_API_KEY` (or `CBORG_API_KEY` for the LBL proxy) in `.env`.
+3. Replace `data/channel_databases/hierarchical.json` with your own channel
+   database, or switch pipelines: build a profile that extends this preset and
+   set `channel_finder_mode: in_context|middle_layer` with the matching database.
+
+For deeper customization, scaffold an editable build profile that extends this
+preset and rebuild from it:
+
+```
+osprey build --emit-profile my-cf-profile --preset channel-finder-standalone
+# edit my-cf-profile/profile.yml + drop files under overlays/
+osprey build my-cf ./my-cf-profile/profile.yml
+```
+
+## Configuration Files
+
+- `config.yml` — project settings (channel-finder pipeline, providers, panel)
+- `.claude/` — agent rules, hooks, MCP server configuration
+- `CLAUDE.md` — agent persona (channel/PV address finder; regen overwrites unless
+  claimed as user-owned)

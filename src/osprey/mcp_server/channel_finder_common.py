@@ -68,14 +68,12 @@ def build_cf_server(
         initialize_workspace_singletons,
         prime_config_builder,
     )
-    from osprey.utils.workspace import resolve_workspace_root
 
     prime_config_builder()
 
     initialize_context()
 
-    workspace_root = resolve_workspace_root()
-    initialize_workspace_singletons(workspace_root)
+    initialize_workspace_singletons()
 
     import_tools()
 

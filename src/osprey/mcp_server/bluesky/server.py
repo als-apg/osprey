@@ -46,9 +46,11 @@ def create_server() -> FastMCP:
     with startup_timer("server_context"):
         initialize_server_context()
 
-    workspace_root = resolve_workspace_root()
-    logger.info("Workspace root: %s", workspace_root)
-    initialize_workspace_singletons(workspace_root)
+    # Session working root used by other tools at call time; the artifact
+    # store itself is rooted at the shared data root inside
+    # initialize_workspace_singletons().
+    logger.info("Workspace root: %s", resolve_workspace_root())
+    initialize_workspace_singletons()
 
     # Import tool modules (each registers itself via @mcp.tool())
     with startup_timer("tool_imports"):

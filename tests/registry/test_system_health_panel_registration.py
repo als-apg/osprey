@@ -251,13 +251,10 @@ def test_no_injector_registers_a_system_health_panel_id():
 
     Builtins shadow custom panels in ``_load_panel_config`` / ``_resolve_panel_url``,
     so an injector adding a ``system-health`` custom panel would silently hijack
-    the builtin tab. The Bluesky injector registers the distinct ``health`` id,
-    which must stay intact.
+    the builtin tab.
     """
     source = _fresh_build_package_source()
     assert "system-health" not in source  # no injector (or literal) registers it
-    # The Bluesky scan-stack HEALTH tab (a different id) is left untouched.
-    assert '"health"' in source
 
 
 # -- launch chain through the real registry factory ----------------------------
