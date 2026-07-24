@@ -857,11 +857,15 @@ def test_drag_restacks_panel_onto_another_tab(tmp_path, chromium_browser):
             term_group,
             target_position={"x": box["width"] - 8, "y": box["height"] / 2},
         )
+        # Post-drag layout settle: the drop registers reliably but dockview's
+        # regroup can take a beat to reflect in the DOM under CPU load, so this
+        # uses the file's structural-settle budget (10s) rather than the 5s
+        # used for fast DOM toggles — a loaded CI runner otherwise trips it.
         page.wait_for_function(
             """() => [...document.querySelectorAll('.dv-groupview')]
                 .some(g => { const t = [...g.querySelectorAll('.dv-default-tab-content')].map(e=>e.textContent);
                             return t.length === 1 && t[0] === 'DATA VIZ'; })""",
-            timeout=5_000,
+            timeout=10_000,
         )
 
         # Act — drag the data-viz tab onto the artifacts tab to restack.
@@ -874,7 +878,7 @@ def test_drag_restacks_panel_onto_another_tab(tmp_path, chromium_browser):
             """() => [...document.querySelectorAll('.dv-groupview')]
                 .some(g => { const t = [...g.querySelectorAll('.dv-default-tab-content')].map(e=>e.textContent);
                             return t.includes('DATA VIZ') && t.includes('WORKSPACE'); })""",
-            timeout=5_000,
+            timeout=10_000,
         )
         groups = _dock_groups(page)
         shared = [g for g in groups if "DATA VIZ" in g["tabs"] and "WORKSPACE" in g["tabs"]]
