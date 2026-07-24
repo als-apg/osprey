@@ -365,10 +365,10 @@ def _plan_panel_stack(tmp_path: Path) -> Iterator[str]:
     bridge via BLUESKY_BRIDGE_URL, set here to the live bridge's port before
     the sidecar's lifespan runs.
     """
+    from osprey.interfaces.bluesky_panels.app import app as sidecar_app
     from osprey.services.bluesky_bridge import draft as bridge_draft
     from osprey.services.bluesky_bridge import plan_loader
     from osprey.services.bluesky_bridge.app import app as bridge_app
-    from osprey.services.bluesky_panels.app import app as sidecar_app
 
     managed = [
         "BLUESKY_SESSION_PLAN_DIR",
