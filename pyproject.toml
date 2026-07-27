@@ -45,7 +45,7 @@ dependencies = [
     "PyYAML>=6.0.2",
     "ruamel.yaml>=0.18.0",  # Comment-preserving YAML for config updates
     "Jinja2>=3.1.6",
-    "requests>=2.32.3",
+    "requests>=2.34.2",
     # Container runtime (Docker or Podman) must be installed separately via system package managers
     # Framework uses CLI tools (docker/podman commands), not Python packages
     # Install Docker Desktop 4.0+ OR Podman 4.0+:
