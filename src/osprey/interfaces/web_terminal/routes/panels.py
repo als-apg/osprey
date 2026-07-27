@@ -201,6 +201,15 @@ async def get_panels(request: Request):
     depend on this field — the SSR attribute is the authoritative first-paint
     rung; this is the API-side echo for later client mode resolution.
 
+    ``rail_position`` mirrors the server-rendered ``<html data-rail-position>``
+    the same way, and travels with two companions: ``family_rail_defaults``
+    (``app.FAMILY_RAIL_DEFAULTS``, the theme-family -> rail-position coupling
+    that makes the retro family restore the pre-redesign top tab strip) and
+    ``rail_position_configured`` (whether ``web.rail_position`` was set
+    explicitly, which outranks that coupling). ``rail-position.js`` reads both
+    so a live theme-family switch can move the rail without the browser
+    carrying its own copy of the coupling.
+
     ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
     at startup against the live panel set and carried in config order. It is
     empty unless a deployment opts in, so the "+" popover renders unchanged by
@@ -243,6 +252,13 @@ async def get_panels(request: Request):
     # <html data-rail-position>). "left" default mirrors
     # app.DEFAULT_RAIL_POSITION — a literal for the same import-cycle reason.
     rail_position = getattr(request.app.state, "web_rail_position", "left")
+    # The theme-family -> rail-position coupling, plus whether config pinned a
+    # position of its own. The client needs both to decide whether a live theme
+    # switch may move the rail; app.FAMILY_RAIL_DEFAULTS stays the only
+    # definition of the coupling (imported lazily for the same cycle reason).
+    from osprey.interfaces.web_terminal.app import FAMILY_RAIL_DEFAULTS
+
+    rail_position_configured = getattr(request.app.state, "web_rail_position_configured", False)
     project_key = _project_key(getattr(request.app.state, "project_cwd", None))
     has_artifacts = _workspace_has_artifacts(getattr(request.app.state, "workspace_dir", None))
     return {
@@ -256,6 +272,8 @@ async def get_panels(request: Request):
         "presets": presets,
         "ui_mode": ui_mode,
         "rail_position": rail_position,
+        "rail_position_configured": rail_position_configured,
+        "family_rail_defaults": dict(FAMILY_RAIL_DEFAULTS),
         "project_key": project_key,
         "workspace_has_artifacts": has_artifacts,
     }

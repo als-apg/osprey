@@ -7,22 +7,10 @@
 // tokens.css via theme-manager.js's computed-style bridges.
 export const THEMES = [
   {
-    "id": "apex-dark",
-    "label": "Apex Dark",
-    "mode": "dark",
-    "family": "apex"
-  },
-  {
-    "id": "apex-light",
-    "label": "Apex Light",
-    "mode": "light",
-    "family": "apex"
-  },
-  {
     "id": "dark",
     "label": "Dark",
     "mode": "dark",
-    "family": "osprey"
+    "family": "main"
   },
   {
     "id": "high-contrast-dark",
@@ -40,28 +28,24 @@ export const THEMES = [
     "id": "light",
     "label": "Light",
     "mode": "light",
-    "family": "osprey"
+    "family": "main"
   },
   {
     "id": "retro-dark",
-    "label": "Retro",
+    "label": "Retro Dark",
     "mode": "dark",
     "family": "retro"
   },
   {
     "id": "retro-light",
-    "label": "Retro",
+    "label": "Retro Light",
     "mode": "light",
     "family": "retro"
   }
 ];
 
 export const DEFAULTS = {
-  "apex": {
-    "dark": "apex-dark",
-    "light": "apex-light"
-  },
-  "osprey": {
+  "main": {
     "dark": "dark",
     "light": "light"
   },
@@ -78,4 +62,4 @@ export const DEFAULTS = {
 // The explicit-default family ($extensions.default), else the first
 // declared -- the single fallback
 // theme-manager.js reads instead of re-deriving it from DEFAULTS.
-export const DEFAULT_FAMILY = "osprey";
+export const DEFAULT_FAMILY = "main";

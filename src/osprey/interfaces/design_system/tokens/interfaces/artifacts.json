@@ -1,6 +1,6 @@
 {
-  "$description": "Artifacts-only extension tokens: the 'memory domain' violet accent (art-violet-*) plus the workspace browse-shell constants (art-panel-*, art-browser-band-height). The violet source is artifacts/static/css/gallery.css lines 34-38 (dark) and 161-164 (light) — a decorative brand accent (not body text), so the high-contrast family opts out via $extensions.inherits rather than duplicating an identical group: these saturated violet values already read at equal-or-better contrast against high-contrast's more extreme (near-black/near-white) backgrounds than they do against dark/light's own. The art-panel-*/art-browser-band-height group is the stacked two-card browse shell (a compact browser band above a dominant detail card): theme-independent layout constants (identical in both groups, mirroring web_terminal.json's wt-header-height pattern) so the high-contrast/apex families inherit them unchanged too.",
-  "$extensions": { "inherits": { "high-contrast-dark": "dark", "high-contrast-light": "light", "apex-dark": "dark", "apex-light": "light", "retro-dark": "dark", "retro-light": "light" } },
+  "$description": "Artifacts-only extension tokens: the 'memory domain' violet accent (art-violet-*) plus the workspace browse-shell constants (art-panel-*, art-browser-band-height). The violet source is artifacts/static/css/gallery.css lines 34-38 (dark) and 161-164 (light) — a decorative brand accent (not body text). The high-contrast family AUTHORS its own groups rather than inheriting: that family is fully monochrome, and an inherited violet would be the one hue left on the page — so art-violet resolves to the achromatic mono ramp there, keeping the memory domain's visual separation as a lightness step instead of a hue. The art-panel-*/art-browser-band-height group is the stacked two-card browse shell (a compact browser band above a dominant detail card): theme-independent layout constants, repeated identically in every group here (mirroring web_terminal.json's wt-header-height pattern).",
+  "$extensions": { "inherits": { "retro-dark": "dark", "retro-light": "light" } },
   "dark": {
     "art-violet": {
       "base": { "$value": "{color.violet.200}", "$type": "color" },
@@ -18,6 +18,28 @@
       "light": { "$value": "{color.violet.600}", "$type": "color" },
       "dark": { "$value": "{color.violet.700}", "$type": "color" },
       "glow": { "$value": "rgba(124, 58, 237, 0.1)", "$type": "color", "$description": "art-violet.base (#7c3aed) at 10% alpha." }
+    },
+    "art-panel-radius": { "$value": "2px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-panel-gap": { "$value": "8px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-browser-band-height": { "$value": "210px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." }
+  },
+  "high-contrast-dark": {
+    "art-violet": {
+      "base": { "$value": "{color.mono.200}", "$type": "color" },
+      "light": { "$value": "{color.mono.100}", "$type": "color" },
+      "dark": { "$value": "{color.mono.400}", "$type": "color" },
+      "glow": { "$value": "rgba(255, 255, 255, 0.2)", "$type": "color", "$description": "art-violet.base composited monochrome at 20% alpha." }
+    },
+    "art-panel-radius": { "$value": "2px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-panel-gap": { "$value": "8px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-browser-band-height": { "$value": "210px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." }
+  },
+  "high-contrast-light": {
+    "art-violet": {
+      "base": { "$value": "{color.mono.800}", "$type": "color" },
+      "light": { "$value": "{color.mono.600}", "$type": "color" },
+      "dark": { "$value": "{color.mono.1000}", "$type": "color" },
+      "glow": { "$value": "rgba(0, 0, 0, 0.1)", "$type": "color", "$description": "art-violet.base composited monochrome at 10% alpha." }
     },
     "art-panel-radius": { "$value": "2px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
     "art-panel-gap": { "$value": "8px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },

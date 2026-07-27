@@ -10,11 +10,20 @@ flash. ``GET /api/panels`` also echoes the resolved position, but first paint
 must never depend on that API field — the SSR attribute is the authoritative
 rung.
 
+When the key is absent the position comes from the active theme family
+(``FAMILY_RAIL_DEFAULTS``): the ``retro`` family restores the pre-redesign
+look, and the horizontal tab strip is part of that look. An explicit
+``web.rail_position`` outranks the family — a deployment that states a
+position keeps it in every theme.
+
 Covers:
     - `resolve_rail_position` (pure resolver): valid-position passthrough,
-      unknown -> warn + fallback to the default, never raises.
-    - The render path: GET "/" contains the expected `data-rail-position="..."`.
-    - The API path: GET "/api/panels" carries the resolved `rail_position`.
+      unknown -> warn + fall back to what the family implies, never raises.
+    - `family_rail_default`: the family -> position map, and its fallback.
+    - The render path: GET "/" contains the expected `data-rail-position="..."`,
+      including the retro-family default with no rail config at all.
+    - The API path: GET "/api/panels" carries the resolved `rail_position`
+      plus the coupling the browser needs to follow a live theme switch.
 """
 
 from __future__ import annotations
@@ -27,8 +36,10 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import (
     DEFAULT_RAIL_POSITION,
+    FAMILY_RAIL_DEFAULTS,
     RAIL_POSITIONS,
     create_app,
+    family_rail_default,
     resolve_rail_position,
 )
 
@@ -58,6 +69,13 @@ class TestResolveRailPosition:
             for record in caplog.records
         ), "expected a WARNING mentioning the unknown value"
 
+    def test_absent_key_does_not_warn(self, caplog):
+        """``None`` means "key absent", which is normal — not a misconfiguration."""
+        with caplog.at_level(logging.WARNING):
+            resolve_rail_position(None)
+
+        assert not [r for r in caplog.records if "rail_position" in r.message]
+
     @pytest.mark.parametrize("bad", ["", None, 3])
     def test_bad_values_never_raise(self, bad):
         """The resolver never raises on bad input — it only warns and falls back."""
@@ -74,6 +92,47 @@ class TestResolveRailPosition:
             assert resolve_rail_position(configured) in RAIL_POSITIONS  # type: ignore[arg-type]
 
 
+class TestFamilyRailDefault:
+    """The theme-family -> rail-position coupling."""
+
+    def test_retro_family_implies_the_top_rail(self):
+        """Retro is the pre-redesign look, tab bar included."""
+        assert family_rail_default("retro") == "top"
+        assert FAMILY_RAIL_DEFAULTS["retro"] == "top"
+
+    def test_other_families_get_the_default(self):
+        assert family_rail_default("main") == DEFAULT_RAIL_POSITION
+        assert family_rail_default("high-contrast") == DEFAULT_RAIL_POSITION
+
+    def test_unknown_and_missing_family_get_the_default(self):
+        assert family_rail_default("nonesuch") == DEFAULT_RAIL_POSITION
+        assert family_rail_default(None) == DEFAULT_RAIL_POSITION
+
+    def test_every_mapped_position_is_a_real_position(self):
+        """A typo in the map would server-render an attribute nothing honors."""
+        assert set(FAMILY_RAIL_DEFAULTS.values()) <= set(RAIL_POSITIONS)
+
+
+class TestResolveRailPositionWithFamily:
+    """Explicit config outranks the family; an absent key defers to it."""
+
+    def test_absent_key_follows_the_retro_family(self):
+        assert resolve_rail_position(None, "retro") == "top"
+
+    def test_absent_key_follows_the_main_family(self):
+        assert resolve_rail_position(None, "main") == "left"
+
+    @pytest.mark.parametrize("configured", ["left", "top"])
+    def test_explicit_config_outranks_the_family(self, configured):
+        """A deployment that states a position keeps it in every theme."""
+        assert resolve_rail_position(configured, "retro") == configured
+        assert resolve_rail_position(configured, "main") == configured
+
+    def test_unknown_config_falls_through_to_the_family(self):
+        """A typo is treated as absent, not as a reason to ignore the theme."""
+        assert resolve_rail_position("sideways", "retro") == "top"
+
+
 # ---- Render + API paths: startup resolves web.rail_position from config ----
 
 
@@ -84,7 +143,7 @@ def workspace_dir(tmp_path):
     return ws
 
 
-def _make_client(workspace_dir, configured_position):
+def _make_client(workspace_dir, configured_position, configured_theme="main"):
     """TestClient whose lifespan resolves `web.rail_position` = configured_position.
 
     ``configured_position`` of ``None`` omits the ``rail_position`` key
@@ -105,6 +164,9 @@ def _make_client(workspace_dir, configured_position):
             "osprey.utils.workspace.load_osprey_config",
             return_value={"web": web_section},
         ),
+        # web.theme is read through a different reader than the `web` section
+        # above; the rail block consults the family it resolves to.
+        patch("osprey.utils.config.get_config_value", return_value=configured_theme),
     ):
         app = create_app(shell_command="echo")
         with TestClient(app) as c:
@@ -175,5 +237,79 @@ class TestPanelsPayloadRailPosition:
         try:
             payload = client.get("/api/panels").json()
             assert payload["rail_position"] == DEFAULT_RAIL_POSITION
+        finally:
+            next(gen, None)
+
+
+class TestRetroFamilyMovesTheRail:
+    """The coupling, end to end through the server."""
+
+    def test_retro_theme_with_no_rail_config_renders_the_top_rail(self, workspace_dir):
+        """Selecting Retro alone restores the pre-redesign tab-bar arrangement."""
+        gen = _make_client(workspace_dir, None, configured_theme="retro")
+        client = next(gen)
+        try:
+            body = client.get("/").text
+            assert 'data-theme="retro-dark"' in body
+            assert 'data-rail-position="top"' in body
+        finally:
+            next(gen, None)
+
+    def test_retro_theme_respects_an_explicit_left_rail(self, workspace_dir):
+        """A deployment that pinned the rail keeps it, retro or not."""
+        gen = _make_client(workspace_dir, "left", configured_theme="retro")
+        client = next(gen)
+        try:
+            body = client.get("/").text
+            assert 'data-rail-position="left"' in body
+        finally:
+            next(gen, None)
+
+    def test_main_theme_with_no_rail_config_keeps_the_left_rail(self, workspace_dir):
+        gen = _make_client(workspace_dir, None, configured_theme="main")
+        client = next(gen)
+        try:
+            assert 'data-rail-position="left"' in client.get("/").text
+        finally:
+            next(gen, None)
+
+
+class TestPanelsPayloadRailCoupling:
+    """What the browser needs to follow a live theme-family switch."""
+
+    def test_payload_carries_the_family_coupling(self, workspace_dir):
+        gen = _make_client(workspace_dir, None)
+        client = next(gen)
+        try:
+            payload = client.get("/api/panels").json()
+            assert payload["family_rail_defaults"] == dict(FAMILY_RAIL_DEFAULTS)
+        finally:
+            next(gen, None)
+
+    def test_unconfigured_rail_is_not_reported_as_configured(self, workspace_dir):
+        """An absent key leaves the rail free to follow the theme."""
+        gen = _make_client(workspace_dir, None)
+        client = next(gen)
+        try:
+            assert client.get("/api/panels").json()["rail_position_configured"] is False
+        finally:
+            next(gen, None)
+
+    @pytest.mark.parametrize("configured", ["left", "top"])
+    def test_configured_rail_is_reported_as_configured(self, workspace_dir, configured):
+        """An explicit position tells the browser not to move the rail on a theme switch."""
+        gen = _make_client(workspace_dir, configured)
+        client = next(gen)
+        try:
+            assert client.get("/api/panels").json()["rail_position_configured"] is True
+        finally:
+            next(gen, None)
+
+    def test_unknown_configured_rail_is_not_reported_as_configured(self, workspace_dir):
+        """A typo resolves like an absent key, and reports like one too."""
+        gen = _make_client(workspace_dir, "sideways")
+        client = next(gen)
+        try:
+            assert client.get("/api/panels").json()["rail_position_configured"] is False
         finally:
             next(gen, None)

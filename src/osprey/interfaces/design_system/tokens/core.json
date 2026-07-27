@@ -111,6 +111,24 @@
       "900": { "$value": "#141619", "$type": "color", "$description": "secondary surface (dark)" },
       "950": { "$value": "#111217", "$type": "color", "$description": "canvas / bg.primary (dark)" }
     },
+    "mono": {
+      "$description": "Pure achromatic ramp (R=G=B at every step) for the high-contrast family. The slate and gray neutrals both carry a deliberate hue cast (slate is blue, gray is Grafana-cool), so neither can express a genuinely black-and-white theme; this family exists so high-contrast can be monochrome by construction rather than by approximation. Steps are 5%-lightness increments, low = light, high = dark — the same monotonic convention as every other family here.",
+      "0": { "$value": "#ffffff", "$type": "color", "$description": "pure white — bg.primary (high-contrast light); text.primary/accent (high-contrast dark)" },
+      "50": { "$value": "#f2f2f2", "$type": "color" },
+      "100": { "$value": "#e6e6e6", "$type": "color" },
+      "150": { "$value": "#d9d9d9", "$type": "color" },
+      "200": { "$value": "#cccccc", "$type": "color" },
+      "300": { "$value": "#b3b3b3", "$type": "color" },
+      "400": { "$value": "#999999", "$type": "color" },
+      "500": { "$value": "#808080", "$type": "color", "$description": "the ramp midpoint — the only step that fails both AAA gates against either extreme, so it is used for chrome, never for text" },
+      "600": { "$value": "#666666", "$type": "color" },
+      "700": { "$value": "#4d4d4d", "$type": "color" },
+      "800": { "$value": "#333333", "$type": "color" },
+      "850": { "$value": "#262626", "$type": "color" },
+      "900": { "$value": "#1a1a1a", "$type": "color" },
+      "950": { "$value": "#0d0d0d", "$type": "color" },
+      "1000": { "$value": "#000000", "$type": "color", "$description": "pure black — bg.primary (high-contrast dark); text.primary/accent (high-contrast light)" }
+    },
     "azure": {
       "$description": "Grafana-blue accent family — the A/B candidate accent (per the open accent decision, rendered against the teal family). #6e9fff is the dark-theme accent, #1f62c4 the light-theme accent, #e8f1fb the light accent-tint base. Referenced one-hop by the redesigned themes.",
       "50": { "$value": "#e8f1fb", "$type": "color", "$description": "accent-tint base (light)" },

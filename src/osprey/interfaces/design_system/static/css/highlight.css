@@ -2,7 +2,7 @@
    Hand-maintained. Shared, app-agnostic classes for surfacing agent activity
    in any interface. Colors come exclusively from design tokens (tokens.css) —
    accent-family only, so the classes read correctly in all four themes
-   (dark / light / apex / high-contrast) with zero color literals here.
+   (dark / light / retro / high-contrast) with zero color literals here.
 
    Contract (consumed across interfaces — do not rename):
      .agent-flash      one-shot 900ms glow; fired via flashElement(el) from

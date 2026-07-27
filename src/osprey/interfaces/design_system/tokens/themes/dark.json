@@ -1,6 +1,6 @@
 {
   "$description": "Dark theme — remapped to the web-terminal redesign (Panel Designs frame 2a): a Grafana-style neutral canvas via the gray primitive family, a Grafana-blue accent (azure family — the working candidate; the final blue-vs-teal accent decision is deferred to the accent-decision-gate), and Grafana status colors. Solid colors are one-hop aliases into core.json; accent-derived alpha composites (accent tints, border.accent, terminal selection) were recomputed for the azure accent. Non-accent tint families neutral/error/success were re-based onto the new gray neutral and Grafana status primitives (consistency follow-up); tint.amber tracks the unchanged decorative-amber base. WCAG AA gates all pass vs bg.primary (#111217): text.primary 11.79:1, text.secondary 5.78:1, text.muted 3.71:1, accent 7.18:1, accent.on 7.18:1. Nudge: frame 2a's faint-text #565b64 scores only 2.74:1 on this very dark canvas (below the 3:1 floor), so text.muted uses the slightly lighter #6e6e77.",
-  "$extensions": { "mode": "dark", "id": "dark", "label": "Dark", "family": "osprey", "default": true },
+  "$extensions": { "mode": "dark", "id": "dark", "label": "Dark", "family": "main", "default": true },
   "bg": {
     "terminal": { "$value": "{color.gray.900}", "$type": "color" },
     "primary": { "$value": "{color.gray.950}", "$type": "color" },

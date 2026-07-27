@@ -10,7 +10,7 @@
  * groups or the page. The floating variant (session.html, which has no status
  * bar) is a fixed overlay, out of normal flow entirely.
  *
- * Design tokens only — correct across dark/light/apex/high-contrast.
+ * Design tokens only — correct across dark/light/retro/high-contrast.
  */
 
 .status-activity {

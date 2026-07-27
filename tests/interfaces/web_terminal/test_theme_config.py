@@ -23,10 +23,10 @@ from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 from osprey.interfaces.web_terminal.app import create_app, resolve_web_theme_id
 
 # A synthetic manifest mirroring the real baked tokens.js THEMES: the
-# `osprey` family (dark/light) plus a `high-contrast` family (dark/light).
+# `main` family (dark/light) plus a `high-contrast` family (dark/light).
 _ENTRIES = [
-    ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="osprey"),
-    ThemeManifestEntry(id="light", label="Light", mode="light", family="osprey"),
+    ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="main"),
+    ThemeManifestEntry(id="light", label="Light", mode="light", family="main"),
     ThemeManifestEntry(
         id="high-contrast-dark", label="High Contrast Dark", mode="dark", family="high-contrast"
     ),
@@ -35,7 +35,7 @@ _ENTRIES = [
     ),
 ]
 _DEFAULTS = {
-    "osprey": {"dark": "dark", "light": "light"},
+    "main": {"dark": "dark", "light": "light"},
     "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
 }
 
@@ -47,8 +47,8 @@ class TestResolveWebThemeId:
         """A family name resolves to that family's dark id (the SSR default)."""
         assert resolve_web_theme_id("high-contrast", _ENTRIES, _DEFAULTS) == "high-contrast-dark"
 
-    def test_osprey_family_resolves_to_dark(self):
-        assert resolve_web_theme_id("osprey", _ENTRIES, _DEFAULTS) == "dark"
+    def test_main_family_resolves_to_dark(self):
+        assert resolve_web_theme_id("main", _ENTRIES, _DEFAULTS) == "dark"
 
     def test_concrete_id_passes_through(self):
         """A concrete id (e.g. pinning a specific mode) is used as-is."""
@@ -84,7 +84,7 @@ class TestResolveWebThemeId:
         would silently fall through to OS-auto instead of honoring config.
         """
         valid_ids = {entry.id for entry in _ENTRIES}
-        for configured in ("osprey", "high-contrast", "dark", "high-contrast-light", "bogus"):
+        for configured in ("main", "high-contrast", "dark", "high-contrast-light", "bogus"):
             assert resolve_web_theme_id(configured, _ENTRIES, _DEFAULTS) in valid_ids
 
 
@@ -134,7 +134,7 @@ class TestRenderedDataTheme:
         finally:
             next(gen, None)
 
-    def test_unknown_config_renders_osprey_dark_fallback(self, workspace_dir):
+    def test_unknown_config_renders_main_dark_fallback(self, workspace_dir):
         gen = _make_client(workspace_dir, "nonsense")
         client = next(gen)
         try:
@@ -143,12 +143,12 @@ class TestRenderedDataTheme:
         finally:
             next(gen, None)
 
-    def test_looks_up_web_theme_key_with_osprey_default(self, workspace_dir):
-        """The lifespan resolves the theme from `web.theme` with default 'osprey'.
+    def test_looks_up_web_theme_key_with_main_default(self, workspace_dir):
+        """The lifespan resolves the theme from `web.theme` with default 'main'.
 
         The lifespan reads other `web.*` keys too (e.g. the chat-pool bounds),
         so this asserts the theme *contract* — that `web.theme` is queried with
-        the 'osprey' default and the rendered result reflects it — rather than
+        the 'main' default and the rendered result reflects it — rather than
         that the theme read is the lifespan's only config lookup.
         """
         with (
@@ -157,13 +157,13 @@ class TestRenderedDataTheme:
                 return_value={"watch_dir": str(workspace_dir)},
             ),
             patch(
-                "osprey.utils.config.get_config_value", return_value="osprey"
+                "osprey.utils.config.get_config_value", return_value="main"
             ) as mock_get_config_value,
             TestClient(create_app(shell_command="echo")) as client,
         ):
             body = client.get("/").text
 
-        mock_get_config_value.assert_any_call("web.theme", "osprey")
+        mock_get_config_value.assert_any_call("web.theme", "main")
         assert 'data-theme="dark"' in body
 
     def test_missing_config_yml_fails_open_to_dark(self, workspace_dir):
@@ -190,7 +190,7 @@ class TestRenderedDataTheme:
         controls live inside the display-menu card (standalone fleet pages
         such as session.html keep the shared switcher component).
         """
-        gen = _make_client(workspace_dir, "osprey")
+        gen = _make_client(workspace_dir, "main")
         client = next(gen)
         try:
             body = client.get("/").text

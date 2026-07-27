@@ -1,6 +1,6 @@
 {
   "$description": "Retro theme — the pre-redesign navy/teal palette, preserved verbatim as an opt-in family for operators transitioning to the flat redesign.",
-  "$extensions": { "mode": "dark", "id": "retro-dark", "label": "Retro", "family": "retro" },
+  "$extensions": { "mode": "dark", "id": "retro-dark", "label": "Retro Dark", "family": "retro" },
   "bg": {
     "terminal": { "$value": "{color.slate.1050}", "$type": "color" },
     "primary": { "$value": "{color.slate.1000}", "$type": "color" },

@@ -80,23 +80,23 @@ def test_build_theme_manifest_preserves_metadata_order() -> None:
     # Deliberately not alphabetical, to prove no internal re-sorting happens.
     tree = _tree(
         {
-            "midnight": {"id": "midnight", "label": "Midnight", "mode": "dark", "family": "osprey"},
-            "dawn": {"id": "dawn", "label": "Dawn", "mode": "light", "family": "osprey"},
+            "midnight": {"id": "midnight", "label": "Midnight", "mode": "dark", "family": "main"},
+            "dawn": {"id": "dawn", "label": "Dawn", "mode": "light", "family": "main"},
         }
     )
 
     manifest = build_theme_manifest(tree)
 
     assert manifest == [
-        ThemeManifestEntry(id="midnight", label="Midnight", mode="dark", family="osprey"),
-        ThemeManifestEntry(id="dawn", label="Dawn", mode="light", family="osprey"),
+        ThemeManifestEntry(id="midnight", label="Midnight", mode="dark", family="main"),
+        ThemeManifestEntry(id="dawn", label="Dawn", mode="light", family="main"),
     ]
 
 
 def test_build_theme_manifest_reads_family_from_metadata() -> None:
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
             "hc-dark": {
                 "id": "hc-dark",
                 "label": "HC Dark",
@@ -108,7 +108,7 @@ def test_build_theme_manifest_reads_family_from_metadata() -> None:
 
     manifest = build_theme_manifest(tree)
 
-    assert [entry.family for entry in manifest] == ["osprey", "high-contrast"]
+    assert [entry.family for entry in manifest] == ["main", "high-contrast"]
 
 
 def test_build_theme_manifest_empty_tree_yields_empty_manifest() -> None:
@@ -120,11 +120,11 @@ def test_build_theme_manifest_empty_tree_yields_empty_manifest() -> None:
 
 def test_build_theme_defaults_groups_by_family() -> None:
     entries = [
-        ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="osprey"),
-        ThemeManifestEntry(id="light", label="Light", mode="light", family="osprey"),
+        ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="main"),
+        ThemeManifestEntry(id="light", label="Light", mode="light", family="main"),
     ]
 
-    assert build_theme_defaults(entries) == {"osprey": {"dark": "dark", "light": "light"}}
+    assert build_theme_defaults(entries) == {"main": {"dark": "dark", "light": "light"}}
 
 
 def test_build_theme_defaults_keeps_families_independent() -> None:
@@ -132,14 +132,14 @@ def test_build_theme_defaults_keeps_families_independent() -> None:
     # family gets its own {mode: id} entry, keyed by its declared family,
     # never by lexical/manifest order across families.
     entries = [
-        ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="osprey"),
-        ThemeManifestEntry(id="light", label="Light", mode="light", family="osprey"),
+        ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="main"),
+        ThemeManifestEntry(id="light", label="Light", mode="light", family="main"),
         ThemeManifestEntry(id="hc-dark", label="HC Dark", mode="dark", family="high-contrast"),
         ThemeManifestEntry(id="hc-light", label="HC Light", mode="light", family="high-contrast"),
     ]
 
     assert build_theme_defaults(entries) == {
-        "osprey": {"dark": "dark", "light": "light"},
+        "main": {"dark": "dark", "light": "light"},
         "high-contrast": {"dark": "hc-dark", "light": "hc-light"},
     }
 
@@ -150,12 +150,12 @@ def test_build_theme_defaults_ambiguous_mode_within_family_raises() -> None:
     # finding M2 — this is the case the old first-filename-wins logic let
     # through).
     entries = [
-        ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="osprey"),
-        ThemeManifestEntry(id="midnight", label="Midnight", mode="dark", family="osprey"),
-        ThemeManifestEntry(id="light", label="Light", mode="light", family="osprey"),
+        ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="main"),
+        ThemeManifestEntry(id="midnight", label="Midnight", mode="dark", family="main"),
+        ThemeManifestEntry(id="light", label="Light", mode="light", family="main"),
     ]
 
-    with pytest.raises(ThemeFamilyDefaultsError, match="osprey"):
+    with pytest.raises(ThemeFamilyDefaultsError, match="main"):
         build_theme_defaults(entries)
 
 
@@ -163,9 +163,9 @@ def test_build_theme_defaults_missing_mode_in_family_raises() -> None:
     # A family with only a light theme (no dark counterpart) can't produce
     # a complete auto default for that family — fail closed rather than
     # silently omitting the missing mode.
-    entries = [ThemeManifestEntry(id="light", label="Light", mode="light", family="osprey")]
+    entries = [ThemeManifestEntry(id="light", label="Light", mode="light", family="main")]
 
-    with pytest.raises(ThemeFamilyDefaultsError, match="osprey"):
+    with pytest.raises(ThemeFamilyDefaultsError, match="main"):
         build_theme_defaults(entries)
 
 
@@ -180,8 +180,8 @@ def test_render_tokens_js_starts_with_generated_header() -> None:
     content = render_tokens_js(
         _tree(
             {
-                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-                "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+                "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
             }
         )
     )
@@ -192,18 +192,18 @@ def test_render_tokens_js_starts_with_generated_header() -> None:
 def test_render_tokens_js_exports_themes_and_defaults() -> None:
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
     content = render_tokens_js(tree)
 
     assert _exported_const(content, "THEMES") == [
-        {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-        {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+        {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+        {"id": "light", "label": "Light", "mode": "light", "family": "main"},
     ]
-    assert _exported_const(content, "DEFAULTS") == {"osprey": {"dark": "dark", "light": "light"}}
+    assert _exported_const(content, "DEFAULTS") == {"main": {"dark": "dark", "light": "light"}}
 
 
 def test_render_tokens_js_exports_default_family_matching_theme_boot() -> None:
@@ -224,8 +224,8 @@ def test_render_tokens_js_exports_default_family_matching_theme_boot() -> None:
                 "mode": "light",
                 "family": "high-contrast",
             },
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -241,8 +241,8 @@ def test_render_tokens_js_themes_entries_carry_family() -> None:
     # group by family, not just by mode.
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
             "hc-dark": {
                 "id": "hc-dark",
                 "label": "HC Dark",
@@ -262,15 +262,15 @@ def test_render_tokens_js_themes_entries_carry_family() -> None:
 
     themes = _exported_const(content, "THEMES")
     assert all("family" in entry for entry in themes)
-    assert {entry["family"] for entry in themes} == {"osprey", "high-contrast"}
+    assert {entry["family"] for entry in themes} == {"main", "high-contrast"}
 
 
 def test_render_tokens_js_carries_no_color_palettes() -> None:
     # OC-2: palettes live in theme-manager.js's computed-style bridges, not here.
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -283,8 +283,8 @@ def test_render_tokens_js_carries_no_color_palettes() -> None:
 def test_render_tokens_js_is_hook_clean() -> None:
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -294,8 +294,8 @@ def test_render_tokens_js_is_hook_clean() -> None:
 def test_render_tokens_js_is_deterministic() -> None:
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -306,8 +306,8 @@ def test_render_tokens_js_escapes_label_safely() -> None:
     # A label with a quote/backslash must not break out of the JSON literal.
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": 'Dark "Mode"', "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": 'Dark "Mode"', "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -343,8 +343,8 @@ def test_render_theme_boot_js_starts_with_generated_header() -> None:
     content = render_theme_boot_js(
         _tree(
             {
-                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-                "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+                "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
             }
         )
     )
@@ -359,8 +359,8 @@ def test_render_theme_boot_js_starts_with_generated_header() -> None:
 def test_render_theme_boot_js_is_a_classic_iife_not_a_module() -> None:
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -377,8 +377,8 @@ def test_render_theme_boot_js_is_a_classic_iife_not_a_module() -> None:
 def test_render_theme_boot_js_bakes_in_storage_key_and_manifest() -> None:
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -386,9 +386,9 @@ def test_render_theme_boot_js_bakes_in_storage_key_and_manifest() -> None:
 
     assert literals["STORAGE_KEY"] == STORAGE_KEY == "osprey-theme"
     assert literals["VALID_IDS"] == ["dark", "light"]
-    assert literals["DEFAULTS"] == {"osprey": {"dark": "dark", "light": "light"}}
-    assert literals["FAMILY_BY_ID"] == {"dark": "osprey", "light": "osprey"}
-    assert literals["DEFAULT_FAMILY"] == "osprey"
+    assert literals["DEFAULTS"] == {"main": {"dark": "dark", "light": "light"}}
+    assert literals["FAMILY_BY_ID"] == {"dark": "main", "light": "main"}
+    assert literals["DEFAULT_FAMILY"] == "main"
 
 
 def test_render_theme_boot_js_default_family_is_first_declared_family() -> None:
@@ -411,8 +411,8 @@ def test_render_theme_boot_js_default_family_is_first_declared_family() -> None:
                 "mode": "light",
                 "family": "high-contrast",
             },
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -422,50 +422,50 @@ def test_render_theme_boot_js_default_family_is_first_declared_family() -> None:
     assert literals["FAMILY_BY_ID"] == {
         "hc-dark": "high-contrast",
         "hc-light": "high-contrast",
-        "dark": "osprey",
-        "light": "osprey",
+        "dark": "main",
+        "light": "main",
     }
     assert literals["DEFAULTS"] == {
         "high-contrast": {"dark": "hc-dark", "light": "hc-light"},
-        "osprey": {"dark": "dark", "light": "light"},
+        "main": {"dark": "dark", "light": "light"},
     }
 
 
 def test_explicit_default_flag_overrides_first_declared_family() -> None:
     # $extensions.default: true pins DEFAULT_FAMILY regardless of manifest
     # order, so a family whose files sort first cannot hijack the product
-    # default. Here 'apex' is declared FIRST but 'osprey' is flagged default.
+    # default. Here 'aurora' is declared FIRST but 'main' is flagged default.
     tree = _tree(
         {
-            "apex-dark": {
-                "id": "apex-dark",
-                "label": "Apex Dark",
+            "aurora-dark": {
+                "id": "aurora-dark",
+                "label": "Aurora Dark",
                 "mode": "dark",
-                "family": "apex",
+                "family": "aurora",
             },
-            "apex-light": {
-                "id": "apex-light",
-                "label": "Apex Light",
+            "aurora-light": {
+                "id": "aurora-light",
+                "label": "Aurora Light",
                 "mode": "light",
-                "family": "apex",
+                "family": "aurora",
             },
             "dark": {
                 "id": "dark",
                 "label": "Dark",
                 "mode": "dark",
-                "family": "osprey",
+                "family": "main",
                 "default": True,
             },
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
     tokens_literals = _exported_const(render_tokens_js(tree), "DEFAULT_FAMILY")
     boot_literals = _boot_globals(render_theme_boot_js(tree))
 
-    # First-declared would be 'apex'; the flag makes it 'osprey' in both files.
-    assert tokens_literals == "osprey"
-    assert boot_literals["DEFAULT_FAMILY"] == "osprey"
+    # First-declared would be 'aurora'; the flag makes it 'main' in both files.
+    assert tokens_literals == "main"
+    assert boot_literals["DEFAULT_FAMILY"] == "main"
 
 
 def test_render_theme_boot_js_multiline_defaults_are_reindented() -> None:
@@ -474,8 +474,8 @@ def test_render_theme_boot_js_multiline_defaults_are_reindented() -> None:
     # 2-space block, not left at column 0.
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -483,7 +483,7 @@ def test_render_theme_boot_js_multiline_defaults_are_reindented() -> None:
 
     assert (
         "  const DEFAULTS = {\n"
-        '    "osprey": {\n'
+        '    "main": {\n'
         '      "dark": "dark",\n'
         '      "light": "light"\n'
         "    }\n"
@@ -498,8 +498,8 @@ def test_render_theme_boot_js_reads_query_before_storage_before_server_before_au
     content = render_theme_boot_js(
         _tree(
             {
-                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-                "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+                "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
             }
         )
     )
@@ -524,8 +524,8 @@ def test_render_theme_boot_js_reads_server_attr_from_html_data_theme() -> None:
     content = render_theme_boot_js(
         _tree(
             {
-                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-                "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+                "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
             }
         )
     )
@@ -541,8 +541,8 @@ def test_render_theme_boot_js_server_rung_uses_isvalidid_not_isknownid() -> None
     content = render_theme_boot_js(
         _tree(
             {
-                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-                "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+                "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
             }
         )
     )
@@ -557,8 +557,8 @@ def test_render_theme_boot_js_family_for_auto_prefers_server_theme_family() -> N
     content = render_theme_boot_js(
         _tree(
             {
-                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-                "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+                "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
             }
         )
     )
@@ -576,8 +576,8 @@ def test_render_theme_boot_js_does_not_unconditionally_clobber_server_attr() -> 
     content = render_theme_boot_js(
         _tree(
             {
-                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-                "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+                "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+                "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
             }
         )
     )
@@ -597,8 +597,8 @@ def test_render_theme_boot_js_does_not_unconditionally_clobber_server_attr() -> 
 def test_render_theme_boot_js_is_hook_clean() -> None:
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -608,8 +608,8 @@ def test_render_theme_boot_js_is_hook_clean() -> None:
 def test_render_theme_boot_js_is_deterministic() -> None:
     tree = _tree(
         {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         }
     )
 
@@ -626,7 +626,7 @@ def test_full_pipeline_renders_both_artifacts_from_a_validated_tree(tmp_path: Pa
     (tmp_path / "core.json").write_text(json.dumps({}), encoding="utf-8")
 
     dark = {
-        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
+        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
         "bg": {"primary": {"$value": "#000000", "$type": "color"}},
         "text": {
             "primary": {"$value": "#ffffff", "$type": "color"},
@@ -636,7 +636,7 @@ def test_full_pipeline_renders_both_artifacts_from_a_validated_tree(tmp_path: Pa
         "accent": {"base": {"$value": "#00ffff", "$type": "color"}},
     }
     light = {
-        "$extensions": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+        "$extensions": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         "bg": {"primary": {"$value": "#ffffff", "$type": "color"}},
         "text": {
             "primary": {"$value": "#000000", "$type": "color"},
@@ -655,15 +655,15 @@ def test_full_pipeline_renders_both_artifacts_from_a_validated_tree(tmp_path: Pa
     boot_js = render_theme_boot_js(tree)
 
     assert _exported_const(tokens_js, "THEMES") == [
-        {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
-        {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+        {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+        {"id": "light", "label": "Light", "mode": "light", "family": "main"},
     ]
-    assert _exported_const(tokens_js, "DEFAULTS") == {"osprey": {"dark": "dark", "light": "light"}}
+    assert _exported_const(tokens_js, "DEFAULTS") == {"main": {"dark": "dark", "light": "light"}}
     literals = _boot_globals(boot_js)
     assert literals["VALID_IDS"] == ["dark", "light"]
-    assert literals["DEFAULTS"] == {"osprey": {"dark": "dark", "light": "light"}}
-    assert literals["FAMILY_BY_ID"] == {"dark": "osprey", "light": "osprey"}
-    assert literals["DEFAULT_FAMILY"] == "osprey"
+    assert literals["DEFAULTS"] == {"main": {"dark": "dark", "light": "light"}}
+    assert literals["FAMILY_BY_ID"] == {"dark": "main", "light": "main"}
+    assert literals["DEFAULT_FAMILY"] == "main"
     _assert_hook_clean(tokens_js)
     _assert_hook_clean(boot_js)
 
@@ -685,17 +685,14 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
         "light",
         "high-contrast-dark",
         "high-contrast-light",
-        "apex-dark",
-        "apex-light",
         "retro-dark",
         "retro-light",
     }
     assert {entry["mode"] for entry in themes} == {"dark", "light"}
-    assert {entry["family"] for entry in themes} == {"osprey", "high-contrast", "apex", "retro"}
+    assert {entry["family"] for entry in themes} == {"main", "high-contrast", "retro"}
     assert _exported_const(tokens_js, "DEFAULTS") == {
-        "osprey": {"dark": "dark", "light": "light"},
+        "main": {"dark": "dark", "light": "light"},
         "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
-        "apex": {"dark": "apex-dark", "light": "apex-light"},
         "retro": {"dark": "retro-dark", "light": "retro-light"},
     }
 
@@ -705,32 +702,27 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
         "light",
         "high-contrast-dark",
         "high-contrast-light",
-        "apex-dark",
-        "apex-light",
         "retro-dark",
         "retro-light",
     }
     assert literals["DEFAULTS"] == {
-        "osprey": {"dark": "dark", "light": "light"},
+        "main": {"dark": "dark", "light": "light"},
         "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
-        "apex": {"dark": "apex-dark", "light": "apex-light"},
         "retro": {"dark": "retro-dark", "light": "retro-light"},
     }
     assert literals["FAMILY_BY_ID"] == {
-        "dark": "osprey",
-        "light": "osprey",
+        "dark": "main",
+        "light": "main",
         "high-contrast-dark": "high-contrast",
         "high-contrast-light": "high-contrast",
-        "apex-dark": "apex",
-        "apex-light": "apex",
         "retro-dark": "retro",
         "retro-light": "retro",
     }
-    # osprey stays the product default even though apex-*.json sorts before
-    # dark.json — dark.json carries $extensions.default: true (see the
+    # main stays the product default even though high-contrast-*.json sorts
+    # before dark.json — dark.json carries $extensions.default: true (see the
     # explicit-default flag in emit_css/_default_theme_stem and emit_js/
     # _default_family).
-    assert literals["DEFAULT_FAMILY"] == "osprey"
+    assert literals["DEFAULT_FAMILY"] == "main"
 
     _assert_hook_clean(tokens_js)
     _assert_hook_clean(boot_js)

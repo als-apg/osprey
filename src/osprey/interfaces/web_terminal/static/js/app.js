@@ -10,11 +10,11 @@ import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initCommandPalette } from './palette-boot.js';
-import { initTheme } from '/design-system/js/theme-manager.js';
+import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initDisplayMenu } from './display-menu.js';
-import { getRailPosition, setRailPosition } from './rail-position.js';
+import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
@@ -173,6 +173,13 @@ function initModeToggle() {
  * or configured one.
  */
 function initRailPosition() {
+  // Follow the theme family for as long as neither the operator nor the
+  // deployment has pinned a rail of their own: picking Retro hands back the
+  // pre-redesign look, and the horizontal tab strip is part of that look.
+  // followThemeFamily() decides whether the move is allowed; this only tells
+  // it which family is now active, on every apply (init included).
+  subscribeTheme(() => followThemeFamily(getFamily()));
+
   try {
     if (!new URLSearchParams(window.location.search).has('rail')) return;
   } catch {

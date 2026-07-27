@@ -368,9 +368,7 @@ def test_check_theme_metadata_flags_missing_fields() -> None:
 def test_check_theme_metadata_flags_invalid_mode_value() -> None:
     tree = _tree(
         themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={
-            "dark": {"mode": "sepia", "id": "dark", "label": "Dark", "family": "osprey"}
-        },
+        theme_metadata={"dark": {"mode": "sepia", "id": "dark", "label": "Dark", "family": "main"}},
     )
 
     errors = check_theme_metadata(tree)
@@ -382,9 +380,7 @@ def test_check_theme_metadata_flags_invalid_mode_value() -> None:
 def test_check_theme_metadata_accepts_well_formed_metadata() -> None:
     tree = _tree(
         themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={
-            "dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "osprey"}
-        },
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
     )
 
     assert check_theme_metadata(tree) == []
@@ -445,7 +441,7 @@ def test_check_theme_metadata_accepts_well_formed_family() -> None:
 
 
 def _flag_metadata(mode: str, default: object) -> dict[str, object]:
-    return {"mode": mode, "id": "x", "label": "X", "family": "osprey", "default": default}
+    return {"mode": mode, "id": "x", "label": "X", "family": "main", "default": default}
 
 
 def test_check_default_flag_accepts_single_dark_default() -> None:
@@ -465,7 +461,7 @@ def test_check_default_flag_accepts_explicit_false_and_absent_flags() -> None:
         },
         theme_metadata={
             "dark": _flag_metadata("dark", False),
-            "light": {"mode": "light", "id": "l", "label": "L", "family": "osprey"},
+            "light": {"mode": "light", "id": "l", "label": "L", "family": "main"},
         },
     )
 
@@ -502,11 +498,11 @@ def test_check_default_flag_rejects_duplicate_defaults() -> None:
     tree = _tree(
         themes={
             "dark": {"bg.primary": _token("bg.primary", "#000")},
-            "apex-dark": {"bg.primary": _token("bg.primary", "#111")},
+            "aurora-dark": {"bg.primary": _token("bg.primary", "#111")},
         },
         theme_metadata={
             "dark": _flag_metadata("dark", True),
-            "apex-dark": _flag_metadata("dark", True),
+            "aurora-dark": _flag_metadata("dark", True),
         },
     )
 
@@ -515,7 +511,7 @@ def test_check_default_flag_rejects_duplicate_defaults() -> None:
     assert len(errors) == 1
     assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
     assert "at most one" in errors[0].message
-    assert "apex-dark" in errors[0].message and "dark" in errors[0].message
+    assert "aurora-dark" in errors[0].message and "dark" in errors[0].message
 
 
 # --- check_interface_mode_completeness --------------------------------------------
@@ -853,13 +849,11 @@ def test_check_wcag_gates_applies_aaa_minimums_for_high_contrast_family() -> Non
     assert all(error.rule == ValidationRule.WCAG_CONTRAST for error in errors)
 
 
-def test_check_wcag_gates_applies_aa_minimums_for_osprey_family() -> None:
+def test_check_wcag_gates_applies_aa_minimums_for_main_family() -> None:
     # Same ~4.54:1 pair clears every AA gate.
     tree = _tree(
         themes={"dark": _wcag_theme(text_primary="#767676", bg_primary="#ffffff")},
-        theme_metadata={
-            "dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "osprey"}
-        },
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
     )
 
     assert check_wcag_gates(tree) == []
@@ -955,14 +949,14 @@ def test_full_pipeline_clean_tree_validates_with_zero_errors(tmp_path: Path) -> 
     )
 
     dark = {
-        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
+        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
         "bg": {"primary": {"$value": "{color.slate.900}", "$type": "color"}},
         "text": {"primary": {"$value": "#ffffff", "$type": "color"}},
         "accent": {"base": {"$value": "{color.teal.500}", "$type": "color"}},
         "terminal": {"cursor": {"$value": "{color.teal.500}", "$type": "color"}},
     }
     light = {
-        "$extensions": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+        "$extensions": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         "bg": {"primary": {"$value": "{color.slate.50}", "$type": "color"}},
         "text": {"primary": {"$value": "#000000", "$type": "color"}},
         # A darker teal step than dark's accent.base — the light theme

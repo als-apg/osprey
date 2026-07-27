@@ -18,6 +18,7 @@ import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { initDockIframeAdapter, adoptIframe, focusPanel, hidePanel, setKnownServicePanels } from './dock-iframe.js';
 import { initDockSync, withEchoSuppressed } from './dock-sync.js';
+import { initRailThemeCoupling } from './rail-position.js';
 import { flashElement } from '/design-system/js/highlight.js';
 import {
   createRail, addEntry, getEntry, setActive, setHealth,
@@ -282,6 +283,11 @@ export async function initPanelManager(panelId) {
 
   // Config-defined layouts for the "+" menu's Layouts section (empty by default).
   panelPresets = panelConfig?.presets || [];
+
+  // Seed the rail's theme coupling (which families imply which rail position,
+  // and whether config pinned one) so a later family switch can move the rail.
+  // A failed fetch leaves it inert, which is the pre-coupling behavior.
+  initRailThemeCoupling(panelConfig || {});
 
   // Registry final for this load — the adapter may now prune any restored
   // placeholder whose service no longer exists (reconcile keeps all iframe:*).

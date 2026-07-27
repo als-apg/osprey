@@ -250,10 +250,10 @@ def resolve_web_theme_id(
     - A concrete theme id (e.g. ``"high-contrast-light"``) — used as-is.
       This is how an operator pins a specific mode instead of the
       family's dark default.
-    - A theme *family* name (e.g. ``"osprey"``, ``"high-contrast"``) —
+    - A theme *family* name (e.g. ``"main"``, ``"high-contrast"``) —
       resolved to that family's **dark** id, the canonical SSR default.
     - Anything else (unknown/misspelled) — logged as a warning and
-      resolved to the ``osprey`` family's dark id.
+      resolved to the ``main`` family's dark id.
 
     Mirrors the warn+fallback shape of
     :func:`osprey.cli.styles.load_theme_from_config`: never raises.
@@ -279,15 +279,15 @@ def resolve_web_theme_id(
 
     logger.warning(
         "Unknown web.theme %r (not a theme id or family); falling back to "
-        "osprey's dark theme. Valid ids: %s; valid families: %s",
+        "the main family's dark theme. Valid ids: %s; valid families: %s",
         configured,
         sorted(valid_ids),
         sorted(defaults),
     )
-    osprey_dark = defaults.get("osprey", {}).get("dark")
-    if osprey_dark is not None:
-        return osprey_dark
-    # Degenerate case (no built-in ``osprey`` family): still return a real
+    main_dark = defaults.get("main", {}).get("dark")
+    if main_dark is not None:
+        return main_dark
+    # Degenerate case (no built-in ``main`` family): still return a real
     # baked dark id — ``build_theme_defaults`` guarantees each family has a
     # dark member — rather than an unverified literal, so Task 1.8's boot
     # rung honors it instead of silently dropping to auto (FOUC).
@@ -342,20 +342,52 @@ def resolve_ui_mode(configured: str) -> str:
 RAIL_POSITIONS = ("left", "top")
 DEFAULT_RAIL_POSITION = "left"
 
+#: Per-theme-family rail defaults, applied only when ``web.rail_position``
+#: is absent from config. The ``retro`` family restores the pre-redesign
+#: look, and the horizontal tab strip under the header is part of that look
+#: — picking Retro without also moving the rail would hand back the old
+#: colors inside the new layout. Any family not listed here defaults to
+#: :data:`DEFAULT_RAIL_POSITION`.
+#:
+#: This map is the single source of truth for the coupling: ``GET
+#: /api/panels`` echoes it to the browser so ``rail-position.js`` can follow
+#: a live family switch without carrying its own copy.
+FAMILY_RAIL_DEFAULTS: dict[str, str] = {"retro": "top"}
 
-def resolve_rail_position(configured: str) -> str:
+
+def family_rail_default(family: str | None) -> str:
+    """The rail position a theme family implies, absent explicit config.
+
+    Args:
+        family: A theme ``$extensions.family`` value, or ``None`` when the
+            family could not be resolved.
+
+    Returns:
+        The family's entry in :data:`FAMILY_RAIL_DEFAULTS`, else
+        :data:`DEFAULT_RAIL_POSITION`.
+    """
+    return FAMILY_RAIL_DEFAULTS.get(family or "", DEFAULT_RAIL_POSITION)
+
+
+def resolve_rail_position(configured: str | None, theme_family: str | None = None) -> str:
     """Resolve the ``web.rail_position`` config value into a concrete position.
 
-    ``configured`` must be one of :data:`RAIL_POSITIONS` (``"left"`` or
-    ``"top"``). Anything else — a typo, ``None``, an empty string — is logged
-    as a warning and resolved to :data:`DEFAULT_RAIL_POSITION`.
+    An explicit ``configured`` in :data:`RAIL_POSITIONS` (``"left"`` or
+    ``"top"``) always wins — a deployment that states a rail position keeps
+    it in every theme. ``None`` means the key is absent from config, in
+    which case the position comes from the active theme family via
+    :func:`family_rail_default`. Anything else — a typo, an empty string —
+    is logged as a warning and treated as absent.
 
     Mirrors the warn+fallback shape of :func:`resolve_ui_mode`: it never
     raises, so a bad value degrades to the safe default instead of blocking
     server startup.
 
     Args:
-        configured: The raw ``web.rail_position`` config value.
+        configured: The raw ``web.rail_position`` config value, or ``None``
+            when the key is absent.
+        theme_family: The resolved theme's ``$extensions.family``, used only
+            when ``configured`` gives no answer.
 
     Returns:
         A concrete position string in :data:`RAIL_POSITIONS` — the value
@@ -365,13 +397,14 @@ def resolve_rail_position(configured: str) -> str:
     if configured in RAIL_POSITIONS:
         return configured
 
-    logger.warning(
-        "Unknown web.rail_position %r (expected one of %s); falling back to %r.",
-        configured,
-        list(RAIL_POSITIONS),
-        DEFAULT_RAIL_POSITION,
-    )
-    return DEFAULT_RAIL_POSITION
+    if configured is not None:
+        logger.warning(
+            "Unknown web.rail_position %r (expected one of %s); falling back to "
+            "the position the active theme family implies.",
+            configured,
+            list(RAIL_POSITIONS),
+        )
+    return family_rail_default(theme_family)
 
 
 def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
@@ -695,10 +728,17 @@ def _create_lifespan(
         try:
             from osprey.utils.config import get_config_value
 
-            configured_web_theme = get_config_value("web.theme", "osprey")
+            configured_web_theme = get_config_value("web.theme", "main")
             theme_entries, theme_defaults = _load_theme_registry()
             app.state.web_theme_id = resolve_web_theme_id(
                 configured_web_theme, theme_entries, theme_defaults
+            )
+            # The resolved theme's family, kept for the rail-position block
+            # below (an unconfigured rail follows the family — see
+            # FAMILY_RAIL_DEFAULTS).
+            app.state.web_theme_family = next(
+                (entry.family for entry in theme_entries if entry.id == app.state.web_theme_id),
+                None,
             )
         except Exception:  # noqa: BLE001 — never let config/theme-registry load block startup
             logger.warning(
@@ -707,6 +747,7 @@ def _create_lifespan(
                 exc_info=True,
             )
             app.state.web_theme_id = "dark"
+            app.state.web_theme_family = None
 
         # ── Web UI mode (SSR no-flash attribute, Task 5.1) ──
         # Resolved once at startup and server-rendered onto <html data-ui-mode>
@@ -740,10 +781,14 @@ def _create_lifespan(
         try:
             from osprey.utils.workspace import load_osprey_config
 
-            configured_rail = (
-                load_osprey_config().get("web", {}).get("rail_position", DEFAULT_RAIL_POSITION)
+            configured_rail = load_osprey_config().get("web", {}).get("rail_position")
+            app.state.web_rail_position = resolve_rail_position(
+                configured_rail, getattr(app.state, "web_theme_family", None)
             )
-            app.state.web_rail_position = resolve_rail_position(configured_rail)
+            # Whether the deployment stated a position of its own. The browser
+            # needs this to know if a live theme-family switch may move the
+            # rail: an explicit config value outranks the family default.
+            app.state.web_rail_position_configured = configured_rail in RAIL_POSITIONS
         except Exception:  # noqa: BLE001 — never let config load block startup
             logger.warning(
                 "Could not resolve web.rail_position (config load failed); "
@@ -752,6 +797,7 @@ def _create_lifespan(
                 exc_info=True,
             )
             app.state.web_rail_position = DEFAULT_RAIL_POSITION
+            app.state.web_rail_position_configured = False
 
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the

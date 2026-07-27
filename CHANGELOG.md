@@ -137,6 +137,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Web terminal header: the Expert/Simple toggle and theme controls are collapsed
   into a single display-menu dot that opens a popover with appearance
   (light/dark), view, and theme-family pickers.
+- The default theme family is now named **main** (it was `osprey`): use
+  `web.theme: main`.
+- The **high-contrast** family is now fully monochrome — pure black and white,
+  with status, diffs, chart series and terminal colors separating by brightness
+  instead of hue. It was previously a high-contrast variant of the pre-redesign
+  palette, and still meets the same WCAG AAA gates.
+
+### Removed
+
+- The `apex` theme family.
 
 ### Fixed
 
@@ -211,7 +221,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 
 - Web terminal: the panel rail can now sit along the top (`web.rail_position: top` or the panel "+" menu).
-- Web terminal: new `retro` theme family restoring the pre-redesign navy/teal look (`web.theme: retro`).
+- Web terminal: new `retro` theme family restoring the pre-redesign look (`web.theme: retro`) — the navy/teal palette, the CRT treatment, and the horizontal tab bar. Setting `web.rail_position` explicitly still pins the rail in every theme.
 - A `demo-ui` skill runs short scripted demonstrations of the agent driving the web workspace: a panel tour, an artifact hand-off, and a layout switch, individually or back to back. It reads the live panel inventory rather than assuming a fixed tab set, and restores the starting layout when it finishes.
 - The web terminal's Simple mode now starts as a clean chat-first experience: with an empty agent workspace the page shows only the chat, and the WORKSPACE panel appears the moment the agent shares its first artifact (`show_panel`); a workspace that already holds artifacts opens as before. The OSPREY agent is told at session start which surface it serves — Simple sessions are instructed to bring up the WORKSPACE panel whenever they produce something the operator should see.
 - A `channel-finder-standalone` preset packages OSPREY's natural-language channel/PV address finder — the channel-finder pipeline plus its interactive CHANNELS web panel — as a standalone, read-only deployment with no control-system stack, archiver, logbook, or Python executor. It ships a bundled demo hierarchical database so it runs out of the box; `channel_finder_mode` selects the `in_context`, `hierarchical`, or `middle_layer` pipeline.

@@ -28,7 +28,7 @@ system's actual contract is enforced:
 - **Theme metadata** — every theme document's root ``$extensions`` must
   declare ``mode`` as ``"dark"`` or ``"light"`` (plus non-empty string
   ``id``/``label``/``family``). ``family`` groups a ``{light, dark}`` pair
-  (e.g. the built-in ``osprey`` family, or a future ``high-contrast``
+  (e.g. the built-in ``main`` family, or the ``high-contrast``
   family) and selects which :func:`gates_for_family` tuple applies.
 - **Default flag** — at most one theme may declare ``$extensions.default:
   true``, it must be a boolean, and the flagged theme must be dark (it
@@ -36,7 +36,7 @@ system's actual contract is enforced:
   ``DEFAULT_FAMILY`` via the shared
   :func:`~.model.default_flagged_stem` — see :func:`check_default_flag`).
 - **WCAG contrast gates** — see :data:`WCAG_GATES` (AA, the default/
-  ``osprey``-family gates) and :data:`WCAG_GATES_AAA` (the ``high-contrast``
+  ``main``-family gates) and :data:`WCAG_GATES_AAA` (the ``high-contrast``
   family's gates), selected per theme by :func:`gates_for_family`; the
   relative-luminance and contrast-ratio functions here are also reused by
   the contract test suite (``tests/interfaces/design_system/test_contract.py``).
@@ -321,7 +321,7 @@ class WcagGate:
 
 
 #: Required contrast pairs, evaluated against ``bg.primary`` in every
-#: theme of the default/``osprey`` family (see :func:`gates_for_family`),
+#: theme of the default/``main`` family (see :func:`gates_for_family`),
 #: per the proposal's WCAG AA gates: text.primary/secondary >= 4.5:1 (body
 #: text), text.muted >= 3:1 (large/secondary text), accent.base >= 3:1
 #: (non-text UI). Never weakened to fit a value — a failing value gets
@@ -352,7 +352,7 @@ WCAG_GATES_AAA: tuple[WcagGate, ...] = (
 
 #: Theme ``$extensions.family`` to its required WCAG gate tuple.
 _WCAG_GATES_BY_FAMILY: dict[str, tuple[WcagGate, ...]] = {
-    "osprey": WCAG_GATES,
+    "main": WCAG_GATES,
     "high-contrast": WCAG_GATES_AAA,
 }
 
@@ -365,7 +365,7 @@ def gates_for_family(family: str | None) -> tuple[WcagGate, ...]:
 
     Returns:
         :data:`WCAG_GATES_AAA` for the ``"high-contrast"`` family;
-        :data:`WCAG_GATES` (AA) for ``"osprey"`` and for every other value,
+        :data:`WCAG_GATES` (AA) for ``"main"`` and for every other value,
         including ``None`` and unrecognized families. Fail-closed: an
         unspecified or unknown family never silently loosens below AA.
     """
@@ -561,7 +561,7 @@ def check_theme_metadata(tree: TokenTree) -> list[ValidationError]:
     ``label``, and ``family`` must be present as non-empty strings.
     ``id``/``label`` are required per the design spec's theme registry
     metadata, consumed by the JS emitters; ``family`` groups a
-    ``{light, dark}`` pair (e.g. the built-in ``osprey`` family) and
+    ``{light, dark}`` pair (e.g. the built-in ``main`` family) and
     selects the theme's WCAG gate tuple (see :func:`gates_for_family`).
 
     Args:
@@ -942,7 +942,7 @@ def check_wcag_gates(tree: TokenTree) -> list[ValidationError]:
     The gate tuple applied to each theme is selected by its
     ``$extensions.family`` via :func:`gates_for_family` — AAA
     (:data:`WCAG_GATES_AAA`) for the ``high-contrast`` family, AA
-    (:data:`WCAG_GATES`) for ``osprey`` and for every other/unspecified
+    (:data:`WCAG_GATES`) for ``main`` and for every other/unspecified
     family (fail-closed: nothing silently loosens below AA).
 
     Gates whose tokens are missing (already reported by

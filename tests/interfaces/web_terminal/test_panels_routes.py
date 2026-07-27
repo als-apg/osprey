@@ -113,6 +113,8 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "presets",
         "ui_mode",
         "rail_position",
+        "rail_position_configured",
+        "family_rail_defaults",
         "project_key",
         "workspace_has_artifacts",
     }

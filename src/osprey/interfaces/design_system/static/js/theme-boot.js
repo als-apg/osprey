@@ -11,18 +11,14 @@
   "use strict";
 
   const STORAGE_KEY = "osprey-theme";
-  const VALID_IDS = ["apex-dark", "apex-light", "dark", "high-contrast-dark", "high-contrast-light", "light", "retro-dark", "retro-light"];
+  const VALID_IDS = ["dark", "high-contrast-dark", "high-contrast-light", "light", "retro-dark", "retro-light"];
   // Per-family {mode: id} map: DEFAULTS[family][mode]. Typed as a
   // Record (not the narrower literal shape object-literal inference would
   // give it) because resolveAuto() below indexes it with a general
   // `string` family, not just the exact DEFAULT_FAMILY literal.
   /** @type {Record<string, {dark?: string, light?: string}>} */
   const DEFAULTS = {
-    "apex": {
-      "dark": "apex-dark",
-      "light": "apex-light"
-    },
-    "osprey": {
+    "main": {
       "dark": "dark",
       "light": "light"
     },
@@ -40,18 +36,16 @@
   // render_theme_boot_js docstring in generator/emit_js.py.
   /** @type {Record<string, string>} */
   const FAMILY_BY_ID = {
-    "apex-dark": "apex",
-    "apex-light": "apex",
-    "dark": "osprey",
+    "dark": "main",
     "high-contrast-dark": "high-contrast",
     "high-contrast-light": "high-contrast",
-    "light": "osprey",
+    "light": "main",
     "retro-dark": "retro",
     "retro-light": "retro"
   };
   // Fallback family for 'auto' when no server data-theme attribute is
   // present/valid: the first family declared in the manifest.
-  const DEFAULT_FAMILY = "osprey";
+  const DEFAULT_FAMILY = "main";
 
   /** @param {string|null} value @returns {value is string} */
   function isValidId(value) {
