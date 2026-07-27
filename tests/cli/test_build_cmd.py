@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 from textwrap import dedent
 
@@ -839,8 +840,14 @@ class TestEnvTemplate:
 # ---------------------------------------------------------------------------
 
 
-class TestRequirementsRecording:
-    """Tests for the requirements.txt recording in _create_project_venv()."""
+class TestProjectPyproject:
+    """Tests for the pyproject.toml emitted by _create_project_venv().
+
+    The generated file is the built project's dependency record AND the anchor
+    that makes ``uv run`` resolve the project's own ``.venv`` instead of walking
+    up to an ancestor project. Both properties are load-bearing; see
+    :func:`osprey.cli.build_environment._write_project_pyproject`.
+    """
 
     def _make_profile(self, deps: list[str], osprey_install: str = "local") -> BuildProfile:
         return BuildProfile(
@@ -849,13 +856,15 @@ class TestRequirementsRecording:
             osprey_install=osprey_install,
         )
 
-    def test_records_deps_in_requirements_txt(self, monkeypatch, tmp_path: Path):
-        from osprey.cli.build_cmd import _create_project_venv
+    def _build(self, monkeypatch, project_path: Path, profile: BuildProfile) -> dict:
+        """Build, then return the emitted pyproject.toml *parsed*.
 
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        # Pre-seed requirements.txt (template may have created it)
-        (project_path / "requirements.txt").write_text("# base\n")
+        Asserting on parsed TOML rather than raw text keeps the explanatory
+        comments in the generated file from colliding with assertions about its
+        tables — and makes a malformed emission a hard failure here rather than
+        a mystery inside uv.
+        """
+        from osprey.cli.build_cmd import _create_project_venv
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
@@ -863,30 +872,89 @@ class TestRequirementsRecording:
         monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
-        _create_project_venv(project_path, self._make_profile(["numpy>=1.24", "pandas"]))
+        _create_project_venv(project_path, profile)
+        return tomllib.loads((project_path / "pyproject.toml").read_text())
 
-        content = (project_path / "requirements.txt").read_text()
-        assert "# base" in content  # original content preserved
-        assert "# Profile dependencies" in content
-        assert "numpy>=1.24" in content
-        assert "pandas" in content
+    def test_records_profile_deps(self, monkeypatch, tmp_path: Path):
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+
+        data = self._build(monkeypatch, project_path, self._make_profile(["numpy>=1.24", "pandas"]))
+
+        assert "numpy>=1.24" in data["project"]["dependencies"]
+        assert "pandas" in data["project"]["dependencies"]
 
     def test_records_osprey_spec(self, monkeypatch, tmp_path: Path):
-        from osprey.cli.build_cmd import _create_project_venv
-
         project_path = tmp_path / "project"
         project_path.mkdir()
 
-        def fake_run(cmd, **kwargs):
-            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        data = self._build(monkeypatch, project_path, self._make_profile([], osprey_install="pip"))
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
-        monkeypatch.setenv("UV", "/usr/bin/uv")
+        assert "osprey-framework" in data["project"]["dependencies"]
 
-        _create_project_venv(project_path, self._make_profile([], osprey_install="pip"))
+    def test_omits_build_system(self, monkeypatch, tmp_path: Path):
+        """A [build-system] table would make uv try to BUILD the project.
 
-        content = (project_path / "requirements.txt").read_text()
-        assert "osprey-framework" in content
+        Built projects have no ``src/`` package — they are config directories.
+        Declaring a build backend makes ``uv run`` fail on every invocation, so
+        the absence of this table is the contract, not an oversight.
+        """
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+
+        data = self._build(monkeypatch, project_path, self._make_profile([]))
+
+        assert "build-system" not in data
+
+    def test_normalizes_project_name(self, monkeypatch, tmp_path: Path):
+        project_path = tmp_path / "My Assistant v2"
+        project_path.mkdir()
+
+        data = self._build(monkeypatch, project_path, self._make_profile([]))
+
+        assert data["project"]["name"] == "my-assistant-v2"
+
+    def test_source_path_becomes_direct_reference(self, monkeypatch, tmp_path: Path):
+        """A resolved source-tree path is not a valid PEP 508 requirement.
+
+        ``_resolve_osprey_spec`` hands back a bare filesystem path for editable
+        and source-tree installs. Written verbatim it would make the dependency
+        list unparseable, so it is rendered as a direct reference instead.
+        """
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        checkout = tmp_path / "osprey-checkout"
+        checkout.mkdir()
+
+        data = self._build(
+            monkeypatch, project_path, self._make_profile([], osprey_install=str(checkout))
+        )
+
+        assert f"osprey-framework @ {checkout.as_uri()}" in data["project"]["dependencies"]
+
+    def test_rewrites_rather_than_appends(self, monkeypatch, tmp_path: Path):
+        """`osprey build --force` must not stack duplicate dependency blocks.
+
+        An appended emission produces a second ``[project]`` table, which is a
+        TOML redefinition error — so a successful parse on the second build is
+        itself the assertion.
+        """
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        profile = self._make_profile(["numpy>=1.24"])
+
+        self._build(monkeypatch, project_path, profile)
+        data = self._build(monkeypatch, project_path, profile)
+
+        assert data["project"]["dependencies"].count("numpy>=1.24") == 1
+
+    def test_no_requirements_txt(self, monkeypatch, tmp_path: Path):
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+
+        self._build(monkeypatch, project_path, self._make_profile(["numpy>=1.24"]))
+
+        assert not (project_path / "requirements.txt").exists()
 
 
 # ---------------------------------------------------------------------------
