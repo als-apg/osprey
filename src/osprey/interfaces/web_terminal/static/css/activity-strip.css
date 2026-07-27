@@ -33,7 +33,7 @@
   align-items: baseline;
   gap: var(--space-1);
   min-width: 0;
-  animation: activity-strip-fade-in 150ms ease-out;
+  animation: activity-strip-fade-in var(--duration-fast) ease-out;
 }
 
 .activity-strip-verb {

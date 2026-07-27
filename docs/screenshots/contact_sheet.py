@@ -1044,13 +1044,6 @@ PANEL_SURFACES: list[PanelSurface] = [
         "bluesky",
         wait_selector="#run-picker",
     ),
-    PanelSurface(
-        "health",
-        "Health — Bluesky stack status",
-        "/health-panel/",
-        "bluesky",
-        wait_selector="#service-grid",
-    ),
 ]
 
 
