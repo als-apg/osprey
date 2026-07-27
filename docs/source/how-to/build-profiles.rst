@@ -34,7 +34,7 @@ project. The profile declares:
 - **MCP server definitions** to inject custom tools
 - **Lifecycle commands** to run before/after the build
 - **Environment templates** for required variables and defaults
-- **Dependencies** to append to ``requirements.txt``
+- **Dependencies** to install into the project environment
 
 .. mermaid::
 
@@ -297,7 +297,8 @@ Profile YAML Schema
    * - ``dependencies``
      - list
      - ``[]``
-     - Python packages to append to ``requirements.txt``.
+     - Python packages to install into the project venv and record in
+       ``pyproject.toml``.
    * - ``requires_osprey_version``
      - string
      - ``None``
@@ -624,9 +625,10 @@ key. The path is relative to the profile directory:
 Dependencies
 ============
 
-The ``dependencies`` list appends Python package specifiers to the built project's
-``requirements.txt``. This ensures facility-specific packages are tracked alongside
-framework dependencies.
+The ``dependencies`` list adds Python package specifiers to the built project.
+They are installed into the project venv and recorded in the project's generated
+``pyproject.toml``, so facility-specific packages are tracked alongside framework
+dependencies.
 
 .. code-block:: yaml
 
@@ -635,8 +637,18 @@ framework dependencies.
      - pandas
      - scipy~=1.11
 
-The build installs these into the project venv automatically; only builds run
-with ``--skip-deps`` need a manual ``pip install -r requirements.txt``.
+The build installs these automatically. Because the generated ``pyproject.toml``
+declares the same set, ``uv run`` inside the project resolves the project's own
+``.venv``, and ``uv sync`` rebuilds it from scratch:
+
+.. code-block:: bash
+
+   cd my-assistant
+   uv run osprey web     # uses my-assistant/.venv
+   uv sync               # rebuilds it from pyproject.toml
+
+Builds run with ``--skip-deps`` create no environment and no ``pyproject.toml``;
+install dependencies yourself in that mode.
 
 
 Repository Structure
