@@ -18,11 +18,15 @@ import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { initDockIframeAdapter, adoptIframe, focusPanel, hidePanel, setKnownServicePanels } from './dock-iframe.js';
 import { initDockSync, withEchoSuppressed } from './dock-sync.js';
+import { startHealthPolling as startPolling } from './panel-health.js';
+import {
+  openTerminalPanel, closeTerminalPanel, setTerminalPresenceHandler,
+} from './dock-workspace.js';
 import { initRailThemeCoupling } from './rail-position.js';
 import { flashElement } from '/design-system/js/highlight.js';
 import {
   createRail, addEntry, getEntry, setActive, setHealth,
-  setEntryEnabled, setEntryVisible, setEntryAttention,
+  setEntryEnabled, setEntryOpen, setEntryAttention,
 } from './panel-rail.js';
 
 // ---- Types ----
@@ -84,6 +88,14 @@ import {
 
 // ---- Panel Registry ----
 
+/** Rail id of the terminal/chat tile. NOT a service panel: it has no iframe,
+ *  no health poll, and no server-side visibility — its open/closed state is
+ *  dock-layout state (dock-workspace.js owns the tile; this module only renders
+ *  its rail entry and routes activate/close to the dock). Kept out of PANELS so
+ *  every service-panel iteration stays terminal-free. */
+const TERMINAL_RAIL_ID = 'terminal';
+const TERMINAL_RAIL_LABEL = 'SESSION';
+
 /** @type {Panel[]} */
 const PANELS = [
   {
@@ -141,7 +153,7 @@ let activeTabId = null;
 const panelState = {};
 
 // Visible panel ids — seeded from /api/panels at init; controls rail-entry
-// visibility. Toggling an id here is paired with setEntryVisible() on the rail.
+// visibility. Toggling an id here is paired with setEntryOpen() on the rail.
 const visiblePanels = new Set();
 
 // Simple-UX chat-only first boot: while true, ensureActivePanel leaves the
@@ -322,7 +334,11 @@ export async function initPanelManager(panelId) {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     if (!(e.target instanceof HTMLElement)) return;
     const id = e.target.closest('.panel-rail-button')?.getAttribute('data-panel-id');
-    if (id) { e.preventDefault(); setPanelVisibility(id, false); }
+    if (!id) return;
+    e.preventDefault();
+    // Terminal entry closes through the dock (no server-side visibility for it).
+    if (id === TERMINAL_RAIL_ID) closeTerminalPanel();
+    else setPanelVisibility(id, false);
   });
 
   // Fetch config and start health polling for all panels
@@ -390,13 +406,14 @@ export async function initPanelManager(panelId) {
         } else if (data.type === 'panel_visibility' && data.panel) {
           const { panel, visible } = data;
           if (data.source === 'agent') flashAgentGlow(panel);
-          // Update the visibility set and show/hide the matching rail entry
+          // Update the visibility set and dim/undim the matching rail entry
+          // (the entry itself always stays in the rail — closed ≠ removed).
           if (visible) {
             visiblePanels.add(panel);
           } else {
             visiblePanels.delete(panel);
           }
-          setEntryVisible(railEl, panel, visible);
+          setEntryOpen(railEl, panel, visible);
 
           // Simple-UX reveal: showing a panel while the workspace is chat-only
           // suppressed brings up the workspace ON that panel — this is the
@@ -436,9 +453,9 @@ export async function initPanelManager(panelId) {
           // Seed visibility before addPanel so the appended entry starts visible
           visiblePanels.add(data.id);
           addPanel(data);
-          // Guarantee the entry is shown in case the set was already populated
-          // (re-register path, where addEntry keeps the existing entry as-is)
-          setEntryVisible(railEl, data.id, true);
+          // Guarantee the entry is marked open in case the set was already
+          // populated (re-register path, where addEntry keeps the entry as-is)
+          setEntryOpen(railEl, data.id, true);
           // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
           // the user activates when they want it.
           if (data.source === 'agent') flashAgentGlow(data.id);
@@ -467,23 +484,53 @@ export async function initPanelManager(panelId) {
 function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (entry) flashElement(entry); }
 
 /**
- * Interaction closures + initial visibility handed to every rail render/append
+ * Interaction closures + initial open state handed to every rail render/append
  * call. Routing activation and close through here keeps a human click/"×" and
  * an agent MCP call indistinguishable downstream (both hit activateTab /
- * setPanelVisibility). `visible` is the live set, so panel-rail builds each new
- * entry hidden when its id is absent from the server's visible set.
+ * setPanelVisibility). `open` is the live visible set, so panel-rail builds
+ * each new entry dimmed (closed) when its id is absent from it.
+ *
+ * Activation is open-state aware: clicking an OPEN panel focuses it, clicking
+ * a CLOSED (dimmed) one reopens it — the rail lists available panels, like a
+ * browser tab strip, so a click always means "surface this". The terminal
+ * entry routes to the dock instead (its open/closed state is layout state,
+ * not server visibility — see TERMINAL_RAIL_ID).
  */
 function railOptions() {
   return {
-    onActivate: (/** @type {string} */ id) => activateTab(id, { userInitiated: true }),
-    onClose: (/** @type {string} */ id) => setPanelVisibility(id, false),
-    visible: visiblePanels,
+    onActivate: (/** @type {string} */ id) => {
+      if (id === TERMINAL_RAIL_ID) { openTerminalPanel(); return; }
+      if (visiblePanels.has(id)) activateTab(id, { userInitiated: true });
+      else showPanel(id);
+    },
+    onClose: (/** @type {string} */ id) => {
+      if (id === TERMINAL_RAIL_ID) { closeTerminalPanel(); return; }
+      setPanelVisibility(id, false);
+    },
+    open: visiblePanels,
   };
 }
 
-/** Destructive full render of the rail from the current PANELS list. */
+/**
+ * Destructive full render of the rail: the terminal entry first (the session
+ * tile is the workspace's anchor), then every service panel in PANELS order.
+ * The terminal entry is corrected after the render — it is not in the server's
+ * visible set (so buildRailButton dims it) and never health-polls (so it would
+ * stay disabled): it starts open and enabled, and from then on the dock's
+ * presence handler drives its open/closed dimming.
+ */
 function renderRail() {
-  createRail(railEl, PANELS.map((p) => ({ id: p.id, label: p.label })), railOptions());
+  createRail(
+    railEl,
+    [
+      { id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL },
+      ...PANELS.map((p) => ({ id: p.id, label: p.label })),
+    ],
+    railOptions(),
+  );
+  setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
+  setEntryOpen(railEl, TERMINAL_RAIL_ID, true);
+  setTerminalPresenceHandler((open) => setEntryOpen(railEl, TERMINAL_RAIL_ID, open));
 }
 
 /**
@@ -606,63 +653,26 @@ function ensureActivePanel() {
 
 // ---- Health Polling ----
 
-/** @param {Panel} panel */
-function startHealthPolling(panel) {
-  const state = panelState[panel.id];
-  pollHealth(panel);
-
-  // Fast retry during startup (500ms), slow down to 10s once healthy
-  let delay = 500;
-  function scheduleNext() {
-    state.pollTimer = setTimeout(() => {
-      pollHealth(panel).then(() => {
-        if (state.healthy) {
-          // Switch to slow maintenance polling
-          state.pollTimer = setInterval(() => pollHealth(panel), 10000);
-        } else {
-          delay = Math.min(delay * 1.5, 5000);
-          scheduleNext();
-        }
-      });
-    }, delay);
+/**
+ * Poll-settle hook handed to panel-health.js's timing machinery: reflect the
+ * new health on the rail LED + status bar, and on the FIRST healthy settle
+ * enable the entry and let the shared policy decide whether the newly-healthy
+ * panel should take an empty slot.
+ * @param {Panel} panel
+ * @param {boolean} wasHealthy
+ */
+function onHealthSettled(panel, wasHealthy) {
+  updateTabState(panel);
+  updateStatusBar(panel);
+  if (panelState[panel.id].healthy && !wasHealthy) {
+    setEntryEnabled(railEl, panel.id, true);
+    ensureActivePanel();
   }
-  scheduleNext();
 }
 
-/** @param {Panel} panel */
-async function pollHealth(panel) {
-  const state = panelState[panel.id];
-  if (!state.url || state.polling) return;
-  state.polling = true;
-
-  try {
-    // Use the panel's configured health endpoint — hardcoding /health only
-    // worked while every panel happened to use it (tiled's is /api/v1/).
-    // state.url is already the server-prefixed `<prefix>/panel/<id>` (routes/
-    // panels.py's compute_url_prefix()) — a root-relative path — so this string
-    // concat is safe: fetch() resolves it against the current origin,
-    // preserving the prefix as-is. Do not re-derive or re-prefix it here.
-    const resp = await fetch(`${state.url}${panel.healthEndpoint || '/health'}`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    const wasHealthy = state.healthy;
-    state.healthy = resp.ok;
-    updateTabState(panel);
-    updateStatusBar(panel);
-
-    // First time healthy — enable the entry, then let the shared policy decide
-    // whether this newly-healthy panel should take an empty slot.
-    if (state.healthy && !wasHealthy) {
-      setEntryEnabled(railEl, panel.id, true);
-      ensureActivePanel();
-    }
-  } catch {
-    state.healthy = false;
-    updateTabState(panel);
-    updateStatusBar(panel);
-  } finally {
-    state.polling = false;
-  }
+/** @param {Panel} panel  Start panel-health's polling loop with this module's hook. */
+function startHealthPolling(panel) {
+  startPolling(panel, panelState[panel.id], onHealthSettled);
 }
 
 // ---- Entry State ----

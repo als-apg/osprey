@@ -27,6 +27,10 @@
  *     ...
  *     <button class="panel-rail-add" type="button" aria-label="Add panel">＋</button>  (only when onAdd given)
  *   </nav>
+ *
+ * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
+ * not healthy yet), `.panel-rail-closed` (available but not open — dimmed, a
+ * click reopens), `.agent-attention` (badge).
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
@@ -44,15 +48,20 @@ import { flashElement } from '/design-system/js/highlight.js';
  */
 
 /**
- * Interaction closures + initial visibility, injected by the caller so the rail
+ * Interaction closures + initial open state, injected by the caller so the rail
  * stays a dumb view. Every callback is optional: omit `onClose` to render no
  * per-entry close affordance, omit `onAdd` to render no `＋` button.
+ *
+ * The rail lists every AVAILABLE panel — open or not, like a browser tab strip.
+ * A closed panel's entry stays in place, dimmed via `.panel-rail-closed`;
+ * clicking it is still an activate (the caller decides that means "reopen").
  * @typedef {object} RailOptions
  * @property {(id: string) => void} [onActivate] - an entry was clicked
  * @property {(id: string) => void} [onClose]    - the entry's close "×" was clicked
  * @property {() => void} [onAdd]                 - the trailing `＋` was clicked
- * @property {Set<string>} [visible]              - ids to show; any entry whose id is
- *                                                  absent is built with `.panel-rail-hidden`
+ * @property {Set<string>} [open]                 - ids currently open; any entry whose
+ *                                                  id is absent is built with
+ *                                                  `.panel-rail-closed` (dimmed)
  */
 
 const BUTTON_SELECTOR = '.panel-rail-button';
@@ -121,8 +130,8 @@ function buildRailButton(panel, options = {}) {
     btn.appendChild(close);
   }
 
-  if (options.visible && !options.visible.has(panel.id)) {
-    btn.classList.add('panel-rail-hidden');
+  if (options.open && !options.open.has(panel.id)) {
+    btn.classList.add('panel-rail-closed');
   }
   return btn;
 }
@@ -247,15 +256,17 @@ export function setEntryEnabled(railEl, panelId, enabled) {
 }
 
 /**
- * Show or hide an entry by toggling `.panel-rail-hidden` (a visibility change
- * driven by the server's visible set, not a health change). No-op when the
+ * Mark an entry open or closed by toggling `.panel-rail-closed` (driven by the
+ * server's visible set, not a health change). A closed entry stays in the rail,
+ * dimmed — the rail is the list of AVAILABLE panels, not open ones — and a
+ * click on it reopens the panel via the caller's onActivate. No-op when the
  * entry is absent.
  * @param {HTMLElement} railEl
  * @param {string} panelId
- * @param {boolean} visible
+ * @param {boolean} open
  */
-export function setEntryVisible(railEl, panelId, visible) {
-  getEntry(railEl, panelId)?.classList.toggle('panel-rail-hidden', !visible);
+export function setEntryOpen(railEl, panelId, open) {
+  getEntry(railEl, panelId)?.classList.toggle('panel-rail-closed', !open);
 }
 
 /**
@@ -266,8 +277,8 @@ export function setEntryVisible(railEl, panelId, visible) {
  * glow via {@link flashElement}. Turning it off removes only the badge class;
  * an in-flight flash is left to finish on its own `animationend`.
  *
- * The badge is orthogonal to visibility: hidden (`.panel-rail-hidden`) entries
- * accept it and keep it across hide/show toggles.
+ * The badge is orthogonal to open state: closed (`.panel-rail-closed`) entries
+ * accept it and keep it across close/reopen toggles.
  * @param {HTMLElement} railEl
  * @param {string} panelId
  * @param {boolean} on

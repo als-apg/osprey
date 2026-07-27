@@ -23,7 +23,7 @@ import {
   setActive,
   setHealth,
   setEntryEnabled,
-  setEntryVisible,
+  setEntryOpen,
   setEntryAttention,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
 
@@ -120,11 +120,11 @@ describe('createRail', () => {
     expect(last.classList.contains('panel-rail-add')).toBe(true);
   });
 
-  test('hides entries absent from the visible set', () => {
-    createRail(rail, PANELS, { visible: new Set(['artifacts', 'channel-finder']) });
-    expect(getEntry(rail, 'artifacts')?.classList.contains('panel-rail-hidden')).toBe(false);
-    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-hidden')).toBe(true);
-    expect(getEntry(rail, 'channel-finder')?.classList.contains('panel-rail-hidden')).toBe(false);
+  test('dims (closes) entries absent from the open set', () => {
+    createRail(rail, PANELS, { open: new Set(['artifacts', 'channel-finder']) });
+    expect(getEntry(rail, 'artifacts')?.classList.contains('panel-rail-closed')).toBe(false);
+    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-closed')).toBe(true);
+    expect(getEntry(rail, 'channel-finder')?.classList.contains('panel-rail-closed')).toBe(false);
   });
 });
 
@@ -220,10 +220,10 @@ describe('addEntry (non-destructive)', () => {
     expect(activated).toEqual(['lattice']);
   });
 
-  test('honors the visible set for the appended entry', () => {
+  test('honors the open set for the appended entry', () => {
     createRail(rail, PANELS);
-    addEntry(rail, { id: 'lattice', label: 'LATTICE' }, { visible: new Set(['artifacts']) });
-    expect(getEntry(rail, 'lattice')?.classList.contains('panel-rail-hidden')).toBe(true);
+    addEntry(rail, { id: 'lattice', label: 'LATTICE' }, { open: new Set(['artifacts']) });
+    expect(getEntry(rail, 'lattice')?.classList.contains('panel-rail-closed')).toBe(true);
   });
 });
 
@@ -281,7 +281,7 @@ describe('setHealth', () => {
   });
 });
 
-describe('setEntryEnabled / setEntryVisible', () => {
+describe('setEntryEnabled / setEntryOpen', () => {
   /** @type {HTMLElement} */
   let rail;
   beforeEach(() => {
@@ -296,16 +296,16 @@ describe('setEntryEnabled / setEntryVisible', () => {
     expect(getEntry(rail, 'artifacts')?.classList.contains('disabled')).toBe(true);
   });
 
-  test('setEntryVisible toggles the panel-rail-hidden class', () => {
-    setEntryVisible(rail, 'ariel', false);
-    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-hidden')).toBe(true);
-    setEntryVisible(rail, 'ariel', true);
-    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-hidden')).toBe(false);
+  test('setEntryOpen toggles the panel-rail-closed class', () => {
+    setEntryOpen(rail, 'ariel', false);
+    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-closed')).toBe(true);
+    setEntryOpen(rail, 'ariel', true);
+    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-closed')).toBe(false);
   });
 
   test('both are no-ops for an unknown id', () => {
     expect(() => setEntryEnabled(rail, 'nope', true)).not.toThrow();
-    expect(() => setEntryVisible(rail, 'nope', false)).not.toThrow();
+    expect(() => setEntryOpen(rail, 'nope', false)).not.toThrow();
   });
 });
 
@@ -338,19 +338,19 @@ describe('setEntryAttention', () => {
     expect(setEntryAttention(rail, 'nope', true)).toBe(false);
   });
 
-  test('badge persists across setEntryVisible hide/show toggles', () => {
+  test('badge persists across setEntryOpen close/reopen toggles', () => {
     setEntryAttention(rail, 'ariel', true);
-    setEntryVisible(rail, 'ariel', false);
+    setEntryOpen(rail, 'ariel', false);
     expect(getEntry(rail, 'ariel')?.classList.contains('agent-attention')).toBe(true);
-    setEntryVisible(rail, 'ariel', true);
+    setEntryOpen(rail, 'ariel', true);
     expect(getEntry(rail, 'ariel')?.classList.contains('agent-attention')).toBe(true);
   });
 
-  test('a hidden entry accepts the badge', () => {
-    setEntryVisible(rail, 'ariel', false);
+  test('a closed entry accepts the badge', () => {
+    setEntryOpen(rail, 'ariel', false);
     expect(setEntryAttention(rail, 'ariel', true)).toBe(true);
     const entry = getEntry(rail, 'ariel');
-    expect(entry?.classList.contains('panel-rail-hidden')).toBe(true);
+    expect(entry?.classList.contains('panel-rail-closed')).toBe(true);
     expect(entry?.classList.contains('agent-attention')).toBe(true);
   });
 

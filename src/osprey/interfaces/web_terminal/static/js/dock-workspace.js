@@ -23,6 +23,13 @@ let dockApi = null;
 
 const PANEL_TERMINAL = 'terminal';
 
+/** Dock tab title for the terminal/chat card. A real title (rather than the
+ *  earlier empty-string de-labeling) makes the terminal a first-class tile:
+ *  alone in its tile the single-tab strip is collapsed anyway (see
+ *  dockview-overrides.css), and stacked with service tabs it must be
+ *  identifiable. The card's own `.terminal-header` remains the in-panel label. */
+const TERMINAL_TITLE = 'SESSION';
+
 /** localStorage key prefix; the per-project key from GET /api/panels is appended
  *  so one browser origin persists a separate expert layout per project. */
 const LAYOUT_KEY_PREFIX = 'osprey-dock-layout-';
@@ -149,7 +156,12 @@ export function initDockWorkspace() {
 
   wireTerminalRefit(dockApi);
   wirePointerShield(dockApi, root);
-  wireTerminalTabLabel(dockApi, root);
+
+  // Keep the rail's terminal entry in sync with the tile's presence: every
+  // settled layout change (human tab close, rail reopen, mode flip, restore)
+  // re-derives open/closed from whether the panel exists.
+  dockApi.onDidLayoutChange(notifyTerminalPresence);
+  notifyTerminalPresence();
 
   // Fire-and-forget: the default layout above is already usable, so a slow or
   // failed /api/panels fetch just means "no persistence this session". A stored
@@ -172,11 +184,7 @@ function arrangeDefaultLayout(api) {
   api.addPanel({
     id: PANEL_TERMINAL,
     component: PANEL_TERMINAL,
-    // Empty title on purpose: the terminal card renders its own `.terminal-header`
-    // ("Session" label + New-session control), so a titled dock tab would double-
-    // label it. dockview-overrides.css keeps the resulting empty tab a usable drag
-    // handle (targeted via .dv-default-tab-content:empty).
-    title: '',
+    title: TERMINAL_TITLE,
   });
   redockServices?.();
 }
@@ -291,26 +299,77 @@ function wireDockTheme(root) {
   subscribe(apply);
 }
 
+/* ---- Terminal tile presence (first-class open/close/reopen) ---- */
+
 /**
- * Give the terminal panel's dock tab an accessible name. Its title is empty on
- * purpose (the card self-labels — see arrangeDefaultLayout), which leaves the
- * focusable tab with no accessible name; `aria-label="Session"` restores one.
- * dockview recreates tab DOM on every layout change, so this re-applies on each
- * settle. The empty-content tab is the terminal's (no other panel has an empty
- * title), matched the same way dockview-overrides.css targets it.
- * @param {any} api
- * @param {HTMLElement} root
+ * Rail-side observer of the terminal tile's presence, registered by
+ * panel-manager (which owns the rail's terminal entry). Invoked with the
+ * current state on registration (when the dock is up) and after every settled
+ * layout change.
+ * @type {((open: boolean) => void) | null}
  */
-function wireTerminalTabLabel(api, root) {
-  const label = () => {
-    const content = root.querySelector('.dv-default-tab-content:empty');
-    const tab = content instanceof Element ? content.closest('.dv-tab') : null;
-    if (tab && tab.getAttribute('aria-label') !== 'Session') {
-      tab.setAttribute('aria-label', 'Session');
-    }
-  };
-  api.onDidLayoutChange(label);
-  label();
+let terminalPresenceHandler = null;
+
+/** Push the current terminal presence to the registered handler. */
+function notifyTerminalPresence() {
+  terminalPresenceHandler?.(isTerminalOpen());
+}
+
+/** @param {(open: boolean) => void} fn */
+export function setTerminalPresenceHandler(fn) {
+  terminalPresenceHandler = fn;
+  if (dockApi) fn(isTerminalOpen());
+}
+
+/** @returns {boolean} whether the terminal tile currently exists in the grid. */
+export function isTerminalOpen() {
+  return !!dockApi?.getPanel(PANEL_TERMINAL);
+}
+
+/**
+ * Surface the terminal tile: focus it when present, re-create it when closed
+ * (the rail entry's activate path). Re-adding by the same component re-adopts
+ * the live terminal subtree — createComponent still holds the source element,
+ * so the running xterm/chat state survives close → reopen (the same mechanism
+ * resetDockLayout relies on). A reopened tile docks at the grid's right edge,
+ * the terminal's home side. Reopening is expert-only: the locked simple layout
+ * always contains the terminal, so there is nothing to reopen there.
+ */
+export function openTerminalPanel() {
+  if (!dockApi) return;
+  const existing = dockApi.getPanel(PANEL_TERMINAL);
+  if (existing) {
+    existing.api?.setActive?.();
+    return;
+  }
+  if (currentUiMode() !== 'expert') return;
+  try {
+    dockApi.addPanel({
+      id: PANEL_TERMINAL,
+      component: PANEL_TERMINAL,
+      title: TERMINAL_TITLE,
+      position: { direction: 'right' },
+    });
+  } catch (err) {
+    console.error('dock: terminal reopen failed', err);
+  }
+}
+
+/**
+ * Close the terminal tile (the rail entry's "×" path). The dock tab's own "×"
+ * goes through dockview directly; both end at the same removePanel, and the
+ * presence handler re-dims the rail entry either way. No-op in simple mode —
+ * the locked layout is not user-editable.
+ */
+export function closeTerminalPanel() {
+  if (!dockApi || currentUiMode() !== 'expert') return;
+  const panel = dockApi.getPanel(PANEL_TERMINAL);
+  if (!panel) return;
+  try {
+    dockApi.removePanel(panel);
+  } catch (err) {
+    console.error('dock: terminal close failed', err);
+  }
 }
 
 /* ---- Layout persistence (reconcile itself lives in dock-reconcile.js) ---- */
@@ -383,6 +442,7 @@ function applyStoredLayout(api) {
   if (!next) return;
   try {
     api.fromJSON(next);
+    normalizeTerminalTitle(api);
     // Let the adapter re-sync: ensure visible service placeholders exist and
     // prune any restored placeholder whose service no longer exists.
     redockServices?.();
@@ -496,8 +556,7 @@ function applySimpleLayout(api) {
   const others = registered.filter((p) => p.id !== PANEL_TERMINAL);
 
   api.clear();
-  // Terminal keeps its empty tab title (its card self-labels — see arrangeDefaultLayout).
-  addPanelFromDescriptor(api, { ...terminal, title: '' });
+  addPanelFromDescriptor(api, { ...terminal, title: TERMINAL_TITLE });
 
   let anchorId = null;
   for (const panel of others) {
@@ -536,6 +595,7 @@ function restoreExpertLayout(api) {
   if (next) {
     try {
       api.fromJSON(next);
+      normalizeTerminalTitle(api);
       redockServices?.();
       return;
     } catch (err) {
@@ -543,6 +603,20 @@ function restoreExpertLayout(api) {
     }
   }
   arrangeDefaultLayout(api);
+}
+
+/**
+ * Stamp the terminal tab's current title onto a restored layout. Layouts
+ * persisted before the terminal tab was titled carry the old empty-string
+ * title, and fromJSON restores titles verbatim — without this, an upgraded
+ * client would keep resurrecting an unlabeled terminal tab from storage.
+ * @param {any} api
+ */
+function normalizeTerminalTitle(api) {
+  const panel = api.getPanel(PANEL_TERMINAL);
+  if (!panel || panel.title === TERMINAL_TITLE) return;
+  if (typeof panel.setTitle === 'function') panel.setTitle(TERMINAL_TITLE);
+  else panel.api?.setTitle?.(TERMINAL_TITLE);
 }
 
 /**

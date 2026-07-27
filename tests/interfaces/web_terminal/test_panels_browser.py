@@ -246,8 +246,8 @@ def _open_page(browser, base_url: str) -> Page:
 #
 # dockview does not stamp its panel ids on the tab DOM, so tabs are addressed by
 # their visible label text (the panel title). The native terminal tab is titled
-# empty on purpose (the card self-labels) and carries aria-label="Session", which
-# is the stable handle for it.
+# "SESSION" (dock-workspace.js's TERMINAL_TITLE), which is the stable handle
+# for it.
 
 # Extract every dockview group with its tab labels and pixel rectangle. Used by
 # the geometry assertions (split / restack / persistence ordering).
@@ -297,8 +297,8 @@ def _service_tab(page: Page, label: str):
 
 
 def _terminal_tab(page: Page):
-    """The native terminal panel's dock tab (empty title → aria-label='Session')."""
-    return page.locator('.dv-tab[aria-label="Session"]')
+    """The native terminal panel's dock tab (titled 'SESSION')."""
+    return _service_tab(page, "SESSION")
 
 
 def _overlay_iframe(page: Page, panel_id: str):
@@ -324,18 +324,23 @@ def _track_panel_posts(page: Page) -> list[str]:
 
 
 def _drag_with_dock_shield(page: Page, source, target, **kwargs) -> None:
-    """``source.drag_to(target)`` with the app's real-drag iframe shield pre-raised.
+    """``source.drag_to(target)`` with the app's real-drag state pre-raised.
 
-    During a genuine pointer drag, dockview's onWillDragPanel raises the pointer
-    shield (dock-workspace.js + dock-iframe.js) so overlay iframes can't swallow
-    the drag events over a covered group. Playwright's synthetic drag_to hit-tests
-    the drop point BEFORE any dragstart could raise that shield, so a drop onto a
-    group covered by an overlay iframe is judged "intercepted" and times out.
-    Pre-raise the same shield for the gesture, then restore it.
+    During a genuine pointer drag, dockview's onWillDragPanel raises the drag
+    state (dock-workspace.js + dock-iframe.js): the ``.dock-dragging`` class on
+    .main-container — which force-reveals collapsed single-tab strips so their
+    tabs are drop targets — and the iframe pointer shield, so overlay iframes
+    can't swallow the drag events over a covered group. Playwright's synthetic
+    drag_to hit-tests the drop point WITHOUT any dragstart having raised that
+    state, so a drop onto a collapsed tab strip resolves to the wrong zone and
+    a drop over an overlay iframe is judged "intercepted" and times out.
+    Pre-raise both halves for the gesture, then restore them.
     """
     shield = (
-        "(v) => document.querySelectorAll('.dock-iframe-overlay iframe')"
-        ".forEach(i => { i.style.pointerEvents = v; })"
+        "(v) => { document.querySelectorAll('.dock-iframe-overlay iframe')"
+        ".forEach(i => { i.style.pointerEvents = v; });"
+        " document.querySelector('.main-container').classList"
+        ".toggle('dock-dragging', v === 'none'); }"
     )
     page.evaluate(shield, "none")
     try:
@@ -445,7 +450,7 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
             "() => document.querySelectorAll('.dv-groupview').length === 1", timeout=5_000
         )
         groups = _dock_groups(page)
-        assert groups[0]["tabs"] == [""], groups
+        assert groups[0]["tabs"] == ["SESSION"], groups
         dock_w = page.evaluate(
             "() => document.getElementById('dock-root').getBoundingClientRect().width"
         )
@@ -455,11 +460,12 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
 
 
 def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser):
-    """SSE panel_visibility toggles a rail entry hidden→visible without a reload.
+    """SSE panel_visibility toggles a rail entry closed→open without a reload.
 
     data-viz is never focused here (so it has no dock placeholder yet); the
-    visibility echo drives only its rail entry, proving the SSE→rail path is
-    intact under the docked shell.
+    visibility echo drives only its rail entry — which stays in the rail
+    throughout (dimmed via .panel-rail-closed when hidden, never removed) —
+    proving the SSE→rail path is intact under the docked shell.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -472,20 +478,22 @@ def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser)
         page = _open_page(chromium_browser, base_url)
         data_viz_tab = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
         expect(data_viz_tab).to_be_visible(timeout=10_000)
+        expect(data_viz_tab).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
 
         r = requests.post(
             f"{base_url}/api/panel-visibility",
             json={"panel": "data-viz", "visible": False},
         )
         assert r.status_code == 200
-        expect(data_viz_tab).not_to_be_visible(timeout=5_000)
+        expect(data_viz_tab).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+        expect(data_viz_tab).to_be_visible()  # dimmed, but still in the rail
 
         r = requests.post(
             f"{base_url}/api/panel-visibility",
             json={"panel": "data-viz", "visible": True},
         )
         assert r.status_code == 200
-        expect(data_viz_tab).to_be_visible(timeout=5_000)
+        expect(data_viz_tab).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
 
         page.close()
 
@@ -652,11 +660,12 @@ def test_dock_tab_close_posts_visibility_false(tmp_path, chromium_browser):
         # Close the data-viz dock tab via its close control.
         _service_tab(page, "DATA VIZ").locator(".dv-default-tab-action").click()
 
-        # Its dock tab and rail entry both retire; exactly one visibility POST.
+        # Its dock tab retires and its rail entry dims (closed, not removed);
+        # exactly one visibility POST.
         expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
-        ).not_to_be_visible(timeout=5_000)
+        expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_have_class(
+            re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
+        )
         page.wait_for_timeout(600)
         assert posts.count("panel-visibility") == 1, f"expected one visibility POST, got {posts}"
 
@@ -918,7 +927,7 @@ def test_layout_persists_across_reload(tmp_path, chromium_browser):
 
         # Default order is workspace/services left, terminal on the right.
         groups = _dock_groups(page)
-        term_before = next(g for g in groups if g["tabs"] == [""])
+        term_before = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term_before["x"] == max(g["x"] for g in groups), groups
 
         # Act — drag the terminal to the far-left of the first group.
@@ -934,7 +943,7 @@ def test_layout_persists_across_reload(tmp_path, chromium_browser):
         page.wait_for_function(
             """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
                 const term = gs.find(g => [...g.querySelectorAll('.dv-default-tab-content')]
-                    .every(t => t.textContent === '') );
+                    .some(t => t.textContent === 'SESSION') );
                 return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
             timeout=5_000,
         )
@@ -948,7 +957,7 @@ def test_layout_persists_across_reload(tmp_path, chromium_browser):
         page.wait_for_timeout(1_500)
 
         groups = _dock_groups(page)
-        term_after = next(g for g in groups if g["tabs"] == [""])
+        term_after = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term_after["x"] == min(g["x"] for g in groups), (
             f"terminal did not stay leftmost after reload: {groups}"
         )
@@ -988,7 +997,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         )
         page.wait_for_function(
             """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
-                const term = gs.find(g => [...g.querySelectorAll('.dv-default-tab-content')].every(t => t.textContent === ''));
+                const term = gs.find(g => [...g.querySelectorAll('.dv-default-tab-content')].some(t => t.textContent === 'SESSION'));
                 return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
             timeout=5_000,
         )
@@ -1007,7 +1016,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         page.wait_for_timeout(1_500)
 
         groups = _dock_groups(page)
-        term_b = next(g for g in groups if g["tabs"] == [""])
+        term_b = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term_b["x"] == max(g["x"] for g in groups), (
             f"project B should show the default (terminal right), got {groups}"
         )
@@ -1024,7 +1033,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         page.wait_for_timeout(1_500)
 
         groups = _dock_groups(page)
-        term_a = next(g for g in groups if g["tabs"] == [""])
+        term_a = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term_a["x"] == min(g["x"] for g in groups), (
             f"project A's stored layout (terminal left) was not isolated: {groups}"
         )
@@ -1072,7 +1081,7 @@ def test_reset_restores_default_layout(tmp_path, chromium_browser):
         assert len(groups) == 2, groups
         left, right = sorted(groups, key=lambda g: g["x"])
         assert left["tabs"] == ["WORKSPACE"], groups
-        assert right["tabs"] == [""], groups
+        assert right["tabs"] == ["SESSION"], groups
 
         # And the reset persists across a reload (custom arrangement is gone).
         page.wait_for_timeout(500)
@@ -1081,7 +1090,7 @@ def test_reset_restores_default_layout(tmp_path, chromium_browser):
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
         page.wait_for_timeout(1_500)
         groups = _dock_groups(page)
-        term = next(g for g in groups if g["tabs"] == [""])
+        term = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term["x"] == max(g["x"] for g in groups), (
             f"reset did not stick — terminal not back on the right: {groups}"
         )
@@ -1132,7 +1141,7 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
 
         # Default arrangement loaded (terminal on the right), grid is functional.
         groups = _dock_groups(page)
-        term = next(g for g in groups if g["tabs"] == [""])
+        term = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term["x"] == max(g["x"] for g in groups), (
             f"corrupt layout did not fall back to default: {groups}"
         )
@@ -1177,7 +1186,7 @@ def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_br
         # The chat/terminal card keeps the right-hand column in simple mode
         # (service tabs stack on the left).
         groups = _dock_groups(page)
-        term = next(g for g in groups if g["tabs"] == [""])
+        term = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term["x"] == max(g["x"] for g in groups), groups
 
         # A drag is a no-op — the arrangement is byte-identical before/after.
@@ -1253,7 +1262,7 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
         # No dead tabs: every dock tab is a known panel; monitor is not docked yet.
         groups = _dock_groups(page)
         all_tabs = [t for g in groups for t in g["tabs"]]
-        assert all(t in ("", "WORKSPACE") for t in all_tabs), (
+        assert all(t in ("SESSION", "WORKSPACE") for t in all_tabs), (
             f"unexpected/dead dock tab after restore: {groups}"
         )
         assert all_tabs.count("MONITOR") == 0, groups
@@ -1291,7 +1300,7 @@ def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path
         assert _dock_locked(page) is True
         expect(_service_tab(page, "WORKSPACE")).to_have_count(0)
         groups = _dock_groups(page)
-        assert [g["tabs"] for g in groups] == [[""]], groups
+        assert [g["tabs"] for g in groups] == [["SESSION"]], groups
 
         # Agent reveal: show_panel('artifacts') docks + activates the workspace.
         r = requests.post(
@@ -1333,7 +1342,7 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
             json={"panel": "data-viz", "visible": False},
         )
         assert r.status_code == 200
-        expect(data_viz_rail).not_to_be_visible(timeout=5_000)
+        expect(data_viz_rail).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
 
         # Open the "+" menu; the hidden panel is offered as an add target.
         page.locator("#panel-add-btn").click()
@@ -1341,8 +1350,8 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
         expect(menu_item).to_be_visible(timeout=5_000)
         menu_item.click()
 
-        # The rail entry returns and the panel docks (tab + overlay iframe).
-        expect(data_viz_rail).to_be_visible(timeout=5_000)
+        # The rail entry un-dims and the panel docks (tab + overlay iframe).
+        expect(data_viz_rail).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
         expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
@@ -1377,9 +1386,9 @@ def test_add_menu_opens_unclipped_beside_rail(tmp_path, chromium_browser):
             json={"panel": "data-viz", "visible": False},
         )
         assert r.status_code == 200
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
-        ).not_to_be_visible(timeout=5_000)
+        expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_have_class(
+            re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
+        )
 
         page.locator("#panel-add-btn").click()
         expect(page.locator(".panel-add-menu.open")).to_be_visible(timeout=5_000)
@@ -1545,10 +1554,10 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
             expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
             expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
-            # The hidden default never surfaced itself.
+            # The hidden default never surfaced itself (rail entry dimmed, not docked).
             expect(
                 page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-            ).not_to_be_visible()
+            ).to_have_class(re.compile(r"\bpanel-rail-closed\b"))
             expect(_service_tab(page, "WORKSPACE")).to_have_count(0)
 
             page.close()
@@ -1596,7 +1605,7 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             ).to_have_count(1, timeout=10_000)
 
             data_viz_rail = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
-            expect(data_viz_rail).not_to_be_visible(timeout=5_000)
+            expect(data_viz_rail).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
             expect(
                 page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
             ).to_have_count(0)
@@ -1605,3 +1614,195 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             expect(_overlay_iframe(page, "data-viz")).not_to_be_visible(timeout=5_000)
 
             page.close()
+
+
+# ===========================================================================
+# Group 8 — First-class terminal tile + rail open/closed semantics
+# ===========================================================================
+
+
+def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
+    """The terminal is a rail-listed tile: closing dims its entry, click reopens.
+
+    The rail's FIRST entry is the terminal ('SESSION'). Closing it via its rail
+    "×" removes the dock panel and dims the entry (closed — never removed);
+    clicking the dimmed entry re-docks the same live terminal card.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        term_rail = page.locator('button.panel-rail-button[data-panel-id="terminal"]')
+        expect(term_rail).to_be_visible(timeout=10_000)
+
+        # The terminal entry leads the rail (the session tile is the anchor).
+        first_id = page.locator(".panel-rail-button").first.get_attribute("data-panel-id")
+        assert first_id == "terminal", first_id
+
+        # Close via the rail "×": dock panel gone, entry dimmed but present.
+        term_rail.hover()
+        page.locator('button[data-panel-id="terminal"] .panel-rail-close').click()
+        expect(_terminal_tab(page)).to_have_count(0, timeout=5_000)
+        expect(term_rail).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+
+        # Reopen via the dimmed entry: the tile and live terminal card return.
+        term_rail.click()
+        expect(_terminal_tab(page)).to_have_count(1, timeout=5_000)
+        expect(term_rail).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+        expect(page.locator(".terminal-card")).to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+def test_closed_rail_entry_click_reopens_panel(tmp_path, chromium_browser):
+    """Clicking a dimmed (closed) rail entry reopens that service panel.
+
+    Close artifacts via its rail "×" → the entry stays in the rail, dimmed.
+    Clicking the dimmed entry POSTs visibility(true) + focus: its dock tab and
+    overlay iframe return.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        artifacts_rail = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
+        expect(artifacts_rail).to_be_visible(timeout=10_000)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+
+        artifacts_rail.hover()
+        page.locator('button[data-panel-id="artifacts"] .panel-rail-close').click()
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
+        expect(artifacts_rail).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+
+        artifacts_rail.click()
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=5_000)
+        expect(artifacts_rail).not_to_have_class(
+            re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
+        )
+        expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+# JS: the tab strip of the group holding the terminal ('SESSION') tab, with its
+# current pixel height — the collapse/reveal assertions poll this.
+_TERMINAL_STRIP_H_JS = """() => {
+    const term = [...document.querySelectorAll('.dv-groupview')].find(g =>
+        [...g.querySelectorAll('.dv-default-tab-content')].some(t => t.textContent === 'SESSION'));
+    const bar = term && term.querySelector('.dv-tabs-and-actions-container');
+    return bar ? bar.getBoundingClientRect().height : null;
+}"""
+
+
+def test_single_panel_tab_strip_collapses_and_reveals(tmp_path, chromium_browser):
+    """A tile holding one panel collapses its tab strip; hovering reveals it.
+
+    The terminal boots alone in its group, so its strip carries .dv-single-tab
+    and rests collapsed (a slim reveal strip); hovering the strip expands it to
+    the full tab bar (drag handle + close), and leaving collapses it again.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+
+        term_strip = (
+            page.locator(".dv-groupview")
+            .filter(has=_terminal_tab(page))
+            .locator(".dv-tabs-and-actions-container")
+        )
+        expect(term_strip).to_have_class(re.compile(r"\bdv-single-tab\b"), timeout=10_000)
+
+        # At rest: collapsed to the slim strip.
+        page.wait_for_function(
+            f"() => {{ const h = ({_TERMINAL_STRIP_H_JS})(); return h !== null && h <= 12; }}",
+            timeout=5_000,
+        )
+
+        # Hover the strip: expands to the full bar height.
+        term_strip.hover()
+        page.wait_for_function(
+            f"() => {{ const h = ({_TERMINAL_STRIP_H_JS})(); return h !== null && h >= 30; }}",
+            timeout=5_000,
+        )
+
+        # Move away: collapses back.
+        page.mouse.move(0, 0)
+        page.wait_for_function(
+            f"() => {{ const h = ({_TERMINAL_STRIP_H_JS})(); return h !== null && h <= 12; }}",
+            timeout=5_000,
+        )
+
+        page.close()
+
+
+def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
+    """Mid-sash-drag (button still down) the overlay iframe tracks its group.
+
+    Press on the sash between the service group and the terminal, move the
+    pointer WITHOUT releasing, and assert the artifacts overlay iframe already
+    matches its group's content rectangle — the live-resize contract (no
+    freeze-until-mouseup snap).
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=10_000)
+
+        before = page.evaluate(_ALIGN_JS, "artifacts")
+        assert before is not None, "artifacts placeholder/iframe missing"
+
+        sash = page.evaluate(
+            """() => {
+                const s = [...document.querySelectorAll('.dv-sash')].find(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 50;
+                });
+                if (!s) return null;
+                const r = s.getBoundingClientRect();
+                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            }"""
+        )
+        assert sash is not None, "no vertical sash found"
+
+        page.mouse.move(sash["x"], sash["y"])
+        page.mouse.down()
+        try:
+            page.mouse.move(sash["x"] - 150, sash["y"], steps=8)
+            # One rAF/RO tick to let the live follower re-apply geometry.
+            page.wait_for_timeout(150)
+
+            mid = page.evaluate(_ALIGN_JS, "artifacts")
+            assert mid is not None, "alignment probe lost mid-drag"
+            # The group actually resized…
+            assert abs(mid["contentW"] - before["contentW"]) >= 100, (before, mid)
+            # …and the overlay iframe is already aligned to it, mid-gesture.
+            assert abs(mid["iframeLeft"] - mid["contentLeft"]) <= 2, mid
+            assert abs(mid["iframeW"] - mid["contentW"]) <= 2, mid
+        finally:
+            page.mouse.up()
+
+        page.close()

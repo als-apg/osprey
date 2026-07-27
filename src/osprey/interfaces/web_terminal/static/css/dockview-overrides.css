@@ -73,17 +73,141 @@
   --dv-dropdown-border-radius: var(--radius-md);
   --dv-transition-duration: var(--duration-fast);
   --dv-active-sash-transition-duration: var(--duration-fast);
+  /* dockview's base delays the accent hover fill on a sash by 0.5s, which makes
+   * the (already narrow) divider feel unresponsive — light up immediately. */
+  --dv-active-sash-transition-delay: 0s;
 }
 
-/* Terminal panel de-labeling: its card carries its own `.terminal-header`
- * ("Session" label + New-session control), so the terminal panel's dock tab
- * title is left empty (see dock-workspace.js) to avoid a double label. An empty
- * title renders an empty `.dv-default-tab-content`, so `:empty` targets exactly
- * that de-labeled tab — no panel-id selector needed — and keeps it a minimal but
- * still-grabbable drag handle rather than collapsing to nothing. */
-.dv-tab .dv-default-tab-content:empty {
-  min-width: var(--space-5);
+/* ---- Resize sashes: wider grab zone + a visible grip ---- */
+
+/* dockview's sash is a 4px strip and only inflates its hit area on touch
+ * devices (its own `@media (pointer: coarse)` ::before). Mirror that inflation
+ * for mouse/trackpad so the divider is grabbable without pixel-hunting: ±4px
+ * around the 4px strip = a 12px target. The ::before is unused by dockview at
+ * fine pointers, so it is free here; events on the pseudo target the sash. */
+@media (pointer: fine) {
+  .dock-root .dv-split-view-container > .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    content: "";
+    position: absolute;
+    background: transparent;
+  }
+  .dock-root .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    top: 0;
+    bottom: 0;
+    left: -4px;
+    right: -4px;
+  }
+  .dock-root .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    left: 0;
+    right: 0;
+    top: -4px;
+    bottom: -4px;
+  }
 }
+
+/* Always-visible grip pill centered on every resizable sash — the divider's
+ * grab affordance (the pre-dock split had a visible grip; the bare 4px strip
+ * lost it). Muted at rest, accent + full opacity the instant the sash is
+ * hovered or dragged (the strip itself also fills accent via
+ * --dv-active-sash-color above). pointer-events:none keeps it purely visual. */
+.dock-root .dv-split-view-container > .dv-sash-container > .dv-sash:not(.dv-disabled)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: background var(--duration-fast) ease, opacity var(--duration-fast) ease;
+}
+
+.dock-root .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash:not(.dv-disabled)::after {
+  width: 3px;
+  height: 28px;
+}
+
+.dock-root .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash:not(.dv-disabled)::after {
+  height: 3px;
+  width: 28px;
+}
+
+.dock-root .dv-split-view-container > .dv-sash-container > .dv-sash:not(.dv-disabled):hover::after,
+.dock-root .dv-split-view-container > .dv-sash-container > .dv-sash:not(.dv-disabled):active::after {
+  background: var(--color-accent);
+  opacity: 1;
+}
+
+/* ---- Single-panel tiles: collapse the tab strip to a slim reveal handle ---- */
+
+/* A tile holding ONE panel does not need a tab bar (the rail already lists the
+ * panels); dockview stamps `.dv-single-tab` on the strip whenever its group has
+ * exactly one tab. Collapse it to a 10px strip showing only a centered handle
+ * dash. Hovering the strip (or keyboard-focusing into it) expands it back to
+ * the full bar — tab drag + close stay one hover away — and any active dockview
+ * drag force-reveals every strip so tabs remain drop targets while restacking.
+ * The content squeeze on expand is followed live by the iframe overlay (see
+ * dock-iframe.js's content-container ResizeObserver). */
+.dock-root .dv-tabs-and-actions-container.dv-single-tab {
+  position: relative;
+  height: 10px;
+  overflow: hidden;
+  transition: height var(--duration-fast) ease;
+}
+
+.dock-root .dv-tabs-and-actions-container.dv-single-tab > * {
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
+}
+
+/* The collapsed strip's reveal handle — same idiom as the sash grip. */
+.dock-root .dv-tabs-and-actions-container.dv-single-tab::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.dock-root .dv-tabs-and-actions-container.dv-single-tab:hover,
+.dock-root .dv-tabs-and-actions-container.dv-single-tab:focus-within,
+.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab {
+  height: var(--dv-tabs-and-actions-container-height);
+}
+
+.dock-root .dv-tabs-and-actions-container.dv-single-tab:hover > *,
+.dock-root .dv-tabs-and-actions-container.dv-single-tab:focus-within > *,
+.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab > * {
+  opacity: 1;
+}
+
+.dock-root .dv-tabs-and-actions-container.dv-single-tab:hover::after,
+.dock-root .dv-tabs-and-actions-container.dv-single-tab:focus-within::after,
+.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab::after {
+  opacity: 0;
+}
+
+/* During a drag the reveal must SNAP, not animate: the drop hit-test happens
+ * against the bar's live geometry, and an in-flight height transition would
+ * let a drop land on a half-revealed strip and miss the tab it targeted. */
+.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab,
+.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab > * {
+  transition: none;
+}
+
+/* The terminal panel's dock tab is titled "SESSION" (dock-workspace.js) so the
+ * terminal reads as a first-class tile: alone in its tile the strip collapses
+ * anyway (dv-single-tab above), and stacked with other tabs an unlabeled tab
+ * would be unidentifiable. The card's own `.terminal-header` label remains the
+ * in-panel identity; the tab is the tile-level one. */
 
 /* Simple mode is a locked layout. dock-workspace.js disables drag/float
  * (disableDnd) and sash resize (api.locked) at runtime; closing a panel is a

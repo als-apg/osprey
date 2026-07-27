@@ -539,8 +539,23 @@ html[data-ui-mode="simple"] .header-help-chip {
   pointer-events: none;
 }
 
-/* Entry hidden by server visibility config; toggled by SSE show/hide events. */
-.panel-rail-button.panel-rail-hidden {
+/* Closed entry (panel available but not open). The rail lists every available
+   panel like a browser's tab strip lists pages — closing a panel dims its entry
+   rather than deleting it, and clicking a dimmed entry reopens the panel.
+   Toggled by SSE visibility events (server-owned state). Declared AFTER
+   .disabled so a closed offline entry reads closed (single opacity wins). */
+.panel-rail-button.panel-rail-closed {
+  opacity: 0.4;
+}
+
+.panel-rail-button.panel-rail-closed:hover {
+  opacity: 0.85;
+}
+
+/* A closed entry has nothing to close and no live backend surface to report:
+   suppress its "×" and health LED until it reopens. */
+.panel-rail-button.panel-rail-closed .panel-rail-close,
+.panel-rail-button.panel-rail-closed .panel-rail-led {
   display: none;
 }
 
@@ -569,6 +584,7 @@ html[data-ui-mode="simple"] .header-help-chip {
 }
 
 .panel-rail-icon::before { content: "\25c8"; }                         /* ◈ fallback */
+.panel-rail-icon[data-icon="terminal"]::before { content: "\276f"; }  /* ❯ session/terminal */
 .panel-rail-icon[data-icon="artifacts"]::before { content: "\25a4"; } /* ▤ workspace */
 .panel-rail-icon[data-icon="ariel"]::before { content: "\25ce"; }     /* ◎ ariel */
 .panel-rail-icon[data-icon="channel-finder"]::before { content: "\2315"; } /* ⌕ channels */
@@ -622,6 +638,13 @@ html[data-ui-mode="simple"] .header-help-chip {
 .panel-rail-button.disabled .panel-rail-close {
   pointer-events: auto;
   opacity: 0.6;
+}
+
+/* Simple mode is a locked layout: the terminal/chat tile is its anchor, so its
+   rail entry must not offer a close there (matches the mode's CSS-suppressed
+   dock-tab close controls; dock-workspace.js guards the JS path too). */
+html[data-ui-mode="simple"] .panel-rail-button[data-panel-id="terminal"] .panel-rail-close {
+  display: none;
 }
 
 /* ---- Add-panel "+" control (last cell of the rail) ---- */

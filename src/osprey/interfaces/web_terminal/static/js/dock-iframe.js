@@ -22,14 +22,18 @@
  * Scope: iframe panels only; geometry synced on layout/resize events only;
  * floating groups and maximize are out of scope for the overlay bound.
  *
- * SETTLE-ONLY SYNC (deliberate bound, not a gap): geometry re-syncs only on
- * dockview's settle events — onDidLayoutChange (panel add/move/close and
- * sash-END), onDidActivePanelChange, and window resize. dockview emits no
- * per-frame layout event during a live sash drag, and a per-pointer-frame/rAF
- * follow is deliberately excluded, so during a sash drag an overlay iframe holds
- * its last rectangle and lags the sash, then SNAPS to the correct geometry the
- * instant the drag ends. (The terminal's own continuous refit is separate — it
- * rides terminal.js's ResizeObserver, not this adapter.)
+ * LIVE SYNC: geometry re-syncs on dockview's settle events — onDidLayoutChange
+ * (panel add/move/close and sash-END), onDidActivePanelChange, and window
+ * resize — and, between settles, via a ResizeObserver on each managed
+ * placeholder's group content container. dockview emits no per-frame layout
+ * event during a live sash drag, but the drag resizes those containers every
+ * frame, so the observer follows the sash continuously (same for the
+ * single-tab strip's hover expand — see dockview-overrides.css) instead of the
+ * iframe freezing and snapping at mouseup. Settle events additionally REWIRE
+ * the observed set (groups are created/destroyed as panels move); the observer
+ * callback only re-applies geometry, never rewires, so it cannot recurse.
+ * (The terminal's own continuous refit is separate — it rides terminal.js's
+ * ResizeObserver, not this adapter.)
  *
  * The overlay layer is pointer-events:none so clicks fall through to the dock
  * chrome (tab strips, sashes) it visually covers; each iframe re-enables pointer
@@ -123,6 +127,7 @@ function ensureDock() {
         api.onDidActivePanelChange(syncGeometry),
       );
       wireDragShield(api);
+      wireSashShield();
       window.addEventListener('resize', syncGeometry);
       // After a default-layout rebuild (reset / restore-fallback) the grid holds
       // only the terminal — re-dock every visible managed panel's placeholder so
@@ -166,6 +171,29 @@ function wireDragShield(api) {
     onStart: () => { for (const e of managed.values()) e.iframe.style.pointerEvents = 'none'; },
     onEnd: () => { for (const e of managed.values()) e.iframe.style.pointerEvents = 'auto'; },
   }));
+}
+
+/**
+ * Same shield for SASH drags. A live resize now follows the pointer frame-by-
+ * frame (see the content-container ResizeObserver), so the pointer can cross an
+ * overlay iframe mid-drag — a separate browsing context that would swallow the
+ * pointermove events dockview's sash handler needs. Neutralize the iframes for
+ * the whole gesture (sash pointerdown → pointerup/cancel), exactly as the old
+ * hand-rolled splitter did with `body.resizing iframe { pointer-events:none }`.
+ * Capture-phase so it runs regardless of dockview's own sash handling.
+ */
+function wireSashShield() {
+  document.addEventListener('pointerdown', (e) => {
+    if (!(e.target instanceof Element) || !e.target.closest('.dv-sash')) return;
+    for (const entry of managed.values()) entry.iframe.style.pointerEvents = 'none';
+    const end = () => {
+      document.removeEventListener('pointerup', end, true);
+      document.removeEventListener('pointercancel', end, true);
+      for (const entry of managed.values()) entry.iframe.style.pointerEvents = 'auto';
+    };
+    document.addEventListener('pointerup', end, true);
+    document.addEventListener('pointercancel', end, true);
+  }, true);
 }
 
 /** @param {HTMLIFrameElement} iframe */
@@ -306,14 +334,48 @@ function dispatchResize(iframe) {
 }
 
 /**
+ * Live follower for the stretch between dockview settle events: observes each
+ * managed placeholder's group content container, whose per-frame resize during
+ * a sash drag (or the single-tab strip's hover expand) has no dockview event.
+ * Rewired by syncGeometry() on every settle — groups come and go as panels
+ * move. The callback re-applies geometry only; it never rewires, so the
+ * initial fire observe() triggers cannot recurse into another rewire.
+ * @type {ResizeObserver | null}
+ */
+let contentObserver = null;
+
+/** @param {any} api */
+function rewireContentObservers(api) {
+  if (!contentObserver) contentObserver = new ResizeObserver(() => applyGeometry());
+  contentObserver.disconnect();
+  for (const entry of managed.values()) {
+    if (!entry.visible) continue;
+    const content = api.getPanel(entry.placeholderId)?.group?.element
+      ?.querySelector('.dv-content-container');
+    if (content) contentObserver.observe(content);
+  }
+}
+
+/**
+ * Settle-event sync: re-apply all overlay geometry, then re-point the live
+ * content observers at the placeholders' current groups. No-op in fallback
+ * mode (no overlay / no api).
+ */
+function syncGeometry() {
+  const api = getDockApi();
+  if (!api || !overlayEl) return;
+  applyGeometry();
+  rewireContentObservers(api);
+}
+
+/**
  * Copy each managed placeholder's group content rectangle onto its overlay
  * iframe (inline geometry, relative to the overlay's own origin). An iframe is
  * shown only when its panel is visible AND its placeholder is the active tab in
  * its group; anything hidden behind another tab, closed, or lacking a live
- * placeholder is display:none. Only fires on dockview settle events, never per
- * pointer frame. No-op in fallback mode (no overlay / no api).
+ * placeholder is display:none.
  */
-function syncGeometry() {
+function applyGeometry() {
   const api = getDockApi();
   if (!api || !overlayEl) return;
   const base = overlayEl.getBoundingClientRect();
