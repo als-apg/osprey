@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Jul 24, 2026"/>
+    <meta name="docbuild:last-update" content="Jul 27, 2026"/>
   </head>
   
   
@@ -939,7 +939,7 @@ project. The profile declares:</p>
 <li><p><strong>MCP server definitions</strong> to inject custom tools</p></li>
 <li><p><strong>Lifecycle commands</strong> to run before/after the build</p></li>
 <li><p><strong>Environment templates</strong> for required variables and defaults</p></li>
-<li><p><strong>Dependencies</strong> to append to <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code></p></li>
+<li><p><strong>Dependencies</strong> to install into the project environment</p></li>
 </ul>
 <pre  class="mermaid">
         flowchart LR
@@ -1201,7 +1201,8 @@ provider (presets already set one).</p></td>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
-<td><p>Python packages to append to <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>.</p></td>
+<td><p>Python packages to install into the project venv and record in
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
 <td><p>string</p></td>
@@ -1518,17 +1519,26 @@ key. The path is relative to the profile directory:</p>
 </section>
 <section id="dependencies">
 <h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> list appends Python package specifiers to the built project’s
-<code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>. This ensures facility-specific packages are tracked alongside
-framework dependencies.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> list adds Python package specifiers to the built project.
+They are installed into the project venv and recorded in the project’s generated
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, so facility-specific packages are tracked alongside framework
+dependencies.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dependencies</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">numpy&gt;=1.24</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pandas</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scipy~=1.11</span>
 </pre></div>
 </div>
-<p>The build installs these into the project venv automatically; only builds run
-with <code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code> need a manual <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-r</span> <span class="pre">requirements.txt</span></code>.</p>
+<p>The build installs these automatically. Because the generated <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>
+declares the same set, <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span></code> inside the project resolves the project’s own
+<code class="docutils literal notranslate"><span class="pre">.venv</span></code>, and <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> rebuilds it from scratch:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-assistant
+uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>web<span class="w">     </span><span class="c1"># uses my-assistant/.venv</span>
+uv<span class="w"> </span>sync<span class="w">               </span><span class="c1"># rebuilds it from pyproject.toml</span>
+</pre></div>
+</div>
+<p>Builds run with <code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code> create no environment and no <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>;
+install dependencies yourself in that mode.</p>
 </section>
 <section id="repository-structure">
 <h2>Repository Structure<a class="headerlink" href="#repository-structure" title="Link to this heading">#</a></h2>
