@@ -71,7 +71,7 @@ dependencies = [
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
     "numpy>=2.2.6",  # Required by pandas
-    "matplotlib>=3.10.3",  # Required for Python capability visualization (core use case)
+    "matplotlib>=3.11.1",  # Required for Python capability visualization (core use case)
     # Networking and protocols
     "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
     "websocket-client>=1.7.0",
