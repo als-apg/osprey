@@ -11,14 +11,14 @@
       "glow-shadow": { "$value": "none", "$type": "shadow", "$description": "Active-terminal inner glow — none in the flat themes; the retro groups carry the pre-redesign accent-tinted inset." }
     },
     "wt-welcome": {
-      "$description": "The ASCII welcome banner, on the main palette: the flat canvas, ordinary primary text, and the theme accent for the link/prompt/cursor. The green-phosphor CRT treatment this group used to carry is part of the pre-redesign identity and now lives only in the retro-* groups below — a main-theme deployment should not open on a surface from the old look.",
-      "bg": { "$value": "{color.gray.950}", "$type": "color", "$description": "Equals bg.primary — the overlay sits flush on the canvas, with no CRT vignette to darken it against." },
-      "text": { "$value": "{color.gray.250}", "$type": "color" },
-      "text-glow": { "$value": "none", "$type": "shadow", "$description": "No phosphor glow in the flat themes; the retro groups keep the original green one." },
-      "link": { "$value": "{color.azure.300}", "$type": "color" },
-      "link-hover": { "$value": "{color.gray.50}", "$type": "color", "$description": "Hover moves toward maximum contrast rather than to another hue." },
-      "prompt": { "$value": "{color.azure.300}", "$type": "color" },
-      "cursor": { "$value": "{color.azure.300}", "$type": "color" },
+      "$description": "The ASCII welcome banner keeps its green-phosphor CRT treatment in every chromatic theme, including the flat ones. It is the product's signature intro surface rather than part of the shell chrome, so it is deliberately NOT re-tinted to follow the redesign palette — this group and the retro-* groups carry the same values on purpose. Only the high-contrast groups depart from it, because that family admits no hue at all.",
+      "bg": { "$value": "{color.slate.1100}", "$type": "color" },
+      "text": { "$value": "{color.green.200}", "$type": "color" },
+      "text-glow": { "$value": "0 0 8px rgba(126, 200, 160, 0.25)", "$type": "shadow", "$description": "Composite text-shadow embedding green.200's rgb triplet at 25% alpha; kept literal (no one-hop alias expresses 'primitive + alpha')." },
+      "link": { "$value": "{color.green.600}", "$type": "color" },
+      "link-hover": { "$value": "{color.green.100}", "$type": "color" },
+      "prompt": { "$value": "{color.green.500}", "$type": "color" },
+      "cursor": { "$value": "{color.green.200}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string", "$description": "The welcome ASCII banner's own, more-pronounced scanline effect — distinct from wt-crt.scanline-bg (different stop offsets and alpha). Theme-invariant by design (same value in every group, matching the literal it replaces): the overlay's opacity is gated by wt-crt.scanline-opacity, which is 0 in every non-retro group, so this value never renders visibly outside the retro family regardless." }
     },
     "wt-header-height": { "$value": "44px", "$type": "dimension", "$description": "Header bar height (frame 2a). Renamed from --header-height (Task 1.1 omission surfaced by the real build; used by terminal.css)." },
@@ -37,13 +37,13 @@
       "glow-shadow": { "$value": "none", "$type": "shadow" }
     },
     "wt-welcome": {
-      "bg": { "$value": "{color.gray.100}", "$type": "color", "$description": "Equals bg.primary (light) — the overlay just matches the page background." },
-      "text": { "$value": "{color.gray.750}", "$type": "color" },
+      "bg": { "$value": "{color.slate.150}", "$type": "color", "$description": "Equals the pre-redesign light bg.primary — welcome modal has no CRT vignette in light mode, so it just matches that background." },
+      "text": { "$value": "{color.teal.500}", "$type": "color" },
       "text-glow": { "$value": "none", "$type": "shadow" },
-      "link": { "$value": "{color.azure.500}", "$type": "color" },
-      "link-hover": { "$value": "{color.gray.750}", "$type": "color", "$description": "Hover moves toward maximum contrast rather than to another hue." },
-      "prompt": { "$value": "{color.azure.500}", "$type": "color" },
-      "cursor": { "$value": "{color.azure.500}", "$type": "color" },
+      "link": { "$value": "{color.teal.400}", "$type": "color" },
+      "link-hover": { "$value": "{color.teal.700}", "$type": "color" },
+      "prompt": { "$value": "{color.teal.400}", "$type": "color" },
+      "cursor": { "$value": "{color.teal.500}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string", "$description": "Same theme-invariant value as dark — see dark group's description." }
     },
     "wt-header-height": { "$value": "44px", "$type": "dimension", "$description": "Header bar height (frame 2a) — theme-independent, identical to dark's value." },
