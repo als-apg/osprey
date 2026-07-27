@@ -8,7 +8,10 @@
  *   --bg-primary/secondary/panel/elevated, --text-primary/secondary/muted,
  *   --color-accent[-light], --color-amber-light, --color-success/warning,
  *   --border-default/accent, --font-display, --font-mono, and the
- *   --accent-tint-*/--neutral-tint-* ramps.
+ *   --accent-tint-N and --neutral-tint-N ramps. (Never write the token
+ *   families glob-style here: an asterisk followed by a slash terminates
+ *   this comment mid-file and the parser then eats the :root block below —
+ *   every --okf-* token silently vanishes.)
  * Only panel-local scale/layout tokens with no fleet-wide equivalent
  * (typography steps, spacing, radius, transitions, translucent surfaces) stay
  * in the reduced :root below, mirroring the artifact gallery's post-migration
@@ -83,6 +86,8 @@ body {
 /* -- Sidebar -------------------------------------------------------------- */
 
 #sidebar {
+  /* flex-basis/max-width are overridden inline by js/resize.js when the
+     operator drags the #sidebar-resizer splitter (persisted per origin). */
   flex: 0 0 300px;
   max-width: 300px;
   display: flex;
@@ -90,6 +95,47 @@ body {
   background: var(--bg-panel);
   border-right: 1px solid var(--border-default);
   overflow: hidden;
+}
+
+/* Draggable splitter between sidebar and reader — the same grip-pill idiom as
+   the hub's dockview sashes (dockview-overrides.css): quiet pill at rest,
+   instant accent fill on hover/drag. Wired by js/resize.js. */
+#sidebar-resizer {
+  flex: 0 0 5px;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+  transition: background var(--transition-fast);
+}
+
+#sidebar-resizer:hover,
+#sidebar-resizer.dragging,
+#sidebar-resizer:focus-visible {
+  background: var(--color-accent);
+  outline: none;
+}
+
+#sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 28px;
+  border-radius: var(--okf-radius-full);
+  background: var(--text-muted);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+
+#sidebar-resizer:hover::after,
+#sidebar-resizer.dragging::after,
+#sidebar-resizer:focus-visible::after {
+  background: var(--color-accent);
+  opacity: 1;
 }
 
 #search-box {
@@ -170,7 +216,7 @@ body {
 #search-results {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: var(--okf-space-2) var(--okf-space-1) var(--okf-space-6);
+  padding: var(--okf-space-2) var(--okf-space-2) var(--okf-space-6);
 }
 
 #search-results {
@@ -267,7 +313,7 @@ body {
 #reader-content {
   max-width: 860px;
   margin: 0 auto;
-  padding: var(--okf-space-4) var(--okf-space-6) var(--okf-space-12);
+  padding: var(--okf-space-4) var(--okf-space-8) var(--okf-space-12);
 }
 
 .concept-title {
@@ -432,6 +478,10 @@ body {
     border-right: none;
     border-bottom: 1px solid var(--border-default);
   }
+  /* Stacked layout has no side-by-side split to resize. */
+  #sidebar-resizer {
+    display: none;
+  }
   #reader {
     flex: 1 1 auto;
   }
@@ -494,8 +544,10 @@ body {
    ================================================================ */
 
 /* Drop the whole expert navigation column (tree, search, group labels,
-   bundle-health footer). #app is a flex row, so #reader then fills the panel. */
-:root[data-ui-mode="simple"] #sidebar {
+   bundle-health footer) and its resizer. #app is a flex row, so #reader then
+   fills the panel. */
+:root[data-ui-mode="simple"] #sidebar,
+:root[data-ui-mode="simple"] #sidebar-resizer {
   display: none;
 }
 

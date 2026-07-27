@@ -34,6 +34,7 @@ import { debounce } from "/design-system/js/dom.js";
 import "/design-system/js/components/osprey-theme-switcher.js";
 import { el, isFallback, readPanelParams, STRUCTURE_MARKER } from "./helpers.js";
 import { initTree, renderTree, highlightActive, highlightStructure, selectConcept } from "./tree.js";
+import { initSidebarResize } from "./resize.js";
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme and
 // follow live `osprey-theme-change` messages. theme-boot.js already applied
@@ -56,6 +57,9 @@ window.addEventListener("message", (e) => {
 });
 
 applyEmbedded();
+
+// Draggable sidebar/reader splitter (expert layout; hidden in simple mode).
+initSidebarResize();
 
 /**
  * @typedef {Object} ConceptFrontmatter

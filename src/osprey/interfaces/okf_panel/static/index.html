@@ -56,6 +56,10 @@
            — broken cross-links / frontmatter issues for the served bundle. -->
       <footer id="bundle-health" class="bundle-health" hidden aria-live="polite"></footer>
     </aside>
+    <!-- Draggable splitter between sidebar and reader (js/resize.js). Same
+         grip-pill idiom as the hub's dockview sashes; Arrow keys nudge it. -->
+    <div id="sidebar-resizer" role="separator" aria-orientation="vertical"
+         aria-label="Resize sidebar" tabindex="0"></div>
     <main id="reader">
       <!-- Reading-focused (Simple) affordance: hidden in Expert, a sticky
            "Browse all pages" bar in Simple that returns to the structure
