@@ -25,10 +25,30 @@ initTheme({ role: 'follower' });
 let currentView = 'search';
 
 /**
+ * Whether the app runs embedded in the web terminal iframe.
+ * Reads the `embedded` body class set by applyEmbedded() in init().
+ * @returns {boolean}
+ */
+function isEmbedded() {
+  return document.body.classList.contains('embedded');
+}
+
+/**
+ * Default view when no hash is present. Search is standalone-only: when
+ * embedded in the web terminal, logbook search goes through the agent, so
+ * the panel opens on Browse instead.
+ * @returns {string}
+ */
+function defaultView() {
+  return isEmbedded() ? 'browse' : 'search';
+}
+
+/**
  * Initialize the application.
  */
 async function init() {
-  // Embedded mode — hide logo when loaded inside web terminal iframe
+  // Embedded mode — hide standalone-only chrome (logo, search nav) when
+  // loaded inside the web terminal iframe
   applyEmbedded();
 
   // Initialize modules — wrapped in try/catch so navigation always works
@@ -54,7 +74,7 @@ async function init() {
   setupNavigation();
   setupModals();
 
-  const hash = window.location.hash.slice(1) || 'search';
+  const hash = window.location.hash.slice(1) || defaultView();
   navigateTo(hash);
 
   // Expose app API to window for onclick handlers
@@ -87,7 +107,7 @@ function setupNavigation() {
 
   // Handle hash changes
   window.addEventListener('hashchange', () => {
-    const hash = window.location.hash.slice(1) || 'search';
+    const hash = window.location.hash.slice(1) || defaultView();
     navigateTo(hash);
   });
 }
@@ -142,6 +162,12 @@ function parseHash(hash) {
  */
 function navigateTo(hash) {
   const { viewName, params } = parseHash(hash);
+
+  // Search is hidden in embedded mode — redirect stray #search hashes
+  if (viewName === 'search' && isEmbedded()) {
+    navigateTo('browse');
+    return;
+  }
 
   // Update URL hash
   window.location.hash = hash;
