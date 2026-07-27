@@ -198,7 +198,7 @@ knowledge = [
 
 # Screen capture on Linux (X11) — not needed on macOS
 screen-capture-linux = [
-    "mss>=9.0.0",
+    "mss>=10.2.0",
     "python-xlib>=0.33",
 ]
 
