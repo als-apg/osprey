@@ -238,6 +238,12 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 [tool.hatch.version]
 path = "src/osprey/__init__.py"
 
+[tool.hatch.build]
+# Never package benchmark results produced by running the channel-finder
+# benchmark from inside the template tree (untracked in git, but hatchling
+# packages the working tree — see the matching .gitignore entry).
+exclude = ["src/osprey/templates/apps/control_assistant/data/benchmarks/results"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey"]
 
