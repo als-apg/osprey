@@ -304,3 +304,25 @@ def test_step_size_blocks_when_current_value_unreadable(tmp_path, hook_runner):
     assert result is not None
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "step size" in result["hookSpecificOutput"]["permissionDecisionReason"].lower()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
+    """Unusable stdin allows the write through rather than denying it.
+
+    Limits validation is fail-closed once it has a channel and a value, but it
+    never gets that far here: a closed pipe, a truncated write or a non-object
+    payload leaves nothing to validate, so the hook exits 0 with no decision.
+    """
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_limits.py",
+        tool_name=None,
+        tool_input=None,
+        cwd=tmp_path,
+        stdin_override=stdin,
+    )
+
+    assert returncode == 0
+    assert stdout.strip() == ""
+    assert "Traceback" not in stderr

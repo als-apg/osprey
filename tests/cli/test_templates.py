@@ -593,7 +593,17 @@ class TestTemplateManifest:
         assert ".claude/skills/session-report/reference.md" in outputs
 
     def test_control_assistant_has_all_hooks(self, tmp_path):
-        """Control assistant project must have all 8 hook files."""
+        """Pin the exact set of hook files the control-assistant preset renders.
+
+        An equality check, not a subset one, so dropping a hook from the preset
+        and adding an unlisted one both fail here — the rendered set only changes
+        when someone updates this list on purpose.
+
+        This does not read settings.json; it says nothing about whether the
+        wiring matches. That parity is the two-direction invariant in
+        ``tests/cli/test_claude_regen.py`` — every settings.json reference has a
+        shipped file, and every shipped event hook is wired into settings.json.
+        """
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="ctrl-hooks-test",
@@ -602,19 +612,23 @@ class TestTemplateManifest:
             context={"channel_finder_mode": "hierarchical"},
         )
 
-        expected_hooks = [
-            "osprey_hook_log.py",
+        expected_hooks = {
+            "hook_config.json",
             "osprey_approval.py",
-            "osprey_writes_check.py",
-            "osprey_limits.py",
+            "osprey_cf_feedback_capture.py",
+            "osprey_config_drift.py",
             "osprey_error_guidance.py",
+            "osprey_focus_validate.py",
+            "osprey_hook_log.py",
+            "osprey_limits.py",
             "osprey_memory_guard.py",
             "osprey_notebook_update.py",
-            "osprey_cf_feedback_capture.py",
-        ]
+            "osprey_panels_context.py",
+            "osprey_writes_check.py",
+        }
         hooks_dir = project_dir / ".claude" / "hooks"
-        for hook_name in expected_hooks:
-            assert (hooks_dir / hook_name).exists(), f"Missing hook: {hook_name}"
+        rendered = {p.name for p in hooks_dir.iterdir() if p.is_file()}
+        assert rendered == expected_hooks
 
     def test_backward_compat_no_manifest(self, tmp_path):
         """If manifest doesn't exist, all files are generated (backward compat)."""

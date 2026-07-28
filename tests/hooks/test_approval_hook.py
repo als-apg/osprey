@@ -9,9 +9,7 @@ This hook implements the human-in-the-loop approval system. Based on the
 Also covers pre-execution notebook creation for execute (python) approval.
 """
 
-import importlib.util
 import re
-from pathlib import Path
 
 import pytest
 
@@ -640,27 +638,13 @@ def test_has_write_patterns_override_via_config(tmp_path, hook_runner, make_conf
 
 
 @pytest.mark.unit
-def test_fallback_merges_custom_patterns(tmp_path, hook_runner, make_config):
+def test_fallback_merges_custom_patterns(hook_module):
     """Fallback path merges custom patterns with _FALLBACK_WRITE_PATTERNS by default.
 
     When osprey is not importable, the fallback regex path must merge
     custom patterns (extend mode) instead of replacing the fallback list.
     """
-    hook_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "osprey"
-        / "templates"
-        / "claude_code"
-        / "claude"
-        / "hooks"
-        / "osprey_approval.py"
-    )
-    spec = importlib.util.spec_from_file_location("osprey_approval_fb", hook_path)
-    hook_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(hook_module)
-
-    fallback_patterns = hook_module._FALLBACK_WRITE_PATTERNS
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
 
     # Simulate the fallback merge logic (extend mode, the default)
     config = {
@@ -689,21 +673,9 @@ def test_fallback_merges_custom_patterns(tmp_path, hook_runner, make_config):
 
 
 @pytest.mark.unit
-def test_fallback_override_replaces_patterns(tmp_path, hook_runner, make_config):
+def test_fallback_override_replaces_patterns(hook_module):
     """Fallback path with mode=override replaces _FALLBACK_WRITE_PATTERNS entirely."""
-    hook_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "osprey"
-        / "templates"
-        / "claude_code"
-        / "claude"
-        / "hooks"
-        / "osprey_approval.py"
-    )
-    spec = importlib.util.spec_from_file_location("osprey_approval_fb2", hook_path)
-    hook_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(hook_module)
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
 
     config = {
         "control_system": {
@@ -717,7 +689,7 @@ def test_fallback_override_replaces_patterns(tmp_path, hook_runner, make_config)
     pat_config = config.get("control_system", {}).get("patterns", {})
     custom = pat_config.get("write")
     mode = pat_config.get("mode", "extend")
-    patterns = list(hook_module._FALLBACK_WRITE_PATTERNS)
+    patterns = list(fallback_patterns)
     if custom:
         if mode == "override":
             patterns = list(custom)
@@ -980,7 +952,7 @@ def test_entry_create_always_asks(tmp_path, hook_runner, make_config):
 
 
 @pytest.mark.unit
-def test_fallback_pattern_parity_with_framework():
+def test_fallback_pattern_parity_with_framework(hook_module):
     """Fallback write patterns in the hook must match framework standard patterns.
 
     This catches drift between the two pattern lists. If a pattern is added to
@@ -991,23 +963,8 @@ def test_fallback_pattern_parity_with_framework():
         get_framework_standard_patterns,
     )
 
-    # Load the hook module directly (it's a template file, not an importable package)
-    hook_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "osprey"
-        / "templates"
-        / "claude_code"
-        / "claude"
-        / "hooks"
-        / "osprey_approval.py"
-    )
-    spec = importlib.util.spec_from_file_location("osprey_approval", hook_path)
-    hook_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(hook_module)
-
     framework_patterns = get_framework_standard_patterns()["write"]
-    fallback_patterns = hook_module._FALLBACK_WRITE_PATTERNS
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
 
     assert fallback_patterns == framework_patterns, (
         f"Fallback patterns ({len(fallback_patterns)}) differ from "
@@ -1015,3 +972,25 @@ def test_fallback_pattern_parity_with_framework():
         f"Missing from fallback: {set(framework_patterns) - set(fallback_patterns)}\n"
         f"Extra in fallback: {set(fallback_patterns) - set(framework_patterns)}"
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
+    """Unusable stdin passes the tool through without asking for approval.
+
+    A closed pipe, a truncated write and a non-object payload each leave the
+    hook with no tool to gate, so it exits 0 and emits no decision. Emitting an
+    "ask" here would stall every tool call behind a prompt nobody can answer.
+    """
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_approval.py",
+        tool_name=None,
+        tool_input=None,
+        cwd=tmp_path,
+        stdin_override=stdin,
+    )
+
+    assert returncode == 0
+    assert stdout.strip() == ""
+    assert "Traceback" not in stderr

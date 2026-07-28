@@ -362,6 +362,12 @@ known-first-party = ["osprey", "configs", "applications", "interfaces", "deploym
 # Coverage configuration (if using pytest-cov)
 [tool.coverage.run]
 source = ["src", "interfaces", "deployment"]
+# Hooks ship as standalone scripts and are exercised by spawning them, so most of
+# their code runs in child processes. The subprocess patcher makes those children
+# measure themselves. It force-enables parallel data files; the explicit entry
+# below documents that rather than leaving it implicit.
+patch = ["subprocess"]
+parallel = true
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

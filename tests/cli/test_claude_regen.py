@@ -7,6 +7,7 @@ safety hooks across regeneration cycles.
 
 import json
 import os
+import re
 
 import pytest
 import yaml
@@ -14,6 +15,29 @@ import yaml
 from osprey.build.claude_code_resolver import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+
+# Hook modules that are shipped into .claude/hooks/ as importable support code
+# rather than as hook entry points. They are deliberately absent from
+# settings.json and are excluded from the settings <-> hooks parity invariant.
+HOOK_LIBRARY_MODULES = {"osprey_hook_log.py"}
+
+_HOOK_BASENAME_RE = re.compile(r"osprey_[A-Za-z0-9_]+\.py")
+
+
+def _referenced_hook_basenames(settings: dict) -> dict[str, list[str]]:
+    """Map each ``osprey_*.py`` basename referenced in settings.json to its events.
+
+    Hook commands are shell strings whose shape varies by wiring route (quoted
+    absolute interpreter vs. literal ``python3``, trailing ``2>/dev/null || true``),
+    so the basename is extracted by pattern rather than by matching whole commands.
+    """
+    found: dict[str, list[str]] = {}
+    for event, entries in settings.get("hooks", {}).items():
+        for entry in entries:
+            for hook in entry.get("hooks", []):
+                for basename in _HOOK_BASENAME_RE.findall(hook.get("command", "")):
+                    found.setdefault(basename, []).append(event)
+    return found
 
 
 class TestBuildClaudeCodeContext:
@@ -347,6 +371,82 @@ class TestSafetyPreservation:
                 f"framework hook must launch via the resolved venv interpreter "
                 f"(absolute path), got: {cmd}"
             )
+
+    def test_every_settings_hook_reference_has_a_shipped_file(self, regen_project):
+        """Direction (a): settings.json never points at a hook that was not shipped.
+
+        A reference with no file behind it is a silently dead hook — Claude Code
+        runs the command, the interpreter fails to find the script, and (because
+        every framework hook command is fail-open) the event proceeds with the
+        guard absent. Nothing in the rendered project surfaces that, so this
+        invariant is the only place it shows up.
+
+        Hooks reach settings.json by three different routes, all of which land in
+        the same rendered ``hooks`` block and all of which this direction covers:
+
+        1. **Hardcoded template entries** — SessionStart and UserPromptSubmit
+           entries written literally into ``settings.json.j2``. These keep the
+           literal ``python3`` interpreter token and carry a
+           ``2>/dev/null || true`` suffix (the PreToolUse/PostToolUse loops, by
+           contrast, rewrite ``python3`` to the resolved venv interpreter).
+        2. **Server registry wiring** — ``hooks_pre`` / ``hooks_post`` rules
+           contributed by each enabled MCP server, plus the framework-level
+           pre/post rules.
+        3. **Frontmatter ``wiring: standalone``** — hooks whose own YAML
+           frontmatter declares the event and matcher tools, from which the
+           renderer builds the rule. Exactly two hooks use this route today:
+           ``osprey_memory_guard`` and ``osprey_notebook_update``.
+        """
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
+        hooks_dir = regen_project / ".claude" / "hooks"
+
+        referenced = _referenced_hook_basenames(settings)
+        assert referenced, "expected settings.json to reference osprey_*.py hooks"
+
+        missing = {
+            basename: sorted(set(events))
+            for basename, events in referenced.items()
+            if not (hooks_dir / basename).exists()
+        }
+        assert not missing, (
+            f"settings.json references hooks that were not shipped into "
+            f"{hooks_dir}: {missing}. A dangling reference fails open — the "
+            f"guard is silently absent at runtime."
+        )
+
+    def test_every_shipped_event_hook_is_wired_into_settings(self, regen_project):
+        """Direction (b): no shipped event hook sits in the project unreferenced.
+
+        The mirror of the test above. A hook file that is deployed but wired into
+        no event is dead weight that reads, to anyone inspecting the project, as
+        an active safety layer. Under the default ``control_assistant`` shape the
+        controls server is enabled and the fixture enables channel-finder, so
+        every event hook is unconditionally wired — there is no configuration in
+        this fixture under which a shipped hook is legitimately unreferenced.
+
+        ``osprey_hook_log`` is excluded: it is imported by the other hooks as a
+        logging helper and is not itself a hook entry point (see
+        ``HOOK_LIBRARY_MODULES``).
+        """
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
+        hooks_dir = regen_project / ".claude" / "hooks"
+
+        shipped = {p.name for p in hooks_dir.glob("osprey_*.py")}
+        event_hooks = shipped - HOOK_LIBRARY_MODULES
+        # Anti-vacuous guard: a glob that matched nothing (or only the library
+        # module) would make the subset check below trivially true.
+        assert len(event_hooks) >= 10, (
+            f"expected at least 10 shipped event hooks, found {sorted(event_hooks)}"
+        )
+
+        referenced = set(_referenced_hook_basenames(settings))
+        unwired = sorted(event_hooks - referenced)
+        assert not unwired, (
+            f"hooks shipped into {hooks_dir} but referenced by no event in "
+            f"settings.json: {unwired}. Either wire them (template entry, server "
+            f"registry hooks_pre/hooks_post, or `wiring: standalone` frontmatter) "
+            f"or stop shipping them."
+        )
 
 
 class TestUserFilePreservation:
