@@ -35,29 +35,24 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import sys
 
+from osprey.interfaces._serving import free_port
 
-def _free_port() -> int:
-    """Return an unused TCP port on 127.0.0.1 (same convention as
-    tests/interfaces/conftest.py and friends)."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
+# import-time required because libca latches EPICS_CA_* at C-library init,
+# which happens on the first `import epics`/`softioc` anywhere in the process
+# -- earlier than any fixture can run.
+#
 # Loopback-only, ephemeral port pair: this worktree is shared by concurrent
 # agent test runs (and by the probe/VA container), so a hardcoded port would
 # race. Pick fresh ports per test session unless the environment already
-# pins them. Must be set before any of this process's or the subprocesses'
-# imports of epics/softioc.
+# pins them.
 os.environ.setdefault("EPICS_CA_ADDR_LIST", "127.0.0.1")
 os.environ.setdefault("EPICS_CA_AUTO_ADDR_LIST", "NO")
 if "EPICS_CA_SERVER_PORT" not in os.environ:
-    os.environ["EPICS_CA_SERVER_PORT"] = str(_free_port())
+    os.environ["EPICS_CA_SERVER_PORT"] = str(free_port())
 if "EPICS_CA_REPEATER_PORT" not in os.environ:
-    os.environ["EPICS_CA_REPEATER_PORT"] = str(_free_port())
+    os.environ["EPICS_CA_REPEATER_PORT"] = str(free_port())
 
 
 def _run_ca_client_subprocess(argv: list[str]) -> None:
