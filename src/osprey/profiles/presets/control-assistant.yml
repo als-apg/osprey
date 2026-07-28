@@ -36,6 +36,8 @@ hooks:
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Inject the web terminal panel inventory into agent context
 
 rules:
   - safety              # Core safety rules: never write without approval

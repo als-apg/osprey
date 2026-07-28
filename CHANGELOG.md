@@ -33,6 +33,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   deploy/build semantics (`--force` preservation, `--dev` image builds, full
   subcommand list), telemetry now documented as on-by-default, MCP/executor error
   contracts, and the ARIEL web-interface module tables.
+- Presets that render Claude Code artifacts now ship the `osprey_focus_validate.py`
+  and `osprey_panels_context.py` hooks their `settings.json` already referenced;
+  existing rendered projects will be flagged stale and pick up the two hooks on
+  regeneration.
 
 ### Added
 

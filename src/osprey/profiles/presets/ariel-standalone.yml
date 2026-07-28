@@ -31,6 +31,8 @@ hooks:
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - memory-guard      # Warn when context window approaches threshold
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Inject the web terminal panel inventory into agent context
 
 rules:
   - error-handling      # Standard error handling and retry guidance
