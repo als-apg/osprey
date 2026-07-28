@@ -15,9 +15,12 @@
  *    (activateTab → focusPanel, the visibility fallback → hidePanel, register →
  *    addPanel, all via the dock-iframe adapter). This module does NOT duplicate
  *    that; it only guarantees those applied changes never POST back.
- *  - Dock → server: a human focusing a dock tab POSTs setPanelFocus; a human
- *    closing a dock tab POSTs setPanelVisibility(false). These are the only new
- *    POST sources the docked model introduces.
+ *  - Dock → server: a human focusing a dock tab POSTs setPanelFocus — the only
+ *    new POST source the docked model introduces. A human CLOSING a dock tab is
+ *    deliberately NOT a server change: tile occupancy is per-client layout
+ *    state under the launcher-rail model (rail membership is the shared state,
+ *    and closing a tile does not remove the panel from the rail), so the close
+ *    is routed to a locally-registered vacate handler instead.
  *
  * THE ECHO GUARD (core correctness property)
  * ------------------------------------------
@@ -50,7 +53,7 @@
  */
 
 import { getDockApi } from './dock-workspace.js';
-import { setPanelFocus, setPanelVisibility } from './panel-commands.js';
+import { setPanelFocus } from './panel-commands.js';
 // dock-iframe.js owns the placeholder lifecycle and resolves panels by these ids;
 // dockPanelBesideActive() below pre-creates a placeholder the adapter then adopts
 // by the same id, so both modules share the single source of truth for them.
@@ -109,8 +112,23 @@ function onActivePanelChange() {
 }
 
 /**
- * Capture-phase click handler on the dock root. Fires the visibility POST for a
- * human closing a service panel's dock tab. Runs in capture so the panel id is
+ * Handler a human tile close is routed to, registered by panel-manager (which
+ * owns the local active state the close must reconcile — clear the active
+ * accent). Called with the closed panel's service id; dockview's own bubble
+ * handler performs the actual panel removal.
+ * @type {((serviceId: string) => void) | null}
+ */
+let tileCloseHandler = null;
+
+/** @param {((serviceId: string) => void) | null} fn */
+export function setTileCloseHandler(fn) {
+  tileCloseHandler = fn;
+}
+
+/**
+ * Capture-phase click handler on the dock root. Routes a human closing a
+ * service panel's dock tab to the registered LOCAL vacate handler (never a
+ * server POST — see the module header). Runs in capture so the panel id is
  * resolved before dockview's own bubble handler removes the panel.
  * @param {Event} e
  */
@@ -122,7 +140,7 @@ function onDockClickCapture(e) {
   const tab = target.closest('.dv-tab');
   if (!tab) return;
   const id = serviceIdOf(panelIdForTab(tab));
-  if (id) setPanelVisibility(id, false);
+  if (id) tileCloseHandler?.(id);
 }
 
 /**

@@ -3,16 +3,19 @@
  *   npx vitest run tests/interfaces/web_terminal/dock-sync.test.mjs
  *
  * dock-sync carries the REVERSE half of the panel-state loop: it turns a human's
- * dockview gestures (focusing a tab, closing a tab) back into the same server
- * POSTs an agent MCP call would make, WITHOUT letting the server's own SSE echo
- * bounce back out again. The forward half (server → dock application, and the
+ * dockview FOCUS gestures back into the same server POST an agent MCP call would
+ * make, WITHOUT letting the server's own SSE echo bounce back out again. A human
+ * tab CLOSE is deliberately NOT a server change (tile occupancy is per-client
+ * layout state under the launcher-rail model) — it routes to a locally-registered
+ * vacate handler instead. The forward half (server → dock application, and the
  * simple-mode layout synthesis) lives in dock-workspace.js / panel-manager.js and
  * is pinned by the reconcile tests (dock-reconcile.test.mjs) plus the browser
  * suite; this file does not duplicate them. Here we pin dock-sync's own contract:
  *
  *   - the ECHO GUARD — a genuine human focus POSTs exactly once, a server-applied
  *     (echo) focus POSTs never;
- *   - the human tab-CLOSE click POSTs a visibility=false;
+ *   - the human tab-CLOSE click fires the registered tile-close handler, never a
+ *     POST;
  *   - dockPanelBesideActive appends a placeholder beside the active group under
  *     the same guard;
  *   - the listeners wire idempotently and tolerate late DockviewApi arrival.
@@ -105,9 +108,14 @@ function makeApi() {
   return api;
 }
 
+/** The tile-close vacate handler panel-manager registers in production —
+ *  wire() registers this spy so close-click tests can assert the routing. */
+const tileClose = vi.fn();
+
 /**
  * Put a #dock-root in the DOM, publish `api` as the live DockviewApi, import a
- * fresh dock-sync, and wire it. Returns the module + root for follow-on asserts.
+ * fresh dock-sync, wire it, and register the tile-close spy. Returns the
+ * module + root for follow-on asserts.
  * @param {any} api
  */
 async function wire(api) {
@@ -117,6 +125,7 @@ async function wire(api) {
   document.body.appendChild(root);
   const mod = await import(SYNC);
   mod.initDockSync();
+  mod.setTileCloseHandler(tileClose);
   return { mod, root };
 }
 
@@ -323,15 +332,16 @@ describe('server-driven hide of the ACTIVE panel (regression)', () => {
   });
 });
 
-describe('human tab close → visibility POST', () => {
-  test('clicking a service tab’s close control POSTs setPanelVisibility(id, false) once', async () => {
+describe('human tab close → local vacate handler (never a POST)', () => {
+  test('clicking a service tab’s close control fires the registered handler once', async () => {
     const api = makeApi();
     const { mod, root } = await wire(api);
     const { tabs } = buildGroup(root, api, ['iframe:ariel', 'terminal']);
 
     tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    expect(setPanelVisibility).toHaveBeenCalledExactlyOnceWith('ariel', false);
+    expect(tileClose).toHaveBeenCalledExactlyOnceWith('ariel');
+    expect(setPanelVisibility).not.toHaveBeenCalled();
     expect(setPanelFocus).not.toHaveBeenCalled();
     expect(mod).toBeTruthy();
   });
@@ -343,20 +353,22 @@ describe('human tab close → visibility POST', () => {
 
     tabs[1].action.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    expect(setPanelVisibility).toHaveBeenCalledExactlyOnceWith('bluesky', false);
+    expect(tileClose).toHaveBeenCalledExactlyOnceWith('bluesky');
+    expect(setPanelVisibility).not.toHaveBeenCalled();
   });
 
-  test('closing a native panel’s tab never POSTs (no server-side visibility)', async () => {
+  test('closing a native panel’s tab fires nothing (no service id)', async () => {
     const api = makeApi();
     const { root } = await wire(api);
     const { tabs } = buildGroup(root, api, ['terminal', 'iframe:ariel']);
 
     tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
+    expect(tileClose).not.toHaveBeenCalled();
     expect(setPanelVisibility).not.toHaveBeenCalled();
   });
 
-  test('a click elsewhere on a tab (not the close control) does not POST', async () => {
+  test('a click elsewhere on a tab (not the close control) fires nothing', async () => {
     const api = makeApi();
     const { root } = await wire(api);
     const { tabs } = buildGroup(root, api, ['iframe:ariel']);
@@ -364,7 +376,7 @@ describe('human tab close → visibility POST', () => {
     // The tab body, not its `.dv-default-tab-action` close control.
     tabs[0].tab.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    expect(setPanelVisibility).not.toHaveBeenCalled();
+    expect(tileClose).not.toHaveBeenCalled();
   });
 
   test('a close click on an unresolvable tab (no matching group) is a silent no-op', async () => {
@@ -372,6 +384,18 @@ describe('human tab close → visibility POST', () => {
     const { root } = await wire(api);
     const { tabs } = buildGroup(root, api, ['iframe:ariel']);
     api.groups = []; // group vanished between render and click
+
+    expect(() =>
+      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    ).not.toThrow();
+    expect(tileClose).not.toHaveBeenCalled();
+  });
+
+  test('a close click with NO registered handler is a silent no-op', async () => {
+    const api = makeApi();
+    const { mod, root } = await wire(api);
+    mod.setTileCloseHandler(null);
+    const { tabs } = buildGroup(root, api, ['iframe:ariel']);
 
     expect(() =>
       tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true })),
@@ -491,10 +515,10 @@ describe('initDockSync — wiring, idempotency, late arrival', () => {
 
     expect(api.onDidActivePanelChange).toHaveBeenCalledTimes(1);
 
-    // The click listener is live: a service close routes a visibility POST.
+    // The click listener is live: a service close routes to the vacate handler.
     const { tabs } = buildGroup(root, api, ['iframe:ariel']);
     tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(setPanelVisibility).toHaveBeenCalledExactlyOnceWith('ariel', false);
+    expect(tileClose).toHaveBeenCalledExactlyOnceWith('ariel');
   });
 
   test('is idempotent — a second initDockSync does not double-wire', async () => {
@@ -553,7 +577,7 @@ describe('initDockSync — wiring, idempotency, late arrival', () => {
 describe('module isolation (vi.resetModules per test)', () => {
   test('exposes exactly its public surface as functions', async () => {
     const mod = await import(SYNC);
-    for (const name of ['withEchoSuppressed', 'dockPanelBesideActive', 'serviceIdOf', 'initDockSync']) {
+    for (const name of ['withEchoSuppressed', 'dockPanelBesideActive', 'serviceIdOf', 'initDockSync', 'setTileCloseHandler']) {
       expect(typeof mod[name]).toBe('function');
     }
   });

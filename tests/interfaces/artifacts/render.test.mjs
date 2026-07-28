@@ -1,7 +1,8 @@
 /**
  * Unit tests for the Artifact Gallery sidebar rendering layer (render.js:
  * filter bar, gallery-card template, sidebar dispatcher + tree/activity
- * renderers + attachSidebarHandlers, and the split-pane resize handle).
+ * renderers + attachSidebarHandlers). The browse split's orientation and
+ * divider are covered by browse-layout.test.mjs.
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally):
  *   npx vitest run tests/interfaces/artifacts/render.test.mjs
@@ -13,11 +14,10 @@
  *
  * Covers exactly what the task calls for: tree-mode grouping by type from
  * fixture artifacts, activity-mode chronological ordering, and filter-chip
- * active-state logic. Also covers the split-pane resize handle (pure
- * export) and the injected-callback contract (onSelect/onPreviewNeeded/
- * onEnterFullscreen) since those are the two pieces genuinely new to this
- * extraction (createSidebarRenderer's factory shape, and the still-in-
- * gallery.js effects it defers to).
+ * active-state logic. Also covers the injected-callback contract
+ * (onSelect/onPreviewNeeded/onEnterFullscreen) since that is the piece
+ * genuinely new to this extraction (createSidebarRenderer's factory shape,
+ * and the still-in-gallery.js effects it defers to).
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -29,7 +29,6 @@ import {
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import * as stateModule from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import {
-  initSplitPaneResize,
   createSidebarRenderer,
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
@@ -491,33 +490,5 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     // The serialized markup is also byte-identical for benign values —
     // escaping must introduce no stray entities.
     expect(visSection.outerHTML).toContain('data-type="visualization"');
-  });
-});
-
-describe('split-pane resize (initSplitPaneResize)', () => {
-  test('is a no-op when either element is missing', () => {
-    expect(() => initSplitPaneResize(null, document.getElementById('browse-sidebar'))).not.toThrow();
-    expect(() => initSplitPaneResize(document.getElementById('resize-handle'), null)).not.toThrow();
-  });
-
-  test('dragging the handle resizes the sidebar within the [180, 60vw] clamp', () => {
-    const handle = byId('resize-handle');
-    const sidebarEl = byId('browse-sidebar');
-    Object.defineProperty(sidebarEl, 'offsetWidth', { value: 240, configurable: true });
-    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
-
-    initSplitPaneResize(handle, sidebarEl);
-
-    handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 100 }));
-    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 150 })); // +50
-    expect(sidebarEl.style.width).toBe('290px');
-
-    // Clamp at the low end: a huge negative delta still leaves >= 180px.
-    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: -1000 }));
-    expect(sidebarEl.style.width).toBe('180px');
-
-    // Clamp at the high end: 60% of 1000px innerWidth = 600px.
-    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 5000 }));
-    expect(sidebarEl.style.width).toBe('600px');
   });
 });

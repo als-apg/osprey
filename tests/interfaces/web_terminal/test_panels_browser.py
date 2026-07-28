@@ -335,17 +335,18 @@ def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> N
     """Open ``panel_id`` as a SECOND tile beside the current one via the "+" menu.
 
     A rail click would REPLACE the focused tile's panel (one panel per tile), so
-    tests that need two service tiles side by side go through the add menu: hide
-    the panel server-side (it starts visible but untiled), then reveal it from
-    the "+" popover, whose expert-mode path docks it beside the active group.
+    tests that need two service tiles side by side go through the add menu:
+    remove the panel from the rail server-side (its entry disappears — the rail
+    is the membership list), then re-add it from the "+" popover, whose
+    expert-mode path docks it beside the active group.
     """
     r = requests.post(
         f"{base_url}/api/panel-visibility",
         json={"panel": panel_id, "visible": False},
     )
     assert r.status_code == 200
-    expect(page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')).to_have_class(
-        re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
+    expect(page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')).to_have_count(
+        0, timeout=5_000
     )
     page.locator("#panel-add-btn").click()
     page.locator(f'.panel-add-item[data-panel-id="{panel_id}"]').click()
@@ -409,8 +410,8 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
     per tile — the rail is the tab system): data-viz's overlay iframe becomes
     visible and its rectangle aligns to the dock group's content area (the
     adapter's follow contract), while the evicted artifacts panel loses its dock
-    tab entirely, its overlay is concealed, and its rail entry dims (closed
-    server-side, one click from coming back).
+    tab entirely and its overlay is concealed — a purely LOCAL vacate: its rail
+    entry stays in place at full brightness, one click from taking the tile back.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -440,12 +441,13 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
         assert abs(geo["iframeW"] - geo["contentW"]) <= 2, geo
         assert abs(geo["iframeH"] - geo["contentH"]) <= 2, geo
 
-        # The evicted artifacts panel: overlay concealed, dock tab gone, rail
-        # entry dimmed (closed) — the tile holds exactly one panel again.
+        # The evicted artifacts panel: overlay concealed, dock tab gone — but
+        # its rail entry survives untouched (eviction is local occupancy, not a
+        # membership change) — the tile holds exactly one panel again.
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
         expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
-        expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_have_class(
-            re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
+        expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
+            timeout=5_000
         )
         groups = _dock_groups(page)
         service_groups = [g for g in groups if "SESSION" not in g["tabs"]]
@@ -499,12 +501,13 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
 
 
 def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser):
-    """SSE panel_visibility toggles a rail entry closed→open without a reload.
+    """SSE panel_visibility removes/re-adds a rail entry without a reload.
 
     data-viz is never focused here (so it has no dock placeholder yet); the
-    visibility echo drives only its rail entry — which stays in the rail
-    throughout (dimmed via .panel-rail-closed when hidden, never removed) —
-    proving the SSE→rail path is intact under the docked shell.
+    visibility echo drives only its rail MEMBERSHIP — hiding removes the entry
+    from the rail entirely (it moves to the "+" catalog), showing rebuilds it —
+    proving the SSE→rail path is intact under the docked shell. No entry is
+    ever dimmed: membership is binary.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -517,22 +520,21 @@ def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser)
         page = _open_page(chromium_browser, base_url)
         data_viz_tab = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
         expect(data_viz_tab).to_be_visible(timeout=10_000)
-        expect(data_viz_tab).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
 
         r = requests.post(
             f"{base_url}/api/panel-visibility",
             json={"panel": "data-viz", "visible": False},
         )
         assert r.status_code == 200
-        expect(data_viz_tab).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
-        expect(data_viz_tab).to_be_visible()  # dimmed, but still in the rail
+        expect(data_viz_tab).to_have_count(0, timeout=5_000)  # removed, not dimmed
 
         r = requests.post(
             f"{base_url}/api/panel-visibility",
             json={"panel": "data-viz", "visible": True},
         )
         assert r.status_code == 200
-        expect(data_viz_tab).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+        expect(data_viz_tab).to_be_visible(timeout=5_000)
+        expect(page.locator(".panel-rail-closed")).to_have_count(0)
 
         page.close()
 
@@ -671,13 +673,14 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
         page.close()
 
 
-def test_dock_tab_close_posts_visibility_false(tmp_path, chromium_browser):
-    """A human tab-close ('×' → .dv-default-tab-action) POSTs visibility(false) once.
+def test_dock_tab_close_is_local_vacate_no_posts(tmp_path, chromium_browser):
+    """A human tab-close ('×' → .dv-default-tab-action) is a LOCAL vacate.
 
-    Closing the data-viz tile's tab retires the tile; a neighboring tile taking
-    focus is a legitimate focus change and may emit one benign focus POST; the
-    invariant under test is that the close fires the visibility POST exactly once
-    (no echo loop), not the absence of that follow-on focus.
+    Tile occupancy is per-client layout state under the launcher-rail model:
+    closing the data-viz tile's tab retires the tile and clears the local
+    active state, but the panel keeps its rail membership — its entry stays in
+    the rail at full brightness and NO panel POST fires (neither visibility nor
+    a bounced focus).
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -692,9 +695,6 @@ def test_dock_tab_close_posts_visibility_false(tmp_path, chromium_browser):
         # A single-panel tile rests with its tab strip collapsed — hover the
         # strip to reveal the tab and its close control before clicking it.
         _service_tab(page, "DATA VIZ").hover()
-        # Let the freshly-docked tab's layout settle before clicking its close
-        # control: dock-sync resolves the tab→panel id by DOM position in capture
-        # phase, so a click mid-settle can map to nothing and drop the POST.
         expect(_service_tab(page, "DATA VIZ").locator(".dv-default-tab-action")).to_be_visible(
             timeout=5_000
         )
@@ -704,14 +704,14 @@ def test_dock_tab_close_posts_visibility_false(tmp_path, chromium_browser):
         # Close the data-viz dock tab via its close control.
         _service_tab(page, "DATA VIZ").locator(".dv-default-tab-action").click()
 
-        # Its dock tab retires and its rail entry dims (closed, not removed);
-        # exactly one visibility POST.
+        # Its dock tab retires; the rail entry survives untouched and unmarked
+        # active; no server POST of any kind is fired by the close.
         expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
-        expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_have_class(
-            re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
-        )
+        rail_entry = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        expect(rail_entry).to_be_attached(timeout=5_000)
+        expect(rail_entry).not_to_have_class(re.compile(r"\bactive\b"), timeout=5_000)
         page.wait_for_timeout(600)
-        assert posts.count("panel-visibility") == 1, f"expected one visibility POST, got {posts}"
+        assert posts == [], f"a local tile close must not POST, got {posts}"
 
         page.close()
 
@@ -1360,16 +1360,16 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
             json={"panel": "data-viz", "visible": False},
         )
         assert r.status_code == 200
-        expect(data_viz_rail).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+        expect(data_viz_rail).to_have_count(0, timeout=5_000)
 
-        # Open the "+" menu; the hidden panel is offered as an add target.
+        # Open the "+" menu; the removed panel is offered as an add target.
         page.locator("#panel-add-btn").click()
         menu_item = page.locator('.panel-add-item[data-panel-id="data-viz"]')
         expect(menu_item).to_be_visible(timeout=5_000)
         menu_item.click()
 
-        # The rail entry un-dims and the panel docks (tab + overlay iframe).
-        expect(data_viz_rail).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+        # The rail entry returns and the panel docks (tab + overlay iframe).
+        expect(data_viz_rail).to_be_visible(timeout=5_000)
         expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
@@ -1397,15 +1397,15 @@ def test_add_menu_opens_unclipped_beside_rail(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         expect(page.locator("#panel-add-btn")).to_be_visible(timeout=10_000)
 
-        # Hide a panel so the menu has a focusable "Show panel" item — the focus
-        # auto-scroll only fires when there is something to focus.
+        # Remove a panel from the rail so the menu has a focusable "Show panel"
+        # item — the focus auto-scroll only fires when there is something to focus.
         r = requests.post(
             f"{base_url}/api/panel-visibility",
             json={"panel": "data-viz", "visible": False},
         )
         assert r.status_code == 200
-        expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_have_class(
-            re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
+        expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_have_count(
+            0, timeout=5_000
         )
 
         page.locator("#panel-add-btn").click()
@@ -1572,10 +1572,11 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
             expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
             expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
-            # The hidden default never surfaced itself (rail entry dimmed, not docked).
+            # The hidden default never surfaced itself: no rail entry (it is not
+            # a member), no dock tab.
             expect(
                 page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-            ).to_have_class(re.compile(r"\bpanel-rail-closed\b"))
+            ).to_have_count(0)
             expect(_service_tab(page, "WORKSPACE")).to_have_count(0)
 
             page.close()
@@ -1614,20 +1615,16 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
             page.evaluate("document.getElementById('welcome-overlay')?.remove()")
 
-            # Give the async init + health poll time to (wrongly) surface it.
+            # Give the async init + health poll time to (wrongly) surface it —
+            # data-viz's poll against the live stub goes healthy in this window,
+            # which is exactly the transition the buggy fallback keyed on.
             page.wait_for_timeout(3_000)
 
-            # Guard: the arrangement only tests anything if data-viz went healthy.
+            # A non-member has NO rail entry at all (no dimmed placeholder),
+            # and its healthy transition must not have docked or activated it.
             expect(
-                page.locator('button.panel-rail-button[data-panel-id="data-viz"]:not(.disabled)')
-            ).to_have_count(1, timeout=10_000)
-
-            data_viz_rail = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
-            expect(data_viz_rail).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
-            expect(
-                page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
+                page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
             ).to_have_count(0)
-            # Never docked, never overlaid.
             expect(_service_tab(page, "DATA VIZ")).to_have_count(0)
             expect(_overlay_iframe(page, "data-viz")).not_to_be_visible(timeout=5_000)
 
@@ -1635,16 +1632,17 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
 
 
 # ===========================================================================
-# Group 8 — First-class terminal tile + rail open/closed semantics
+# Group 8 — First-class terminal tile + launcher-rail semantics
 # ===========================================================================
 
 
 def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
-    """The terminal is a rail-listed tile: closing dims its entry, click reopens.
+    """The terminal is the rail's permanent anchor: tile closes, entry never changes.
 
-    The rail's FIRST entry is the terminal ('SESSION'). Closing it via its rail
-    "×" removes the dock panel and dims the entry (closed — never removed);
-    clicking the dimmed entry re-docks the same live terminal card.
+    The rail's FIRST entry is the terminal ('SESSION') and it renders no "×"
+    (the anchor is not removable — its tile closes via the dock tab or the
+    Delete key on the focused entry). Closing the tile leaves the entry in
+    place at full brightness; clicking it re-docks the same live terminal card.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1662,27 +1660,32 @@ def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
         first_id = page.locator(".panel-rail-button").first.get_attribute("data-panel-id")
         assert first_id == "terminal", first_id
 
-        # Close via the rail "×": dock panel gone, entry dimmed but present.
+        # The anchor offers no close affordance, even on hover.
         term_rail.hover()
-        page.locator('button[data-panel-id="terminal"] .panel-rail-close').click()
-        expect(_terminal_tab(page)).to_have_count(0, timeout=5_000)
-        expect(term_rail).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+        expect(term_rail.locator(".panel-rail-close")).to_be_hidden()
 
-        # Reopen via the dimmed entry: the tile and live terminal card return.
+        # Close via the keyboard shortcut on the focused entry: the dock tile
+        # goes away, the entry itself is untouched.
+        term_rail.focus()
+        page.keyboard.press("Delete")
+        expect(_terminal_tab(page)).to_have_count(0, timeout=5_000)
+        expect(term_rail).to_be_visible()
+
+        # Reopen via the entry: the tile and live terminal card return.
         term_rail.click()
         expect(_terminal_tab(page)).to_have_count(1, timeout=5_000)
-        expect(term_rail).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
         expect(page.locator(".terminal-card")).to_be_visible(timeout=5_000)
 
         page.close()
 
 
-def test_closed_rail_entry_click_reopens_panel(tmp_path, chromium_browser):
-    """Clicking a dimmed (closed) rail entry reopens that service panel.
+def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
+    """An evicted panel's rail entry survives and one click takes the tile back.
 
-    Close artifacts via its rail "×" → the entry stays in the rail, dimmed.
-    Clicking the dimmed entry POSTs visibility(true) + focus: its dock tab and
-    overlay iframe return.
+    A rail click on data-viz evicts artifacts from the tile (local vacate —
+    membership untouched); the artifacts entry stays in the rail, and clicking
+    it re-docks artifacts by taking the tile over from data-viz in turn. No
+    visibility POST fires in either direction: occupancy is per-client state.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1690,24 +1693,31 @@ def test_closed_rail_entry_click_reopens_panel(tmp_path, chromium_browser):
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        custom_panels=[],
+        custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         artifacts_rail = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
         expect(artifacts_rail).to_be_visible(timeout=10_000)
         expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
 
-        artifacts_rail.hover()
-        page.locator('button[data-panel-id="artifacts"] .panel-rail-close').click()
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
-        expect(artifacts_rail).to_have_class(re.compile(r"\bpanel-rail-closed\b"), timeout=5_000)
+        posts = _track_panel_posts(page)
 
+        # Evict artifacts by activating data-viz (one panel per tile).
+        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
+        expect(artifacts_rail).to_be_attached()
+
+        # Take the tile back through the surviving entry.
         artifacts_rail.click()
         expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=5_000)
-        expect(artifacts_rail).not_to_have_class(
-            re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
-        )
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
+
+        # Focus POSTs only (the docking flow may report focus more than once —
+        # pre-existing, benign) — evictions never touch server visibility.
+        page.wait_for_timeout(600)
+        assert "panel-visibility" not in posts, f"eviction must stay local, got {posts}"
+        assert set(posts) == {"panel-focus"}, f"expected only focus POSTs: {posts}"
 
         page.close()
 
@@ -1743,9 +1753,7 @@ def test_rail_click_on_open_panel_jumps_without_moving_it(tmp_path, chromium_bro
         ).to_have_count(1, timeout=5_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         expect(_service_tab(page, "DATA VIZ")).to_have_count(1)
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
-        ).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"))
+        expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_be_attached()
         assert _dock_groups(page) == before, "a jump-to-open-panel changed the layout"
 
         page.close()

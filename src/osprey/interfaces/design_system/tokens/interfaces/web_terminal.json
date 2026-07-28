@@ -112,7 +112,7 @@
       "glow-shadow": { "$value": "none", "$type": "shadow" }
     },
     "wt-welcome": {
-      "$description": "Authored rather than inherited: the high-contrast family is fully monochrome, and the main group's azure link/prompt/cursor would be the only hue an operator on that theme ever sees.",
+      "$description": "Authored rather than inherited: the high-contrast family is fully monochrome, and the main group's welcome palette (phosphor green in dark, teal in light) would be the only hue an operator on that theme ever sees.",
       "bg": { "$value": "{color.mono.1000}", "$type": "color" },
       "text": { "$value": "{color.mono.0}", "$type": "color" },
       "text-glow": { "$value": "none", "$type": "shadow" },

@@ -4,10 +4,18 @@
  *   npx vitest run tests/interfaces/web_terminal/panel-rail.test.mjs
  *
  * panel-rail.js is a pure DOM module: it builds the 74px rail markup and exposes
- * imperative mutators (active / health / enabled / visible / non-destructive
- * append) that panel-manager's state machine drives. These tests pin that DOM
- * contract — selectors, data-* attributes, class hooks, callback wiring — the
- * same contract the Playwright browser suite selects on.
+ * imperative mutators (active / enabled / attention / non-destructive
+ * append & remove) that panel-manager's state machine drives. These tests pin
+ * that DOM contract — selectors, data-* attributes, class hooks, callback
+ * wiring — the same contract the Playwright browser suite selects on.
+ *
+ * The rail is a MEMBERSHIP list: an entry exists iff the panel is in the rail.
+ * There is no dimmed/closed state — removal takes the node out of the DOM.
+ *
+ * The rail carries NO per-panel health readout: backend liveness is reported by
+ * the SYSTEM panel's `web_panels` health category. `.disabled` is the only
+ * health-derived state the rail renders, and the absence of an LED node is
+ * asserted below so it cannot creep back in.
  *
  * Imported by RELATIVE path — this module lives under web_terminal, so the
  * /design-system/js/* alias does not apply. The environment is happy-dom
@@ -19,11 +27,10 @@ import { test, expect, describe, beforeEach } from 'vitest';
 import {
   createRail,
   addEntry,
+  removeEntry,
   getEntry,
   setActive,
-  setHealth,
   setEntryEnabled,
-  setEntryOpen,
   setEntryAttention,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
 
@@ -66,12 +73,16 @@ describe('createRail', () => {
     expect(rail.getAttribute('role')).toBe('tablist');
   });
 
-  test('each entry carries LED, icon, and label sub-nodes', () => {
+  test('each entry carries icon and label sub-nodes', () => {
     createRail(rail, PANELS);
     const first = getEntry(rail, 'artifacts');
-    expect(first?.querySelector('.panel-rail-led')?.className).toBe('panel-rail-led offline');
     expect(first?.querySelector('.panel-rail-icon')?.getAttribute('data-icon')).toBe('artifacts');
     expect(first?.querySelector('.panel-rail-label')?.textContent).toBe('WORKSPACE');
+  });
+
+  test('entries render no health LED — liveness lives in the SYSTEM panel', () => {
+    createRail(rail, PANELS);
+    expect(rail.querySelector('.panel-rail-led')).toBeNull();
   });
 
   test('entries start disabled and unselected', () => {
@@ -80,6 +91,11 @@ describe('createRail', () => {
     expect(first?.classList.contains('disabled')).toBe(true);
     expect(first?.getAttribute('aria-selected')).toBe('false');
     expect(first?.getAttribute('title')).toBe('WORKSPACE');
+  });
+
+  test('entries never render the retired closed/dimmed state', () => {
+    createRail(rail, PANELS);
+    expect(rail.querySelector('.panel-rail-closed')).toBeNull();
   });
 
   test('label is set via textContent (no HTML injection)', () => {
@@ -118,13 +134,6 @@ describe('createRail', () => {
     createRail(rail, PANELS, { onAdd: () => {} });
     const last = rail.children[rail.children.length - 1];
     expect(last.classList.contains('panel-rail-add')).toBe(true);
-  });
-
-  test('dims (closes) entries absent from the open set', () => {
-    createRail(rail, PANELS, { open: new Set(['artifacts', 'channel-finder']) });
-    expect(getEntry(rail, 'artifacts')?.classList.contains('panel-rail-closed')).toBe(false);
-    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-closed')).toBe(true);
-    expect(getEntry(rail, 'channel-finder')?.classList.contains('panel-rail-closed')).toBe(false);
   });
 });
 
@@ -167,6 +176,7 @@ describe('entry interactions', () => {
     expect(closed).toEqual(['ariel']);
     expect(activated).toEqual([]);
   });
+
 });
 
 describe('addEntry (non-destructive)', () => {
@@ -185,7 +195,6 @@ describe('addEntry (non-destructive)', () => {
   test('preserves live state on existing entries (no rebuild)', () => {
     createRail(rail, PANELS);
     setActive(rail, 'artifacts');
-    setHealth(rail, 'artifacts', true);
     setEntryEnabled(rail, 'artifacts', true);
 
     addEntry(rail, { id: 'lattice', label: 'LATTICE' });
@@ -193,7 +202,6 @@ describe('addEntry (non-destructive)', () => {
     const artifacts = getEntry(rail, 'artifacts');
     expect(artifacts?.classList.contains('active')).toBe(true);
     expect(artifacts?.classList.contains('disabled')).toBe(false);
-    expect(artifacts?.querySelector('.panel-rail-led')?.className).toBe('panel-rail-led healthy');
   });
 
   test('inserts before the ＋ button so add stays last', () => {
@@ -219,11 +227,33 @@ describe('addEntry (non-destructive)', () => {
     /** @type {HTMLButtonElement} */ (getEntry(rail, 'lattice')).click();
     expect(activated).toEqual(['lattice']);
   });
+});
 
-  test('honors the open set for the appended entry', () => {
-    createRail(rail, PANELS);
-    addEntry(rail, { id: 'lattice', label: 'LATTICE' }, { open: new Set(['artifacts']) });
-    expect(getEntry(rail, 'lattice')?.classList.contains('panel-rail-closed')).toBe(true);
+describe('removeEntry', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  beforeEach(() => {
+    rail = freshRail();
+    createRail(rail, PANELS, { onAdd: () => {} });
+  });
+
+  test('removes the entry node, preserving the others and the ＋ button', () => {
+    removeEntry(rail, 'ariel');
+    expect(entryIds(rail)).toEqual(['artifacts', 'channel-finder']);
+    expect(getEntry(rail, 'ariel')).toBeNull();
+    const last = rail.children[rail.children.length - 1];
+    expect(last.classList.contains('panel-rail-add')).toBe(true);
+  });
+
+  test('a removed entry can be re-added (remove ≠ forget)', () => {
+    removeEntry(rail, 'ariel');
+    addEntry(rail, { id: 'ariel', label: 'ARIEL' });
+    expect(entryIds(rail)).toEqual(['artifacts', 'channel-finder', 'ariel']);
+  });
+
+  test('is a no-op for an unknown id', () => {
+    expect(() => removeEntry(rail, 'nope')).not.toThrow();
+    expect(entryIds(rail)).toEqual(['artifacts', 'ariel', 'channel-finder']);
   });
 });
 
@@ -257,31 +287,7 @@ describe('setActive', () => {
   });
 });
 
-describe('setHealth', () => {
-  /** @type {HTMLElement} */
-  let rail;
-  beforeEach(() => {
-    rail = freshRail();
-    createRail(rail, PANELS);
-  });
-
-  test('flips the LED between healthy and offline', () => {
-    setHealth(rail, 'artifacts', true);
-    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-led')?.className).toBe(
-      'panel-rail-led healthy'
-    );
-    setHealth(rail, 'artifacts', false);
-    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-led')?.className).toBe(
-      'panel-rail-led offline'
-    );
-  });
-
-  test('is a no-op for an unknown id', () => {
-    expect(() => setHealth(rail, 'nope', true)).not.toThrow();
-  });
-});
-
-describe('setEntryEnabled / setEntryOpen', () => {
+describe('setEntryEnabled', () => {
   /** @type {HTMLElement} */
   let rail;
   beforeEach(() => {
@@ -296,16 +302,8 @@ describe('setEntryEnabled / setEntryOpen', () => {
     expect(getEntry(rail, 'artifacts')?.classList.contains('disabled')).toBe(true);
   });
 
-  test('setEntryOpen toggles the panel-rail-closed class', () => {
-    setEntryOpen(rail, 'ariel', false);
-    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-closed')).toBe(true);
-    setEntryOpen(rail, 'ariel', true);
-    expect(getEntry(rail, 'ariel')?.classList.contains('panel-rail-closed')).toBe(false);
-  });
-
-  test('both are no-ops for an unknown id', () => {
+  test('is a no-op for an unknown id', () => {
     expect(() => setEntryEnabled(rail, 'nope', true)).not.toThrow();
-    expect(() => setEntryOpen(rail, 'nope', false)).not.toThrow();
   });
 });
 
@@ -336,22 +334,6 @@ describe('setEntryAttention', () => {
   test('returns false and does not throw for an unknown id', () => {
     expect(() => setEntryAttention(rail, 'nope', true)).not.toThrow();
     expect(setEntryAttention(rail, 'nope', true)).toBe(false);
-  });
-
-  test('badge persists across setEntryOpen close/reopen toggles', () => {
-    setEntryAttention(rail, 'ariel', true);
-    setEntryOpen(rail, 'ariel', false);
-    expect(getEntry(rail, 'ariel')?.classList.contains('agent-attention')).toBe(true);
-    setEntryOpen(rail, 'ariel', true);
-    expect(getEntry(rail, 'ariel')?.classList.contains('agent-attention')).toBe(true);
-  });
-
-  test('a closed entry accepts the badge', () => {
-    setEntryOpen(rail, 'ariel', false);
-    expect(setEntryAttention(rail, 'ariel', true)).toBe(true);
-    const entry = getEntry(rail, 'ariel');
-    expect(entry?.classList.contains('panel-rail-closed')).toBe(true);
-    expect(entry?.classList.contains('agent-attention')).toBe(true);
   });
 
   test('is class-only: no child nodes or attributes added or removed', () => {

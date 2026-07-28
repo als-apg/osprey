@@ -6,9 +6,17 @@
  * Entries show health LEDs, iframes are lazy-loaded and cached so switching
  * between panels is instant.
  *
+ * The rail is a curated LAUNCHER: the server-owned visible set is rail
+ * MEMBERSHIP (agent show/hide_panel ≡ human "+"/"×"), and an entry exists iff
+ * its panel is a member — always at full brightness, never dimmed. Which
+ * member currently holds the workspace tile is per-client layout state,
+ * reflected only by the `.active` accent; evicting a panel from the tile (or
+ * closing its tile) changes no rail or server state.
+ *
  * This module owns the panel state machine (health polling, SSE-driven
- * focus/visibility/registration, iframe lifecycle) and drives the rail's DOM
- * through panel-rail.js's imperative API — it never touches rail markup itself.
+ * focus/visibility/registration, iframe lifecycle) and drives the
+ * rail's DOM through panel-rail.js's imperative API — it never touches rail
+ * markup itself.
  */
 
 import { fetchJSON, createEventSource } from './api.js';
@@ -17,32 +25,26 @@ import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import {
-  initDockIframeAdapter, adoptIframe, focusPanel, hidePanel,
-  setKnownServicePanels, setServerVisiblePanels, setReplacedPanelHandler,
+  initDockIframeAdapter, focusPanel, hidePanel, concealPanel,
+  setKnownServicePanels, setServerVisiblePanels,
 } from './dock-iframe.js';
-import { initDockSync, withEchoSuppressed } from './dock-sync.js';
-import { startHealthPolling as startPolling } from './panel-health.js';
+import { createPanelIframe } from './panel-iframe-factory.js';
 import {
-  openTerminalPanel, closeTerminalPanel, setTerminalPresenceHandler,
-} from './dock-workspace.js';
+  PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL, DEFAULT_PANEL_FALLBACK,
+} from './panel-catalog.js';
+import { initDockSync, withEchoSuppressed, setTileCloseHandler } from './dock-sync.js';
+import { startHealthPolling as startPolling } from './panel-health.js';
+import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
 import { initRailThemeCoupling } from './rail-position.js';
 import { flashElement } from '/design-system/js/highlight.js';
 import {
-  createRail, addEntry, getEntry, setActive, setHealth,
-  setEntryEnabled, setEntryOpen, setEntryAttention,
+  createRail, addEntry, removeEntry, getEntry, setActive,
+  setEntryEnabled, setEntryAttention,
 } from './panel-rail.js';
 
 // ---- Types ----
 
-/**
- * @typedef {object} Panel
- * @property {string} id
- * @property {string} label
- * @property {string | null} configEndpoint
- * @property {string | null} [healthEndpoint] - null/undefined means skip health polling
- * @property {string | null} statusBarId
- * @property {string} [path] - iframe subpath for custom panels (e.g. "/panel/")
- */
+/** @typedef {import('./panel-catalog.js').Panel} Panel */
 
 /**
  * @typedef {object} PanelState
@@ -89,58 +91,6 @@ import {
  * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent | AgentActivityEvent} PanelSSEEvent
  */
 
-// ---- Panel Registry ----
-
-/** Rail id of the terminal/chat tile. NOT a service panel: it has no iframe,
- *  no health poll, and no server-side visibility — its open/closed state is
- *  dock-layout state (dock-workspace.js owns the tile; this module only renders
- *  its rail entry and routes activate/close to the dock). Kept out of PANELS so
- *  every service-panel iteration stays terminal-free. */
-const TERMINAL_RAIL_ID = 'terminal';
-const TERMINAL_RAIL_LABEL = 'SESSION';
-
-/** @type {Panel[]} */
-const PANELS = [
-  {
-    id: 'artifacts',
-    label: 'WORKSPACE',
-    configEndpoint: '/api/artifact-server',
-    healthEndpoint: null,    // embedded same-origin — skip health polling
-    statusBarId: null,       // no dedicated status-bar item
-  },
-  {
-    id: 'ariel',
-    label: 'ARIEL',
-    configEndpoint: '/api/ariel-server',
-    statusBarId: 'ariel-status',
-  },
-  {
-    id: 'channel-finder',
-    label: 'CHANNELS',
-    configEndpoint: '/api/channel-finder-server',
-    statusBarId: 'channel-finder-status',
-  },
-  {
-    id: 'lattice',
-    label: 'LATTICE',
-    configEndpoint: '/api/lattice-server',
-    statusBarId: null,
-  },
-  {
-    id: 'okf',
-    label: 'KNOWLEDGE',
-    configEndpoint: '/api/okf-server',
-    statusBarId: null,
-  },
-  {
-    id: 'system-health',
-    label: 'SYSTEM',
-    configEndpoint: '/api/system-health-server', // data string; fetchJSON prefixes it in initPanel()
-    healthEndpoint: '/health', // EXPLICIT — the sidecar liveness LED polls it; omitting/null skips polling (pins healthy)
-    statusBarId: null,
-  },
-];
-
 // ---- State ----
 
 let containerEl = /** @type {HTMLElement | null} */ (null);
@@ -155,8 +105,9 @@ let activeTabId = null;
 /** @type {Record<string, PanelState>} */
 const panelState = {};
 
-// Visible panel ids — seeded from /api/panels at init; controls rail-entry
-// visibility. Toggling an id here is paired with setEntryOpen() on the rail.
+// Rail MEMBERSHIP — the server-owned visible set, seeded from /api/panels at
+// init. An id in here has a rail entry; toggling one is paired with
+// addEntry()/removeEntry() on the rail.
 const visiblePanels = new Set();
 
 // Simple-UX chat-only first boot: while true, ensureActivePanel leaves the
@@ -168,12 +119,8 @@ const visiblePanels = new Set();
 // for this page lifetime. A reload re-derives it from the server flag.
 let workspaceSuppressed = false;
 
-// Default panel to activate first. The hardcoded value is the fallback used
-// when /api/panels doesn't pin one (kept in sync with
-// osprey.profiles.web_panels.DEFAULT_PANEL_FALLBACK on the backend).
-// Profile-pinned values arrive via panelConfig.default in initPanelManager
-// and replace this at startup.
-const DEFAULT_PANEL_FALLBACK = 'artifacts';
+// Default panel to activate first (catalog fallback until a profile-pinned
+// value arrives via panelConfig.default in initPanelManager).
 let DEFAULT_PANEL = DEFAULT_PANEL_FALLBACK;
 
 // Whether the server permits runtime URL-panel registration (web.allow_runtime_panels).
@@ -311,11 +258,10 @@ export async function initPanelManager(panelId) {
   // A failed fetch leaves it inert, which is the pre-coupling behavior.
   initRailThemeCoupling(panelConfig || {});
 
-  // One panel per tile: when an activation takes over a tile, the adapter
-  // evicts the previous occupant and reports it here — close it server-side,
-  // exactly like the rail "×" path. The SSE echo dims the rail entry and
-  // finishes the hide (the adapter already concealed the evicted tile).
-  setReplacedPanelHandler((replacedId) => setPanelVisibility(replacedId, false));
+  // A human closing a dock tile is a LOCAL vacate (occupancy is per-client
+  // layout state; the panel keeps its rail membership) — reconcile the local
+  // active state here, never POST.
+  setTileCloseHandler(vacatePanel);
 
   // Hand the adapter a live reference to the visible set (it prunes restored
   // placeholders of server-closed panels), then finalize the registry — the
@@ -417,15 +363,23 @@ export async function initPanelManager(panelId) {
 
         } else if (data.type === 'panel_visibility' && data.panel) {
           const { panel, visible } = data;
-          if (data.source === 'agent') flashAgentGlow(panel);
-          // Update the visibility set and dim/undim the matching rail entry
-          // (the entry itself always stays in the rail — closed ≠ removed).
+          // Update the membership set and add/remove the matching rail entry
+          // (membership IS the rail — there is no dimmed in-between state). A
+          // re-added entry is rebuilt cold, so re-apply its live health/enabled
+          // state. The agent glow runs after the add so a just-added entry can
+          // flash.
           if (visible) {
             visiblePanels.add(panel);
+            const spec = PANELS.find((p) => p.id === panel);
+            if (spec) {
+              addEntry(railEl, { id: spec.id, label: spec.label }, railOptions());
+              applyEntryState(panel);
+            }
           } else {
             visiblePanels.delete(panel);
+            removeEntry(railEl, panel);
           }
-          setEntryOpen(railEl, panel, visible);
+          if (data.source === 'agent') flashAgentGlow(panel);
 
           // Simple-UX reveal: showing a panel while the workspace is chat-only
           // suppressed brings up the workspace ON that panel — this is the
@@ -463,12 +417,9 @@ export async function initPanelManager(panelId) {
           }
 
         } else if (data.type === 'panel_register' && data.id) {
-          // Seed visibility before addPanel so the appended entry starts visible
+          // Seed membership before addPanel so the appended entry is a member
           visiblePanels.add(data.id);
           addPanel(data);
-          // Guarantee the entry is marked open in case the set was already
-          // populated (re-register path, where addEntry keeps the entry as-is)
-          setEntryOpen(railEl, data.id, true);
           // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
           // the user activates when they want it.
           if (data.source === 'agent') flashAgentGlow(data.id);
@@ -497,20 +448,18 @@ export async function initPanelManager(panelId) {
 function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (entry) flashElement(entry); }
 
 /**
- * Interaction closures + initial open state handed to every rail render/append
- * call. Routing activation and close through here keeps a human click/"×" and
- * an agent MCP call indistinguishable downstream (both hit activateTab /
- * setPanelVisibility). `open` is the live visible set, so panel-rail builds
- * each new entry dimmed (closed) when its id is absent from it.
+ * Interaction closures handed to every rail render/append call. Routing
+ * activation and close through here keeps a human click/"×" and an agent MCP
+ * call indistinguishable downstream (both hit activateTab /
+ * setPanelVisibility).
  *
- * Activation is open-state aware: clicking an OPEN panel jumps to its tile,
- * clicking a CLOSED (dimmed) one reopens it — taking over the focused service
- * tile in place of its current panel (one panel per tile; the rail IS the
- * workspace's tab system, so a click always means "show me this here"). The
- * take-over itself happens in the dock adapter's placement logic; the evicted
- * panel comes back through the replaced-panel handler registered at init. The
- * terminal entry routes to the dock instead (its open/closed state is layout
- * state, not server visibility — see TERMINAL_RAIL_ID).
+ * Every entry is a member, so a click is always an activation: show this panel
+ * in the main tile, taking it over from its current occupant (one panel per
+ * tile; the rail IS the workspace's tab system). The take-over happens in the
+ * dock adapter's placement logic and is purely local — the evicted panel keeps
+ * its entry. "×" removes the panel from the rail (membership, a server
+ * change). The terminal entry routes to the dock instead (its open/closed
+ * state is layout state, not membership — see TERMINAL_RAIL_ID).
  */
 function railOptions() {
   return {
@@ -523,30 +472,63 @@ function railOptions() {
       if (id === TERMINAL_RAIL_ID) { closeTerminalPanel(); return; }
       setPanelVisibility(id, false);
     },
-    open: visiblePanels,
   };
 }
 
 /**
  * Destructive full render of the rail: the terminal entry first (the session
- * tile is the workspace's anchor), then every service panel in PANELS order.
- * The terminal entry is corrected after the render — it is not in the server's
- * visible set (so buildRailButton dims it) and never health-polls (so it would
- * stay disabled): it starts open and enabled, and from then on the dock's
- * presence handler drives its open/closed dimming.
+ * tile is the workspace's anchor), then every MEMBER service panel in PANELS
+ * order — non-members have no entry at all. The terminal entry is enabled
+ * after the render (it never health-polls, so it would stay disabled).
  */
 function renderRail() {
   createRail(
     railEl,
     [
       { id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL },
-      ...PANELS.map((p) => ({ id: p.id, label: p.label })),
+      ...PANELS.filter((p) => visiblePanels.has(p.id)).map((p) => ({ id: p.id, label: p.label })),
     ],
     railOptions(),
   );
   setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
-  setEntryOpen(railEl, TERMINAL_RAIL_ID, true);
-  setTerminalPresenceHandler((open) => setEntryOpen(railEl, TERMINAL_RAIL_ID, open));
+}
+
+/**
+ * Clear the locally-tracked active panel (rail accent, container stamp,
+ * activeTabId). Used when the active panel's tile goes away without a
+ * successor — a human tile close.
+ */
+function clearActivePanel() {
+  activeTabId = null;
+  setActive(railEl, null);
+  if (containerEl) delete containerEl.dataset.activePanel;
+}
+
+/**
+ * Reconcile local state after a human closed a service panel's dock tile
+ * (registered with dock-sync at init; dockview itself removes the placeholder).
+ * The panel keeps its rail membership — only the local occupancy state moves:
+ * the overlay iframe is concealed, and the active accent clears when it
+ * pointed at the closed tile.
+ * @param {string} panelId
+ */
+function vacatePanel(panelId) {
+  concealPanel(panelId);
+  if (activeTabId === panelId) clearActivePanel();
+}
+
+/**
+ * Re-apply a rail entry's live state after it was (re)built cold by addEntry —
+ * enabled from the panel's health, and the active accent when this panel is the
+ * surfaced one (a "+"-menu reveal activates locally BEFORE the membership echo
+ * rebuilds the entry).
+ * @param {string} panelId
+ */
+function applyEntryState(panelId) {
+  const ps = panelState[panelId];
+  if (!ps) return;
+  if (ps.healthy) setEntryEnabled(railEl, panelId, true);
+  if (activeTabId === panelId) setActive(railEl, panelId);
 }
 
 /**
@@ -671,14 +653,14 @@ function ensureActivePanel() {
 
 /**
  * Poll-settle hook handed to panel-health.js's timing machinery: reflect the
- * new health on the rail LED + status bar, and on the FIRST healthy settle
- * enable the entry and let the shared policy decide whether the newly-healthy
- * panel should take an empty slot.
+ * new health on the status bar, and on the FIRST healthy settle enable the
+ * entry and let the shared policy decide whether the newly-healthy panel
+ * should take an empty slot. The rail itself shows no per-poll readout — the
+ * SYSTEM panel's `web_panels` category is where liveness is reported.
  * @param {Panel} panel
  * @param {boolean} wasHealthy
  */
 function onHealthSettled(panel, wasHealthy) {
-  updateTabState(panel);
   updateStatusBar(panel);
   if (panelState[panel.id].healthy && !wasHealthy) {
     setEntryEnabled(railEl, panel.id, true);
@@ -693,22 +675,15 @@ function startHealthPolling(panel) {
 
 // ---- Entry State ----
 
-/** @param {Panel} panel */
-function updateTabState(panel) {
-  setHealth(railEl, panel.id, panelState[panel.id].healthy);
-}
-
 /**
- * A panel with no health endpoint is assumed permanently healthy: mark it so,
- * enable its rail entry, and paint the LED green. Consolidates the built-in,
- * custom-config, and runtime-addPanel paths so none can enable an entry while
- * leaving its LED at the offline default.
+ * A panel with no health endpoint is assumed permanently healthy: mark it so
+ * and enable its rail entry. Consolidates the built-in, custom-config, and
+ * runtime-addPanel paths so none can leave an entry inert forever.
  * @param {Panel} panel
  */
 function assumeHealthy(panel) {
   panelState[panel.id].healthy = true;
   setEntryEnabled(railEl, panel.id, true);
-  updateTabState(panel);
 }
 
 /** @param {Panel} panel */
@@ -886,56 +861,11 @@ function navigatePanel(panelId, url) {
 
 // ---- Iframe Management ----
 
-/** @param {string} panelId */
+/** Build + adopt the panel's iframe via panel-iframe-factory.js (which owns
+ *  everything about the element); this wrapper only binds the private state.
+ *  @param {string} panelId */
 function createIframe(panelId) {
-  const state = panelState[panelId];
-  if (!state.url) return;
-
-  const iframe = document.createElement('iframe');
-  iframe.className = 'panel-iframe';
-  iframe.dataset.panelId = panelId;
-  // Use pendingUrl (from navigatePanel) if available, otherwise base URL.
-  // For custom panels with a subpath (e.g. path: "/panel/"), append it so
-  // the iframe loads the UI root rather than the API root.
-  const panel = PANELS.find(p => p.id === panelId);
-  const panelPath = panel?.path && panel.path !== '/' ? panel.path : '';
-  const targetUrl = state.pendingUrl || (state.url + panelPath);
-  state.pendingUrl = null;
-  // targetUrl is the already-prefixed, root-relative `state.url` (+ optional
-  // subpath); buildEmbedSrc preserves it verbatim.
-  iframe.src = buildEmbedSrc(targetUrl);
-  iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
-
-  iframe.addEventListener('load', () => {
-    iframe.classList.add('loaded');
-    // Sync theme + mode + session immediately so there's no flash of the wrong
-    // theme/mode and the embedded app scopes to the active session.
-    sendThemeToIframe(iframe);
-    sendModeToIframe(iframe);
-    sendSessionToIframe(iframe);
-  });
-
-  // Hand the element to the dock adapter, which mounts it in the overlay layer
-  // (dockview shell present) or in #panel-content (fallback). The adapter owns
-  // the iframe's geometry from here; panel-manager keeps owning its src, sandbox,
-  // health and the theme/mode/session postMessage protocol above.
-  state.iframe = iframe;
-  adoptIframe(panelId, iframe, { title: panel?.label || panelId });
-
-  // Forward resize events to the iframe so embedded apps re-render. Observing
-  // #panel-content covers the fallback (in-content) mount and the workspace-panel
-  // resizes; the adapter additionally re-dispatches resize when it re-lays the
-  // overlay iframe to a new dock rectangle.
-  const observer = new ResizeObserver(() => {
-    if (iframe.contentWindow) {
-      try {
-        iframe.contentWindow.dispatchEvent(new Event('resize'));
-      } catch {
-        // cross-origin — nothing we can do
-      }
-    }
-  });
-  observer.observe(contentEl);
+  createPanelIframe(PANELS.find(p => p.id === panelId), panelId, panelState[panelId], contentEl);
 }
 
 // ---- Command Palette Accessors ----

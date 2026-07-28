@@ -256,8 +256,8 @@ describe('iframe src: state.url arrives already server-prefixed (2.2) and must n
   });
 });
 
-describe('rail LEDs for custom panels without a health endpoint', () => {
-  test('a null-healthEndpoint panel renders a healthy LED, not the offline default', async () => {
+describe('rail state for custom panels without a health endpoint', () => {
+  test('a null-healthEndpoint panel is enabled, not left inert at the disabled default', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
     vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
@@ -283,9 +283,9 @@ describe('rail LEDs for custom panels without a health endpoint', () => {
     const entry = document.querySelector('[data-panel-id="results"]');
     if (!(entry instanceof HTMLElement)) throw new Error('expected a results rail entry');
     expect(entry.classList.contains('disabled')).toBe(false);
-    const led = entry.querySelector('.panel-rail-led');
-    if (!(led instanceof HTMLElement)) throw new Error('expected a rail LED');
-    expect(led.className).toBe('panel-rail-led healthy');
+    // The rail reports liveness ONLY as .disabled — no per-entry LED. Backend
+    // health is surfaced by the SYSTEM panel's `web_panels` category instead.
+    expect(entry.querySelector('.panel-rail-led')).toBeNull();
   });
 });
 
@@ -508,5 +508,89 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
 
     await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
     expect(workspaceOpen().active).toBe('artifacts');
+  });
+});
+
+describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () => {
+  /**
+   * Boot with two enabled panels but only 'artifacts' a member (visible), so
+   * 'ariel' starts in the "+" catalog with no rail entry.
+   */
+  async function bootMembership() {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['artifacts', 'ariel'],
+          custom: [],
+          default: null,
+          visible: ['artifacts'],
+          active: null,
+          labels: {},
+        });
+      }
+      if (url === '/api/artifact-server') {
+        return jsonOk({ url: '/panel/artifacts', available: true });
+      }
+      if (url === '/api/ariel-server') {
+        return jsonOk({ url: '/panel/ariel', available: true });
+      }
+      return jsonOk({ status: 'ok' });
+    }));
+    const { emit } = stubEventSource();
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    return { emit, mod };
+  }
+
+  /** @param {string} id */
+  const entry = (id) => document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`);
+
+  test('only members render entries; non-members are in the hidden (catalog) list', async () => {
+    const { mod } = await bootMembership();
+    expect(entry('terminal')).not.toBeNull();
+    expect(entry('artifacts')).not.toBeNull();
+    expect(entry('ariel')).toBeNull();
+    expect(mod.getHiddenPanels()).toEqual([{ id: 'ariel', label: 'ARIEL' }]);
+  });
+
+  test('no entry ever carries the retired dimmed/closed class', async () => {
+    const { emit } = await bootMembership();
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
+    expect(document.querySelector('.panel-rail-closed')).toBeNull();
+  });
+
+  test('a panel_visibility show APPENDS the entry with its live health state', async () => {
+    const { emit } = await bootMembership();
+    // ariel's config resolved at init; its no-endpoint health settle may still
+    // be pending — wait for artifacts' enable as the settle barrier.
+    await vi.waitFor(() =>
+      expect(entry('artifacts')?.classList.contains('disabled')).toBe(false));
+
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true });
+
+    const ariel = entry('ariel');
+    expect(ariel).not.toBeNull();
+    await vi.waitFor(() => expect(ariel?.classList.contains('disabled')).toBe(false));
+  });
+
+  test('a panel_visibility hide REMOVES the entry and returns it to the catalog', async () => {
+    const { emit, mod } = await bootMembership();
+
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
+
+    expect(entry('artifacts')).toBeNull();
+    expect(mod.getHiddenPanels().map((p) => p.id)).toContain('artifacts');
+    // Re-show rebuilds the entry.
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: true });
+    expect(entry('artifacts')).not.toBeNull();
+  });
+
+  test('the SESSION (terminal) entry is always present and enabled', async () => {
+    await bootMembership();
+    const term = entry('terminal');
+    expect(term).not.toBeNull();
+    expect(term?.classList.contains('disabled')).toBe(false);
   });
 });

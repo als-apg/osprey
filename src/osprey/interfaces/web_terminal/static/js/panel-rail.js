@@ -2,24 +2,37 @@
 /* OSPREY Web Terminal — Vertical Panel Rail (DOM renderer)
  *
  * A pure DOM-rendering module for the 74px left icon rail that replaces the
- * horizontal header tab strip. It builds one entry per enabled panel (icon,
- * label, health LED, active accent) plus a trailing `＋` add affordance, and
- * exposes small imperative mutators — set active, set health, enable, show/hide,
- * attention, append — so `panel-manager.js`'s state machine can drive the rail
- * without owning any DOM specifics.
+ * horizontal header tab strip. It builds one entry per rail MEMBER (icon,
+ * label, active accent) plus a trailing `＋` add affordance, and exposes small
+ * imperative mutators — set active, enable, attention, append, remove — so
+ * `panel-manager.js`'s state machine can drive the rail without owning any DOM
+ * specifics.
+ *
+ * The rail deliberately carries NO per-panel health readout. Backend liveness
+ * is reported in one place — the SYSTEM panel's `web_panels` health category —
+ * so the rail stays a navigation surface rather than a status board. Health
+ * still reaches the rail, but only as the coarse `.disabled` state: an entry
+ * whose backend has never answered is dimmed and inert.
+ *
+ * The rail is a curated MEMBERSHIP list, not a tab strip with open/closed
+ * state: an entry exists iff its panel is in the rail, at full brightness.
+ * Which member currently holds the workspace tile is per-client layout state
+ * and is reflected only by the `.active` accent — never by dimming. Panels
+ * removed from the rail ("×", agent hide_panel) lose their entry entirely and
+ * live in the "+" catalog until re-added.
  *
  * This module holds NO panel state and issues NO fetches or POSTs. The caller
- * passes closures for the interactions (activate, close, add); everything else
- * is a one-shot mutation of the DOM the caller already owns. Styling is entirely
- * class/attribute driven (`.panel-rail-*`, `data-panel-id`, `data-icon`) — the
- * rail's CSS lands separately, this module only produces the markup it hooks.
+ * passes closures for the interactions (activate, close, add); everything
+ * else is a one-shot mutation of the DOM the caller already owns. Styling is
+ * entirely class/attribute driven (`.panel-rail-*`, `data-panel-id`,
+ * `data-icon`) — the rail's CSS lands separately, this module only produces
+ * the markup it hooks.
  *
  * DOM contract (stable — the browser suite selects on it):
  *
  *   <nav class="panel-rail" role="tablist">
  *     <button class="panel-rail-button disabled" data-panel-id="artifacts"
  *             type="button" role="tab" aria-selected="false" title="WORKSPACE">
- *       <span class="panel-rail-led offline" aria-hidden="true"></span>
  *       <span class="panel-rail-icon" data-icon="artifacts" aria-hidden="true"></span>
  *       <span class="panel-rail-label">WORKSPACE</span>
  *       <span class="panel-rail-close" aria-hidden="true">×</span>   (only when onClose given)
@@ -29,8 +42,7 @@
  *   </nav>
  *
  * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
- * not healthy yet), `.panel-rail-closed` (available but not open — dimmed, a
- * click reopens), `.agent-attention` (badge).
+ * not healthy yet), `.agent-attention` (badge).
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
@@ -41,27 +53,20 @@ import { flashElement } from '/design-system/js/highlight.js';
  * The minimal panel descriptor the rail renders — a structural subset of the
  * `Panel` records `panel-manager.js` holds and of the `/api/panels` payload
  * (`{ enabled, custom, labels, ... }`). Only id + label are needed to draw an
- * entry; health, visibility, and active state are applied by the mutators.
+ * entry; health and active state are applied by the mutators.
  * @typedef {object} RailPanel
  * @property {string} id
  * @property {string} label
  */
 
 /**
- * Interaction closures + initial open state, injected by the caller so the rail
- * stays a dumb view. Every callback is optional: omit `onClose` to render no
- * per-entry close affordance, omit `onAdd` to render no `＋` button.
- *
- * The rail lists every AVAILABLE panel — open or not, like a browser tab strip.
- * A closed panel's entry stays in place, dimmed via `.panel-rail-closed`;
- * clicking it is still an activate (the caller decides that means "reopen").
+ * Interaction closures injected by the caller so the rail stays a dumb view.
+ * Every callback is optional: omit `onClose` to render no per-entry close
+ * affordance, omit `onAdd` to render no `＋` button.
  * @typedef {object} RailOptions
  * @property {(id: string) => void} [onActivate] - an entry was clicked
  * @property {(id: string) => void} [onClose]    - the entry's close "×" was clicked
  * @property {() => void} [onAdd]                 - the trailing `＋` was clicked
- * @property {Set<string>} [open]                 - ids currently open; any entry whose
- *                                                  id is absent is built with
- *                                                  `.panel-rail-closed` (dimmed)
  */
 
 const BUTTON_SELECTOR = '.panel-rail-button';
@@ -75,9 +80,8 @@ const ADD_SELECTOR = '.panel-rail-add';
  *
  * Entries start `.disabled` (matching the tab strip's cold state); the caller
  * clears it via {@link setEntryEnabled} once the panel's backend is healthy.
- * The health LED starts `.offline`. `data-icon` carries the panel id so the
- * rail CSS can map known ids to glyphs and fall back generically for custom
- * panels.
+ * `data-icon` carries the panel id so the rail CSS can map known ids to glyphs
+ * and fall back generically for custom panels.
  * @param {RailPanel} panel
  * @param {RailOptions} [options]
  * @returns {HTMLButtonElement}
@@ -91,11 +95,6 @@ function buildRailButton(panel, options = {}) {
   btn.setAttribute('aria-selected', 'false');
   btn.title = panel.label;
   btn.setAttribute('aria-label', panel.label);
-
-  const led = document.createElement('span');
-  led.className = 'panel-rail-led offline';
-  led.setAttribute('aria-hidden', 'true');
-  btn.appendChild(led);
 
   const icon = document.createElement('span');
   icon.className = 'panel-rail-icon';
@@ -130,9 +129,6 @@ function buildRailButton(panel, options = {}) {
     btn.appendChild(close);
   }
 
-  if (options.open && !options.open.has(panel.id)) {
-    btn.classList.add('panel-rail-closed');
-  }
   return btn;
 }
 
@@ -157,8 +153,9 @@ function buildAddButton(onAdd) {
  * supplied. Marks `railEl` as `role="tablist"` for assistive tech.
  *
  * This is the destructive full render — the twin of the tab strip's
- * `renderTabs()`. Use {@link addEntry} for non-destructive runtime additions so
- * live entries keep their active / health / enabled state.
+ * `renderTabs()`. Use {@link addEntry} / {@link removeEntry} for
+ * non-destructive runtime membership changes so live entries keep their
+ * active / health / enabled state.
  * @param {HTMLElement} railEl
  * @param {RailPanel[]} panels
  * @param {RailOptions} [options]
@@ -177,8 +174,9 @@ export function createRail(railEl, panels, options = {}) {
 
 /**
  * Append a single entry without disturbing existing ones — the non-destructive
- * path for runtime panel registration. Inserts before the `＋` button when one
- * is present so the add affordance stays last; otherwise appends at the end.
+ * path for membership additions (agent show_panel, "+" menu pick, runtime
+ * registration). Inserts before the `＋` button when one is present so the add
+ * affordance stays last; otherwise appends at the end.
  *
  * Idempotent by id: if an entry for `panel.id` already exists it is returned
  * unchanged (no duplicate node), mirroring the tab strip's re-register guard.
@@ -199,6 +197,18 @@ export function addEntry(railEl, panel, options = {}) {
     railEl.appendChild(btn);
   }
   return btn;
+}
+
+/**
+ * Remove a panel's entry from the rail — the membership-removal twin of
+ * {@link addEntry} ("×", agent hide_panel). The node is taken out of the DOM
+ * entirely; the panel lives on in the caller's catalog and a later addEntry
+ * rebuilds a fresh entry. No-op for an unknown id.
+ * @param {HTMLElement} railEl
+ * @param {string} panelId
+ */
+export function removeEntry(railEl, panelId) {
+  getEntry(railEl, panelId)?.remove();
 }
 
 // ---- Mutators ----
@@ -231,22 +241,10 @@ export function setActive(railEl, panelId) {
 }
 
 /**
- * Update an entry's health LED. `.panel-rail-led` carries `healthy` or `offline`
- * so the rail CSS can color the dot. No-op when the entry is absent.
- * @param {HTMLElement} railEl
- * @param {string} panelId
- * @param {boolean} healthy
- */
-export function setHealth(railEl, panelId, healthy) {
-  const entry = getEntry(railEl, panelId);
-  const led = entry?.querySelector('.panel-rail-led');
-  if (led) led.className = 'panel-rail-led ' + (healthy ? 'healthy' : 'offline');
-}
-
-/**
  * Enable or disable an entry by toggling `.disabled`. Entries render disabled;
- * the caller enables one once its backend first reports healthy. No-op when the
- * entry is absent.
+ * the caller enables one once its backend first reports healthy. This is the
+ * rail's ONLY health-derived state — the per-entry LED was retired in favour of
+ * the SYSTEM panel's `web_panels` category. No-op when the entry is absent.
  * @param {HTMLElement} railEl
  * @param {string} panelId
  * @param {boolean} enabled
@@ -256,29 +254,12 @@ export function setEntryEnabled(railEl, panelId, enabled) {
 }
 
 /**
- * Mark an entry open or closed by toggling `.panel-rail-closed` (driven by the
- * server's visible set, not a health change). A closed entry stays in the rail,
- * dimmed — the rail is the list of AVAILABLE panels, not open ones — and a
- * click on it reopens the panel via the caller's onActivate. No-op when the
- * entry is absent.
- * @param {HTMLElement} railEl
- * @param {string} panelId
- * @param {boolean} open
- */
-export function setEntryOpen(railEl, panelId, open) {
-  getEntry(railEl, panelId)?.classList.toggle('panel-rail-closed', !open);
-}
-
-/**
  * Set or clear the agent-attention affordance on an entry. Turning it on
  * toggles the persistent `agent-attention` badge class (the design system's
  * highlight.css draws an absolutely-positioned `::after` accent dot — class
  * only, no child nodes, no layout shift) and fires the one-shot `agent-flash`
  * glow via {@link flashElement}. Turning it off removes only the badge class;
  * an in-flight flash is left to finish on its own `animationend`.
- *
- * The badge is orthogonal to open state: closed (`.panel-rail-closed`) entries
- * accept it and keep it across close/reopen toggles.
  * @param {HTMLElement} railEl
  * @param {string} panelId
  * @param {boolean} on

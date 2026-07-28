@@ -51,10 +51,21 @@
 
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
+/* BODY IS THE SCROLL CONTAINER.
+
+   The shared design-system base.css sets `html, body { height: 100%;
+   overflow: hidden }` — an app-shell reset that assumes each interface manages
+   its own inner scroll regions. This dashboard does not: header / hero / grid /
+   footer flow directly on <body>, and a real facility easily reports 40+ checks
+   across a dozen categories, which is several screens tall. Without restoring
+   overflow-y here the surplus is silently clipped with no scrollbar — so this
+   declaration is load-bearing, not cosmetic. The `.sweep` and `.ftr` bars are
+   position:fixed and therefore stay pinned to the frame while this scrolls. */
 body {
   font-family: var(--font-m); font-size: 12px;
   background: radial-gradient(ellipse at 50% 12%, var(--accent-tint-04) 0%, transparent 50%), var(--bg-0);
-  color: var(--text-0); min-height: 100vh; overflow-x: hidden; line-height: 1.6;
+  color: var(--text-0); min-height: 100vh;
+  overflow-y: auto; overflow-x: hidden; line-height: 1.6;
   display: flex; flex-direction: column;
 }
 
@@ -67,10 +78,16 @@ body {
 }
 @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
-/* ---- Header ---- */
+/* ---- Header ----
+   Sticky: now that <body> scrolls, a non-sticky header would carry the refresh
+   control and the last-scan timestamp off-screen exactly when the report is
+   long enough to need them. Opaque background (not the body's gradient) so
+   rows cannot show through as they pass underneath. */
 .hdr {
+  position: sticky; top: 0; z-index: 50;
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 20px 10px; border-bottom: 1px solid var(--border-0);
+  background: var(--bg-0);
 }
 .hdr-t { display: flex; align-items: baseline; gap: 10px; }
 .hdr-t h1 { font-family: var(--font-d); font-size: 22px; font-weight: 800; letter-spacing: 1px; }

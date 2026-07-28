@@ -539,43 +539,6 @@ html[data-ui-mode="simple"] .header-help-chip {
   pointer-events: none;
 }
 
-/* Closed entry (panel available but not open). The rail lists every available
-   panel like a browser's tab strip lists pages — closing a panel dims its entry
-   rather than deleting it, and clicking a dimmed entry reopens the panel.
-   Toggled by SSE visibility events (server-owned state). Declared AFTER
-   .disabled so a closed offline entry reads closed (single opacity wins). */
-.panel-rail-button.panel-rail-closed {
-  opacity: 0.4;
-}
-
-.panel-rail-button.panel-rail-closed:hover {
-  opacity: 0.85;
-}
-
-/* A closed entry has nothing to close and no live backend surface to report:
-   suppress its "×" and health LED until it reopens. */
-.panel-rail-button.panel-rail-closed .panel-rail-close,
-.panel-rail-button.panel-rail-closed .panel-rail-led {
-  display: none;
-}
-
-/* Health LED — a small dot pinned to the entry's top-right so it reads at a
-   glance without competing with the icon. Absent (transparent) until a panel
-   first reports healthy, matching the rail's calm resting state. */
-.panel-rail-led {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-full);
-  background: transparent;
-  transition: background var(--wt-transition-normal);
-}
-
-.panel-rail-led.healthy { background: var(--color-success); }
-.panel-rail-led.offline { background: transparent; }
-
 /* Glyph — mapped from the panel id via data-icon, with a generic fallback for
    runtime/custom panels. */
 .panel-rail-icon {
@@ -603,7 +566,7 @@ html[data-ui-mode="simple"] .header-help-chip {
 }
 
 /* Per-entry close "×" — decorative, revealed on hover / when active. Pinned to
-   the top-left so it never collides with the health LED. */
+   the top-left corner, clear of the centred icon + label stack. */
 .panel-rail-close {
   position: absolute;
   top: 4px;
@@ -640,10 +603,10 @@ html[data-ui-mode="simple"] .header-help-chip {
   opacity: 0.6;
 }
 
-/* Simple mode is a locked layout: the terminal/chat tile is its anchor, so its
-   rail entry must not offer a close there (matches the mode's CSS-suppressed
-   dock-tab close controls; dock-workspace.js guards the JS path too). */
-html[data-ui-mode="simple"] .panel-rail-button[data-panel-id="terminal"] .panel-rail-close {
+/* The SESSION (terminal) entry is the rail's permanent anchor: it never has a
+   membership "×" — its tile is closed/reopened through the dock tab and the
+   Delete-key shortcut instead (dock-workspace.js guards the JS paths too). */
+.panel-rail-button[data-panel-id="terminal"] .panel-rail-close {
   display: none;
 }
 

@@ -462,6 +462,28 @@ code {
   flex-shrink: 0;
 }
 
+/* Orientation toggle — same compact square as the refresh control. Shows a
+   mini-diagram of the layout a click switches TO: the stacked icon while
+   side-by-side, the columns icon while stacked (browse-layout.js keeps the
+   aria-label/title in step). Hidden below the width where side-by-side is
+   forced off and the toggle would be a dead control. */
+.browser-card-header .btn-orient-toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.btn-orient-toggle .orient-icon-column { display: block; }
+.btn-orient-toggle .orient-icon-row { display: none; }
+
+html[data-browse-orient="column"] .btn-orient-toggle .orient-icon-column { display: none; }
+html[data-browse-orient="column"] .btn-orient-toggle .orient-icon-row { display: block; }
+
+@media (max-width: 560px) {
+  .browser-card-header .btn-orient-toggle { display: none; }
+}
+
 .browser-card-header .btn-header-refresh .refresh-icon {
   width: 14px;
   height: 14px;
@@ -587,14 +609,20 @@ code {
    Browse View — Split Pane Layout
    ================================================================ */
 
-/* Two stacked cards floating on the neutral canvas: 8px gutter around the
-   pair (padding) and between them (gap). A compact browser band on top —
-   count/actions header, filter chips, Types/Activity + filter, and a short
-   scrollable artifact list — with the artifact detail card dominant below,
-   at all panel widths. The canvas (--bg-primary) shows through the gutters. */
+/* Two cards floating on the neutral canvas: 8px gutter around the pair
+   (padding) and between them (gap). The axis is chosen by
+   html[data-browse-orient] (browse-layout.js, persisted per origin):
+
+   - row (default): browser column on the left, artifact detail card
+     dominant on the right, divided by a live splitter — the OKF panel's
+     sidebar/reader arrangement.
+   - column: a compact full-width browser band on top — header, chips,
+     Types/Activity + filter, short scrollable list — detail card below.
+
+   The canvas (--bg-primary) shows through the gutters in both. */
 .browse-layout {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -603,7 +631,7 @@ code {
   background: var(--bg-primary);
 }
 
-/* ---- Browser band (top card) ---- */
+/* ---- Browser card (left column / top band) ---- */
 
 .browse-sidebar {
   background: var(--bg-panel);
@@ -613,13 +641,78 @@ code {
   flex-direction: column;
   overflow: hidden;
   flex-shrink: 0;
+  /* Side-by-side: a fixed-basis column; flex-basis/max-width are overridden
+     inline by browse-layout.js when the operator drags the splitter. */
+  flex-basis: 280px;
+  max-width: 560px;
 }
 
-/* Resize handle retired with the two-column split — the browser is now a
-   full-width band, not a resizable left column. The element stays in the DOM
-   (gallery.js binds it) but is inert. */
+/* Splitter between the cards — the same grip-pill idiom as the hub's
+   dockview sashes and the OKF panel's sidebar resizer: quiet pill at rest,
+   instant accent fill on hover/drag/focus. Wired by browse-layout.js;
+   swallows the panel gap so the gutter stays visually even. */
 .resize-handle {
+  flex: 0 0 5px;
+  margin: 0 calc((var(--art-panel-gap) - 5px) / 2);
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+  transition: background var(--transition-fast);
+}
+
+.resize-handle:hover,
+.resize-handle.dragging,
+.resize-handle:focus-visible {
+  background: var(--color-accent);
+  outline: none;
+}
+
+.resize-handle-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+
+.resize-handle:hover .resize-handle-grip,
+.resize-handle.dragging .resize-handle-grip,
+.resize-handle:focus-visible .resize-handle-grip {
+  background: var(--bg-primary);
+  opacity: 1;
+}
+
+/* ---- Stacked variant (explicit choice, or forced when the panel is too
+   narrow for a side-by-side split — same duplication note as the OKF
+   panel's stacked responsive layout) ---- */
+
+html[data-browse-orient="column"] .browse-layout {
+  flex-direction: column;
+}
+
+html[data-browse-orient="column"] .browse-sidebar {
+  flex-basis: auto;
+  max-width: none;
+}
+
+html[data-browse-orient="column"] .resize-handle {
   display: none;
+}
+
+@media (max-width: 560px) {
+  .browse-layout { flex-direction: column; }
+  .browse-sidebar {
+    flex-basis: auto !important;
+    max-width: none !important;
+  }
+  .resize-handle { display: none; }
 }
 
 .sidebar-header {
@@ -781,13 +874,27 @@ code {
   border-color: var(--color-accent-dark);
 }
 
-/* Sidebar body — a short, bounded scrollable strip (frame: browser band on
-   top). Fixed height so the artifact detail card below stays dominant; the
-   list scrolls within this height rather than growing the band. */
+/* Sidebar body — the scrollable artifact list. Side-by-side: fills the
+   browser column's remaining height. Stacked: a short, bounded strip with a
+   fixed height so the artifact detail card below stays dominant; the list
+   scrolls within this height rather than growing the band. */
 .sidebar-body {
-  height: var(--art-browser-band-height);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--art-space-2) 0;
+}
+
+html[data-browse-orient="column"] .sidebar-body {
+  flex: 0 0 auto;
+  height: var(--art-browser-band-height);
+}
+
+@media (max-width: 560px) {
+  .sidebar-body {
+    flex: 0 0 auto;
+    height: var(--art-browser-band-height);
+  }
 }
 
 /* ---- File Tree (Types mode) ---- */

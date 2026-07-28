@@ -170,12 +170,6 @@ export function initDockWorkspace() {
   wireTerminalRefit(dockApi);
   wirePointerShield(dockApi, root);
 
-  // Keep the rail's terminal entry in sync with the tile's presence: every
-  // settled layout change (human tab close, rail reopen, mode flip, restore)
-  // re-derives open/closed from whether the panel exists.
-  dockApi.onDidLayoutChange(notifyTerminalPresence);
-  notifyTerminalPresence();
-
   // Fire-and-forget: the default layout above is already usable, so a slow or
   // failed /api/panels fetch just means "no persistence this session". A stored
   // expert layout, once fetched, is reconciled and applied over the default.
@@ -348,26 +342,6 @@ function wireDockTheme(root) {
 
 /* ---- Terminal tile presence (first-class open/close/reopen) ---- */
 
-/**
- * Rail-side observer of the terminal tile's presence, registered by
- * panel-manager (which owns the rail's terminal entry). Invoked with the
- * current state on registration (when the dock is up) and after every settled
- * layout change.
- * @type {((open: boolean) => void) | null}
- */
-let terminalPresenceHandler = null;
-
-/** Push the current terminal presence to the registered handler. */
-function notifyTerminalPresence() {
-  terminalPresenceHandler?.(isTerminalOpen());
-}
-
-/** @param {(open: boolean) => void} fn */
-export function setTerminalPresenceHandler(fn) {
-  terminalPresenceHandler = fn;
-  if (dockApi) fn(isTerminalOpen());
-}
-
 /** @returns {boolean} whether the terminal tile currently exists in the grid. */
 export function isTerminalOpen() {
   return !!dockApi?.getPanel(PANEL_TERMINAL);
@@ -403,10 +377,10 @@ export function openTerminalPanel() {
 }
 
 /**
- * Close the terminal tile (the rail entry's "×" path). The dock tab's own "×"
- * goes through dockview directly; both end at the same removePanel, and the
- * presence handler re-dims the rail entry either way. No-op in simple mode —
- * the locked layout is not user-editable.
+ * Close the terminal tile (the rail entry's Delete-key path). The dock tab's
+ * own "×" goes through dockview directly; both end at the same removePanel.
+ * The rail's SESSION entry is unaffected — it is the permanent reopen
+ * affordance. No-op in simple mode — the locked layout is not user-editable.
  */
 export function closeTerminalPanel() {
   if (!dockApi || currentUiMode() !== 'expert') return;

@@ -34,7 +34,8 @@ import {
   openUrl,
   escapeHtml,
 } from "./types.js";
-import { initSplitPaneResize, createSidebarRenderer } from "./render.js";
+import { createSidebarRenderer } from "./render.js";
+import { initBrowseLayout } from "./browse-layout.js";
 import { createPreviewRenderer } from "./preview.js";
 import { renderTimeseriesView, restyleVisibleChart } from "./timeseries.js";
 
@@ -471,7 +472,11 @@ onModeChange(() => renderSimple());
 
 // ---- Init ----
 
-initSplitPaneResize(resizeHandle, sidebar);
+initBrowseLayout({
+  handle: resizeHandle,
+  sidebar,
+  toggle: document.getElementById("orient-toggle-btn"),
+});
 refreshBtn.addEventListener("click", doRefresh);
 
 const allSessionsBtn = document.getElementById("all-sessions-btn");

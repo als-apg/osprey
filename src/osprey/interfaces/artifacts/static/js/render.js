@@ -2,16 +2,15 @@
 /**
  * OSPREY Artifact Gallery — sidebar rendering layer.
  *
- * Owns the filter bar, the shared gallery-card template, the sidebar
- * dispatcher (tree/activity mode renderers + their shared item handlers),
- * and the split-pane resize handle. Everything here reads/writes the
- * shared artifact list via state.js and formats via types.js.
+ * Owns the filter bar, the shared gallery-card template, and the sidebar
+ * dispatcher (tree/activity mode renderers + their shared item handlers).
+ * Everything here reads/writes the shared artifact list via state.js and
+ * formats via types.js. (The browse split's orientation and divider live in
+ * browse-layout.js.)
  *
- * The split-pane resize handler has no dependency on anything outside its
- * own arguments, so it's a plain/pure export (`initSplitPaneResize`). The
- * rest needs two effects this module doesn't own — setting agent focus and
- * (re)rendering the preview pane / entering fullscreen, owned by preview.js's
- * preview renderer and wired through gallery.js — so
+ * Rendering needs two effects this module doesn't own — setting agent focus
+ * and (re)rendering the preview pane / entering fullscreen, owned by
+ * preview.js's preview renderer and wired through gallery.js — so
  * `createSidebarRenderer(callbacks)` injects them, mirroring
  * lattice_dashboard/render.js's createRenderer(callbacks) pattern.
  *
@@ -38,39 +37,6 @@ import {
   isNewThisSession,
   requestColorPass,
 } from "./types.js";
-
-// ---- Split-Pane Resize ----
-
-/**
- * Wire the sidebar/preview split-pane drag handle.
- * @param {HTMLElement|null} handle
- * @param {HTMLElement|null} sidebarEl
- * @returns {void}
- */
-export function initSplitPaneResize(handle, sidebarEl) {
-  if (!handle || !sidebarEl) return;
-  /** @type {number} */
-  let startX;
-  /** @type {number} */
-  let startWidth;
-  handle.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    startX = e.clientX;
-    startWidth = sidebarEl.offsetWidth;
-    /** @param {MouseEvent} ev */
-    const onMove = (ev) => {
-      const delta = ev.clientX - startX;
-      const newW = Math.max(180, Math.min(startWidth + delta, window.innerWidth * 0.6));
-      sidebarEl.style.width = newW + "px";
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  });
-}
 
 // ---- Gallery Card HTML (shared by both sidebar modes in gallery layout) ----
 

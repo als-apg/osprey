@@ -425,6 +425,18 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     except Exception:
         return set(UNIVERSAL_PANELS), [], None
 
+    if not config:
+        # The CLI refuses to launch without a resolvable config, but this app
+        # can also be created directly (tests, uvicorn factory) — never let
+        # that degrade silently into a rail with most of its panels missing.
+        logger.warning(
+            "No OSPREY config resolved (OSPREY_CONFIG=%s, cwd=%s) — "
+            "serving universal panels only: %s",
+            os.environ.get("OSPREY_CONFIG", "<unset>"),
+            Path.cwd(),
+            sorted(UNIVERSAL_PANELS),
+        )
+
     web_config = config.get("web", {})
     panels_config = web_config.get("panels", {})
     default_panel = web_config.get("default_panel")

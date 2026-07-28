@@ -245,7 +245,8 @@ function groupHasServicePlaceholder(group) {
  */
 function targetServiceGroup(api) {
   const active = api.activePanel;
-  if (typeof active?.id === 'string' && active.id.startsWith(PLACEHOLDER_PREFIX) && active.group) {
+  if (typeof active?.id === 'string' && active.id.startsWith(PLACEHOLDER_PREFIX)
+      && active.group) {
     return active.group;
   }
   if (lastServiceGroupId) {
@@ -257,7 +258,9 @@ function targetServiceGroup(api) {
     if (group) return group;
   }
   for (const p of (Array.isArray(api.panels) ? api.panels : [])) {
-    if (typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX) && p.group) return p.group;
+    if (typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX) && p.group) {
+      return p.group;
+    }
   }
   return null;
 }
@@ -272,12 +275,13 @@ function targetServiceGroup(api) {
  *   panel manager can close it server-side). The rail is the tab system; an
  *   activation switches the tile rather than stacking a tab into it.
  *
- *   'beside' (a redock after a layout rebuild): the placeholder docks as a NEW
- *   tile beside the target group — re-materializing several visible panels
- *   must not have them evict one another.
+ *   'beside' (a redock after a layout rebuild): the placeholder docks as a
+ *   NEW tile beside the target group — re-materializing several visible
+ *   panels must not have them evict one another.
  *
  * With no service tile at all, either intent opens the first one LEFT of the
- * terminal at the classic 60/40 split.
+ * terminal at the classic 60/40 split (or against the grid's left edge when
+ * the terminal tile is closed too).
  * @param {any} api
  * @param {ManagedPanel} entry
  * @param {'replace'|'beside'} [intent]
@@ -294,6 +298,11 @@ function ensurePlaceholder(api, entry, intent = 'replace') {
   } else if (api.getPanel(TERMINAL_PANEL_ID)) {
     opts.position = { referencePanel: TERMINAL_PANEL_ID, direction: 'left' };
     opts.initialWidth = defaultServiceWidth();
+  } else {
+    // No usable reference at all (terminal tile closed too): split against the
+    // grid edge rather than stacking into the active group — one panel per
+    // tile is an invariant, addPanel's default would violate it.
+    opts.position = { direction: 'left' };
   }
   try {
     api.addPanel(opts);
@@ -305,9 +314,10 @@ function ensurePlaceholder(api, entry, intent = 'replace') {
 }
 
 /**
- * Handler the panel manager registers to be told when a placement evicted a
- * tile's previous occupant (so it can dim the rail entry and close the panel
- * server-side). Called with the replaced panel's service id.
+ * Optional observer of replace-evictions, called with the evicted panel's
+ * service id. Eviction is a purely LOCAL vacate under the launcher-rail model
+ * (the evicted panel keeps its rail membership; the server is not told), so
+ * nothing registers this in production — it remains as a test/diagnostic seam.
  * @type {((serviceId: string) => void) | null}
  */
 let replacedHandler = null;
@@ -320,9 +330,9 @@ export function setReplacedPanelHandler(fn) {
 /**
  * Remove every OTHER service placeholder from the group that just received a
  * 'replace' placement — the tile's previous occupant(s). Native panels (the
- * terminal) are never evicted. Each eviction is reported through the
- * replaced-panel handler; the evicted iframe is concealed but kept cached so a
- * later re-activation restores its state.
+ * terminal) are never evicted. The evicted iframe is concealed but kept cached
+ * so a later re-activation restores its state; the eviction changes no rail or
+ * server state.
  * @param {any} api
  * @param {string} keptPlaceholderId
  */
@@ -372,10 +382,10 @@ function redockVisiblePanels() {
  *  @type {Set<string> | null} */
 let knownServiceIds = null;
 
-/** The server-visible service ids — a LIVE reference to panel-manager's own
- *  set (panel-manager keeps it current on every SSE visibility change), or
+/** The server-visible service ids — RAIL MEMBERSHIP: a LIVE reference to
+ *  panel-manager's own set (kept current on every SSE visibility change), or
  *  null before the registry has loaded. Used to prune restored placeholders
- *  whose panel is closed server-side: under one-panel-per-tile such a
+ *  whose panel is no longer a rail member: under one-panel-per-tile such a
  *  placeholder would be a whole ghost tile, not just a hidden tab.
  *  @type {Set<string> | null} */
 let serverVisibleIds = null;
@@ -413,12 +423,12 @@ export function setKnownServicePanels(ids) {
 /**
  * Remove placeholder panels that must not hold a tile: services neither known
  * to panel-manager nor managed here (removed from the deployment), and — once
- * the server-visible set is seeded — services closed server-side that are not
- * currently being shown locally (a restored placeholder for a closed panel is
+ * the membership set is seeded — services no longer in the rail that are not
+ * currently being shown locally (a restored placeholder for a removed panel is
  * a ghost tile under the one-panel-per-tile model). The `managed` visible flag
- * covers the window where a just-activated panel's visibility POST has not
- * echoed back into the server set yet. No-op until setKnownServicePanels has
- * run — before the registry loads, "unknown" would just mean "not fetched yet".
+ * covers the window where a just-added panel's membership POST has not echoed
+ * back into the server set yet. No-op until setKnownServicePanels has run —
+ * before the registry loads, "unknown" would just mean "not fetched yet".
  * @param {any} api
  */
 function pruneOrphanPlaceholders(api) {
@@ -617,4 +627,21 @@ export function hidePanel(panelId) {
     }
     syncGeometry();
   }
+}
+
+/**
+ * Mark a panel vacated WITHOUT touching its dock placeholder — the complement
+ * of hidePanel for the human tile-close gesture, where dockview itself is
+ * already removing the placeholder (the close click's own bubble handler).
+ * Only the adapter-side state is cleared: the overlay iframe is concealed
+ * (cached for a later re-activation) and the entry marked not-visible so
+ * redocks stop re-materializing it. Geometry re-syncs on the removal's own
+ * onDidLayoutChange, so none is forced here.
+ * @param {string} panelId
+ */
+export function concealPanel(panelId) {
+  const entry = managed.get(panelId);
+  if (!entry) return;
+  entry.visible = false;
+  entry.iframe.style.display = 'none';
 }

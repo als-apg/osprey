@@ -1,5 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- data-browse-orient: axis of the browse split (row = browser left /
+     artifact right, column = stacked band). "row" is the shipped default;
+     browse-layout.js re-applies a persisted "column" choice at module load. -->
+<html lang="en" data-browse-orient="row">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -92,6 +95,22 @@
               <button class="btn btn-session-toggle" id="all-sessions-btn" title="Show artifacts from all sessions">
                 All Sessions
               </button>
+              <button class="btn btn-icon btn-orient-toggle" id="orient-toggle-btn"
+                      title="Switch to stacked layout" aria-label="Switch to stacked layout">
+                <!-- Two mini-diagrams of the target layout; CSS shows the one
+                     the click would switch TO (stacked icon while side-by-side,
+                     and vice versa). -->
+                <svg class="orient-icon orient-icon-column" width="14" height="14" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="7" rx="1"/>
+                  <rect x="3" y="14" width="18" height="7" rx="1"/>
+                </svg>
+                <svg class="orient-icon orient-icon-row" width="14" height="14" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="7" height="18" rx="1"/>
+                  <rect x="14" y="3" width="7" height="18" rx="1"/>
+                </svg>
+              </button>
               <button class="btn btn-icon btn-header-refresh" id="refresh-btn" title="Refresh all data">
                 <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24"
                      fill="none" stroke="currentColor" stroke-width="2"
@@ -178,8 +197,11 @@
             </div>
           </aside>
 
-          <!-- Drag handle for resizing -->
-          <div class="resize-handle" id="resize-handle">
+          <!-- Splitter between the cards — live in side-by-side mode
+               (browse-layout.js), hidden in the stacked band layout. -->
+          <div class="resize-handle" id="resize-handle" role="separator"
+               aria-orientation="vertical" aria-label="Resize browser column"
+               tabindex="0">
             <div class="resize-handle-grip"></div>
           </div>
 
