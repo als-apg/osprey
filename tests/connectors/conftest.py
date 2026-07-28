@@ -9,7 +9,6 @@ skip cleanly when Docker is unavailable, matching the pattern used by
 """
 
 import logging
-import os
 from datetime import datetime, timedelta
 
 import pytest
@@ -133,7 +132,7 @@ def mongodb_test_data(mongodb_container):
 
 
 @pytest.fixture
-def mongodb_config(mongodb_container):
+def mongodb_config(mongodb_container, monkeypatch):
     """Provide a connector-ready config dict and set the password env var.
 
     Tests that need seeded data should also depend on ``mongodb_test_data``;
@@ -141,7 +140,7 @@ def mongodb_config(mongodb_container):
     error-path tests (missing config keys, etc.) don't pay seeding cost.
     """
     password_env = "MONGODB_TEST_PASSWORD"
-    os.environ[password_env] = mongodb_container["password"]
+    monkeypatch.setenv(password_env, mongodb_container["password"])
 
     config = {
         "host": mongodb_container["host"],
@@ -155,5 +154,3 @@ def mongodb_config(mongodb_container):
     }
 
     yield config
-
-    os.environ.pop(password_env, None)

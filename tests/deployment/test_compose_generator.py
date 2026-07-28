@@ -57,7 +57,9 @@ def test_copy_service_templates_copies_root_when_no_services(tmp_path: Path) -> 
     )
 
 
-def test_prepare_compose_files_no_services_renders_nothing(tmp_path: Path) -> None:
+def test_prepare_compose_files_no_services_renders_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With empty deployed_services, prepare_compose_files renders no files at all.
 
     An attached project (``deploy_services: false``) scaffolds no ``services/``
@@ -67,18 +69,10 @@ def test_prepare_compose_files_no_services_renders_nothing(tmp_path: Path) -> No
     """
     config_path = _write_config(tmp_path, deployed_services=[])
 
-    monkey_cwd = Path.cwd()
-    try:
-        # render_template resolves SERVICES_DIR relative to cwd; deliberately
-        # no _copy_service_templates — the attached case has no services/ dir.
-        import os
-
-        os.chdir(tmp_path)
-        config, compose_files = prepare_compose_files(str(config_path))
-    finally:
-        import os
-
-        os.chdir(monkey_cwd)
+    # render_template resolves SERVICES_DIR relative to cwd; deliberately
+    # no _copy_service_templates — the attached case has no services/ dir.
+    monkeypatch.chdir(tmp_path)
+    config, compose_files = prepare_compose_files(str(config_path))
 
     assert compose_files == [], (
         f"empty deployed_services must render no compose files, got {compose_files}"
@@ -426,7 +420,7 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
         # Return non-zero so the function bails before trying to copy a wheel.
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="stop here")
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
     compose_generator._copy_local_framework_for_override("/tmp/ignored")
 
     assert captured.get("cmd"), "the wheel build subprocess was never invoked"
@@ -703,7 +697,7 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 
 
 def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """FR11's turn-key deploy config, end to end without Docker:
     ``osprey build`` (in-process, via ``tests/e2e/_orm_stack``) followed by a
@@ -720,7 +714,6 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
         opt in, and this deploy config does).
     """
     import json
-    import os
 
     from click.testing import CliRunner
 
@@ -747,15 +740,11 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     )
 
     # -- VA + bridge + Tiled compose services --------------------------------
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(project_dir)
-        _, compose_files = prepare_compose_files(str(project_dir / "config.yml"))
-        # Read while still inside project_dir — prepare_compose_files returns
-        # paths relative to it (SERVICES_DIR resolves relative to cwd).
-        rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(project_dir)
+    _, compose_files = prepare_compose_files(str(project_dir / "config.yml"))
+    # Read while still inside project_dir — prepare_compose_files returns
+    # paths relative to it (SERVICES_DIR resolves relative to cwd).
+    rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
 
     assert "\n  virtual-accelerator:\n" in rendered, "VA service must be deployed"
     assert "\n  bluesky-bridge:\n" in rendered, "bridge service must be deployed"
@@ -1085,27 +1074,24 @@ def _write_openobserve_config(
     return config_path
 
 
-def _render_project_compose(config_path: Path, project_path: Path) -> str:
+def _render_project_compose(
+    config_path: Path, project_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> str:
     """Copy service templates, render via ``prepare_compose_files``, return the text.
 
     Runs the real CLI gating path from inside the project dir (SERVICES_DIR and
     the service ``path`` both resolve relative to cwd), then joins every rendered
-    compose file so callers can assert on the aggregate text.
+    compose file so callers can assert on the aggregate text. The caller's
+    ``monkeypatch`` owns the cwd change, so it is undone at test teardown.
     """
-    import os
-
     _copy_service_templates(project_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(project_path)
-        _, compose_files = prepare_compose_files(str(config_path))
-        return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(project_path)
+    _, compose_files = prepare_compose_files(str(config_path))
+    return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
 
 
-def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
+def test_openobserve_renders_when_deployed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """With ``openobserve`` in deployed_services the compose renders (exit 0) with
     the expected image reference, port, named volume, and root-cred env vars.
 
@@ -1114,7 +1100,7 @@ def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
     agent's OTLP push against the local store.
     """
     config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
 
     # The service block and its in-network DNS host name.
     assert "\n  openobserve:\n" in rendered
@@ -1134,19 +1120,23 @@ def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
     assert "osprey-openobserve" not in rendered
 
 
-def test_openobserve_retention_env_default_rendered(tmp_path: Path) -> None:
+def test_openobserve_retention_env_default_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Omitting retention_days renders the 14-day growth bound (the compose default)."""
     config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
     assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "14"' in rendered
 
 
-def test_openobserve_retention_env_custom_rendered(tmp_path: Path) -> None:
+def test_openobserve_retention_env_custom_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A configured retention_days flows into ZO_COMPACT_DATA_RETENTION_DAYS."""
     config_path = _write_openobserve_config(
         tmp_path, deployed_services=["openobserve"], retention_days=30
     )
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
     assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "30"' in rendered
 
     # Named data volume for persistence (both the mount and the top-level decl).
@@ -1159,13 +1149,15 @@ def test_openobserve_retention_env_custom_rendered(tmp_path: Path) -> None:
     assert "ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-" in rendered
 
 
-def test_openobserve_absent_when_not_deployed(tmp_path: Path) -> None:
+def test_openobserve_absent_when_not_deployed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With ``openobserve`` declared but NOT in deployed_services it must not
     render — the opt-in posture. Only the root compose is produced, with no
     openobserve service, image, or volume anywhere in the output.
     """
     config_path = _write_openobserve_config(tmp_path, deployed_services=[])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
 
     assert "openobserve" not in rendered, (
         f"openobserve must stay off when absent from deployed_services (opt-in):\n{rendered}"
@@ -1764,6 +1756,8 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
     """
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
+
     calls: list = []
     real_run = subprocess_module.run
 
@@ -1775,12 +1769,12 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
     return calls
 
 
 def test_dev_wheel_builds_once_across_service_and_project_staging(
-    tmp_path: Path, spy_wheel_build: list
+    tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """One process, many staging targets, exactly ONE ``python -m build``.
 
@@ -1791,8 +1785,6 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     invoke against their own contexts. Every context must still receive its
     own wheel copy (the memo caches the BUILD, not the copy).
     """
-    import os
-
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
@@ -1803,14 +1795,10 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     project_image_ctx.mkdir()
     persona_ctx.mkdir()
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-        assert _copy_local_framework_for_override(str(project_image_ctx)) is True
-        assert _copy_local_framework_for_override(str(persona_ctx)) is True
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
+    assert _copy_local_framework_for_override(str(project_image_ctx)) is True
+    assert _copy_local_framework_for_override(str(persona_ctx)) is True
 
     assert len(spy_wheel_build) == 1, (
         f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
@@ -1824,22 +1812,16 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
 
 
 def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
-    tmp_path: Path, spy_wheel_build: list
+    tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``rebuild_deployment`` runs ``prepare_compose_files`` twice (its own call
     plus the delegated ``deploy_up``'s) — the wheel build must still run once."""
-    import os
-
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-        prepare_compose_files(str(config_path), dev_mode=True)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
+    prepare_compose_files(str(config_path), dev_mode=True)
 
     assert len(spy_wheel_build) == 1, (
         f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
@@ -1869,12 +1851,8 @@ def test_dev_wheel_staged_only_into_dockerfile_build_contexts(
     )
     _copy_service_templates(tmp_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
 
     assert len(staged) == 1, f"expected staging into exactly one context, got {staged}"
     assert staged[0].endswith(os.path.join("services", "event_dispatcher")), staged[0]
@@ -1934,6 +1912,8 @@ def test_rendered_compose_omits_osprey_dev_on_memoized_build_failure(
     the memoized failure must leave OSPREY_DEV out of the rendered compose."""
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
+
     real_run = subprocess_module.run
 
     def _failing_build(cmd, **kwargs):  # type: ignore[no-untyped-def]
@@ -1943,7 +1923,7 @@ def test_rendered_compose_omits_osprey_dev_on_memoized_build_failure(
             )
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _failing_build)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _failing_build)
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
@@ -2105,6 +2085,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
     still lacks the local wheel's added deps (half-staged)."""
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
 
     real_run = subprocess_module.run
@@ -2116,7 +2097,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()

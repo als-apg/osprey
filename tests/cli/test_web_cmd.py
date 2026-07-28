@@ -729,17 +729,13 @@ class TestDetachSkipsPreflightInChild:
 
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch("osprey.cli.web_cmd.subprocess.Popen")
-    def test_child_argv_gets_skip_preflight(self, mock_popen, mock_wait, tmp_path):
+    def test_child_argv_gets_skip_preflight(self, mock_popen, mock_wait, tmp_path, monkeypatch):
         mock_proc = MagicMock()
         mock_proc.pid = 4242
         mock_popen.return_value = mock_proc
 
-        cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            _start_detached("127.0.0.1", 8087, None, None)
-        finally:
-            os.chdir(cwd)
+        monkeypatch.chdir(tmp_path)
+        _start_detached("127.0.0.1", 8087, None, None)
 
         cmd = mock_popen.call_args.args[0]
         assert "--skip-preflight" in cmd
