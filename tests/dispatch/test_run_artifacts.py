@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -43,12 +42,11 @@ def _save(
     body: bytes,
 ) -> str:
     """Save one artifact tagged with ``run_id`` (via the env the store reads)."""
-    prev = os.environ.get("OSPREY_DISPATCH_RUN_ID")
-    if run_id:
-        os.environ["OSPREY_DISPATCH_RUN_ID"] = run_id
-    else:
-        os.environ.pop("OSPREY_DISPATCH_RUN_ID", None)
-    try:
+    with pytest.MonkeyPatch.context() as mp:
+        if run_id:
+            mp.setenv("OSPREY_DISPATCH_RUN_ID", run_id)
+        else:
+            mp.delenv("OSPREY_DISPATCH_RUN_ID", raising=False)
         entry = store.save_file(
             file_content=body,
             filename=filename,
@@ -56,11 +54,6 @@ def _save(
             artifact_type="image",
             mime_type=mime,
         )
-    finally:
-        if prev is None:
-            os.environ.pop("OSPREY_DISPATCH_RUN_ID", None)
-        else:
-            os.environ["OSPREY_DISPATCH_RUN_ID"] = prev
     return entry.id
 
 

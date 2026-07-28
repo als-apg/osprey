@@ -10,7 +10,7 @@ with their own patch sets) stay local to each file.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
@@ -53,14 +53,16 @@ def _apply_all(patches: list) -> Iterator[None]:
     Starts each patch in order and stops them in reverse on exit, so a suite can
     aggregate a patch set (some entries conditional) and apply it as a single
     context around ``create_app()`` + the server lifespan.
+
+    Each patch's ``stop`` is registered before the next one starts, so a raising
+    ``start()`` mid-list unwinds the ones already applied. Left unwound, those
+    patches would stay live process-globally for the rest of the worker.
     """
-    for p in patches:
-        p.start()
-    try:
+    with ExitStack() as stack:
+        for p in patches:
+            p.start()
+            stack.callback(p.stop)
         yield
-    finally:
-        for p in reversed(patches):
-            p.stop()
 
 
 # ---------------------------------------------------------------------------

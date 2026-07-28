@@ -8,6 +8,7 @@ profile-dir-relative paths that would break when shipped in a wheel.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,23 @@ def runner() -> CliRunner:
 
 def _config_yaml(project_dir: Path) -> dict:
     return yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+
+
+def _assert_build_error_logged(caplog: pytest.LogCaptureFixture, *needles: str) -> None:
+    """Assert the build reported one of *needles* to the operator.
+
+    ``osprey build`` reports fatal user errors through ``logger.error()`` and
+    then aborts, so the message reaches the operator on stderr — never on
+    stdout, which is reserved for program output. click's ``Result.output``
+    folds both streams together and cannot tell the two apart, so these
+    assertions read the log record itself (house pattern, see
+    ``tests/cli/test_templates.py``).
+    """
+    text = caplog.text.lower()
+    assert any(needle.lower() in text for needle in needles), (
+        f"expected one of {needles} in the build log; got records: "
+        f"{[record.getMessage()[:80] for record in caplog.records]}"
+    )
 
 
 def test_list_presets_exits_zero(runner: CliRunner) -> None:
@@ -553,46 +571,52 @@ def test_multiple_override_files_apply_in_order(runner: CliRunner, tmp_path: Pat
     assert config["claude_code"]["default_model"] == "claude-opus-4-5"
 
 
-def test_override_missing_file_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_override_missing_file_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T2: a missing -O file produces a clear non-zero exit, not a stack trace."""
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "-O",
-            str(tmp_path / "does-not-exist.yml"),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "-O",
+                str(tmp_path / "does-not-exist.yml"),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "not found" in result.output.lower() or "does-not-exist" in result.output
+    _assert_build_error_logged(caplog, "not found", "does-not-exist")
 
 
-def test_override_malformed_yaml_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_override_malformed_yaml_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T2: malformed YAML in an -O file aborts cleanly with a YAML-related message."""
     bad = tmp_path / "bad.yml"
     bad.write_text("model: : invalid:\n  - [unterminated\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "-O",
-            str(bad),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "-O",
+                str(bad),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "yaml" in result.output.lower() or "invalid" in result.output.lower()
+    _assert_build_error_logged(caplog, "yaml", "invalid")
 
 
 def test_override_empty_file_is_noop(runner: CliRunner, tmp_path: Path) -> None:
@@ -618,26 +642,29 @@ def test_override_empty_file_is_noop(runner: CliRunner, tmp_path: Path) -> None:
     assert (tmp_path / "smoke" / "config.yml").exists()
 
 
-def test_override_non_mapping_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_override_non_mapping_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T2: an -O file whose top-level body is a list (not a mapping) aborts."""
     bad = tmp_path / "list.yml"
     bad.write_text("- one\n- two\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "-O",
-            str(bad),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "-O",
+                str(bad),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "mapping" in result.output.lower()
+    _assert_build_error_logged(caplog, "mapping")
 
 
 def test_set_dotted_path_lands_in_config_yml(runner: CliRunner, tmp_path: Path) -> None:
@@ -722,64 +749,72 @@ def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
     assert cfg["claude_code"]["default_model"] == "claude-opus-4-5"
 
 
-def test_set_path_through_scalar_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_set_path_through_scalar_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T3: a --set key that descends through a scalar raises BuildProfileError."""
     # First --set sets a scalar, second tries to descend into it.
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "--set",
-            "model=claude-haiku-4-5",
-            "--set",
-            "model.flavor=fast",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "model=claude-haiku-4-5",
+                "--set",
+                "model.flavor=fast",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "scalar" in result.output.lower() or "conflict" in result.output.lower()
+    _assert_build_error_logged(caplog, "scalar", "conflict")
 
 
-def test_set_malformed_pair_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_set_malformed_pair_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T3: --set without '=' or with empty key aborts cleanly."""
-    no_eq = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "--set",
-            "model",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        no_eq = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "model",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert no_eq.exit_code != 0
-    assert "=" in no_eq.output or "key=value" in no_eq.output.lower()
+    _assert_build_error_logged(caplog, "=", "key=value")
 
-    empty_key = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "--set",
-            "=oops",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        empty_key = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "=oops",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert empty_key.exit_code != 0
-    assert "non-empty" in empty_key.output.lower() or "empty" in empty_key.output.lower()
+    _assert_build_error_logged(caplog, "non-empty", "empty")
 
 
 def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Path) -> None:
@@ -888,44 +923,50 @@ def test_overlay_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     )
 
 
-def test_extends_missing_base_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_extends_missing_base_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T5: extends pointing at a missing file produces a clear error, not a stack trace."""
     profile = tmp_path / "p.yml"
     profile.write_text("name: Orphan\nextends: ./does-not-exist.yml\ndata_bundle: hello_world\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            str(profile),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(profile),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "does-not-exist" in result.output or "not found" in result.output.lower()
+    _assert_build_error_logged(caplog, "does-not-exist", "not found")
 
 
-def test_extends_cycle_detected(runner: CliRunner, tmp_path: Path) -> None:
+def test_extends_cycle_detected(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T5: circular extends: a -> b -> a is detected and aborted."""
     a = tmp_path / "a.yml"
     b = tmp_path / "b.yml"
     a.write_text("name: A\nextends: ./b.yml\ndata_bundle: hello_world\n")
     b.write_text("name: B\nextends: ./a.yml\ndata_bundle: hello_world\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            str(a),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(a),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "cycle" in result.output.lower() or "circular" in result.output.lower()
+    _assert_build_error_logged(caplog, "cycle", "circular")
 
 
 @pytest.mark.parametrize("preset", list_presets())
@@ -1024,7 +1065,7 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     assert config["archiver"]["mock_archiver"]["simulation_file"] == "data/simulation/machine.json"
 
 
-def test_preset_yaml_must_be_mapping(tmp_path: Path) -> None:
+def test_preset_yaml_must_be_mapping(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """T5: a preset YAML that parses to a list (not a mapping) raises BuildProfileError."""
     # We can't easily inject a malformed bundled preset, but we can verify the
     # _load_preset_raw branch directly via the public function used by the CLI.
@@ -1040,19 +1081,20 @@ def test_preset_yaml_must_be_mapping(tmp_path: Path) -> None:
     from osprey.cli.build_cmd import build
 
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            str(bad),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(bad),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "mapping" in result.output.lower()
+    _assert_build_error_logged(caplog, "mapping")
     # Keep _load_preset_raw imported so the symbol is referenced and a future
     # rename surfaces this test.
     assert callable(_load_preset_raw)

@@ -113,23 +113,31 @@ def extract_response_dict(result) -> dict:
 
 @pytest.fixture(autouse=True)
 def _reset_singletons(monkeypatch):
-    """Reset the MCP registry and ArtifactStore singletons between tests."""
-    # Reset config caches BEFORE each test to prevent cross-contamination
-    reset_config_cache()
+    """Reset the MCP registry, ArtifactStore, screen-capture backend and config caches.
+
+    Leak guarded: the server context, artifact store, screen-capture backend and
+    the ``osprey.utils.config`` caches are all process-wide singletons. Every one
+    of them is reset both before and after the test, so a directory that ran
+    earlier in the same worker cannot hand its state to the first test here, and
+    this directory cannot hand its state to whatever runs next.
+    """
     import osprey.utils.config as _cfg
+
+    def _reset_all():
+        reset_server_context()
+        reset_artifact_store()
+        reset_backend()
+        reset_config_cache()
+        _cfg._config_cache.clear()
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)
     saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
+    _reset_all()
 
     yield
 
-    reset_server_context()
-    reset_artifact_store()
-    reset_backend()
-    reset_config_cache()
-    _cfg._config_cache.clear()
+    _reset_all()
     _cfg._config_cache.update(saved_cache)
 
 

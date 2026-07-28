@@ -6,21 +6,22 @@ from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
-from osprey.connectors.factory import ConnectorFactory
+from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 
 
 @pytest.fixture(autouse=True)
 def setup_test_connectors():
-    """Register mock connectors for testing and clean up afterward."""
-    # Register mock connectors (simulates what registry does)
-    ConnectorFactory.register_control_system("mock", MockConnector)
-    ConnectorFactory.register_archiver("mock_archiver", MockArchiverConnector)
+    """Register mock connectors as the only registrations each test sees.
 
-    yield
+    Snapshot/restore brackets the clear so registrations made elsewhere in the
+    process survive this module's teardown.
+    """
+    with isolated_connector_registries(clear=True):
+        # Register mock connectors (simulates what registry does)
+        ConnectorFactory.register_control_system("mock", MockConnector)
+        ConnectorFactory.register_archiver("mock_archiver", MockArchiverConnector)
 
-    # Clean up after tests to avoid pollution between test runs
-    ConnectorFactory._control_system_connectors.clear()
-    ConnectorFactory._archiver_connectors.clear()
+        yield
 
 
 class TestConnectorFactory:

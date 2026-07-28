@@ -2017,9 +2017,11 @@ class TestEventsPanelUrlDerivation:
         assert "path" not in events
 
 
-def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
+def test_build_channel_finder_agent_requires_mode(tmp_path: Path, caplog) -> None:
     """A profile that selects the channel-finder agent but omits
     channel_finder_mode must fail with a clear BuildProfileError."""
+    import logging
+
     from click.testing import CliRunner
 
     from osprey.cli.main import cli
@@ -2038,22 +2040,26 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
     output_dir.mkdir()
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        [
-            "build",
-            "no-mode-proj",
-            str(profile_path),
-            "--output-dir",
-            str(output_dir),
-            "--skip-deps",
-            "--skip-lifecycle",
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            cli,
+            [
+                "build",
+                "no-mode-proj",
+                str(profile_path),
+                "--output-dir",
+                str(output_dir),
+                "--skip-deps",
+                "--skip-lifecycle",
+            ],
+        )
     assert result.exit_code != 0, f"build should have failed; output:\n{result.output}"
-    combined = result.output + (str(result.exception) if result.exception else "")
-    assert "channel_finder_mode" in combined
-    assert "required" in combined.lower()
+    # The diagnostic is logged (stderr in a real terminal), not written to
+    # stdout; click's Result.output folds the two streams together and cannot
+    # tell them apart, so read the record itself.
+    reported = caplog.text + (str(result.exception) if result.exception else "")
+    assert "channel_finder_mode" in reported
+    assert "required" in reported.lower()
 
 
 # ---------------------------------------------------------------------------

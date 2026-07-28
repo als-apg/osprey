@@ -323,48 +323,39 @@ class TestGitIsolation:
         assert git_root.returncode == 0
         assert Path(git_root.stdout.strip()).resolve() == project_dir.resolve()
 
-    def test_build_clears_stale_trust_state(self, tmp_path):
+    def test_build_clears_stale_trust_state(self, tmp_path, isolated_home):
         """Test that build clears trust state even when directory was already deleted."""
         import json
-        from pathlib import Path
 
         project_path = (tmp_path / "stale-test").resolve()
 
         # Simulate stale Claude Code trust state (project was deleted but
         # ~/.claude.json still has the entry)
-        claude_json = Path.home() / ".claude.json"
-        backup_data = None
-        if claude_json.exists():
-            backup_data = claude_json.read_text()
-
-        try:
-            data = json.loads(claude_json.read_text()) if claude_json.exists() else {}
-            data.setdefault("projects", {})[str(project_path)] = {
-                "hasTrustDialogAccepted": True,
-            }
-            claude_json.write_text(json.dumps(data, indent=2) + "\n")
-
-            # Directory does NOT exist — simulates rm -rf before osprey build
-            assert not project_path.exists()
-
-            # Create project (no --force needed, directory is gone)
-            runner = CliRunner()
-            result = runner.invoke(build, _build_args("stale-test", str(tmp_path)))
-            assert result.exit_code == 0, result.output
-
-            # Trust entry should be gone
-            after = json.loads(claude_json.read_text())
-            assert str(project_path) not in after.get("projects", {}), (
-                "Stale trust entry should be cleared on build"
+        claude_json = isolated_home / ".claude.json"
+        claude_json.write_text(
+            json.dumps(
+                {"projects": {str(project_path): {"hasTrustDialogAccepted": True}}},
+                indent=2,
             )
-        finally:
-            if backup_data is not None:
-                claude_json.write_text(backup_data)
+            + "\n"
+        )
 
-    def test_force_clears_claude_code_session_state(self, tmp_path):
+        # Directory does NOT exist — simulates rm -rf before osprey build
+        assert not project_path.exists()
+
+        # Create project (no --force needed, directory is gone)
+        runner = CliRunner()
+        result = runner.invoke(build, _build_args("stale-test", str(tmp_path)))
+        assert result.exit_code == 0, result.output
+
+        # Trust entry should be gone
+        after = json.loads(claude_json.read_text())
+        assert str(project_path) not in after.get("projects", {}), (
+            "Stale trust entry should be cleared on build"
+        )
+
+    def test_force_clears_claude_code_session_state(self, tmp_path, isolated_home):
         """Test that --force removes Claude Code's session directory."""
-        from pathlib import Path
-
         from osprey.agent_runner.project_paths import encode_claude_project_path
 
         runner = CliRunner()
@@ -377,7 +368,7 @@ class TestGitIsolation:
 
         # Simulate Claude Code's session directory
         encoded_key = encode_claude_project_path(project_path)
-        claude_project_dir = Path.home() / ".claude" / "projects" / encoded_key
+        claude_project_dir = isolated_home / ".claude" / "projects" / encoded_key
         claude_project_dir.mkdir(parents=True, exist_ok=True)
         (claude_project_dir / "sessions-index.json").write_text("{}")
 

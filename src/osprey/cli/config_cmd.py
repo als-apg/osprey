@@ -459,7 +459,3 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
     except Exception as e:
         console.print(f"❌ Failed to update EPICS gateway: {e}", style=Styles.ERROR)
         raise click.Abort() from None
-
-
-if __name__ == "__main__":
-    config()

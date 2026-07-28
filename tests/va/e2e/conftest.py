@@ -49,6 +49,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# import-time required because scripts/ is not a package: sweep_check.py is
+# loaded by path and registered in sys.modules before exec so the fixtures
+# below can reference it at collection time.
 _SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
 _spec = importlib.util.spec_from_file_location("va_sweep_check", _SWEEP_SCRIPT)
 assert _spec is not None and _spec.loader is not None

@@ -6,6 +6,7 @@ and configuration management actions invoked from the TUI menu.
 
 import os
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -118,9 +119,6 @@ def handle_deploy_action(project_path: Path | None = None):
         if action == "show_help":
             show_deploy_help()
             continue  # Return to menu after help
-
-        # Action selected - break out of menu loop and execute
-        import subprocess
 
         # Determine config path
         if project_path:

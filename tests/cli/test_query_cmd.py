@@ -21,6 +21,7 @@ from osprey.agent_runner import (
     ToolTrace,
 )
 from osprey.cli.query_cmd import query
+from osprey.utils.logger import configure_logging, get_logger
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -313,6 +314,55 @@ class TestJsonOutput:
         assert result.exit_code == EXIT_VERDICT_FAIL
         data = json.loads(result.output)
         assert data["exit_code"] == EXIT_VERDICT_FAIL
+
+
+class TestJsonStdoutPurity:
+    """``--json`` stdout is machine-readable while the framework is logging.
+
+    Assertions here use ``result.stdout``, never ``result.output``: click 8.2+
+    folds stderr into ``output``, so a log line leaking onto stdout would be
+    indistinguishable from one correctly routed to stderr — the exact bug this
+    is meant to catch.
+    """
+
+    def test_json_payload_is_alone_on_stdout(
+        self, runner: CliRunner, project_with_mcp: Path
+    ) -> None:
+        marker = "purity-probe-marker"
+        mock_result = _make_result(
+            text_blocks=["Beam current is 42 mA."],
+            mcp_servers=_connected_servers("controls"),
+        )
+
+        async def log_then_return(*args, **kwargs):
+            """Stand in for any framework component that logs mid-query."""
+            get_logger("query_purity_probe").info(marker)
+            return mock_result
+
+        # Entry points configure logging; `runner.invoke` reaches the subcommand
+        # without passing through the CLI group that would do it. The root
+        # conftest's restore_root_logging fixture removes the handler afterwards.
+        configure_logging()
+
+        with (
+            patch("osprey.cli.query_cmd.run_query", new=log_then_return),
+            patch(
+                "osprey.cli.query_cmd.read_only_disallowed_tools",
+                return_value=["mcp__controls__channel_write"],
+            ),
+            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+        ):
+            result = runner.invoke(
+                query, ["--project", str(project_with_mcp), "--json", "beam current"]
+            )
+
+        assert result.exit_code == EXIT_PASS
+        # The whole of stdout must be the payload — not merely contain it.
+        data = json.loads(result.stdout)
+        assert data["final_text"]
+        assert marker not in result.stdout
+        # Non-vacuous: the record really was emitted, and it went to stderr.
+        assert marker in result.stderr
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ These tests lock down the translation from profile inputs into rendered
 from __future__ import annotations
 
 import json
+import logging
 import re
 import textwrap
 from pathlib import Path
@@ -603,7 +604,7 @@ def test_crown_jewel_invariant_accepts_prefix_match_on_existing_allow(
 # ---------------------------------------------------------------------------
 
 
-def test_build_command_fails_on_violation(tmp_path, monkeypatch):
+def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
     """``osprey build`` must abort when an overlay agent declares an unbacked tool.
 
     Uses a synthetic profile with an overlay agent .md that references a
@@ -646,22 +647,26 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "broken-build",
-            str(profile_yaml),
-            "--output-dir",
-            str(tmp_path / "out"),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--force",
-        ],
-        catch_exceptions=False,
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "broken-build",
+                str(profile_yaml),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--force",
+            ],
+            catch_exceptions=False,
+        )
 
     assert result.exit_code != 0, f"build should have failed; stdout:\n{result.output}"
-    # Validator's diagnostic should mention the bogus agent and tool.
-    assert "bogus" in result.output or "phantom_tool" in result.output, (
-        f"build output should name the violation; got:\n{result.output}"
+    # The validator's diagnostic is logged, so it reaches the operator on
+    # stderr rather than stdout. click's Result.output mixes both streams and
+    # cannot distinguish them, so assert on the record itself.
+    assert "bogus" in caplog.text or "phantom_tool" in caplog.text, (
+        f"build should name the violation; got records:\n"
+        f"{[record.getMessage()[:120] for record in caplog.records]}"
     )

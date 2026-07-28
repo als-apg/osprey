@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.cli import interactive_menu
+from tests.cli._scoped_subprocess import patch_subprocess
 
 
 def _write_config(directory: Path, body: str = "project_root: .\n") -> Path:
@@ -189,7 +190,7 @@ class TestCheckDirectoryHasActiveMounts:
             stdout=f'[{{"Source": "{dir_str}/data"}}]',
         )
         with patch.object(interactive_menu, "get_runtime_command", return_value=["docker"]):
-            with patch("subprocess.run", side_effect=[ps, inspect]):
+            with patch_subprocess("osprey.cli.interactive_menu", side_effect=[ps, inspect]):
                 has, details = interactive_menu.check_directory_has_active_mounts(tmp_path)
         assert has is True
         assert any("cont1" in d for d in details)
@@ -197,7 +198,7 @@ class TestCheckDirectoryHasActiveMounts:
     def test_no_containers_returns_false(self, tmp_path):
         ps = MagicMock(returncode=0, stdout="\n")
         with patch.object(interactive_menu, "get_runtime_command", return_value=["docker"]):
-            with patch("subprocess.run", return_value=ps):
+            with patch_subprocess("osprey.cli.interactive_menu", return_value=ps):
                 has, details = interactive_menu.check_directory_has_active_mounts(tmp_path)
         assert has is False
 

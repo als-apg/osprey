@@ -101,6 +101,16 @@ def get_runtime_command(config: dict | None = None) -> list[str]:
         )
 
 
+def reset_runtime_cache() -> None:
+    """Clear the memoized runtime command so the next call re-detects.
+
+    Primarily used for test isolation: a test that fakes the docker/podman
+    probe pins the detected runtime for the rest of the process otherwise.
+    """
+    global _cached_runtime_cmd
+    _cached_runtime_cmd = None
+
+
 def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> dict[str, str]:
     """Build the environment for a runtime (docker/podman compose) invocation.
 

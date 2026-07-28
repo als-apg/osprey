@@ -95,10 +95,8 @@ async def test_unknown_provider_is_warning() -> None:
     assert rows[0].message == "Unknown provider"
 
 
-async def test_api_key_and_base_url_flow_from_config() -> None:
-    import os
-
-    os.environ["OSPREY_TEST_CORE_PROV_KEY"] = "secret-xyz"
+async def test_api_key_and_base_url_flow_from_config(monkeypatch: Any) -> None:
+    monkeypatch.setenv("OSPREY_TEST_CORE_PROV_KEY", "secret-xyz")
     captured: list[dict[str, Any]] = []
 
     class _Recording:
@@ -122,10 +120,7 @@ async def test_api_key_and_base_url_flow_from_config() -> None:
             }
         }
     }
-    try:
-        rows = await _run(config, _StubRegistry({"cborg": _Recording}))
-    finally:
-        del os.environ["OSPREY_TEST_CORE_PROV_KEY"]
+    rows = await _run(config, _StubRegistry({"cborg": _Recording}))
 
     assert rows[0].status is Status.OK
     assert captured[0]["api_key"] == "secret-xyz"

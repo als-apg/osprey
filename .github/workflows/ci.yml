@@ -85,19 +85,38 @@ jobs:
     - name: Run unit tests
       # Coverage is measured only on the cell that uploads to Codecov below —
       # the other three cells were paying ~25% runtime (measured) for a report
-      # nobody reads. Deliberately NOT pytest-xdist-parallelized: the unit
-      # suite relies on serial collection order to dodge cross-test
-      # global-state bleed (stdlib subprocess.run monkeypatches, loguru sink
-      # reconfiguration), and under -n 4 it flakes ~1 test per run with a
-      # different victim each time. Parallelizing this lane first requires
-      # fixing that isolation debt.
+      # nobody reads.
+      #
+      # -n 4 --dist loadgroup (pytest-xdist): the cross-test global-state
+      # bleed this lane used to flake on under -n (stdlib subprocess.run
+      # monkeypatches, loguru sink reconfiguration) is file-local, so pinning
+      # every file to a single worker is what makes results
+      # placement-invariant. Stock loadgroup does NOT do that on its own — it
+      # scopes by the `@group` suffix and gives each unmarked nodeid a scope
+      # of its own — so tests/conftest.py overrides
+      # pytest_xdist_make_scheduler with FileOrGroupScheduling: `@group`
+      # nodeids keep upstream's grouping, everything else gets exact
+      # `--dist loadfile` semantics. That override is keyed on
+      # `--dist loadgroup` alone, so the e2e lane's loadfile and ad-hoc
+      # `--dist load`/worksteal runs are untouched.
+      #
+      # xdist_group("docker") rides on top, covering the ten container-
+      # starting files (the ARIEL Postgres set plus the mongodb archiver
+      # connector): one group means one worker, one testcontainers session,
+      # one ryuk — two reapers starting at once race the Docker port mapper.
+      #
+      # -n 4 rather than `auto`: a fixed count keeps the four matrix cells
+      # comparable and matches the vCPU count of a standard GitHub-hosted
+      # Linux runner. tests/deployment/test_ci_workflow_wiring.py pins both
+      # this invocation and the conftest override, so the flag cannot outlive
+      # the scheduler that makes it safe.
       run: |
         if [ "${{ matrix.python-version }}" = "3.11" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           COV_ARGS="--cov=src/osprey --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
-        uv run pytest tests/ --ignore=tests/e2e -v --tb=short $COV_ARGS
+        uv run pytest tests/ --ignore=tests/e2e -v --tb=short -n 4 --dist loadgroup $COV_ARGS
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7

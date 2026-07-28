@@ -12,19 +12,23 @@ import pytest
 from osprey.agent_runner.project_paths import encode_claude_project_path
 
 
-def _memory_dir_for(project_dir: str) -> Path:
-    """Mirror the hook's resolve_memory_dir logic for test assertions."""
+def _memory_dir_for(home: Path, project_dir: str) -> Path:
+    """Mirror the hook's resolve_memory_dir logic for test assertions.
+
+    ``home`` is the curated ``$HOME`` the hook subprocess runs under (the
+    ``hook_home`` fixture), never the developer's real home directory.
+    """
     encoded = encode_claude_project_path(project_dir)
-    return Path.home() / ".claude" / "projects" / encoded / "memory"
+    return home / ".claude" / "projects" / encoded / "memory"
 
 
 # -- Allow cases --
 
 
 @pytest.mark.unit
-def test_allows_write_to_memory_md(tmp_path, hook_runner):
+def test_allows_write_to_memory_md(tmp_path, hook_runner, hook_home):
     """Write to a .md file inside the Claude memory directory is allowed."""
-    memory_dir = _memory_dir_for(str(tmp_path))
+    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
     target = str(memory_dir / "channels.md")
 
     result = hook_runner(
@@ -39,9 +43,9 @@ def test_allows_write_to_memory_md(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
-def test_allows_primary_memory_file(tmp_path, hook_runner):
+def test_allows_primary_memory_file(tmp_path, hook_runner, hook_home):
     """MEMORY.md (the primary memory file) is allowed."""
-    memory_dir = _memory_dir_for(str(tmp_path))
+    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
     target = str(memory_dir / "MEMORY.md")
 
     result = hook_runner(
@@ -91,9 +95,9 @@ def test_denies_write_to_project_claude_md(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
-def test_denies_non_md_in_memory_dir(tmp_path, hook_runner):
+def test_denies_non_md_in_memory_dir(tmp_path, hook_runner, hook_home):
     """Write to the memory directory but with a non-.md extension is denied."""
-    memory_dir = _memory_dir_for(str(tmp_path))
+    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
     target = str(memory_dir / "script.py")
 
     result = hook_runner(
@@ -108,9 +112,9 @@ def test_denies_non_md_in_memory_dir(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
-def test_denies_subdirectory_in_memory_dir(tmp_path, hook_runner):
+def test_denies_subdirectory_in_memory_dir(tmp_path, hook_runner, hook_home):
     """Write to a subdirectory within the memory dir is denied (direct children only)."""
-    memory_dir = _memory_dir_for(str(tmp_path))
+    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
     target = str(memory_dir / "subdir" / "notes.md")
 
     result = hook_runner(
@@ -125,9 +129,9 @@ def test_denies_subdirectory_in_memory_dir(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
-def test_denies_path_traversal(tmp_path, hook_runner):
+def test_denies_path_traversal(tmp_path, hook_runner, hook_home):
     """Write with path traversal components is denied."""
-    memory_dir = _memory_dir_for(str(tmp_path))
+    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
     target = str(memory_dir / ".." / ".." / ".." / ".bashrc")
 
     result = hook_runner(
@@ -223,11 +227,11 @@ def test_deny_message_includes_allowed_directory(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
-def test_uses_claude_project_dir_env(tmp_path, hook_runner, monkeypatch):
+def test_uses_claude_project_dir_env(tmp_path, hook_runner, hook_home, monkeypatch):
     """Hook respects CLAUDE_PROJECT_DIR env var over CWD."""
     project_dir = tmp_path / "my-project"
     project_dir.mkdir()
-    memory_dir = _memory_dir_for(str(project_dir))
+    memory_dir = _memory_dir_for(hook_home, str(project_dir))
     target = str(memory_dir / "notes.md")
 
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project_dir))

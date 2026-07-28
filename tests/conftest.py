@@ -4,7 +4,62 @@ Pytest configuration and shared test utilities.
 This module provides shared fixtures and utilities for all Osprey tests.
 """
 
+import logging
+import os
+from pathlib import Path
+
 import pytest
+from rich.logging import RichHandler
+
+from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
+
+#: Repo root — the fallback when a test leaves the process in a deleted cwd.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+#: Root-logging state as it was before collection — see ``restore_root_logging``.
+#: Captured at conftest import, which is the only moment guaranteed to precede
+#: every test *and* every higher-scoped fixture.
+_PRISTINE_LOGGING = {
+    "root_level": logging.getLogger().level,
+    "root_handlers": list(logging.getLogger().handlers),
+    "third_party": {name: logging.getLogger(name).level for name in QUIET_THIRD_PARTY_LOGGERS},
+}
+
+# ===================================================================
+# Environment guard
+# ===================================================================
+#
+# Declared first in this module on purpose: autouse fixtures at the same scope
+# are set up in declaration order, so this one is set up before every other
+# fixture and torn down after all of them — including `monkeypatch`, whose undo
+# therefore lands *inside* the snapshot window instead of after it.
+
+
+@pytest.fixture(autouse=True, scope="function")
+def restore_environ():
+    """Snapshot and restore the whole of ``os.environ`` around every test.
+
+    Leak guarded: plenty of code writes ``os.environ`` directly rather than
+    through ``monkeypatch`` — ``.env`` loading in the health CLI and the config
+    loader uses override semantics, and the web terminal lifespan assigns
+    ``OSPREY_CONFIG`` by hand. Without a full snapshot those writes survive into
+    sibling tests, which under xdist makes results depend on how the files
+    happened to be distributed.
+
+    ``OSPREY_CONFIG`` and ``CONFIG_FILE`` are additionally cleared on the way in,
+    so a developer who exports either in their shell still gets a pristine run.
+    """
+    saved = dict(os.environ)
+
+    os.environ.pop("OSPREY_CONFIG", None)
+    os.environ.pop("CONFIG_FILE", None)
+
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
 
 # ===================================================================
 # Auto-reset Registry and Config Between Tests
@@ -16,22 +71,14 @@ def reset_state_between_tests():
     """Auto-reset registry and config before each test to ensure isolation.
 
     This prevents state leakage between tests by:
-    - Clearing OSPREY_CONFIG and CONFIG_FILE env vars
     - Resetting the registry
     - Clearing config caches (utils.config and utils.workspace)
-    - Resetting approval manager singleton
+
+    Config-related environment variables are handled by ``restore_environ``.
     """
     # Reset before test
-    import os as _os
-
     from osprey.registry import reset_registry
     from osprey.utils.workspace import reset_config_cache
-
-    # Clear config-related env vars that may leak between tests.
-    # The web terminal lifespan sets OSPREY_CONFIG directly via os.environ,
-    # and monkeypatch undo ordering can leave it set between tests.
-    _os.environ.pop("OSPREY_CONFIG", None)
-    _os.environ.pop("CONFIG_FILE", None)
 
     reset_registry()
     reset_config_cache()
@@ -39,10 +86,118 @@ def reset_state_between_tests():
     yield
 
     # Reset after test
-    _os.environ.pop("OSPREY_CONFIG", None)
-    _os.environ.pop("CONFIG_FILE", None)
     reset_registry()
     reset_config_cache()
+
+
+# ===================================================================
+# Working-directory guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def restore_cwd():
+    """Restore the process working directory after every test.
+
+    Leak guarded: raw ``os.chdir`` calls scattered through the suite, plus any
+    exception path that skips their ``finally``, leave the process parked in a
+    foreign (often deleted ``tmp_path``) directory. The compose generator
+    resolves ``SERVICES_DIR`` relative to the cwd, so a leaked cwd silently
+    changes what later tests render.
+
+    This is a backstop, not a licence: individual ``os.chdir`` sites still own
+    their own restore. Deliberately cheap — it snapshots the path string and
+    nothing else.
+    """
+    try:
+        original = os.getcwd()
+    except OSError:
+        # Already parked in a deleted directory when this test started.
+        original = str(_REPO_ROOT)
+
+    yield
+
+    try:
+        os.chdir(original)
+    except OSError:
+        # The test deleted the directory it started in.
+        os.chdir(_REPO_ROOT)
+
+
+# ===================================================================
+# Root-logging guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def restore_root_logging():
+    """Return root logging to its pre-collection state before and after every test.
+
+    Leak guarded: ``configure_logging()`` (``src/osprey/utils/logger.py``) makes
+    three process-global changes — it sets the root logger level, installs an
+    Osprey ``RichHandler``, and raises six third-party loggers to WARNING. Any
+    test that reaches an entry point triggers all three, and they would then
+    decide what ``caplog`` sees in every test that ran after it on the same
+    worker, including whether httpx/urllib3 records are captured at all.
+
+    The baseline is ``_PRISTINE_LOGGING``, captured at conftest import, rather
+    than a per-test snapshot. A per-test snapshot cannot see far enough back:
+    pytest sets higher-scoped fixtures up *before* this function-scoped one, so
+    a module-scoped fixture that configures logging is already reflected in the
+    snapshot and would be preserved rather than undone, for every later test on
+    the worker. ``tests/cli/test_dockerfile_template.py`` runs the CLI from a
+    module-scoped fixture and does exactly that.
+
+    Only ``RichHandler`` instances are ever removed. ``caplog`` installs its
+    ``LogCaptureHandler`` around each test, and anything a test or fixture owns
+    itself, are left alone.
+    """
+    root = logging.getLogger()
+    # `in` on handlers is an identity check — they define no __eq__.
+    pristine_handlers = _PRISTINE_LOGGING["root_handlers"]
+
+    def _reset() -> None:
+        root.setLevel(_PRISTINE_LOGGING["root_level"])
+        for handler in list(root.handlers):
+            if isinstance(handler, RichHandler) and handler not in pristine_handlers:
+                root.removeHandler(handler)
+        for name, level in _PRISTINE_LOGGING["third_party"].items():
+            logging.getLogger(name).setLevel(level)
+
+    _reset()
+
+    yield
+
+    _reset()
+
+
+# ===================================================================
+# Health offload accounting guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def reset_health_offload_state():
+    """Zero the health runner's abandoned-thread accounting around every test.
+
+    Leak guarded: ``osprey.health.offload`` counts abandoned worker threads
+    cumulatively for the life of the process — correct for a real run, shared
+    state for a test suite. ``tests/health/test_offload.py`` really abandons
+    threads, and afterwards every in-process ``osprey health`` invocation in
+    ``tests/cli`` takes the ``os._exit`` branch
+    (``src/osprey/cli/health_cmd.py:323-326``) instead of ``sys.exit``. Under
+    xdist that kills the worker and everything still queued on it.
+
+    Reset happens only between tests, never inside one:
+    ``tests/health/test_offload.py`` asserts the real counter.
+    """
+    from osprey.health.offload import reset_abandoned_state
+
+    reset_abandoned_state()
+
+    yield
+
+    reset_abandoned_state()
 
 
 # ===================================================================
@@ -125,6 +280,53 @@ def pytest_collection_modifyitems(config, items):
                 cache[marker_name] = available
             if not available:
                 item.add_marker(pytest.mark.skip(reason=reason))
+
+
+# ===================================================================
+# xdist distribution: file-or-group scheduling
+# ===================================================================
+#
+# The unit lane runs `-n 4 --dist loadgroup`. Stock LoadGroupScheduling gives
+# every nodeid without an `@group` suffix its own scope, so unmarked tests get
+# no file-level pinning at all and module-level state can straddle workers.
+# FileOrGroupScheduling keeps upstream's behaviour for `xdist_group`-marked
+# nodeids and gives everything else exact `--dist loadfile` semantics.
+#
+# `_split_scope` is an underscore method of xdist's documented scheduler
+# extension point; tests/infrastructure/test_xdist_scheduler.py pins both the
+# override's behaviour and the fact that upstream still calls it.
+
+try:
+    from xdist.scheduler import LoadGroupScheduling as _LoadGroupScheduling
+except ImportError:  # pragma: no cover - xdist is a dev/CI-only dependency
+    FileOrGroupScheduling = None
+else:
+
+    class FileOrGroupScheduling(_LoadGroupScheduling):
+        """LoadGroupScheduling that falls back to file scope, not per-test scope."""
+
+        def _split_scope(self, nodeid: str) -> str:
+            """Group by `@group` suffix when present, else by test file path.
+
+            The `@`-after-`]` check mirrors upstream's, so a parametrize value
+            containing `@` is not mistaken for a group suffix.
+            """
+            if nodeid.rfind("@") > nodeid.rfind("]"):
+                return super()._split_scope(nodeid)
+            return nodeid.split("::", 1)[0]
+
+
+def pytest_xdist_make_scheduler(config, log):
+    """Use FileOrGroupScheduling for `--dist loadgroup`, stock xdist otherwise.
+
+    Returning None hands the choice back to xdist, leaving the e2e lane's
+    `--dist loadfile` and ad-hoc `--dist load`/`worksteal` runs untouched.
+    """
+    if FileOrGroupScheduling is None:
+        return None
+    if config.getoption("dist", None) != "loadgroup":
+        return None
+    return FileOrGroupScheduling(config, log)
 
 
 # ===================================================================
