@@ -1,12 +1,9 @@
-"""MCP server lifecycle: startup timing, logging redirect, and entry point."""
+"""MCP server lifecycle: startup timing, logging setup, and entry point."""
 
 import logging
 import sys
 import time
 from contextlib import contextmanager
-
-from rich.console import Console
-from rich.logging import RichHandler
 
 logger = logging.getLogger("osprey.mcp_server.startup")
 
@@ -34,53 +31,6 @@ def startup_timer(label: str):
             file=sys.stderr,
             flush=True,
         )
-
-
-def redirect_logging_to_stderr() -> None:
-    """Pre-install a RichHandler that writes to *stderr* on the root logger.
-
-    MCP servers communicate over stdio — stdout is reserved for JSON-RPC
-    messages.  The framework's ``_setup_rich_logging()`` (in
-    ``osprey.utils.logger``) creates a ``RichHandler`` that writes to
-    *stdout* by default, which corrupts the MCP transport.
-
-    By installing a stderr-based ``RichHandler`` first, the framework's
-    ``_setup_rich_logging()`` sees an existing ``RichHandler`` and skips
-    its own registration, keeping stdout clean for MCP.
-
-    Call this **before** ``create_server()`` in every MCP ``__main__.py``.
-    """
-    root = logging.getLogger()
-
-    # Guard: only install once
-    for handler in root.handlers:
-        if isinstance(handler, RichHandler):
-            return
-
-    root.setLevel(logging.INFO)
-
-    console = Console(
-        stderr=True,
-        force_terminal=True,
-        width=120,
-        color_system="truecolor",
-    )
-
-    handler = RichHandler(
-        console=console,
-        rich_tracebacks=True,
-        markup=True,
-        show_path=False,
-        show_time=True,
-        show_level=True,
-        tracebacks_show_locals=False,
-    )
-
-    root.addHandler(handler)
-
-    # Suppress noisy third-party loggers
-    for lib in ["httpx", "httpcore", "requests", "urllib3", "LiteLLM"]:
-        logging.getLogger(lib).setLevel(logging.WARNING)
 
 
 def prime_config_builder() -> None:
@@ -135,7 +85,9 @@ def initialize_workspace_singletons() -> None:
 def run_mcp_server(server_module: str) -> None:
     """Shared entry point for all MCP servers.
 
-    Handles dotenv loading, stderr logging redirect, and server startup.
+    Handles dotenv loading, logging setup, and server startup. MCP servers speak
+    JSON-RPC over stdio, so stdout must carry nothing but protocol frames;
+    ``configure_logging()`` routes every record to stderr.
 
     Args:
         server_module: Dotted path to the module containing ``create_server()``.
@@ -152,11 +104,12 @@ def run_mcp_server(server_module: str) -> None:
     t_total = time.perf_counter()
 
     from osprey.mcp_env import load_dotenv_from_project
+    from osprey.utils.logger import configure_logging
 
     with startup_timer("dotenv_load"):
         load_dotenv_from_project()
 
-    redirect_logging_to_stderr()
+    configure_logging()
 
     with startup_timer("import_server_module"):
         mod = import_module(server_module)

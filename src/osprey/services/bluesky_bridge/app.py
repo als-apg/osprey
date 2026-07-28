@@ -288,6 +288,15 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     (including writes disabled entirely) starts normally.
     """
     global _connector
+
+    from osprey.utils.logger import configure_logging
+
+    # The bridge is launched as `uvicorn ...:app`, so it passes through no
+    # Osprey entry point. Configuring here — on serve, never on import — keeps
+    # the startup breadcrumbs below visible in `docker logs` without turning
+    # importing this module into a logging side effect.
+    configure_logging()
+
     epics_substrate_enabled = _is_epics_substrate_enabled()
     demo_runner_enabled = _is_demo_runner_enabled()
     if epics_substrate_enabled and demo_runner_enabled:

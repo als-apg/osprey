@@ -9,6 +9,10 @@ import uvicorn
 
 def main() -> None:
     """Run the dispatch worker FastAPI app via uvicorn."""
+    from osprey.utils.logger import configure_logging
+
+    configure_logging()
+
     uvicorn.run(
         "osprey.mcp_server.dispatch_worker.dispatch_api:app",
         host="0.0.0.0",
