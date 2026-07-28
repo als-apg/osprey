@@ -155,7 +155,7 @@ dev = [
     "pytest-order",  # Run flaky/in-debug e2e tests first via @pytest.mark.order
     "pytest-rerunfailures",  # Absorb rare LLM nondeterminism in agentic e2e via @pytest.mark.flaky
     "pytest-timeout",  # Deadlock-breaker for the model-matrix benchmark runner (--timeout)
-    "pytest-xdist",  # Parallel e2e lane in CI (-n 4 --dist loadfile; LLM-bound, file-isolated)
+    "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
     "mypy",
     "pre-commit",
     "ruff",
@@ -320,7 +320,7 @@ markers = [
     "requires_als_apg: Tests that require ALS-APG API key (AWS Bedrock proxy; reachable from GitHub Actions runners)",
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
-    "flaky: Rerun on failure to absorb rare LLM nondeterminism (pytest-rerunfailures)",
+    "flaky: Rerun on failure to absorb nondeterminism outside the process — LLM sampling in e2e, OS event delivery in a couple of watcher tests (pytest-rerunfailures). Not for flaky unit tests; see tests/README.md",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
     "dockerbuild: E2E tests that run a real docker build (skipped when docker is unavailable)",
 ]
@@ -351,7 +351,6 @@ ignore = [
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "tests/*" = ["B011", "B017", "B018"]  # Allow assert False, useless attribute access, assert blind exception
 "tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
-"tests/registry/test_registry_isolation.py" = ["F401"]  # Intentional unused import for testing
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports

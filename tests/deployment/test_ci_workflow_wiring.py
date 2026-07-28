@@ -22,10 +22,18 @@ Every assertion is paired with a mutation test: a fresh, in-memory-mutated
 copy of the parsed workflow reintroduces exactly the bug the assertion
 exists to catch, and the same assertion must then fail. ci.yml itself is
 never edited by this module.
+
+One check reads a source file rather than the parsed workflow: the unit
+lane's ``--dist loadgroup`` flag is only safe because ``tests/conftest.py``
+overrides ``pytest_xdist_make_scheduler``, and that override lives in
+Python, not in YAML. Its *behaviour* is covered by
+``tests/infrastructure/test_xdist_scheduler.py``; what is pinned here is the
+pairing — the flag in ci.yml must never outlive the scheduler behind it.
 """
 
 from __future__ import annotations
 
+import ast
 import copy
 import json
 import tomllib
@@ -56,6 +64,11 @@ CATALOG_JOB = "bluesky-catalog-e2e"
 SANDBOX_JOB = "bluesky-sandbox-escape-e2e"
 BENCHMARKS_JOB = "channel-finder-benchmarks"
 BENCHMARKS_TEST_FILE = "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py"
+
+CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
+PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
+SCHEDULER_HOOK = "pytest_xdist_make_scheduler"
+SCHEDULER_CLASS = "FileOrGroupScheduling"
 
 
 def _load_workflow() -> dict[str, Any]:
@@ -321,6 +334,155 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
         assert any(dep.startswith(stack_dep) for dep in core_deps), (
             f"{stack_dep} must be a core dependency"
         )
+
+
+# ---------------------------------------------------------------------------
+# The unit-test job runs in parallel, and the scheduler that makes it safe
+# still exists
+# ---------------------------------------------------------------------------
+
+
+def _unit_test_pytest_line(wf: dict[str, Any]) -> str:
+    """The single ``pytest tests/`` invocation from the unit-test job's run
+    block, isolated from the surrounding ``COV_ARGS`` shell conditional.
+
+    Everything from an unquoted ``#`` onward is dropped first, so a flag named
+    in a shell comment — whole-line or *trailing*, as in
+    ``... $COV_ARGS  # TODO restore -n 4 --dist loadgroup`` — cannot satisfy
+    the pin while the lane actually runs serial. Truncating at a ``#`` inside a
+    quoted argument would only ever make the pin stricter, so the naive split
+    is the safe direction to be wrong in.
+    """
+    run_text = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")["run"]
+    commands = [line.split("#", 1)[0] for line in run_text.splitlines()]
+    lines = [cmd for cmd in commands if "pytest tests/" in cmd]
+    assert len(lines) == 1, f"expected exactly one pytest invocation; got: {lines}"
+    return lines[0]
+
+
+def _missing_parallel_flags(cmd: str) -> list[str]:
+    """Which of the parallel flags are absent (empty = fully wired). Both are
+    load-bearing and checked independently: `-n 4` without `--dist loadgroup`
+    falls back to xdist's default per-test `load` scheduling, which scatters a
+    file's tests across workers and reinstates the module-state bleed."""
+    return [flag for flag in PARALLEL_FLAGS if flag not in cmd]
+
+
+def test_unit_test_job_runs_xdist_parallel(workflow: dict[str, Any]) -> None:
+    """The unit lane was serial for as long as the suite had cross-test
+    global-state bleed. That debt is paid, so the lane must actually collect
+    the win — a silent revert to serial would cost ~3x wall clock on every
+    push without failing anything."""
+    line = _unit_test_pytest_line(workflow)
+    missing = _missing_parallel_flags(line)
+    assert missing == [], (
+        f"the '{UNIT_TEST_JOB}' job in .github/workflows/ci.yml must invoke pytest with "
+        f"{' '.join(PARALLEL_FLAGS)} — missing {missing} in: {line.strip()!r}. "
+        f"Flags are matched as literal substrings (exact spelling, single spaces) on the "
+        f"one `pytest tests/` line, so reflowing the command across backslash-continued "
+        f"lines (the e2e lane's style) means updating _unit_test_pytest_line too."
+    )
+
+
+def test_unit_test_job_runs_xdist_parallel__mutation_flags_only_in_trailing_comment() -> None:
+    """The hole a reviewer probe found: flags parked in a TRAILING shell
+    comment while the lane runs serial. `# TODO restore ...` is exactly how a
+    temporary revert gets written, so it must fail the pin, not satisfy it."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace(
+        " -n 4 --dist loadgroup $COV_ARGS",
+        " $COV_ARGS  # TODO restore -n 4 --dist loadgroup",
+    )
+    assert step["run"] != original, "parallel invocation not found — mutation is stale"
+    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == list(PARALLEL_FLAGS)
+
+
+def test_unit_test_job_runs_xdist_parallel__mutation_drops_worker_count() -> None:
+    """Dropping `-n 4` (leaving `--dist loadgroup`) must be reported: without
+    a worker count xdist does not parallelize at all and the dist mode is
+    inert."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    step["run"] = step["run"].replace(" -n 4", "")
+    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == ["-n 4"]
+
+
+def test_unit_test_job_runs_xdist_parallel__mutation_drops_dist_mode() -> None:
+    """Dropping `--dist loadgroup` (leaving `-n 4`) must be reported too — the
+    dangerous half of the revert, since the lane still looks parallelized
+    while the scheduler override goes inert."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    step["run"] = step["run"].replace(" --dist loadgroup", "")
+    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == ["--dist loadgroup"]
+
+
+def _conftest_source() -> str:
+    return CONFTEST.read_text(encoding="utf-8")
+
+
+def _hook_source(source: str) -> str:
+    """Source of the top-level ``pytest_xdist_make_scheduler`` definition, or
+    ``""`` if it is not defined.
+
+    Parsed with ``ast`` rather than grepped because the explanatory comment
+    above the hook also spells "loadgroup": a whole-file substring search
+    would stay green after the guard itself was deleted.
+    """
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.FunctionDef) and node.name == SCHEDULER_HOOK:
+            return ast.get_source_segment(source, node) or ""
+    return ""
+
+
+def _missing_scheduler_parts(source: str) -> list[str]:
+    """Which parts of the scheduler override are absent (empty = all present)."""
+    hook = _hook_source(source)
+    present = {
+        f"def {SCHEDULER_HOOK}": bool(hook),
+        f"class {SCHEDULER_CLASS}": f"class {SCHEDULER_CLASS}(" in source,
+        "loadgroup guard": 'getoption("dist"' in hook and "loadgroup" in hook,
+        f"returns {SCHEDULER_CLASS}": f"{SCHEDULER_CLASS}(config, log)" in hook,
+    }
+    return [label for label, ok in present.items() if not ok]
+
+
+def test_conftest_defines_the_loadgroup_scheduler_override() -> None:
+    """Source-level counterpart to the ci.yml pin above. `--dist loadgroup` is
+    only safe for this suite because ``tests/conftest.py`` replaces stock
+    ``LoadGroupScheduling`` — which gives every unmarked nodeid its own scope
+    — with one that falls back to file scope. Deleting the override while
+    leaving the CI flag in place would parallelize the lane per-test again,
+    silently, and the failures would land as intermittent reds in unrelated
+    PRs."""
+    assert _missing_scheduler_parts(_conftest_source()) == []
+
+
+def test_conftest_scheduler_override__mutation_renames_hook() -> None:
+    """A hook pytest never calls is the same as no hook at all: renaming the
+    definition must be reported, not papered over by the class still being
+    defined below it."""
+    source = _conftest_source()
+    mutated = source.replace(f"def {SCHEDULER_HOOK}(", f"def _disabled_{SCHEDULER_HOOK}(")
+    assert mutated != source, f"no `def {SCHEDULER_HOOK}(` in {CONFTEST} — mutation is stale"
+    assert _missing_scheduler_parts(mutated) == [
+        f"def {SCHEDULER_HOOK}",
+        "loadgroup guard",
+        f"returns {SCHEDULER_CLASS}",
+    ]
+
+
+def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
+    """The guard returns None for every dist mode but ``loadgroup``, which is
+    what keeps the e2e lane's ``--dist loadfile`` (and ad-hoc ``load`` /
+    ``worksteal`` runs) on stock xdist. Deleting it would silently widen the
+    override's reach beyond the lane it was written for."""
+    source = _conftest_source()
+    mutated = "\n".join(line for line in source.splitlines() if 'getoption("dist"' not in line)
+    assert mutated != source, f"no dist-option guard in {CONFTEST} — mutation is stale"
+    assert _missing_scheduler_parts(mutated) == ["loadgroup guard"]
 
 
 # ---------------------------------------------------------------------------
