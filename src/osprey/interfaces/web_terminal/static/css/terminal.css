@@ -987,6 +987,19 @@ html[data-rail-position="top"] .rail-hint {
   flex-shrink: 0;
 }
 
+/* Inside the tile header bar (dock-tab.js adoption) the header IS the bar:
+ * it fills the tab, drops its own card border/background (the strip's
+ * chrome shows through), and tightens padding to the bar's height. The
+ * un-scoped rules above remain the fallback-mode (no dockview) look. */
+.tile-tab .terminal-header {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border-bottom: none;
+}
+
 .session-led {
   width: 7px;
   height: 7px;

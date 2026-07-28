@@ -117,10 +117,10 @@ a:hover { color: var(--color-accent-light); }
   z-index: 100;
 }
 
-/* Embedded mode keeps the fixed header (so the pipeline switcher + nav stay
-   usable inside the hub) and only hides the standalone-only logo; .app-main
-   keeps its 48px padding-top below to clear that still-visible header. */
+/* Embedded in web terminal: the host tile header bar shows the panel name
+ * and the hub owns theming — hide the logo and the theme switcher. */
 body.embedded .app-logo { display: none; }
+body.embedded osprey-theme-switcher { display: none; }
 
 .header-left {
   display: flex;

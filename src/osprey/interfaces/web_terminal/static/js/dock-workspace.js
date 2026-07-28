@@ -3,6 +3,7 @@
 import { fitTerminal } from './terminal.js';
 import { fetchJSON } from './api.js';
 import { reconcile, PLACEHOLDER_PREFIX } from './dock-reconcile.js';
+import { createTileTab, OSPREY_TAB_COMPONENT, setTerminalHeaderSource } from './dock-tab.js';
 import { subscribe } from '/design-system/js/theme-manager.js';
 
 /** @typedef {import('./dock-reconcile.js').PanelDescriptor} PanelDescriptor */
@@ -120,6 +121,21 @@ export function initDockWorkspace() {
   const terminalSource = document.querySelector('.terminal-panel');
   if (!root || !(terminalSource instanceof HTMLElement)) return;
 
+  // Grab the live .terminal-header reference NOW, while terminalSource is
+  // still attached to the document — createComponent's adoptSubtree (below)
+  // moves this whole subtree into a detached host div ahead of dockview's own
+  // insertion of that host. dockview always builds a panel's content
+  // component before its tab component, so a later `document.querySelector`
+  // in dock-tab.js is guaranteed to miss the header at that point, not merely
+  // liable to. See dock-tab.js's setTerminalHeaderSource for the consuming
+  // side.
+  const terminalHeaderSource = terminalSource.querySelector('.terminal-header');
+  if (terminalHeaderSource instanceof HTMLElement) {
+    setTerminalHeaderSource(terminalHeaderSource);
+  } else {
+    console.error('.terminal-header not found; terminal tile will render without its header bar');
+  }
+
   const dockview = /** @type {any} */ (window)['dockview-core'];
   if (!dockview || typeof dockview.createDockview !== 'function') {
     console.error('dockview-core global unavailable; workspace shell not initialized');
@@ -142,6 +158,12 @@ export function initDockWorkspace() {
       if (options.name === PANEL_TERMINAL) return adoptSubtree(terminalSource);
       return { element: document.createElement('div'), init() {} };
     },
+    // Every tile's tab renders as the host header bar (grip/title/actions) —
+    // see dock-tab.js. defaultTabComponent routes panels with no explicit
+    // tabComponent (i.e. all of them, including restored layouts) through
+    // createTabComponent.
+    createTabComponent: (/** @type {{ id: string }} */ options) => createTileTab(options.id),
+    defaultTabComponent: OSPREY_TAB_COMPONENT,
   });
 
   // Bind dockview's light/dark base theme (root classes + the api's own theme

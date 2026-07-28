@@ -39,10 +39,12 @@
  * all api.clear()/fromJSON in dock-workspace.js, a file this module does not own
  * and cannot wrap in the suppress guard). onDidRemovePanel therefore cannot tell
  * a human close from a rebuild, and treating a rebuild's removals as closes would
- * silently hide every panel on the server. A capture-phase click on the tab's
- * close control (`.dv-default-tab-action`) fires ONLY on a genuine human gesture,
- * never during a rebuild, so it is the unambiguous close signal. Capture phase
- * resolves the panel id before dockview's own handler removes the panel.
+ * silently hide every panel on the server. A capture-phase click on the tile
+ * bar's close control (`.tile-tab-close`, dock-tab.js — `.dv-default-tab-action`
+ * kept as a fallback for any dockview-rendered default tab) fires ONLY on a
+ * genuine human gesture, never during a rebuild, so it is the unambiguous close
+ * signal. Capture phase resolves the panel id before dockview's own handler
+ * removes the panel.
  *
  * Only SERVICE panels participate: their dock ids carry the adapter's `iframe:`
  * placeholder prefix. The native terminal/workspace panels have no server-side
@@ -135,8 +137,9 @@ export function setTileCloseHandler(fn) {
 function onDockClickCapture(e) {
   const target = e.target;
   if (!(target instanceof Element)) return;
-  // The default tab's close control; the only per-tab action dockview renders.
-  if (!target.closest('.dv-default-tab-action')) return;
+  // The tile bar's close control (dock-tab.js); `.dv-default-tab-action` kept
+  // as a fallback for any dockview-rendered default tab.
+  if (!target.closest('.tile-tab-close, .dv-default-tab-action')) return;
   const tab = target.closest('.dv-tab');
   if (!tab) return;
   const id = serviceIdOf(panelIdForTab(tab));

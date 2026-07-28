@@ -139,80 +139,104 @@
   opacity: 1;
 }
 
-/* ---- Single-panel tiles: collapse the tab strip to a slim reveal handle ---- */
+/* ---- Tile header bar: the single tab IS the host chrome ----
+ * One panel per tile is a workspace invariant (both modes), so a tile's
+ * "tab" can never have siblings; dock-tab.js renders it as the tile's
+ * header bar — grip + title + popout/close (terminal: its adopted
+ * .terminal-header). Fixed height, no hover reveal: the strip never
+ * changes size, so tile content never reflows on pointer movement. */
+.dock-root {
+  /* Referenced by dockview.css for strip sizing; defined here explicitly
+   * (single source for the bar height). Wins over the vendor sheet's
+   * theme-class 35px only because this sheet loads AFTER it — same
+   * specificity (both are single class selectors), so load order decides. */
+  --dv-tabs-and-actions-container-height: 36px;
+}
 
-/* A tile holding ONE panel does not need a tab bar (the rail already lists the
- * panels); dockview stamps `.dv-single-tab` on the strip whenever its group has
- * exactly one tab. Collapse it to a 10px strip showing only a centered handle
- * dash. Hovering the strip (or keyboard-focusing into it) expands it back to
- * the full bar — tab drag + close stay one hover away — and any active dockview
- * drag force-reveals every strip so tabs remain drop targets while restacking.
- * The content squeeze on expand is followed live by the iframe overlay (see
- * dock-iframe.js's content-container ResizeObserver). */
-.dock-root .dv-tabs-and-actions-container.dv-single-tab {
-  position: relative;
-  height: 10px;
+/* The lone tab fills the strip; the void container (dockview's empty-space
+ * group drag surface) collapses to zero — the bar itself is the handle. */
+.dock-root .dv-tab {
+  flex: 1 1 auto;
+  max-width: none;
+  padding: 0;
+}
+
+.dock-root .tile-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 0 6px 0 10px;
+  min-width: 0;
+}
+
+/* Drag grip: a 2×3 dot grid painted with radial-gradients (no glyph — font
+ * rendering varies), muted like the sash grips. */
+.dock-root .tile-tab-grip {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 14px;
+  background-image:
+    radial-gradient(circle, var(--text-muted) 1.5px, transparent 1.6px);
+  background-size: 5px 5px;
+  background-position: 0 0;
+  opacity: 0.6;
+  cursor: grab;
+}
+
+.dock-root .tile-tab-title {
+  flex: 0 1 auto;
   overflow: hidden;
-  transition: height var(--duration-fast) ease;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dv-tab-font-size);
+  color: var(--dv-activegroup-visiblepanel-tab-color);
 }
 
-.dock-root .dv-tabs-and-actions-container.dv-single-tab > * {
-  opacity: 0;
-  transition: opacity var(--duration-fast) ease;
+.dock-root .tile-tab-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
-/* The collapsed strip's reveal handle — same idiom as the sash grip. */
-.dock-root .dv-tabs-and-actions-container.dv-single-tab::after {
-  content: "";
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 28px;
-  height: 2px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-  opacity: 0.5;
-  pointer-events: none;
-  transition: opacity var(--duration-fast) ease;
+.dock-root .tile-tab-actions button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-xl);
+  line-height: var(--leading-none);
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 
-.dock-root .dv-tabs-and-actions-container.dv-single-tab:hover,
-.dock-root .dv-tabs-and-actions-container.dv-single-tab:focus-within,
-.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab {
-  height: var(--dv-tabs-and-actions-container-height);
+.dock-root .tile-tab-actions button:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
 }
 
-.dock-root .dv-tabs-and-actions-container.dv-single-tab:hover > *,
-.dock-root .dv-tabs-and-actions-container.dv-single-tab:focus-within > *,
-.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab > * {
-  opacity: 1;
-}
-
-.dock-root .dv-tabs-and-actions-container.dv-single-tab:hover::after,
-.dock-root .dv-tabs-and-actions-container.dv-single-tab:focus-within::after,
-.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab::after {
-  opacity: 0;
-}
-
-/* During a drag the reveal must SNAP, not animate: the drop hit-test happens
- * against the bar's live geometry, and an in-flight height transition would
- * let a drop land on a half-revealed strip and miss the tab it targeted. */
-.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab,
-.main-container.dock-dragging .dv-tabs-and-actions-container.dv-single-tab > * {
-  transition: none;
+/* Terminal tile: the adopted .terminal-header supplies the bar's content. */
+.dock-root .tile-tab-terminal {
+  padding-right: 6px;
 }
 
 /* The terminal panel's dock tab is titled "SESSION" (dock-workspace.js) so the
- * terminal reads as a first-class tile: alone in its tile the strip collapses
- * anyway (dv-single-tab above), and stacked with other tabs an unlabeled tab
- * would be unidentifiable. The card's own `.terminal-header` label remains the
- * in-panel identity; the tab is the tile-level one. */
+ * terminal reads as a first-class tile: the bar is always visible now (no
+ * collapse to hide behind), so an unlabeled tab would be a permanently blank
+ * strip rather than just a hover-away ambiguity. The card's own
+ * `.terminal-header` label remains the in-panel identity; the tab is the
+ * tile-level one. */
 
 /* Simple mode is a locked layout. dock-workspace.js disables drag/float
  * (disableDnd) and sash resize (api.locked) at runtime; closing a panel is a
- * click rather than a drag, so its per-tab close control is suppressed here.
+ * click rather than a drag, and there's nowhere to drag it to, so the
+ * close and grip affordances are suppressed here — title and popout stay.
  * display:none overrides dockview's own visibility toggle on the active tab. */
+html[data-ui-mode="simple"] .dv-tab .tile-tab-close,
+html[data-ui-mode="simple"] .dv-tab .tile-tab-grip,
 html[data-ui-mode="simple"] .dv-tab .dv-default-tab-action {
   display: none;
 }

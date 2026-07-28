@@ -103,6 +103,15 @@ body {
 .btn-ref.spin svg { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Embedded in the web-terminal hub the host tile bar names this panel
+ * (SYSTEM), so the standalone identity block is hidden; the timestamp and
+ * refresh control stay, right-aligned. .hdr has two children (.hdr-t, .hdr-r)
+ * with justify-content:space-between, so when .hdr-t is hidden, .hdr-r would
+ * sit at flex-start (left edge). justify-content:flex-end is required to
+ * move it to the right. */
+body.embedded .hdr-t { display: none; }
+body.embedded .hdr { justify-content: flex-end; }
+
 /* ---- Hero: ring + summary ---- */
 .hero { display: flex; flex-direction: column; align-items: center; padding: 24px 16px 16px; gap: 16px; }
 .ring-w { position: relative; width: 180px; height: 180px; }

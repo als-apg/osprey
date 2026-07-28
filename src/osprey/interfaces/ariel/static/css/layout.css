@@ -93,8 +93,10 @@
   gap: var(--ariel-space-3);
 }
 
-/* When embedded in web terminal, hide logo (tab bar shows module name) */
+/* Embedded in web terminal: the host tile header bar shows the panel name
+ * and the hub owns theming — hide the logo and the theme switcher. */
 body.embedded .logo { display: none; }
+body.embedded osprey-theme-switcher { display: none; }
 
 /* Search is standalone-only: embedded users search the logbook via the agent */
 body.embedded .nav-link[data-view='search'] { display: none; }

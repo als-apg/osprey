@@ -131,7 +131,7 @@ async function wire(api) {
 
 /**
  * Build a dockview-shaped group DOM (one `.dv-groupview` holding a tab strip of
- * `.dv-tab` elements, each with the `.dv-default-tab-action` close control) under
+ * `.dv-tab` elements, each with the `.tile-tab-close` close control) under
  * `root`, and register a matching fake group on `api` whose ordered `panels` line
  * up by index with the rendered tabs — the mapping panelIdForTab relies on.
  * @param {HTMLElement} root
@@ -149,7 +149,7 @@ function buildGroup(root, api, panelIds) {
     const tab = document.createElement('div');
     tab.className = 'dv-tab';
     const action = document.createElement('div');
-    action.className = 'dv-default-tab-action';
+    action.className = 'tile-tab-close';
     tab.appendChild(action);
     strip.appendChild(tab);
     tabs.push({ tab, action });

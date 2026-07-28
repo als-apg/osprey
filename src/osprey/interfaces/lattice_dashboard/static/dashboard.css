@@ -191,10 +191,10 @@ html, body {
   background: var(--accent-tint-12);
 }
 
-/* When embedded in web terminal, hide the LATTICE badge (tab bar shows the
-   module name); the functional topbar -- stats, verify/baseline actions --
-   stays visible. */
+/* Embedded in web terminal: the host tile header bar shows the panel name
+ * and the hub owns theming. */
 body.embedded .topbar-logo { display: none; }
+body.embedded osprey-theme-switcher { display: none; }
 
 /* ── Main Layout ───────────────────────────────────────── */
 

@@ -252,15 +252,22 @@ def _open_page(browser, base_url: str) -> Page:
 # Dock DOM helpers
 # ---------------------------------------------------------------------------
 #
-# dockview does not stamp its panel ids on the tab DOM, so tabs are addressed by
-# their visible label text (the panel title). The native terminal tab is titled
-# "SESSION" (dock-workspace.js's TERMINAL_TITLE), which is the stable handle
-# for it.
+# dockview does not stamp its panel ids on the tab DOM, so most tabs are
+# addressed by their visible label text (the panel title, in .tile-tab-title).
+# The terminal tab is the one exception: it renders no .tile-tab-title at all —
+# it adopts the live .terminal-header in its place (dock-tab.js) — so it is
+# identified by that adoption and given the synthetic "SESSION" label below,
+# which is the stable handle for it in these tests.
 
 # Extract every dockview group with its tab labels and pixel rectangle. Used by
 # the geometry assertions (split / restack / persistence ordering).
 _GROUPS_JS = r"""() => [...document.querySelectorAll('.dv-groupview')].map(g => {
-  const tabs = [...g.querySelectorAll('.dv-tab .dv-default-tab-content')].map(t => t.textContent);
+  // The terminal tile's tab is identified by its adopted .terminal-header
+  // (it has no .tile-tab-title of its own); its label is synthesized here as
+  // "SESSION" — the same handle dock-workspace.js's TERMINAL_TITLE stamps on
+  // the underlying dockview panel title.
+  const tabs = [...g.querySelectorAll('.dv-tab')].map(t =>
+    t.querySelector('.terminal-header') ? 'SESSION' : (t.querySelector('.tile-tab-title')?.textContent ?? ''));
   const r = g.getBoundingClientRect();
   return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), tabs };
 })"""
@@ -295,18 +302,18 @@ def _dock_groups(page: Page) -> list[dict]:
 
 
 def _service_tab(page: Page, label: str):
-    """A dockview tab whose visible label equals ``label`` exactly (case-sensitive).
+    """A dockview tile-bar whose visible title equals ``label`` exactly.
 
     The ^…$ regex keeps one service label (e.g. "WORKSPACE") from substring-
     matching another panel's longer label.
     """
-    content = page.locator(".dv-default-tab-content", has_text=re.compile(rf"^{re.escape(label)}$"))
+    content = page.locator(".tile-tab-title", has_text=re.compile(rf"^{re.escape(label)}$"))
     return page.locator(".dv-tab").filter(has=content)
 
 
 def _terminal_tab(page: Page):
-    """The native terminal panel's dock tab (titled 'SESSION')."""
-    return _service_tab(page, "SESSION")
+    """The terminal tile's header bar — the tab that adopted .terminal-header."""
+    return page.locator(".dv-tab").filter(has=page.locator(".terminal-header"))
 
 
 def _overlay_iframe(page: Page, panel_id: str):
@@ -674,7 +681,7 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
 
 
 def test_dock_tab_close_is_local_vacate_no_posts(tmp_path, chromium_browser):
-    """A human tab-close ('×' → .dv-default-tab-action) is a LOCAL vacate.
+    """A human tab-close ('×' → .tile-tab-close) is a LOCAL vacate.
 
     Tile occupancy is per-client layout state under the launcher-rail model:
     closing the data-viz tile's tab retires the tile and clears the local
@@ -692,17 +699,16 @@ def test_dock_tab_close_is_local_vacate_no_posts(tmp_path, chromium_browser):
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _focus_service_panel(page, "data-viz", "DATA VIZ")
-        # A single-panel tile rests with its tab strip collapsed — hover the
-        # strip to reveal the tab and its close control before clicking it.
-        _service_tab(page, "DATA VIZ").hover()
-        expect(_service_tab(page, "DATA VIZ").locator(".dv-default-tab-action")).to_be_visible(
+        # The tile bar is a fixed-height host strip — its close control is
+        # always visible, no hover reveal needed.
+        expect(_service_tab(page, "DATA VIZ").locator(".tile-tab-close")).to_be_visible(
             timeout=5_000
         )
         page.wait_for_timeout(600)
 
         posts = _track_panel_posts(page)
         # Close the data-viz dock tab via its close control.
-        _service_tab(page, "DATA VIZ").locator(".dv-default-tab-action").click()
+        _service_tab(page, "DATA VIZ").locator(".tile-tab-close").click()
 
         # Its dock tab retires; the rail entry survives untouched and unmarked
         # active; no server POST of any kind is fired by the close.
@@ -861,7 +867,7 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
             """() => {
                 const gs = [...document.querySelectorAll('.dv-groupview')].map(g => ({
                     x: g.getBoundingClientRect().x,
-                    tabs: [...g.querySelectorAll('.dv-default-tab-content')].map(t => t.textContent),
+                    tabs: [...g.querySelectorAll('.tile-tab-title')].map(t => t.textContent),
                 }));
                 const ws = gs.find(g => g.tabs.length === 1 && g.tabs[0] === 'WORKSPACE');
                 return ws && Math.max(...gs.map(g => g.x)) === ws.x;
@@ -959,8 +965,7 @@ def test_layout_persists_across_reload(tmp_path, chromium_browser):
         )
         page.wait_for_function(
             """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
-                const term = gs.find(g => [...g.querySelectorAll('.dv-default-tab-content')]
-                    .some(t => t.textContent === 'SESSION') );
+                const term = gs.find(g => g.querySelector('.terminal-header'));
                 return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
             timeout=5_000,
         )
@@ -1014,7 +1019,7 @@ def test_distinct_project_key_isolates_layouts(tmp_path, chromium_browser):
         )
         page.wait_for_function(
             """() => { const gs = [...document.querySelectorAll('.dv-groupview')];
-                const term = gs.find(g => [...g.querySelectorAll('.dv-default-tab-content')].some(t => t.textContent === 'SESSION'));
+                const term = gs.find(g => g.querySelector('.terminal-header'));
                 return term && Math.min(...gs.map(g => g.getBoundingClientRect().x)) === term.getBoundingClientRect().x; }""",
             timeout=5_000,
         )
@@ -1173,11 +1178,12 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
 
 
 def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_browser):
-    """Simple mode is a locked layout: no per-tab close, and drag is a no-op.
+    """Simple mode is a locked layout: no per-tab close/grip, and drag is a no-op.
 
-    The dock is api.locked with drag disabled and the per-tab close control
-    (.dv-default-tab-action) hidden by the simple-mode CSS; a Playwright drag of a
-    tab leaves the arrangement unchanged.
+    The dock is api.locked with drag disabled and the per-tab close and drag-grip
+    controls (.tile-tab-close, .tile-tab-grip) hidden by the simple-mode CSS
+    (title and popout stay); a Playwright drag of a tab leaves the arrangement
+    unchanged.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1196,9 +1202,14 @@ def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_br
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         page.wait_for_timeout(1_000)
 
-        # Locked, and no per-tab close control is visible.
+        # Locked, and no per-tab close or grip control is visible — but the
+        # title and popout stay (the locked simple layout docks exactly one
+        # service tile alongside the terminal, per applySimpleLayout).
         assert _dock_locked(page) is True
-        expect(page.locator(".dv-tab .dv-default-tab-action:visible")).to_have_count(0)
+        expect(page.locator(".dv-tab .tile-tab-close:visible")).to_have_count(0)
+        expect(page.locator(".dv-tab .tile-tab-grip:visible")).to_have_count(0)
+        expect(page.locator(".dv-tab .tile-tab-title:visible")).to_have_count(1)
+        expect(page.locator(".dv-tab .tile-tab-popout:visible")).to_have_count(1)
 
         # The chat/terminal card keeps the right-hand column in simple mode
         # (the single service tile on the left).
@@ -1759,22 +1770,23 @@ def test_rail_click_on_open_panel_jumps_without_moving_it(tmp_path, chromium_bro
         page.close()
 
 
-# JS: the tab strip of the group holding the terminal ('SESSION') tab, with its
-# current pixel height — the collapse/reveal assertions poll this.
+# JS: the tab strip of the group holding the terminal tile, with its current
+# pixel height — the fixed-height assertions poll this. The terminal group is
+# found by its adopted .terminal-header (its tab has no .tile-tab-title).
 _TERMINAL_STRIP_H_JS = """() => {
     const term = [...document.querySelectorAll('.dv-groupview')].find(g =>
-        [...g.querySelectorAll('.dv-default-tab-content')].some(t => t.textContent === 'SESSION'));
+        g.querySelector('.terminal-header'));
     const bar = term && term.querySelector('.dv-tabs-and-actions-container');
     return bar ? bar.getBoundingClientRect().height : null;
 }"""
 
 
-def test_single_panel_tab_strip_collapses_and_reveals(tmp_path, chromium_browser):
-    """A tile holding one panel collapses its tab strip; hovering reveals it.
+def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
+    """The tile header bar never changes height — hover must not reflow content.
 
-    The terminal boots alone in its group, so its strip carries .dv-single-tab
-    and rests collapsed (a slim reveal strip); hovering the strip expands it to
-    the full tab bar (drag handle + close), and leaving collapses it again.
+    Replaces the retired collapse/reveal behavior: the strip is a fixed-height
+    host bar (grip + content + actions). Hovering it (the old expand trigger)
+    must leave both the bar height and the content's top edge unmoved.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1786,33 +1798,34 @@ def test_single_panel_tab_strip_collapses_and_reveals(tmp_path, chromium_browser
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        expect(_terminal_tab(page)).to_have_count(1, timeout=10_000)
 
-        term_strip = (
-            page.locator(".dv-groupview")
-            .filter(has=_terminal_tab(page))
-            .locator(".dv-tabs-and-actions-container")
-        )
-        expect(term_strip).to_have_class(re.compile(r"\bdv-single-tab\b"), timeout=10_000)
+        # Exactly one terminal header row, and it lives in the tab, not the card.
+        expect(page.locator(".terminal-header")).to_have_count(1)
+        expect(page.locator(".dv-tab .terminal-header")).to_have_count(1)
 
-        # At rest: collapsed to the slim strip.
-        page.wait_for_function(
-            f"() => {{ const h = ({_TERMINAL_STRIP_H_JS})(); return h !== null && h <= 12; }}",
-            timeout=5_000,
-        )
+        h_rest = page.evaluate(_TERMINAL_STRIP_H_JS)
+        assert h_rest is not None and h_rest >= 30, f"bar height at rest: {h_rest}"
 
-        # Hover the strip: expands to the full bar height.
-        term_strip.hover()
-        page.wait_for_function(
-            f"() => {{ const h = ({_TERMINAL_STRIP_H_JS})(); return h !== null && h >= 30; }}",
-            timeout=5_000,
+        content_top = page.evaluate(
+            "() => document.querySelector('.terminal-body').getBoundingClientRect().top"
         )
 
-        # Move away: collapses back.
-        page.mouse.move(0, 0)
-        page.wait_for_function(
-            f"() => {{ const h = ({_TERMINAL_STRIP_H_JS})(); return h !== null && h <= 12; }}",
-            timeout=5_000,
-        )
+        _terminal_tab(page).hover()
+        page.wait_for_timeout(300)  # outlast any (now-deleted) transition
+        assert page.evaluate(_TERMINAL_STRIP_H_JS) == h_rest, "bar height changed on hover"
+        assert (
+            page.evaluate(
+                "() => document.querySelector('.terminal-body').getBoundingClientRect().top"
+            )
+            == content_top
+        ), "tile content shifted on hover"
+
+        # Service bar carries the shared actions.
+        ws = _service_tab(page, "WORKSPACE")
+        expect(ws.locator(".tile-tab-close")).to_have_count(1)
+        expect(ws.locator(".tile-tab-popout")).to_have_count(1)
+        expect(ws.locator(".tile-tab-grip")).to_have_count(1)
 
         page.close()
 

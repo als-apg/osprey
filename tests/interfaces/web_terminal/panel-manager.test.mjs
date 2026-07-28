@@ -511,6 +511,75 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
   });
 });
 
+describe('getPanelStandaloneUrl — the tile-tab bar\'s popout target (dock-tab.js)', () => {
+  test('is null before config resolves a url, then the resolved url once it has', async () => {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({ enabled: ['ariel'], custom: [], default: null, visible: ['ariel'], active: null, labels: {} });
+      }
+      if (url === '/api/ariel-server') {
+        return jsonOk({ url: '/panel/ariel', available: true });
+      }
+      return jsonOk({});
+    }));
+    stubEventSource();
+
+    const mod = await freshImport();
+    expect(mod.getPanelStandaloneUrl('ariel')).toBeNull();
+
+    await mod.initPanelManager('panel-manager');
+    // initPanel()'s configEndpoint fetch settles after initPanelManager's own
+    // returned promise (fire-and-forget, like the rail's disabled → enabled
+    // transition other tests in this file wait on).
+    const entry = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="ariel"]'));
+    await vi.waitFor(() => expect(entry.classList.contains('disabled')).toBe(false));
+
+    expect(mod.getPanelStandaloneUrl('ariel')).toBe('/panel/ariel');
+  });
+
+  test('unknown panel id resolves to null', async () => {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonOk({ enabled: [], custom: [], default: null, visible: [], active: null, labels: {} })
+    ));
+    stubEventSource();
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+
+    expect(mod.getPanelStandaloneUrl('no-such-panel')).toBeNull();
+  });
+
+  test('suffixes a custom panel\'s catalog path onto its resolved url', async () => {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: [],
+          custom: [
+            { id: 'results', label: 'RESULTS', url: '/panel/results', healthEndpoint: null, path: '/results/' },
+          ],
+          default: null,
+          visible: ['results'],
+          active: null,
+          labels: {},
+        });
+      }
+      return jsonOk({});
+    }));
+    stubEventSource();
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+
+    expect(mod.getPanelStandaloneUrl('results')).toBe('/panel/results/results/');
+  });
+});
+
 describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () => {
   /**
    * Boot with two enabled panels but only 'artifacts' a member (visible), so

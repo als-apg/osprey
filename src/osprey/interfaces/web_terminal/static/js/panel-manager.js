@@ -35,6 +35,7 @@ import {
 import { initDockSync, withEchoSuppressed, setTileCloseHandler } from './dock-sync.js';
 import { startHealthPolling as startPolling } from './panel-health.js';
 import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
+import { setStandaloneUrlResolver } from './dock-tab.js';
 import { initRailThemeCoupling } from './rail-position.js';
 import { flashElement } from '/design-system/js/highlight.js';
 import {
@@ -230,6 +231,9 @@ export async function initPanelManager(panelId) {
       configLoaded: false,
     };
   }
+
+  // The tile header bar's popout resolves URLs through us (dock-tab.js).
+  setStandaloneUrlResolver(getPanelStandaloneUrl);
 
   // Seed visiblePanels from server config ('visible' field added by Task 1.1).
   // Fall back to all enabled panel ids for backward compat when field is absent.
@@ -904,6 +908,22 @@ export function getVisiblePanels() {
  */
 export function getPresets() {
   return panelPresets;
+}
+
+/**
+ * Standalone (non-embedded) URL for a service panel — the popout target of the
+ * tile header bar (dock-tab.js). state.url is the already-proxied root-relative
+ * base; the optional catalog path suffixes custom panels' UI root. Null until
+ * the panel's config fetch has resolved a URL.
+ * @param {string} panelId
+ * @returns {string | null}
+ */
+export function getPanelStandaloneUrl(panelId) {
+  const state = panelState[panelId];
+  if (!state?.url) return null;
+  const panel = PANELS.find((p) => p.id === panelId);
+  const path = panel?.path && panel.path !== '/' ? panel.path : '';
+  return state.url + path;
 }
 
 /**

@@ -653,3 +653,7 @@ body {
 :root[data-ui-mode="simple"] .osprey-md-rendered h3 {
   font-size: 15px;
 }
+
+/* Embedded in the web-terminal hub: the hub owns theming — the sidebar's
+ * theme switcher is standalone-only. */
+body.embedded osprey-theme-switcher { display: none; }
