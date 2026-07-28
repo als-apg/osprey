@@ -1013,10 +1013,15 @@ _OPENOBSERVE_TEMPLATE = (
 
 
 def _pinned_openobserve_tag() -> str:
-    """Return the openobserve tag the compose template pins."""
+    """Return the openobserve tag the compose template pins.
+
+    The image line follows the uniform env → config → default chain
+    (``${OSPREY_OPENOBSERVE_IMAGE:-{{ … | default('<ref>:<tag>') }}}``); the
+    pinned tag lives in the innermost Jinja ``default('…')``.
+    """
     text = _OPENOBSERVE_TEMPLATE.read_text(encoding="utf-8")
     match = re.search(
-        r"\$\{OSPREY_OPENOBSERVE_IMAGE:-" + re.escape(_OPENOBSERVE_IMAGE_REF) + r":([^}\s]+)\}",
+        r"default\('" + re.escape(_OPENOBSERVE_IMAGE_REF) + r":([^')\s]+)'\)",
         text,
     )
     assert match, "compose template no longer pins the openobserve image in the expected form"
@@ -1273,6 +1278,40 @@ def test_postgres_preserves_ariel_postgres_dns_alias() -> None:
         "postgres must keep the `ariel-postgres` network alias so the ARIEL DSN "
         f"hostname resolves after the container_name is namespaced; got {aliases}"
     )
+
+
+def test_postgres_image_follows_env_config_default_chain() -> None:
+    """The postgres image is overridable like every other service image.
+
+    Uniform env → config → default chain: OSPREY_POSTGRES_IMAGE wins, then
+    services.postgresql.image, then the pinned pgvector default. A hard pin
+    forces air-gapped/mirrored registries to fork the template.
+    """
+    svc = yaml.safe_load(_render_postgres_template("proj-a"))["services"]["postgresql"]
+    assert svc["image"] == "${OSPREY_POSTGRES_IMAGE:-pgvector/pgvector:pg16}"
+
+    from importlib import resources
+
+    from jinja2 import Template
+
+    tpl = resources.files("osprey").joinpath("templates/services/postgresql/docker-compose.yml.j2")
+    rendered = Template(tpl.read_text(encoding="utf-8")).render(
+        services={"postgresql": {"port_host": 5432, "image": "registry.local/pg:custom"}},
+        deployment={},
+        system={"timezone": "UTC"},
+        osprey_labels={"project_name": "p", "project_root": "/r/p", "deployed_at": "now"},
+        osprey_version="",
+    )
+    svc = yaml.safe_load(rendered)["services"]["postgresql"]
+    assert svc["image"] == "${OSPREY_POSTGRES_IMAGE:-registry.local/pg:custom}"
+
+
+def test_postgres_password_reads_minted_env_var() -> None:
+    """POSTGRES_PASSWORD sources ARIEL_DB_PASSWORD from .env (minted by deploy
+    up), falling back to the legacy config key, then the dev default — the
+    same single-source convention as openobserve's ZO_ROOT_USER_PASSWORD."""
+    svc = yaml.safe_load(_render_postgres_template("proj-a"))["services"]["postgresql"]
+    assert svc["environment"]["POSTGRES_PASSWORD"] == "${ARIEL_DB_PASSWORD:-ariel}"
 
 
 # ---------------------------------------------------------------------------

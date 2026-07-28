@@ -11,7 +11,34 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- Every service image is now overridable through the same `env → config →
+  default` chain: new `OSPREY_POSTGRES_IMAGE` env var plus
+  `services.postgresql.image`, `services.openobserve.image`, and
+  `services.bluesky.tiled_image` config keys (the built service images already
+  supported both layers). Useful for internal registry mirrors and pinned
+  digests.
+- Service compose templates are now claimable build artifacts: `osprey
+  scaffold claim services/<name>` freezes a template for local editing (with
+  `scaffold diff` drift reporting), and `osprey build` skips claimed services
+  when refreshing templates from the framework.
+- `osprey deploy up` now mints a strong per-deploy `ARIEL_DB_PASSWORD` into
+  `.env` when the postgresql service is deployed; the container and the ariel
+  DSN read the same value (previously both used the fixed `ariel` password).
+  Existing Postgres volumes keep their original password — see the deploy
+  how-to for the migration note.
+
 ### Changed
+
+- Scaffolded `.env` / `.env.example` files derive their provider API-key list
+  from the provider registry instead of a hand-maintained list (which had
+  drifted: `ALS_APG_API_KEY` was missing, a stale Langfuse block remained, and
+  a detected `ARGO_API_KEY` value was discarded in favor of a `$${USER}`
+  placeholder).
+- Shipped preset configs now document `deployment.bind_address` and point the
+  Virtual Accelerator instructions at `osprey deploy up` instead of a
+  repo-internal container path.
 
 - The model-benchmark matrix now scores two lanes separately: `agentic_benchmark`
   marks genuine model-capability e2e tests (the headline pass rate) and
