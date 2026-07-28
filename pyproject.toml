@@ -310,6 +310,8 @@ markers = [
     "e2e_smoke: Quick smoke tests for critical workflows",
     "e2e_benchmark: Channel finder benchmark validation tests",
     "e2e_tutorial: Tutorial workflow validation tests",
+    "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic tasks (multi-tool reasoning, judged answers) where the model-under-test can fail",
+    "harness_benchmark: Harness-integrity lane of the benchmark matrix — an agent runs but the assertion is model-independent OSPREY behavior (safety hooks, approval flow, plumbing)",
     "slow: Tests that take significant time",
     "browser: Real-browser Playwright tests (requires chromium; skips if absent)",
     "requires_api: Tests that require API credentials",

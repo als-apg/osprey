@@ -38,6 +38,7 @@ class TestClaudeCodeSDKIntegration:
     # Test 1 — Smoke test: single tool call observability
     # -------------------------------------------------------------------
 
+    @pytest.mark.harness_benchmark
     @pytest.mark.flaky(
         reruns=2, reruns_delay=5
     )  # live SDK/provider smoke; absorb rare transient query errors
@@ -108,6 +109,7 @@ class TestClaudeCodeSDKIntegration:
     # where it stops after an intermediate sub-agent result. The deterministic
     # assertions below are correct (a real regression fails all reruns); the
     # rerun only absorbs that rare LLM nondeterminism.
+    @pytest.mark.agentic_benchmark
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
@@ -212,6 +214,7 @@ class TestClaudeCodeSDKIntegration:
     # the weakest model. 15/15 local passes; one CI miss where the orchestrator
     # stopped after channel-finder without calling archiver_read. Rerun absorbs
     # that stochastic miss without weakening the strict assertions below.
+    @pytest.mark.agentic_benchmark
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
@@ -337,6 +340,7 @@ class TestClaudeCodeSDKIntegration:
     # Multi-step agentic pipeline (archiver -> data-visualizer subagent). Same
     # stochastic-miss class as the other pipeline tests; rerun absorbs the rare
     # LLM nondeterminism while the strict viz/3D-code assertions still gate.
+    @pytest.mark.agentic_benchmark
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api

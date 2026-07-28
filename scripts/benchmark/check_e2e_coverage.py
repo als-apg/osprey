@@ -16,15 +16,76 @@ With ``--print-ignore-args`` it prints the ``--ignore=<path>`` tokens to STDOUT
 so the bash runner can splice them straight into its pytest invocation —
 keeping the exclusion list single-sourced in the JSON config.
 
-Always exits 0: this is a warning, never a gate (per design).
+With ``--check-lanes`` it additionally collects the in-scope suite (subprocess
+``pytest --collect-only`` with the exclusion ``--ignore``s, using the
+``OSPREY_E2E_LANES`` manifest hook in tests/e2e/conftest.py) and verifies every
+collected test carries EXACTLY ONE benchmark-lane marker — ``agentic_benchmark``
+(model-capability score) or ``harness_benchmark`` (harness-integrity score).
+This closes the drift hole where a new e2e file silently joins the matrix scope
+without declaring what its pass/fail measures.
+
+Exit code: 0 in the default/audit modes (warnings only, per design) — but
+``--check-lanes`` IS a gate and exits 1 on unmarked or double-marked tests, so
+the matrix runner refuses to score a suite whose lane split is ambiguous.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+
+def check_lanes(root: Path, excluded: dict[str, str]) -> list[str]:
+    """Collect the in-scope suite and return lane-marker violations (empty = OK).
+
+    Runs ``pytest tests/e2e/ --collect-only`` in a subprocess with the same
+    ``--ignore`` set the matrix runner uses, pointing ``OSPREY_E2E_LANES`` at a
+    temp manifest so the conftest hook records each collected nodeid's lane.
+    Collection failure is itself a violation — the matrix could not run either.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        lanes_path = Path(td) / "lanes.json"
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests/e2e/",
+            "--collect-only",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-o",
+            "addopts=",
+            *[f"--ignore={p}" for p in excluded],
+        ]
+        env = {**os.environ, "OSPREY_E2E_LANES": str(lanes_path)}
+        proc = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
+        if not lanes_path.exists():
+            tail = (proc.stdout + proc.stderr)[-800:]
+            return [f"lane collection produced no manifest (rc={proc.returncode}): {tail}"]
+        lanes = json.loads(lanes_path.read_text(encoding="utf-8"))
+
+    violations = []
+    unmarked = sorted(n for n, lane in lanes.items() if lane == "unmarked")
+    double = sorted(n for n, lane in lanes.items() if lane == "both")
+    if unmarked:
+        violations.append(
+            f"{len(unmarked)} in-scope test(s) carry NO benchmark-lane marker — add "
+            "@pytest.mark.agentic_benchmark or @pytest.mark.harness_benchmark (or add the "
+            "file to excluded_files in matrix_e2e_config.json):"
+        )
+        violations.extend(f"  {n}" for n in unmarked)
+    if double:
+        violations.append(f"{len(double)} test(s) carry BOTH lane markers — pick one:")
+        violations.extend(f"  {n}" for n in double)
+    if not lanes:
+        violations.append("lane manifest is empty — collection found no in-scope tests")
+    return violations
 
 
 def main() -> int:
@@ -39,6 +100,12 @@ def main() -> int:
         "--print-ignore-args",
         action="store_true",
         help="print `--ignore=<path>` tokens to stdout for the runner to consume",
+    )
+    ap.add_argument(
+        "--check-lanes",
+        action="store_true",
+        help="collect the in-scope suite and GATE (exit 1) on tests missing a "
+        "benchmark-lane marker (agentic_benchmark/harness_benchmark)",
     )
     args = ap.parse_args()
 
@@ -89,6 +156,17 @@ def main() -> int:
     if args.print_ignore_args:
         for path in excluded:
             print(f"--ignore={path}")
+
+    if args.check_lanes:
+        violations = check_lanes(root, excluded)
+        for v in violations:
+            print(f"LANE-GATE: {v}", file=sys.stderr)
+        if violations:
+            return 1
+        print(
+            "[e2e-coverage] lane markers OK — every in-scope test declares its lane.",
+            file=sys.stderr,
+        )
 
     return 0
 

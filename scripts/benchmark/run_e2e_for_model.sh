@@ -58,6 +58,10 @@ JSON="$REPO/results/${SAFE}__seed${SEED}.json"
 # so the dashboard fills in mid-run. Fresh file per run.
 export OSPREY_E2E_LIVE="$REPO/results/${SAFE}__seed${SEED}.live.jsonl"
 : > "$OSPREY_E2E_LIVE"
+# benchmark-lane manifest (conftest writes nodeid -> agentic/harness at collection
+# time). The dashboard joins outcomes against it to score the capability lane
+# (agentic_benchmark) separately from the harness-integrity lane.
+export OSPREY_E2E_LANES="$REPO/results/${SAFE}__seed${SEED}.lanes.json"
 
 echo ">> model=$MODEL seed=$SEED provider=$OSPREY_E2E_FORCE_PROVIDER route=$ROUTE" >&2
 echo ">> junit=$XML" >&2
@@ -130,6 +134,15 @@ START=$(date +%s)
 # Still `pytest tests/e2e/` (path) for registry-safe collection; --ignore prunes.
 IGNORE_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
   --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-ignore-args | tr '\n' ' ')"
+# Lane gate: refuse to run (and score) a suite where any in-scope test is
+# missing its agentic_benchmark/harness_benchmark marker — an unmarked test
+# would silently pollute the capability score the matrix exists to measure.
+if ! "$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
+    --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" \
+    --check-lanes >/dev/null; then
+  echo "FATAL: benchmark lane markers incomplete (see LANE-GATE lines above)." >&2
+  exit 2
+fi
 # shellcheck disable=SC2086  # intentional word-split of space-free --ignore tokens
 "$PY" -m pytest tests/e2e/ \
   $IGNORE_ARGS \
