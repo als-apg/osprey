@@ -660,6 +660,78 @@ engine-injected values:</p>
 <code class="docutils literal notranslate"><span class="pre">{{deployment.bind_address}}</span></code>, and <code class="docutils literal notranslate"><span class="pre">{{osprey_labels.project_name}}</span></code> /
 <code class="docutils literal notranslate"><span class="pre">project_root</span></code> / <code class="docutils literal notranslate"><span class="pre">deployed_at</span></code> (injected by the deploy engine).</p>
 </section>
+<section id="service-template-ownership">
+<h2>Service Template Ownership<a class="headerlink" href="#service-template-ownership" title="Link to this heading">#</a></h2>
+<p>The service templates under <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;/services/</span></code> are framework-managed:
+every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refreshes them from the installed OSPREY version, so
+compose fixes reach your project automatically. Do not edit them in place —
+your changes would be overwritten on the next build.</p>
+<p>To customize a service template, claim it first:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">   </span><span class="c1"># freeze for local editing</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>services/postgresql<span class="w">    </span><span class="c1"># compare against the framework</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>services/postgresql<span class="w"> </span><span class="c1"># restore framework management</span>
+</pre></div>
+</div>
+<p>A claimed service is recorded in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">scaffold.user_owned</span></code>
+and skipped by every subsequent build; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">diff</span></code> shows how far
+your copy has drifted from the current framework template. This is the same
+ownership mechanism used for the Claude Code artifacts (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span>
+<span class="pre">list</span></code> shows both).</p>
+<p>Before reaching for a claim, check whether a config key or environment
+variable already covers your need — most service knobs (ports, images,
+credentials, retention) are configurable without forking the template.</p>
+</section>
+<section id="overriding-service-images">
+<h2>Overriding Service Images<a class="headerlink" href="#overriding-service-images" title="Link to this heading">#</a></h2>
+<p>Every service image resolves through the same three-layer chain — an
+environment variable wins, then a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> key, then the packaged
+default:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Service</p></th>
+<th class="head"><p>Environment variable</p></th>
+<th class="head"><p>Config key</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>postgresql</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_POSTGRES_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.postgresql.image</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>openobserve</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OPENOBSERVE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.openobserve.image</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>event_dispatcher</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_DISPATCH_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.image</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>dispatch_worker</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.image</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>bluesky</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_BRIDGE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.image</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>bluesky (Tiled sidecar)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TILED_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_image</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>bluesky_panels</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_PANELS_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_panels.image</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>virtual_accelerator</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Point either layer at an internal registry mirror or a pinned digest when
+your deployment host cannot (or should not) pull public images.</p>
+</section>
 <section id="network-binding-and-security">
 <h2>Network Binding and Security<a class="headerlink" href="#network-binding-and-security" title="Link to this heading">#</a></h2>
 <p>Services bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> by default. Use <code class="docutils literal notranslate"><span class="pre">--expose</span></code> only when you
@@ -680,10 +752,20 @@ running container only where a template maps it in.</p>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> also <em>writes</em> to this file: on first deploy it mints any
-missing service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>
-or <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>) so services never start with blank credentials,
-and restricts the file to owner-only permissions. Treat <code class="docutils literal notranslate"><span class="pre">.env</span></code> as the
-project’s secret store and keep it out of version control.</p>
+missing service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>, or <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so services never start
+with blank or publicly-known credentials, and restricts the file to owner-only
+permissions. Treat <code class="docutils literal notranslate"><span class="pre">.env</span></code> as the project’s secret store and keep it out of
+version control.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Postgres reads <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code> (as <code class="docutils literal notranslate"><span class="pre">POSTGRES_PASSWORD</span></code>) only when
+initializing a <strong>fresh</strong> data volume. A volume created before the password
+was minted keeps its original password; the <code class="docutils literal notranslate"><span class="pre">${ARIEL_DB_PASSWORD:-ariel}</span></code>
+fallback in the shipped configs keeps such deployments working. To adopt
+the minted password, remove the <code class="docutils literal notranslate"><span class="pre">ariel_postgres_data</span></code> volume and redeploy
+(this deletes the stored logbook data — re-ingest afterwards).</p>
+</div>
 <p>If no <code class="docutils literal notranslate"><span class="pre">.env</span></code> file is found, services start with default/empty environment
 variables and a warning is logged.</p>
 </section>
@@ -793,6 +875,8 @@ containers this page covers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-a-rendered-project-up-to-date">Keeping a Rendered Project Up to Date</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-template-ownership">Service Template Ownership</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#network-binding-and-security">Network Binding and Security</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables-env">Environment Variables (<code class="docutils literal notranslate"><span class="pre">.env</span></code>)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#development-mode">Development Mode</a></li>

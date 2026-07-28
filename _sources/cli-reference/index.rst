@@ -412,14 +412,20 @@ All subcommands accept a common flag:
    Claim ownership of a framework artifact for in-place editing. If the file
    doesn't exist yet, the framework template is rendered in place at the
    canonical output path. If it already exists, it is marked user-owned.
+   Service compose templates are claimable as directories
+   (``services/<name>``): a claimed service is skipped by ``osprey build``'s
+   template refresh.
 
 ``osprey scaffold diff NAME``
    Show a unified diff between the current framework template (re-rendered)
-   and your file at the canonical output path.
+   and your file at the canonical output path. For a claimed service
+   directory, diffs every file in the directory against the packaged
+   template.
 
 ``osprey scaffold unclaim NAME``
    Release ownership and restore framework management. The next
-   ``osprey claude regen`` will overwrite the file with the framework template.
+   ``osprey claude regen`` (or, for service templates, the next
+   ``osprey build``) will overwrite the file with the framework template.
 
 ``osprey scaffold web-terminals lint --config PATH``
    Validate the ``modules.web_terminals`` stanza of a facility config
@@ -436,6 +442,7 @@ All subcommands accept a common flag:
 
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
+   osprey scaffold claim services/postgresql      # Freeze a service template
    osprey scaffold diff agents/channel-finder     # Compare yours vs framework
    osprey scaffold unclaim rules/safety           # Restore framework management
    osprey scaffold web-terminals lint --config facility-config.yml

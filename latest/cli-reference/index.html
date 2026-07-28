@@ -794,13 +794,19 @@ user-owned).</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">NAME</span></code></dt><dd><p>Claim ownership of a framework artifact for in-place editing. If the file
 doesn’t exist yet, the framework template is rendered in place at the
-canonical output path. If it already exists, it is marked user-owned.</p>
+canonical output path. If it already exists, it is marked user-owned.
+Service compose templates are claimable as directories
+(<code class="docutils literal notranslate"><span class="pre">services/&lt;name&gt;</span></code>): a claimed service is skipped by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>’s
+template refresh.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">diff</span> <span class="pre">NAME</span></code></dt><dd><p>Show a unified diff between the current framework template (re-rendered)
-and your file at the canonical output path.</p>
+and your file at the canonical output path. For a claimed service
+directory, diffs every file in the directory against the packaged
+template.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">unclaim</span> <span class="pre">NAME</span></code></dt><dd><p>Release ownership and restore framework management. The next
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> will overwrite the file with the framework template.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> (or, for service templates, the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>) will overwrite the file with the framework template.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span> <span class="pre">--config</span> <span class="pre">PATH</span></code></dt><dd><p>Validate the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza of a facility config
 (port-family allocation, reserved service names, duplicate users, persona
@@ -814,6 +820,7 @@ default and aborts on errors; <code class="docutils literal notranslate"><span c
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">      </span><span class="c1"># Freeze a service template</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>agents/channel-finder<span class="w">     </span><span class="c1"># Compare yours vs framework</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>rules/safety<span class="w">           </span><span class="c1"># Restore framework management</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>lint<span class="w"> </span>--config<span class="w"> </span>facility-config.yml
