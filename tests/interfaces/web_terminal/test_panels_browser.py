@@ -7,17 +7,24 @@ turns human dock gestures into the same server POSTs the agent's MCP calls make.
 These tests drive that stack through a real browser and a live SSE stream — the
 parts the FastAPI TestClient cannot reach.
 
+One panel per tile is a workspace invariant: the rail is the tab system, so an
+activation REPLACES the focused service tile's panel (the evicted panel closes
+server-side and dims on the rail), the "+" add menu is the verb that opens a
+NEW tile beside the current one, and no drop geometry may stack tabs.
+
 What is proven here, grouped:
 
-  * SSE / rail flows now materialize as dockview panels: focusing a service panel
-    docks a placeholder whose overlay iframe tracks the group geometry; hiding it
-    removes the placeholder; register appends a rail entry WITHOUT auto-docking.
+  * SSE / rail flows materialize as dockview panels: focusing a service panel
+    docks a placeholder whose overlay iframe tracks the group geometry — taking
+    the focused tile over from its previous panel; hiding a panel removes its
+    placeholder; register appends a rail entry WITHOUT auto-docking.
   * The echo guard (``dock-sync.js``): a human dock-tab focus POSTs setPanelFocus
     exactly once, a human tab-close POSTs visibility(false), and a server-driven
     SSE focus is applied WITHOUT POSTing back (no feedback loop).
-  * Drag rearrange via real Playwright drags — split to a new group, restack onto
-    another group's tab bar — asserted with getBoundingClientRect geometry, and
-    the overlay iframe re-following the dragged panel's new rectangle.
+  * Drag rearrange via real Playwright drags — a tile moves to a new edge
+    position, and a drop that would stack (onto another tile's tab bar) is
+    vetoed — asserted with getBoundingClientRect geometry, and the overlay
+    iframe re-following the dragged panel's new rectangle.
   * Layout persistence keyed by project_key: an expert arrangement survives a
     reload, two project cwds keep distinct layouts on one origin, reset restores
     the default, and a corrupt stored value falls back cleanly.
@@ -25,7 +32,8 @@ What is proven here, grouped:
     close control; an SSE register during simple mode is folded in with no dead
     tabs once the operator flips back to expert.
   * The "+" add menu: unclipped geometry beside the rail, URL-row gating, reveal a
-    hidden panel, register from URL, and inline register errors.
+    hidden panel INTO A NEW TILE beside the active one, register from URL, and
+    inline register errors.
 
 Each test launches a real uvicorn server in a background thread, drives events
 through the REST API, and asserts the DOM via Playwright auto-waiting.
@@ -323,6 +331,27 @@ def _track_panel_posts(page: Page) -> list[str]:
     return posts
 
 
+def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
+    """Open ``panel_id`` as a SECOND tile beside the current one via the "+" menu.
+
+    A rail click would REPLACE the focused tile's panel (one panel per tile), so
+    tests that need two service tiles side by side go through the add menu: hide
+    the panel server-side (it starts visible but untiled), then reveal it from
+    the "+" popover, whose expert-mode path docks it beside the active group.
+    """
+    r = requests.post(
+        f"{base_url}/api/panel-visibility",
+        json={"panel": panel_id, "visible": False},
+    )
+    assert r.status_code == 200
+    expect(page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')).to_have_class(
+        re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
+    )
+    page.locator("#panel-add-btn").click()
+    page.locator(f'.panel-add-item[data-panel-id="{panel_id}"]').click()
+    expect(_service_tab(page, label)).to_have_count(1, timeout=5_000)
+
+
 def _drag_with_dock_shield(page: Page, source, target, **kwargs) -> None:
     """``source.drag_to(target)`` with the app's real-drag state pre-raised.
 
@@ -374,12 +403,14 @@ def _dock_locked(page: Page) -> bool:
 
 
 def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_browser):
-    """Focusing a service panel docks a placeholder whose overlay iframe tracks it.
+    """A rail click REPLACES the focused tile's panel; the overlay tracks the tile.
 
-    A rail click on data-viz makes it the active dock tab; its overlay iframe
-    becomes visible and its rectangle aligns to the dock group's content area
-    (the adapter's follow contract). The previously-active artifacts overlay is
-    concealed because it is no longer the active tab in the shared group.
+    A rail click on data-viz takes over the tile artifacts occupied (one panel
+    per tile — the rail is the tab system): data-viz's overlay iframe becomes
+    visible and its rectangle aligns to the dock group's content area (the
+    adapter's follow contract), while the evicted artifacts panel loses its dock
+    tab entirely, its overlay is concealed, and its rail entry dims (closed
+    server-side, one click from coming back).
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -409,8 +440,16 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
         assert abs(geo["iframeW"] - geo["contentW"]) <= 2, geo
         assert abs(geo["iframeH"] - geo["contentH"]) <= 2, geo
 
-        # The artifacts overlay iframe is behind the now-active data-viz tab.
+        # The evicted artifacts panel: overlay concealed, dock tab gone, rail
+        # entry dimmed (closed) — the tile holds exactly one panel again.
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
+        expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_have_class(
+            re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
+        )
+        groups = _dock_groups(page)
+        service_groups = [g for g in groups if "SESSION" not in g["tabs"]]
+        assert all(len(g["tabs"]) == 1 for g in service_groups), groups
 
         page.close()
 
@@ -599,9 +638,10 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
 def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
     """A human dock-tab focus POSTs setPanelFocus exactly once — no echo loop.
 
-    With both service panels stacked in one group, clicking the (inactive)
-    artifacts dock tab fires one panel-focus POST. The server's SSE echo is
-    applied under the echo guard, so it does not POST focus back again.
+    With the two service panels in side-by-side tiles (via the "+" menu — a rail
+    click would replace, not add), clicking the inactive artifacts dock tab
+    fires one panel-focus POST. The server's SSE echo is applied under the echo
+    guard, so it does not POST focus back again.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -612,8 +652,9 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        # Dock data-viz so both service tabs share a group; data-viz ends active.
-        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        # Open data-viz as a second tile beside artifacts; data-viz ends active.
+        _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
         # Drain the docking focus POST (async fetch) before counting.
         page.wait_for_timeout(800)
@@ -633,8 +674,8 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
 def test_dock_tab_close_posts_visibility_false(tmp_path, chromium_browser):
     """A human tab-close ('×' → .dv-default-tab-action) POSTs visibility(false) once.
 
-    Closing the ACTIVE data-viz tab reveals artifacts behind it, which is a
-    legitimate focus change and may emit one benign focus POST for artifacts; the
+    Closing the data-viz tile's tab retires the tile; a neighboring tile taking
+    focus is a legitimate focus change and may emit one benign focus POST; the
     invariant under test is that the close fires the visibility POST exactly once
     (no echo loop), not the absence of that follow-on focus.
     """
@@ -648,6 +689,9 @@ def test_dock_tab_close_posts_visibility_false(tmp_path, chromium_browser):
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _focus_service_panel(page, "data-viz", "DATA VIZ")
+        # A single-panel tile rests with its tab strip collapsed — hover the
+        # strip to reveal the tab and its close control before clicking it.
+        _service_tab(page, "DATA VIZ").hover()
         # Let the freshly-docked tab's layout settle before clicking its close
         # control: dock-sync resolves the tab→panel id by DOM position in capture
         # phase, so a click mid-settle can map to nothing and drop the POST.
@@ -691,9 +735,11 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        # Pre-dock data-viz, then make artifacts active again, so the later
-        # server focus only has to re-activate an existing placeholder.
-        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        # Pre-dock data-viz as a SECOND tile (a rail click would replace), then
+        # make artifacts active again, so the later server focus only has to
+        # re-activate an existing placeholder.
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         _service_tab(page, "WORKSPACE").click()
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         # Let the WORKSPACE-click's own focus POST fully drain before tracking —
@@ -706,9 +752,12 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         r = requests.post(f"{base_url}/api/panel-focus", json={"panel": "data-viz"})
         assert r.status_code == 200
 
-        # It is applied — data-viz's overlay iframe surfaces again...
+        # It is applied — data-viz's tile takes the active focus (artifacts keeps
+        # its own tile and overlay: side-by-side tiles are both on screen)...
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
-        expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
+        ).to_have_count(1, timeout=5_000)
         # ...with zero POSTs echoed back out (the guard suppressed the setActive).
         page.wait_for_timeout(600)
         assert posts == [], f"server-driven focus POSTed back: {posts}"
@@ -720,9 +769,9 @@ def test_agent_hide_of_active_panel_posts_no_focus(tmp_path, chromium_browser):
     """An SSE-driven hide of the ACTIVE panel emits ZERO focus POSTs from the client.
 
     Regression guard for the echo bug: dropping the active service panel's
-    placeholder makes dockview auto-activate the stacked neighbor, and that
-    programmatic active-panel change must be recognised as a server-applied echo
-    (panel-manager wraps the hide in the echo guard). If it leaked a
+    placeholder makes dockview auto-activate a neighboring tile's panel, and
+    that programmatic active-panel change must be recognised as a server-applied
+    echo (panel-manager wraps the hide in the echo guard). If it leaked a
     setPanelFocus for the neighbor, the client would overwrite the server's own
     active_panel. The deliberate non-POSTing PANELS-order fallback owns where
     focus lands — here that is artifacts.
@@ -736,19 +785,11 @@ def test_agent_hide_of_active_panel_posts_no_focus(tmp_path, chromium_browser):
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        # Dock data-viz and leave it active; artifacts is the visible healthy neighbor.
-        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        # Two side-by-side tiles with data-viz active; artifacts is the visible
+        # healthy neighbor the fallback must hand focus to.
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
-
-        # Precondition — the two service panels MUST share one group with data-viz
-        # active. Only then does hiding data-viz drop its placeholder and make
-        # dockview auto-activate the stacked artifacts neighbor — the programmatic
-        # focus change the echo guard has to suppress. If a future default layout
-        # split them into separate groups, artifacts would already be active in its
-        # own group and this test would pass trivially without exercising C1.
-        groups = _dock_groups(page)
-        shared = [g for g in groups if "DATA VIZ" in g["tabs"] and "WORKSPACE" in g["tabs"]]
-        assert len(shared) == 1, f"expected data-viz stacked with artifacts: {groups}"
 
         # Drain the docking focus POST before tracking.
         page.wait_for_timeout(800)
@@ -780,12 +821,13 @@ def test_agent_hide_of_active_panel_posts_no_focus(tmp_path, chromium_browser):
 # ===========================================================================
 
 
-def test_drag_splits_panel_into_new_group(tmp_path, chromium_browser):
-    """Dragging a stacked tab to a group's right edge splits it into a new group.
+def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
+    """Dragging a tile's tab to another group's edge moves the tile there.
 
-    Both service panels start stacked in one group. Dragging the data-viz tab to
-    the right edge of the terminal group moves it into its own group at the far
-    right; its overlay iframe re-follows to the new rectangle.
+    The artifacts tile starts left of the terminal. Dragging its tab to the
+    right edge of the terminal group moves the tile to the far right; its
+    overlay iframe re-follows to the new rectangle. (Edge drops are the only
+    accepted drop geometry — see the veto test below.)
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -793,46 +835,42 @@ def test_drag_splits_panel_into_new_group(tmp_path, chromium_browser):
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        custom_panels=[_CUSTOM_DATA_VIZ],
+        custom_panels=[],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
 
-        # Precondition — artifacts + data-viz share one group (a tab stack).
+        # Precondition — artifacts left of the terminal (the default split).
         groups = _dock_groups(page)
-        shared = [g for g in groups if "DATA VIZ" in g["tabs"] and "WORKSPACE" in g["tabs"]]
-        assert len(shared) == 1, f"expected data-viz stacked with artifacts: {groups}"
+        assert len(groups) == 2, groups
+        left, right = sorted(groups, key=lambda g: g["x"])
+        assert left["tabs"] == ["WORKSPACE"] and right["tabs"] == ["SESSION"], groups
 
-        # Act — drag the data-viz tab to the right edge of the terminal group.
+        # Act — drag the artifacts tab to the right edge of the terminal group.
         term_group = page.locator(".dv-groupview").last
         box = term_group.bounding_box()
         _drag_with_dock_shield(
             page,
-            _service_tab(page, "DATA VIZ"),
+            _service_tab(page, "WORKSPACE"),
             term_group,
             target_position={"x": box["width"] - 8, "y": box["height"] / 2},
         )
 
-        # Assert — data-viz now sits alone in the rightmost group.
+        # Assert — the artifacts tile now sits rightmost, alone in its group.
         page.wait_for_function(
             """() => {
                 const gs = [...document.querySelectorAll('.dv-groupview')].map(g => ({
                     x: g.getBoundingClientRect().x,
                     tabs: [...g.querySelectorAll('.dv-default-tab-content')].map(t => t.textContent),
                 }));
-                const dv = gs.find(g => g.tabs.length === 1 && g.tabs[0] === 'DATA VIZ');
-                return dv && Math.max(...gs.map(g => g.x)) === dv.x;
+                const ws = gs.find(g => g.tabs.length === 1 && g.tabs[0] === 'WORKSPACE');
+                return ws && Math.max(...gs.map(g => g.x)) === ws.x;
             }""",
             timeout=5_000,
         )
-        groups = _dock_groups(page)
-        dv_group = next(g for g in groups if g["tabs"] == ["DATA VIZ"])
-        artifacts_group = next(g for g in groups if "WORKSPACE" in g["tabs"])
-        assert dv_group["x"] > artifacts_group["x"], groups
-        assert "DATA VIZ" not in artifacts_group["tabs"], groups
 
         # The overlay iframe re-followed to the new group content rectangle.
-        geo = page.evaluate(_ALIGN_JS, "data-viz")
+        geo = page.evaluate(_ALIGN_JS, "artifacts")
         assert geo is not None and geo["active"] is True, geo
         assert abs(geo["iframeLeft"] - geo["contentLeft"]) <= 2, geo
         assert abs(geo["iframeW"] - geo["contentW"]) <= 2, geo
@@ -840,20 +878,15 @@ def test_drag_splits_panel_into_new_group(tmp_path, chromium_browser):
         page.close()
 
 
-# dockview's panel drag is HTML5 native drag-and-drop (dataTransfer +
-# dragstart/dragover/drop). Playwright's synthetic drag_to drives that path but,
-# unlike a pointer-event drag, its drop is a single hit-test that a CPU-contended
-# CI runner occasionally loses — the regroup then never happens and the
-# post-drag wait_for_function times out. Locally this is 5/5 green; the miss is a
-# rare stochastic drop, so absorb it with a scoped rerun. only_rerun keeps the
-# scope tight: a genuine restack-logic break fails via AssertionError below (not
-# TimeoutError) and still fails hard, so this masks the missed drop, not a bug.
-@pytest.mark.flaky(reruns=2, only_rerun=["TimeoutError"])
-def test_drag_restacks_panel_onto_another_tab(tmp_path, chromium_browser):
-    """Dropping a split-out tab back onto another group's tab restacks them.
+def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
+    """A drop that would stack two panels into one tile is vetoed.
 
-    Split data-viz into its own group, then drag its tab onto the artifacts
-    ('WORKSPACE') tab: the two share one group again (same x/width, two tabs).
+    One panel per tile: dropping the data-viz tab onto the artifacts tile's tab
+    bar (the old restack gesture) is rejected by the onWillShowOverlay veto —
+    the arrangement is unchanged, every tile still holds exactly one panel.
+    A missed synthetic drop would also leave the arrangement unchanged, so this
+    can pass trivially on a contended runner — the veto wiring itself is a
+    one-line dockview event handler, and the unit suites pin the rest.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -864,41 +897,25 @@ def test_drag_restacks_panel_onto_another_tab(tmp_path, chromium_browser):
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
 
-        # Split data-viz out to the right first.
-        term_group = page.locator(".dv-groupview").last
-        box = term_group.bounding_box()
-        _drag_with_dock_shield(
-            page,
-            _service_tab(page, "DATA VIZ"),
-            term_group,
-            target_position={"x": box["width"] - 8, "y": box["height"] / 2},
-        )
-        # A missed drop leaves the regroup un-happened, so this wait times out
-        # (TimeoutError) and the whole test reruns — see the @flaky note above.
-        page.wait_for_function(
-            """() => [...document.querySelectorAll('.dv-groupview')]
-                .some(g => { const t = [...g.querySelectorAll('.dv-default-tab-content')].map(e=>e.textContent);
-                            return t.length === 1 && t[0] === 'DATA VIZ'; })""",
-            timeout=5_000,
-        )
+        before = _dock_groups(page)
+        assert all(len(g["tabs"]) == 1 for g in before), before
 
-        # Act — drag the data-viz tab onto the artifacts tab to restack.
+        # Act — try to restack: drag the data-viz tab onto the artifacts tab.
         _drag_with_dock_shield(
             page, _service_tab(page, "DATA VIZ"), _service_tab(page, "WORKSPACE")
         )
+        page.wait_for_timeout(700)
 
-        # Assert — they occupy one group again (same rectangle, two tabs).
-        page.wait_for_function(
-            """() => [...document.querySelectorAll('.dv-groupview')]
-                .some(g => { const t = [...g.querySelectorAll('.dv-default-tab-content')].map(e=>e.textContent);
-                            return t.includes('DATA VIZ') && t.includes('WORKSPACE'); })""",
-            timeout=5_000,
+        # Assert — vetoed: no group holds two tabs, arrangement unchanged.
+        after = _dock_groups(page)
+        assert all(len(g["tabs"]) == 1 for g in after), (
+            f"a drop stacked two panels into one tile: {after}"
         )
-        groups = _dock_groups(page)
-        shared = [g for g in groups if "DATA VIZ" in g["tabs"] and "WORKSPACE" in g["tabs"]]
-        assert len(shared) == 1, f"expected data-viz restacked with artifacts: {groups}"
+        shared = [g for g in after if "DATA VIZ" in g["tabs"] and "WORKSPACE" in g["tabs"]]
+        assert not shared, after
 
         page.close()
 
@@ -1045,7 +1062,7 @@ def test_reset_restores_default_layout(tmp_path, chromium_browser):
     """resetDockLayout() clears a custom arrangement back to the default.
 
     Rearrange (terminal → left), then reset: the grid returns to the default
-    split (service tab-stack left, terminal right) and the reset survives a
+    split (service tile left, terminal right) and the reset survives a
     reload (the stored value is the default, not the discarded custom one).
     """
     workspace = tmp_path / "_agent_data"
@@ -1184,7 +1201,7 @@ def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_br
         expect(page.locator(".dv-tab .dv-default-tab-action:visible")).to_have_count(0)
 
         # The chat/terminal card keeps the right-hand column in simple mode
-        # (service tabs stack on the left).
+        # (the single service tile on the left).
         groups = _dock_groups(page)
         term = next(g for g in groups if g["tabs"] == ["SESSION"])
         assert term["x"] == max(g["x"] for g in groups), groups
@@ -1323,7 +1340,8 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
     """Clicking a hidden panel in the "+" menu un-hides its rail entry and docks it.
 
     data-viz starts visible, is hidden via the API, then revealed from the menu —
-    which docks it beside the active group and POSTs the visibility reveal.
+    which docks it as a NEW tile beside the active group (the add menu is the
+    grow-the-layout verb; a rail click would replace) and POSTs the reveal.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1690,6 +1708,45 @@ def test_closed_rail_entry_click_reopens_panel(tmp_path, chromium_browser):
             re.compile(r"\bpanel-rail-closed\b"), timeout=5_000
         )
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+def test_rail_click_on_open_panel_jumps_without_moving_it(tmp_path, chromium_browser):
+    """Clicking the rail entry of an OPEN panel focuses its tile — no move, no replace.
+
+    With artifacts and data-viz in side-by-side tiles (data-viz active), clicking
+    the artifacts rail entry activates the artifacts tile in place: both tiles
+    survive, nothing is evicted, and both rail entries stay lit (open).
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
+        before = _dock_groups(page)
+
+        # Act — rail click on the OPEN (but unfocused) artifacts panel.
+        page.locator('button.panel-rail-button[data-panel-id="artifacts"]').click()
+
+        # Assert — artifacts is active and visible in ITS OWN tile; the layout
+        # is untouched and data-viz keeps its tile and its lit rail entry.
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
+        ).to_have_count(1, timeout=5_000)
+        expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(1)
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        ).not_to_have_class(re.compile(r"\bpanel-rail-closed\b"))
+        assert _dock_groups(page) == before, "a jump-to-open-panel changed the layout"
 
         page.close()
 

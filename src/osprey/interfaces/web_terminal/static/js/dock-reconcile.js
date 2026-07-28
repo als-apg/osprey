@@ -4,8 +4,12 @@
  * The pure layout-repair algorithm run on EVERY dockview layout apply (storage
  * load, mode restore, reset): a persisted SerializedDockview is reconciled
  * against the panels the dock can currently build. Unknown ids are dropped,
- * newly-registered panels are appended, and only genuinely corrupt/unusable
- * input falls back (returns null).
+ * stacked groups are flattened to one panel per tile (a layout persisted
+ * before the strict tile model, or hand-corrupted storage), and only genuinely
+ * corrupt/unusable input falls back (returns null). Registered panels absent
+ * from the layout are NOT appended here — after the apply, dock-workspace
+ * re-adds a missing terminal and the iframe adapter re-docks visible services,
+ * both through the live api (which sizes new tiles correctly).
  *
  * PURE by contract — nothing in this module reads or mutates live dock/DOM
  * state, so it is unit-testable without a browser (dock-reconcile.test.mjs).
@@ -33,9 +37,11 @@ export const PLACEHOLDER_PREFIX = 'iframe:';
  * Reconcile a persisted dockview layout against the panels the dock can build
  * right now. PURE — it never reads or mutates live dock/DOM state and never
  * touches the argument object (a defensive deep copy is reconciled and
- * returned). Runs on EVERY layout apply (storage load, mode restore, reset) so a
- * stored layout can neither reference a panel that no longer exists nor silently
- * omit one that now does.
+ * returned). Runs on EVERY layout apply (storage load, mode restore, reset) so
+ * a stored layout can neither reference a panel that no longer exists nor
+ * stack several panels into one tile (one panel per tile is a workspace
+ * invariant; the rail is the tab system). Panels missing from the layout are
+ * left missing — the callers re-add them through the live api after the apply.
  *
  * @param {any} layout  A SerializedDockview object, or its raw JSON string
  *   (localStorage holds the string). A string is parsed here; a parse failure is
@@ -78,6 +84,13 @@ export function reconcile(layout, registeredPanels) {
   //    is unusable — signal a full fallback.
   const pruned = pruneGridNode(data.grid.root, kept);
   if (!pruned) return null;
+
+  // 3. One panel per tile: a group holding a tab stack (pre-strict-model
+  //    storage) keeps only its active view. The dropped panels are simply not
+  //    in the restored layout — their rail entries stay one click from a fresh
+  //    tile, so nothing is lost but screen placement.
+  flattenLeaves(pruned);
+
   // dockview 7.0.2's fromJSON hard-throws unless the grid ROOT is a branch. An
   // inner single-child branch legitimately collapses to a leaf, but if the
   // collapse reaches the root (e.g. a single-group layout, or every group but
@@ -86,31 +99,21 @@ export function reconcile(layout, registeredPanels) {
   const root = pruned.type === 'branch' ? pruned : { type: 'branch', data: [pruned] };
   data.grid.root = root;
 
-  // 3. Append registered-but-unreferenced panels to a sensible default group —
-  //    the largest surviving tab-stack — materializing a panels-map entry from
-  //    each descriptor so fromJSON can recreate it.
+  // 4. Drop panels-map entries no group references any more (flattened-away
+  //    stack members, and stored entries the grid never referenced) so the
+  //    serialized panels map and the grid tree describe the same set.
   const leaves = collectLeaves(root);
   const referenced = new Set();
   for (const leaf of leaves) for (const view of leaf.data.views) referenced.add(view);
-
-  const target = leaves.reduce(
-    (best, leaf) => (leaf.data.views.length > best.data.views.length ? leaf : best),
-    leaves[0],
-  );
-  for (const descriptor of descriptors) {
-    if (referenced.has(descriptor.id)) continue;
-    data.panels[descriptor.id] = panelStateFromDescriptor(descriptor);
-    target.data.views.push(descriptor.id);
-    if (!target.data.activeView) target.data.activeView = descriptor.id;
+  for (const id of Object.keys(data.panels)) {
+    if (!referenced.has(id)) delete data.panels[id];
   }
 
   // Repoint activeGroup if the group it referenced didn't survive the prune —
-  // otherwise fromJSON restores with a dangling active-group id. The group that
-  // received the appended panels (else the largest surviving one) is the sensible
-  // new focus.
+  // otherwise fromJSON restores with a dangling active-group id.
   const survivingGroupIds = new Set(leaves.map((leaf) => leaf.data.id));
   if (data.activeGroup != null && !survivingGroupIds.has(data.activeGroup)) {
-    data.activeGroup = target.data.id;
+    data.activeGroup = leaves[0].data.id;
   }
 
   return data;
@@ -137,18 +140,26 @@ function normalizeDescriptors(list) {
 }
 
 /**
- * Build a SerializedDockview panel-map entry from a descriptor (contentComponent
- * defaults to the id; optional fields are omitted when absent).
- * @param {PanelDescriptor} descriptor
- * @returns {any}
+ * Enforce the one-panel-per-tile invariant on a pruned grid tree: every leaf
+ * whose view list holds a stack keeps only its active view (or the first view
+ * when the active one did not survive the prune). Mutates the node in place —
+ * callers hand it the fresh copies pruneGridNode built, never the input layout.
+ * @param {any} node
  */
-function panelStateFromDescriptor(descriptor) {
-  /** @type {any} */
-  const state = { id: descriptor.id, contentComponent: descriptor.contentComponent ?? descriptor.id };
-  if (descriptor.tabComponent) state.tabComponent = descriptor.tabComponent;
-  if (descriptor.title != null) state.title = descriptor.title;
-  if (descriptor.params != null) state.params = descriptor.params;
-  return state;
+function flattenLeaves(node) {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'leaf') {
+    const data = node.data;
+    if (Array.isArray(data.views) && data.views.length > 1) {
+      const survivor = data.views.includes(data.activeView) ? data.activeView : data.views[0];
+      data.views = [survivor];
+      data.activeView = survivor;
+    }
+    return;
+  }
+  if (node.type === 'branch' && Array.isArray(node.data)) {
+    for (const child of node.data) flattenLeaves(child);
+  }
 }
 
 /**

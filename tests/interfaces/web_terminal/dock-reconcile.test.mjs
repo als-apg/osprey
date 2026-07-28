@@ -5,10 +5,12 @@
  *   npx vitest run tests/interfaces/web_terminal/dock-reconcile.test.mjs
  *
  * reconcile repairs a persisted SerializedDockview against the panels the dock
- * can currently build: unknown ids are dropped, newly-registered panels are
- * appended, and only genuinely corrupt/unusable input falls back (returns null).
- * The live persistence plumbing (fromJSON apply, localStorage, project key) is
- * exercised end-to-end by the browser suite; here we pin the pure contract.
+ * can currently build: unknown ids are dropped, stacked groups are flattened to
+ * one panel per tile, and only genuinely corrupt/unusable input falls back
+ * (returns null). Panels absent from the layout are NOT appended — the callers
+ * re-add them through the live api after the apply. The live persistence
+ * plumbing (fromJSON apply, localStorage, project key) is exercised end-to-end
+ * by the browser suite; here we pin the pure contract.
  *
  * Imported by RELATIVE path — this module lives under web_terminal, so the
  * /design-system/js/* alias does not apply.
@@ -96,7 +98,7 @@ describe('reconcile — clean layout pass-through', () => {
   });
 
   test('accepts a raw JSON string as well as a parsed object', () => {
-    const layout = singleGroupLayout(['workspace', 'terminal']);
+    const layout = twoGroupLayout(['workspace'], ['terminal']);
     const out = reconcile(JSON.stringify(layout), ['workspace', 'terminal']);
     expect(out).not.toBeNull();
     expect(referencedIds(out).sort()).toEqual(['terminal', 'workspace']);
@@ -160,34 +162,55 @@ describe('reconcile — iframe placeholders always survive', () => {
   });
 });
 
-describe('reconcile — new panels appended', () => {
-  test('a registered panel absent from the layout is appended with a panels entry', () => {
+describe('reconcile — one panel per tile (stacks flattened)', () => {
+  test('a stacked group keeps only its active view', () => {
+    const layout = singleGroupLayout(['iframe:artifacts', 'iframe:ariel', 'iframe:lattice']);
+    layout.grid.root.data.activeView = 'iframe:ariel';
+    const out = reconcile(layout, []);
+    const leaf = out.grid.root.data[0];
+    expect(leaf.data.views).toEqual(['iframe:ariel']);
+    expect(leaf.data.activeView).toBe('iframe:ariel');
+  });
+
+  test('flattened-away panels are dropped from the panels map too', () => {
+    const layout = singleGroupLayout(['iframe:artifacts', 'iframe:ariel']);
+    const out = reconcile(layout, []);
+    expect(Object.keys(out.panels)).toEqual(['iframe:artifacts']);
+  });
+
+  test('a stack whose active view was pruned keeps the first surviving view', () => {
+    const layout = singleGroupLayout(['stale-panel', 'iframe:artifacts', 'iframe:ariel']);
+    const out = reconcile(layout, []); // 'stale-panel' is unknown AND was the activeView
+    const leaf = out.grid.root.data[0];
+    expect(leaf.data.views).toEqual(['iframe:artifacts']);
+    expect(leaf.data.activeView).toBe('iframe:artifacts');
+  });
+
+  test('every leaf of a multi-group layout is flattened independently', () => {
+    const layout = twoGroupLayout(['iframe:artifacts', 'iframe:ariel'], ['terminal', 'iframe:okf']);
+    const out = reconcile(layout, ['terminal']);
+    const [left, right] = out.grid.root.data;
+    expect(left.data.views).toEqual(['iframe:artifacts']);
+    expect(right.data.views).toEqual(['terminal']);
+    expect(Object.keys(out.panels).sort()).toEqual(['iframe:artifacts', 'terminal']);
+  });
+
+  test('an already-flat layout passes through unchanged', () => {
+    const layout = twoGroupLayout(['iframe:artifacts'], ['terminal']);
+    const out = reconcile(layout, ['terminal']);
+    expect(referencedIds(out).sort()).toEqual(['iframe:artifacts', 'terminal']);
+  });
+});
+
+describe('reconcile — panels absent from the layout are not appended', () => {
+  test('a registered panel the layout never referenced stays absent', () => {
+    // The live callers re-add missing panels through the api after the apply
+    // (dock-workspace re-adds the terminal, the iframe adapter re-docks visible
+    // services) — reconcile itself must not invent grid nodes for them.
     const layout = twoGroupLayout(['workspace'], ['terminal']);
     const out = reconcile(layout, ['workspace', 'terminal', 'newcomer']);
-    expect(referencedIds(out)).toContain('newcomer');
-    expect(out.panels.newcomer).toMatchObject({ id: 'newcomer', contentComponent: 'newcomer' });
-  });
-
-  test('descriptor objects supply the appended panel component and title', () => {
-    const layout = singleGroupLayout(['workspace']);
-    const out = reconcile(layout, [
-      'workspace',
-      { id: 'ariel', contentComponent: 'panel-iframe', title: 'ARIEL' },
-    ]);
-    expect(out.panels.ariel).toMatchObject({
-      id: 'ariel',
-      contentComponent: 'panel-iframe',
-      title: 'ARIEL',
-    });
-    expect(referencedIds(out)).toContain('ariel');
-  });
-
-  test('new panels land in the largest surviving group', () => {
-    // left group has two panels, right has one — the newcomer joins the left.
-    const layout = twoGroupLayout(['workspace', 'lattice'], ['terminal']);
-    const out = reconcile(layout, ['workspace', 'lattice', 'terminal', 'newcomer']);
-    const leftViews = out.grid.root.data[0].data.views;
-    expect(leftViews).toContain('newcomer');
+    expect(referencedIds(out)).not.toContain('newcomer');
+    expect(out.panels.newcomer).toBeUndefined();
   });
 });
 
@@ -212,11 +235,11 @@ describe('reconcile — grid root invariant (dockview fromJSON requires a branch
     expect(referencedIds(out)).toEqual(['workspace']);
   });
 
-  test('appending into a re-wrapped single-group root stays a branch root', () => {
-    const layout = singleGroupLayout(['workspace']);
-    const out = reconcile(layout, ['workspace', 'newcomer']);
+  test('flattening a stacked single-group root still yields a branch root', () => {
+    const layout = singleGroupLayout(['workspace', 'iframe:artifacts']);
+    const out = reconcile(layout, ['workspace']);
     expect(out.grid.root.type).toBe('branch');
-    expect(referencedIds(out)).toContain('newcomer');
+    expect(referencedIds(out)).toEqual(['workspace']);
   });
 });
 

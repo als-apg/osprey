@@ -2,7 +2,7 @@
 
 import { fitTerminal } from './terminal.js';
 import { fetchJSON } from './api.js';
-import { reconcile } from './dock-reconcile.js';
+import { reconcile, PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 import { subscribe } from '/design-system/js/theme-manager.js';
 
 /** @typedef {import('./dock-reconcile.js').PanelDescriptor} PanelDescriptor */
@@ -152,6 +152,19 @@ export function initDockWorkspace() {
   // a correct light/dark default.
   wireDockTheme(root);
 
+  // One panel per tile: the rail is the workspace's tab system, so no drop may
+  // create a tab stack. Veto every drop geometry that would stack — onto a
+  // tile's tab strip, its empty header space, or its center — leaving edge
+  // drops (splits) as the only accepted targets. The veto MUST be subscribed
+  // on each GROUP MODEL: that is the emitter whose defaultPrevented the group's
+  // handleDropEvent checks before applying a drop — this dockview build routes
+  // group willDrop/willShowOverlay only to an internal dnd service, never to
+  // the api-level events, so an api.onWillDrop veto would see nothing.
+  // onWillDrop is the hard gate (checked on every dnd strategy immediately
+  // before the move); onWillShowOverlay gets the same predicate so a doomed
+  // target never even paints a drop highlight.
+  wireStackingVeto(dockApi);
+
   arrangeDefaultLayout(dockApi);
 
   wireTerminalRefit(dockApi);
@@ -167,6 +180,40 @@ export function initDockWorkspace() {
   // failed /api/panels fetch just means "no persistence this session". A stored
   // expert layout, once fetched, is reconciled and applied over the default.
   void initPersistence(dockApi);
+}
+
+/**
+ * A drop geometry that would stack panels as tabs in one tile: onto a tab, the
+ * tab strip's empty header space, or a tile's center. Edge drops (splits) are
+ * the only accepted geometry under the one-panel-per-tile model.
+ * @param {any} e  a dockview WillShowOverlay / WillDrop event
+ * @returns {boolean}
+ */
+function isStackingDrop(e) {
+  return e.kind === 'tab' || e.kind === 'header_space'
+    || (e.kind === 'content' && e.position === 'center');
+}
+
+/**
+ * Subscribe the stacking veto on every group's model — current groups and every
+ * group dockview creates later. Group models are where dockview checks
+ * defaultPrevented before applying a drop (see the call-site comment in
+ * initDockWorkspace). Subscriptions live as long as their group; dockview
+ * disposes the model's emitters with the group, so no manual teardown.
+ * @param {any} api
+ */
+function wireStackingVeto(api) {
+  const veto = (/** @type {any} */ e) => {
+    if (isStackingDrop(e)) e.preventDefault();
+  };
+  const wireGroup = (/** @type {any} */ group) => {
+    const model = group?.model;
+    if (typeof model?.onWillDrop !== 'function') return;
+    model.onWillDrop(veto);
+    if (typeof model.onWillShowOverlay === 'function') model.onWillShowOverlay(veto);
+  };
+  api.onDidAddGroup(wireGroup);
+  for (const group of api.groups ?? []) wireGroup(group);
 }
 
 /**
@@ -442,6 +489,7 @@ function applyStoredLayout(api) {
   if (!next) return;
   try {
     api.fromJSON(next);
+    ensureTerminalPanel(api);
     normalizeTerminalTitle(api);
     // Let the adapter re-sync: ensure visible service placeholders exist and
     // prune any restored placeholder whose service no longer exists.
@@ -539,39 +587,34 @@ function stashExpertLayout(api) {
 }
 
 /**
- * Synthesize and apply the LOCKED simple layout: every service panel stacked as
- * tabs in one group on the left, the terminal/chat card on the right (the chat
- * keeps the right-hand column in both modes, mirroring the expert default).
- * The registered set is captured from the live api BEFORE clearing, so any iframe
- * placeholder panels (see dock-iframe.js) are carried across by their own ids — re-created with
- * the same ids, which is what lets the iframe adapter re-find and re-overlay them
- * (it resolves placeholders by id on every settle). Locks last so every group and
- * sash the rebuild created is covered.
+ * Synthesize and apply the LOCKED simple layout: ONE service tile on the left,
+ * the terminal/chat card on the right (the chat keeps the right-hand column in
+ * both modes, mirroring the expert default). One panel per tile is a workspace
+ * invariant and the rail is the tab system, so the tile carries exactly the
+ * service placeholder that was showing (preferring the focused one) — the
+ * other panels stay one rail click from taking the tile over. The placeholder
+ * is re-created by its own id, which is what lets the iframe adapter re-find
+ * and re-overlay it (it resolves placeholders by id on every settle). Locks
+ * last so every group and sash the rebuild created is covered.
  * @param {any} api
  */
 function applySimpleLayout(api) {
   const registered = currentRegisteredPanels(api);
   const terminal = registered.find((p) => p.id === PANEL_TERMINAL)
     ?? { id: PANEL_TERMINAL, contentComponent: PANEL_TERMINAL };
-  const others = registered.filter((p) => p.id !== PANEL_TERMINAL);
+  const placeholders = registered.filter((p) => p.id.startsWith(PLACEHOLDER_PREFIX));
+  const activeId = api.activePanel?.id;
+  const service = placeholders.find((p) => p.id === activeId) ?? placeholders[0] ?? null;
 
   api.clear();
   addPanelFromDescriptor(api, { ...terminal, title: TERMINAL_TITLE });
-
-  let anchorId = null;
-  for (const panel of others) {
-    if (anchorId) {
-      addPanelFromDescriptor(api, panel, { referencePanel: anchorId, direction: 'within' });
-    } else {
-      // First service panel opens the stack left of the chat at the 60/40 split.
-      addPanelFromDescriptor(
-        api,
-        panel,
-        { referencePanel: PANEL_TERMINAL, direction: 'left' },
-        defaultServiceWidth(),
-      );
-      anchorId = panel.id;
-    }
+  if (service) {
+    addPanelFromDescriptor(
+      api,
+      service,
+      { referencePanel: PANEL_TERMINAL, direction: 'left' },
+      defaultServiceWidth(),
+    );
   }
 
   lockLayout(api);
@@ -595,6 +638,7 @@ function restoreExpertLayout(api) {
   if (next) {
     try {
       api.fromJSON(next);
+      ensureTerminalPanel(api);
       normalizeTerminalTitle(api);
       redockServices?.();
       return;
@@ -603,6 +647,29 @@ function restoreExpertLayout(api) {
     }
   }
   arrangeDefaultLayout(api);
+}
+
+/**
+ * Re-add the terminal card when a restored layout lacks it, docked at the
+ * grid's right edge (its home side). reconcile() no longer appends missing
+ * panels into the serialized layout — the live api sizes a fresh tile
+ * correctly, a JSON-appended node would not — so the restore paths call this
+ * right after fromJSON. Keeps the pre-existing behavior that a reload always
+ * comes back with the terminal present.
+ * @param {any} api
+ */
+function ensureTerminalPanel(api) {
+  if (api.getPanel(PANEL_TERMINAL)) return;
+  try {
+    api.addPanel({
+      id: PANEL_TERMINAL,
+      component: PANEL_TERMINAL,
+      title: TERMINAL_TITLE,
+      position: { direction: 'right' },
+    });
+  } catch (err) {
+    console.error('dock: terminal re-add after restore failed', err);
+  }
 }
 
 /**

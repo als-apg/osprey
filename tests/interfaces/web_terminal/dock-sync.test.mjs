@@ -418,6 +418,23 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
     expect(api._added[0].position).toBeUndefined();
   });
 
+  test('is a no-op in simple mode — the locked layout has exactly one service tile', async () => {
+    // The add-menu pick then falls through to the plain show path, which takes
+    // the single tile over like a rail click (one panel per tile).
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    try {
+      const api = makeApi();
+      api.activeGroup = { id: 'group-1' };
+      const { mod } = await wire(api);
+
+      mod.dockPanelBesideActive('ariel');
+
+      expect(api.addPanel).not.toHaveBeenCalled();
+    } finally {
+      document.documentElement.removeAttribute('data-ui-mode');
+    }
+  });
+
   test('is a no-op when the panel is already docked', async () => {
     const api = makeApi();
     api._panels['iframe:ariel'] = { id: 'iframe:ariel' };

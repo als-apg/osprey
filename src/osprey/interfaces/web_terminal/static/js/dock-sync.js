@@ -150,20 +150,25 @@ function panelIdForTab(tab) {
 }
 
 /**
- * Dock a service panel's placeholder BESIDE the currently-active group, so a
- * panel opened from the "+" add-menu appears where the operator is working
- * rather than stacked onto the far service group by the adapter's default
- * anchor. Creates the placeholder by the adapter's own id + component so the
- * adapter adopts it in place (its ensurePlaceholder no-ops when the id already
- * exists), keeping this position. No-op in fallback mode or when the panel is
- * already docked. Wrapped in the echo guard so the add's active-panel change is
- * not read as a human focus — the add-menu's own show path POSTs the focus.
+ * Dock a service panel's placeholder BESIDE the currently-active group as a
+ * NEW tile, so a panel opened from the "+" add-menu splits where the operator
+ * is working — the one rail verb that grows the layout (a rail click on the
+ * entry itself REPLACES the focused tile's panel instead; see the adapter's
+ * ensurePlaceholder). Creates the placeholder by the adapter's own id +
+ * component so the adapter adopts it in place (its ensurePlaceholder no-ops
+ * when the id already exists), keeping this position. No-op in fallback mode,
+ * when the panel is already docked, and in SIMPLE mode — the locked simple
+ * layout has exactly one service tile, so an add-menu pick there falls through
+ * to the plain show path and takes the tile over like a rail click. Wrapped in
+ * the echo guard so the add's active-panel change is not read as a human
+ * focus — the add-menu's own show path POSTs the focus.
  * @param {string} serviceId  panel-manager rail id
  * @param {string} [title]    dock tab title (defaults to the id)
  */
 export function dockPanelBesideActive(serviceId, title = serviceId) {
   const api = getDockApi();
   if (!api) return;
+  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') return;
   const placeholderId = PLACEHOLDER_PREFIX + serviceId;
   if (api.getPanel(placeholderId)) return;
   /** @type {any} */

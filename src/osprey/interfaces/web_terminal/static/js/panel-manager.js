@@ -16,7 +16,10 @@ import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, buildEmbedSrc
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
-import { initDockIframeAdapter, adoptIframe, focusPanel, hidePanel, setKnownServicePanels } from './dock-iframe.js';
+import {
+  initDockIframeAdapter, adoptIframe, focusPanel, hidePanel,
+  setKnownServicePanels, setServerVisiblePanels, setReplacedPanelHandler,
+} from './dock-iframe.js';
 import { initDockSync, withEchoSuppressed } from './dock-sync.js';
 import { startHealthPolling as startPolling } from './panel-health.js';
 import {
@@ -308,8 +311,17 @@ export async function initPanelManager(panelId) {
   // A failed fetch leaves it inert, which is the pre-coupling behavior.
   initRailThemeCoupling(panelConfig || {});
 
-  // Registry final for this load — the adapter may now prune any restored
-  // placeholder whose service no longer exists (reconcile keeps all iframe:*).
+  // One panel per tile: when an activation takes over a tile, the adapter
+  // evicts the previous occupant and reports it here — close it server-side,
+  // exactly like the rail "×" path. The SSE echo dims the rail entry and
+  // finishes the hide (the adapter already concealed the evicted tile).
+  setReplacedPanelHandler((replacedId) => setPanelVisibility(replacedId, false));
+
+  // Hand the adapter a live reference to the visible set (it prunes restored
+  // placeholders of server-closed panels), then finalize the registry — the
+  // adapter may now prune any restored placeholder whose service no longer
+  // exists (reconcile keeps all iframe:*).
+  setServerVisiblePanels(visiblePanels);
   setKnownServicePanels(PANELS.map((p) => p.id));
 
   // Render the rail entries
@@ -426,16 +438,17 @@ export async function initPanelManager(panelId) {
             if (!activeTabId) activateTab(panel, { auto: true });
           }
 
+          if (!visible) {
+            // EVERY hide drops the panel's dock tile (one panel per tile — a
+            // closed panel's placeholder would be a ghost tile), active or
+            // not. The echo guard covers dockview auto-activating a neighbor
+            // on removal: that programmatic change is a server-applied echo
+            // and must not POST focus back (the fallback below owns focus).
+            withEchoSuppressed(() => hidePanel(panel));
+          }
+
           // CC-1: if we just hid the currently active panel, switch away from it
           if (!visible && panel === activeTabId) {
-            // Conceal the outgoing iframe immediately so it doesn't bleed through
-            // (adapter drops its dock placeholder and suppresses the overlay iframe;
-            // the cached element is kept for a later re-show). Wrapped in the echo
-            // guard: dropping the placeholder makes dockview auto-activate the
-            // stacked neighbor, and that programmatic active-panel change is a
-            // server-applied echo — it must not POST focus back (the deliberate
-            // non-POSTing fallback below owns where focus lands).
-            withEchoSuppressed(() => hidePanel(panel));
             // Find the first panel that is visible, healthy, and not the one being hidden
             const fallback = PANELS.find(
               p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
@@ -490,11 +503,14 @@ function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (
  * setPanelVisibility). `open` is the live visible set, so panel-rail builds
  * each new entry dimmed (closed) when its id is absent from it.
  *
- * Activation is open-state aware: clicking an OPEN panel focuses it, clicking
- * a CLOSED (dimmed) one reopens it — the rail lists available panels, like a
- * browser tab strip, so a click always means "surface this". The terminal
- * entry routes to the dock instead (its open/closed state is layout state,
- * not server visibility — see TERMINAL_RAIL_ID).
+ * Activation is open-state aware: clicking an OPEN panel jumps to its tile,
+ * clicking a CLOSED (dimmed) one reopens it — taking over the focused service
+ * tile in place of its current panel (one panel per tile; the rail IS the
+ * workspace's tab system, so a click always means "show me this here"). The
+ * take-over itself happens in the dock adapter's placement logic; the evicted
+ * panel comes back through the replaced-panel handler registered at init. The
+ * terminal entry routes to the dock instead (its open/closed state is layout
+ * state, not server visibility — see TERMINAL_RAIL_ID).
  */
 function railOptions() {
   return {
