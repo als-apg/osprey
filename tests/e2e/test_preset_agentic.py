@@ -120,6 +120,7 @@ async def _assert_approval_hook_fires(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.harness_benchmark
 @pytest.mark.asyncio
 async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     """Hello-world preset: agent reads the example mock channel.
@@ -151,6 +152,7 @@ async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     assert eval.passed, eval.reasoning
 
 
+@pytest.mark.agentic_benchmark
 @pytest.mark.asyncio
 async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
     """Control-assistant preset: agent uses the channel-finder pipeline.
@@ -184,6 +186,7 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
     assert eval.passed, eval.reasoning
 
 
+@pytest.mark.harness_benchmark
 @pytest.mark.asyncio
 async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Hello-world write probe: agent sets a mock channel; approval hook fires.
@@ -205,6 +208,7 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.harness_benchmark
 @pytest.mark.asyncio
 async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Control-assistant write probe: same contract on the heavier preset."""

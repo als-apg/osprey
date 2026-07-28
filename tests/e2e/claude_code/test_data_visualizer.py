@@ -22,6 +22,8 @@ from tests.e2e.sdk_helpers import (
     run_sdk_query,
 )
 
+pytestmark = pytest.mark.agentic_benchmark
+
 
 class TestDataVisualizerAgent:
     """E2E tests for the data-visualizer sub-agent."""

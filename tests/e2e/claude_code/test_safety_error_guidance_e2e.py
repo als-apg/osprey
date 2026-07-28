@@ -19,6 +19,8 @@ import pytest
 
 from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
 
+pytestmark = pytest.mark.harness_benchmark
+
 # Keywords indicating Claude reported an error (expected behavior)
 ERROR_REPORT_KEYWORDS = [
     "error",

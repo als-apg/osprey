@@ -153,6 +153,8 @@ def load(results_dir: str) -> dict:
     runs = {}
     # completed runs: authoritative summary parsed from junit at end of run
     for f in glob.glob(os.path.join(results_dir, "*__seed*.json")):
+        if f.endswith(".lanes.json"):
+            continue  # per-cell lane manifest, not a run summary (load_lanes reads it)
         try:
             d = json.load(open(f))
         except Exception:
@@ -210,6 +212,52 @@ def load(results_dir: str) -> dict:
             "_stalled": stalled,
         }
     return runs
+
+
+def load_lanes(results_dir: str) -> dict[tuple, str]:
+    """(file, qualname) -> 'agentic' | 'harness', unioned across every per-cell
+    ``*.lanes.json`` manifest in the results dir.
+
+    Each matrix cell writes a manifest at collection time (tests/e2e/conftest.py,
+    ``OSPREY_E2E_LANES``) mapping pytest nodeids to their benchmark lane, derived
+    live from the ``agentic_benchmark``/``harness_benchmark`` markers — so the
+    markers on the tests are the single source of truth and this map can never
+    drift from the code. Manifests are identical across cells (same checkout);
+    unioning simply tolerates missing/partial files. Empty result = no manifest
+    yet (results predate the lane split) → the dashboard falls back to the
+    blended single-score rendering. The invalid 'both' state maps to 'agentic'
+    here only for display robustness; the runner's lane gate refuses to produce
+    results in that state.
+    """
+    lanes: dict[tuple, str] = {}
+    for f in glob.glob(os.path.join(results_dir, "*.lanes.json")):
+        try:
+            manifest = json.load(open(f))
+        except Exception:
+            continue
+        for nodeid, lane in manifest.items():
+            if lane in ("agentic", "both"):
+                lanes[canon_name(nodeid)] = "agentic"
+            elif lane == "harness":
+                lanes[canon_name(nodeid)] = "harness"
+    return lanes
+
+
+def lane_conclusive(d: dict, lane_map: dict[tuple, str], lane: str) -> tuple[int, int]:
+    """conclusive() restricted to one lane: (passed, denominator) over the cell's
+    tests whose canonical name maps to ``lane``. Tests absent from the manifest
+    (stale results of renamed tests) count toward neither lane."""
+    p = den = 0
+    for t in d.get("tests", []):
+        if lane_map.get(canon_name(t["name"])) != lane:
+            continue
+        o = t.get("outcome")
+        if o == "passed":
+            p += 1
+            den += 1
+        elif o in ("failed", "timeout", "error"):
+            den += 1
+    return p, den
 
 
 def parse_progress(results_dir: str):
@@ -422,6 +470,10 @@ def main() -> int:
     # excluded still carry its tests, so strip them here to match the footer.
     exclusions = load_exclusions(args.config)  # (rel_path, reason); rel_path == canon_name key
     apply_exclusions(runs, {rel for rel, _ in exclusions})
+    # Benchmark-lane manifest (marker-derived). Non-empty → score the capability
+    # (agentic_benchmark) and harness (harness_benchmark) lanes separately; empty
+    # (results predate the lane split) → legacy blended rendering.
+    lane_map = load_lanes(args.results_dir)
     started, ended, matrix_done = parse_progress(args.results_dir)
     running = started - ended  # combos START-ed but not END-ed in matrix.log
     # A combo with a finalized .json is done even if the driver died before
@@ -557,16 +609,27 @@ def main() -> int:
 
     # ---- model x seed matrix (full outcome breakdown per cell) ----
     H.append("<h2>Outcome breakdown by model × seed</h2>")
-    H.append(
-        "<p class=sub>Each cell shows the full mix for one run — pass% "
-        "(passed / passed+failed+timeout+error; a <b>timeout counts as a failure</b>, only skips "
-        "are excluded) plus a stacked bar and counts (✓ pass · ✗ fail · ⧗ timeout · ∅ skip · ! error).</p>"
-    )
+    if lane_map:
+        H.append(
+            "<p class=sub>The headline pass% per cell is the <b>capability lane</b> — the "
+            "<code>agentic_benchmark</code>-marked tests where the model itself can fail "
+            "(passed / passed+failed+timeout+error; a <b>timeout counts as a failure</b>, only skips "
+            "are excluded). The <i>harness</i> line below it scores the "
+            "<code>harness_benchmark</code> lane (model-independent OSPREY safety/plumbing "
+            "assertions) separately, so harness passes can never inflate a model's capability "
+            "score. Bar and counts show the full outcome mix across both lanes.</p>"
+        )
+    else:
+        H.append(
+            "<p class=sub>Each cell shows the full mix for one run — pass% "
+            "(passed / passed+failed+timeout+error; a <b>timeout counts as a failure</b>, only skips "
+            "are excluded) plus a stacked bar and counts (✓ pass · ✗ fail · ⧗ timeout · ∅ skip · ! error).</p>"
+        )
     H.append("<table>")
     H.append(
         "<tr><th class=l>model</th>"
         + "".join(f"<th>seed {s}</th>" for s in SEEDS)
-        + "<th>mean pass</th></tr>"
+        + ("<th>mean capability</th></tr>" if lane_map else "<th>mean pass</th></tr>")
     )
     sep_done = False
     for m in models:
@@ -592,7 +655,16 @@ def main() -> int:
                     # as if it were final — mark it as still running.
                     H.append("<td style='background:#fafbfc'><span class=muted>running</span></td>")
                     continue
-                p_s, den_s = conclusive(d)
+                if lane_map:
+                    # Two-lane scoring: headline = capability lane only; the
+                    # harness lane renders as its own subline so its (near-
+                    # constant) passes never pad the capability number.
+                    p_s, den_s = lane_conclusive(d, lane_map, "agentic")
+                    hp, hden = lane_conclusive(d, lane_map, "harness")
+                    harness_line = f"<div class=muted>harness {hp}/{hden}</div>" if hden else ""
+                else:
+                    p_s, den_s = conclusive(d)
+                    harness_line = ""
                 fr = (p_s / den_s) if den_s else None
                 if fr is not None and not d.get("_partial"):
                     fracs.append(fr)  # mean is over COMPLETED seeds only
@@ -607,6 +679,7 @@ def main() -> int:
                     tag = f"<div class=muted>{d['total']}t · {d['total_duration_s'] // 60}m</div>"
                 H.append(
                     f"<td><div style='font-weight:600'>{pct(p_s, den_s)}</div>"
+                    f"{harness_line}"
                     f"<div style='display:flex;justify-content:center;margin:3px 0'>{stacked_bar(c)}</div>"
                     f"<div class=muted>{counts_text(c)}</div>"
                     f"{tag}</td>"
@@ -630,29 +703,53 @@ def main() -> int:
         "(green pass · red fail · orange timeout · yellow skip · purple error · grey pending). "
         "Lets you spot a test a model passes once but times out on another seed.</p>"
     )
-    H.append(
-        "<table><tr><th class=l>test</th>"
-        + "".join(f"<th>{html.escape(label(m))}</th>" for m in models)
-        + "</tr>"
-    )
-    for file in sorted(all_tests):
-        H.append(f"<tr class=filerow><td colspan={len(models) + 1}>{html.escape(file)}</td></tr>")
-        for short in sorted(all_tests[file]):
-            H.append(f"<tr><td class=l>{html.escape(short)}</td>")
-            for m in models:
-                seeds_map = test_results[(file, short)].get(m, {})
-                m_seeds = seeds_for(m, runs)
-                dots = []
-                for s in m_seeds:  # ref models render a single square, not 3
-                    o = seeds_map.get(s)
-                    col = OUTCOME_COLORS[o] if o in OUTCOME_COLORS else "#eaeef2"
-                    dots.append(
-                        f"<span title='seed{s}: {o or 'pending'}' style='display:inline-block;"
-                        f"width:13px;height:13px;border-radius:2px;margin:1px;background:{col}'></span>"
-                    )
-                H.append(f"<td>{''.join(dots)}</td>")
-            H.append("</tr>")
-    H.append("</table>")
+
+    def render_test_table(tests_by_file: dict[str, list]) -> None:
+        H.append(
+            "<table><tr><th class=l>test</th>"
+            + "".join(f"<th>{html.escape(label(m))}</th>" for m in models)
+            + "</tr>"
+        )
+        for file in sorted(tests_by_file):
+            H.append(
+                f"<tr class=filerow><td colspan={len(models) + 1}>{html.escape(file)}</td></tr>"
+            )
+            for short in sorted(tests_by_file[file]):
+                H.append(f"<tr><td class=l>{html.escape(short)}</td>")
+                for m in models:
+                    seeds_map = test_results[(file, short)].get(m, {})
+                    m_seeds = seeds_for(m, runs)
+                    dots = []
+                    for s in m_seeds:  # ref models render a single square, not 3
+                        o = seeds_map.get(s)
+                        col = OUTCOME_COLORS[o] if o in OUTCOME_COLORS else "#eaeef2"
+                        dots.append(
+                            f"<span title='seed{s}: {o or 'pending'}' style='display:inline-block;"
+                            f"width:13px;height:13px;border-radius:2px;margin:1px;background:{col}'></span>"
+                        )
+                    H.append(f"<td>{''.join(dots)}</td>")
+                H.append("</tr>")
+        H.append("</table>")
+
+    if lane_map:
+        # Partition per-test rows by benchmark lane so a reader never mistakes a
+        # harness-integrity row for a capability signal. Tests seen in results
+        # but absent from the manifest (renamed since the run) land in a
+        # trailing "unclassified" section rather than being hidden.
+        sections: dict[str, dict[str, list]] = {"agentic": {}, "harness": {}, "other": {}}
+        for file in all_tests:
+            for short in all_tests[file]:
+                lane = lane_map.get((file, short)) or "other"
+                sections[lane].setdefault(file, []).append(short)
+        H.append("<h2 style='font-size:15px'>Capability lane (agentic_benchmark)</h2>")
+        render_test_table(sections["agentic"])
+        H.append("<h2 style='font-size:15px'>Harness-integrity lane (harness_benchmark)</h2>")
+        render_test_table(sections["harness"])
+        if sections["other"]:
+            H.append("<h2 style='font-size:15px'>Unclassified (not in lane manifest)</h2>")
+            render_test_table(sections["other"])
+    else:
+        render_test_table(all_tests)
 
     # ---- methodology ----
     # Scope sentence is DERIVED: the model-driving count from the run data and the
@@ -673,6 +770,17 @@ def main() -> int:
         scope = (
             f"The <b>{n_txt}</b> model-driving e2e tests (the full <code>tests/e2e/</code> suite minus "
             f"the files that don't call an LLM and/or don't route through the model under test) are forced"
+        )
+    if lane_map:
+        n_a = sum(1 for v in lane_map.values() if v == "agentic")
+        n_h = sum(1 for v in lane_map.values() if v == "harness")
+        scope += (
+            f" — split into a <b>{n_a}-test capability lane</b> "
+            f"(<code>agentic_benchmark</code>: multi-step agentic tasks the model itself can fail; "
+            f"the headline score) and a <b>{n_h}-test harness-integrity lane</b> "
+            f"(<code>harness_benchmark</code>: model-independent safety/plumbing assertions, scored "
+            f"separately so they never pad the capability number), with lane membership declared "
+            f"by pytest markers on the tests and re-derived from live collection every cell —"
         )
     H.append(
         "<footer><b>Methodology.</b> " + scope + " onto each "

@@ -13,6 +13,8 @@ import pytest
 
 from tests.e2e.sdk_helpers import combined_text, init_project, run_sdk_query_with_hooks
 
+pytestmark = pytest.mark.harness_benchmark
+
 
 @pytest.fixture(scope="module")
 def feedback_project(tmp_path_factory):

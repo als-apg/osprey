@@ -73,6 +73,7 @@ from tests.e2e.test_preset_agentic import (
 # on CI runners where the SDK is installed but no system ``claude`` is.
 pytestmark = [
     pytest.mark.e2e,
+    pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     # Skipped on CI: needs a running ARIEL logbook postgres (seeded

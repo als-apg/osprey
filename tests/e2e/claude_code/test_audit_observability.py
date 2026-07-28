@@ -27,6 +27,8 @@ from tests.e2e.sdk_helpers import (
     run_sdk_query,
 )
 
+pytestmark = pytest.mark.agentic_benchmark
+
 
 class TestAuditObservability:
     """Natural workflow + transcript-based audit verification."""
