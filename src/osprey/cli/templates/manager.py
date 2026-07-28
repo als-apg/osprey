@@ -231,6 +231,12 @@ class TemplateManager:
             "builtin_panels": sorted(BUILTIN_PANELS),
             # Add detected environment variables
             "env": detected_env_vars,
+            # Provider API-key env vars, derived from the provider registry
+            # (single source of truth in osprey.models.provider_registry) so
+            # env.j2 / env.example.j2 can't drift from the real provider list.
+            # Ordered list of {"provider", "var"} dicts; key-less providers
+            # (ollama, vllm, …) are excluded.
+            "provider_api_keys": scaffolding.provider_api_key_entries(),
             **(context or {}),
         }
 

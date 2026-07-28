@@ -178,6 +178,14 @@ artifact_server:
 # `osprey health` recognizes it) and add its name to `deployed_services:` to
 # actually launch it with `osprey deploy up`.
 
+# ── Deployment ──────────────────────────────────────────────────────
+# Host interface the deployed services publish their ports on. The default
+# (127.0.0.1, applied when this block is absent) keeps every service
+# loopback-only — the safe state. Binding 0.0.0.0 exposes every deployed
+# service port to the network; review credentials first.
+# deployment:
+#   bind_address: 127.0.0.1
+
 {% if deploy_services | default(true) %}
 services:
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP

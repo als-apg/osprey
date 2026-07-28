@@ -46,6 +46,26 @@ def update_config_remove_user_owned(project_dir: Path, name: str) -> None:
 # ── Manifest helpers ─────────────────────────────────────────────────
 
 
+def sha256_directory(directory: Path) -> str:
+    """Compute a stable content hash of a directory tree.
+
+    Hashes the sorted sequence of (relative path, file sha256) pairs so the
+    result is deterministic across filesystems and independent of mtimes.
+    Used for directory artifacts (service compose templates), which are
+    copied verbatim — never rendered — so no template context is needed.
+    """
+    import hashlib
+
+    from osprey.build.manifest import sha256_file
+
+    digest = hashlib.sha256()
+    for file in sorted(p for p in directory.rglob("*") if p.is_file()):
+        rel = file.relative_to(directory).as_posix()
+        digest.update(rel.encode("utf-8"))
+        digest.update(sha256_file(file).encode("ascii"))
+    return digest.hexdigest()
+
+
 def update_manifest_add_user_owned(
     project_dir: Path,
     manager,
@@ -71,15 +91,24 @@ def update_manifest_add_user_owned(
     registry = BuildArtifactCatalog.default()
     artifact = registry.get(name)
     framework_hash = None
-    if artifact:
-        claude_code_dir = manager.template_root / "claude_code"
-        template_file = claude_code_dir / artifact.template_path
+    if artifact and artifact.is_directory:
+        # Directory artifacts are copied verbatim (no render pass), so the
+        # framework hash is a content hash of the packaged template tree.
+        template_dir = manager.template_root / artifact.template_root / artifact.template_path
+        if template_dir.is_dir():
+            try:
+                framework_hash = f"sha256:{sha256_directory(template_dir)}"
+            except Exception:
+                pass
+    elif artifact:
+        template_root_dir = manager.template_root / artifact.template_root
+        template_file = template_root_dir / artifact.template_path
         if template_file.exists():
             try:
                 if template_file.suffix == ".j2":
                     import tempfile
 
-                    template_rel = f"claude_code/{artifact.template_path}"
+                    template_rel = f"{artifact.template_root}/{artifact.template_path}"
                     template = manager.jinja_env.get_template(template_rel)
                     rendered = template.render(**ctx)
                     with tempfile.NamedTemporaryFile(

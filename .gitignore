@@ -167,6 +167,12 @@ src/osprey/interfaces/tuning/static/vendor/
 src/osprey/interfaces/lattice_dashboard/static/vendor/
 tests/e2e/claude_code/benchmark_results/
 
+# Benchmark results accidentally produced inside the packaged template tree
+# (running the channel-finder benchmark from the template dir writes here;
+# the wheel packages all of src/osprey, so results must never land in git
+# or the build — see also the hatch exclude in pyproject.toml)
+src/osprey/templates/apps/control_assistant/data/benchmarks/results/
+
 # Playwright MCP browser-session cache (page snapshots, console logs)
 .playwright-mcp/
 
