@@ -89,7 +89,9 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "e2e: End-to-end workflow tests (requires API keys, slow)")
     config.addinivalue_line("markers", "e2e_smoke: Quick smoke tests for critical workflows")
     config.addinivalue_line("markers", "e2e_tutorial: Tutorial workflow validation tests")
-    config.addinivalue_line("markers", "e2e_benchmark: Channel finder benchmark validation tests")
+    config.addinivalue_line(
+        "markers", "channel_finder_benchmark: Channel finder benchmark validation tests"
+    )
     config.addinivalue_line(
         "markers",
         "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic "
