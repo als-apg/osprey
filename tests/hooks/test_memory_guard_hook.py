@@ -5,31 +5,114 @@ Writes targeting ``~/.claude/projects/<encoded>/memory/*.md`` are allowed;
 everything else is denied. Non-Write tools pass through without opinion.
 """
 
-from pathlib import Path
-
 import pytest
 
 from osprey.agent_runner.project_paths import encode_claude_project_path
 
 
-def _memory_dir_for(home: Path, project_dir: str) -> Path:
-    """Mirror the hook's resolve_memory_dir logic for test assertions.
+@pytest.fixture
+def memory_guard(hook_module):
+    """The hook module, for tests that call its helpers directly."""
+    return hook_module("osprey_memory_guard")
 
-    ``home`` is the curated ``$HOME`` the hook subprocess runs under (the
-    ``hook_home`` fixture), never the developer's real home directory.
+
+@pytest.fixture
+def memory_dir_for(memory_guard, hook_home):
+    """Resolve a project's memory directory the way the hook does.
+
+    Delegates to the hook's own ``resolve_memory_dir`` so the expected paths
+    cannot drift from the implementation they are meant to describe. The result
+    is pinned under ``hook_home`` — the curated ``$HOME`` the hook subprocess
+    runs under — so a break in the ``$HOME`` isolation surfaces here instead of
+    as a write into the developer's real home directory.
     """
-    encoded = encode_claude_project_path(project_dir)
-    return home / ".claude" / "projects" / encoded / "memory"
+
+    def _resolve(project_dir):
+        memory_dir = memory_guard.resolve_memory_dir(str(project_dir))
+        assert hook_home in memory_dir.parents
+        return memory_dir
+
+    return _resolve
+
+
+# -- Path encoding --
+
+
+@pytest.mark.unit
+def test_memory_dir_is_home_relative(tmp_path, memory_guard, hook_home):
+    """The memory dir is ``$HOME/.claude/projects/<encoded>/memory``."""
+    encoded = encode_claude_project_path(tmp_path)
+
+    assert memory_guard.resolve_memory_dir(str(tmp_path)) == (
+        hook_home / ".claude" / "projects" / encoded / "memory"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "project_name",
+    ["plain", "with spaces", "dotted.name.v2", "under_score+plus@sign"],
+    ids=["plain", "spaces", "dots", "non-alnum"],
+)
+def test_encoding_matches_packaged_helper(tmp_path, memory_guard, project_name):
+    """The hook's inlined encoding agrees with ``encode_claude_project_path``.
+
+    The hook duplicates the regex on purpose: it runs inside user projects where
+    the ``osprey`` package may not be importable at hook-execution time. Nothing
+    but this test keeps the copies together, and drift is silent — Claude Code
+    would store memories under one directory name while the guard allows writes
+    to another.
+    """
+    project_dir = tmp_path / project_name
+    project_dir.mkdir()
+
+    memory_dir = memory_guard.resolve_memory_dir(str(project_dir))
+
+    assert memory_dir.parent.name == encode_claude_project_path(project_dir)
+
+
+# -- Write predicate --
+
+
+@pytest.mark.unit
+def test_predicate_allows_md_direct_child(tmp_path, memory_guard, memory_dir_for):
+    """A ``.md`` file directly inside the memory dir is allowed."""
+    memory_dir = memory_dir_for(tmp_path)
+
+    assert memory_guard.is_allowed_memory_write(str(memory_dir / "channels.md"), memory_dir)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("build_path", "rejected_for"),
+    [
+        (lambda d: d / "script.py", "not a .md file"),
+        (lambda d: d.parent / "notes.md", "outside the memory directory"),
+        (lambda d: d / "subdir" / "notes.md", "nested rather than a direct child"),
+        (lambda d: d / "subdir" / ".." / "notes.md", "traversal in the raw input"),
+    ],
+    ids=["wrong-suffix", "outside-dir", "nested", "traversal"],
+)
+def test_predicate_rejects(tmp_path, memory_guard, memory_dir_for, build_path, rejected_for):
+    """Each rejection branch is reachable on its own.
+
+    The ``traversal`` case resolves back to a legitimate memory file and is
+    turned down only by the literal ``..`` check on the caller's string.
+    """
+    memory_dir = memory_dir_for(tmp_path)
+
+    assert not memory_guard.is_allowed_memory_write(str(build_path(memory_dir)), memory_dir), (
+        f"should be rejected: {rejected_for}"
+    )
 
 
 # -- Allow cases --
 
 
 @pytest.mark.unit
-def test_allows_write_to_memory_md(tmp_path, hook_runner, hook_home):
+def test_allows_write_to_memory_md(tmp_path, hook_runner, memory_dir_for):
     """Write to a .md file inside the Claude memory directory is allowed."""
-    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
-    target = str(memory_dir / "channels.md")
+    target = str(memory_dir_for(tmp_path) / "channels.md")
 
     result = hook_runner(
         "osprey_memory_guard.py",
@@ -43,10 +126,9 @@ def test_allows_write_to_memory_md(tmp_path, hook_runner, hook_home):
 
 
 @pytest.mark.unit
-def test_allows_primary_memory_file(tmp_path, hook_runner, hook_home):
+def test_allows_primary_memory_file(tmp_path, hook_runner, memory_dir_for):
     """MEMORY.md (the primary memory file) is allowed."""
-    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
-    target = str(memory_dir / "MEMORY.md")
+    target = str(memory_dir_for(tmp_path) / "MEMORY.md")
 
     result = hook_runner(
         "osprey_memory_guard.py",
@@ -95,10 +177,9 @@ def test_denies_write_to_project_claude_md(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
-def test_denies_non_md_in_memory_dir(tmp_path, hook_runner, hook_home):
+def test_denies_non_md_in_memory_dir(tmp_path, hook_runner, memory_dir_for):
     """Write to the memory directory but with a non-.md extension is denied."""
-    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
-    target = str(memory_dir / "script.py")
+    target = str(memory_dir_for(tmp_path) / "script.py")
 
     result = hook_runner(
         "osprey_memory_guard.py",
@@ -112,10 +193,9 @@ def test_denies_non_md_in_memory_dir(tmp_path, hook_runner, hook_home):
 
 
 @pytest.mark.unit
-def test_denies_subdirectory_in_memory_dir(tmp_path, hook_runner, hook_home):
+def test_denies_subdirectory_in_memory_dir(tmp_path, hook_runner, memory_dir_for):
     """Write to a subdirectory within the memory dir is denied (direct children only)."""
-    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
-    target = str(memory_dir / "subdir" / "notes.md")
+    target = str(memory_dir_for(tmp_path) / "subdir" / "notes.md")
 
     result = hook_runner(
         "osprey_memory_guard.py",
@@ -129,10 +209,9 @@ def test_denies_subdirectory_in_memory_dir(tmp_path, hook_runner, hook_home):
 
 
 @pytest.mark.unit
-def test_denies_path_traversal(tmp_path, hook_runner, hook_home):
+def test_denies_path_traversal(tmp_path, hook_runner, memory_dir_for):
     """Write with path traversal components is denied."""
-    memory_dir = _memory_dir_for(hook_home, str(tmp_path))
-    target = str(memory_dir / ".." / ".." / ".." / ".bashrc")
+    target = str(memory_dir_for(tmp_path) / ".." / ".." / ".." / ".bashrc")
 
     result = hook_runner(
         "osprey_memory_guard.py",
@@ -227,12 +306,11 @@ def test_deny_message_includes_allowed_directory(tmp_path, hook_runner):
 
 
 @pytest.mark.unit
-def test_uses_claude_project_dir_env(tmp_path, hook_runner, hook_home, monkeypatch):
+def test_uses_claude_project_dir_env(tmp_path, hook_runner, memory_dir_for, monkeypatch):
     """Hook respects CLAUDE_PROJECT_DIR env var over CWD."""
     project_dir = tmp_path / "my-project"
     project_dir.mkdir()
-    memory_dir = _memory_dir_for(hook_home, str(project_dir))
-    target = str(memory_dir / "notes.md")
+    target = str(memory_dir_for(project_dir) / "notes.md")
 
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project_dir))
 
@@ -245,3 +323,26 @@ def test_uses_claude_project_dir_env(tmp_path, hook_runner, hook_home, monkeypat
 
     assert result is not None
     assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
+    """Unusable stdin yields no opinion — not a deny.
+
+    The guard denies writes it can see and does not recognise, but a closed
+    pipe, a truncated write or a non-object payload names no tool at all. With
+    no ``tool_name`` to match, the hook exits 0 silently and Write is left to
+    the rest of the permission chain.
+    """
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_memory_guard.py",
+        tool_name=None,
+        tool_input=None,
+        cwd=tmp_path,
+        stdin_override=stdin,
+    )
+
+    assert returncode == 0
+    assert stdout.strip() == ""
+    assert "Traceback" not in stderr

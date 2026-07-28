@@ -282,3 +282,26 @@ class TestFeedbackCaptureNoTotal:
 
         items = _pending_items(tmp_path)
         assert len(items) == 0, f"Expected no items for total=0, got: {items}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
+    """Unusable stdin captures nothing and leaves the tool call untouched.
+
+    A closed pipe, a truncated write and a non-object payload give the hook no
+    channel finder result to store, so it exits 0 without writing a pending
+    review or a decision envelope.
+    """
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_cf_feedback_capture.py",
+        tool_name=None,
+        tool_input=None,
+        cwd=tmp_path,
+        stdin_override=stdin,
+    )
+
+    assert returncode == 0
+    assert stdout.strip() == ""
+    assert "Traceback" not in stderr
+    assert _pending_items(tmp_path) == {}
