@@ -4,17 +4,18 @@ import logging
 
 import pytest
 
-from osprey.connectors.factory import ConnectorFactory
+from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 
 
 @pytest.fixture(autouse=True)
 def clean_factory():
-    """Clear factory registries between tests."""
-    ConnectorFactory._control_system_connectors.clear()
-    ConnectorFactory._archiver_connectors.clear()
-    yield
-    ConnectorFactory._control_system_connectors.clear()
-    ConnectorFactory._archiver_connectors.clear()
+    """Run each test against empty factory registries.
+
+    Snapshot/restore brackets the clear so registrations made elsewhere in the
+    process survive this module's teardown.
+    """
+    with isolated_connector_registries(clear=True):
+        yield
 
 
 class TestDynamicConnectorImport:

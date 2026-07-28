@@ -24,7 +24,11 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.config_cmd import set_control_system
 from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
-from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey.connectors.factory import (
+    ConnectorFactory,
+    isolated_connector_registries,
+    register_builtin_connectors,
+)
 
 # The epics block's values as committed prior to the VA feature — the
 # untouched ALS production configuration (mirrors
@@ -78,10 +82,14 @@ def _load_config(project_dir: Path) -> dict:
 
 @pytest.fixture(autouse=True)
 def clean_connector_factory():
-    """Isolate ConnectorFactory global state across tests."""
-    ConnectorFactory._control_system_connectors.clear()
-    yield
-    ConnectorFactory._control_system_connectors.clear()
+    """Isolate ConnectorFactory global state across tests.
+
+    The registries start empty so ``register_builtin_connectors()`` is
+    observed doing the registration; snapshot/restore brackets the clear so
+    registrations made elsewhere in the process survive teardown.
+    """
+    with isolated_connector_registries(clear=True):
+        yield
 
 
 class TestFreshProjectDefaultsToMock:
