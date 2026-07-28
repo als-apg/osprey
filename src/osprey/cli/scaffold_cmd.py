@@ -135,11 +135,16 @@ def claim(name, project):
     at the canonical output path. If it already exists, just marks it as
     user-owned. Regen will skip user-owned files.
 
+    Service compose templates are claimed as whole directories
+    (``services/<name>``); a claimed service is no longer refreshed by
+    ``osprey build``.
+
     Examples:
 
     \b
       osprey scaffold claim agents/channel-finder
       osprey scaffold claim rules/safety
+      osprey scaffold claim services/postgresql
     """
     project_dir = Path(project) if project else Path.cwd()
     registry = BuildArtifactCatalog.default()
@@ -157,8 +162,40 @@ def claim(name, project):
             f"'{name}' is already user-owned. Edit it directly at {artifact.output_path}."
         )
 
-    # Build template context
     manager = TemplateManager()
+
+    if artifact.is_directory:
+        # Directory artifact (service compose template): copied verbatim,
+        # never rendered — materialize from the package if absent, then mark
+        # ownership so build stops refreshing it.
+        import shutil
+
+        output_dir = project_dir / artifact.output_path
+        if not output_dir.exists():
+            template_dir = manager.template_root / artifact.template_root / artifact.template_path
+            if not template_dir.is_dir():
+                raise click.ClickException(
+                    f"Template directory not found: {artifact.template_path}"
+                )
+            shutil.copytree(template_dir, output_dir)
+            console.print(f"  [success]✓[/success] Copied {name} → {artifact.output_path}/")
+        else:
+            console.print(
+                f"  [success]✓[/success] Directory already exists at {artifact.output_path}/"
+            )
+
+        added = update_config_add_user_owned(project_dir, name)
+        if added:
+            console.print(
+                f"  [success]✓[/success] Updated config.yml — scaffold.user_owned += {name}"
+            )
+        update_manifest_add_user_owned(project_dir, manager, {}, name)
+        console.print(
+            f"\n  Edit [path]{artifact.output_path}/[/path] — build will no longer refresh it.\n"
+        )
+        return
+
+    # Build template context
     from osprey.cli.templates.claude_code import build_claude_code_context
 
     ctx = build_claude_code_context(manager.template_root, manager.jinja_env, project_dir, config)
@@ -245,6 +282,59 @@ def diff(name, project):
     if artifact is None:
         raise click.ClickException(f"Unknown artifact '{name}'.")
 
+    manager = TemplateManager()
+
+    if artifact.is_directory:
+        # Directory artifact: per-file unified diff of the packaged template
+        # tree against the project copy \u2014 verbatim on both sides (the .j2
+        # files inside are deploy-time templates, not build-time renders).
+        template_dir = manager.template_root / artifact.template_root / artifact.template_path
+        user_dir = project_dir / artifact.output_path
+        if not user_dir.is_dir():
+            raise click.ClickException(f"Directory not found: {artifact.output_path}")
+
+        framework_files = {
+            p.relative_to(template_dir).as_posix() for p in template_dir.rglob("*") if p.is_file()
+        }
+        user_files = {
+            p.relative_to(user_dir).as_posix() for p in user_dir.rglob("*") if p.is_file()
+        }
+
+        output_parts = []
+        for rel in sorted(framework_files | user_files):
+            fw_file = template_dir / rel
+            usr_file = user_dir / rel
+            fw_lines = (
+                fw_file.read_text(encoding="utf-8").splitlines(keepends=True)
+                if rel in framework_files
+                else []
+            )
+            usr_lines = (
+                usr_file.read_text(encoding="utf-8").splitlines(keepends=True)
+                if rel in user_files
+                else []
+            )
+            output_parts.append(
+                "".join(
+                    difflib.unified_diff(
+                        fw_lines,
+                        usr_lines,
+                        fromfile=f"framework:{artifact.template_path}/{rel}",
+                        tofile=f"yours:{artifact.output_path}/{rel}",
+                    )
+                )
+            )
+
+        output = "".join(output_parts)
+        if output:
+            click.echo(output)
+        else:
+            console.print(
+                "[success]\u2713[/success] Your directory matches the current framework "
+                "template \u2014 no differences."
+            )
+        return
+
     # Read user's file from canonical output path
     user_file = project_dir / artifact.output_path
     if not user_file.exists():
@@ -252,7 +342,6 @@ def diff(name, project):
     user_lines = user_file.read_text(encoding="utf-8").splitlines(keepends=True)
 
     # Render framework template
-    manager = TemplateManager()
     from osprey.cli.templates.claude_code import build_claude_code_context
 
     ctx = build_claude_code_context(manager.template_root, manager.jinja_env, project_dir, config)
@@ -322,7 +411,14 @@ def unclaim(name, project):
     update_manifest_remove_user_owned(project_dir, name)
 
     console.print(f"  [success]\u2713[/success] Released ownership of {name}")
-    console.print("\n  Next `osprey claude regen` will overwrite with the framework template.\n")
+    registry = BuildArtifactCatalog.default()
+    artifact = registry.get(name)
+    if artifact is not None and artifact.is_directory:
+        console.print("\n  Next `osprey build` will refresh it from the framework template.\n")
+    else:
+        console.print(
+            "\n  Next `osprey claude regen` will overwrite with the framework template.\n"
+        )
 
 
 @scaffold.group(name="web-terminals", invoke_without_command=True)
