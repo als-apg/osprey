@@ -255,7 +255,7 @@ OSPREY is actively developed. When something can't be expressed through the curr
 |------|--------------------------------------|
 | Build command (presets, overrides, --set) | `src/osprey/cli/build_cmd.py` |
 | Bundled preset YAML profiles | `src/osprey/profiles/presets/` |
-| Profile schema/dataclasses | `src/osprey/cli/build_profile.py` |
+| Profile schema/dataclasses | `src/osprey/cli/build_profile_schema.py` (model in `build_profile_model.py`; facade imports keep working) |
 | Template manager | `src/osprey/cli/templates/manager.py` |
 | Scaffolding (file copy logic) | `src/osprey/cli/templates/scaffolding.py` |
 | App templates | `src/osprey/templates/apps/` |

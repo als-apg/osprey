@@ -16,7 +16,8 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.build_profile import list_presets
+from osprey.cli.build_profile import list_presets, resolve_build_profile
+from osprey.errors import BuildProfileError
 
 
 @pytest.fixture
@@ -254,7 +255,7 @@ def test_neither_profile_nor_preset_required(runner: CliRunner) -> None:
     """T6: no profile + no preset is a usage error -> exit 2 with a specific message."""
     result = runner.invoke(build, ["smoke"])
     assert result.exit_code == 2, result.output
-    # Pin the exact wording from build_profile.py
+    # Pin the exact wording from build_profile_resolve.py
     assert "Either a profile path or --preset is required" in result.output
 
 
@@ -1276,3 +1277,17 @@ class TestDeployServicesKnob:
         cfg = _config_yaml(tmp_path / "op")
         assert cfg["deployed_services"] == []
         assert not (tmp_path / "op" / "services").exists()
+
+
+def test_set_value_invalid_yaml_raises() -> None:
+    """A --set value that isn't valid YAML raises BuildProfileError, not a YAMLError."""
+    with pytest.raises(BuildProfileError, match="is not valid YAML"):
+        resolve_build_profile(None, preset="hello-world", set_pairs=("foo=[unterminated",))
+
+
+def test_override_file_invalid_yaml_raises(tmp_path: Path) -> None:
+    """An -O override file with invalid YAML raises BuildProfileError, not a YAMLError."""
+    bad = tmp_path / "bad.yml"
+    bad.write_text("model: : invalid:\n  - [unterminated\n")
+    with pytest.raises(BuildProfileError, match="Invalid YAML"):
+        resolve_build_profile(None, preset="hello-world", overrides=(bad,))

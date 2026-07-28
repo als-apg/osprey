@@ -236,10 +236,10 @@ def test_frontend_panel_manager_registers_system_health_tab():
 
 
 def test_build_chain_reads_builtins_dynamically():
-    from osprey.cli import build_profile
+    from osprey.cli import build_profile_model
     from osprey.cli.templates import manifest
 
-    assert "BUILTIN_PANELS" in _fresh_source(build_profile)
+    assert "BUILTIN_PANELS" in _fresh_source(build_profile_model)
     assert "BUILTIN_PANELS" in _fresh_source(manifest)
 
 
