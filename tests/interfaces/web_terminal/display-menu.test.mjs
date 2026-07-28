@@ -17,6 +17,10 @@
  *     pill click drives setFamily()
  *   - a View-row segment click closes the card (the mode flip itself is
  *     app.js's initModeToggle(), out of scope here)
+ *   - the System Settings row: it is the card's last child, closes the card on
+ *     click, and keeps the `[data-drawer-trigger]`-not-`[data-drawer]`
+ *     contract settings.js's warning gate binds to (the open itself is
+ *     settings.js's, out of scope here)
  *
  * Module-identity note (same as theme-switcher.test.mjs): this file imports
  * theme-manager.js and display-menu.js exactly once, at the top, and resets
@@ -47,6 +51,8 @@ const FIXTURE = `
         <button class="display-seg-option mode-segment" data-mode="simple" type="button">Simple</button>
       </div>
       <div class="display-menu-families" id="family-picker" role="group"></div>
+      <button class="display-menu-settings" id="display-menu-settings" type="button"
+              data-drawer-trigger="settings-drawer">System Settings</button>
     </div>
   </div>
   <div id="outside"></div>
@@ -128,6 +134,43 @@ describe('display-menu', () => {
 
       qs('#mode-toggle .mode-segment[data-mode="simple"]').click();
       expect(qs('#display-menu-card').classList.contains('open')).toBe(false);
+    });
+
+    test('a System Settings click closes the card', () => {
+      mountAndInit();
+      qs('#display-menu-btn').click();
+
+      qs('#display-menu-settings').click();
+      expect(qs('#display-menu-card').classList.contains('open')).toBe(false);
+    });
+  });
+
+  describe('System Settings row', () => {
+    test('keeps the data-drawer-trigger contract settings.js binds its gate to', () => {
+      mountAndInit();
+      // The row must remain the [data-drawer-trigger="settings-drawer"] the
+      // warning gate resolves -- and must NOT carry osprey-drawer's own
+      // [data-drawer] marker, which would let the component toggle the drawer
+      // straight past the gate.
+      const trigger = document.querySelector('[data-drawer-trigger="settings-drawer"]');
+      expect(trigger).toBe(qs('#display-menu-settings'));
+      expect(trigger?.hasAttribute('data-drawer')).toBe(false);
+    });
+
+    test('lives inside the card, after every preference row', () => {
+      mountAndInit();
+      const card = qs('#display-menu-card');
+      const settings = qs('#display-menu-settings');
+      expect(card.contains(settings)).toBe(true);
+      expect(card.lastElementChild).toBe(settings);
+    });
+
+    test('init still no-ops when the row is absent', () => {
+      document.body.innerHTML = FIXTURE.replace(
+        /<button class="display-menu-settings"[\s\S]*?<\/button>/,
+        ''
+      );
+      expect(() => initDisplayMenu()).not.toThrow();
     });
   });
 

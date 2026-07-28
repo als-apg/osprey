@@ -3,10 +3,12 @@
  *
  * One quiet dot in the header collapses every display preference behind a
  * popover card: Appearance (light/dark within the active theme family), View
- * (Expert/Simple), and Theme (the family pills). It replaces the hub header's
- * always-visible segmented mode toggle + `<osprey-theme-switcher>` pair —
- * standalone fleet pages (session.html, the panels) keep the shared switcher
- * component; this menu is hub chrome only.
+ * (Expert/Simple), Theme (the family pills), and — last, expert-only — the
+ * System Settings row that opens the settings drawer. It replaces the hub
+ * header's always-visible segmented mode toggle + `<osprey-theme-switcher>`
+ * pair and the standalone settings gear beside them; standalone fleet pages
+ * (session.html, the panels) keep the shared switcher component; this menu is
+ * hub chrome only.
  *
  * Division of labour:
  *   - This module owns the popover (open/close, outside-click, Escape) and
@@ -22,6 +24,13 @@
  *     This module only closes the card after a mode pick — flipping the whole
  *     shell is a context switch, unlike the stay-open theme rows, which are
  *     kept open so an operator can compare appearances without re-opening.
+ *   - The SYSTEM SETTINGS row is likewise not this module's to open: it keeps
+ *     the `[data-drawer-trigger="settings-drawer"]` contract, so settings.js's
+ *     first-time warning gate stays the sole open path and app.js still
+ *     mirrors the drawer's open state onto it as `.active`. This module closes
+ *     the card on the click, as for a mode pick. Its expert-only visibility is
+ *     pure CSS off `html[data-ui-mode]` (terminal.css) — no JS gate, so a live
+ *     Expert/Simple flip is instant and leaves no DOM behind.
  *
  * The popover grammar (open renders nothing lazily except the family pills'
  * one-time build; capture-phase outside-click + Escape close; aria-expanded
@@ -146,6 +155,11 @@ export function initDisplayMenu() {
   card.querySelector('#mode-toggle')?.addEventListener('click', (e) => {
     if (e.target instanceof Element && e.target.closest('.mode-segment')) closeMenu();
   });
+
+  // System Settings row: settings.js's warning gate owns the open (it binds
+  // the same `[data-drawer-trigger]` button); this module only dismisses the
+  // card, since opening the drawer is a context switch like a mode pick.
+  card.querySelector('.display-menu-settings')?.addEventListener('click', () => closeMenu());
 
   // Appearance row: flip light/dark within the active family, only when the
   // pick differs from the current mode (re-clicking the active side no-ops

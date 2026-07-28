@@ -233,7 +233,8 @@ function stripQueryMode() {
  * this via the `drawer:open`/`drawer:close` events the component dispatches
  * (bubbling) on the host, matching any trigger for that drawer id — either
  * the component's own `[data-drawer]` marker, or `[data-drawer-trigger]`,
- * web_terminal's convention for a trigger (like the settings gear) that
+ * web_terminal's convention for a trigger (like the display menu's System
+ * Settings row) that
  * needs its own gating logic before opening and so must never match the
  * component's delegated `[data-drawer]` handler. Either way the highlight
  * stays in sync.

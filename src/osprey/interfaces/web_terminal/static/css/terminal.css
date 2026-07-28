@@ -201,9 +201,10 @@
 
 /* ---- Header action cluster (bordered chips, frame 2a) ---- */
 
-/* The theme switcher and settings gear render as `.header-icon-btn` (base style
-   in drawer.css); reshape them into 28px bordered chips only within the header,
-   leaving the drawer's own icon buttons untouched. */
+/* The header's remaining icon buttons — the simple-mode help chip and logout —
+   render as `.header-icon-btn` (base style in drawer.css); reshape them into
+   28px bordered chips only within the header, leaving the drawer's own icon
+   buttons untouched. */
 .header .header-actions {
   gap: var(--space-2);
 }
@@ -415,6 +416,39 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
   background: var(--accent-tint-06);
 }
 
+/* System Settings: the card's last row, separated from the preference rows by
+   a hairline so it reads as an action rather than a fourth preference. Expert
+   only — the simple-mode gate lives with the other density deltas below. */
+.display-menu-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: calc(var(--space-1) * -1);
+  padding: 7px 10px;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.display-menu-settings:hover,
+.display-menu-settings.active {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+.display-menu-settings-icon {
+  font-size: var(--text-md);
+  line-height: var(--leading-none);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .display-menu-card.open { animation: none; }
   .display-menu-seg::before,
@@ -458,6 +492,13 @@ html[data-ui-mode="simple"] .session-selector {
 
 html[data-ui-mode="simple"] .header-help-chip {
   display: flex;
+}
+
+/* Simple: the display menu keeps Appearance/View/Theme but drops the System
+   Settings row entirely — the settings drawer is expert configuration (its own
+   warning dialog says so), so simple mode offers no route to it at all. */
+html[data-ui-mode="simple"] .display-menu-settings {
+  display: none;
 }
 
 /* ---- Panel Rail (left icon rail) ---- */

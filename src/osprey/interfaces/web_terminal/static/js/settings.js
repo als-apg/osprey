@@ -109,8 +109,10 @@ export function initSettings() {
 /**
  * Gate opening the settings drawer behind a first-time-per-session warning
  * (these settings control agent behavior, safety hooks, and security
- * policies). The trigger button intentionally carries `data-drawer-trigger`
- * rather than osprey-drawer's own `[data-drawer]` marker, so the component's
+ * policies). The trigger is the display menu's System Settings row (hub
+ * chrome's only route into the drawer, expert mode only). It intentionally
+ * carries `data-drawer-trigger` rather than osprey-drawer's own
+ * `[data-drawer]` marker, so the component's
  * delegated handler never matches it and never toggles the drawer directly —
  * this gate is the sole open path, and the click reaches every other
  * document-level listener (e.g. sessions.js's outside-click dropdown close)
@@ -134,14 +136,14 @@ function initSettingsWarningGate() {
 // Bounds how long a trigger click can leave `warningGatePending` true while
 // waiting on /health -- a stalled backend or a dropped connection with no
 // RST would otherwise never settle the fetch and permanently brick the
-// gear (every later click a no-op, only a reload recovering).
+// trigger (every later click a no-op, only a reload recovering).
 const HEALTH_CHECK_TIMEOUT_MS = 4000;
 
 /**
  * Encapsulate ONLY the gate decision — the re-entrancy guard, the /health
  * check, and the first-per-session warning dialog. It never opens or closes
  * the drawer; callers do that on a true result. This is the sole gate path;
- * every gated seam (the gear trigger, openDrawerTab, revealSetting) routes
+ * every gated seam (the menu trigger, openDrawerTab, revealSetting) routes
  * through it.
  *
  * Resolves true when the user may proceed: acknowledgment for this server

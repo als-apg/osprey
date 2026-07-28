@@ -147,9 +147,19 @@
                 <!-- One pill per theme family, rendered by display-menu.js -->
               </div>
             </div>
+            <!-- System Settings: the last row of the card, and the only way
+                 into the settings drawer from the header. It keeps the
+                 `data-drawer-trigger` contract (settings.js's warning gate is
+                 the sole open path; app.js mirrors `.active` onto it), so the
+                 move from a standalone header gear into this card changes
+                 placement only. CSS-gated off html[data-ui-mode]: expert-only,
+                 absent entirely in simple. -->
+            <button class="display-menu-settings" id="display-menu-settings" type="button"
+                    data-drawer-trigger="settings-drawer" title="Open system settings">
+              <span class="display-menu-settings-icon" aria-hidden="true">&#9881;</span>System Settings
+            </button>
           </div>
         </div>
-        <button class="header-icon-btn" data-drawer-trigger="settings-drawer" title="Settings">&#9881;</button>
         <!-- Simple-mode help chip (frame 2b). CSS-gated off html[data-ui-mode]:
              hidden in expert, shown in simple. An anchor to the safety guide so
              it needs no JS and reacts to live mode flips purely through CSS. -->

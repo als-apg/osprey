@@ -17,6 +17,8 @@ Coverage (one test each):
       the ``history.replaceState`` strip stops the spent URL param from
       out-ranking the fresh explicit choice.
   (e) ``?mode=`` out-ranks a conflicting localStorage value.
+  (f) the display menu's System Settings row — hub chrome's only route into the
+      settings drawer — is Expert-only, and a live flip to Simple removes it.
 
 "No flash" is asserted at the earliest observable point, not just on the settled
 DOM: an init script installed at document-start records the value of
@@ -37,6 +39,7 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -188,11 +191,27 @@ def _stored_mode(page: Page) -> str | None:
     return page.evaluate("localStorage.getItem('osprey-ui-mode')")
 
 
+def _open_display_menu(page: Page) -> None:
+    """Open the header display-menu popover and wait for the card to render.
+
+    The dot is a toggle, so callers must only ever call this from the collapsed
+    state -- pair it with ``_close_display_menu`` when the card is not dismissed
+    by the interaction itself.
+    """
+    page.locator("#display-menu-btn").click()
+    expect(page.locator("#display-menu-card")).to_have_class(re.compile(r"\bopen\b"))
+
+
+def _close_display_menu(page: Page) -> None:
+    page.locator("#display-menu-btn").click()
+    expect(page.locator("#display-menu-card")).not_to_have_class(re.compile(r"\bopen\b"))
+
+
 def _click_segment(page: Page, mode: str) -> None:
     # The mode toggle lives inside the header display-menu popover (the dot);
     # open it first. A mode pick closes the card again, so every call starts
     # from the collapsed state.
-    page.locator("#display-menu-btn").click()
+    _open_display_menu(page)
     page.locator(f'#mode-toggle .mode-segment[data-mode="{mode}"]').click()
 
 
@@ -359,5 +378,47 @@ def test_query_param_beats_localstorage(tmp_path, chromium_browser):
         assert _stored_mode(page) == "simple", (
             "the stored choice must be untouched by a ?mode= boot"
         )
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (f) the System Settings row is Expert-only
+# ---------------------------------------------------------------------------
+
+
+def test_settings_row_is_expert_only(tmp_path, chromium_browser):
+    """The display menu offers System Settings in Expert and hides it in Simple.
+
+    The settings drawer is expert configuration (its own gate calls it an
+    "Expert Configuration Area"), and after the header gear was folded into the
+    display menu this row is hub chrome's ONLY route to it -- so Simple must
+    offer no route at all.  The gate is pure CSS off ``html[data-ui-mode]``, so
+    this is asserted across a LIVE flip (no reload): the row is visible in
+    Expert, gone once Simple is picked, and back on the flip return.
+    """
+    with _hub_with_artifacts(tmp_path, ui_mode="expert") as (base_url, _app):
+        page = _open_hub_page(chromium_browser, base_url)
+        settings_row = page.locator("#display-menu-settings")
+
+        # Expert: the row is there, and it is the trigger settings.js gates.
+        _open_display_menu(page)
+        expect(settings_row).to_be_visible()
+        expect(settings_row).to_have_attribute("data-drawer-trigger", "settings-drawer")
+        _close_display_menu(page)
+
+        # Live flip to Simple (the mode pick closes the card), then reopen it.
+        _click_segment(page, "simple")
+        _open_display_menu(page)
+        expect(settings_row).to_be_hidden()
+        # The other rows survive -- Simple loses settings, not the whole menu.
+        expect(page.locator("#appearance-toggle")).to_be_visible()
+        expect(page.locator("#mode-toggle")).to_be_visible()
+        _close_display_menu(page)
+
+        # Flip back: Expert restores the row (no DOM was torn down).
+        _click_segment(page, "expert")
+        _open_display_menu(page)
+        expect(settings_row).to_be_visible()
 
         page.close()
