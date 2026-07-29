@@ -527,7 +527,7 @@
               ]
             },
             "POSITION": {
-              "_description": "Beam Position (millimeters): Measured transverse beam position.",
+              "_description": "Beam Position (meters): Measured transverse beam position.",
               "X": {
                 "_description": "Horizontal Position (read-only): Beam X position at this BPM location."
               },
@@ -536,7 +536,7 @@
               }
             },
             "GOLDEN": {
-              "_description": "Golden Orbit Reference (millimeters): Stored reference orbit positions.",
+              "_description": "Golden Orbit Reference (meters): Stored reference orbit positions.",
               "X": {
                 "_description": "Golden X Position (read-only): Reference horizontal position."
               },
@@ -545,7 +545,7 @@
               }
             },
             "OFFSET": {
-              "_description": "Position Offset from Golden (millimeters): Difference between measured and golden orbit.",
+              "_description": "Position Offset from Golden (meters): Difference between measured and golden orbit.",
               "X": {
                 "_description": "Horizontal Offset (read-only): X position error from golden orbit."
               },
