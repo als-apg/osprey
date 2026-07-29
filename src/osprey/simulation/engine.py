@@ -39,6 +39,7 @@ from osprey.simulation.machine import (
     ScenarioLogEntry,
     SimChannel,
     parse_machine,
+    resolve_active_scenario_names,
 )
 from osprey.simulation.series import (
     apply_events,
@@ -208,10 +209,7 @@ class SimulationEngine:
         Raises:
             ValueError: If a name is unknown or the set does not compose.
         """
-        resolved: list[str] = [DEFAULT_SCENARIO]
-        for name in names:
-            if name != DEFAULT_SCENARIO and name not in resolved:
-                resolved.append(name)
+        resolved = resolve_active_scenario_names(names)
         problems = self.validate_composition(resolved)
         if problems:
             raise ValueError("Cannot activate scenarios: " + "; ".join(problems))
@@ -421,7 +419,7 @@ class SimulationEngine:
                 else:
                     logger.warning(f"Unknown scenario {raw!r} in {state_file}; ignoring")
 
-        resolved = [DEFAULT_SCENARIO] + [n for n in names if n != DEFAULT_SCENARIO]
+        resolved = resolve_active_scenario_names(names)
         problems = self.validate_composition(resolved)
         if problems:
             logger.error(
