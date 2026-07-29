@@ -31,7 +31,7 @@
   },
   "tree": {
     "SR": {
-      "_description": "Storage Ring (SR): Main synchrotron light source. 12-sector electron storage ring operating at 1.9 GeV. Contains magnets, diagnostics, vacuum, and RF systems for stable beam circulation and photon production.",
+      "_description": "Storage Ring (SR): Main synchrotron light source. 12-sector electron storage ring operating at 2.0 GeV. Contains magnets, diagnostics, vacuum, and RF systems for stable beam circulation and photon production.",
       "MAG": {
         "_description": "Magnet System (MAG): Controls beam trajectory and focusing in the storage ring. Includes dipole bending magnets, quadrupole focusing magnets, sextupole magnets for chromaticity correction, and corrector magnets for precise beam steering. All magnets are powered by regulated power supplies and are critical for maintaining stable beam orbit and beam quality.",
         "DIPOLE": {
@@ -772,7 +772,7 @@
       }
     },
     "BR": {
-      "_description": "Booster Ring (BR): Accelerates electron beam from 150 MeV (linac energy) to 1.9 GeV before injection into the storage ring. Compact ring with 4-fold symmetry, operates at 1-10 Hz repetition rate.",
+      "_description": "Booster Ring (BR): Accelerates electron beam from 150 MeV (linac energy) to 2.0 GeV before injection into the storage ring. Compact ring with 4-fold symmetry, operates at 1-10 Hz repetition rate.",
       "MAG": {
         "_description": "Booster Magnet System: Ramped magnets that track the beam energy during acceleration. Dipoles define the orbit, quadrupoles maintain focusing.",
         "DIPOLE": {
