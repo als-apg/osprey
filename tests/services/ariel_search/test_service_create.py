@@ -1,5 +1,6 @@
 """Tests for ARIELSearchService.create_entry() orchestration."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -180,3 +181,40 @@ async def test_create_entry_sync_status_synced():
 
     # Repository was called twice: once for optimistic, once for synced
     assert mock_repository.upsert_entry.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_create_entry_reingestion_failure_is_warned_not_raised(caplog):
+    """A failing re-ingestion leaves the entry PENDING_SYNC and logs a warning.
+
+    The facility write already succeeded at this point, so a read-back failure
+    must not surface as an error -- the entry syncs on the next poll.
+    """
+    service, mock_adapter, mock_repository = _make_mock_service(
+        adapter_supports_write=True,
+        source_system="ALS eLog",
+    )
+
+    async def failing_fetch(**kwargs):
+        raise RuntimeError("logbook unreachable")
+        yield  # Unreachable; makes this an async generator
+
+    mock_adapter.fetch_entries = failing_fetch
+
+    request = FacilityEntryCreateRequest(subject="Test", details="Details")
+
+    with caplog.at_level(logging.WARNING, logger="ariel"):
+        with patch(
+            "osprey.services.ariel_search.ingestion.get_adapter",
+            return_value=mock_adapter,
+        ):
+            result = await service.create_entry(request)
+
+    assert result.sync_status == SyncStatus.PENDING_SYNC
+    assert result.entry_id == "test-entry-001"
+    assert "Re-ingestion after write failed for test-entry-001" in caplog.text
+    assert "logbook unreachable" in caplog.text
+    assert "sync on next poll" in caplog.text
+
+    # Only the optimistic upsert landed; the sync upsert never ran.
+    mock_repository.upsert_entry.assert_called_once()

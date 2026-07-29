@@ -1388,3 +1388,227 @@ class TestThresholdInSQLVerification:
         )
 
         assert DEFAULT_SIMILARITY_THRESHOLD == 0.5
+
+
+class TestKeywordSearchFilterParameters:
+    """Tests for keyword_search filter clauses built from call parameters."""
+
+    @pytest.fixture
+    def mock_config(self):
+        """Create mock ARIEL config with keyword search enabled."""
+        from osprey.services.ariel_search.config import ARIELConfig
+
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+            }
+        )
+
+    @pytest.fixture
+    def mock_repository(self, mock_config):
+        """Create mock repository returning no rows."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        repo = MagicMock()
+        repo.config = mock_config
+        repo.keyword_search = AsyncMock(return_value=[])
+        repo.fuzzy_search = AsyncMock(return_value=[])
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_quoted_phrases_become_query_params(self, mock_repository, mock_config):
+        """Each quoted phrase is bound as its own parameter, after the free text."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        await keyword_search(
+            'fault "beam current" "vacuum pump"',
+            mock_repository,
+            mock_config,
+            fuzzy_fallback=False,
+        )
+
+        kwargs = mock_repository.keyword_search.call_args.kwargs
+        assert kwargs["params"] == ["fault", "beam current", "vacuum pump"]
+        assert kwargs["where_clauses"][0].count("phraseto_tsquery") == 2
+
+    @pytest.mark.asyncio
+    async def test_author_parameter_adds_ilike_clause(self, mock_repository, mock_config):
+        """The author= parameter contributes an ILIKE clause with % wildcards."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        await keyword_search(
+            "beam",
+            mock_repository,
+            mock_config,
+            author="jsmith",
+            fuzzy_fallback=False,
+        )
+
+        kwargs = mock_repository.keyword_search.call_args.kwargs
+        assert "author ILIKE %s" in kwargs["where_clauses"]
+        assert "%jsmith%" in kwargs["params"]
+
+    @pytest.mark.asyncio
+    async def test_author_field_filter_wins_over_parameter(self, mock_repository, mock_config):
+        """An author: field filter in the query suppresses the author= parameter."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        await keyword_search(
+            "beam author:smith",
+            mock_repository,
+            mock_config,
+            author="jsmith",
+            fuzzy_fallback=False,
+        )
+
+        kwargs = mock_repository.keyword_search.call_args.kwargs
+        assert kwargs["where_clauses"].count("author ILIKE %s") == 1
+        assert "%smith%" in kwargs["params"]
+        assert "%jsmith%" not in kwargs["params"]
+
+    @pytest.mark.asyncio
+    async def test_source_system_parameter_adds_exact_clause(self, mock_repository, mock_config):
+        """The source_system= parameter matches exactly, not by ILIKE."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        await keyword_search(
+            "beam",
+            mock_repository,
+            mock_config,
+            source_system="ALS eLog",
+            fuzzy_fallback=False,
+        )
+
+        kwargs = mock_repository.keyword_search.call_args.kwargs
+        assert "source_system = %s" in kwargs["where_clauses"]
+        assert "ALS eLog" in kwargs["params"]
+
+
+class TestSemanticSearchDiagnostics:
+    """Tests for semantic_search dimension and empty-index diagnostics."""
+
+    @pytest.fixture
+    def mock_embedder(self):
+        """Embedder returning a 3-dimensional vector."""
+        from unittest.mock import MagicMock
+
+        embedder = MagicMock()
+        embedder.default_base_url = "http://localhost:11434"
+        embedder.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
+        return embedder
+
+    @pytest.fixture
+    def mock_repository(self):
+        """Repository returning no semantic matches."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        repo = MagicMock()
+        repo.semantic_search = AsyncMock(return_value=[])
+        repo.get_embedding_tables = AsyncMock(return_value=[])
+        return repo
+
+    def _config(self, settings):
+        from osprey.services.ariel_search.config import ARIELConfig
+
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {
+                    "semantic": {
+                        "enabled": True,
+                        "model": "nomic-embed-text",
+                        "settings": settings,
+                    },
+                },
+            }
+        )
+
+    @pytest.mark.asyncio
+    async def test_dimension_mismatch_warns_but_still_searches(
+        self, mock_repository, mock_embedder, caplog
+    ):
+        """A query embedding of the wrong width warns and proceeds."""
+        import logging
+
+        from osprey.services.ariel_search.search.semantic import semantic_search
+
+        config = self._config({"embedding_dimension": 768})
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await semantic_search("beam", mock_repository, config, mock_embedder)
+
+        assert "Embedding dimension mismatch" in caplog.text
+        assert "3 dimensions but config expects 768" in caplog.text
+        mock_repository.semantic_search.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_matching_dimension_does_not_warn(self, mock_repository, mock_embedder, caplog):
+        """A correctly sized query embedding produces no mismatch warning."""
+        import logging
+
+        from osprey.services.ariel_search.search.semantic import semantic_search
+
+        config = self._config({"embedding_dimension": 3})
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await semantic_search("beam", mock_repository, config, mock_embedder)
+
+        assert "Embedding dimension mismatch" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_zero_results_with_no_embedding_tables_warns(
+        self, mock_repository, mock_embedder, caplog
+    ):
+        """Zero hits with no embedding tables at all points at the ingest step."""
+        import logging
+
+        from osprey.services.ariel_search.search.semantic import semantic_search
+
+        config = self._config({"similarity_threshold": 0.5})
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            results = await semantic_search("beam", mock_repository, config, mock_embedder)
+
+        assert results == []
+        assert "no embeddings exist" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_zero_results_with_empty_embedding_tables_warns(
+        self, mock_repository, mock_embedder, caplog
+    ):
+        """Tables that exist but hold no rows produce the same diagnostic."""
+        import logging
+        from unittest.mock import MagicMock
+
+        from osprey.services.ariel_search.search.semantic import semantic_search
+
+        empty_table = MagicMock()
+        empty_table.entry_count = 0
+        mock_repository.get_embedding_tables.return_value = [empty_table]
+        config = self._config({"similarity_threshold": 0.5})
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await semantic_search("beam", mock_repository, config, mock_embedder)
+
+        assert "no embeddings exist" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_zero_results_with_populated_tables_stays_quiet(
+        self, mock_repository, mock_embedder, caplog
+    ):
+        """Populated tables mean the miss is genuine — no diagnostic warning."""
+        import logging
+        from unittest.mock import MagicMock
+
+        from osprey.services.ariel_search.search.semantic import semantic_search
+
+        populated = MagicMock()
+        populated.entry_count = 42
+        mock_repository.get_embedding_tables.return_value = [populated]
+        config = self._config({"similarity_threshold": 0.5})
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await semantic_search("beam", mock_repository, config, mock_embedder)
+
+        assert "no embeddings exist" not in caplog.text
