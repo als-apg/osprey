@@ -34,7 +34,7 @@ function mountFixture() {
       </div>
       <div class="browse-preview-pane" id="browse-preview-pane"></div>
     </div>
-    <button id="orient-toggle-btn"></button>
+    <button id="orient-toggle-btn"><span class="orient-label"></span></button>
   `;
 }
 
@@ -137,15 +137,27 @@ describe('orientation toggle', () => {
     expect(localStorage.getItem(ORIENT_KEY)).toBe('row');
   });
 
-  test('aria-label/title always name the layout a click switches TO', () => {
+  test('aria-label/title/visible label always name the layout a click switches TO', () => {
     initAll();
     const toggle = byId('orient-toggle-btn');
     expect(toggle.getAttribute('aria-label')).toBe('Switch to stacked layout');
     expect(toggle.title).toBe('Switch to stacked layout');
+    expect(toggle.querySelector('.orient-label')?.textContent).toBe('Stacked layout');
 
     toggle.click();
     expect(toggle.getAttribute('aria-label')).toBe('Switch to side-by-side layout');
     expect(toggle.title).toBe('Switch to side-by-side layout');
+    expect(toggle.querySelector('.orient-label')?.textContent).toBe('Side-by-side layout');
+  });
+
+  test('a label-less toggle host (plain icon button) still syncs without throwing', () => {
+    document.body.innerHTML += '<button id="bare-toggle"></button>';
+    expect(() => initBrowseLayout({
+      handle: null,
+      sidebar: byId('browse-sidebar'),
+      toggle: byId('bare-toggle'),
+    })).not.toThrow();
+    expect(byId('bare-toggle').title).toBe('Switch to stacked layout');
   });
 });
 

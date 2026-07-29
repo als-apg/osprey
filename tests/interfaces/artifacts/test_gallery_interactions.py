@@ -15,7 +15,10 @@ assertions target what a user sees in the DOM (button classes, mounted
 content, visible text) -- an independent check, not a rubber stamp.
 
 Covers:
-  - filter chips narrow the sidebar to artifacts of the selected type
+  - the toolbar filter input narrows the sidebar tree as the user types
+  - the ⋯ overflow menu opens, its "All sessions" item toggles the scope
+    (aria-checked + the scope pill above the list), and the pill's ✕
+    returns to the session scope
   - selecting an artifact of a given type renders that type's preview
     header (title, type badge) and viewport (markdown -> #md-viewport,
     html -> a sandboxed iframe)
@@ -83,14 +86,10 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
     ArtifactStore (same workspace_root) loads that index at construction.
 
     Each fixture sets a real `category` (from type_registry.py's CATEGORIES,
-    not ARTIFACT_TYPES) -- render.js's filter chips group by
-    `category || artifact_type`, but the type registry always returns a
-    non-empty `categories` map, which wins that `||` unconditionally. An
-    artifact saved without a category (as real create_document/
-    create_static_plot MCP tools never do) never gets a filter chip at all,
-    since its bare artifact_type never matches any CATEGORIES key. Viewport
-    selection in preview.js is unaffected -- that dispatch switches on the
-    raw `artifact_type`, not `category`.
+    not ARTIFACT_TYPES) -- render.js's tree sections group by
+    `category || artifact_type`, and the preview badge class reflects the
+    category. Viewport selection in preview.js is unaffected -- that
+    dispatch switches on the raw `artifact_type`, not `category`.
     """
     monkeypatch.chdir(tmp_path)
 
@@ -138,13 +137,13 @@ def _card_for_title(page: Page, title: str):
 
 
 # ---------------------------------------------------------------------------
-# Test 1: filter chips narrow the sidebar to the selected type
+# Test 1: the toolbar filter input narrows the sidebar tree
 # ---------------------------------------------------------------------------
 
 
-def test_filter_chips_narrow_sidebar_by_type(tmp_path, monkeypatch, chromium_browser):
-    """Clicking a type chip hides artifacts of other types and marks it active;
-    the static "All" chip (index.html:89, active by default) restores both.
+def test_search_input_narrows_sidebar(tmp_path, monkeypatch, chromium_browser):
+    """Typing in the toolbar filter hides non-matching artifacts (debounced);
+    clearing it restores both fixtures.
     """
     with _launch_artifacts(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
@@ -155,31 +154,63 @@ def test_filter_chips_narrow_sidebar_by_type(tmp_path, monkeypatch, chromium_bro
         expect(markdown_card).to_be_visible(timeout=10_000)
         expect(html_card).to_be_visible(timeout=10_000)
 
-        all_chip = page.locator('.filter-chip[data-filter="all"]')
-        markdown_chip = page.locator('.filter-chip.type-chip[data-filter="document"]')
-        html_chip = page.locator('.filter-chip.type-chip[data-filter="visualization"]')
-        expect(all_chip).to_have_class("filter-chip active")
-        expect(markdown_chip).to_be_visible(timeout=5_000)
-        expect(html_chip).to_be_visible(timeout=5_000)
+        search = page.locator("#search")
+        search.fill("beam current")
+        expect(markdown_card).to_be_visible(timeout=5_000)
+        expect(html_card).to_have_count(0, timeout=5_000)
 
-        markdown_chip.click()
-        expect(markdown_chip).to_have_class("filter-chip type-chip active")
-        expect(all_chip).not_to_have_class("filter-chip active")
-        expect(markdown_card).to_be_visible()
-        expect(html_card).to_have_count(0)
+        search.fill("orbit")
+        expect(html_card).to_be_visible(timeout=5_000)
+        expect(markdown_card).to_have_count(0, timeout=5_000)
 
-        html_chip.click()
-        expect(html_chip).to_have_class("filter-chip type-chip active")
-        expect(markdown_chip).not_to_have_class("filter-chip type-chip active")
-        expect(html_card).to_be_visible()
-        expect(markdown_card).to_have_count(0)
+        search.fill("")
+        expect(markdown_card).to_be_visible(timeout=5_000)
+        expect(html_card).to_be_visible(timeout=5_000)
+        page.close()
 
-        # "All" restores both.
-        all_chip.click()
-        expect(all_chip).to_have_class("filter-chip active")
-        expect(html_chip).not_to_have_class("filter-chip type-chip active")
-        expect(markdown_card).to_be_visible()
-        expect(html_card).to_be_visible()
+
+# ---------------------------------------------------------------------------
+# Test 1b: overflow menu — all-sessions scope toggle + scope pill
+# ---------------------------------------------------------------------------
+
+
+def test_overflow_menu_toggles_all_sessions_scope(tmp_path, monkeypatch, chromium_browser):
+    """The ⋯ menu opens, its "All sessions" item flips aria-checked and shows
+    the scope pill; the pill's ✕ clears the scope again. (With no session
+    scoping active the artifact list itself is unchanged either way -- this
+    pins the scope-state UI contract, not the fetch filtering, which
+    state.test.mjs covers.)
+    """
+    with _launch_artifacts(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.goto(base_url, wait_until="domcontentloaded")
+        expect(_card_for_title(page, MARKDOWN_TITLE)).to_be_visible(timeout=10_000)
+
+        menu = page.locator("#sidebar-menu")
+        menu_btn = page.locator("#sidebar-menu-btn")
+        all_sessions = page.locator("#all-sessions-btn")
+        pill = page.locator("#scope-pill")
+
+        expect(menu).to_be_hidden()
+        expect(pill).to_be_hidden()
+
+        menu_btn.click()
+        expect(menu).to_be_visible()
+        expect(all_sessions).to_have_attribute("aria-checked", "false")
+
+        # Toggling the scope closes the menu and raises the pill.
+        all_sessions.click()
+        expect(menu).to_be_hidden()
+        expect(pill).to_be_visible(timeout=5_000)
+        menu_btn.click()
+        expect(all_sessions).to_have_attribute("aria-checked", "true")
+        menu_btn.click()
+
+        # The pill's ✕ returns to the default this-session scope.
+        page.locator("#scope-pill-clear").click()
+        expect(pill).to_be_hidden(timeout=5_000)
+        menu_btn.click()
+        expect(all_sessions).to_have_attribute("aria-checked", "false")
         page.close()
 
 

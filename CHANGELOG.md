@@ -139,6 +139,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   (light/dark), view, and theme-family pickers.
 - The default theme family is now named **main** (it was `osprey`): use
   `web.theme: main`.
+- Workspace gallery browser: the three stacked header rows (title/count bar,
+  type filter chips, controls row) are collapsed into a single toolbar —
+  filter input, Types/Activity toggle, and a `⋯` menu holding the rare
+  actions (all-sessions scope, refresh, layout). The all-sessions scope shows
+  as a dismissible pill above the list while active, and pinned artifacts are
+  promoted into a "Pinned" section at the top of the type tree.
 - The **high-contrast** family is now fully monochrome — pure black and white,
   with status, diffs, chart series and terminal colors separating by brightness
   instead of hue. It was previously a high-contrast variant of the pre-redesign

@@ -36,18 +36,19 @@ import {
 } from "./types.js";
 import { createSidebarRenderer } from "./render.js";
 import { initBrowseLayout } from "./browse-layout.js";
+import { initSidebarMenu } from "./sidebar-menu.js";
 import { createPreviewRenderer } from "./preview.js";
 import { renderTimeseriesView, restyleVisibleChart } from "./timeseries.js";
 
 // ---- DOM Refs ----
 
-const headerCount = document.getElementById("header-count");
 const healthDot = document.getElementById("health-indicator");
 const refreshBtn = /** @type {HTMLElement} */ (document.getElementById("refresh-btn"));
 const searchInput = /** @type {HTMLInputElement} */ (document.getElementById("search"));
 const sidebarBody = /** @type {HTMLElement} */ (document.getElementById("sidebar-body"));
 const sidebar = document.getElementById("browse-sidebar");
 const resizeHandle = document.getElementById("resize-handle");
+const scopePill = /** @type {HTMLElement|null} */ (document.getElementById("scope-pill"));
 
 // ---- Simple-mode DOM refs (frame 2b) ----
 const simpleEmpty = document.getElementById("simple-empty");
@@ -71,7 +72,7 @@ let simpleShowAllResults = false;
 const SIMPLE_LIST_LIMIT = 6;
 
 // ---- State ----
-// artifacts/selectedArtifact/focusedArtifact/activeFilter/currentSessionId/
+// artifacts/selectedArtifact/focusedArtifact/currentSessionId/
 // showAllSessions live in state.js behind explicit accessors, and
 // typeRegistry lives in types.js (behind getTypeRegistry()) — see the
 // imports above. browseMode/sidebarLayout live behind sidebarRenderer's
@@ -81,7 +82,7 @@ const SIMPLE_LIST_LIMIT = 6;
 
 // ---- Preview Renderer / Sidebar Renderer ----
 // previewRenderer (preview.js) owns renderPreview and the pin/fullscreen/
-// focus state; sidebarRenderer (render.js) owns the sidebar/filter-bar
+// focus state; sidebarRenderer (render.js) owns the sidebar
 // rendering. Each needs an effect the other one owns (previewRenderer
 // triggers a sidebar re-render on delete/pin/fullscreen-exit;
 // sidebarRenderer triggers a preview render/focus/fullscreen-enter on
@@ -96,7 +97,6 @@ let sidebarRenderer;
 
 const previewRenderer = createPreviewRenderer({
   onArtifactDeleted: () => {
-    updateHeaderCount();
     sidebarRenderer.renderSidebar();
   },
   onPinToggled: () => sidebarRenderer.renderSidebar(),
@@ -110,21 +110,28 @@ sidebarRenderer = createSidebarRenderer({
   onEnterFullscreen: (a) => previewRenderer.enterFullscreen(a),
 });
 
-// ---- Health / Header UI ----
+// ---- Health / Scope UI ----
 // escapeHtml/formatSize/formatTime/formatFullTime/formatDate/openUrl/
 // isNewThisSession/requestColorPass/typeBadge/typeColor now
 // live in types.js, consumed directly by render.js/preview.js instead of
-// through this module; updateHealth/updateHeaderCount stay here — they
-// touch this module's own top-level DOM refs (healthDot/headerCount), not
-// stateless.
+// through this module; updateHealth/updateScopeUi stay here — they touch
+// this module's own top-level DOM refs, not stateless.
 
 /** @param {boolean} ok */
 function updateHealth(ok) {
   if (healthDot) healthDot.className = ok ? "health-dot healthy" : "health-dot";
 }
 
-function updateHeaderCount() {
-  if (headerCount) /** @type {any} */ (headerCount).textContent = getArtifacts().length;
+/**
+ * Reflect the all-sessions scope in its two indicators: the ⋯-menu
+ * checkbox item and the scope pill above the list (visible only while the
+ * non-default all-sessions scope is on).
+ */
+function updateScopeUi() {
+  const on = getShowAllSessions();
+  const btn = document.getElementById("all-sessions-btn");
+  if (btn) btn.setAttribute("aria-checked", String(on));
+  if (scopePill) scopePill.hidden = !on;
 }
 
 // ---- Simple Mode (frame 2b) ----
@@ -216,8 +223,6 @@ function fetchArtifacts() {
   return fetchArtifactsData({
     onHealthChange: updateHealth,
     onArtifactsUpdated: () => {
-      updateHeaderCount();
-      sidebarRenderer.rebuildTypeChips();
       sidebarRenderer.renderSidebar();
       renderSimple();
     },
@@ -375,8 +380,6 @@ function connectSSE() {
       setArtifacts(getArtifacts().filter((a) => a.id !== eventData.id));
       if (getFocusedArtifact()?.id === eventData.id) setFocusedArtifact(null);
       if (getSelectedArtifact()?.id === eventData.id) { setSelectedArtifact(null); previewRenderer.renderPreview(); }
-      updateHeaderCount();
-      sidebarRenderer.rebuildTypeChips();
       sidebarRenderer.renderSidebar();
       renderSimple();
       return;
@@ -458,9 +461,8 @@ window.addEventListener("message", (e) => {
   if (e.origin !== window.location.origin) return;
   if (e.data && e.data.type === "osprey-session-change" && e.data.session_id) {
     setCurrentSessionId(e.data.session_id);
-    const btn = document.getElementById("all-sessions-btn");
-    if (btn) btn.classList.remove("active");
     setShowAllSessions(false);
+    updateScopeUi();
     fetchArtifacts();
   }
 });
@@ -477,13 +479,27 @@ initBrowseLayout({
   sidebar,
   toggle: document.getElementById("orient-toggle-btn"),
 });
-refreshBtn.addEventListener("click", doRefresh);
+initSidebarMenu({
+  button: document.getElementById("sidebar-menu-btn"),
+  menu: document.getElementById("sidebar-menu"),
+});
+if (refreshBtn) refreshBtn.addEventListener("click", doRefresh);
 
 const allSessionsBtn = document.getElementById("all-sessions-btn");
 if (allSessionsBtn) {
   allSessionsBtn.addEventListener("click", () => {
     setShowAllSessions(!getShowAllSessions());
-    allSessionsBtn.classList.toggle("active", getShowAllSessions());
+    updateScopeUi();
+    fetchArtifacts();
+  });
+}
+
+// Scope pill ✕ — one-click way back to the default this-session scope.
+const scopePillClear = document.getElementById("scope-pill-clear");
+if (scopePillClear) {
+  scopePillClear.addEventListener("click", () => {
+    setShowAllSessions(false);
+    updateScopeUi();
     fetchArtifacts();
   });
 }
@@ -505,7 +521,6 @@ if (simpleShowAll) {
   });
 }
 initTypeRegistry().then(() => {
-  sidebarRenderer.initFilterBar();
   fetchArtifacts();
   fetchFocus();
   connectSSE();

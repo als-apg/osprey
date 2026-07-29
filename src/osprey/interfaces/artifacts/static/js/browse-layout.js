@@ -106,6 +106,10 @@ export function initBrowseLayout({ handle, sidebar, toggle }) {
     const label = stacked ? "Switch to side-by-side layout" : "Switch to stacked layout";
     toggle.setAttribute("aria-label", label);
     toggle.title = label;
+    // Menu-item form of the toggle carries a visible label naming the
+    // layout a click switches TO; plain icon-button hosts have no span.
+    const labelEl = toggle.querySelector(".orient-label");
+    if (labelEl) labelEl.textContent = stacked ? "Side-by-side layout" : "Stacked layout";
   };
 
   /** @param {Orient} orient */

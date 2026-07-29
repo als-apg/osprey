@@ -416,193 +416,162 @@ code {
    Browser-column card header (title + count + All Sessions + refresh)
    ================================================================ */
 
-.browser-card-header {
-  display: flex;
-  align-items: center;
-  gap: var(--art-space-1);
-  padding: var(--art-space-2) var(--art-space-3);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.browser-card-title {
-  font-family: var(--font-display);
-  font-size: var(--art-text-xs);
-  font-weight: 500;
-  color: var(--text-primary);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.header-artifact-count {
-  font-family: var(--font-mono);
-  font-size: var(--art-text-xs);
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-/* All Sessions sits at the trailing edge, refresh after it. Compact (tight
-   padding, no extra tracking) to keep the band header a slim single row
-   alongside the title + count. */
-.browser-card-header .btn-session-toggle {
-  margin-left: auto;
-  padding: 3px var(--art-space-2);
-  letter-spacing: var(--tracking-normal);
-  flex-shrink: 0;
-}
-
-/* Compact icon refresh control, matching the band header's slim single-row
-   scale rather than the header's default 28px square button. */
-.browser-card-header .btn-header-refresh {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-/* Orientation toggle — same compact square as the refresh control. Shows a
-   mini-diagram of the layout a click switches TO: the stacked icon while
-   side-by-side, the columns icon while stacked (browse-layout.js keeps the
-   aria-label/title in step). Hidden below the width where side-by-side is
-   forced off and the toggle would be a dead control. */
-.browser-card-header .btn-orient-toggle {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.btn-orient-toggle .orient-icon-column { display: block; }
-.btn-orient-toggle .orient-icon-row { display: none; }
-
-html[data-browse-orient="column"] .btn-orient-toggle .orient-icon-column { display: none; }
-html[data-browse-orient="column"] .btn-orient-toggle .orient-icon-row { display: block; }
-
-@media (max-width: 560px) {
-  .browser-card-header .btn-orient-toggle { display: none; }
-}
-
-.browser-card-header .btn-header-refresh .refresh-icon {
-  width: 14px;
-  height: 14px;
-}
-
 /* ================================================================
-   Filter Bar (chips row inside the browser-column card)
+   Sidebar overflow menu (⋯) — scope / refresh / layout
    ================================================================ */
 
-.filter-bar {
+.sidebar-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: var(--art-space-2) var(--art-space-3) 0;
-  flex-wrap: wrap;
-  flex-shrink: 0;
+  align-items: stretch;
 }
 
-.filter-chip {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.sidebar-menu-btn {
+  width: 28px;
+  height: auto;
+  padding: 0;
+  background: var(--bg-primary);
   color: var(--text-muted);
-  background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 3px;
-  padding: 3px 8px;
+  border-radius: var(--art-radius-md);
   cursor: pointer;
-  transition: all 0.15s;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
+  transition: all var(--transition-fast);
 }
 
-.filter-chip:hover {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-}
-
-.filter-chip.active {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-  background: var(--accent-tint-10);
-}
-
-.filter-chip .chip-icon {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-
-.filter-chip.active .chip-icon {
-  opacity: 1;
-}
-
-/* Type chips — dynamically added for artifact/data types */
-.type-chip {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: 3px;
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.type-chip:hover {
+.sidebar-menu-btn:hover,
+.sidebar-menu-btn[aria-expanded="true"] {
   color: var(--text-secondary);
-  border-color: var(--neutral-tint-35);
   background: var(--surface-hover);
 }
 
-.type-chip.active {
-  color: var(--type-color, var(--color-accent-light));
-  border-color: var(--type-color, var(--color-accent));
-  background: var(--type-bg, var(--accent-tint-10));
+.sidebar-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 170px;
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--art-radius-md);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 0.25)); /* hygiene-allow-color: shadow fallback only */
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.type-chip .chip-icon {
-  width: 12px;
-  height: 12px;
+.sidebar-menu[hidden] {
+  display: none;
+}
+
+.sidebar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-2);
+  width: 100%;
+  padding: 6px var(--art-space-2);
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  letter-spacing: var(--tracking-normal);
+  text-align: left;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--art-radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.sidebar-menu-item:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.sidebar-menu-item svg {
   flex-shrink: 0;
   opacity: 0.7;
 }
 
-.type-chip.active .chip-icon {
+/* All-sessions checkmark: reserved gutter, visible only while checked. */
+.sidebar-menu-item .menu-item-check {
+  visibility: hidden;
+  color: var(--color-accent-light);
   opacity: 1;
 }
 
-.chip-count {
-  font-size: 9px;
-  font-weight: 600;
-  opacity: 0.55;
-  margin-left: 2px;
+.sidebar-menu-item[aria-checked="true"] {
+  color: var(--color-accent-light);
 }
 
-.type-chip.active .chip-count {
-  opacity: 0.8;
+.sidebar-menu-item[aria-checked="true"] .menu-item-check {
+  visibility: visible;
 }
 
-/* Separator between filter chip groups */
-.filter-bar-separator {
-  width: 1px;
-  height: 16px;
-  background: var(--border-default);
+.sidebar-menu-item.refreshing .refresh-icon {
+  animation: spin 0.8s linear infinite;
+  color: var(--color-accent-light);
+}
+
+/* Layout item shows a mini-diagram of the layout a click switches TO
+   (browse-layout.js keeps the title/aria-label/.orient-label in step). */
+.sidebar-menu-item .orient-icon-column { display: block; }
+.sidebar-menu-item .orient-icon-row { display: none; }
+
+html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-column { display: none; }
+html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-row { display: block; }
+
+/* Below the width where side-by-side is forced off, the layout item would
+   be a dead control. */
+@media (max-width: 560px) {
+  #orient-toggle-btn { display: none; }
+}
+
+/* ================================================================
+   Scope pill — loud non-default state for the all-sessions scope
+   ================================================================ */
+
+.scope-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-1);
+  align-self: flex-start;
+  margin: var(--art-space-2) var(--art-space-3) 0;
+  padding: 2px var(--art-space-1) 2px var(--art-space-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-accent-light);
+  background: var(--accent-tint-10);
+  border: 1px solid var(--accent-tint-12);
+  border-radius: var(--art-radius-full);
   flex-shrink: 0;
+}
+
+.scope-pill[hidden] {
+  display: none;
+}
+
+.scope-pill-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: var(--art-radius-full);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.scope-pill-clear:hover {
+  background: var(--accent-tint-12);
 }
 
 /* ================================================================
@@ -616,8 +585,8 @@ html[data-browse-orient="column"] .btn-orient-toggle .orient-icon-row { display:
    - row (default): browser column on the left, artifact detail card
      dominant on the right, divided by a live splitter — the OKF panel's
      sidebar/reader arrangement.
-   - column: a compact full-width browser band on top — header, chips,
-     Types/Activity + filter, short scrollable list — detail card below.
+   - column: a compact full-width browser band on top — toolbar row plus a
+     short scrollable list — detail card below.
 
    The canvas (--bg-primary) shows through the gutters in both. */
 .browse-layout {
@@ -715,23 +684,25 @@ html[data-browse-orient="column"] .resize-handle {
   .resize-handle { display: none; }
 }
 
+/* The browser card's only bar: filter input + mode pair + ⋯ menu. */
 .sidebar-header {
-  padding: var(--art-space-3) var(--art-space-3) 0;
+  padding: var(--art-space-2) var(--art-space-3);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   gap: var(--art-space-2);
   flex-shrink: 0;
 }
 
-/* Controls row: mode toggle + layout toggle */
+/* Controls row: filter input + mode toggle + overflow menu */
 .sidebar-controls-row {
   display: flex;
   gap: var(--art-space-2);
   align-items: stretch;
 }
 
-/* Mode toggle (Types / Activity) — its natural width, so the inline filter
-   beside it takes the rest of the row (frame 2a). */
+/* Mode toggle (Types / Activity) — icon-only pair at its natural width, so
+   the inline filter before it takes the rest of the row. */
 .sidebar-mode-toggle {
   display: flex;
   flex: 0 0 auto;
@@ -742,17 +713,16 @@ html[data-browse-orient="column"] .resize-handle {
   gap: 2px;
 }
 
-/* Compact the Types/Activity buttons so the inline filter keeps usable
-   width in the ~220px browser column (matches frame 2a's proportions). */
+/* Compact icon-only squares so the inline filter keeps usable width in the
+   ~220px browser column; the title/aria-label carry the words. */
 .sidebar-controls-row .mode-btn {
-  padding: 5px var(--art-space-2);
-  letter-spacing: var(--tracking-normal);
-  gap: 3px;
+  width: 26px;
+  padding: 5px 0;
 }
 
 .sidebar-controls-row .mode-btn svg {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
 }
 
 .mode-btn {
@@ -1925,45 +1895,6 @@ html[data-browse-orient="column"] .sidebar-body {
   height: 28px;
 }
 
-.btn-session-toggle {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border-default);
-  border-radius: var(--art-radius-sm);
-  padding: 3px 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
-}
-.btn-session-toggle:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-.btn-session-toggle.active {
-  background: var(--accent-tint-12);
-  color: var(--color-accent-light);
-  border-color: var(--color-accent-light);
-}
-
-.btn-header-refresh {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid transparent;
-  border-radius: var(--art-radius-sm);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.btn-header-refresh:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--color-accent-light);
-  border-color: var(--border-default);
-}
-.btn-header-refresh.refreshing .refresh-icon {
-  animation: spin 0.8s linear infinite;
-  color: var(--color-accent-light);
-}
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 /* ================================================================
@@ -2155,17 +2086,6 @@ html[data-browse-orient="column"] .sidebar-body {
 @media (max-width: 768px) {
   .nav { display: none; }
 
-  .filter-bar {
-    padding: 6px 8px;
-    gap: 4px;
-  }
-
-  .filter-chip,
-  .type-chip {
-    font-size: 9px;
-    padding: 2px 6px;
-  }
-
   .timeline-thumb {
     height: 60px;
   }
@@ -2181,7 +2101,6 @@ html[data-browse-orient="column"] .sidebar-body {
 
 /* Hide chrome when fullscreen */
 body.fullscreen-mode .header,
-body.fullscreen-mode .filter-bar,
 body.fullscreen-mode .browse-sidebar,
 body.fullscreen-mode .resize-handle {
   display: none;

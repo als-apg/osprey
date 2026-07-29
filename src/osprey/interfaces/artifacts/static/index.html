@@ -54,8 +54,8 @@
     <!-- App header — slim wordmark + theme + status. In the web-terminal shell
          (body.embedded) the shell chrome supplies the wordmark, theme toggle
          and status, so this whole bar is hidden (frame 2a); the browse view's
-         own two cards fill the panel. The count / All Sessions / refresh
-         controls now live in the browser-column card header below. -->
+         own two cards fill the panel. Scope/refresh/layout live in the
+         browser column's ⋯ menu below. -->
     <header class="header">
       <div class="header-inner">
         <div class="header-left">
@@ -86,77 +86,15 @@
            browser-column card beside a large detail/preview card. -->
       <section id="view-artifacts-browse" class="view active">
         <div class="browse-layout">
-          <!-- Left browser column — card: header + filter chips + tree/timeline -->
+          <!-- Left browser column — card: a single toolbar row + tree/timeline.
+               Identity chrome (title, count) is the tile bar's job in the
+               embedded shell and the app header's on the standalone page;
+               rare actions (scope, refresh, layout) live in the ⋯ menu. -->
           <aside class="browse-sidebar" id="browse-sidebar">
-            <!-- Card header: title + count + All Sessions + refresh -->
-            <div class="browser-card-header">
-              <span class="browser-card-title">Workspace</span>
-              <span class="header-artifact-count" id="header-count" title="Total artifacts">0</span>
-              <button class="btn btn-session-toggle" id="all-sessions-btn" title="Show artifacts from all sessions">
-                All Sessions
-              </button>
-              <button class="btn btn-icon btn-orient-toggle" id="orient-toggle-btn"
-                      title="Switch to stacked layout" aria-label="Switch to stacked layout">
-                <!-- Two mini-diagrams of the target layout; CSS shows the one
-                     the click would switch TO (stacked icon while side-by-side,
-                     and vice versa). -->
-                <svg class="orient-icon orient-icon-column" width="14" height="14" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="3" width="18" height="7" rx="1"/>
-                  <rect x="3" y="14" width="18" height="7" rx="1"/>
-                </svg>
-                <svg class="orient-icon orient-icon-row" width="14" height="14" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="3" width="7" height="18" rx="1"/>
-                  <rect x="14" y="3" width="7" height="18" rx="1"/>
-                </svg>
-              </button>
-              <button class="btn btn-icon btn-header-refresh" id="refresh-btn" title="Refresh all data">
-                <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/>
-                  <path d="M20.49 15a9 9 0 01-14.85 3.36L1 14"/>
-                </svg>
-              </button>
-            </div>
-            <!-- Filter chips -->
-            <nav class="filter-bar" id="filter-bar">
-              <div class="filter-bar-inner">
-                <button class="filter-chip active" data-filter="all">ALL</button>
-                <button class="filter-chip" data-filter="pinned" title="Pinned items" hidden>
-                  <svg class="filter-chip-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M15 4.5L7.5 12 4 8.5"/>
-                    <line x1="12" y1="17" x2="12" y2="22"/>
-                    <path d="M9 11l-4 4"/>
-                    <path d="M5 19l4-4"/>
-                    <path d="M14.5 4l5 5-4.5 4.5-5-5z"/>
-                  </svg>
-                  Pinned <span class="chip-count"></span>
-                </button>
-                <!-- Type chips populated dynamically by JS from the type registry -->
-                <span class="filter-chip-separator" id="filter-type-chips"></span>
-              </div>
-            </nav>
             <div class="sidebar-header">
-              <!-- Types/Activity toggle beside an inline filter input (frame 2a). -->
+              <!-- The only bar: filter input beside the Types/Activity mode
+                   pair and the ⋯ overflow menu. -->
               <div class="sidebar-controls-row">
-                <div class="sidebar-mode-toggle">
-                  <button class="mode-btn active" data-mode="tree" title="Group by type">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                    </svg>
-                    Types
-                  </button>
-                  <button class="mode-btn" data-mode="activity" title="Sort chronologically">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <circle cx="12" cy="12" r="10"/>
-                      <path d="M12 6v6l4 2"/>
-                    </svg>
-                    Activity
-                  </button>
-                </div>
                 <div class="sidebar-search">
                   <svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="11" cy="11" r="7"/>
@@ -169,6 +107,67 @@
                     placeholder="Filter..."
                     autocomplete="off"
                   >
+                </div>
+                <div class="sidebar-mode-toggle">
+                  <button class="mode-btn active" data-mode="tree" title="Group by type" aria-label="Group by type">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                    </svg>
+                  </button>
+                  <button class="mode-btn" data-mode="activity" title="Sort chronologically" aria-label="Sort chronologically">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <path d="M12 6v6l4 2"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="sidebar-menu-wrap">
+                  <button class="btn btn-icon sidebar-menu-btn" id="sidebar-menu-btn"
+                          title="More options" aria-label="More options"
+                          aria-haspopup="menu" aria-expanded="false">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                      <circle cx="5" cy="12" r="1.8"/>
+                      <circle cx="12" cy="12" r="1.8"/>
+                      <circle cx="19" cy="12" r="1.8"/>
+                    </svg>
+                  </button>
+                  <!-- Rare actions; each keeps its long-standing id so the
+                       existing gallery.js/browse-layout.js wiring holds. -->
+                  <div class="sidebar-menu" id="sidebar-menu" role="menu" hidden>
+                    <button class="sidebar-menu-item" id="all-sessions-btn" role="menuitemcheckbox"
+                            aria-checked="false" title="Show artifacts from all sessions">
+                      <svg class="menu-item-check" width="14" height="14" viewBox="0 0 24 24"
+                           fill="none" stroke="currentColor" stroke-width="2.5"
+                           stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 6L9 17l-5-5"/>
+                      </svg>
+                      All sessions
+                    </button>
+                    <button class="sidebar-menu-item" id="refresh-btn" role="menuitem" title="Refresh all data">
+                      <svg class="refresh-icon" width="14" height="14" viewBox="0 0 24 24"
+                           fill="none" stroke="currentColor" stroke-width="2"
+                           stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/>
+                        <path d="M20.49 15a9 9 0 01-14.85 3.36L1 14"/>
+                      </svg>
+                      Refresh
+                    </button>
+                    <button class="sidebar-menu-item" id="orient-toggle-btn" role="menuitem"
+                            title="Switch to stacked layout" aria-label="Switch to stacked layout">
+                      <svg class="orient-icon orient-icon-column" width="14" height="14" viewBox="0 0 24 24"
+                           fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="7" rx="1"/>
+                        <rect x="3" y="14" width="18" height="7" rx="1"/>
+                      </svg>
+                      <svg class="orient-icon orient-icon-row" width="14" height="14" viewBox="0 0 24 24"
+                           fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="18" rx="1"/>
+                        <rect x="14" y="3" width="7" height="18" rx="1"/>
+                      </svg>
+                      <span class="orient-label">Stacked layout</span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <!-- List/gallery layout toggle: kept in the DOM for its JS hooks
@@ -191,6 +190,19 @@
                   </svg>
                 </button>
               </div>
+            </div>
+            <!-- Scope pill — visible only while the all-sessions scope is on,
+                 so the non-default state stays loud even though its toggle
+                 lives in the ⋯ menu. -->
+            <div class="scope-pill" id="scope-pill" hidden>
+              <span class="scope-pill-label">All sessions</span>
+              <button class="scope-pill-clear" id="scope-pill-clear"
+                      title="Back to this session" aria-label="Show only this session">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
             </div>
             <div class="sidebar-body" id="sidebar-body">
               <!-- Tree or timeline rendered here -->
