@@ -13,6 +13,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- New `osprey.bridges.core` package: a channel-agnostic engine for connecting a
+  chat or email channel to the OSPREY dispatcher/worker pair as its own process.
+  It owns the parts that are the same for every channel — a crash-safe dedup
+  claim taken before dispatch, conversation history replayed with each question,
+  a retry queue drained in the background once the pair is healthy again, startup
+  recovery for messages that were in flight when the process stopped, and worker
+  artifact handling. A channel contributes only its wire format and platform I/O,
+  through the `ChannelOps` seam.
 - Every service image is now overridable through the same `env → config →
   default` chain: new `OSPREY_POSTGRES_IMAGE` env var plus
   `services.postgresql.image`, `services.openobserve.image`, and

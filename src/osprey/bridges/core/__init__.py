@@ -13,7 +13,7 @@ SDK imports**. Keep it that way: the isolation is what lets a bridge run as its 
 process against any deployment of the pair.
 
 Layers:
-    Primitives
+    Promoted primitives
         store — lock-guarded JSON file store (persistence substrate)
         config — ``CoreConfig`` and the terminal-status set
         dedup — at-least-once claim/CAS-transition store
@@ -25,11 +25,12 @@ Layers:
         dispatch_client — three-step dispatch handshake
         drain — supervised retry-queue drain thread
 
-    Message pipeline
+    Hoisted pipeline
         ports — the ``ChannelOps`` seam adapters implement
         pipeline — ``handle_event``, the per-message ordering specification
         retry_queue — park / give-up / supersede-at-enqueue
         reconcile — startup crash recovery for in-flight messages
+        runtime — collaborator wiring and drain supervision
 """
 
 from .artifacts import (
@@ -60,6 +61,7 @@ from .ports import (
 from .reconcile import ReconcileDeps, ReconcileReport, deliver_terminal, reconcile_inflight
 from .retry import coalesce_key, give_up_due, is_eligible, is_retryable, may_redispatch
 from .retry_queue import SUPERSEDED_STATUS, give_up, park, supersede_at_enqueue, supersede_note
+from .runtime import BridgeRuntime, build_deps, build_drain_deps, run_forever, start
 from .store import JsonFileStore
 
 __all__ = [
@@ -96,11 +98,14 @@ __all__ = [
     "ReplyContext",
     # engine entry points
     "SUPERSEDED_STATUS",
+    "BridgeRuntime",
     "DrainCallbacks",
     "DrainDeps",
     "PipelineDeps",
     "ReconcileDeps",
     "ReconcileReport",
+    "build_deps",
+    "build_drain_deps",
     "deliver_terminal",
     "drain_once",
     "ensure_alive",
@@ -109,6 +114,8 @@ __all__ = [
     "park",
     "reconcile_inflight",
     "run_drain_thread",
+    "run_forever",
+    "start",
     "supersede_at_enqueue",
     "supersede_note",
 ]
