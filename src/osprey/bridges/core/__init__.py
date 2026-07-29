@@ -1,8 +1,9 @@
 """Channel-agnostic core shared by OSPREY dispatch bridges.
 
 A thin HTTP client of the OSPREY dispatcher/worker pair, plus the crash-safe local
-stores every channel needs. A channel adapter composes this package and adds only its
-own wire format on top.
+stores and the ordering-critical message pipeline every channel needs. A channel
+adapter composes this package with a :class:`ChannelOps` implementation and adds
+only its own wire format on top.
 
 The engine talks to the pair over HTTP only — ``POST {dispatcher}/webhook/{trigger}``,
 ``GET {dispatcher}/dispatch/{dispatch_id}``, ``GET {worker}/dispatch/{run_id}``, the
@@ -11,17 +12,24 @@ worker artifact byte route, and ``GET /health`` on both. It has **no channel imp
 SDK imports**. Keep it that way: the isolation is what lets a bridge run as its own
 process against any deployment of the pair.
 
-Modules:
-    store — lock-guarded JSON file store (persistence substrate)
-    config — ``CoreConfig`` and the terminal-status set
-    dedup — at-least-once claim/CAS-transition store
-    history — per-conversation transcript replayed on each dispatch
-    retry — pure, fail-closed retry policy
-    capabilities — fail-closed peer capability probe
-    health_gate — drain gate over dispatcher/worker health
-    artifacts — worker artifact fetch and normalization
-    dispatch_client — three-step dispatch handshake
-    drain — supervised retry-queue drain thread
+Layers:
+    Primitives
+        store — lock-guarded JSON file store (persistence substrate)
+        config — ``CoreConfig`` and the terminal-status set
+        dedup — at-least-once claim/CAS-transition store
+        history — per-conversation transcript replayed on each dispatch
+        retry — pure, fail-closed retry policy
+        capabilities — fail-closed peer capability probe
+        health_gate — drain gate over dispatcher/worker health
+        artifacts — worker artifact fetch and normalization
+        dispatch_client — three-step dispatch handshake
+        drain — supervised retry-queue drain thread
+
+    Message pipeline
+        ports — the ``ChannelOps`` seam adapters implement
+        pipeline — ``handle_event``, the per-message ordering specification
+        retry_queue — park / give-up / supersede-at-enqueue
+        reconcile — startup crash recovery for in-flight messages
 """
 
 from .artifacts import (
@@ -41,7 +49,17 @@ from .dispatch_client import DispatchClient, DispatchError
 from .drain import DrainCallbacks, DrainDeps, drain_once, ensure_alive, run_drain_thread
 from .health_gate import gate_open
 from .history import HistoryStore
+from .pipeline import PipelineDeps, handle_event
+from .ports import (
+    RESERVED_ENTRY_KEYS,
+    ChannelOps,
+    InboundEvent,
+    InputDownload,
+    ReplyContext,
+)
+from .reconcile import ReconcileDeps, ReconcileReport, deliver_terminal, reconcile_inflight
 from .retry import coalesce_key, give_up_due, is_eligible, is_retryable, may_redispatch
+from .retry_queue import SUPERSEDED_STATUS, give_up, park, supersede_at_enqueue, supersede_note
 from .store import JsonFileStore
 
 __all__ = [
@@ -70,10 +88,27 @@ __all__ = [
     "pair_supports",
     "safe_label",
     "split_artifacts",
-    # retry-queue drain
+    # the seam adapters implement
+    "RESERVED_ENTRY_KEYS",
+    "ChannelOps",
+    "InboundEvent",
+    "InputDownload",
+    "ReplyContext",
+    # engine entry points
+    "SUPERSEDED_STATUS",
     "DrainCallbacks",
     "DrainDeps",
+    "PipelineDeps",
+    "ReconcileDeps",
+    "ReconcileReport",
+    "deliver_terminal",
     "drain_once",
     "ensure_alive",
+    "give_up",
+    "handle_event",
+    "park",
+    "reconcile_inflight",
     "run_drain_thread",
+    "supersede_at_enqueue",
+    "supersede_note",
 ]
