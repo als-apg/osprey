@@ -79,6 +79,25 @@ class TestGetAdapter:
             get_adapter(config)
         assert "(none)" in str(exc_info.value.adapter_name)
 
+    def test_get_adapter_initializes_registry(self):
+        """Registry is initialized unconditionally before adapter lookup."""
+        registry = MagicMock()
+        adapter_class = MagicMock()
+        registry.get_ariel_ingestion_adapter.return_value = (adapter_class, None)
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "test"},
+                "ingestion": {"adapter": "generic_json", "source_url": "/test"},
+            }
+        )
+
+        with patch("osprey.registry.get_registry", return_value=registry):
+            adapter = get_adapter(config)
+
+        registry.initialize.assert_called_once_with(silent=True)
+        adapter_class.assert_called_once_with(config)
+        assert adapter is adapter_class.return_value
+
     def test_get_adapter_unknown_raises(self):
         """Raises AdapterNotFoundError for unknown adapter."""
         config = ARIELConfig.from_dict(
