@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -335,6 +336,131 @@ def activate_scenarios(project_dir: Path, *names: str, now=None):
     from osprey.simulation.apply import apply_scenarios
 
     return apply_scenarios(project_dir, list(names), seed_logbook=True, now=now)
+
+
+# ---------------------------------------------------------------------------
+# Agentic-scenario benchmark integrity
+#
+# A scenario benchmark asks the agent to *derive* a fault from instrument data.
+# Its ground truth ships inside the project as
+# ``data/simulation/scenarios/<name>/scenario.json``, whose ``description``
+# names the seeded fault outright — and the agent's cwd IS the deployed project
+# directory. Left alone, the cheapest route to a correct answer is to search the
+# tree and read the answer key, which produces a right answer by a route that
+# proves nothing about the capability under test. The two helpers below close
+# that route from both ends.
+# ---------------------------------------------------------------------------
+
+# Generic filesystem-search tools, forbidden at the SDK level for the duration
+# of a scenario benchmark. Every framework subagent already declares exactly
+# these in its own ``disallowedTools`` frontmatter; the MAIN agent is the only
+# session participant that still carries them, and it is the one that goes
+# looking. Repo convention is that framework agents get the python executor and
+# never Bash, so removing Bash here also closes a hole the ``permissions.deny``
+# list cannot: under ``permission_mode="bypassPermissions"`` (what
+# :func:`run_sdk_query` uses) the deny list is bypassed, while SDK-level
+# ``disallowed_tools`` still takes precedence.
+#
+# ``Read`` is deliberately NOT in this list: ``data-visualizer`` and
+# ``pyat-specialist`` declare it for ``_agent_data`` artifacts, and disallowing
+# a tool strips it from subagents too. Concealing the answer key (below) is what
+# makes a bare ``Read`` harmless; this list is what stops the agent from finding
+# anything worth reading in the first place.
+SCENARIO_INTEGRITY_DISALLOWED_TOOLS = ["Bash", "Glob", "Grep"]
+
+
+def conceal_scenario_ground_truth(project_dir: Path, *scenarios: str) -> None:
+    """Delete the named scenarios' definition bundles from the deployed project.
+
+    Call AFTER every setup step that consumes the bundle (``activate_scenarios``
+    for logbook seeding, ``render_scenario_physics_env`` + ``deploy up`` for a
+    VA stack's boot-time physics) and BEFORE the agent session starts. Also drops
+    the names from ``data/simulation/active_scenarios``, since the name itself
+    ("orm-dual-fault") is a hint, and leaving an active name whose bundle is gone
+    would only earn an "Unknown scenario ... ignoring" warning from the engine.
+
+    ONLY valid for a scenario whose runtime effect is already materialized
+    somewhere the host-side :class:`~osprey.simulation.engine.SimulationEngine`
+    is not: a VA-backed physics fault lives in the container's ``VA_BPM_ERRORS``/
+    ``VA_CORR_GAIN`` environment from boot, so the bundle is inert once the stack
+    is up. A mock-connector telemetry/archiver scenario (``rf-thermal``,
+    ``vacuum-burst``) is the opposite — its bundle IS the live overlay, so
+    deleting it would delete the symptom. Those suites rely on
+    :data:`SCENARIO_INTEGRITY_DISALLOWED_TOOLS` alone.
+
+    Raises:
+        AssertionError: if a named bundle is not present (template drift — the
+            caller believes it concealed something it did not).
+    """
+    sim_dir = project_dir / "data" / "simulation"
+    for name in scenarios:
+        bundle = sim_dir / "scenarios" / name
+        assert bundle.is_dir(), (
+            f"no scenario bundle at {bundle} to conceal — template layout may have "
+            "changed; the benchmark's answer key would stay readable by the agent"
+        )
+        shutil.rmtree(bundle)
+
+    state_file = sim_dir / "active_scenarios"
+    if state_file.is_file():
+        kept = [
+            line
+            for line in state_file.read_text(encoding="utf-8").splitlines()
+            if line.strip() not in scenarios
+        ]
+        state_file.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
+
+    # Self-check: prove the concealment rather than assume it. Cheap — the
+    # simulation tree is a handful of small JSON files.
+    for name in scenarios:
+        leaked = [
+            p
+            for p in sim_dir.rglob("*")
+            if p.is_file() and name in p.read_text(encoding="utf-8", errors="ignore")
+        ]
+        assert not leaked, f"scenario {name!r} still readable from the agent's tree: {leaked}"
+
+
+def promote_ask_to_allow(project_dir: Path, *tools: str) -> None:
+    """Move ``tools`` from ``permissions.ask`` to ``permissions.allow`` in the
+    project's rendered ``.claude/settings.json``.
+
+    ``run_sdk_query`` runs headless with no responder for an approval prompt, so
+    an ``ask``-listed tool comes back to the agent as "Claude requested
+    permissions ... but you haven't granted it yet" — a hard denial, and
+    ``permission_mode="bypassPermissions"`` does not override it. That silently
+    removes ``mcp__python__execute`` (the sanctioned compute path for framework
+    agents, which never get Bash) and ``mcp__bluesky__launch_run`` (without which
+    no scan can ever run) from any headless benchmark that needs them.
+
+    Grant only what the benchmark under test actually needs, rather than
+    promoting the whole ``ask`` list: a blanket promotion also hands the agent
+    ``mcp__controls__channel_write``, i.e. a hand-stepped alternative to the
+    measurement the benchmark is grading.
+
+    Call AFTER ``osprey deploy up`` — the deploy path can re-render the Claude
+    Code artifacts and would discard an earlier edit.
+
+    Raises:
+        AssertionError: if a named tool is not in ``permissions.ask`` (either it
+            was already granted, or the settings renderer changed — both mean
+            this call is not doing what the caller thinks).
+    """
+    settings_path = project_dir / ".claude" / "settings.json"
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    permissions = settings.setdefault("permissions", {})
+    ask = permissions.setdefault("ask", [])
+    allow = permissions.setdefault("allow", [])
+
+    for tool in tools:
+        assert tool in ask, (
+            f"{tool} is not in permissions.ask of {settings_path} "
+            f"(ask={ask}) — the settings renderer may have changed"
+        )
+        ask.remove(tool)
+        allow.append(tool)
+
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
 
 
 def _default_opus_model(project_dir: Path) -> str:
