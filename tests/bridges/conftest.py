@@ -16,13 +16,25 @@ needs custom construction, or use the ``channel_ops`` fixture for a fresh defaul
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 
 from osprey.bridges.core.ports import InboundEvent, InputDownload, ReplyContext
+
+# --- canned-return knob types -------------------------------------------------
+# Every knob is "a constant, or a callable over the member's own argument". The
+# callable form is what lets ONE double answer differently per event or per entry:
+# with constants alone, two wire events necessarily parse to the same
+# ``message_id``, dedup collapses them into one claim, and a multi-room test cannot
+# express two rooms doing different things at once.
+ParseKnob = InboundEvent | None | Callable[[Any], InboundEvent | None]
+ReplyContextKnob = ReplyContext | None | Callable[[InboundEvent], ReplyContext | None]
+InputsKnob = InputDownload | None | Callable[[Mapping[str, Any]], InputDownload]
+FileUrlsKnob = Mapping[str, str] | None | Callable[[Mapping[str, Any]], Mapping[str, str]]
+CoalesceKnob = str | Sequence[str] | Callable[[Mapping[str, Any]], str | Sequence[str]]
 
 
 @dataclass(frozen=True)
@@ -37,18 +49,30 @@ class RecordedCall:
 class RecordingChannelOps:
     """A ``ChannelOps`` test double that records call order and returns canned values.
 
-    Construction knobs (all optional):
+    Construction knobs (all optional). Each takes **either a constant or a callable of
+    that member's own argument**, resolved at call time — so a knob may also be
+    reassigned mid-test, and a callable knob sees state the test has changed since:
 
     ``parse_result``
         What :meth:`parse_event` returns (default ``None`` = ignore the event).
+        Callable form: ``(event) -> InboundEvent | None``.
     ``reply_context``
         What :meth:`resolve_reply_context` returns (default ``None`` = not a reply).
+        Callable form: ``(event: InboundEvent) -> ReplyContext | None``.
     ``inputs``
         What :meth:`download_inputs` returns (default empty :class:`InputDownload`).
+        Callable form: ``(entry) -> InputDownload``.
     ``file_urls``
-        What :meth:`deliver_files` returns (default ``{}``).
+        What :meth:`deliver_files` returns (default ``{}``). Callable form:
+        ``(entry) -> Mapping[str, str]`` — the entry only, not the run result.
     ``coalesce``
         What :meth:`coalesce_key` returns (default ``""`` = never coalesce).
+        Callable form: ``(entry) -> str | Sequence[str]``.
+
+    The callable form is what makes one shared instance usable by a multi-room test:
+    ``parse_result=lambda raw: make_event(message_id=f"{raw['room']}:{raw['id']}")``
+    gives every wire event a distinct id, so dedup treats them as distinct messages
+    instead of collapsing them into a single claim.
 
     Failure injection: :meth:`fail_next` queues an exception for a member's NEXT call —
     the call is recorded first, then raises — so drain tests can express "the first
@@ -58,17 +82,19 @@ class RecordingChannelOps:
     def __init__(
         self,
         *,
-        parse_result: InboundEvent | None = None,
-        reply_context: ReplyContext | None = None,
-        inputs: InputDownload | None = None,
-        file_urls: Mapping[str, str] | None = None,
-        coalesce: str | Sequence[str] = "",
+        parse_result: ParseKnob = None,
+        reply_context: ReplyContextKnob = None,
+        inputs: InputsKnob = None,
+        file_urls: FileUrlsKnob = None,
+        coalesce: CoalesceKnob = "",
     ) -> None:
         self.calls: list[RecordedCall] = []
         self.parse_result = parse_result
         self.reply_context = reply_context
-        self.inputs = inputs if inputs is not None else InputDownload()
-        self.file_urls = dict(file_urls or {})
+        self.inputs: InputsKnob = inputs if inputs is not None else InputDownload()
+        # A constant is copied once here, as it always was; a callable is kept intact
+        # and its result copied per call instead (see :meth:`deliver_files`).
+        self.file_urls: FileUrlsKnob = file_urls if callable(file_urls) else dict(file_urls or {})
         self.coalesce = coalesce
         self._failures: dict[str, deque[BaseException]] = {}
 
@@ -142,21 +168,26 @@ class RecordingChannelOps:
         )
 
     # -- ChannelOps protocol members ------------------------------------------
+    # Each canned return resolves its knob the same way: call it with this member's
+    # argument if it is callable, otherwise hand the constant back untouched.
 
     def parse_event(self, event: Any) -> InboundEvent | None:
         self._record("parse_event", {"event": event})
-        return self.parse_result
+        knob = self.parse_result
+        return knob(event) if callable(knob) else knob
 
     def resolve_reply_context(self, event: InboundEvent) -> ReplyContext | None:
         self._record("resolve_reply_context", {"event": event})
-        return self.reply_context
+        knob = self.reply_context
+        return knob(event) if callable(knob) else knob
 
     def post_ack(self, entry: Mapping[str, Any]) -> None:
         self._record("post_ack", {"entry": entry})
 
     def download_inputs(self, entry: Mapping[str, Any]) -> InputDownload:
         self._record("download_inputs", {"entry": entry})
-        return self.inputs
+        knob = self.inputs
+        return knob(entry) if callable(knob) else knob
 
     def post_answer(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         self._record("post_answer", {"entry": entry, "result": result})
@@ -165,7 +196,8 @@ class RecordingChannelOps:
         self, entry: Mapping[str, Any], result: Mapping[str, Any]
     ) -> Mapping[str, str]:
         self._record("deliver_files", {"entry": entry, "result": result})
-        return dict(self.file_urls)
+        knob = self.file_urls
+        return dict(knob(entry) if callable(knob) else knob or {})
 
     def post_queued(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         self._record("post_queued", {"entry": entry, "result": result})
@@ -178,7 +210,8 @@ class RecordingChannelOps:
 
     def coalesce_key(self, entry: Mapping[str, Any]) -> str | Sequence[str]:
         self._record("coalesce_key", {"entry": entry})
-        return self.coalesce
+        knob = self.coalesce
+        return knob(entry) if callable(knob) else knob
 
 
 @pytest.fixture

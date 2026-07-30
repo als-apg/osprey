@@ -180,6 +180,36 @@ class BlueskyPanelsConfig:
     (see ``templates/services/bluesky_panels/docker-compose.yml.j2``)."""
 
 
+@dataclass
+class NextcloudBridgeProfileConfig:
+    """Nextcloud Talk bridge configuration for a build profile (opt-in via the
+    ``nextcloud_bridge:`` key).
+
+    Consumed by the build pipeline's nextcloud-bridge-injection step
+    (``_inject_nextcloud_bridge`` in ``build_cmd.py``) to deploy the single
+    ``nextcloud_bridge`` service — an outbound-only poller that ingests Talk
+    mentions and dispatches them through the event-dispatch pair, so the block
+    is only meaningful alongside a ``dispatch:`` block.
+
+    Talk room tokens and bot credentials are deliberately *not* profile fields:
+    ``NEXTCLOUD_ROOMS``, ``NEXTCLOUD_BOT_ACCOUNT`` and
+    ``NEXTCLOUD_APP_PASSWORD`` are user-supplied runtime env (declared via
+    ``env.required``), never baked into a build. Validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    trigger: str = "nextcloud-question"
+    """Dispatcher trigger the bridge fires (``POST /webhook/{trigger}``),
+    rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
+
+    This default is the ONLY place the ``nextcloud-question`` name is defaulted:
+    the runtime config's ``from_env`` applies no trigger default, so a
+    hand-rolled (non-build) deployment still fails loudly on a missing trigger
+    rather than silently firing a name nobody declared. The value must name a
+    trigger declared in the ``dispatch.triggers`` file.
+    """
+
+
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
@@ -437,6 +467,7 @@ class BuildProfile:
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
     bluesky_panels: BlueskyPanelsConfig | None = None
+    nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -729,6 +760,63 @@ class BuildProfile:
             if not (1 <= sp.port <= 65535):
                 errors.append(f"bluesky_panels.port must be in 1..65535 (got {sp.port})")
 
+        # Validate nextcloud_bridge configuration
+        if self.nextcloud_bridge is not None:
+            nb = self.nextcloud_bridge
+            if not nb.trigger:
+                errors.append(
+                    "nextcloud_bridge.trigger is required: name the dispatch trigger the "
+                    "bridge fires, declared in the dispatch.triggers file"
+                )
+            # The bridge does nothing but POST questions to the dispatcher's
+            # webhook, so a bridge without the dispatch pair would deploy and
+            # then fail every message. Reject it at build time instead.
+            if self.dispatch is None:
+                errors.append(
+                    "nextcloud_bridge requires a 'dispatch:' block: the bridge dispatches "
+                    "every Talk mention to the event dispatcher's webhook. Add a dispatch "
+                    f"block whose triggers file declares {nb.trigger!r}, or remove the "
+                    "nextcloud_bridge block."
+                )
+            elif nb.trigger and self.dispatch.triggers:
+                # Check the trigger against the SOURCE triggers file, resolved the
+                # same way the dispatch block above resolves it (profile-relative
+                # first, then bundled). A bridge pointed at an undeclared trigger
+                # builds and deploys cleanly and then 404s on every message.
+                triggers_file = next(
+                    (
+                        candidate
+                        for candidate in (
+                            profile_dir / self.dispatch.triggers,
+                            _triggers_dir() / self.dispatch.triggers,
+                        )
+                        if candidate.is_file()
+                    ),
+                    None,
+                )
+                # An unresolvable path is already reported by the dispatch block.
+                if triggers_file is not None:
+                    # Deferred import: keeps osprey.dispatch out of this module's
+                    # import graph for every profile that declares no bridge.
+                    from osprey.dispatch.trigger_config import load_triggers
+
+                    try:
+                        _, declared_triggers = load_triggers(str(triggers_file))
+                    except (OSError, ValueError, yaml.YAMLError) as e:
+                        errors.append(
+                            f"nextcloud_bridge.trigger cannot be checked: dispatch.triggers "
+                            f"file {triggers_file} failed to parse ({e}); fix that file first"
+                        )
+                    else:
+                        names = sorted(t.name for t in declared_triggers)
+                        if nb.trigger not in names:
+                            errors.append(
+                                f"nextcloud_bridge.trigger {nb.trigger!r} is not declared in "
+                                f"dispatch.triggers file {self.dispatch.triggers!r} "
+                                f"(declares: {names}). Add a trigger named {nb.trigger!r} to "
+                                f"that file, or set nextcloud_bridge.trigger to one of them."
+                            )
+
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
@@ -804,6 +892,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "bluesky",
         "virtual_accelerator",
         "bluesky_panels",
+        "nextcloud_bridge",
     }
 )
 
@@ -953,6 +1042,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_panels_raw.get("port", 8095),
         )
 
+    nextcloud_bridge_raw = raw.get("nextcloud_bridge")
+    nextcloud_bridge = None
+    if nextcloud_bridge_raw is not None:
+        if not isinstance(nextcloud_bridge_raw, dict):
+            raise BuildProfileError("Profile 'nextcloud_bridge' must be a mapping")
+        nextcloud_bridge = NextcloudBridgeProfileConfig(
+            trigger=nextcloud_bridge_raw.get("trigger", "nextcloud-question"),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
@@ -985,6 +1083,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
         bluesky_panels=bluesky_panels,
+        nextcloud_bridge=nextcloud_bridge,
     )
 
 

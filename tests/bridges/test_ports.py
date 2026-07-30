@@ -260,6 +260,90 @@ def test_default_double_ignores_events_and_never_coalesces():
     assert ops.coalesce_key({}) == ""
 
 
+# --- callable canned returns ---------------------------------------------------
+# Every knob also takes a callable over the member's own argument. Without it a
+# single double answers identically for every call, which is fine for one-message
+# tests and useless for the multi-room ones: two wire events would parse to the same
+# ``message_id``, dedup would collapse them into one claim, and "room B dispatches
+# while room A is in flight" could not be expressed at all.
+
+
+def test_callable_parse_result_gives_each_event_its_own_message_id():
+    ops = RecordingChannelOps(
+        parse_result=lambda raw: _event(
+            message_id=f"{raw['room']}:{raw['id']}", history_key=raw["room"]
+        ),
+    )
+
+    first = ops.parse_event({"room": "roomA", "id": 1})
+    second = ops.parse_event({"room": "roomB", "id": 2})
+
+    assert first is not None and second is not None
+    # Distinct ids from one instance: the property dedup needs to see two messages.
+    assert (first.message_id, second.message_id) == ("roomA:1", "roomB:2")
+    assert first.history_key != second.history_key
+    # A callable knob changes what is returned, never what is recorded.
+    assert [call.details["event"]["room"] for call in ops.calls] == ["roomA", "roomB"]
+
+
+def test_callable_coalesce_varies_per_entry():
+    ops = RecordingChannelOps(coalesce=lambda entry: [entry["history_key"], entry["sender_id"]])
+
+    assert ops.coalesce_key({"history_key": "roomA", "sender_id": "users/1"}) == [
+        "roomA",
+        "users/1",
+    ]
+    assert ops.coalesce_key({"history_key": "roomB", "sender_id": "users/2"}) == [
+        "roomB",
+        "users/2",
+    ]
+
+
+def test_callable_reply_context_inputs_and_file_urls_answer_per_argument():
+    ops = RecordingChannelOps(
+        reply_context=lambda event: ReplyContext(reply_to={"text": event.text}),
+        inputs=lambda entry: InputDownload(files=({"filename": f"{entry['room']}.png"},)),
+        file_urls=lambda entry: {entry["room"]: f"https://files.example/{entry['room']}.png"},
+    )
+
+    ctx = ops.resolve_reply_context(_event(text="earlier"))
+    assert ctx is not None and ctx.reply_to == {"text": "earlier"}
+    assert ops.download_inputs({"room": "roomA"}).files[0]["filename"] == "roomA.png"
+    # ``file_urls`` is the one asymmetry: its callable takes the ENTRY only, not the
+    # run result, so a double cannot derive urls from a run's artifact list.
+    assert ops.deliver_files({"room": "roomB"}, {"status": "completed"}) == {
+        "roomB": "https://files.example/roomB.png"
+    }
+
+
+def test_callable_knob_is_resolved_at_call_time_not_construction():
+    """A knob may be reassigned mid-test, and a callable sees state changed after
+    construction — the shape a poller test uses to flip one room's behaviour partway
+    through a run."""
+    rooms = ["roomA"]
+    ops = RecordingChannelOps(coalesce=lambda entry: rooms[-1])
+
+    assert ops.coalesce_key({}) == "roomA"
+    rooms.append("roomB")
+    assert ops.coalesce_key({}) == "roomB"
+
+    ops.parse_result = lambda raw: _event(message_id=raw["id"])
+    parsed = ops.parse_event({"id": "roomC:9"})
+    assert parsed is not None and parsed.message_id == "roomC:9"
+
+
+def test_deliver_files_copies_a_callables_result():
+    """Same guarantee the constant form has always given: a caller mutating the
+    returned mapping cannot reach back into whatever the knob handed over."""
+    shared = {"art-1": "https://files.example/a.png"}
+    ops = RecordingChannelOps(file_urls=lambda entry: shared)
+
+    returned = ops.deliver_files({}, {})
+    returned["art-2"] = "https://files.example/b.png"
+
+    assert shared == {"art-1": "https://files.example/a.png"}
+
+
 def test_fail_next_records_the_call_then_raises_then_recovers():
     """Drain semantics in miniature: the failed post is visible in the timeline, and
     the NEXT call succeeds — 'first deliver fails, second cycle re-delivers'."""

@@ -1,0 +1,121 @@
+# Pinned Nextcloud + Talk (spreed) server standing in for a real institutional
+# Nextcloud deployment, used ONLY by tests/e2e/test_nextcloud_talk_bridge_e2e.py
+# to exercise the engine<->dispatch contract against a REAL Talk OCS API rather
+# than a mocked client. Unlike the other e2e fixture here, this is not a stub:
+# it is a genuine, fully provisioned Nextcloud with Talk enabled, because the
+# whole point of the lane is that the adapter talks to the actual API surface
+# (room types, chat receive/send, mentions, file share/download).
+#
+# Published by .github/workflows/build-nextcloud-fixture.yml to
+#   ghcr.io/als-apg/nextcloud-talk-fixture:33.0.7-spreed23.0.9
+# so the e2e lane pulls a prebuilt image instead of paying provisioning cost
+# per run.
+#
+# ---------------------------------------------------------------------------
+# PINS (greppable — a wiring test asserts the e2e module's image constant
+# against these two tokens, so do not reformat them):
+#   NEXTCLOUD_PIN=33.0.7
+#   SPREED_PIN=23.0.9
+# ---------------------------------------------------------------------------
+#
+# Both pins move TOGETHER and are not independently selectable. Talk declares
+# an exact Nextcloud major in appinfo/info.xml — for 23.0.9 it is
+# <nextcloud min-version="33" max-version="33" />, i.e. min == max. Talk 23.x
+# runs on Nextcloud 33.x and nothing else, so bumping one pin without the other
+# produces an image whose app cannot be enabled at all. Nextcloud 33 also
+# satisfies the phase's Talk >= 21 floor with room to spare.
+#
+# When either pin changes, these must change with it:
+#   - the FROM tag below (nextcloud:<pin>-apache)
+#   - ARG SPREED_VERSION below
+#   - the ghcr tag above and in the fixture build workflow
+#   - NEXTCLOUD_FIXTURE_IMAGE in tests/e2e/test_nextcloud_talk_bridge_e2e.py
+#   - SPREED_SHA256 below (the release tarball checksum)
+#
+# The FROM tag and ARG SPREED_VERSION are not merely documentation: a wiring test
+# asserts both against the two greppable pin tokens above, so all four values must
+# move in lockstep or the test fails.
+FROM nextcloud:33.0.7-apache
+
+# Keep in lockstep with SPREED_PIN above. The checksum is verified at build
+# time, so an out-of-band --build-arg bump fails closed here rather than
+# silently baking an incompatible Talk.
+ARG SPREED_VERSION=23.0.9
+ARG SPREED_SHA256=e3096dbe40f1d439ede726ca8fce74f9daabe23aa407426ddc853be5da62ac20
+
+# Talk is baked in at BUILD time, never fetched at test time: the e2e lane must
+# not depend on reaching a release host while tests run.
+#
+# It lands in /usr/src/nextcloud/apps rather than custom_apps because the
+# entrypoint rsyncs /usr/src/nextcloud into /var/www/html with
+# --exclude-from=/upgrade.exclude, and that exclude list contains
+# /custom_apps/ — an app staged there would never reach the served tree.
+RUN set -eux; \
+    tarball="spreed-v${SPREED_VERSION}.tar.gz"; \
+    curl -fsSL -o "/tmp/${tarball}" \
+        "https://github.com/nextcloud-releases/spreed/releases/download/v${SPREED_VERSION}/${tarball}"; \
+    echo "${SPREED_SHA256}  /tmp/${tarball}" | sha256sum -c -; \
+    tar -xzf "/tmp/${tarball}" -C /usr/src/nextcloud/apps; \
+    rm -f "/tmp/${tarball}"; \
+    test -f "/usr/src/nextcloud/apps/spreed/appinfo/info.xml"
+
+# Readiness marker lives outside /var/www/html (a VOLUME) on purpose, so it is
+# per-container rather than per-volume: a fresh container is never born ready.
+RUN install -d -o www-data -g root /var/lib/talk-fixture
+
+# Throwaway fixture credentials. These exist so a bare `docker run` reaches a
+# provisioned state with no operator input — they are TEST-ONLY and must never
+# be reused for anything reachable. Presence of admin user + password + a
+# database selection is what makes the official entrypoint auto-install.
+#
+# The e2e module authenticates to the Talk OCS API as this admin to provision
+# its bot account and rooms, so both values are part of the fixture contract:
+# changing either requires the same change in
+# tests/e2e/test_nextcloud_talk_bridge_e2e.py.
+ENV NEXTCLOUD_ADMIN_USER=admin \
+    NEXTCLOUD_ADMIN_PASSWORD=talk-fixture-admin-9F3k \
+    SQLITE_DATABASE=nextcloud \
+    NEXTCLOUD_TRUSTED_DOMAINS="localhost 127.0.0.1 host.docker.internal nextcloud nextcloud-talk-fixture"
+
+# The entrypoint applies NEXTCLOUD_TRUSTED_DOMAINS only during install, so a
+# test reaching this container under some other hostname must override the env
+# var before first boot, not after.
+#
+# This failure is HEALTH-INVISIBLE, which is what makes it worth spelling out:
+# the HEALTHCHECK below probes 127.0.0.1, which is always trusted, so a container
+# addressed under an untrusted hostname reports perfectly healthy while every OCS
+# call comes back HTTP 400 "Trusted domain error". The e2e must therefore address
+# this container by one of the names baked in above — localhost, 127.0.0.1,
+# host.docker.internal, nextcloud, nextcloud-talk-fixture (a port is fine,
+# Nextcloud strips it before comparing) — and a mismatch will surface as HTTP 400
+# on the first OCS request, never as an unhealthy container.
+
+# Wired into two hook folders deliberately, but not in the way the folder names
+# suggest: in the upstream entrypoint `run_path before-starting` sits in the
+# apache branch OUTSIDE the version_greater gate, so it fires on EVERY boot,
+# including the first — immediately after post-installation. before-starting is
+# therefore the copy that actually guarantees the state; post-installation is
+# kept only so the install path provisions before that first before-starting
+# pass. First boot consequently provisions twice (post-installation enables Talk
+# and writes the marker; before-starting clears the marker and redoes the same
+# work), which is harmless because the script is idempotent — and it no-ops when
+# Nextcloud is not installed at all.
+#
+# chmod is a separate RUN rather than COPY --chmod so this builds on the classic
+# builder too: the entrypoint SKIPS hook scripts that lack the executable bit,
+# which would yield an image that boots fine and has no Talk.
+COPY nextcloud_talk_provision.sh /usr/local/bin/nextcloud_talk_provision.sh
+RUN set -eux; \
+    chmod 755 /usr/local/bin/nextcloud_talk_provision.sh; \
+    for hook in post-installation before-starting; do \
+        cp /usr/local/bin/nextcloud_talk_provision.sh \
+            "/docker-entrypoint-hooks.d/${hook}/nextcloud_talk_provision.sh"; \
+        test -x "/docker-entrypoint-hooks.d/${hook}/nextcloud_talk_provision.sh"; \
+    done
+
+# Readiness for the e2e lane: Talk provisioned AND apache serving. Both halves
+# matter — the marker alone is written before apache accepts connections.
+# start-period is generous because first boot runs a full sqlite install.
+HEALTHCHECK --interval=10s --timeout=10s --start-period=240s --retries=40 \
+    CMD test -f /var/lib/talk-fixture/ready \
+        && curl -fsS http://127.0.0.1/status.php | grep -q '"installed":true'
