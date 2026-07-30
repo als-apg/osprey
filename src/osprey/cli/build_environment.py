@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,147 @@ from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
 logger = get_logger("build")
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialStatus:
+    """Whether one provider's API-key env var is available to the built project.
+
+    ``source`` is a human-readable origin (``"project .env"``, ``"shell
+    environment"``, ``".env in <dir>"``) and is ``None`` when the key is not
+    set. The key's *value* is deliberately never carried — this record is built
+    to be logged.
+    """
+
+    provider: str
+    var: str
+    found: bool
+    source: str | None = None
+
+
+def _dotenv_keys(path: Path) -> dict[str, str]:
+    """Parse *path* into a dict, dropping empty values. Unreadable → ``{}``.
+
+    Empty values matter: ``.env.template`` ships bare ``VAR=`` lines, and a key
+    with no value authenticates nothing.
+    """
+    if not path.is_file():
+        return {}
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    try:
+        return {key: value for key, value in parse_dotenv_file(path).items() if value}
+    except OSError as e:
+        # e.g. a 0600 .env owned by another uid — report as "not set" rather
+        # than failing a build that is otherwise complete.
+        logger.debug("Could not read %s while checking provider credentials: %s", path, e)
+        return {}
+
+
+def detect_provider_credentials(
+    project_path: Path, *, cwd: Path | None = None
+) -> list[CredentialStatus]:
+    """Resolve every keyed provider's API-key env var to a found/not-found status.
+
+    Sources are checked in the order that actually determines whether the built
+    project can authenticate:
+
+    1. the built project's ``.env`` — what ships with the project;
+    2. the build's working-directory ``.env`` — ``osprey.utils.config`` loads
+       this into ``os.environ`` as an import side effect, so it is a real
+       source even though nothing in the build reads it explicitly;
+    3. the shell environment.
+
+    Keyless providers (ollama, vllm, ds4, asksage) are excluded — they have no
+    API-key env var to report on.
+
+    Args:
+        project_path: Root of the built project.
+        cwd: Directory whose ``.env`` acts as source 2. Defaults to the process
+            working directory.
+
+    Returns:
+        One :class:`CredentialStatus` per keyed provider, in registry order.
+    """
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    cwd = Path.cwd() if cwd is None else cwd
+    project_env = _dotenv_keys(project_path / ".env")
+    cwd_env_path = cwd / ".env"
+    # Skip when the build ran from inside the project: same file, already read.
+    cwd_env = (
+        {}
+        if cwd_env_path.resolve() == (project_path / ".env").resolve()
+        else _dotenv_keys(cwd_env_path)
+    )
+
+    statuses: list[CredentialStatus] = []
+    for provider, var in PROVIDER_API_KEYS.items():
+        if var is None:
+            continue
+        if var in project_env:
+            source: str | None = "project .env"
+        elif var in cwd_env:
+            source = f".env in {cwd}"
+        elif os.environ.get(var):
+            source = "shell environment"
+        else:
+            source = None
+        statuses.append(
+            CredentialStatus(provider=provider, var=var, found=source is not None, source=source)
+        )
+    return statuses
+
+
+def report_provider_credentials(
+    project_path: Path, provider: str, *, cwd: Path | None = None
+) -> list[CredentialStatus]:
+    """Log a provider-credentials summary, leading with the selected provider.
+
+    Reports keys that *were* found as well as those that were not. The generic
+    ``${VAR}`` resolver in :mod:`osprey.utils.config` can only report misses —
+    and knows nothing about which provider the build selected — so a missing key
+    for the selected provider would otherwise be indistinguishable from the
+    handful of irrelevant misses for providers the project will never use.
+
+    A missing key warns but never aborts: the project is still worth building,
+    and the key can be filled into ``.env`` afterwards.
+
+    Args:
+        project_path: Root of the built project.
+        provider: The provider this project was built for.
+        cwd: Passed through to :func:`detect_provider_credentials`.
+
+    Returns:
+        The statuses that were reported.
+    """
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    statuses = detect_provider_credentials(project_path, cwd=cwd)
+    selected = next((s for s in statuses if s.provider == provider), None)
+
+    if selected is None:
+        # Keyless provider, or a name outside the registry (custom adapter).
+        if provider in PROVIDER_API_KEYS:
+            logger.info("  ✓ Provider: %s — no API key required", provider)
+        else:
+            logger.info("  ✓ Provider: %s — no known API key env var; skipping check", provider)
+    elif selected.found:
+        logger.info("  ✓ Provider: %s — %s found (%s)", provider, selected.var, selected.source)
+    else:
+        logger.warning("  ✗ Provider: %s — %s NOT SET", provider, selected.var)
+        logger.warning("      The build will complete, but the agent cannot reach the model.")
+        logger.warning("      Add %s to %s or export it.", selected.var, project_path / ".env")
+
+    others = [s for s in statuses if s is not selected]
+    found_others = [s.var for s in others if s.found]
+    missing_others = [s.var for s in others if not s.found]
+    if found_others:
+        logger.info("      Other keys detected: %s", ", ".join(found_others))
+    if missing_others:
+        logger.info("      Not set:             %s", ", ".join(missing_others))
+
+    return statuses
 
 
 def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None:

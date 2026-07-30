@@ -118,6 +118,45 @@ def _write_pid(project_dir: Path, pid: int) -> None:
     (project_dir / PID_FILE).write_text(str(pid))
 
 
+def _enter_project(project: str | None) -> None:
+    """Make ``--project`` authoritative, so it behaves like ``cd <project>``.
+
+    Nearly everything the web terminal touches is resolved relative to the
+    process working directory — ``config.yml`` (:func:`resolve_config_path`),
+    the project ``.env``, ``.claude/``, and ``watch_dir``/``_agent_data``. The
+    ``--project`` flag previously only reached ``app.state.project_cwd``, so
+    launching from anywhere else left every one of those pointing at the
+    operator's shell directory: the project ``.env`` was never loaded, config
+    ``${VAR}`` placeholders (e.g. a provider ``api_key``) stayed unexpanded,
+    the project's ``web_terminal``/``claude_code`` settings were silently
+    replaced by built-in defaults, and ``_agent_data/`` was created in the
+    wrong place. Changing directory here fixes all of them at one point
+    instead of threading a project path through each resolver.
+
+    Without ``--project`` only the ``.env`` load applies — a bare ``osprey web``
+    already runs in the project directory. That load happens here, rather than
+    just before the server starts as it used to, so the ``get_config_value``
+    reads below expand ``${VAR}`` against it and both entry paths stay
+    identical.
+    """
+    if project:
+        # Resolve against the invoking shell's cwd — before the chdir, or a
+        # relative --project would be resolved against itself.
+        project_dir = Path(project).resolve()
+        os.chdir(project_dir)
+
+        # An explicit flag outranks an ambient OSPREY_CONFIG export, which may
+        # still point at whichever project the operator last worked in. Child
+        # PTY shells and their MCP servers inherit this to find the project.
+        project_config = project_dir / "config.yml"
+        if project_config.is_file():
+            os.environ["OSPREY_CONFIG"] = str(project_config)
+
+    from osprey.mcp_env import load_dotenv_from_project
+
+    load_dotenv_from_project()
+
+
 def _preflight_vendor_check() -> None:
     """In offline mode, fail fast if ``static/vendor/`` assets are missing.
 
@@ -455,6 +494,8 @@ def web(
     if ctx.invoked_subcommand is not None:
         return
 
+    _enter_project(project)
+
     _preflight_vendor_check()
 
     wt_config = get_config_value("web_terminal", {})
@@ -534,11 +575,6 @@ def web(
     click.echo(f"Starting OSPREY Web Terminal on http://{host}:{port}")
     click.echo(f"Shell: {' '.join(shell_command)}")
     click.echo("Press Ctrl+C to stop\n")
-
-    # Load .env so secrets (e.g. CONFLUENCE_ACCESS_TOKEN) are available
-    from osprey.mcp_env import load_dotenv_from_project
-
-    load_dotenv_from_project()
 
     try:
         if reload:

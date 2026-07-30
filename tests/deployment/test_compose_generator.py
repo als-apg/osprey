@@ -418,6 +418,7 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
     import sys
 
     from osprey.deployment import compose_generator
+    from osprey.deployment.errors import DevModeUnavailableError
 
     captured: dict = {}
 
@@ -427,7 +428,10 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="stop here")
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
-    compose_generator._copy_local_framework_for_override("/tmp/ignored")
+    # A failed build now aborts the deploy rather than falling back to the
+    # released package; the interpreter assertion below is what this test is for.
+    with pytest.raises(DevModeUnavailableError):
+        compose_generator._copy_local_framework_for_override("/tmp/ignored")
 
     assert captured.get("cmd"), "the wheel build subprocess was never invoked"
     assert captured["cmd"][0] == sys.executable, (
@@ -1966,22 +1970,39 @@ def test_rendered_compose_carries_osprey_dev_when_wheel_staged(
     assert args["OSPREY_DEV"] == "1"
 
 
-def test_rendered_compose_omits_osprey_dev_when_wheel_staging_fails(
+def test_failed_wheel_staging_aborts_the_deploy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    args = _rendered_dispatcher_build_args(tmp_path, monkeypatch, staging_result=False)
-    assert "OSPREY_DEV" not in args, (
-        "a failed dev-wheel staging must not render the pin-relaxing "
-        f"OSPREY_DEV build arg (fail-closed); got {args}"
-    )
+    """A --dev deploy whose staging fails must stop, not render a fallback.
+
+    Rendering *without* OSPREY_DEV would keep the pinned install (fail-closed on
+    the build arg) but still deploy successfully — containers up on released
+    osprey under a flag that promises local code. The build-arg gate stays; the
+    deploy no longer reaches it.
+    """
+    from osprey.deployment import compose_generator
+    from osprey.deployment.errors import DevModeUnavailableError
+
+    def _staging_fails(out_dir):  # type: ignore[no-untyped-def]
+        raise DevModeUnavailableError("staging failed", "fix it")
+
+    monkeypatch.setattr(compose_generator, "_copy_local_framework_for_override", _staging_fails)
+    config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
+    _copy_service_templates(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(DevModeUnavailableError):
+        prepare_compose_files(str(config_path), dev_mode=True)
 
 
-def test_rendered_compose_omits_osprey_dev_on_memoized_build_failure(
+def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Drive the REAL staging helper against a failing ``python -m build``:
-    the memoized failure must leave OSPREY_DEV out of the rendered compose."""
+    the deploy must abort, and no wheel may be left in the build context."""
     import subprocess as subprocess_module
+
+    from osprey.deployment.errors import DevModeUnavailableError
 
     real_run = subprocess_module.run
 
@@ -1997,11 +2018,10 @@ def test_rendered_compose_omits_osprey_dev_on_memoized_build_failure(
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
     monkeypatch.chdir(tmp_path)
-    prepare_compose_files(str(config_path), dev_mode=True)
 
-    compose_file = tmp_path / "build" / "services" / "event_dispatcher" / "docker-compose.yml"
-    args = yaml.safe_load(compose_file.read_text())["services"]["event-dispatcher"]["build"]["args"]
-    assert "OSPREY_DEV" not in args
+    with pytest.raises(DevModeUnavailableError):
+        prepare_compose_files(str(config_path), dev_mode=True)
+
     service_ctx = tmp_path / "build" / "services" / "event_dispatcher"
     assert not list(service_ctx.glob("*.whl")), "no wheel may be staged on a failed build"
 
@@ -2155,6 +2175,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
     import subprocess as subprocess_module
 
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
+    from osprey.deployment.errors import DevModeUnavailableError
 
     real_run = subprocess_module.run
 
@@ -2169,7 +2190,8 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()
-    assert _copy_local_framework_for_override(str(ctx)) is False
+    with pytest.raises(DevModeUnavailableError):
+        _copy_local_framework_for_override(str(ctx))
     assert not list(ctx.glob("*.whl")), "the half-staged wheel must be removed"
     assert not (ctx / "osprey-local-requirements.txt").exists()
 
@@ -2177,10 +2199,11 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
 def test_staging_fails_closed_when_manifest_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spy_wheel_build: list
 ) -> None:
-    """Even with a valid wheel, a failed manifest WRITE must fail staging
-    (return False) and remove the already-copied wheel."""
+    """Even with a valid wheel, a failed manifest WRITE must abort staging
+    and remove the already-copied wheel."""
     from osprey.deployment import wheel_build
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
+    from osprey.deployment.errors import DevModeUnavailableError
 
     def _boom(cached_wheel, out_dir):  # type: ignore[no-untyped-def]
         raise OSError("disk full")
@@ -2189,7 +2212,8 @@ def test_staging_fails_closed_when_manifest_write_fails(
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()
-    assert _copy_local_framework_for_override(str(ctx)) is False
+    with pytest.raises(DevModeUnavailableError):
+        _copy_local_framework_for_override(str(ctx))
     assert not list(ctx.glob("*.whl")), "the half-staged wheel must be removed"
     assert not (ctx / "osprey-local-requirements.txt").exists()
 

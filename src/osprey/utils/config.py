@@ -80,9 +80,18 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
                 if default_value is not None:
                     return default_value
                 else:
+                    # DEBUG, not INFO: this resolver is generic over the whole
+                    # config tree and knows nothing about which of the values it
+                    # walks actually matter to the caller. Reported at INFO it
+                    # rendered every build as a wall of misses for providers the
+                    # project never uses, while saying nothing about the keys
+                    # that *did* resolve. User-facing credential reporting lives
+                    # in osprey.cli.build_environment.report_provider_credentials,
+                    # which knows the selected provider.
                     if not os.environ.get("OSPREY_QUIET"):
-                        logger.info(
-                            f"Environment variable '{var_name}' not found, keeping original value"
+                        logger.debug(
+                            f"Environment variable '{var_name}' not found, "
+                            f"keeping placeholder verbatim"
                         )
                     return match.group(0)
             return env_value
