@@ -423,6 +423,15 @@ Read past the 409s. They are a symptom of the first failure, not a second bug.
 
 Checklist for a new test area:
 
+- [ ] **New test filenames are unique across all of `tests/`.** Most test
+      directories have no `__init__.py`, so a file's module name is just its
+      basename, and two files anywhere in `tests/` sharing one collide — pytest
+      refuses to collect the second. Check with `find tests -name "<basename>.py"`;
+      prefer a name qualified by the module under test. The two gates disagree
+      about this failure, which is what makes it easy to ship: serially it aborts
+      the whole run (`Interrupted: 1 error during collection`), but under `-n 4`
+      it degrades — exit 1, and the colliding file's tests simply never run,
+      which later reads as a coverage shortfall rather than a collection failure.
 - [ ] **Reuse the shared fixtures and helpers.** `free_port()` / `wait_for_port()`
       for ports, the existing reset seams for global state, `patch_subprocess()`
       for subprocess fakes, `isolated_home` for anything touching `$HOME`.
