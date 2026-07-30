@@ -82,6 +82,13 @@ _VAR_GENERATORS: dict[str, Callable[[], str]] = {
     # OpenObserve rejects a root password that misses any of its four required
     # character classes and crash-loops — see _generate_openobserve_password.
     "ZO_ROOT_USER_PASSWORD": _generate_openobserve_password,
+    # The ARIEL Postgres password is substituted into a DSN URI
+    # (``postgresql://ariel:${ARIEL_DB_PASSWORD:-ariel}@…``) as well as the
+    # container's POSTGRES_PASSWORD, so it must stay free of URI-reserved
+    # characters — ``token_urlsafe``'s ``-``/``_`` would be fine, but hex is
+    # alphanumeric by construction and matches the Tiled recipe: same 256
+    # bits of entropy, zero escaping concerns in .env, YAML, or the URI.
+    "ARIEL_DB_PASSWORD": lambda: secrets.token_hex(32),
 }
 
 
@@ -175,6 +182,13 @@ _VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
     # OpenObserve crash-loops on a root password that misses any required
     # character class; validate an operator-supplied value at deploy time.
     "ZO_ROOT_USER_PASSWORD": _validate_openobserve_password,
+    # The value lands unescaped inside the ariel DSN's password slot, so an
+    # operator-supplied value containing a URI-reserved character would
+    # silently reshape the DSN (see _validate_ariel_dsn) — reject it at the
+    # deploy boundary instead.
+    "ARIEL_DB_PASSWORD": lambda v: (
+        bool(v) and not any(c in v for c in "@:/?#") and not any(c.isspace() for c in v)
+    ),
 }
 
 # Human-readable constraint text shown in the RuntimeError _ensure_service_tokens
@@ -192,6 +206,10 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
         "must be 8–128 characters with at least one lowercase letter, one "
         "uppercase letter, one digit, and one special character — OpenObserve "
         "rejects any weaker root password at startup"
+    ),
+    "ARIEL_DB_PASSWORD": (
+        "must be non-empty with no whitespace and no URI-reserved character "
+        "(@ : / ? #) — the value is substituted into the ariel DSN's password slot"
     ),
 }
 

@@ -5,9 +5,11 @@
 # own services this pulls a single PUBLIC upstream image — there is no Dockerfile,
 # no wheel, and no osprey source baked in.
 #
-# The pinned image tag is overridable via OSPREY_OPENOBSERVE_IMAGE (e.g.
-# OSPREY_OPENOBSERVE_IMAGE=my-registry/openobserve:dev). Pin a digest in
-# production if you need byte-for-byte reproducibility.
+# The pinned image tag is overridable like every other service image
+# (env → config → default): set OSPREY_OPENOBSERVE_IMAGE (e.g.
+# OSPREY_OPENOBSERVE_IMAGE=my-registry/openobserve:dev) or
+# services.openobserve.image in config.yml. Pin a digest in production if
+# you need byte-for-byte reproducibility.
 #
 # Root credentials double as the OTLP ingest credentials: ZO_ROOT_USER_EMAIL /
 # ZO_ROOT_USER_PASSWORD configure the single admin account AND authenticate the
@@ -18,7 +20,7 @@
 
 services:
   openobserve:
-    image: ${OSPREY_OPENOBSERVE_IMAGE:-public.ecr.aws/zinclabs/openobserve:v0.14.4}
+    image: ${OSPREY_OPENOBSERVE_IMAGE:-{{ (services.openobserve | default({})).image | default('public.ecr.aws/zinclabs/openobserve:v0.14.4') }}}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the telemetry store on one host without
     # colliding on one name. The emitter reaches this service by its compose

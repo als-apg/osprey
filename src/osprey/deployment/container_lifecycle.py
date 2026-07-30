@@ -76,11 +76,23 @@ logger = get_logger("deployment.lifecycle")
 # its next launch. The email is a username, not a secret (it has a sensible
 # non-secret default), so only the password is minted. See
 # ``_generate_openobserve_password`` for why a plain token recipe won't do.
+#
+# postgresql follows the openobserve rationale: its compose template carries an
+# insecure ``${ARIEL_DB_PASSWORD:-ariel}`` default, so left alone the ARIEL
+# store comes up on a shared, publicly-known password. Minting a per-deploy
+# ``ARIEL_DB_PASSWORD`` replaces it with a strong secret that the container
+# (POSTGRES_PASSWORD) and the agent's DSN (``ariel.database.uri`` references
+# the same ``${ARIEL_DB_PASSWORD:-ariel}``) read from the same ``.env`` value.
+# NOTE: Postgres only reads POSTGRES_PASSWORD when *initializing* a fresh data
+# volume — a pre-existing volume keeps its original password (same
+# stale-volume caveat as openobserve; recreate the volume to adopt the minted
+# value).
 _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "bluesky": ("BLUESKY_LAUNCH_TOKEN", "BLUESKY_TILED_API_KEY"),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
+    "postgresql": ("ARIEL_DB_PASSWORD",),
 }
 
 # Token vars that are safe to auto-mint even when the agent's code execution is
@@ -105,6 +117,7 @@ _LOCAL_EXEC_SAFE_VARS = {
     "EVENT_DISPATCHER_TOKEN",  # inbound webhook boundary, not a write path the agent walks
     "DISPATCH_WORKER_TOKEN",  # worker-routing boundary, same
     "ZO_ROOT_USER_PASSWORD",  # OpenObserve admin/ingest cred; gates an observability store, not a control-system write path
+    "ARIEL_DB_PASSWORD",  # ARIEL Postgres cred; gates the logbook store, not a control-system write path
 }
 
 

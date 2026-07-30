@@ -77,6 +77,14 @@ api:
 # Options: auto (default), docker, podman
 container_runtime: auto
 
+# ── Deployment ──────────────────────────────────────────────────────
+# Host interface the deployed services publish their ports on. The default
+# (127.0.0.1, applied when this block is absent) keeps every service
+# loopback-only — the safe state. Binding 0.0.0.0 exposes every deployed
+# service port to the network; review credentials first.
+# deployment:
+#   bind_address: 127.0.0.1
+
 # ============================================================
 # SYSTEM CONFIGURATION
 # ============================================================
@@ -99,7 +107,10 @@ services:
     path: ./services/postgresql
     database_name: ariel
     username: ariel
-    password: ariel
+    # No password key: the Postgres password lives in the project .env as
+    # ARIEL_DB_PASSWORD (minted by `osprey deploy up`), read by both the
+    # container and the ariel DSN below — single source of truth, mirroring
+    # the openobserve credentials convention.
     port_host: 5432
 
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
@@ -151,7 +162,13 @@ hooks:
 
 ariel:
   database:
-    uri: postgresql://ariel:ariel@localhost:5432/ariel
+    # Password reads ARIEL_DB_PASSWORD from the project .env — the SAME value
+    # the postgresql compose service reads as POSTGRES_PASSWORD (single source
+    # of truth). `osprey deploy up` mints a strong value into .env; the
+    # `${VAR:-ariel}` fallback keeps the service launchable before the first
+    # deploy. An existing Postgres data volume keeps the password it was
+    # initialized with — see the postgresql compose template.
+    uri: postgresql://ariel:${ARIEL_DB_PASSWORD:-ariel}@localhost:5432/ariel
 
   default_max_results: 10
 

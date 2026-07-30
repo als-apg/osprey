@@ -1,6 +1,10 @@
 services:
   postgresql:
-    image: pgvector/pgvector:pg16
+    # Public upstream image, overridable like every other service image
+    # (env → config → default): set OSPREY_POSTGRES_IMAGE, or
+    # services.postgresql.image in config.yml, to point at a mirror or a
+    # pinned digest (e.g. for air-gapped registries).
+    image: ${OSPREY_POSTGRES_IMAGE:-{{ (services.postgresql | default({})).image | default('pgvector/pgvector:pg16') }}}
     # container_name is a HOST-GLOBAL docker identifier: a bare `ariel-postgres`
     # collides when two OSPREY projects deploy postgres on one host, forcing them
     # to serialize. Namespace it per-project so concurrent deploys don't fight
@@ -17,7 +21,15 @@ services:
     environment:
       POSTGRES_DB: {{ services.postgresql.database_name | default('ariel') }}
       POSTGRES_USER: {{ services.postgresql.username | default('ariel') }}
-      POSTGRES_PASSWORD: {{ services.postgresql.password | default('ariel') }}
+      # Sourced from the project .env: `osprey deploy up` mints a strong
+      # ARIEL_DB_PASSWORD when unset, and the agent's DSN
+      # (`ariel.database.uri`) references the SAME env var — single source of
+      # truth, mirroring openobserve's ZO_ROOT_USER_PASSWORD convention. The
+      # services.postgresql.password config key is honored as a fallback for
+      # configs that predate the minted var. NOTE: Postgres reads
+      # POSTGRES_PASSWORD only when initializing a FRESH data volume; a
+      # pre-existing volume keeps its original password until recreated.
+      POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-{{ services.postgresql.password | default('ariel') }}}
       TZ: {{ system.timezone }}
     volumes:
       - ariel_postgres_data:/var/lib/postgresql/data

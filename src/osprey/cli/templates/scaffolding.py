@@ -61,6 +61,27 @@ def _detect_system_timezone() -> str | None:
     return None
 
 
+def provider_api_key_entries() -> list[dict[str, str]]:
+    """Provider API-key env vars for env-file templates, in registry order.
+
+    Derived from :data:`osprey.models.provider_registry.PROVIDER_API_KEYS`
+    (the single source of truth for the provider list) so that ``env.j2`` /
+    ``env.example.j2`` cannot drift from the real provider set. Key-less
+    providers (ollama, vllm, ds4, asksage) are excluded — they have no API-key
+    env var to scaffold.
+
+    Returns:
+        Ordered list of ``{"provider": <name>, "var": <ENV_VAR>}`` dicts.
+    """
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    return [
+        {"provider": provider, "var": var}
+        for provider, var in PROVIDER_API_KEYS.items()
+        if var is not None
+    ]
+
+
 def detect_environment_variables() -> dict[str, str]:
     """Detect environment variables from the system for use in templates.
 

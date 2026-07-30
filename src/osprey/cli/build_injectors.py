@@ -47,6 +47,43 @@ def _locate_pkg_services() -> Path:
         return Path(__file__).parent.parent / "templates" / "services"
 
 
+def _user_owned_services(project_path: Path) -> set[str]:
+    """Return the claimed service names from config.yml's ``scaffold.user_owned``.
+
+    Entries use the catalog's canonical form (``services/<name>``); the
+    returned set holds the bare ``<name>`` part for direct comparison with
+    service keys.  Build must not refresh a claimed service template — that
+    is the whole point of ``osprey scaffold claim services/<name>``.
+    """
+    import yaml as _yaml
+
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return set()
+    try:
+        with open(config_path, encoding="utf-8") as fh:
+            config = _yaml.safe_load(fh) or {}
+    except Exception:
+        return set()
+    owned = config.get("scaffold", {}).get("user_owned", []) or []
+    return {str(entry).split("/", 1)[1] for entry in owned if str(entry).startswith("services/")}
+
+
+def _refresh_service_dir(src_dir: Path, dest_dir: Path, name: str, owned: set[str]) -> bool:
+    """Copy a packaged service template into the project, honoring claims.
+
+    Returns True when the template was (re)copied, False when the service is
+    user-owned and the project copy was left untouched.
+    """
+    if name in owned:
+        logger.info("  ⏭  services/%s is user-owned — left untouched (scaffold claim)", name)
+        return False
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    shutil.copytree(src_dir, dest_dir)
+    return True
+
+
 def _copy_service_templates(project_path: Path) -> int:
     """Copy service compose templates from the OSPREY package into the project.
 
@@ -108,6 +145,7 @@ def _copy_service_templates(project_path: Path) -> int:
         return 0
 
     deployed_set = set(deployed)
+    owned = _user_owned_services(project_path)
 
     count = 0
     for name in names:
@@ -135,10 +173,8 @@ def _copy_service_templates(project_path: Path) -> int:
         dest_rel = svc_config.get("path", f"./services/{parts[-1]}")
         dest_dir = project_path / dest_rel.lstrip("./")
 
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir)
-        shutil.copytree(src_dir, dest_dir)
-        count += 1
+        if _refresh_service_dir(src_dir, dest_dir, parts[-1], owned):
+            count += 1
 
     return count
 
@@ -175,15 +211,14 @@ def _inject_profile_services(
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    owned = _user_owned_services(project_path)
 
     count = 0
     for name, svc_def in services.items():
-        # Copy template directory
+        # Copy template directory (skipped for claimed services)
         src_dir = profile_dir / svc_def.template
         dest_dir = dest_services_root / name
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir)
-        shutil.copytree(src_dir, dest_dir)
+        _refresh_service_dir(src_dir, dest_dir, name, owned)
 
         # Register service config in config.yml
         if "services" not in config:
@@ -260,6 +295,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    owned = _user_owned_services(project_path)
 
     for name in ("event_dispatcher", "dispatch_worker"):
         src_dir = pkg_services / name
@@ -267,9 +303,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
             logger.warning("No package template for dispatch service %r at %s", name, src_dir)
             continue
         dest_dir = dest_services_root / name
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir)
-        shutil.copytree(src_dir, dest_dir)
+        _refresh_service_dir(src_dir, dest_dir, name, owned)
 
     # 3. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
@@ -391,9 +425,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     dest_dir = dest_services_root / "bluesky"
-    if dest_dir.exists():
-        shutil.rmtree(dest_dir)
-    shutil.copytree(src_dir, dest_dir)
+    _refresh_service_dir(src_dir, dest_dir, "bluesky", _user_owned_services(project_path))
 
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
@@ -496,9 +528,9 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     dest_dir = dest_services_root / "virtual_accelerator"
-    if dest_dir.exists():
-        shutil.rmtree(dest_dir)
-    shutil.copytree(src_dir, dest_dir)
+    _refresh_service_dir(
+        src_dir, dest_dir, "virtual_accelerator", _user_owned_services(project_path)
+    )
 
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
@@ -579,9 +611,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     dest_dir = dest_services_root / "bluesky_panels"
-    if dest_dir.exists():
-        shutil.rmtree(dest_dir)
-    shutil.copytree(src_dir, dest_dir)
+    _refresh_service_dir(src_dir, dest_dir, "bluesky_panels", _user_owned_services(project_path))
 
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"

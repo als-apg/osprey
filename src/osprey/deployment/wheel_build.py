@@ -22,9 +22,65 @@ import os
 import shutil
 from pathlib import Path
 
+from osprey.deployment.errors import DevModeUnavailableError
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.compose")
+
+
+def preflight_dev_mode():
+    """Verify ``--dev`` can be honored, or raise before any deploy work begins.
+
+    Every precondition here is knowable in microseconds — an import-path check,
+    a ``stat``, and a module-spec lookup — so the check runs at the top of a
+    deploy rather than surfacing seven services in, after a subprocess launch.
+
+    This exists because the failure it guards is invisible by construction: a
+    ``--dev`` deploy that cannot stage a wheel still brings containers up
+    *successfully*, running the pinned PyPI release. Nothing downstream looks
+    wrong; the deployment simply is not testing the code the user meant to test.
+
+    :raises DevModeUnavailableError: If osprey is not installed editable, its
+        source root has no ``pyproject.toml``, or the ``build`` package is
+        missing.
+    """
+    import importlib.util
+
+    try:
+        import osprey
+    except ImportError as e:  # pragma: no cover — osprey is importing this module
+        raise DevModeUnavailableError(
+            "the osprey package could not be imported",
+            "Reinstall osprey: uv pip install -e <path-to-osprey-checkout>",
+        ) from e
+
+    module_path = Path(osprey.__file__).parent
+    path_str = str(module_path)
+    if "site-packages" in path_str or "dist-packages" in path_str:
+        raise DevModeUnavailableError(
+            f"osprey is installed from PyPI, not as an editable checkout ({path_str})",
+            "--dev builds a wheel from a local osprey source tree, which a "
+            "released install does not have.\n"
+            "Reinstall editable: uv pip install -e <path-to-osprey-checkout>",
+        )
+
+    source_root = module_path.parent.parent
+    if not (source_root / "pyproject.toml").exists():
+        raise DevModeUnavailableError(
+            f"no pyproject.toml found at the osprey source root ({source_root})",
+            "--dev needs a complete source checkout to build a wheel from.\n"
+            "Reinstall editable from a full checkout: uv pip install -e <path-to-osprey-checkout>",
+        )
+
+    if importlib.util.find_spec("build") is None:
+        raise DevModeUnavailableError(
+            "the 'build' package is not installed in the environment running osprey",
+            "--dev builds a wheel from your local osprey checkout so the "
+            "containers run your code instead of the pinned PyPI release.\n"
+            "Install it with:  uv sync --extra dev\n"
+            "        or with:  uv pip install build",
+        )
+
 
 # Staged next to every dev wheel (see ``_copy_local_framework_for_override``
 # below): the wheel's own base dependency list, which the Dockerfiles' deps
@@ -189,21 +245,31 @@ def _build_dev_wheel_cached(osprey_source_root):
         )
 
         if result.returncode != 0:
-            # Check for missing 'build' package
+            # A failed build is the most dangerous of the --dev failure modes:
+            # if the local checkout is broken, continuing would deploy the
+            # RELEASED code under a flag that says "run my local code", so the
+            # very changes being tested are invisible. Raise rather than warn,
+            # and do not memoize — the next call should retry a fixed checkout.
             if "No module named build" in result.stderr:
-                logger.warning(
-                    "The 'build' package is required for --dev mode. Install with: "
-                    r"uv pip install build or pip install build"
+                raise DevModeUnavailableError(
+                    "the 'build' package is not installed in the environment running osprey",
+                    "Install it with:  uv sync --extra dev\n        or with:  uv pip install build",
                 )
-            else:
-                logger.warning(f"Failed to build osprey wheel: {result.stderr}")
+            raise DevModeUnavailableError(
+                f"building a wheel from the local osprey checkout at {osprey_source_root} failed",
+                f"Fix the build error below, then re-run:\n\n{result.stderr.strip()}",
+            )
         else:
             # Find the built wheel and move it to the memo-owned cache dir
             # (tmpdir is deleted on exit; the cache must outlive it so later
             # staging calls can copy the same build instead of rebuilding).
             wheel_files = list(Path(tmpdir).glob("*.whl"))
             if not wheel_files:
-                logger.warning("No wheel file found after build")
+                raise DevModeUnavailableError(
+                    "the wheel build reported success but produced no .whl file",
+                    f"Check the build backend configured in "
+                    f"{osprey_source_root / 'pyproject.toml'}.",
+                )
             else:
                 if _wheel_cache_dir is None:
                     _wheel_cache_dir = tempfile.mkdtemp(prefix="osprey-dev-wheel-cache-")
@@ -259,12 +325,12 @@ def _copy_local_framework_for_override(out_dir):
         # If installed from site-packages, we can't build a wheel from the source
         osprey_path_str = str(osprey_module_path)
         if "site-packages" in osprey_path_str or "dist-packages" in osprey_path_str:
-            logger.warning(
-                "Osprey is installed from PyPI, not in editable mode. "
-                "The --dev flag requires an editable install to build a local wheel. "
-                "To use --dev, reinstall osprey with: uv pip install -e <path> or pip install -e <path>"
+            raise DevModeUnavailableError(
+                f"osprey is installed from PyPI, not as an editable checkout ({osprey_path_str})",
+                "--dev builds a wheel from a local osprey source tree, which a "
+                "released install does not have.\n"
+                "Reinstall editable: uv pip install -e <path-to-osprey-checkout>",
             )
-            return False
 
         # Get the osprey source root (go up from src/osprey to root)
         osprey_source_root = osprey_module_path.parent.parent
@@ -272,14 +338,14 @@ def _copy_local_framework_for_override(out_dir):
         # Verify this looks like a valid osprey source directory
         pyproject_path = osprey_source_root / "pyproject.toml"
         if not pyproject_path.exists():
-            logger.warning(
-                f"No pyproject.toml found at {osprey_source_root}, cannot build wheel from source"
+            raise DevModeUnavailableError(
+                f"no pyproject.toml found at the osprey source root ({osprey_source_root})",
+                "--dev needs a complete source checkout to build a wheel from.\n"
+                "Reinstall editable from a full checkout: "
+                "uv pip install -e <path-to-osprey-checkout>",
             )
-            return False
 
         cached_wheel = _build_dev_wheel_cached(osprey_source_root)
-        if cached_wheel is None:
-            return False
 
         # Copy the cached wheel to this call's output directory
         dest_wheel = os.path.join(out_dir, cached_wheel.name)
@@ -298,18 +364,32 @@ def _copy_local_framework_for_override(out_dir):
                 os.remove(dest_wheel)
             except OSError:
                 pass
-            logger.warning(
-                f"Failed to write {LOCAL_REQUIREMENTS_FILENAME} for dev override: {manifest_error}"
-            )
-            return False
+            raise DevModeUnavailableError(
+                f"could not write {LOCAL_REQUIREMENTS_FILENAME} beside the staged "
+                f"wheel ({manifest_error})",
+                "A context holding a wheel without its requirements manifest is "
+                "half-staged and would build against the released pin's "
+                "dependencies.\nCheck that the build context directory is writable.",
+            ) from manifest_error
 
         logger.success(f"Copied osprey wheel: {cached_wheel.name}")
 
         return True
 
-    except ImportError:
-        logger.warning("Osprey not found in local environment, containers will use PyPI version")
-        return False
+    except DevModeUnavailableError:
+        # The whole point of this error: --dev could not be honored, so the
+        # deploy must stop rather than quietly fall back to the PyPI release.
+        # Must be re-raised ahead of the broad handlers below.
+        raise
+    except ImportError as e:
+        raise DevModeUnavailableError(
+            "the osprey package could not be imported from the local environment",
+            "Reinstall osprey: uv pip install -e <path-to-osprey-checkout>",
+        ) from e
     except Exception as e:
-        logger.warning(f"Failed to build osprey wheel for dev override: {e}")
-        return False
+        # Any other staging failure is the same hazard wearing a different
+        # exception type: continuing would deploy released osprey under --dev.
+        raise DevModeUnavailableError(
+            f"staging the local osprey wheel failed: {e}",
+            "Re-run once the error above is resolved.",
+        ) from e
