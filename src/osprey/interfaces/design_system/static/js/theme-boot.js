@@ -11,7 +11,7 @@
   "use strict";
 
   const STORAGE_KEY = "osprey-theme";
-  const VALID_IDS = ["dark", "high-contrast-dark", "high-contrast-light", "light", "retro-dark", "retro-light"];
+  const VALID_IDS = ["dark", "desy-dark", "desy-light", "high-contrast-dark", "high-contrast-light", "light", "retro-dark", "retro-light"];
   // Per-family {mode: id} map: DEFAULTS[family][mode]. Typed as a
   // Record (not the narrower literal shape object-literal inference would
   // give it) because resolveAuto() below indexes it with a general
@@ -21,6 +21,10 @@
     "main": {
       "dark": "dark",
       "light": "light"
+    },
+    "desy": {
+      "dark": "desy-dark",
+      "light": "desy-light"
     },
     "high-contrast": {
       "dark": "high-contrast-dark",
@@ -37,6 +41,8 @@
   /** @type {Record<string, string>} */
   const FAMILY_BY_ID = {
     "dark": "main",
+    "desy-dark": "desy",
+    "desy-light": "desy",
     "high-contrast-dark": "high-contrast",
     "high-contrast-light": "high-contrast",
     "light": "main",

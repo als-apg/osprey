@@ -13,6 +13,18 @@ export const THEMES = [
     "family": "main"
   },
   {
+    "id": "desy-dark",
+    "label": "DESY Dark",
+    "mode": "dark",
+    "family": "desy"
+  },
+  {
+    "id": "desy-light",
+    "label": "DESY Light",
+    "mode": "light",
+    "family": "desy"
+  },
+  {
     "id": "high-contrast-dark",
     "label": "High Contrast Dark",
     "mode": "dark",
@@ -48,6 +60,10 @@ export const DEFAULTS = {
   "main": {
     "dark": "dark",
     "light": "light"
+  },
+  "desy": {
+    "dark": "desy-dark",
+    "light": "desy-light"
   },
   "high-contrast": {
     "dark": "high-contrast-dark",

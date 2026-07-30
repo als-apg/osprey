@@ -683,15 +683,18 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
     assert {entry["id"] for entry in themes} == {
         "dark",
         "light",
+        "desy-dark",
+        "desy-light",
         "high-contrast-dark",
         "high-contrast-light",
         "retro-dark",
         "retro-light",
     }
     assert {entry["mode"] for entry in themes} == {"dark", "light"}
-    assert {entry["family"] for entry in themes} == {"main", "high-contrast", "retro"}
+    assert {entry["family"] for entry in themes} == {"main", "desy", "high-contrast", "retro"}
     assert _exported_const(tokens_js, "DEFAULTS") == {
         "main": {"dark": "dark", "light": "light"},
+        "desy": {"dark": "desy-dark", "light": "desy-light"},
         "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
         "retro": {"dark": "retro-dark", "light": "retro-light"},
     }
@@ -700,6 +703,8 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
     assert set(literals["VALID_IDS"]) == {
         "dark",
         "light",
+        "desy-dark",
+        "desy-light",
         "high-contrast-dark",
         "high-contrast-light",
         "retro-dark",
@@ -707,12 +712,15 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
     }
     assert literals["DEFAULTS"] == {
         "main": {"dark": "dark", "light": "light"},
+        "desy": {"dark": "desy-dark", "light": "desy-light"},
         "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
         "retro": {"dark": "retro-dark", "light": "retro-light"},
     }
     assert literals["FAMILY_BY_ID"] == {
         "dark": "main",
         "light": "main",
+        "desy-dark": "desy",
+        "desy-light": "desy",
         "high-contrast-dark": "high-contrast",
         "high-contrast-light": "high-contrast",
         "retro-dark": "retro",

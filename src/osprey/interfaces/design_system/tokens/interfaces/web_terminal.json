@@ -52,6 +52,57 @@
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string", "$description": "Theme-independent motion constant — identical to dark's value." },
     "wt-accent-system-tint-04": { "$value": "rgba(31, 98, 196, 0.04)", "$type": "color", "$description": "This theme's own accent.base (azure.500 #1f62c4) at the same 4% alpha as dark's — re-based off the pre-redesign teal for the same reason given in the dark group." }
   },
+  "desy-dark": {
+    "$description": "The `desy` family repeats the main family's flat chrome verbatim (neutralized CRT gates, phosphor welcome banner, same layout/motion constants) and departs from it in exactly one entry: wt-accent-system-tint-04, which is accent-bearing and so must track this family's own accent. It cannot use $extensions.inherits for that reason — inherits is all-or-nothing per mode group.",
+    "wt-crt": {
+      "scanline-opacity": { "$value": "0", "$type": "number" },
+      "vignette-opacity": { "$value": "0", "$type": "number" },
+      "glow-opacity": { "$value": "0", "$type": "number" },
+      "bezel-shadow": { "$value": "none", "$type": "shadow" },
+      "scanline-bg": { "$value": "none", "$type": "string" },
+      "glow-shadow": { "$value": "none", "$type": "shadow" }
+    },
+    "wt-welcome": {
+      "bg": { "$value": "{color.slate.1100}", "$type": "color" },
+      "text": { "$value": "{color.green.200}", "$type": "color" },
+      "text-glow": { "$value": "0 0 8px rgba(126, 200, 160, 0.25)", "$type": "shadow" },
+      "link": { "$value": "{color.green.600}", "$type": "color" },
+      "link-hover": { "$value": "{color.green.100}", "$type": "color" },
+      "prompt": { "$value": "{color.green.500}", "$type": "color" },
+      "cursor": { "$value": "{color.green.200}", "$type": "color" },
+      "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
+    },
+    "wt-header-height": { "$value": "44px", "$type": "dimension" },
+    "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
+    "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
+    "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
+    "wt-accent-system-tint-04": { "$value": "rgba(0, 159, 223, 0.04)", "$type": "color", "$description": "This theme's own accent.base (cyan.300 #009fdf, the DESY brand cyan) at the same 4% alpha the other groups use." }
+  },
+  "desy-light": {
+    "wt-crt": {
+      "scanline-opacity": { "$value": "0", "$type": "number" },
+      "vignette-opacity": { "$value": "0", "$type": "number" },
+      "glow-opacity": { "$value": "0", "$type": "number" },
+      "bezel-shadow": { "$value": "none", "$type": "shadow" },
+      "scanline-bg": { "$value": "none", "$type": "string" },
+      "glow-shadow": { "$value": "none", "$type": "shadow" }
+    },
+    "wt-welcome": {
+      "bg": { "$value": "{color.slate.150}", "$type": "color" },
+      "text": { "$value": "{color.teal.500}", "$type": "color" },
+      "text-glow": { "$value": "none", "$type": "shadow" },
+      "link": { "$value": "{color.teal.400}", "$type": "color" },
+      "link-hover": { "$value": "{color.teal.700}", "$type": "color" },
+      "prompt": { "$value": "{color.teal.400}", "$type": "color" },
+      "cursor": { "$value": "{color.teal.500}", "$type": "color" },
+      "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
+    },
+    "wt-header-height": { "$value": "44px", "$type": "dimension" },
+    "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
+    "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
+    "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
+    "wt-accent-system-tint-04": { "$value": "rgba(0, 119, 196, 0.04)", "$type": "color", "$description": "This theme's own accent.base (cyan.450 #0077c4, the nudged DESY accessibility cyan) at the same 4% alpha the other groups use." }
+  },
   "retro-dark": {
     "wt-crt": {
       "scanline-opacity": { "$value": "1", "$type": "number", "$description": "Pre-redesign value: the CRT scanline renders under retro-dark." },

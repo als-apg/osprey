@@ -134,6 +134,40 @@
       "50": { "$value": "#e8f1fb", "$type": "color", "$description": "accent-tint base (light)" },
       "300": { "$value": "#6e9fff", "$type": "color", "$description": "accent.base (dark)" },
       "500": { "$value": "#1f62c4", "$type": "color", "$description": "accent.base (light)" }
+    },
+    "cyan": {
+      "$description": "DESY brand cyan family (DESY Styleguide 06/24). #009fdf is the brand cyan ('the primary brand identifier'); #007bc8 is DESY's official screen-accessibility variant for readable colored text on light backgrounds; #0077c4 is that accessibility hex nudged 2 points darker so white-on-accent clears the 4.5:1 AA button gate (#007bc8 scores 4.4995:1 — fails by a hair). Referenced one-hop by the `desy` theme family.",
+      "50": { "$value": "#d6effa", "$type": "color", "$description": "terminal selection (desy-light) — solid pale-cyan tint, mirroring light.json's azure.50 pattern" },
+      "200": { "$value": "#53bfea", "$type": "color", "$description": "accent.light (desy-dark); terminal.ansi.bright-cyan (desy-dark)" },
+      "300": { "$value": "#009fdf", "$type": "color", "$description": "DESY brand cyan — accent.base (desy-dark); terminal.ansi.cyan (desy-dark); ansi.bright-cyan + chart series-1 slots (desy-light uses it as the bright variant)" },
+      "400": { "$value": "#007bc8", "$type": "color", "$description": "DESY accessibility cyan (official styleguide hex) — terminal.ansi.cyan (desy-light)" },
+      "450": { "$value": "#0077c4", "$type": "color", "$description": "accent.base (desy-light) — WCAG nudge of the official #007bc8, see family description; white accent.on scores 4.73:1 on it" },
+      "600": { "$value": "#00619e", "$type": "color", "$description": "accent.light / hover-emphasis (desy-light)" }
+    },
+    "orange": {
+      "$description": "DESY brand orange family (DESY Styleguide 06/24) — the brand's accent colour, mapped onto the decorative-amber semantic slot in the `desy` theme family. #f18f1f is the brand orange; #eb6e0f is DESY's official screen-accessibility variant.",
+      "200": { "$value": "#f6ae5c", "$type": "color", "$description": "amber.light (desy-dark)" },
+      "300": { "$value": "#f18f1f", "$type": "color", "$description": "DESY brand orange — amber.base + status.warning (desy-dark); amber.hover (desy-light)" },
+      "500": { "$value": "#eb6e0f", "$type": "color", "$description": "DESY accessibility orange (official styleguide hex) — amber.hover (desy-dark); amber.base + status.warning (desy-light)" },
+      "650": { "$value": "#c25a0b", "$type": "color", "$description": "amber.light (desy-light) — deeper on-light shade, mirroring the main light theme's darker amber.light slot" }
+    },
+    "petrol": {
+      "$description": "Cyan-hued neutral ramp for the `desy` theme family's canvas and text — hue ~203°, taken from DESY dark blue #004a6e (the styleguide's 'black to dark blue' background direction), desaturating toward the light end. Light steps (50–300) are the desy-light canvas; dark steps (750–950) are the desy-dark canvas; mids carry text/border shades for both modes.",
+      "50": { "$value": "#f3f8fc", "$type": "color", "$description": "bg.primary + chart paper/plot (desy-light); terminal.ansi.bright-white (desy-dark)" },
+      "100": { "$value": "#e8f1f7", "$type": "color", "$description": "bg.panel (desy-light)" },
+      "150": { "$value": "#deeaf2", "$type": "color", "$description": "bg.secondary (desy-light); text.primary (desy-dark)" },
+      "200": { "$value": "#d1e1eb", "$type": "color", "$description": "bg.elevated (desy-light); terminal.ansi.black (desy-light)" },
+      "250": { "$value": "#c1d5e1", "$type": "color", "$description": "terminal.text / ansi foreground + white (desy-dark)" },
+      "300": { "$value": "#b3c8d6", "$type": "color", "$description": "border.default (desy-light); tint.neutral base (desy-dark)" },
+      "400": { "$value": "#95adbb", "$type": "color", "$description": "text.secondary + chart.axis-text (desy-dark); terminal.ansi.bright-black (desy-light)" },
+      "500": { "$value": "#6f8a9b", "$type": "color", "$description": "text.muted (desy-dark 5.01:1, desy-light 3.40:1); tint.neutral base (desy-light)" },
+      "600": { "$value": "#496779", "$type": "color", "$description": "text.secondary + chart.axis-text (desy-light); terminal.ansi.bright-black (desy-dark)" },
+      "700": { "$value": "#2b485a", "$type": "color", "$description": "text.primary + terminal.text (desy-light)" },
+      "750": { "$value": "#1e3848", "$type": "color", "$description": "border.default (desy-dark)" },
+      "800": { "$value": "#162d3c", "$type": "color", "$description": "bg.elevated (desy-dark)" },
+      "850": { "$value": "#112532", "$type": "color", "$description": "bg.panel + terminal.ansi.black (desy-dark)" },
+      "900": { "$value": "#0c1d27", "$type": "color", "$description": "bg.terminal + bg.secondary + ansi background (desy-dark); terminal.ansi.bright-white (desy-light)" },
+      "950": { "$value": "#091720", "$type": "color", "$description": "bg.primary + accent.on + chart paper/plot (desy-dark)" }
     }
   },
   "font": {

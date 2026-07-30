@@ -1,6 +1,6 @@
 {
   "$description": "Artifacts-only extension tokens: the 'memory domain' violet accent (art-violet-*) plus the workspace browse-shell constants (art-panel-*, art-browser-band-height). The violet source is artifacts/static/css/gallery.css lines 34-38 (dark) and 161-164 (light) — a decorative brand accent (not body text). The high-contrast family AUTHORS its own groups rather than inheriting: that family is fully monochrome, and an inherited violet would be the one hue left on the page — so art-violet resolves to the achromatic mono ramp there, keeping the memory domain's visual separation as a lightness step instead of a hue. The art-panel-*/art-browser-band-height group is the stacked two-card browse shell (a compact browser band above a dominant detail card): theme-independent layout constants, repeated identically in every group here (mirroring web_terminal.json's wt-header-height pattern).",
-  "$extensions": { "inherits": { "retro-dark": "dark", "retro-light": "light" } },
+  "$extensions": { "inherits": { "desy-dark": "dark", "desy-light": "light", "retro-dark": "dark", "retro-light": "light" } },
   "dark": {
     "art-violet": {
       "base": { "$value": "{color.violet.200}", "$type": "color" },

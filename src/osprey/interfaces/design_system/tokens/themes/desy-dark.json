@@ -1,0 +1,154 @@
+{
+  "$description": "DESY dark theme — the DESY corporate palette (DESY Styleguide 06/24) on a blue-tinted dark canvas. The canvas is the petrol neutral ramp (hue ~203°, taken from DESY dark blue #004a6e per the styleguide's 'black to dark blue' background direction); accent.base is the brand cyan #009fdf; the decorative-amber slot carries DESY orange #f18f1f. Status colors and the non-cyan/orange ANSI + chart slots keep the main dark theme's functional primitives — the brand identity lives in the canvas, cyan, and orange, and the status palette stays fleet-consistent. Accent-derived alpha composites (tint.accent, border.accent, selections, wt-accent-system-tint-04) are recomputed from the cyan accent; tint.amber tracks the DESY-orange amber.base; tint.neutral is based on petrol.300 (the same relative lightness as the main dark theme's gray.300 base). WCAG AA gates all pass vs bg.primary (#091720): text.primary 14.85:1, text.secondary 7.77:1, text.muted 5.01:1, accent 6.08:1, accent.on (petrol.950 on cyan) 6.08:1.",
+  "$extensions": { "mode": "dark", "id": "desy-dark", "label": "DESY Dark", "family": "desy" },
+  "bg": {
+    "terminal": { "$value": "{color.petrol.900}", "$type": "color" },
+    "primary": { "$value": "{color.petrol.950}", "$type": "color" },
+    "secondary": { "$value": "{color.petrol.900}", "$type": "color" },
+    "panel": { "$value": "{color.petrol.850}", "$type": "color" },
+    "elevated": { "$value": "{color.petrol.800}", "$type": "color" }
+  },
+  "text": {
+    "primary": { "$value": "{color.petrol.150}", "$type": "color" },
+    "secondary": { "$value": "{color.petrol.400}", "$type": "color" },
+    "muted": { "$value": "{color.petrol.500}", "$type": "color" }
+  },
+  "accent": {
+    "base": { "$value": "{color.cyan.300}", "$type": "color", "$description": "DESY brand cyan #009fdf — 6.08:1 on bg.primary." },
+    "light": { "$value": "{color.cyan.200}", "$type": "color", "$description": "Lighter cyan hover/emphasis shade." },
+    "on": { "$value": "{color.petrol.950}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 6.08:1 on cyan.300." }
+  },
+  "amber": {
+    "base": { "$value": "{color.orange.300}", "$type": "color", "$description": "DESY brand orange #f18f1f in the decorative-amber slot." },
+    "light": { "$value": "{color.orange.200}", "$type": "color" },
+    "hover": { "$value": "{color.orange.500}", "$type": "color", "$description": "DESY accessibility orange #eb6e0f — deeper/more-saturated hover, mirroring the main dark theme's hover pattern." }
+  },
+  "status": {
+    "success": { "$value": "{color.green.350}", "$type": "color" },
+    "warning": { "$value": "{color.orange.300}", "$type": "color", "$description": "DESY brand orange doubles as warning, matching the main dark theme's amber-family warning convention." },
+    "error": { "$value": "{color.red.400}", "$type": "color" },
+    "error-hover": { "$value": "{color.red.500}", "$type": "color" }
+  },
+  "border": {
+    "default": { "$value": "{color.petrol.750}", "$type": "color" },
+    "accent": { "$value": "rgba(0, 159, 223, 0.15)", "$type": "color", "$description": "Alpha composite of the accent (#009fdf)." }
+  },
+  "tint": {
+    "accent": {
+      "04": { "$value": "rgba(0, 159, 223, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(0, 159, 223, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(0, 159, 223, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(0, 159, 223, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(0, 159, 223, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(0, 159, 223, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(0, 159, 223, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(0, 159, 223, 0.30)", "$type": "color" }
+    },
+    "amber": {
+      "$description": "Base rgb(241,143,31) = amber.base (DESY orange #f18f1f).",
+      "04": { "$value": "rgba(241, 143, 31, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(241, 143, 31, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(241, 143, 31, 0.08)", "$type": "color" },
+      "12": { "$value": "rgba(241, 143, 31, 0.12)", "$type": "color" },
+      "15": { "$value": "rgba(241, 143, 31, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(241, 143, 31, 0.25)", "$type": "color" }
+    },
+    "error": {
+      "$description": "Base rgb(224,84,84) = status.error #e05454, same as the main dark theme.",
+      "04": { "$value": "rgba(224, 84, 84, 0.04)", "$type": "color" },
+      "08": { "$value": "rgba(224, 84, 84, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(224, 84, 84, 0.10)", "$type": "color" },
+      "15": { "$value": "rgba(224, 84, 84, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(224, 84, 84, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(224, 84, 84, 0.30)", "$type": "color" },
+      "40": { "$value": "rgba(224, 84, 84, 0.40)", "$type": "color" }
+    },
+    "success": {
+      "$description": "Base rgb(115,191,105) = status.success #73bf69, same as the main dark theme.",
+      "08": { "$value": "rgba(115, 191, 105, 0.08)", "$type": "color" },
+      "40": { "$value": "rgba(115, 191, 105, 0.40)", "$type": "color" },
+      "50": { "$value": "rgba(115, 191, 105, 0.50)", "$type": "color" }
+    },
+    "neutral": {
+      "$description": "Base rgb(179,200,214) = color.petrol.300 — the petrol ramp's step at ~the same relative lightness as the main dark theme's gray.300 neutral-tint base, so neutral washes carry the canvas's cold undertone.",
+      "03": { "$value": "rgba(179, 200, 214, 0.03)", "$type": "color" },
+      "06": { "$value": "rgba(179, 200, 214, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(179, 200, 214, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(179, 200, 214, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(179, 200, 214, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(179, 200, 214, 0.20)", "$type": "color" },
+      "35": { "$value": "rgba(179, 200, 214, 0.35)", "$type": "color" }
+    }
+  },
+  "overlay": {
+    "black-20": { "$value": "rgba(0, 0, 0, 0.2)", "$type": "color" },
+    "black-30": { "$value": "rgba(0, 0, 0, 0.3)", "$type": "color" },
+    "black-40": { "$value": "rgba(0, 0, 0, 0.4)", "$type": "color" },
+    "black-50": { "$value": "rgba(0, 0, 0, 0.5)", "$type": "color" },
+    "black-60": { "$value": "rgba(0, 0, 0, 0.6)", "$type": "color" },
+    "black-70": { "$value": "rgba(0, 0, 0, 0.7)", "$type": "color" },
+    "white-03": { "$value": "rgba(255, 255, 255, 0.03)", "$type": "color" }
+  },
+  "shadow": {
+    "panel": { "$value": "-4px 0 24px rgba(0, 0, 0, 0.4)", "$type": "shadow" },
+    "dropdown": { "$value": "0 8px 24px rgba(0, 0, 0, 0.4)", "$type": "shadow" },
+    "dialog": { "$value": "0 8px 32px rgba(0, 0, 0, 0.4)", "$type": "shadow" },
+    "error-dialog": { "$value": "0 0 40px rgba(239, 68, 68, 0.15), 0 8px 32px rgba(0, 0, 0, 0.5)", "$type": "shadow" }
+  },
+  "diff": {
+    "add-bg": { "$value": "rgba(34, 197, 94, 0.08)", "$type": "color" },
+    "add-text": { "$value": "rgba(34, 197, 94, 0.9)", "$type": "color" },
+    "del-bg": { "$value": "rgba(239, 68, 68, 0.08)", "$type": "color" },
+    "del-text": { "$value": "rgba(239, 68, 68, 0.9)", "$type": "color" },
+    "word-del-bg": { "$value": "rgba(239, 68, 68, 0.30)", "$type": "color" },
+    "word-del-text": { "$value": "{color.red.300}", "$type": "color" },
+    "word-add-bg": { "$value": "rgba(34, 197, 94, 0.30)", "$type": "color" },
+    "word-add-text": { "$value": "{color.green.400}", "$type": "color" }
+  },
+  "terminal": {
+    "cursor": { "$value": "{color.cyan.300}", "$type": "color" },
+    "text": { "$value": "{color.petrol.250}", "$type": "color" },
+    "selection": { "$value": "rgba(0, 159, 223, 0.25)", "$type": "color" },
+    "ansi": {
+      "background": { "$value": "{color.petrol.900}", "$type": "color" },
+      "foreground": { "$value": "{color.petrol.250}", "$type": "color" },
+      "cursor": { "$value": "{color.cyan.300}", "$type": "color" },
+      "cursor-accent": { "$value": "{color.petrol.900}", "$type": "color" },
+      "selection": { "$value": "rgba(0, 159, 223, 0.25)", "$type": "color" },
+      "black": { "$value": "{color.petrol.850}", "$type": "color" },
+      "red": { "$value": "{color.red.400}", "$type": "color" },
+      "green": { "$value": "{color.green.350}", "$type": "color" },
+      "yellow": { "$value": "{color.amber.350}", "$type": "color" },
+      "blue": { "$value": "{color.blue.300}", "$type": "color" },
+      "magenta": { "$value": "{color.violet.250}", "$type": "color" },
+      "cyan": { "$value": "{color.cyan.300}", "$type": "color", "$description": "ANSI cyan literally is the DESY brand cyan." },
+      "white": { "$value": "{color.petrol.250}", "$type": "color" },
+      "bright-black": { "$value": "{color.petrol.600}", "$type": "color" },
+      "bright-red": { "$value": "{color.red.100}", "$type": "color" },
+      "bright-green": { "$value": "{color.green.300}", "$type": "color" },
+      "bright-yellow": { "$value": "{color.amber.200}", "$type": "color" },
+      "bright-blue": { "$value": "{color.blue.100}", "$type": "color" },
+      "bright-magenta": { "$value": "{color.violet.150}", "$type": "color" },
+      "bright-cyan": { "$value": "{color.cyan.200}", "$type": "color" },
+      "bright-white": { "$value": "{color.petrol.50}", "$type": "color" }
+    }
+  },
+  "chart": {
+    "$description": "Paper/plot = bg.primary and grid/axis = the text.secondary family, mirroring the main dark theme's formula. Series slots 1–2 carry the DESY brand pair (cyan, orange); slots 3–6 keep the main theme's distinguishable green/red/violet/blue set.",
+    "paper-bg": { "$value": "{color.petrol.950}", "$type": "color" },
+    "plot-bg": { "$value": "{color.petrol.950}", "$type": "color" },
+    "grid": { "$value": "rgba(149, 173, 187, 0.1)", "$type": "color", "$description": "text.secondary base (#95adbb) at 10% alpha." },
+    "axis-text": { "$value": "{color.petrol.400}", "$type": "color" },
+    "series": {
+      "1": { "$value": "{color.cyan.300}", "$type": "color" },
+      "2": { "$value": "{color.orange.300}", "$type": "color" },
+      "3": { "$value": "{color.green.400}", "$type": "color" },
+      "4": { "$value": "{color.red.300}", "$type": "color" },
+      "5": { "$value": "{color.violet.300}", "$type": "color" },
+      "6": { "$value": "{color.blue.300}", "$type": "color" }
+    }
+  },
+  "code": {
+    "theme": { "$value": "highlight.js atom-one-dark theme", "$type": "string", "$description": "Must exactly match an asset 'name' in src/osprey/interfaces/vendor_manifest.json (contract-tested)." }
+  }
+}

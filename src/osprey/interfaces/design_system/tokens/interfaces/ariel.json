@@ -1,6 +1,6 @@
 {
   "$description": "ARIEL-only extension tokens: relevance-score badge colors (ariel-score-*). Source: ariel/static/css/variables.css lines 56-61 (dark) and 184-189 (light). ARIEL's own --color-amber/--font-sans etc. are NOT reproduced here — those are retired in Task 3.5 in favor of the canonical amber.*/font.display tokens; only the score-badge triplet is a genuine ARIEL-specific extension. Every score.* value here already coincides exactly with an existing ramp step used elsewhere (no new primitives needed). The high-contrast-dark/high-contrast-light groups are AUTHORED explicitly (not opted out) for two reasons: these badge foregrounds are genuine information-bearing text that must clear the family's AAA gates against its own more extreme bg.primary, and that family is fully monochrome — an inherited green/amber badge would be the one hue left on the page. The monochrome badges keep the score ladder as a lightness ladder (high = furthest from the canvas, low = closest), which is the same encoding the badge's own numeric label already carries.",
-  "$extensions": { "inherits": { "retro-dark": "dark", "retro-light": "light" } },
+  "$extensions": { "inherits": { "desy-dark": "dark", "desy-light": "light", "retro-dark": "dark", "retro-light": "light" } },
   "dark": {
     "ariel-score": {
       "high": { "$value": "{color.green.400}", "$type": "color" },
