@@ -225,49 +225,49 @@
   background: var(--bg-elevated);
 }
 
-/* ---- Display menu (the header dot) ----
+/* ---- Display menu (the header sliders button) ----
 
    Every display preference — Appearance (light/dark), View (Expert/Simple),
-   Theme family — collapses behind one circular dot; clicking it opens a
-   popover card (display-menu.js). The dot's core is filled with the active
-   theme's accent token, so it quietly reflects whatever skin is on. */
+   Theme family — plus the System Settings row collapses behind one round
+   button; clicking it opens a popover card (display-menu.js). It carries
+   FADERS, deliberately not a gear: in this shell the gear is the settings
+   drawer's own glyph (drawer header + the System Settings row that opens it),
+   so reusing it here would make one icon mean two things. The stroke is the
+   active theme's accent token, so the control still quietly reflects
+   whatever skin is on — the job the old filled dot used to do. */
 .display-menu {
   position: relative;
   display: flex;
   flex-shrink: 0;
 }
 
-.display-menu-dot {
+.display-menu-trigger {
   width: 28px;
   height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  color: var(--color-accent);
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-full);
   cursor: pointer;
-  transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
 }
 
-.display-menu-dot-core {
-  width: 10px;
-  height: 10px;
-  border-radius: var(--radius-full);
-  background: var(--color-accent);
-  transition: transform var(--wt-transition-fast);
+/* `currentColor` on the SVG, so the stroke follows the button's own color
+   transition rather than needing a second rule per state. */
+.display-menu-trigger-icon {
+  display: block;
 }
 
-.display-menu-dot:hover,
-.display-menu-dot[aria-expanded="true"] {
+.display-menu-trigger:hover,
+.display-menu-trigger[aria-expanded="true"] {
+  color: var(--color-accent-light);
   border-color: var(--border-accent);
   background: var(--bg-elevated);
-}
-
-.display-menu-dot:hover .display-menu-dot-core,
-.display-menu-dot[aria-expanded="true"] .display-menu-dot-core {
-  transform: scale(1.3);
 }
 
 /* The popover card: drops below the dot, right-aligned to it. */
@@ -451,8 +451,7 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
 
 @media (prefers-reduced-motion: reduce) {
   .display-menu-card.open { animation: none; }
-  .display-menu-seg::before,
-  .display-menu-dot-core { transition: none; }
+  .display-menu-seg::before { transition: none; }
 }
 
 /* ---- Simple-mode shell density (frame 2b) ----
@@ -606,19 +605,20 @@ html[data-ui-mode="simple"] .display-menu-settings {
   box-sizing: border-box;
 }
 
-/* Per-entry close "×" — decorative, revealed on hover / when active. Pinned to
-   the top-left corner, clear of the centred icon + label stack. */
-.panel-rail-close {
+/* Per-entry corner affordances — decorative, revealed on hover. The rail owns
+   a panel's whole lifecycle, so both the close "×" and the popout "↗" live
+   here; the tile's own header bar is a bare drag grip with no controls on it.
+   They take mirrored top corners, clear of the centred icon + label stack. */
+.panel-rail-close,
+.panel-rail-popout {
   position: absolute;
   top: 4px;
-  left: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 14px;
   height: 14px;
   border-radius: var(--radius-xs);
-  font-size: var(--text-lg);
   line-height: var(--leading-none);
   color: var(--text-muted);
   opacity: 0;
@@ -627,14 +627,45 @@ html[data-ui-mode="simple"] .display-menu-settings {
     background var(--wt-transition-fast);
 }
 
+.panel-rail-close {
+  left: 4px;
+  font-size: var(--text-lg);
+}
+
+/* The arrow is a smaller glyph than the "×" at the same nominal size, so it
+   rides one step up the scale to read as the "×"'s equal weight. */
+.panel-rail-popout {
+  right: 4px;
+  font-size: var(--text-base);
+}
+
 /* Revealed on hover only — the active cell stays clean (close via hover or the
    keyboard Delete/Backspace shortcut). */
-.panel-rail-button:hover .panel-rail-close { opacity: 0.7; }
+.panel-rail-button:hover .panel-rail-close,
+.panel-rail-button:hover .panel-rail-popout { opacity: 0.7; }
 
 .panel-rail-close:hover {
   opacity: 1;
   color: var(--color-error);
   background: var(--accent-tint-08);
+}
+
+/* Popout is non-destructive, so it lights accent rather than the close's error
+   red — the colour is the only cue distinguishing the two corners on hover. */
+.panel-rail-popout:hover {
+  opacity: 1;
+  color: var(--color-accent-light);
+  background: var(--accent-tint-08);
+}
+
+/* The design system's `.agent-attention` badge is pinned to the same top-right
+   corner (highlight.css), so the two would sit on top of each other. The badge
+   is an AT-REST attractor — once the pointer is on the entry the operator has
+   already noticed it — so it yields the corner for as long as the entry is
+   hovered and the action is reachable. Scoped to rail entries: the badge keeps
+   its normal behaviour everywhere else it is used. */
+.panel-rail-button.agent-attention:hover::after {
+  opacity: 0;
 }
 
 /* An offline (disabled) entry is inert, but its "×" stays clickable and visible
@@ -644,10 +675,19 @@ html[data-ui-mode="simple"] .display-menu-settings {
   opacity: 0.6;
 }
 
+/* Popout is the opposite case: a panel whose backend has not come up has no
+   resolved standalone URL yet, so the affordance is hidden rather than offered
+   as a dead click (panel-manager's handler no-ops on a null URL regardless). */
+.panel-rail-button.disabled .panel-rail-popout {
+  display: none;
+}
+
 /* The SESSION (terminal) entry is the rail's permanent anchor: it never has a
-   membership "×" — its tile is closed/reopened through the dock tab and the
-   Delete-key shortcut instead (dock-workspace.js guards the JS paths too). */
-.panel-rail-button[data-panel-id="terminal"] .panel-rail-close {
+   membership "×" — its tile is closed/reopened through its own header bar and
+   the Delete-key shortcut instead (dock-workspace.js guards the JS paths too).
+   It has no standalone page either, so no "↗". */
+.panel-rail-button[data-panel-id="terminal"] .panel-rail-close,
+.panel-rail-button[data-panel-id="terminal"] .panel-rail-popout {
   display: none;
 }
 
@@ -850,11 +890,19 @@ html[data-rail-position="top"] .panel-rail-label {
   font-family: var(--font-display);
 }
 
-/* Pinned children: the LED keeps its top-right corner; the close "×"
-   tucks tighter into the top-left so it clears the now-centered icon. */
-html[data-rail-position="top"] .panel-rail-close {
+/* Pinned children: the LED keeps its top-right corner; close and popout tuck
+   tighter into their top corners so they clear the now-centered icon. */
+html[data-rail-position="top"] .panel-rail-close,
+html[data-rail-position="top"] .panel-rail-popout {
   top: 2px;
+}
+
+html[data-rail-position="top"] .panel-rail-close {
   left: 2px;
+}
+
+html[data-rail-position="top"] .panel-rail-popout {
+  right: 2px;
 }
 
 html[data-rail-position="top"] .panel-add {

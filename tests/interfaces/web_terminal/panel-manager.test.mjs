@@ -194,6 +194,13 @@ describe('/api/panel-focus POST on a user-initiated rail switch', () => {
     const tab = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
     await vi.waitFor(() => expect(tab.classList.contains('disabled')).toBe(false));
 
+    // Boot surfaces the only visible panel, so its entry starts active — and a
+    // click on the ACTIVE entry is the retire-tile toggle, not a switch. Retire
+    // first so the click under test is a genuine activation.
+    await vi.waitFor(() => expect(tab.classList.contains('active')).toBe(true));
+    tab.click();
+    await vi.waitFor(() => expect(tab.classList.contains('active')).toBe(false));
+
     // Isolate the click's own request from the config/panels fetches above.
     calls.length = 0;
     tab.click();
@@ -211,6 +218,36 @@ describe('/api/panel-focus POST on a user-initiated rail switch', () => {
 
   test('is a no-op when the prefix is empty', async () => {
     await assertPanelFocusUrl('', '/api/panel-focus');
+  });
+
+  test('re-clicking the ACTIVE entry retires its tile locally — no POST, entry stays', async () => {
+    renderContainer();
+    /** @type {{url: string, opts: any}[]} */
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ opts) => {
+      calls.push({ url, opts });
+      if (url.endsWith('/api/panels')) {
+        return jsonOk({ enabled: ['artifacts'], custom: [], default: null, visible: ['artifacts'], active: null, labels: {} });
+      }
+      if (url.endsWith('/api/artifact-server')) return jsonOk({ url: '/panel/artifacts', available: true });
+      return jsonOk({ status: 'ok' });
+    }));
+    stubEventSource();
+
+    const { initPanelManager } = await freshImport();
+    await initPanelManager('panel-manager');
+
+    const tab = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
+    await vi.waitFor(() => expect(tab.classList.contains('active')).toBe(true));
+
+    calls.length = 0;
+    tab.click();
+    await vi.waitFor(() => expect(tab.classList.contains('active')).toBe(false));
+
+    // Retiring a tile is LOCAL layout state: nothing is sent to the server,
+    // and the panel keeps its rail membership so a second click brings it back.
+    expect(calls.filter((c) => c.opts?.method === 'POST')).toEqual([]);
+    expect(document.querySelector('[data-panel-id="artifacts"]')).toBe(tab);
   });
 });
 
@@ -511,7 +548,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
   });
 });
 
-describe('getPanelStandaloneUrl — the tile-tab bar\'s popout target (dock-tab.js)', () => {
+describe('getPanelStandaloneUrl — the rail popout corner\'s target (railOptions onPopout)', () => {
   test('is null before config resolves a url, then the resolved url once it has', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();

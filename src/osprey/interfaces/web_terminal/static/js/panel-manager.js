@@ -35,7 +35,6 @@ import {
 import { initDockSync, withEchoSuppressed, setTileCloseHandler } from './dock-sync.js';
 import { startHealthPolling as startPolling } from './panel-health.js';
 import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
-import { setStandaloneUrlResolver } from './dock-tab.js';
 import { initRailThemeCoupling } from './rail-position.js';
 import { flashElement } from '/design-system/js/highlight.js';
 import {
@@ -231,9 +230,6 @@ export async function initPanelManager(panelId) {
       configLoaded: false,
     };
   }
-
-  // The tile header bar's popout resolves URLs through us (dock-tab.js).
-  setStandaloneUrlResolver(getPanelStandaloneUrl);
 
   // Seed visiblePanels from server config ('visible' field added by Task 1.1).
   // Fall back to all enabled panel ids for backward compat when field is absent.
@@ -469,12 +465,29 @@ function railOptions() {
   return {
     onActivate: (/** @type {string} */ id) => {
       if (id === TERMINAL_RAIL_ID) { openTerminalPanel(); return; }
-      if (visiblePanels.has(id)) activateTab(id, { userInitiated: true });
-      else showPanel(id);
+      // Clicking the entry whose tile is ALREADY surfaced retires that tile.
+      // This is the local vacate that used to sit on the tile's own "×" — a
+      // service tile's strip is now a bare drag grip, so the gesture moved to
+      // the rail rather than disappearing. It stays a LOCAL layout change:
+      // rail membership survives, so a second click brings the tile back.
+      // Membership removal remains the separate "×" corner.
+      if (visiblePanels.has(id)) {
+        if (activeTabId === id) { retireTile(id); return; }
+        activateTab(id, { userInitiated: true });
+      } else showPanel(id);
     },
     onClose: (/** @type {string} */ id) => {
       if (id === TERMINAL_RAIL_ID) { closeTerminalPanel(); return; }
       setPanelVisibility(id, false);
+    },
+    // The rail owns the whole panel lifecycle, popout included — a tile's
+    // header bar is a bare drag grip. No-ops before the panel's config fetch
+    // has resolved a URL; the rail also hides the affordance while the entry
+    // is `.disabled`, so this guard is the backstop, not the only gate.
+    onPopout: (/** @type {string} */ id) => {
+      if (id === TERMINAL_RAIL_ID) return;
+      const url = getPanelStandaloneUrl(id);
+      if (url) window.open(url, '_blank', 'noopener');
     },
   };
 }
@@ -519,6 +532,21 @@ function clearActivePanel() {
 function vacatePanel(panelId) {
   concealPanel(panelId);
   if (activeTabId === panelId) clearActivePanel();
+}
+
+/**
+ * Retire a surfaced panel's dock tile from the rail — the toggle-off half of
+ * an entry click. The twin of {@link vacatePanel}: that one reconciles state
+ * AFTER dockview has already removed the placeholder (a click on the tile's
+ * own close), whereas here nothing has removed it yet, so this must drop the
+ * tile itself via hidePanel. Local only — `visiblePanels` is untouched, so the
+ * entry keeps its rail membership and no POST fires. The echo guard covers
+ * dockview auto-activating a neighbouring tile on the removal.
+ * @param {string} panelId
+ */
+function retireTile(panelId) {
+  withEchoSuppressed(() => hidePanel(panelId));
+  clearActivePanel();
 }
 
 /**
@@ -911,10 +939,10 @@ export function getPresets() {
 }
 
 /**
- * Standalone (non-embedded) URL for a service panel — the popout target of the
- * tile header bar (dock-tab.js). state.url is the already-proxied root-relative
- * base; the optional catalog path suffixes custom panels' UI root. Null until
- * the panel's config fetch has resolved a URL.
+ * Standalone (non-embedded) URL for a service panel — the target of the rail
+ * entry's popout corner (railOptions' onPopout). state.url is the
+ * already-proxied root-relative base; the optional catalog path suffixes custom
+ * panels' UI root. Null until the panel's config fetch has resolved a URL.
  * @param {string} panelId
  * @returns {string | null}
  */

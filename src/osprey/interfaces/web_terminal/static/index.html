@@ -104,7 +104,7 @@
           <span class="command-palette-trigger-label">Search</span>
           <span class="command-palette-kbd" aria-hidden="true">&#8984;K</span>
         </button>
-        <!-- Display menu: the header dot. Collapses the Expert/Simple mode
+        <!-- Display menu: the header sliders button. Collapses the Expert/Simple mode
              toggle and both theme axes (light/dark + family) into one popover
              card so the header stays quiet. display-menu.js owns open/close
              and the two theme rows; the View row keeps the #mode-toggle /
@@ -113,10 +113,15 @@
              html[data-ui-mode]. The family pills are populated by
              display-menu.js from the tokens.js THEMES registry. -->
         <div class="display-menu" id="display-menu">
-          <button class="display-menu-dot" id="display-menu-btn" type="button"
+          <!-- Faders, not a gear: the gear is this app's glyph for the settings
+               DRAWER (its own header and the System Settings row below both use
+               it), while this button opens display preferences. -->
+          <button class="display-menu-trigger" id="display-menu-btn" type="button"
                   title="Display preferences" aria-label="Display preferences"
                   aria-haspopup="true" aria-expanded="false">
-            <span class="display-menu-dot-core" aria-hidden="true"></span>
+            <svg class="display-menu-trigger-icon" aria-hidden="true" width="16" height="16"
+                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
           </button>
           <div class="display-menu-card" id="display-menu-card" role="group" aria-label="Display preferences">
             <div class="display-menu-row">

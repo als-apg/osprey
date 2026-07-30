@@ -1,8 +1,8 @@
 // @ts-check
-/* OSPREY Web Terminal — Display Menu (the header dot)
+/* OSPREY Web Terminal — Display Menu (the header sliders button)
  *
- * One quiet dot in the header collapses every display preference behind a
- * popover card: Appearance (light/dark within the active theme family), View
+ * One quiet faders button in the header collapses every display preference
+ * behind a popover card: Appearance (light/dark within the active theme family), View
  * (Expert/Simple), Theme (the family pills), and — last, expert-only — the
  * System Settings row that opens the settings drawer. It replaces the hub
  * header's always-visible segmented mode toggle + `<osprey-theme-switcher>`
@@ -34,7 +34,7 @@
  *
  * The popover grammar (open renders nothing lazily except the family pills'
  * one-time build; capture-phase outside-click + Escape close; aria-expanded
- * mirrored on the dot) matches panel-add-menu.js, the shell's other header
+ * mirrored on the button) matches panel-add-menu.js, the shell's other header
  * popover.
  */
 
@@ -96,7 +96,7 @@ function _modeOfId(id) {
 }
 
 /**
- * Wire the header display menu. No-op if the dot/card markup is absent so a
+ * Wire the header display menu. No-op if the button/card markup is absent so a
  * template without the control degrades gracefully.
  */
 export function initDisplayMenu() {

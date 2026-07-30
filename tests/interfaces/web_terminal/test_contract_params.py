@@ -240,7 +240,10 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
         )
         # Assert -- rejected: currentSessionId did not change, so an
         # independent refresh click still fetches with no session_id.
+        # Refresh lives in the browser toolbar's ⋯ overflow menu, so it has to
+        # be opened before the item is clickable.
         with page.expect_request(lambda r: "/api/artifacts" in r.url) as rejected_info:
+            page.locator("#sidebar-menu-btn").click()
             page.locator("#refresh-btn").click()
         assert "evil-session-999" not in rejected_info.value.url
         assert "session_id" not in rejected_info.value.url

@@ -35,7 +35,8 @@
  *             type="button" role="tab" aria-selected="false" title="WORKSPACE">
  *       <span class="panel-rail-icon" data-icon="artifacts" aria-hidden="true"></span>
  *       <span class="panel-rail-label">WORKSPACE</span>
- *       <span class="panel-rail-close" aria-hidden="true">×</span>   (only when onClose given)
+ *       <span class="panel-rail-close" aria-hidden="true">×</span>    (only when onClose given)
+ *       <span class="panel-rail-popout" aria-hidden="true">↗</span>   (only when onPopout given)
  *     </button>
  *     ...
  *     <button class="panel-rail-add" type="button" aria-label="Add panel">＋</button>  (only when onAdd given)
@@ -61,11 +62,12 @@ import { flashElement } from '/design-system/js/highlight.js';
 
 /**
  * Interaction closures injected by the caller so the rail stays a dumb view.
- * Every callback is optional: omit `onClose` to render no per-entry close
- * affordance, omit `onAdd` to render no `＋` button.
+ * Every callback is optional: omit `onClose` / `onPopout` to render no such
+ * per-entry corner affordance, omit `onAdd` to render no `＋` button.
  * @typedef {object} RailOptions
  * @property {(id: string) => void} [onActivate] - an entry was clicked
  * @property {(id: string) => void} [onClose]    - the entry's close "×" was clicked
+ * @property {(id: string) => void} [onPopout]   - the entry's popout "↗" was clicked
  * @property {() => void} [onAdd]                 - the trailing `＋` was clicked
  */
 
@@ -112,24 +114,50 @@ function buildRailButton(panel, options = {}) {
     btn.addEventListener('click', () => onActivate(panel.id));
   }
 
-  // Per-entry close affordance — only when the caller wants one. Decorative
-  // (aria-hidden) so it is not a control nested inside the button; the click
-  // stops propagation so closing does not also activate the entry.
+  // Per-entry corner affordances — the rail owns a panel's whole lifecycle
+  // (open, close, pop out), so both live here rather than on the tile itself,
+  // whose header bar is a bare drag grip. Rendered only when the caller wants
+  // them; close takes the top-left corner, popout the mirrored top-right.
   if (options.onClose) {
-    const onClose = options.onClose;
-    const close = document.createElement('span');
-    close.className = 'panel-rail-close';
-    close.setAttribute('aria-hidden', 'true');
-    close.title = `Close ${panel.label}`;
-    close.textContent = '×';
-    close.addEventListener('click', (e) => {
-      e.stopPropagation();
-      onClose(panel.id);
-    });
-    btn.appendChild(close);
+    btn.appendChild(
+      buildCornerAffordance('panel-rail-close', '×', `Close ${panel.label}`, panel.id, options.onClose)
+    );
+  }
+  if (options.onPopout) {
+    btn.appendChild(
+      buildCornerAffordance(
+        'panel-rail-popout', '↗', `Open ${panel.label} in a new window`, panel.id, options.onPopout
+      )
+    );
   }
 
   return btn;
+}
+
+/**
+ * One hover-revealed corner glyph on a rail entry. Decorative (aria-hidden) so
+ * it is not a control nested inside the entry button — assistive tech reaches
+ * the same actions through the command palette. The click stops propagation so
+ * acting on the corner does not also activate the entry underneath it.
+ *
+ * @param {string} className
+ * @param {string} glyph
+ * @param {string} title
+ * @param {string} panelId
+ * @param {(id: string) => void} handler
+ * @returns {HTMLSpanElement}
+ */
+function buildCornerAffordance(className, glyph, title, panelId, handler) {
+  const el = document.createElement('span');
+  el.className = className;
+  el.setAttribute('aria-hidden', 'true');
+  el.title = title;
+  el.textContent = glyph;
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handler(panelId);
+  });
+  return el;
 }
 
 /**

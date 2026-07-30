@@ -76,7 +76,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # `data-drawer-trigger`, not the drawer component's own `[data-drawer]`
 # marker, so the warning gate below is the sole open path. It is the System
 # Settings row inside the header display-menu popover, so reaching it means
-# opening the dot first.
+# opening the display menu first.
 TRIGGER_SELECTOR = '[data-drawer-trigger="settings-drawer"]'
 DISPLAY_MENU_BTN_SELECTOR = "#display-menu-btn"
 DRAWER_SELECTOR = "#settings-drawer"

@@ -6,9 +6,9 @@
  *   npx vitest run tests/interfaces/web_terminal/display-menu.test.mjs
  *
  * Covers:
- *   - graceful no-op when the dot/card markup is absent
- *   - open/close grammar: dot click toggles, outside click and Escape close
- *     (Escape returns focus to the dot), aria-expanded mirrors state
+ *   - graceful no-op when the button/card markup is absent
+ *   - open/close grammar: trigger click toggles, outside click and Escape close
+ *     (Escape returns focus to the button), aria-expanded mirrors state
  *   - the Appearance row: data-active mirrors the resolved light/dark mode,
  *     picking the other side drives theme-manager's toggleTheme(), and
  *     re-picking the active side no-ops
@@ -39,7 +39,7 @@ import { initDisplayMenu, themeFamilies, familyLabel } from '../../../src/osprey
 /** The index.html display-menu fixture (family pills are built by the module). */
 const FIXTURE = `
   <div class="display-menu" id="display-menu">
-    <button class="display-menu-dot" id="display-menu-btn" type="button"
+    <button class="display-menu-trigger" id="display-menu-btn" type="button"
             aria-haspopup="true" aria-expanded="false"></button>
     <div class="display-menu-card" id="display-menu-card" role="group" aria-label="Display preferences">
       <div class="display-menu-seg display-menu-appearance" id="appearance-toggle" role="group">
@@ -86,25 +86,25 @@ describe('display-menu', () => {
   });
 
   describe('init', () => {
-    test('no-ops without the dot/card markup', () => {
+    test('no-ops without the button/card markup', () => {
       document.body.innerHTML = '<div id="something-else"></div>';
       expect(() => initDisplayMenu()).not.toThrow();
     });
   });
 
   describe('open/close grammar', () => {
-    test('dot click opens the card and mirrors aria-expanded; second click closes', () => {
+    test('trigger click opens the card and mirrors aria-expanded; second click closes', () => {
       mountAndInit();
-      const dot = qs('#display-menu-btn');
+      const trigger = qs('#display-menu-btn');
       const card = qs('#display-menu-card');
 
-      dot.click();
+      trigger.click();
       expect(card.classList.contains('open')).toBe(true);
-      expect(dot.getAttribute('aria-expanded')).toBe('true');
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
 
-      dot.click();
+      trigger.click();
       expect(card.classList.contains('open')).toBe(false);
-      expect(dot.getAttribute('aria-expanded')).toBe('false');
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
     });
 
     test('an outside click closes the card; a click inside does not', () => {
@@ -119,7 +119,7 @@ describe('display-menu', () => {
       expect(qs('#display-menu-btn').getAttribute('aria-expanded')).toBe('false');
     });
 
-    test('Escape closes the card and returns focus to the dot', () => {
+    test('Escape closes the card and returns focus to the button', () => {
       mountAndInit();
       qs('#display-menu-btn').click();
 

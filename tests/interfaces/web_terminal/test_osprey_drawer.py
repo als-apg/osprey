@@ -125,7 +125,7 @@ def _goto(page: Page, base_url: str) -> None:
 
     ``app.js``'s ``initWelcomeModal()`` shows a full-screen overlay on every
     fresh (no prior localStorage ack) session that otherwise intercepts every
-    click, including the settings gear -- unrelated to the drawer itself, but
+    click, including the display menu -- unrelated to the drawer itself, but
     every test needs it out of the way first. Its Enter-to-dismiss keydown
     listener is only attached after its own internal ``await fetchJSON('/health')``
     resolves, so a single blind keypress races that attachment (it can lose,
@@ -147,7 +147,7 @@ def _click_settings_trigger(page: Page) -> None:
     """Open the header display menu and click its System Settings row.
 
     The settings trigger lives at the bottom of the display-menu popover, so
-    the dot has to be opened first -- the real operator path, and the only one
+    the menu has to be opened first -- the real operator path, and the only one
     Playwright's actionability checks accept (the row is not visible while the
     card is closed). display-menu.js closes the card on that click, so callers
     that reopen the drawer later must call this again rather than reuse a

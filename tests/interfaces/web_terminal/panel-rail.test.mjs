@@ -177,6 +177,38 @@ describe('entry interactions', () => {
     expect(activated).toEqual([]);
   });
 
+  test('popout affordance renders only when onPopout is provided', () => {
+    createRail(rail, PANELS);
+    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-popout')).toBeNull();
+
+    rail = freshRail();
+    createRail(rail, PANELS, { onPopout: () => {} });
+    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-popout')?.textContent).toBe('↗');
+  });
+
+  test('clicking popout invokes onPopout without activating the entry', () => {
+    /** @type {string[]} */
+    const activated = [];
+    /** @type {string[]} */
+    const popped = [];
+    createRail(rail, PANELS, {
+      onActivate: (id) => activated.push(id),
+      onPopout: (id) => popped.push(id),
+    });
+    /** @type {HTMLElement} */ (
+      /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).querySelector('.panel-rail-popout')
+    ).click();
+    expect(popped).toEqual(['ariel']);
+    expect(activated).toEqual([]);
+  });
+
+  test('close and popout occupy opposite corners of the same entry', () => {
+    createRail(rail, PANELS, { onClose: () => {}, onPopout: () => {} });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    expect(entry.querySelector('.panel-rail-close')).toBeTruthy();
+    expect(entry.querySelector('.panel-rail-popout')).toBeTruthy();
+  });
+
 });
 
 describe('addEntry (non-destructive)', () => {

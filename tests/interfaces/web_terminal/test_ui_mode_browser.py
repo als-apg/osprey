@@ -208,7 +208,7 @@ def _close_display_menu(page: Page) -> None:
 
 
 def _click_segment(page: Page, mode: str) -> None:
-    # The mode toggle lives inside the header display-menu popover (the dot);
+    # The mode toggle lives inside the header display-menu popover (the sliders button);
     # open it first. A mode pick closes the card again, so every call starts
     # from the collapsed state.
     _open_display_menu(page)
