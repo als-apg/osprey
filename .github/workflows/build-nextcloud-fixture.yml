@@ -1,0 +1,146 @@
+name: Build Nextcloud+Talk e2e fixture
+
+# Manual only. Builds tests/e2e/fixtures/Dockerfile.nextcloud_talk and pushes it to
+# ghcr as a prebuilt fixture image, so the Nextcloud Talk e2e lane PULLS a ready
+# Nextcloud+Talk server instead of installing and provisioning one per run.
+#
+# There is nothing for a cron schedule to catch: the fixture pins an exact
+# Nextcloud patch release and an exact spreed release, so a scheduled run would
+# re-push identical bytes forever. Dispatch this by hand when those pins move.
+#
+# Why the package is PRIVATE, and must stay private: the image is a Nextcloud
+# server (AGPL-3.0) with the Talk/spreed app (AGPL-3.0) baked in. Internal use is
+# not restricted, but making the package public would be redistribution and would
+# oblige us to provide corresponding source. Do not flip visibility without
+# reading the design doc.
+#
+# Why mirror to ghcr at all rather than pulling nextcloud from Docker Hub in the
+# lane: Docker Hub rate-limits anonymous pulls per source IP and GitHub-hosted
+# runners share egress IPs, so E2E jobs intermittently fail with
+# "toomanyrequests". ghcr has no anonymous pull-rate limit. Baking Talk in at
+# build time also keeps the lane off the release host entirely.
+#
+# Consuming the published image (a private package is not anonymously pullable):
+#   * in CI, the job that pulls it needs `packages: read` and a
+#     docker/login-action step against ghcr.io using GITHUB_TOKEN;
+#   * locally, `docker login ghcr.io` with a PAT carrying `read:packages`.
+#
+# workflow_dispatch is only offered for workflow files present on the DEFAULT
+# branch, so this file has to be on `main` to be dispatchable — it is not
+# runnable from a feature branch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Fixture tag to publish (must match the Dockerfile pins: <nextcloud>-spreed<spreed>)'
+        required: true
+        default: '33.0.7-spreed23.0.9'
+
+env:
+  IMAGE: ghcr.io/als-apg/nextcloud-talk-fixture
+  # Build CONTEXT, not just a path: the Dockerfile's `COPY
+  # nextcloud_talk_provision.sh` is bare, so it only resolves when the context is
+  # the fixtures directory itself. A repo-root context fails that COPY. This
+  # matches how tests/e2e/test_deploy_lifecycle.py builds its sibling fixture.
+  FIXTURES_DIR: tests/e2e/fixtures
+  DOCKERFILE: tests/e2e/fixtures/Dockerfile.nextcloud_talk
+
+jobs:
+  build:
+    name: Publish nextcloud-talk-fixture
+    runs-on: ubuntu-latest
+    # packages: write is NOT in the repo's read-only default token, so it must
+    # be granted explicitly. contents: read is restated because a job-level
+    # permissions block REPLACES the default rather than extending it.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Check out the fixture sources
+      uses: actions/checkout@v4
+
+    - name: Verify the dispatched tag matches the Dockerfile pins
+      # Publishing a tag that disagrees with what the image actually contains is
+      # the one failure here that is expensive to undo: the lane would pull
+      # "33.0.7-spreed23.0.9" and get something else, and every later debugging
+      # session would start from a false premise. So the tag is checked BEFORE
+      # the push rather than trusted from the dispatch form.
+      #
+      # The Dockerfile states its versions in four places — the authoritative
+      # FROM tag and ARG SPREED_VERSION, plus the two greppable pin comments that
+      # exist for tooling — and all four must agree before anything is pushed.
+      #
+      # The dispatched tag arrives via env, not ${{ }} interpolation into the
+      # script body, so its contents can never be parsed as shell.
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+
+        from_tag=$(sed -n 's/^FROM nextcloud:\(.*\)-apache$/\1/p' "$DOCKERFILE")
+        arg_spreed=$(sed -n 's/^ARG SPREED_VERSION=\(.*\)$/\1/p' "$DOCKERFILE")
+        pin_nc=$(sed -n 's/^#[[:space:]]*NEXTCLOUD_PIN=\(.*\)$/\1/p' "$DOCKERFILE")
+        pin_spreed=$(sed -n 's/^#[[:space:]]*SPREED_PIN=\(.*\)$/\1/p' "$DOCKERFILE")
+
+        echo "FROM tag:            ${from_tag:-<unparsed>}"
+        echo "ARG SPREED_VERSION:  ${arg_spreed:-<unparsed>}"
+        echo "NEXTCLOUD pin token: ${pin_nc:-<unparsed>}"
+        echo "SPREED pin token:    ${pin_spreed:-<unparsed>}"
+        echo "dispatched tag:      $TAG"
+
+        for value in "$from_tag" "$arg_spreed" "$pin_nc" "$pin_spreed"; do
+          if [ -z "$value" ]; then
+            echo "::error::Could not parse all four versions out of $DOCKERFILE."
+            echo "::error::A reformat of the FROM line, the ARG, or a pin comment breaks this guard."
+            exit 1
+          fi
+        done
+
+        if [ "$from_tag" != "$pin_nc" ] || [ "$arg_spreed" != "$pin_spreed" ]; then
+          echo "::error::$DOCKERFILE disagrees with itself - pin comments have drifted from FROM/ARG."
+          exit 1
+        fi
+
+        expected="${from_tag}-spreed${arg_spreed}"
+        if [ "$TAG" != "$expected" ]; then
+          echo "::error::Dispatched tag '$TAG' does not match the pinned image '$expected'."
+          echo "::error::Dispatch with '$expected', or move the pins first."
+          exit 1
+        fi
+        echo "Tag matches the pinned versions."
+
+    - name: Log in to ghcr
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push the fixture
+      # --platform is stated explicitly rather than inherited from the runner:
+      # amd64 is what the e2e lane runs on, and an accidental arch change would
+      # only surface as an emulated, minutes-slower boot inside the lane. arm64
+      # is deliberately not built (an Apple Silicon pull runs this under
+      # emulation); add it here with setup-qemu-action if that becomes painful.
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        docker buildx build \
+          --platform linux/amd64 \
+          --file "$DOCKERFILE" \
+          --tag "${IMAGE}:${TAG}" \
+          --push \
+          "$FIXTURES_DIR"
+
+    - name: Verify the tag is pullable
+      # Proves the push landed and the manifest resolves, so a green run means
+      # the lane's pin actually exists in the registry.
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        docker buildx imagetools inspect "${IMAGE}:${TAG}"
