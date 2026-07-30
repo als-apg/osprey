@@ -31,6 +31,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `osprey deploy --dev` now fails with a clear error when the local osprey wheel
+  cannot be built, instead of warning and deploying the pinned PyPI release.
+  Previously a missing `build` package (or a broken local checkout) produced one
+  warning among many info lines and an exit code of 0, so the containers came up
+  running released osprey and the deployment silently tested something other than
+  the local code. The preconditions — editable install, source checkout, `build`
+  package — are now checked before any deploy work begins, and `build` moved from
+  the `dev` extra to a base dependency so an editable install always has it.
 - `osprey build` now prints a provider-credentials summary that reports the API
   keys it *found*, not just the ones it didn't. It leads with the provider the
   project was built for, names where that key came from (project `.env`, the
