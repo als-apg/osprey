@@ -82,6 +82,13 @@ Run & Operate the Agent
       Turn external events — webhooks and cron ticks — into headless Osprey agent
       runs, deployed as containers or run locally.
 
+   .. grid-item-card:: Deploy a Chat Bridge
+      :link: deploy-chat-bridge
+      :link-type: doc
+
+      Let your team ask the Osprey agent questions from a Nextcloud Talk room and
+      get answers, plots, and files back in the same room.
+
    .. grid-item-card:: Monitor the Agent
       :link: monitor-agent
       :link-type: doc
@@ -183,6 +190,7 @@ Bundled Services & Tutorials
    use-cli-chat
    non_interactive_query
    event-dispatch
+   deploy-chat-bridge
    monitor-agent
    configure-health-checks
    add-connector

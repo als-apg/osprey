@@ -348,6 +348,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/nextcloud_bridge",
+            template_path="nextcloud_bridge",
+            output_path="services/nextcloud_bridge",
+            description="Nextcloud Talk bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/bluesky",
             template_path="bluesky",
             output_path="services/bluesky",
