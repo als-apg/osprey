@@ -253,6 +253,9 @@ default:
    * - dispatch_worker
      - ``OSPREY_WORKER_IMAGE``
      - ``services.dispatch_worker.image``
+   * - nextcloud_bridge
+     - ``OSPREY_NEXTCLOUD_BRIDGE_IMAGE``
+     - ``services.nextcloud_bridge.image``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
