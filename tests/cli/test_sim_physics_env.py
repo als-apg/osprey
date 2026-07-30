@@ -19,6 +19,7 @@ same renderer at the function level; the end-to-end proof is
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -85,6 +86,31 @@ def _env_lines(project: Path) -> list[str]:
     return (
         [ln for ln in env.read_text().splitlines() if ln.startswith("VA_")] if env.is_file() else []
     )
+
+
+@pytest.fixture(autouse=True)
+def _contain_env_written_by_the_cli():
+    """Keep what ``sim apply`` writes to the environment inside the test that wrote it.
+
+    ``sim apply`` builds a config *after* writing the project ``.env``, and
+    ``ConfigBuilder`` loads that ``.env`` into ``os.environ`` -- a passthrough
+    that is load-bearing in production (it feeds ``${VAR}`` expansion) but that
+    here publishes this file's faults to every later test in the session. Left
+    unchecked, ``VA_BPM_ERRORS``/``VA_CORR_GAIN`` reach the virtual
+    accelerator's boot tests, where a lattice-physics fault without
+    ``VA_LATTICE='builtin'`` is a fatal configuration.
+
+    ``monkeypatch`` cannot undo this: it restores only the variables it set
+    itself, and these are written by product code at runtime. Snapshotting the
+    whole environment also covers the non-``VA_`` keys a hand-written ``.env``
+    fixture puts on the same passthrough.
+    """
+    before = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
 
 
 class TestRenderAndNotice:
