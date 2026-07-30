@@ -31,6 +31,22 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `osprey deploy --dev` now fails with a clear error when the local osprey wheel
+  cannot be built, instead of warning and deploying the pinned PyPI release.
+  Previously a missing `build` package (or a broken local checkout) produced one
+  warning among many info lines and an exit code of 0, so the containers came up
+  running released osprey and the deployment silently tested something other than
+  the local code. The preconditions — editable install, source checkout, `build`
+  package — are now checked before any deploy work begins, and `build` moved from
+  the `dev` extra to a base dependency so an editable install always has it.
+- `osprey build` now prints a provider-credentials summary that reports the API
+  keys it *found*, not just the ones it didn't. It leads with the provider the
+  project was built for, names where that key came from (project `.env`, the
+  build directory's `.env`, or the shell), and warns if the selected provider's
+  key is missing. Previously the build logged one line per *unresolved*
+  placeholder — twice — so a successful key was silent, and a missing key for
+  the selected provider looked identical to the irrelevant misses for providers
+  the project never uses. The per-placeholder resolver line moved to `DEBUG`.
 - Scaffolded `.env` / `.env.example` files derive their provider API-key list
   from the provider registry instead of a hand-maintained list (which had
   drifted: `ALS_APG_API_KEY` was missing, a stale Langfuse block remained, and
