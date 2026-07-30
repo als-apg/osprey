@@ -36,6 +36,7 @@ from .build_environment import (
     _create_project_venv,
     _generate_env_template,
     _resolve_osprey_spec,
+    report_provider_credentials,
 )
 from .build_injectors import (
     _copy_service_templates,
@@ -87,6 +88,7 @@ __all__ = [
     "_resolve_osprey_spec",
     "_run_lifecycle_phase",
     "build",
+    "report_provider_credentials",
 ]
 
 
@@ -558,6 +560,10 @@ def build(
         # 14. Generate .env.template
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
+
+        # 15. Report provider credentials. Runs after every .env write above so
+        # the summary reflects what the project actually ships with.
+        report_provider_credentials(project_path, build_profile.provider)
 
         # 16. Generate manifest
         manifest_context = {
