@@ -262,7 +262,12 @@ class TestFileBackedBootWithoutPyat:
         return tmp_path
 
     def test_boots_serves_and_never_imports_pyat(self, seam_data_dir: Path):
-        env = dict(os.environ)
+        # Inherit the ambient environment MINUS the whole VA_ family, so this
+        # boot is configured by exactly what is set below. An inherited
+        # VA_BPM_ERRORS or VA_CORR_GAIN is a lattice-physics fault, and the
+        # entrypoint refuses to serve one unless VA_LATTICE='builtin' -- which
+        # a file-backed boot deliberately never sets.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("VA_")}
         env.update(
             VA_DATA_DIR=str(seam_data_dir),
             VA_CHANNELS_FILE="channels_manifest.json",
@@ -272,7 +277,6 @@ class TestFileBackedBootWithoutPyat:
             EPICS_CA_SERVER_PORT=str(_free_port()),
             EPICS_CA_REPEATER_PORT=str(_free_port()),
         )
-        env.pop("VA_LATTICE", None)
 
         proc = subprocess.Popen(
             [sys.executable, __file__, "--run-seam-ioc-subprocess"],

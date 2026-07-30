@@ -31,6 +31,18 @@ scenario carries no ``logbook.json`` (unlike ``bpm-polarity``), so
 entries -- deliberate, since a logbook hint here would leak the answer into
 data the agent could search instead of measuring.
 
+Withholding the answer from the logbook is not enough on its own, because the
+scenario bundle itself is an answer key: ``scenario.json``'s ``description``
+names both faults in plain English, and the agent's cwd IS the deployed
+project directory. So the deploy scaffold below closes that route from both
+ends once the bundle has done its job (``render_scenario_physics_env`` has
+already baked the faults into the VA container's boot environment, and
+``activate_scenarios`` has already seeded the logbook):
+``conceal_scenario_ground_truth`` deletes the bundle from the agent's tree,
+and ``SCENARIO_INTEGRITY_DISALLOWED_TOOLS`` strips the generic
+filesystem-search tools from the session. Without both, the cheapest correct
+answer is a ``Glob`` plus a ``Read``, and the resulting pass proves nothing.
+
 Deploy shape reuses ``tests/e2e/_orm_stack.py``'s single source (build +
 ``override_yaml`` for the VA/container/scan-MCP flip + ``select_correctors``/
 ``select_bpms``/``write_scan_env``), exactly as the deleted draft did. The
@@ -116,7 +128,15 @@ from osprey.simulation.apply import render_scenario_physics_env
 from osprey.utils.dotenv import parse_dotenv_file
 from tests.e2e import _orm_stack
 from tests.e2e.judge import LLMJudge, WorkflowResult
-from tests.e2e.sdk_helpers import HAS_SDK, _default_opus_model, activate_scenarios, run_sdk_query
+from tests.e2e.sdk_helpers import (
+    HAS_SDK,
+    SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
+    _default_opus_model,
+    activate_scenarios,
+    conceal_scenario_ground_truth,
+    promote_ask_to_allow,
+    run_sdk_query,
+)
 from tests.e2e.test_preset_agentic import _to_workflow_result
 
 # Same provider for the agent AND the judge (als-apg -- reachable from GitHub
@@ -384,6 +404,28 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
         except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
             pytest.skip(f"ARIEL Postgres (co-deployed) not ready for logbook seeding: {exc}")
 
+        # Benchmark integrity, both ends. The bundle has done its whole job by
+        # now -- its `physics` block was rendered into the project .env above
+        # and baked into the VA container at boot -- so from here it is nothing
+        # but the answer key sitting in the agent's own cwd, one Glob away.
+        # ``bpm-polarity`` goes with it: that bundle is inactive here, but its
+        # description restates this benchmark's first fault word for word ("BPM
+        # 17's horizontal readback has an inverted polarity"), so leaving it
+        # behind would concede half the answer key.
+        conceal_scenario_ground_truth(project_dir, SCENARIO, "bpm-polarity")
+        # ...and the tools this benchmark's method actually requires. Both sit
+        # in the rendered `permissions.ask` list, which headless has no
+        # responder for, so both come back to the agent as hard denials: the
+        # python executor (the sanctioned compute path -- framework agents never
+        # get Bash, so without it there is no way to analyse a response matrix)
+        # and launch_run (without which no scan can run at all, and the
+        # structural floor below could never be satisfied). Deliberately NOT a
+        # blanket ask->allow promotion: channel_write must stay gated, or the
+        # agent gains a hand-stepped substitute for the measurement being
+        # graded. The read-only scan contract is guarded independently by
+        # tests/e2e/test_bluesky_write_refused_e2e.py.
+        promote_ask_to_allow(project_dir, "mcp__python__execute", "mcp__bluesky__launch_run")
+
         yield project_dir
     finally:
         down = subprocess.run(
@@ -440,6 +482,7 @@ async def test_orm_dual_fault_agentic_localizes_both_faults(
             max_turns=60,
             max_budget_usd=40.0,
             model=_default_opus_model(project_dir),
+            disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
         )
 
         _assert_orbit_response_scan_ran(result)

@@ -25,8 +25,13 @@ import pytest
 import yaml
 
 from osprey.services.virtual_accelerator import entrypoint
-from osprey.simulation.apply import render_scenario_physics_env
+from osprey.simulation.apply import (
+    compute_scenario_physics_env,
+    render_scenario_physics_env,
+    write_scenario_physics_env,
+)
 from osprey.simulation.engine import SimulationEngine
+from osprey.simulation.machine import resolve_active_scenario_names
 
 TEMPLATE_SIM = (
     Path(__file__).resolve().parents[2]
@@ -243,6 +248,240 @@ class TestEnvReconciliation:
         env_text = (project / ".env").read_text()
         assert "VA_CORR_GAIN" not in env_text
         assert env_text.count("VA_BPM_ERRORS=") == 1
+
+
+def _apply_physics(project: Path, names: list[str]) -> bool:
+    """Compute then write, the way ``osprey sim apply`` composes the two steps.
+
+    Returns the writer's changed signal.
+    """
+    return write_scenario_physics_env(project, compute_scenario_physics_env(project, names))
+
+
+class TestSharedActiveSetResolution:
+    """The engine and the renderer resolve one active set, from one definition.
+
+    ``osprey sim apply`` validates and renders the resolved set *before*
+    ``set_active_scenarios`` activates it. If the two resolutions could drift,
+    the CLI would validate one set and apply another -- the exact failure FR1's
+    ordering exists to prevent -- and nothing downstream would notice.
+    """
+
+    @pytest.mark.parametrize(
+        "names",
+        [
+            [],
+            ["corr-fault"],
+            ["corr-fault", "bpm-fault"],
+            ["nominal", "corr-fault"],  # explicit nominal must not duplicate
+            ["corr-fault", "corr-fault"],  # repeat must collapse
+        ],
+    )
+    def test_engine_validates_exactly_the_resolver_set(self, tmp_path, names, monkeypatch):
+        """Spy on ``validate_composition`` rather than on the returned active
+        tuple: the return value is re-derived from the state file, which
+        normalizes ordering and would hide a divergence. The set handed to
+        validation is the one that matters -- it is what the CLI renders
+        physics for.
+
+        Only the *first* call is the resolved set; activation validates again
+        after re-reading the state file it just wrote.
+        """
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        engine = SimulationEngine.from_file(project / "data/simulation/machine.json")
+        seen: list[list[str]] = []
+        real_validate = engine.validate_composition
+
+        def spy(candidate):
+            seen.append(list(candidate))
+            return real_validate(candidate)
+
+        monkeypatch.setattr(engine, "validate_composition", spy)
+
+        engine.set_active_scenarios(names)
+
+        assert seen, "set_active_scenarios never validated the set it activates"
+        assert seen[0] == resolve_active_scenario_names(names)
+
+    @pytest.mark.parametrize(
+        "names",
+        [
+            [],
+            ["corr-fault"],
+            ["corr-fault", "bpm-fault"],
+            ["nominal", "corr-fault"],  # explicit nominal must not duplicate
+            ["corr-fault", "corr-fault"],  # repeat must collapse
+        ],
+    )
+    def test_engine_activates_exactly_what_the_resolver_returns(self, tmp_path, names):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        engine = SimulationEngine.from_file(project / "data/simulation/machine.json")
+
+        active = engine.set_active_scenarios(names)
+
+        assert list(active) == resolve_active_scenario_names(names)
+
+    def test_duplicates_and_explicit_nominal_collapse(self):
+        assert resolve_active_scenario_names(["a", "a", "nominal", "b"]) == ["nominal", "a", "b"]
+
+
+class TestComputeIsPure:
+    """The compute step validates and renders without touching the filesystem.
+
+    ``osprey sim apply`` runs it ahead of the purge-confirmation prompt so that a
+    rejected set -- or a user who answers "no" -- leaves the project untouched;
+    that guarantee only holds if computing really writes nothing.
+    """
+
+    def test_compute_writes_no_env_file(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+
+        rendered = compute_scenario_physics_env(project, ["corr-fault"])
+
+        assert rendered == {"VA_CORR_GAIN": "HCM01=1.15"}
+        assert not (project / ".env").is_file()
+
+    def test_compute_matches_what_the_composed_entry_point_writes(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+
+        computed = compute_scenario_physics_env(project, ["corr-fault"])
+        written = render_scenario_physics_env(project, ["corr-fault"])
+
+        assert computed == written
+
+    def test_device_collision_raises_without_writing(self, tmp_path):
+        project = _make_inline_project(
+            tmp_path,
+            {
+                "scenario-a": {"physics": {"corrector_gain": {"HCM01": 1.1}}},
+                "scenario-b": {"physics": {"corrector_gain": {"HCM01": 1.2}}},
+            },
+        )
+        (project / ".env").write_text("SOME_OTHER_VAR=keep-me\n")
+
+        with pytest.raises(ValueError, match="disjoint"):
+            compute_scenario_physics_env(project, ["scenario-a", "scenario-b"])
+
+        assert (project / ".env").read_text() == "SOME_OTHER_VAR=keep-me\n"
+
+    def test_unknown_scenario_raises_without_writing(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+
+        with pytest.raises(ValueError, match="Unknown scenario"):
+            compute_scenario_physics_env(project, ["no-such-scenario"])
+
+        assert not (project / ".env").is_file()
+
+
+class TestChangedSignal:
+    """The writer reports whether ``.env`` *content* changed, not that it wrote.
+
+    It reconciles unconditionally, so "a write happened" would be true on every
+    call. ``osprey sim apply`` gates its "run osprey deploy up" notice on this
+    signal, so re-applying the same scenario must stay quiet while clearing a
+    stale fault must not.
+    """
+
+    def test_first_render_reports_changed(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        assert _apply_physics(project, ["corr-fault"]) is True
+
+    def test_identical_re_render_reports_unchanged(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        _apply_physics(project, ["corr-fault"])
+
+        assert _apply_physics(project, ["corr-fault"]) is False
+
+    def test_switching_to_a_different_fault_reports_changed(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        _apply_physics(project, ["corr-fault"])
+
+        assert _apply_physics(project, ["bpm-fault"]) is True
+
+    def test_clearing_a_prior_fault_reports_changed(self, tmp_path):
+        """A cleared fault is still live in the running VA -- it must report
+        changed even though nothing is rendered."""
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        _apply_physics(project, ["corr-fault"])
+
+        assert _apply_physics(project, ["no-fault"]) is True
+
+    def test_clearing_when_already_clean_reports_unchanged(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        _apply_physics(project, ["corr-fault"])
+        _apply_physics(project, ["no-fault"])
+
+        assert _apply_physics(project, ["no-fault"]) is False
+
+    def test_physics_free_scenario_on_a_fresh_project_reports_unchanged(self, tmp_path):
+        """Nothing to render and no ``.env`` to clean up: no write, no change."""
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+
+        assert _apply_physics(project, ["no-fault"]) is False
+        assert not (project / ".env").is_file()
+
+    def test_re_render_preserves_unrelated_content_byte_for_byte(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        (project / ".env").write_text("SOME_OTHER_VAR=keep-me\n")
+        _apply_physics(project, ["corr-fault"])
+        first = (project / ".env").read_text()
+
+        _apply_physics(project, ["corr-fault"])
+
+        assert (project / ".env").read_text() == first
+
+    def test_re_render_does_not_accumulate_the_block_header(self, tmp_path):
+        """The header comment is owned by the writer, so it is reconciled like
+        the keys under it -- otherwise every rewrite would append a fresh one
+        and no re-render could ever compare equal."""
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        _apply_physics(project, ["corr-fault"])
+        _apply_physics(project, ["corr-fault"])
+
+        assert (project / ".env").read_text().count("# Scenario physics fault") == 1
+
+    def test_incidental_normalization_alone_reports_unchanged(self, tmp_path):
+        """A hand-edited ``.env`` with no final newline gets normalized on the
+        next write. That is a byte change but not a *physics* change, and
+        reporting it would make ``sim apply`` announce a fault that never
+        existed -- so the signal compares the physics block, not the file."""
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        (project / ".env").write_text("A=1")  # no trailing newline
+
+        changed = _apply_physics(project, ["no-fault"])
+
+        assert changed is False
+        assert (project / ".env").read_text() == "A=1\n"  # still normalized
+
+    def test_trailing_blank_lines_alone_report_unchanged(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        (project / ".env").write_text("A=1\n\n\n")
+
+        assert _apply_physics(project, ["no-fault"]) is False
+
+    def test_normalization_does_not_mask_a_real_physics_change(self, tmp_path):
+        """The same un-normalized file *with* a fault to render still reports
+        changed -- the fix must not swallow the signal it exists to carry."""
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        (project / ".env").write_text("A=1")
+
+        assert _apply_physics(project, ["corr-fault"]) is True
+
+    def test_signal_ignores_whitespace_around_an_unchanged_value(self, tmp_path):
+        """A hand-spaced ``VA_CORR_GAIN = HCM01=1.15`` names the same fault."""
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        (project / ".env").write_text("VA_CORR_GAIN = HCM01=1.15\n")
+
+        assert _apply_physics(project, ["corr-fault"]) is False
+
+    def test_clearing_removes_the_block_header_too(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        (project / ".env").write_text("SOME_OTHER_VAR=keep-me\n")
+        _apply_physics(project, ["corr-fault"])
+
+        _apply_physics(project, ["no-fault"])
+
+        assert (project / ".env").read_text() == "SOME_OTHER_VAR=keep-me\n"
 
 
 class TestErrors:

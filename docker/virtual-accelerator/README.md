@@ -10,7 +10,7 @@ The VA service itself (`manifest/`, `lattice/`, `ioc/`, `entrypoint.py`, and
 the Phase-1 reachability probe `probe/`) lives at
 `src/osprey/services/virtual_accelerator/` and ships as part of the `osprey`
 package; only the `Containerfile` (this **full** image, serving the entire
-1,228-channel namespace) stays here. `probe/` is a minimal toy-ring image
+manifest namespace) stays here. `probe/` is a minimal toy-ring image
 used only to prove the CA host↔container path works at all.
 
 ## Quick start
@@ -59,10 +59,11 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 ## What it serves
 
 The full namespace-union manifest
-(`src/osprey/services/virtual_accelerator/manifest/channel_manifest.json`,
-~1,228 addresses) — the served set is generated from the tutorial's
-channel-finder databases, never hand-listed. Three physics-fidelity
-partitions:
+(`src/osprey/services/virtual_accelerator/manifest/channel_manifest.json`) —
+a few thousand addresses, with the authoritative count in that file's own
+`_metadata.total_channels` rather than repeated here, since the served set is
+generated from the tutorial's channel-finder databases and never hand-listed.
+Three physics-fidelity partitions:
 
 - **pyat-coupled** (SR magnet currents + BPM positions): a real PyAT lattice
   (`osprey.services.virtual_accelerator.lattice`) recomputes the closed
