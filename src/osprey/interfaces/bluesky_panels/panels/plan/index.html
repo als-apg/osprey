@@ -59,7 +59,7 @@
     in panel.js — no innerHTML sink anywhere in this panel.
   -->
   <div class="browser">
-    <aside class="sidebar" aria-label="Plan browser">
+    <aside id="plan-sidebar" class="sidebar" aria-label="Plan browser">
       <div class="sidebar-head">
         <input id="plan-search" class="search" type="search"
                placeholder="Filter…" autocomplete="off"
@@ -69,6 +69,15 @@
       <p id="plans-empty" class="muted sidebar-note" hidden>No plans available.</p>
       <p id="plans-filtered-empty" class="muted sidebar-note" hidden>No match.</p>
     </aside>
+
+    <!-- Draggable splitter between the plan browser and the detail pane. The
+         `.osprey-splitter` class is the design system's shared grip-pill
+         (base.css); the drag/keyboard behaviour is wired in panel.js from
+         /design-system/js/splitter.js. Hidden by the stacked responsive
+         layout below 700px, which has no side-by-side split to resize. -->
+    <div id="browser-splitter" class="osprey-splitter" role="separator"
+         aria-orientation="vertical" aria-label="Resize plan browser"
+         tabindex="0"></div>
 
     <section class="detail" aria-label="Plan detail">
       <div id="detail-empty" class="detail-empty" hidden>

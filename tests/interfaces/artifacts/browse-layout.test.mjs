@@ -29,9 +29,8 @@ function mountFixture() {
   document.body.innerHTML = `
     <div class="browse-layout">
       <aside class="browse-sidebar" id="browse-sidebar"></aside>
-      <div class="resize-handle" id="resize-handle" role="separator" tabindex="0">
-        <div class="resize-handle-grip"></div>
-      </div>
+      <div class="resize-handle osprey-splitter" id="resize-handle"
+           role="separator" tabindex="0"></div>
       <div class="browse-preview-pane" id="browse-preview-pane"></div>
     </div>
     <button id="orient-toggle-btn"><span class="orient-label"></span></button>

@@ -620,42 +620,14 @@ html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-row { display:
    dockview sashes and the OKF panel's sidebar resizer: quiet pill at rest,
    instant accent fill on hover/drag/focus. Wired by browse-layout.js;
    swallows the panel gap so the gutter stays visually even. */
+/* The splitter's look and drag behaviour are the design system's shared
+   `.osprey-splitter` (base.css + js/splitter.js) — identical to the OKF and
+   PLAN panels and to the hub's dockview sashes. The one gallery-specific
+   thing is the gutter: this view puts an --art-panel-gap between its cards,
+   so the handle absorbs that gap into its own margin and the spacing stays
+   visually even across the divider. */
 .resize-handle {
-  flex: 0 0 5px;
   margin: 0 calc((var(--art-panel-gap) - 5px) / 2);
-  position: relative;
-  cursor: col-resize;
-  background: transparent;
-  touch-action: none;
-  transition: background var(--transition-fast);
-}
-
-.resize-handle:hover,
-.resize-handle.dragging,
-.resize-handle:focus-visible {
-  background: var(--color-accent);
-  outline: none;
-}
-
-.resize-handle-grip {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 3px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--text-muted);
-  opacity: 0.55;
-  pointer-events: none;
-  transition: background var(--transition-fast), opacity var(--transition-fast);
-}
-
-.resize-handle:hover .resize-handle-grip,
-.resize-handle.dragging .resize-handle-grip,
-.resize-handle:focus-visible .resize-handle-grip {
-  background: var(--bg-primary);
-  opacity: 1;
 }
 
 /* ---- Stacked variant (explicit choice, or forced when the panel is too

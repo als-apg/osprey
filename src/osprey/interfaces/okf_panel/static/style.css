@@ -97,46 +97,11 @@ body {
   overflow: hidden;
 }
 
-/* Draggable splitter between sidebar and reader — the same grip-pill idiom as
-   the hub's dockview sashes (dockview-overrides.css): quiet pill at rest,
-   instant accent fill on hover/drag. Wired by js/resize.js. */
-#sidebar-resizer {
-  flex: 0 0 5px;
-  position: relative;
-  cursor: col-resize;
-  background: transparent;
-  touch-action: none;
-  transition: background var(--transition-fast);
-}
-
-#sidebar-resizer:hover,
-#sidebar-resizer.dragging,
-#sidebar-resizer:focus-visible {
-  background: var(--color-accent);
-  outline: none;
-}
-
-#sidebar-resizer::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 3px;
-  height: 28px;
-  border-radius: var(--okf-radius-full);
-  background: var(--text-muted);
-  opacity: 0.55;
-  pointer-events: none;
-  transition: background var(--transition-fast), opacity var(--transition-fast);
-}
-
-#sidebar-resizer:hover::after,
-#sidebar-resizer.dragging::after,
-#sidebar-resizer:focus-visible::after {
-  background: var(--color-accent);
-  opacity: 1;
-}
+/* The splitter between sidebar and reader carries `.osprey-splitter` from the
+   design system's base.css — the grip-pill visual shared with the artifact
+   gallery, the PLAN panel, and the hub's dockview sashes. Nothing to restate
+   here; the only OKF-specific splitter rules are the two `display: none`
+   cases further down (stacked responsive layout, Simple UI mode). */
 
 #search-box {
   flex: 0 0 auto;

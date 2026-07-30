@@ -40,7 +40,7 @@ function mountFixture() {
     <aside class="browse-sidebar" id="browse-sidebar">
       <div class="sidebar-body" id="sidebar-body"></div>
     </aside>
-    <div class="resize-handle" id="resize-handle"><div class="resize-handle-grip"></div></div>
+    <div class="resize-handle osprey-splitter" id="resize-handle"></div>
   `;
 }
 

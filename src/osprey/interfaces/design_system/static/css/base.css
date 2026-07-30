@@ -1,8 +1,9 @@
 /* OSPREY Design System — Base
-   Hand-maintained. Shared reset + primitive element defaults for every
-   interface. Interface-specific rules do NOT belong here — this file must
-   never grow a selector scoped to one app. Colors come exclusively from
-   design tokens (tokens.css); this file contains zero color literals. */
+   Hand-maintained. Shared reset, primitive element defaults, and the handful
+   of chrome components every interface draws identically. Interface-specific
+   rules do NOT belong here — this file must never grow a selector scoped to
+   one app. Colors come exclusively from design tokens (tokens.css); this file
+   contains zero color literals. */
 
 /* Theme transition (applied briefly by theme-manager.js during a theme switch) */
 html.theme-transitioning,
@@ -49,4 +50,53 @@ html, body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--neutral-tint-35);
+}
+
+/* Pane splitter — the grip-pill idiom shared by every two-pane browser
+   (OKF sidebar/reader, artifact gallery browse view, PLAN plan-list/detail)
+   and matching the hub's dockview sashes: a quiet pill at rest, instant accent
+   fill on hover, drag, or keyboard focus. Behaviour is js/splitter.js, which
+   toggles `.dragging` for the duration of a drag.
+
+   The 5px track is a deliberately small hit target made usable by pointer
+   capture — once the drag starts the pointer may leave the track entirely and
+   still resize. `touch-action: none` stops a touch drag from being stolen by
+   the page's own scrolling. */
+.osprey-splitter {
+  flex: 0 0 5px;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+  transition: background var(--duration-instant) ease;
+}
+
+.osprey-splitter:hover,
+.osprey-splitter.dragging,
+.osprey-splitter:focus-visible {
+  background: var(--color-accent);
+  outline: none;
+}
+
+.osprey-splitter::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: background var(--duration-instant) ease,
+              opacity var(--duration-instant) ease;
+}
+
+.osprey-splitter:hover::after,
+.osprey-splitter.dragging::after,
+.osprey-splitter:focus-visible::after {
+  background: var(--color-accent);
+  opacity: 1;
 }

@@ -67,16 +67,30 @@ body.embedded .panel-chrome { display: none; }
 }
 
 /* ---- Two-pane browser ---- */
+/* Two panes divided by a live splitter. No `gap` here: the 12px gutter is
+   made by the splitter's own margins (below), so the handle sits INSIDE the
+   gutter instead of adding a third column to it — the spacing reads exactly
+   as it did when this was a fixed grid. */
 .browser {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
-  gap: 12px;
+  min-width: 0;
+  display: flex;
+}
+
+/* The splitter occupies the full 12px gutter (3.5px + 5px track + 3.5px)
+   while keeping the shared 5px hit area, which pointer capture makes
+   comfortable to grab. */
+.browser > .osprey-splitter {
+  margin: 0 calc((12px - 5px) / 2);
 }
 
 /* ---- Sidebar: dense file browser ---- */
 .sidebar {
+  /* Starting width; panel.js overrides flex-basis/max-width inline once the
+     operator drags the splitter, and restores that width on later loads. */
+  flex: 0 0 224px;
+  max-width: 224px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -199,6 +213,8 @@ body.embedded .panel-chrome { display: none; }
 
 /* ---- Detail pane ---- */
 .detail {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -887,7 +903,15 @@ code {
 
 /* ---- Narrow hosts: stack panes, collapse form columns ---- */
 @media (max-width: 700px) {
-  .browser { grid-template-columns: 1fr; }
+  /* Stacked: no side-by-side split to resize. The !important beats the
+     inline flex-basis/max-width panel.js writes while dragging — otherwise a
+     split chosen at a wide viewport would pin the stacked band's height. */
+  .browser { flex-direction: column; }
+  .sidebar {
+    flex-basis: auto !important;
+    max-width: none !important;
+  }
+  .browser > .osprey-splitter { display: none; }
   .panel { min-height: 0; }
   .tree { max-height: 36vh; }
   .form-row { grid-template-columns: 1fr; }

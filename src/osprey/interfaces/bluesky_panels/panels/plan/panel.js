@@ -42,6 +42,7 @@
 import { renderSchemaForm } from './schema-form.js';
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
+import { initSplitter } from '/design-system/js/splitter.js';
 import {
   createDraftClient,
   resolvePinnedRevision,
@@ -897,5 +898,18 @@ onModeChange((mode) => {
 });
 
 // ---- boot ----
+
+// Browser/detail split. Plan names are long and deeply namespaced, so the
+// browser needs to be widenable at the cost of the parameter form — the same
+// affordance (and the same shared implementation) as the OKF panel's
+// sidebar/reader split and the artifact gallery's browse view. The chosen
+// width is persisted per origin; the bounds match OKF's.
+initSplitter({
+  handle: document.getElementById('browser-splitter'),
+  pane: document.getElementById('plan-sidebar'),
+  storageKey: 'osprey-plan-sidebar-width',
+  min: 180,
+  max: 560,
+}).restoreWidth();
 
 void loadPlans();

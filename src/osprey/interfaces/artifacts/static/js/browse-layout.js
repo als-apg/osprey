@@ -9,16 +9,19 @@
  * - Orientation: side-by-side (browser left, artifact right — the default)
  *   or stacked (browser band on top). Stamped as `data-browse-orient` on
  *   <html> so CSS keys every delta off one attribute, persisted per origin,
- *   flipped by the header toggle button.
- * - Splitter: in side-by-side mode the divider is a live pointer-driven
- *   splitter — same grip-pill idiom, clamping, persistence and ARIA
- *   separator keyboard support as the OKF panel's sidebar resizer. Stacked
- *   mode has a fixed-height band (no splitter), matching the OKF panel's
- *   stacked responsive layout.
+ *   flipped by the header toggle button. This axis is the gallery's own
+ *   feature — no other panel has it.
+ * - Splitter: the divider itself is the design system's shared splitter
+ *   (/design-system/js/splitter.js, `.osprey-splitter` in base.css), the same
+ *   drag/clamp/persist/keyboard behaviour the OKF and PLAN panels get. It is
+ *   gated on the orientation: stacked mode is a fixed-height band with no
+ *   split to drag, so the handle goes inert rather than being torn down.
  */
 
-const ORIENT_KEY = "osprey-artifacts-browse-orient";
-const WIDTH_KEY = "osprey-artifacts-browse-sidebar-width";
+import { clampWidth as clamp, initSplitter } from '/design-system/js/splitter.js';
+
+const ORIENT_KEY = 'osprey-artifacts-browse-orient';
+const WIDTH_KEY = 'osprey-artifacts-browse-sidebar-width';
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 560;
 const KEY_STEP = 16;
@@ -31,16 +34,16 @@ const KEY_STEP = 16;
  * @returns {Orient}
  */
 export function normalizeOrient(value) {
-  return value === "column" ? "column" : "row";
+  return value === 'column' ? 'column' : 'row';
 }
 
 /**
- * Clamp a candidate sidebar width to the usable range.
+ * Clamp a candidate sidebar width to this view's usable range.
  * @param {number} width
  * @returns {number}
  */
 export function clampWidth(width) {
-  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(width)));
+  return clamp(width, MIN_WIDTH, MAX_WIDTH);
 }
 
 /** @returns {Orient} the current applied orientation */
@@ -82,45 +85,36 @@ function persist(key, value) {
  * @returns {void}
  */
 export function initBrowseLayout({ handle, sidebar, toggle }) {
-  /** @param {number} width @returns {number} the applied (clamped) width */
-  const applyWidth = (width) => {
-    const px = clampWidth(width);
-    if (sidebar) {
-      sidebar.style.flexBasis = `${px}px`;
-      sidebar.style.maxWidth = `${px}px`;
-    }
-    return px;
-  };
-
-  /** Inline sizes are row-mode state; the stacked band is styled by CSS alone. */
-  const clearWidth = () => {
-    if (sidebar) {
-      sidebar.style.flexBasis = "";
-      sidebar.style.maxWidth = "";
-    }
-  };
+  const splitter = initSplitter({
+    handle,
+    pane: sidebar,
+    storageKey: WIDTH_KEY,
+    min: MIN_WIDTH,
+    max: MAX_WIDTH,
+    step: KEY_STEP,
+    // Re-read per interaction, so flipping the axis parks the splitter
+    // without detaching listeners that would need re-attaching on the way back.
+    isEnabled: () => getOrient() === 'row',
+  });
 
   const syncToggle = () => {
     if (!toggle) return;
-    const stacked = getOrient() === "column";
-    const label = stacked ? "Switch to side-by-side layout" : "Switch to stacked layout";
-    toggle.setAttribute("aria-label", label);
+    const stacked = getOrient() === 'column';
+    const label = stacked ? 'Switch to side-by-side layout' : 'Switch to stacked layout';
+    toggle.setAttribute('aria-label', label);
     toggle.title = label;
     // Menu-item form of the toggle carries a visible label naming the
     // layout a click switches TO; plain icon-button hosts have no span.
-    const labelEl = toggle.querySelector(".orient-label");
-    if (labelEl) labelEl.textContent = stacked ? "Side-by-side layout" : "Stacked layout";
+    const labelEl = toggle.querySelector('.orient-label');
+    if (labelEl) labelEl.textContent = stacked ? 'Side-by-side layout' : 'Stacked layout';
   };
 
   /** @param {Orient} orient */
   const applyOrient = (orient) => {
     document.documentElement.dataset.browseOrient = orient;
-    if (orient === "row") {
-      const stored = parseInt(readStored(WIDTH_KEY) ?? "", 10);
-      if (Number.isFinite(stored)) applyWidth(stored);
-    } else {
-      clearWidth();
-    }
+    // Inline sizes are row-mode state; the stacked band is styled by CSS alone.
+    if (orient === 'row') splitter.restoreWidth();
+    else splitter.clearWidth();
     syncToggle();
   };
 
@@ -129,45 +123,10 @@ export function initBrowseLayout({ handle, sidebar, toggle }) {
   applyOrient(normalizeOrient(readStored(ORIENT_KEY)));
 
   if (toggle) {
-    toggle.addEventListener("click", () => {
-      const next = getOrient() === "column" ? "row" : "column";
+    toggle.addEventListener('click', () => {
+      const next = getOrient() === 'column' ? 'row' : 'column';
       persist(ORIENT_KEY, next);
       applyOrient(next);
     });
   }
-
-  if (!handle || !sidebar) return;
-
-  handle.addEventListener("pointerdown", (e) => {
-    if (getOrient() !== "row") return;
-    e.preventDefault();
-    handle.setPointerCapture(e.pointerId);
-    handle.classList.add("dragging");
-    const startX = e.clientX;
-    const startWidth = sidebar.getBoundingClientRect().width;
-    let width = startWidth;
-
-    const move = (/** @type {PointerEvent} */ ev) => {
-      width = applyWidth(startWidth + (ev.clientX - startX));
-    };
-    const end = () => {
-      handle.classList.remove("dragging");
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", end);
-      handle.removeEventListener("pointercancel", end);
-      persist(WIDTH_KEY, String(width));
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end);
-    handle.addEventListener("pointercancel", end);
-  });
-
-  handle.addEventListener("keydown", (e) => {
-    if (getOrient() !== "row") return;
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    e.preventDefault();
-    const current = sidebar.getBoundingClientRect().width;
-    const next = applyWidth(current + (e.key === "ArrowRight" ? KEY_STEP : -KEY_STEP));
-    persist(WIDTH_KEY, String(next));
-  });
 }
