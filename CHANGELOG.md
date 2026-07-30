@@ -66,6 +66,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `osprey web --project <dir>` launched from outside the project now behaves the
+  same as running `osprey web` inside it. Previously the flag only set the
+  terminal's working directory, so the project's `.env` was never loaded
+  (leaving `${VAR}` placeholders such as a provider `api_key` unexpanded), the
+  project's `web_terminal` and `claude_code` settings were replaced by built-in
+  defaults, and `_agent_data/` was created next to wherever the command was run.
 - ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
   payload omits its `id`: the ALS and generic adapters now fall back to an empty
   entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
