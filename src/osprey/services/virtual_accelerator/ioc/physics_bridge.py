@@ -14,36 +14,30 @@ This module fulfills the ``on_pyat_setpoint`` callback contract that
 ``PhysicsBridge.bind()`` wires the resulting ``IOCRecords.pyat_coupled`` BPM
 records so they receive the recomputed positions via ``.set()``.
 
-Current-to-strength calibration for every magnet/corrector family is owned by
-:class:`~osprey.services.virtual_accelerator.lattice.strengths.StrengthMap`
-(see that module's docstring for the per-family formulas); this bridge only
-looks up a device's commanded current -> physical strength through it.
+The ring itself lives behind a :class:`~lume.model.LUMEModel` -- by default
+:class:`~osprey.services.virtual_accelerator.model.pyat.PyATRingModel`, which
+owns the lattice, the current->strength calibration
+(:class:`~osprey.services.virtual_accelerator.lattice.strengths.StrengthMap`,
+see that module's docstring for the per-family formulas), the atomic
+apply-and-solve, and its rollback. This bridge is the *serving* half: address
+grammar, seeded magnet calibration and BPM readout errors, and the softioc
+record wiring. Everything the model owns is reached through its public
+``set()``/``get()``, so a different backend (a surrogate, Cheetah, Bmad) can be
+injected through ``model=`` without this module changing.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import at
 import numpy as np
 
-from osprey.services.virtual_accelerator.lattice import build_ring
-from osprey.services.virtual_accelerator.lattice.errors import (
-    apply_misalignment,
-    bpm_read,
-    magnet_cal,
-)
-from osprey.services.virtual_accelerator.lattice.solve import (
-    OrbitSolveError,
-    monitor_xy,
-    solve_orbit,
-)
-from osprey.services.virtual_accelerator.lattice.strengths import (
-    ElementState,
-    StrengthMap,
-    restore_element,
-    snapshot_element,
-)
+from osprey.services.virtual_accelerator.lattice.errors import bpm_read, magnet_cal
+from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError
+from osprey.services.virtual_accelerator.model.pyat import PyATRingModel, UnknownDeviceError
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from lume.model import LUMEModel
 
 _CURRENT_FIELD = "CURRENT"
 _BPM_SYSTEM_FAMILY = ("DIAG", "BPM")
@@ -68,10 +62,6 @@ _IDENTITY_BPM_ERROR: dict[str, float] = {
 }
 
 
-class UnknownDeviceError(ValueError):
-    """Raised when a pyat-coupled address doesn't map to a known lattice element."""
-
-
 def _parse_pyat_coupled_address(address: str) -> tuple[str, str, str, str]:
     """Split a manifest address into (system, family, device, field).
 
@@ -90,32 +80,38 @@ def _bpm_address(device: str, axis: str) -> str:
 
 
 class PhysicsBridge:
-    """Owns the persistent SR lattice instance and the pyat-coupled write path.
+    """Serves the pyat-coupled write path from a `LUMEModel` physics backend.
 
-    A single `PhysicsBridge` instance owns one `at.Lattice` for the lifetime of
-    the IOC process -- every SP write mutates that same lattice in place
-    (never rebuilds it), so sequential writes compose exactly like their
-    physical counterparts would: writing a device twice is idempotent (last
-    value wins, not cumulative), and writing two independent devices in
-    either order reaches the same final state (SC3).
+    A single `PhysicsBridge` instance holds one model for the lifetime of the
+    IOC process, and that model owns one lattice -- every SP write mutates that
+    same lattice in place (never rebuilds it), so sequential writes compose
+    exactly like their physical counterparts would: writing a device twice is
+    idempotent (last value wins, not cumulative), and writing two independent
+    devices in either order reaches the same final state (SC3).
     """
 
     def __init__(
         self,
         *,
+        model: LUMEModel | None = None,
         element_misalignments: dict[str, dict[str, float]] | None = None,
         bpm_errors: dict[str, dict[str, float]] | None = None,
         corrector_gains: dict[str, dict[str, float]] | None = None,
         rng_seed: int | None = None,
     ) -> None:
-        """Build the ring and, optionally, seed FR3/FR4 physics faults on it.
+        """Attach a physics model and, optionally, seed FR3/FR4 serving faults.
 
         Args:
+            model: the physics backend to serve. `None` (the default)
+                constructs a `PyATRingModel`, forwarding `element_misalignments`
+                to it. Supplying a model makes the backend pluggable -- a
+                surrogate, Cheetah or Bmad model implementing the same
+                `LUMEModel` contract serves through this bridge unchanged.
             element_misalignments: fam_name (e.g. "QF07", "DIPOLE03") -> kwargs
-                for `errors.apply_misalignment` (`dx`/`dy`/`roll`, all optional).
-                Applied once, in `__init__`, after the ring is built and before
-                the nominal orbit is solved -- an element absent from this dict
-                keeps AT's default (unmisaligned) T1/T2/R1/R2.
+                for `errors.apply_misalignment` (`dx`/`dy`/`roll`, all optional),
+                seeded on the ring the default model builds. Mutually exclusive
+                with `model`: a caller supplying its own model is responsible for
+                that model's ring state.
             bpm_errors: BPM fam_name (e.g. "BPM01") -> a partial override of
                 `errors.bpm_read`'s keyword args; missing fields fall back to
                 identity (see `_IDENTITY_BPM_ERROR`). A BPM absent from this
@@ -128,32 +124,51 @@ class PhysicsBridge:
                 matching `numpy.random.default_rng`'s own default.
 
         Raises:
+            ValueError: both `model` and `element_misalignments` were given.
+            UnknownDeviceError: a seeded misalignment names an element the ring
+                does not have -- propagates from the model unchanged.
             SystemExit: a seeded misalignment leaves the ring without a stable
                 closed orbit (FR12) -- turns an opaque boot crash into a
-                diagnosable one naming the seeded elements and magnitudes.
+                diagnosable one naming the seeded elements and magnitudes. Only
+                the default-construction path converts the model's
+                `OrbitSolveError` this way: ending the process is the serving
+                layer's decision, which is why the model itself never does it.
         """
-        self._ring: at.Lattice = build_ring()
-        self._index_by_famname: dict[str, int] = {el.FamName: i for i, el in enumerate(self._ring)}
-        self._strength_map = StrengthMap(self._ring)
+        if model is not None and element_misalignments is not None:
+            raise ValueError(
+                "pass either model= or element_misalignments=, not both: seeding a ring "
+                "is the responsibility of whoever built the model"
+            )
+
         self._bpm_positions: dict[str, float] = {}
-        self._bpm_device_ids: list[str] = []
         self._bpm_readback_records: dict[str, Any] = {}
         self._rng = np.random.default_rng(rng_seed)
         self._bpm_error_state: dict[str, dict[str, float]] = dict(bpm_errors or {})
         self._magnet_cal_state: dict[str, dict[str, float]] = dict(corrector_gains or {})
 
-        for fam_name, misalign in (element_misalignments or {}).items():
-            idx = self._element_index(fam_name)  # validates before mutating anything
-            apply_misalignment(self._ring[idx], **misalign)
+        if model is None:
+            try:
+                model = PyATRingModel(element_misalignments=element_misalignments)
+            except OrbitSolveError as exc:
+                # Deliberately OrbitSolveError only: an UnknownDeviceError from an
+                # unknown misaligned fam_name must reach the caller as itself.
+                raise SystemExit(
+                    f"FATAL: seeded misalignments {element_misalignments!r} left the SR "
+                    f"lattice without a stable closed orbit at boot ({exc}); reduce the "
+                    "misalignment magnitude or remove the fault"
+                ) from exc
+        self._model = model
 
-        try:
-            self._solve_orbit()  # establish the nominal closed orbit at construction
-        except OrbitSolveError as exc:
-            raise SystemExit(
-                f"FATAL: seeded misalignments {element_misalignments!r} left the SR "
-                f"lattice without a stable closed orbit at boot ({exc}); reduce the "
-                "misalignment magnitude or remove the fault"
-            ) from exc
+        # The model's read-only variables are exactly the BPM position outputs.
+        # Sorted device order matches the ring order `monitor_xy` walks, so the
+        # readout-noise draw sequence is unchanged.
+        self._bpm_output_addresses: list[str] = sorted(
+            address for address, variable in model.supported_variables.items() if variable.read_only
+        )
+        self._bpm_device_ids: list[str] = sorted(
+            {address.split(":")[3] for address in self._bpm_output_addresses}
+        )
+        self._refresh_bpm_positions()
 
     def bind(self, pyat_coupled_records: dict[str, Any]) -> None:
         """Wire the BPM POSITION readback records this bridge should push into.
@@ -203,15 +218,23 @@ class PhysicsBridge:
                 f"expected a {_CURRENT_FIELD} setpoint, got field={field!r} in {address!r}"
             )
         fam_name = f"{family}{device}"
-        idx = self._element_index(fam_name)  # validates before mutating anything
-        previous_state: ElementState = snapshot_element(self._ring[idx])
+        if address not in self._model.supported_variables:
+            raise UnknownDeviceError(f"no lattice element named {fam_name!r}")
 
-        self._apply_current(family, device, fam_name, value)
-        try:
-            self._solve_orbit()
-        except OrbitSolveError:
-            restore_element(self._ring[idx], previous_state)
-            raise
+        # A seeded calibration error (gain/polarity/offset) acts on the
+        # commanded current before it's converted to physical strength -- a
+        # miscalibrated magnet's *field* differs from its setpoint, not the
+        # other way around. Identity (factor=1, offset=0) if unseeded. The
+        # model therefore retains the post-calibration *physical* current.
+        cal = self._magnet_cal_state.get(fam_name, {})
+        value = magnet_cal(value, factor=cal.get("factor", 1.0), offset=cal.get("offset", 0.0))
+
+        # Public set(), not _set(): lume's own read-only and type validation
+        # stays on the write path. The model applies, solves once, and rolls
+        # the element back itself if the orbit is lost, re-raising
+        # OrbitSolveError -- so a rejected write is still a complete no-op here.
+        self._model.set({address: value})
+        self._refresh_bpm_positions()
         self._push_bpm_readbacks()
 
     def bpm_positions(self) -> dict[str, float]:
@@ -224,57 +247,43 @@ class PhysicsBridge:
 
     # -- internals ---------------------------------------------------------
 
+    # The three accessors below delegate to the model rather than duplicating
+    # any state. They exist because the physics is pinned white-box -- the
+    # strength-formula and rollback tests assert directly on element attributes
+    # (`_ring[idx].K`, `.PolynomB`) and on the baked nominal strengths -- and
+    # that is the right level for those assertions: they check the *lattice*,
+    # not this bridge's bookkeeping. They are only meaningful for the default
+    # pyAT backend; an injected model that owns no `at.Lattice` will raise
+    # AttributeError, which is the honest answer for a ring-level probe.
+
+    @property
+    def _ring(self) -> Any:
+        """The model's lattice."""
+        return self._model._ring
+
+    @property
+    def _strength_map(self) -> Any:
+        """The model's current->strength calibration map."""
+        return self._model._strength_map
+
     def _element_index(self, fam_name: str) -> int:
-        idx = self._index_by_famname.get(fam_name)
-        if idx is None:
-            raise UnknownDeviceError(f"no lattice element named {fam_name!r}")
-        return idx
+        """Index of `fam_name` in the model's lattice.
 
-    def _apply_current(self, family: str, device_id: str, fam_name: str, value: float) -> None:
-        # A seeded calibration error (gain/polarity/offset) acts on the
-        # commanded current before it's converted to physical strength -- a
-        # miscalibrated magnet's *field* differs from its setpoint, not the
-        # other way around. Identity (factor=1, offset=0) if unseeded.
-        cal = self._magnet_cal_state.get(fam_name, {})
-        value = magnet_cal(value, factor=cal.get("factor", 1.0), offset=cal.get("offset", 0.0))
+        Raises:
+            UnknownDeviceError: no element with that name -- the same class the
+                model raises, since this bridge re-exports it.
+        """
+        return self._model._element_index(fam_name)
 
-        try:
-            self._strength_map.apply(self._ring, family, device_id, value)
-        except ValueError as exc:
-            raise UnknownDeviceError(
-                f"family {family!r} (device {fam_name!r}) is not pyat-coupled: {exc}"
-            ) from exc
+    def _refresh_bpm_positions(self) -> None:
+        """Re-read the model's BPM truth into `_bpm_positions`.
 
-    def _solve_orbit(self) -> None:
-        # pyAT's find_m44/find_orbit4 usually signal an unstable/non-converged
-        # solve by value (NaN), which `solve_orbit` already guards against by
-        # raising OrbitSolveError -- but in rare configurations find_m44/
-        # find_orbit4 themselves raise instead of returning a non-finite
-        # orbit: `at.AtError` on a pyAT-detected failure, or a plain
-        # `numpy.linalg.LinAlgError`/`ValueError` on LAPACK/pyAT-internal
-        # non-convergence. All three are the same failure from this bridge's
-        # perspective (no orbit can be trusted), so they are folded into
-        # OrbitSolveError here (solve_orbit's own OrbitSolveError is not a
-        # subclass of any of them and propagates untouched), keeping both the
-        # constructor's and `on_setpoint`'s single `except OrbitSolveError`
-        # rollback paths sufficient -- any exception besides OrbitSolveError
-        # itself must not escape this method uncaught, or a failed write
-        # would skip the rollback path.
-        try:
-            orbit_at_monitors = solve_orbit(self._ring)
-        except (at.AtError, np.linalg.LinAlgError, ValueError) as exc:
-            raise OrbitSolveError(f"closed orbit solve raised {type(exc).__name__}: {exc}") from exc
-
-        positions: dict[str, float] = {}
-        device_ids: list[str] = []
-        for fam_name, x, y in monitor_xy(self._ring, orbit_at_monitors):
-            device = fam_name[len("BPM") :]  # e.g. "BPM05" -> "05"
-            device_ids.append(device)
-            positions[_bpm_address(device, "X")] = x
-            positions[_bpm_address(device, "Y")] = y
-
-        self._bpm_positions = positions
-        self._bpm_device_ids = device_ids
+        Public `get()`, not `_get()`, to keep the read path symmetric with the
+        write path: lume validates the returned values against the catalog on
+        the way out. That is cheap here -- BPM outputs carry `value_range=None`,
+        so the check is name/type only.
+        """
+        self._bpm_positions = dict(self._model.get(self._bpm_output_addresses))
 
     def _push_bpm_readbacks(self) -> None:
         """Push each BPM's seeded-error *reading* into its bound RB record.
