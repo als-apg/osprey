@@ -8,16 +8,44 @@ Date: 2026-07-01
 """
 
 import asyncio
+import math
 from datetime import datetime
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from osprey.connectors.archiver._timerange import align_to_grid, resolve_processing, to_utc
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
 logger = get_logger("doocs_archiver_connector")
+
+
+def _floor_bin_ms(series: pd.Series, precision_ms: int) -> int:
+    """Floor ``precision_ms`` at the median spacing actually present in ``series``.
+
+    ``resample()`` reindexes onto a full regular grid between the min and max
+    index, so it upsamples whenever a series is sparser than the requested bin
+    (e.g. an infrequently-updated property). Flooring the bin width at the
+    observed spacing keeps a real aggregate from manufacturing samples that
+    were never recorded. Shared by the single- and multi-PV paths in
+    :meth:`DOOCSArchiverConnector.get_data` so the floor is computed once, the
+    same way, regardless of how many properties were requested.
+
+    Args:
+        series: A single PV's raw sample series, UTC-indexed.
+        precision_ms: The requested bin width in milliseconds.
+
+    Returns:
+        ``precision_ms``, or the ceiling of the series' median sample gap in
+        milliseconds if that gap is wider.
+    """
+    if len(series) > 1:
+        gaps = series.index.to_series().diff().dropna()
+        observed_ms = gaps.median().total_seconds() * 1000
+        return max(precision_ms, math.ceil(observed_ms))
+    return precision_ms
 
 
 class DOOCSArchiverConnector(ArchiverConnector):
@@ -45,6 +73,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
     def __init__(self):
         self._connected = False
         self._avg_window = None
+        self._doocs4py = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -85,6 +114,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
     async def disconnect(self) -> None:
         """Cleanup archiver."""
         self._connected = False
+        self._doocs4py = None
         logger.debug("DOOCS archiver connector disconnected")
 
     async def get_data(
@@ -94,6 +124,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         end_date: datetime,
         precision_ms: int = 1000,
         timeout: int | None = None,
+        processing: str = "raw",
     ) -> pd.DataFrame:
         """
         Generate synthetic historical data.
@@ -104,6 +135,9 @@ class DOOCSArchiverConnector(ArchiverConnector):
             end_date: End of time range
             precision_ms: Time precision (affects downsampling)
             timeout: Timeout in seconds
+            processing: Aggregation applied within each precision_ms bin. One of
+                "raw", "mean", "min", "max", "median", "std", "count". Applied
+                client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
             DataFrame with datetime index and columns for each DOOCS property
@@ -118,21 +152,41 @@ class DOOCSArchiverConnector(ArchiverConnector):
         if not isinstance(end_date, datetime):
             raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
 
-        duration = (end_date - start_date).total_seconds()
+        # A naive datetime's .timestamp() resolves against the *host* zone; convert
+        # explicitly so the window means the same thing on every deploy box. Deriving
+        # duration from the converted bounds (rather than the raw start_date/end_date)
+        # also tolerates a mixed naive/aware pair, which would otherwise raise TypeError
+        # on subtraction before either bound got a chance to be normalized.
+        start_utc = to_utc(start_date)
+        end_utc = to_utc(end_date)
+        resolved = resolve_processing(processing, precision_ms)
+
+        duration = (end_utc - start_utc).total_seconds()
 
         # Limit number of points for performance
         # Use precision_ms to determine sampling
         num_points = min(int(duration / (precision_ms / 1000.0)), 10000)
         num_points = max(num_points, 10)  # At least 10 points
 
+        # "raw" is decimated to num_points inside _read_history -- a zero-order hold
+        # with exactly one sample per precision_ms bin, "binned" by construction. A
+        # real aggregate needs the underlying raw samples to aggregate *over*:
+        # decimating to one sample per bin first would starve mean/count/std down to
+        # a single value per bin, degenerating the aggregate into a relabeled
+        # zero-order hold (finding #1 -- the bug this whole fix pass exists for --
+        # reintroduced here). Passing max_points=None skips that decimation so the
+        # raw samples reach the per-series resample below; _floor_bin_ms there still
+        # bounds the result if the archive itself is sparse.
+        history_max_points = num_points if resolved.mode == "raw" else None
+
         def fetch_all() -> dict[str, pd.Series]:
             data = {}
             for add in pv_list:
                 hist_data_dict = self._read_history(
                     add,
-                    start_date.timestamp(),
-                    end_date.timestamp(),
-                    num_points,
+                    start_utc.timestamp(),
+                    end_utc.timestamp(),
+                    history_max_points,
                     self._avg_window,
                 )
                 if hist_data_dict is None:
@@ -145,23 +199,41 @@ class DOOCSArchiverConnector(ArchiverConnector):
         try:
             series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
 
-            if len(pv_list) == 1:
-                data = pd.DataFrame(series_dict)
+            if resolved.mode == "raw":
+                # "raw" was already decimated to num_points inside _read_history, so
+                # every series is binned by construction; align_to_grid only needs
+                # to union already-binned series onto a common precision_ms index.
+                if len(pv_list) == 1:
+                    data = pd.DataFrame(series_dict)
+                else:
+                    data = align_to_grid(series_dict, start_utc, end_utc, precision_ms)
             else:
-                # Align multi-PV series to a common precision_ms grid via ffill
-                resolution = f"{max(1, precision_ms)}ms"
-                grid = pd.date_range(start=start_date, end=end_date, freq=resolution)
-                # Archiver timestamps are always UTC; ensure the grid matches
-                if grid.tz is None:
-                    grid = grid.tz_localize("UTC")
-                aligned = {}
-                for pv, series in series_dict.items():
-                    if series.empty:
-                        aligned[pv] = pd.Series(index=grid, dtype=float, name=pv)
-                    else:
-                        reindexed = series.reindex(series.index.union(grid)).ffill()
-                        aligned[pv] = reindexed.reindex(grid)
-                data = pd.DataFrame(aligned)
+                # A real aggregate must resample each series over its own raw
+                # samples *before* any alignment: align_to_grid forward-fills onto
+                # a single value per grid point, so resampling an already-aligned
+                # frame would aggregate over one decimated sample per bin and
+                # degenerate into a relabeled zero-order hold -- finding #1, the
+                # bug this whole fix pass exists for, reached here via alignment
+                # instead of via _read_history's decimation. Each series floors
+                # its own bin width at its own observed spacing first (shared
+                # logic with the single-PV path via _floor_bin_ms), so resample()
+                # cannot upsample past what that series actually recorded.
+                resampled = {
+                    pv: series.resample(f"{_floor_bin_ms(series, precision_ms)}ms").agg(
+                        resolved.pandas_agg
+                    )
+                    for pv, series in series_dict.items()
+                }
+                if len(pv_list) == 1:
+                    data = pd.DataFrame(resampled)
+                else:
+                    # The common grid can be no finer than the sparsest series'
+                    # own floor -- otherwise aligning the already-resampled
+                    # series below would itself upsample the sparser ones.
+                    grid_ms = max(
+                        _floor_bin_ms(series, precision_ms) for series in series_dict.values()
+                    )
+                    data = align_to_grid(resampled, start_utc, end_utc, grid_ms)
 
             logger.debug(
                 f"Retrieved DOOCS archiver data: {len(data)} points "
@@ -182,8 +254,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
     async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
         """Check availability based on .HIST property name extension."""
-        if not self._connected:
-            dict.fromkeys(pv_names, False)
+        if not self._connected or self._doocs4py is None:
+            return dict.fromkeys(pv_names, False)
 
         avail = {}
         for add in pv_names:

@@ -1,7 +1,7 @@
 """Tests for MongoDB Archiver connector."""
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pandas as pd
@@ -321,14 +321,19 @@ class TestGetDataMethod:
 
         # Get first 6 hourly samples. The connector's range query is inclusive
         # on both ends ($gte/$lte), so end_date is the timestamp of the last
-        # sample we want, not the exclusive upper bound.
-        start_date = mongodb_test_data["start_date"]
-        end_date = datetime(2024, 1, 1, 5, 0, 0)
+        # sample we want, not the exclusive upper bound. precision_ms is set to
+        # match the seeded hourly cadence: binning now applies to every mode
+        # (including raw), and a finer default bin would reindex onto a much
+        # denser grid than the data actually has. Bounds are made tz-aware
+        # since the connector's returned index is UTC.
+        start_date = mongodb_test_data["start_date"].replace(tzinfo=UTC)
+        end_date = datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC)
 
         df = await connector.get_data(
             pv_list=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
+            precision_ms=3_600_000,
         )
 
         assert len(df) == 6  # hourly samples at 00:00..05:00 inclusive
@@ -515,3 +520,161 @@ class TestFactoryIntegration:
 
         with pytest.raises(ValueError, match="host is required"):
             await ConnectorFactory.create_archiver_connector(config)
+
+
+class TestQueryShapeWithoutDocker:
+    """Query construction, asserted against a stub collection — no container needed."""
+
+    def _stub_connector(self, documents):
+        """Return a connector wired to an in-memory stub collection."""
+        from unittest.mock import MagicMock
+
+        from osprey.connectors.archiver.mongodb_archiver_connector import (
+            MongoDBArchiverConnector,
+        )
+
+        captured = {}
+
+        class _Cursor:
+            def sort(self, *_args):
+                return iter(documents)
+
+        collection = MagicMock()
+
+        def _find(query, projection):
+            captured["query"] = query
+            captured["projection"] = projection
+            return _Cursor()
+
+        collection.find = _find
+
+        connector = MongoDBArchiverConnector()
+        connector._connected = True
+        connector._collection = collection
+        connector._timeout = 10
+        return connector, captured
+
+    @pytest.mark.asyncio
+    async def test_pv_existence_is_ored_not_anded(self):
+        """PVs archived in separate documents must not produce an empty frame."""
+        connector, captured = self._stub_connector([])
+
+        await connector.get_data(
+            pv_list=["BEAM:CURRENT", "BEAM:LIFETIME"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        assert captured["query"]["$or"] == [
+            {"BEAM:CURRENT": {"$exists": True}},
+            {"BEAM:LIFETIME": {"$exists": True}},
+        ]
+        # The old shape ANDed a top-level key per PV; it must be gone.
+        assert "BEAM:CURRENT" not in captured["query"]
+
+    @pytest.mark.asyncio
+    async def test_precision_ms_bins_the_result(self):
+        """precision_ms must actually downsample rather than being a no-op."""
+        documents = [
+            {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
+            for s in range(6)
+        ]
+        connector, _ = self._stub_connector(documents)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+            precision_ms=2000,
+        )
+
+        # Six 1-second samples binned at 2 s, "raw" keeping the last of each bin.
+        assert df["BEAM:CURRENT"].tolist() == [1.0, 3.0, 5.0]
+
+    @pytest.mark.asyncio
+    async def test_processing_selects_the_aggregation(self):
+        documents = [
+            {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
+            for s in range(6)
+        ]
+        connector, _ = self._stub_connector(documents)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+            precision_ms=2000,
+            processing="mean",
+        )
+
+        assert df["BEAM:CURRENT"].tolist() == [0.5, 2.5, 4.5]
+
+    @pytest.mark.asyncio
+    async def test_empty_window_returns_utc_indexed_float_frame(self):
+        connector, _ = self._stub_connector([])
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        assert list(df.columns) == ["BEAM:CURRENT"]
+        assert df.empty
+        assert str(df.index.tz) == "UTC"
+        assert df["BEAM:CURRENT"].dtype == "float64"
+
+    @pytest.mark.asyncio
+    async def test_timeout_zero_respected_not_falsy(self):
+        """timeout=0 must mean zero, not fall back to the 60 s default."""
+        connector, _ = self._stub_connector([])
+        connector._timeout = 60
+
+        with pytest.raises(TimeoutError):
+            await connector.get_data(
+                pv_list=["BEAM:CURRENT"],
+                start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                end_date=datetime(2024, 1, 2, tzinfo=UTC),
+                timeout=0,
+            )
+
+    @pytest.mark.asyncio
+    async def test_sparse_documents_are_not_upsampled(self):
+        """A fine precision_ms must not manufacture samples faster than the ingester wrote them."""
+        documents = [
+            {"date": datetime(2024, 1, 1, h, 0, 0, tzinfo=UTC), "BEAM:CURRENT": float(h)}
+            for h in range(6)
+        ]
+        connector, _ = self._stub_connector(documents)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC),
+            precision_ms=1000,
+        )
+
+        # Documents are 1 hour apart; naively resampling at the requested 1 s
+        # precision would reindex onto an 18,001-row grid (5 h / 1 s + 1). The
+        # bin width must be floored at the observed document spacing instead,
+        # so the frame stays bounded at one row per document.
+        assert len(df) == 6
+        assert df["BEAM:CURRENT"].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+
+    @pytest.mark.asyncio
+    async def test_absent_pv_is_float_nan_not_object_none(self):
+        """A PV present in zero matched documents must be a float NaN column, not object/None."""
+        documents = [
+            {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
+            for s in range(3)
+        ]
+        connector, _ = self._stub_connector(documents)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT", "BEAM:LIFETIME"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+        )
+
+        assert df["BEAM:LIFETIME"].dtype == "float64"
+        assert df["BEAM:LIFETIME"].isna().all()

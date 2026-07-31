@@ -1,6 +1,6 @@
 """Tests for mock connector."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -291,5 +291,82 @@ class TestMockArchiverConnector:
         values = df["BEAM:CURRENT"].values
         assert len(set(values)) > 1
         assert values.std() > 0
+
+        await connector.disconnect()
+
+
+class TestMockArchiverProcessing:
+    """The mock connector must genuinely aggregate non-raw processing modes.
+
+    Regression coverage for a resample that used to be bound by the
+    *requested* precision_ms instead of the grid actually generated: on a
+    long window the 10,000-point cap makes the real sample spacing far wider
+    than precision_ms, and even without the cap, the natural spacing
+    (duration / (num_points - 1)) is marginally wider than precision_ms.
+    Resampling at the requested precision_ms then asks pandas to fill a much
+    finer grid than the data has, inflating the frame with mostly-NaN rows.
+    """
+
+    @pytest.mark.asyncio
+    async def test_processing_mean_aggregates_multiple_raw_samples(self):
+        """A bin much wider than the data's spacing must average, not pass through."""
+        connector = MockArchiverConnector()
+        # noise_level=0 makes the generated series deterministic (pure trend +
+        # wave) so the raw and mean calls — two independent get_data() calls,
+        # each drawing its own noise — are directly comparable.
+        await connector.connect({"noise_level": 0.0})
+
+        # A 10s window with a 60s requested bin forces every raw sample
+        # (the generator's forced minimum of 10 points) into a single
+        # aggregation bin, so a real mean is distinguishable from a
+        # relabeled pass-through.
+        start_date = datetime(2024, 1, 1, 0, 0, 0)
+        end_date = datetime(2024, 1, 1, 0, 0, 10)
+        pv = "BEAM:CURRENT"
+
+        raw_df = await connector.get_data(
+            pv_list=[pv],
+            start_date=start_date,
+            end_date=end_date,
+            precision_ms=60_000,
+            processing="raw",
+        )
+        mean_df = await connector.get_data(
+            pv_list=[pv],
+            start_date=start_date,
+            end_date=end_date,
+            precision_ms=60_000,
+            processing="mean",
+        )
+
+        assert len(raw_df) > 1
+        assert len(mean_df) == 1
+        assert mean_df[pv].iloc[0] == pytest.approx(raw_df[pv].mean())
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_processing_mean_bounded_when_point_cap_binds(self):
+        """A window wide enough to hit the 10,000-point cap must not blow up on resample."""
+        connector = MockArchiverConnector()
+        await connector.connect({"noise_level": 0.01})
+
+        start_date = datetime(2024, 1, 1)
+        end_date = start_date + timedelta(days=7)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=start_date,
+            end_date=end_date,
+            precision_ms=1000,
+            processing="mean",
+        )
+
+        # Before the fix, resampling at the raw precision_ms (1000ms) against
+        # data actually spaced ~60s apart inflated this to ~604,801 rows,
+        # almost entirely NaN. The row count must stay near the generator's
+        # 10,000-point cap, and no NaN rows should appear.
+        assert len(df) <= 10_001
+        assert not df["BEAM:CURRENT"].isna().any()
 
         await connector.disconnect()

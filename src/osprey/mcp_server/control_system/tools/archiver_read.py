@@ -5,6 +5,7 @@ import logging
 import math
 from datetime import datetime, timedelta
 
+from osprey.connectors.archiver._timerange import PROCESSING_MODES
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
@@ -64,7 +65,8 @@ async def archiver_read(
         channels: List of PV/channel addresses to query.
         start_time: Start of the time range — ISO-8601 or relative (e.g. "2h ago").
         end_time: End of the time range (default "now").
-        processing: Archiver processing mode (e.g. "raw", "mean", "max").
+        processing: Aggregation within each bin — one of "raw", "mean", "min",
+            "max", "median", "std", "count".
         bin_size: Bin size in seconds when using a processing mode other than "raw".
 
     Returns:
@@ -75,6 +77,13 @@ async def archiver_read(
             "validation_error",
             "No channels provided.",
             ["Provide at least one channel address."],
+        )
+
+    if processing not in PROCESSING_MODES:
+        return make_error(
+            "validation_error",
+            f"Unknown processing mode '{processing}'. Use one of: {', '.join(PROCESSING_MODES)}.",
+            [f"Use one of: {', '.join(PROCESSING_MODES)}."],
         )
 
     try:
@@ -106,6 +115,7 @@ async def archiver_read(
             start_dt,
             end_dt,
             precision_ms=1000 if bin_size is None else bin_size * 1000,
+            processing=processing,
         )
 
         # Full data payload goes to file; compact summary returned inline

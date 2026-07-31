@@ -6,12 +6,14 @@ Ideal for R&D and development without archiver access.
 
 """
 
+import math
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
+from osprey.connectors.archiver._timerange import resolve_processing
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.connectors.pv_taxonomy import classify_pv
 from osprey.simulation import engine_serves
@@ -93,6 +95,7 @@ class MockArchiverConnector(ArchiverConnector):
         end_date: datetime,
         precision_ms: int = 1000,
         timeout: int | None = None,
+        processing: str = "raw",
     ) -> pd.DataFrame:
         """
         Generate synthetic historical data.
@@ -103,6 +106,10 @@ class MockArchiverConnector(ArchiverConnector):
             end_date: End of time range
             precision_ms: Time precision (affects downsampling)
             timeout: Ignored for mock archiver
+            processing: Aggregation applied within each precision_ms bin. One of
+                "raw", "mean", "min", "max", "median", "std", "count". Backends
+                that aggregate server-side (EPICS) push it down; the rest apply
+                it client-side. Anything else raises ValueError.
 
         Returns:
             DataFrame with datetime index and columns for each PV
@@ -129,6 +136,22 @@ class MockArchiverConnector(ArchiverConnector):
                 data[pv] = self._generate_time_series(pv, num_points)
 
         df = pd.DataFrame(data, index=pd.to_datetime(timestamps))
+
+        # The 10,000-point cap above means the actual spacing (time_step) can be
+        # much wider than precision_ms for a long window, and even when the cap
+        # doesn't bind, time_step is marginally wider than precision_ms (it's
+        # duration / (num_points - 1), not duration / num_points). Resampling at
+        # the requested precision_ms would then ask pandas to fill a much finer
+        # grid than the data actually has, inflating the frame with NaN rows.
+        # Bounding the bin width by the real spacing keeps the resampled grid no
+        # finer than the data that was generated.
+        resolved = resolve_processing(processing, precision_ms)
+        if resolved.mode != "raw":
+            if time_step > 0:
+                effective_ms = max(precision_ms, math.ceil(time_step * 1000))
+            else:
+                effective_ms = precision_ms
+            df = df.resample(f"{effective_ms}ms").agg(resolved.pandas_agg)
 
         logger.debug(
             f"Mock archiver generated {len(df)} points for "

@@ -72,6 +72,7 @@ class ArchiverConnector(ABC):
         end_date: datetime,
         precision_ms: int = 1000,
         timeout: int | None = None,
+        processing: str = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data for PVs.
@@ -82,6 +83,10 @@ class ArchiverConnector(ABC):
             end_date: End of time range
             precision_ms: Time precision in milliseconds (for downsampling)
             timeout: Optional timeout in seconds
+            processing: Aggregation applied within each precision_ms bin. One of
+                "raw", "mean", "min", "max", "median", "std", "count". Backends
+                that aggregate server-side (EPICS) push it down; the rest apply
+                it client-side. Anything else raises ValueError.
 
         Returns:
             DataFrame with datetime index and PV columns
@@ -90,7 +95,7 @@ class ArchiverConnector(ABC):
         Raises:
             ConnectionError: If archiver cannot be reached
             TimeoutError: If operation times out
-            ValueError: If time range or PV names are invalid
+            ValueError: If time range, PV names, or processing mode are invalid
         """
         pass
 

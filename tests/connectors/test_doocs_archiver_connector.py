@@ -5,6 +5,7 @@ All tests mock doocs4py so no installed DOOCS environment is required.
 """
 
 import sys
+import time
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -431,3 +432,319 @@ class TestGetMetadata:
         assert isinstance(meta, ArchiverMetadata)
         assert meta.pv_name == "FAC/DEV/LOC/PROP"
         assert meta.is_archived is True
+
+
+# --------------------------------------------------------------------------------------
+# Disconnected guard / timezone
+# --------------------------------------------------------------------------------------
+
+
+class TestDisconnectedGuard:
+    """A disconnected connector must not reach the ENS."""
+
+    async def test_never_connected_returns_all_false_without_lookups(self):
+        from osprey.connectors.archiver.doocs_archiver_connector import (
+            DOOCSArchiverConnector,
+        )
+
+        conn = DOOCSArchiverConnector()
+        avail = await conn.check_availability(["FAC/DEV/LOC/P"])
+
+        assert avail == {"FAC/DEV/LOC/P": False}
+
+    async def test_after_disconnect_returns_all_false_without_lookups(self):
+        mock_d4py = _make_doocs4py(names_result=[("FAC/DEV/LOC/P.HIST", "value")])
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            await conn.disconnect()
+
+            mock_d4py.names.reset_mock()
+            avail = await conn.check_availability(["FAC/DEV/LOC/P"])
+
+        assert avail == {"FAC/DEV/LOC/P": False}
+        assert mock_d4py.names.call_count == 0
+
+    async def test_double_disconnect_is_safe(self):
+        mock_d4py = _make_doocs4py()
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            await conn.disconnect()
+            await conn.disconnect()
+
+        assert conn._doocs4py is None
+        assert conn._connected is False
+
+
+class TestQueryWindowTimezone:
+    """Naive bounds must resolve against the facility zone, not the host's."""
+
+    async def test_naive_bounds_use_the_facility_zone(self, archiver, monkeypatch, request):
+        from zoneinfo import ZoneInfo
+
+        # Force the host zone to UTC so this test is RED on every machine if the
+        # fix regresses -- not only on hosts whose zone happens to differ from the
+        # facility zone patched below. This repo's users are largely at LBNL, in
+        # America/Los_Angeles -- exactly the zone patched here -- so without this
+        # a reintroduced host-zone .timestamp() bug would show green on a
+        # developer's own machine. monkeypatch restores the TZ env var
+        # automatically; tzset() must be called again on the way out so the C
+        # library actually forgets the override.
+        monkeypatch.setenv("TZ", "UTC")
+        time.tzset()
+        request.addfinalizer(time.tzset)
+
+        conn, mock_d4py = archiver
+        monkeypatch.setattr(
+            "osprey.connectors.archiver._timerange.get_facility_timezone",
+            lambda: ZoneInfo("America/Los_Angeles"),
+        )
+
+        captured = {}
+        original = conn._read_history
+
+        def _spy(address, start_time, end_time, max_points=None, avg_window=None):
+            captured["start"] = start_time
+            captured["end"] = end_time
+            return original(address, start_time, end_time, max_points, avg_window)
+
+        conn._read_history = _spy
+
+        await conn.get_data(
+            pv_list=["FAC/DEV/LOC/P"],
+            start_date=datetime(2026, 7, 30, 10, 0, 0),
+            end_date=datetime(2026, 7, 30, 11, 0, 0),
+        )
+
+        # 10:00 PDT is 17:00 UTC.
+        assert captured["start"] == datetime(2026, 7, 30, 17, 0, 0, tzinfo=UTC).timestamp()
+        assert captured["end"] == datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC).timestamp()
+
+
+class TestProcessingSparseData:
+    """A non-raw processing mode must not manufacture samples DOOCS never recorded.
+
+    ``_read_history`` bounds "raw" by construction (it never returns more than
+    ``num_points`` samples), but when the archive itself is sparser than the
+    requested precision_ms, its fallback-to-full-resolution path returns however
+    many real samples exist, spaced however far apart they really are — which
+    can be much wider than precision_ms. Resampling that at the raw precision_ms
+    would upsample onto a much finer grid than the data has, the same exposure
+    fixed for the Mock and MongoDB archiver connectors.
+    """
+
+    async def test_sparse_history_is_not_upsampled(self):
+        start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 1, 1, 6, 0, 0, tzinfo=UTC)  # 6-hour window
+        # Only 6 archived samples, one per hour -- far sparser than the
+        # requested 1s precision_ms below.
+        times = np.linspace(start.timestamp(), end.timestamp(), 6)
+        chunk = [(float(t), 0, 0, float(i)) for i, t in enumerate(times)]
+        mock_d4py = _make_doocs4py(chunk=chunk)
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/P"],
+                start_date=start,
+                end_date=end,
+                precision_ms=1000,
+                processing="mean",
+            )
+            await conn.disconnect()
+
+        # Naively resampling at the requested 1 s precision against data
+        # actually spaced ~1 hour apart would inflate this to ~21,601 rows,
+        # almost entirely NaN. The row count must stay near the archived
+        # sample count instead, with no NaN rows.
+        assert len(df) <= 10
+        assert not df["FAC/DEV/LOC/P"].isna().any()
+
+
+class TestProcessingGenuineAggregation:
+    """A non-raw processing mode must aggregate over the real archived samples,
+    not a single zero-order-hold sample per bin.
+
+    Regression coverage for finding #2 reintroduced inside DOOCS: get_data used
+    to pass ``num_points`` (derived from precision_ms) into ``_read_history`` for
+    every processing mode, decimating to one zero-order-hold sample per bin
+    *before* the resampler ever saw the data. mean/count/std then degenerated
+    to a relabeled last-sample value instead of a genuine aggregate.
+    """
+
+    @staticmethod
+    def _dense_chunk(n_bins: int, samples_per_bin: int):
+        """``samples_per_bin`` samples per 1-second bin, values 0..N-1 in order."""
+        chunk = []
+        v = 0
+        for b in range(n_bins):
+            for s in range(samples_per_bin):
+                t = _START_TS + b + s / samples_per_bin
+                chunk.append((float(t), 0, 0, float(v)))
+                v += 1
+        return chunk
+
+    async def test_mean_aggregates_true_within_bin_average(self):
+        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
+        mock_d4py = _make_doocs4py(chunk=chunk)
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/P"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
+                precision_ms=1000,
+                processing="mean",
+            )
+            await conn.disconnect()
+
+        # Bin 0: values 0..9 -> true mean 4.5; bin 1: 10..19 -> 14.5;
+        # bin 2: 20..29 -> 24.5. A zero-order-hold-then-resample bug instead
+        # reports a single raw sample's value, relabeled, per bin.
+        values = df["FAC/DEV/LOC/P"].dropna().tolist()
+        assert values == pytest.approx([4.5, 14.5, 24.5])
+
+    async def test_count_returns_true_per_bin_sample_count(self):
+        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
+        mock_d4py = _make_doocs4py(chunk=chunk)
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/P"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
+                precision_ms=1000,
+                processing="count",
+            )
+            await conn.disconnect()
+
+        # 10 real samples land in each 1 s bin; a zero-order-hold-then-resample
+        # bug instead reports (at most) 1 per bin.
+        counts = df["FAC/DEV/LOC/P"].dropna().tolist()
+        assert counts == [10, 10, 10]
+
+    @staticmethod
+    def _two_pv_mock(chunk_a, chunk_b):
+        """A mock doocs4py wired to return ``chunk_a`` then ``chunk_b`` on two
+        successive ``get()`` calls, matching the fetch order for a 2-PV request."""
+        mock_d4py = MagicMock()
+        mock_d4py.__version__ = "2.0.0"
+        mock_d4py.names.return_value = [("FACILITY", "XFEL")]
+        r_a = MagicMock()
+        r_a.value = chunk_a
+        r_b = MagicMock()
+        r_b.value = chunk_b
+        mock_d4py.get.side_effect = [r_a, r_b]
+        return mock_d4py
+
+    async def test_multi_pv_mean_aggregates_true_within_bin_average_for_both_columns(self):
+        """Regression for finding #1 reached via alignment: align_to_grid forward-fills
+        onto one value per grid point, so resampling *after* alignment (the brief's
+        original order) would aggregate over an already-decimated series, same as the
+        single-PV bug. Both columns must carry the true within-bin means.
+        """
+        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
+        mock_d4py = self._two_pv_mock(chunk, chunk)
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
+                precision_ms=1000,
+                processing="mean",
+            )
+            await conn.disconnect()
+
+        # Bin 0: values 0..9 -> 4.5; bin 1: 10..19 -> 14.5; bin 2: 20..29 -> 24.5.
+        # align_to_grid's query-window grid runs one step past the last real bin
+        # (00:00:03), forward-filling the last bin's mean there -- expected and
+        # unrelated to aggregation correctness, which is what this test pins.
+        assert df["FAC/DEV/LOC/A"].tolist() == pytest.approx([4.5, 14.5, 24.5, 24.5])
+        assert df["FAC/DEV/LOC/B"].tolist() == pytest.approx([4.5, 14.5, 24.5, 24.5])
+
+    async def test_multi_pv_count_returns_true_per_bin_sample_count_for_both_columns(self):
+        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
+        mock_d4py = self._two_pv_mock(chunk, chunk)
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
+                precision_ms=1000,
+                processing="count",
+            )
+            await conn.disconnect()
+
+        # 10 real samples land in each 1 s bin, on both PVs.
+        assert df["FAC/DEV/LOC/A"].tolist() == [10, 10, 10, 10]
+        assert df["FAC/DEV/LOC/B"].tolist() == [10, 10, 10, 10]
+
+    async def test_multi_pv_raw_output_unchanged_by_the_aggregation_restructure(self):
+        """Pin the default (raw) multi-PV path so the aggregation restructure above
+        cannot silently change it: raw still decimates via _read_history's
+        num_points zero-order hold, then align_to_grid unions at precision_ms --
+        exactly as before this fix pass.
+        """
+        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
+        mock_d4py = self._two_pv_mock(chunk, chunk)
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
+                precision_ms=1000,
+                # processing defaults to "raw"
+            )
+            await conn.disconnect()
+
+        assert df["FAC/DEV/LOC/A"].tolist() == pytest.approx([0.0, 9.0, 19.0, 29.0])
+        assert df["FAC/DEV/LOC/B"].tolist() == pytest.approx([0.0, 9.0, 19.0, 29.0])

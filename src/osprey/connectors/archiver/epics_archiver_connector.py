@@ -16,6 +16,7 @@ from typing import Any
 
 import pandas as pd
 
+from osprey.connectors.archiver._timerange import align_to_grid, resolve_processing, to_utc
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
@@ -128,6 +129,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         end_date: datetime,
         precision_ms: int = 1000,
         timeout: int | None = None,
+        processing: str = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from EPICS archiver.
@@ -138,6 +140,10 @@ class EPICSArchiverConnector(ArchiverConnector):
             end_date: End of time range
             precision_ms: Time precision in milliseconds (for downsampling)
             timeout: Optional timeout in seconds
+            processing: Aggregation applied within each precision_ms bin. One of
+                "raw", "mean", "min", "max", "median", "std", "count". Backends
+                that aggregate server-side (EPICS) push it down; the rest apply
+                it client-side. Anything else raises ValueError.
 
         Returns:
             DataFrame with datetime index and PV columns
@@ -159,13 +165,20 @@ class EPICSArchiverConnector(ArchiverConnector):
         if not isinstance(end_date, datetime):
             raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
 
-        start_str = start_date.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        end_str = end_date.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        # The retrieval API's ".000Z" wire format is UTC. Convert rather than
+        # relabel: a facility-local datetime formatted with a literal Z shifts
+        # the whole window by the UTC offset.
+        start_utc = to_utc(start_date)
+        end_utc = to_utc(end_date)
+        start_str = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        end_str = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-        # Apply server-side downsampling when precision is set
-        if precision_ms > 0:
-            n_secs = max(1, precision_ms // 1000)
-            effective_pvs = [f"lastSample_{n_secs}({pv})" for pv in pv_list]
+        # Push the aggregation server-side. resolve_processing rejects unknown
+        # modes and aggregates with no bin width; a None operator means full
+        # resolution, where the bare PV name is sent.
+        resolved = resolve_processing(processing, precision_ms)
+        if resolved.epics_operator is not None:
+            effective_pvs = [f"{resolved.epics_operator}({pv})" for pv in pv_list]
         else:
             effective_pvs = list(pv_list)
 
@@ -181,20 +194,7 @@ class EPICSArchiverConnector(ArchiverConnector):
             if len(pv_list) == 1:
                 data = pd.DataFrame(series_dict)
             else:
-                # Align multi-PV series to a common precision_ms grid via ffill
-                resolution = f"{max(1, precision_ms)}ms"
-                grid = pd.date_range(start=start_date, end=end_date, freq=resolution)
-                # Archiver timestamps are always UTC; ensure the grid matches
-                if grid.tz is None:
-                    grid = grid.tz_localize("UTC")
-                aligned = {}
-                for pv, series in series_dict.items():
-                    if series.empty:
-                        aligned[pv] = pd.Series(index=grid, dtype=float, name=pv)
-                    else:
-                        reindexed = series.reindex(series.index.union(grid)).ffill()
-                        aligned[pv] = reindexed.reindex(grid)
-                data = pd.DataFrame(aligned)
+                data = align_to_grid(series_dict, start_utc, end_utc, precision_ms)
 
             logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")
             return data

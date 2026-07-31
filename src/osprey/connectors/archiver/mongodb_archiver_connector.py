@@ -6,16 +6,31 @@ Documents are expected to have a 'date' field and PV names as fields.
 """
 
 import asyncio
+import math
 import os
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
 
+from osprey.connectors.archiver._timerange import resolve_processing, to_utc
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
 logger = get_logger("mongodb_archiver_connector")
+
+
+def _empty_frame(pv_list: list[str]) -> pd.DataFrame:
+    """Return the canonical empty result: UTC-indexed, one float column per PV.
+
+    A bare ``pd.DataFrame(columns=pv_list)`` yields an object-dtype index and
+    columns, which breaks timestamp arithmetic in consumers such as the
+    archiver-freshness probe.
+    """
+    return pd.DataFrame(
+        {pv: pd.Series(dtype=float) for pv in pv_list},
+        index=pd.DatetimeIndex([], tz="UTC"),
+    )
 
 
 class MongoDBArchiverConnector(ArchiverConnector):
@@ -187,6 +202,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         end_date: datetime,
         precision_ms: int = 1000,
         timeout: int | None = None,
+        processing: str = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from MongoDB collection.
@@ -197,6 +213,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
             end_date: End of time range
             precision_ms: Time precision in milliseconds (for downsampling)
             timeout: Optional timeout in seconds
+            processing: Aggregation applied within each precision_ms bin. One of
+                "raw", "mean", "min", "max", "median", "std", "count". Applied
+                client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
             DataFrame with datetime index and PV columns
@@ -208,7 +227,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             TypeError: If start_date or end_date are not datetime objects
             ValueError: If pv_list is empty or data retrieval fails
         """
-        timeout = timeout or self._timeout
+        timeout = timeout if timeout is not None else self._timeout
 
         if not self._connected or self._collection is None:
             raise RuntimeError("MongoDB archiver not connected")
@@ -222,15 +241,27 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if not pv_list:
             raise ValueError("pv_list cannot be empty")
 
+        resolved = resolve_processing(processing, precision_ms)
+
+        # pymongo converts aware datetimes correctly but reads naive ones as UTC;
+        # normalizing here makes a bare wall-clock mean facility-local, matching
+        # every other connector.
+        start_utc = to_utc(start_date)
+        end_utc = to_utc(end_date)
+
         def fetch_data():
             """Synchronous data fetch function."""
-            # Build query filter for date range
-            query = {"date": {"$gte": start_date, "$lte": end_date}}
+            # Match the window, then any document carrying at least one requested
+            # PV. ANDing existence per PV would require every PV in the same
+            # document and silently return nothing when they are archived apart.
+            query = {
+                "date": {"$gte": start_utc, "$lte": end_utc},
+                "$or": [{pv: {"$exists": True}} for pv in pv_list],
+            }
 
             # Project only the fields we need: date and requested PVs
             projection = {"date": 1}
             for pv in pv_list:
-                query[pv] = {"$exists": True}
                 projection[pv] = 1
 
             # Query MongoDB collection
@@ -242,7 +273,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             if not documents:
                 logger.debug(f"No documents found in date range {start_date} to {end_date}")
                 # Return empty DataFrame with correct structure
-                return pd.DataFrame(index=pd.DatetimeIndex([]), columns=pv_list)
+                return _empty_frame(pv_list)
 
             # Extract data into lists for DataFrame construction
             dates = []
@@ -271,16 +302,38 @@ class MongoDBArchiverConnector(ArchiverConnector):
             # Create DataFrame
             if not dates:
                 logger.debug("No valid documents with date field found")
-                return pd.DataFrame(index=pd.DatetimeIndex([]), columns=pv_list)
+                return _empty_frame(pv_list)
 
-            df = pd.DataFrame(data_dict, index=pd.to_datetime(dates))
+            df = pd.DataFrame(data_dict, index=pd.to_datetime(dates, utc=True))
 
-            # Apply downsampling based on precision_ms if needed
-            # This is a simple approach - could be enhanced with more sophisticated downsampling
-            #            if precision_ms > 0 and len(df) > 0:
-            #                # Resample to approximate precision
-            #                freq = f"{precision_ms}ms"
-            #                df = df.resample(freq).mean()
+            # A PV that matched zero of the returned documents (it lives in a
+            # sibling document the $or above also pulled in) is an all-None
+            # column here; pandas infers object dtype for that, not float.
+            # Force float so every column honors the same dtype contract as
+            # the empty-frame path below.
+            for pv in pv_list:
+                if df[pv].isna().all():
+                    df[pv] = df[pv].astype(float)
+
+            # Documents arrive at whatever cadence the ingester wrote them, so
+            # every mode — including "raw" — needs binning here. This is the one
+            # place Mongo bins; there is no server-side aggregation to defer to.
+            # resample() builds a full regular grid from the first to the last
+            # timestamp: on documents sparser than precision_ms that upsamples
+            # rather than reduces, manufacturing samples the ingester never
+            # wrote (a 5-hour window of hourly documents at the default 1 s
+            # precision would inflate to 18,001 rows). Floor the bin width at
+            # the observed document spacing — the median gap between
+            # consecutive timestamps — so a fine precision_ms over a sparse
+            # collection can't inflate the frame.
+            if precision_ms > 0 and not df.empty:
+                if len(df) > 1:
+                    gaps = df.index.to_series().diff().dropna()
+                    observed_ms = gaps.median().total_seconds() * 1000
+                else:
+                    observed_ms = 0
+                effective_ms = max(precision_ms, math.ceil(observed_ms))
+                df = df.resample(f"{effective_ms}ms").agg(resolved.pandas_agg)
 
             return df
 

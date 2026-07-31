@@ -322,3 +322,91 @@ async def test_archiver_read_empty_channels(tmp_path, monkeypatch):
         await fn(channels=[], start_time="2024-01-15T10:00:00")
 
     _exc_ctx["envelope"]
+
+
+@pytest.mark.unit
+async def test_archiver_read_passes_processing_to_connector(tmp_path, monkeypatch):
+    """The advertised processing mode must reach the connector, not just the echo."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
+    initialize_server_context()
+
+    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+    mock_connector = AsyncMock()
+    mock_connector.get_data.return_value = mock_df
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        new_callable=AsyncMock,
+        return_value=mock_connector,
+    ):
+        fn = _get_archiver_read()
+        await fn(
+            channels=["SR:CURRENT:RB"],
+            start_time="2024-01-15T10:00:00",
+            end_time="2024-01-15T11:00:00",
+            processing="mean",
+            bin_size=60,
+        )
+
+    kwargs = mock_connector.get_data.call_args.kwargs
+    assert kwargs["processing"] == "mean"
+    assert kwargs["precision_ms"] == 60_000
+
+
+@pytest.mark.unit
+async def test_archiver_read_rejects_unknown_processing(tmp_path, monkeypatch):
+    """An unsupported mode errors with the valid set, rather than silently downgrading."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
+    initialize_server_context()
+
+    fn = _get_archiver_read()
+    with assert_raises_error(error_type="validation_error") as ctx:
+        await fn(
+            channels=["SR:CURRENT:RB"],
+            start_time="2024-01-15T10:00:00",
+            processing="p99",
+        )
+
+    assert "mean" in ctx["envelope"]["error_message"]
+
+
+@pytest.mark.unit
+async def test_archiver_read_echoes_facility_local_time_range(tmp_path, monkeypatch):
+    """The tool keeps speaking facility-local; only the connector converts to UTC."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("archiver:\n  type: mock\n")
+    initialize_server_context()
+
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(
+        "osprey.mcp_server.control_system.tools.archiver_read.get_facility_timezone",
+        lambda: ZoneInfo("America/Los_Angeles"),
+    )
+
+    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+    mock_connector = AsyncMock()
+    mock_connector.get_data.return_value = mock_df
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
+        new_callable=AsyncMock,
+        return_value=mock_connector,
+    ):
+        fn = _get_archiver_read()
+        result = await fn(
+            channels=["SR:CURRENT:RB"],
+            start_time="2024-01-15T10:00:00",
+            end_time="2024-01-15T11:00:00",
+        )
+
+    # January in Los Angeles is PST (-08:00).
+    data = extract_response_dict(result)
+    assert "-08:00" in data["summary"]["time_range"]["start"]
+
+    # And the connector receives that same facility-local instant, not a
+    # pre-converted one — converting is the connector's job.
+    start_arg = mock_connector.get_data.call_args.args[1]
+    assert start_arg.utcoffset().total_seconds() == -8 * 3600
