@@ -38,7 +38,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - **Breaking change: `ArchiverConnector.get_data` now returns long-format
   data instead of a shared-index wide frame.** Every archiver connector
-  correctness bug fixed above traced back to forcing every requested
+  correctness bug fixed below traced back to forcing every requested
   channel onto one shared index, which required forward-filling gaps and
   resampling data into existence just to keep a rectangular shape.
   - **Before:** a wide `pandas.DataFrame` indexed by timestamp, one column
@@ -110,17 +110,23 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
-- The archiver connectors (EPICS, MongoDB, DOOCS, and the mock/simulation
-  archiver) formatted query-window bounds with a literal UTC `Z` suffix
-  without actually converting to UTC first, so at any facility whose
-  `system.timezone` is not UTC every `archiver_read` window landed hours
-  away from the one an operator actually asked for — e.g. "the last hour"
-  could silently pull data from several hours in the past or future,
-  depending on the facility's UTC offset. Every archiver connector now
-  converts operator-supplied datetimes to UTC before they reach the wire;
-  a naive (timezone-less) datetime is read as facility-local, matching how
-  the rest of the framework interprets operator wall-clock times, rather
-  than the deploy host's own zone.
+- The EPICS Archiver Appliance connector formatted query-window bounds
+  with a literal UTC `Z` suffix without actually converting to UTC first,
+  so at any facility whose `system.timezone` is not UTC every
+  `archiver_read` window against EPICS landed hours away from the one an
+  operator actually asked for — e.g. "the last hour" could silently pull
+  data from several hours in the past or future, depending on the
+  facility's UTC offset. EPICS now converts to UTC before the query
+  reaches the wire. MongoDB and DOOCS did not share this regression
+  through the actual `archiver_read` path — the tool always hands
+  `get_data()` a timezone-aware datetime, and pymongo's BSON encoding and
+  `datetime.timestamp()` are each already correct for an aware datetime
+  regardless of its zone — but both connectors (and the mock/simulation
+  archiver) now call the same `to_utc()` helper as EPICS, hardening the
+  connector-level contract for a caller that bypasses the tool: a naive
+  (timezone-less) datetime passed directly to `get_data()` is now read as
+  facility-local rather than depending on the caller's own zone or
+  assuming UTC, consistent with every other connector.
 - `archiver_read`'s `processing` parameter (e.g. `mean`, `min`, `max`) was
   accepted and echoed back in the response, but never actually applied to
   the query — a request for a 60-second mean silently returned the same
@@ -147,6 +153,28 @@ Compatibility is documented in release notes, not encoded in the version string.
   anyway — a disconnected connector could still report channels as
   available instead of cleanly reporting all of them unavailable. The
   disconnected guard now returns immediately.
+- Plotting an archiver artifact that mixes channels with and without data in
+  the requested window no longer fails. A channel with no samples produced an
+  untyped (object-dtype) column, and Plotly Express refuses a wide frame
+  "with columns of different type" — so `px.line(data)` over "beam current
+  plus a channel that was down" raised instead of drawing the channel that
+  did have data. Empty channels now carry a `float64` column.
+- `data_read` on an over-cap archiver artifact now previews the long-format
+  payload it actually receives. It recognized only the old wide/split-orient
+  shape, so a `{query, series}` file — the common reason for exceeding the
+  100 KB inline cap — fell through to a bare `json_object` preview listing
+  `["query", "series"]` and nothing else. The preview now reports channel
+  names, total and per-channel point counts, and each channel's first and
+  last sample, including the zero-sample channels that explain a missing
+  trace.
+- The session-report skill's reference file still taught the pre-long-format
+  Chart.js recipe (`data: { labels: timestamps, datasets: [{ data: values }] }`).
+  `archiver_downsample` gives every channel its own timestamps, so a
+  multi-channel report built from that recipe drew each series against the
+  first channel's x-values — a plausible-looking chart that was silently
+  wrong. The recipe now maps per-dataset `{x, y}` points, skips enum/status
+  channels that cannot share the numeric axis, and needs no date-adapter
+  script.
 - `osprey web --project <dir>` launched from outside the project now behaves the
   same as running `osprey web` inside it. Previously the flag only set the
   terminal's working directory, so the project's `.env` was never loaded

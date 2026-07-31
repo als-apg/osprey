@@ -497,12 +497,20 @@ class TestQueryWindowTimezone:
         # facility zone patched below. This repo's users are largely at LBNL, in
         # America/Los_Angeles -- exactly the zone patched here -- so without this
         # a reintroduced host-zone .timestamp() bug would show green on a
-        # developer's own machine. monkeypatch restores the TZ env var
-        # automatically; tzset() must be called again on the way out so the C
-        # library actually forgets the override.
+        # developer's own machine. Finalizers run LIFO, so a bare
+        # ``request.addfinalizer(time.tzset)`` would run *before*
+        # monkeypatch's own teardown restores the TZ env var, re-reading the
+        # still-patched "UTC" and leaving every later test in the session on
+        # a UTC host zone. Undo the monkeypatch first, then tzset(), so the
+        # C library re-reads the real, restored TZ.
         monkeypatch.setenv("TZ", "UTC")
         time.tzset()
-        request.addfinalizer(time.tzset)
+
+        def _restore_tz():
+            monkeypatch.undo()
+            time.tzset()
+
+        request.addfinalizer(_restore_tz)
 
         conn, mock_d4py = archiver
         monkeypatch.setattr(

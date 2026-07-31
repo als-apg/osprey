@@ -59,10 +59,43 @@ def build_data_reader(data_source: str) -> str:
 
     - CSV/Excel/Parquet → ``data`` is a pandas DataFrame
     - JSON with legacy OSPREY metadata envelope → unwrapped, then converted to DataFrame
-    - JSON with archiver nested format → unwrapped, then converted to DataFrame
+    - JSON with the long-format archiver ``series`` envelope (current
+      ``archiver_read`` output: ``{query: ..., series: {channel: {timestamps,
+      values}}}``) → pivoted to a wide DataFrame: one column per channel, a
+      ``DatetimeIndex`` that is the *union* of every channel's own real
+      timestamps. A channel with no sample at another channel's timestamp gets
+      ``NaN`` there — nothing is forward-filled or otherwise invented, it is
+      the ordinary consequence of aligning independently-timed columns for
+      plotting. A non-numeric (enum/status) channel's column keeps its own
+      dtype and does not raise. A channel with zero samples in range (an
+      empty ``timestamps``/``values`` pair — always present for every
+      *requested* channel, per ``archiver_read``'s contract) is tolerated:
+      its tz-naive empty index is built with ``utc=True`` so it can still be
+      concatenated against a populated channel's tz-aware index. A channel
+      whose ``timestamps`` and ``values`` differ in length (a malformed
+      artifact) is tolerated the same way
+      :func:`osprey.utils.timeseries.lttb_downsample_channel` and
+      :func:`osprey.interfaces.artifacts.app._pivot_channel_series_to_table`
+      already tolerate it. This branch only fires when ``series`` is
+      genuinely shaped like the archiver envelope (a dict of per-channel
+      dicts) — a coincidental top-level ``series`` key of some other shape
+      falls through to the generic dict/list handling below instead of
+      raising.
+    - JSON with the legacy split-orient archiver ``dataframe`` envelope
+      (``{query: ..., dataframe: {columns, index, data}}``) → unwrapped, then
+      converted to DataFrame. Old artifacts on disk in this layout still load.
 
     After this code runs, **``data`` is always a pandas DataFrame** (for
     tabular sources) or a raw string (for unrecognized formats).
+
+    Note: this can't simply call
+    :func:`osprey.utils.timeseries.extract_channel_series` at runtime — the
+    generated code executes inside the visualization sandbox
+    (``osprey.mcp_server.workspace.execution.sandbox_executor``), whose
+    AST-level import whitelist does not include ``osprey`` itself, so an
+    ``import osprey...`` here would fail *every* JSON ``data_source`` load
+    with "Import not allowed", not just archiver ones. The ``series`` branch
+    below is a self-contained pivot instead.
     """
     loading = build_data_loading_code(data_source)
     return (
@@ -77,7 +110,45 @@ elif _data_path.endswith('.json'):
     # Unwrap legacy OSPREY metadata envelope (if present)
     if isinstance(data, dict) and '_osprey_metadata' in data and 'data' in data:
         data = data['data']
-    # Handle archiver nested format: {query: ..., dataframe: {columns, index, data}}
+    # Handle the long-format archiver envelope: {query: ..., series: {channel:
+    # {timestamps, values}}}. Pivot to a wide DataFrame (one column per channel)
+    # for plotting; each channel keeps its own real samples and its own dtype
+    # (non-numeric/enum channels included) -- only the alignment for a shared
+    # x-axis is new here, nothing is forward-filled.
+    # Guarded on shape (a dict of per-channel dicts) so a coincidental
+    # top-level 'series' key of some other shape (e.g. a list, or a dict of
+    # bare lists) falls through to the generic dict/list handling below
+    # instead of crashing on .items()/.get().
+    _series = data.get('series') if isinstance(data, dict) else None
+    if isinstance(_series, dict) and all(isinstance(_v, dict) for _v in _series.values()):
+        _channel_cols = {}
+        for _channel, _entry in _series.items():
+            _timestamps = _entry.get('timestamps', [])
+            _values = _entry.get('values', [])
+            # A channel whose timestamps/values differ in length (a malformed
+            # artifact) is tolerated the same way the chart downsampler and
+            # the artifacts-app table pivot already tolerate it.
+            if len(_timestamps) != len(_values):
+                _paired = list(zip(_timestamps, _values, strict=False))
+                _timestamps = [_t for _t, _ in _paired]
+                _values = [_v for _, _v in _paired]
+            # utc=True: an empty channel (always present for every requested
+            # channel per archiver_read's contract) yields a tz-naive empty
+            # index from pd.to_datetime([]), while a populated channel yields
+            # a tz-aware one -- concat below would raise "Cannot join
+            # tz-naive with tz-aware DatetimeIndex" without this.
+            # dtype float64 for the empty case: pd.Series([]) has no values to
+            # infer from and lands on object dtype, and Plotly Express refuses a
+            # wide frame whose columns differ in type. Without this, "plot beam
+            # current alongside a channel with no data in this window" raises
+            # instead of drawing the channel that does have data. An empty column
+            # carries no value whose real dtype this could contradict.
+            _idx = pd.to_datetime(_timestamps, utc=True)
+            _channel_cols[_channel] = pd.Series(
+                _values, index=_idx, dtype='float64' if not _values else None
+            )
+        data = pd.concat(_channel_cols, axis=1, sort=True) if _channel_cols else pd.DataFrame()
+    # Handle the legacy split-orient archiver envelope: {query: ..., dataframe: {columns, index, data}}
     if isinstance(data, dict) and 'dataframe' in data:
         data = data['dataframe']
     # Handle split-orient format: {columns, index, data}

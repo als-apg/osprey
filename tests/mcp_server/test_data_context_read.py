@@ -133,6 +133,62 @@ class TestDataRead:
         assert first_indices.isdisjoint(last_indices)
 
     @pytest.mark.asyncio
+    async def test_oversize_series_preview(self, store, read_tool):
+        """The long-format archiver payload gets channel names and counts, not just keys.
+
+        ``archiver_read`` writes ``{query, series: {channel: {timestamps,
+        values}}}``, and an archiver artifact is the usual reason a data file
+        exceeds the inline cap — so this is the preview that fires most often.
+        Before this branch it fell through to ``json_object`` and reported
+        ``top_level_keys: ["query", "series"]``: no channel names, no counts,
+        nothing an agent could act on.
+        """
+        entry = _save_entry(store)
+        stamps = [f"2026-05-11T00:{i // 60:02d}:{i % 60:02d}+00:00" for i in range(200)]
+        payload = {
+            "query": {"channels": ["CH_A", "CH_B", "CH_DOWN"], "padding": "z" * (110 * 1024)},
+            "series": {
+                "CH_A": {"timestamps": stamps, "values": [float(i) for i in range(200)]},
+                "CH_B": {"timestamps": stamps[:50], "values": [float(i) * 2 for i in range(50)]},
+                # A requested channel with no data in range — archiver_read
+                # always emits one, and its emptiness is the diagnosis.
+                "CH_DOWN": {"timestamps": [], "values": []},
+            },
+        }
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "timeseries_series"
+        assert preview["channels"] == ["CH_A", "CH_B", "CH_DOWN"]
+        assert preview["row_count"] == 250
+        assert preview["per_channel"]["CH_A"]["points"] == 200
+        assert preview["per_channel"]["CH_A"]["first"] == [stamps[0], 0.0]
+        assert preview["per_channel"]["CH_A"]["last"] == [stamps[199], 199.0]
+        assert preview["per_channel"]["CH_B"]["points"] == 50
+        assert preview["per_channel"]["CH_DOWN"]["points"] == 0
+        assert preview["per_channel"]["CH_DOWN"]["first"] is None
+        assert preview["per_channel"]["CH_DOWN"]["last"] is None
+
+    @pytest.mark.asyncio
+    async def test_oversize_series_key_collision_falls_through(self, store, read_tool):
+        """A non-archiver file with a top-level 'series' key keeps the generic preview."""
+        entry = _save_entry(store)
+        payload = {
+            # Dict-of-dicts, but no 'timestamps' — not an archiver envelope.
+            "series": {"a": {"x": 1}, "b": {"x": 2}},
+            "padding": "z" * (150 * 1024),
+        }
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "json_object"
+        assert set(preview["top_level_keys"]) == {"series", "padding"}
+
+    @pytest.mark.asyncio
     async def test_oversize_json_object_preview(self, store, read_tool):
         """Non-dataframe JSON objects expose top-level keys in the preview."""
         entry = _save_entry(store)

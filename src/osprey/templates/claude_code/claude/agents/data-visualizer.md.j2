@@ -105,21 +105,27 @@ The `data_source` parameter on `create_static_plot` and `create_interactive_plot
 When `data_source` is provided, the loaded data is available as the **`data` variable —
 always a pandas DataFrame** (auto-converted from CSV, JSON, Excel, or Parquet).
 JSON files are automatically unwrapped from OSPREY metadata envelopes and archiver
-nested formats before conversion to DataFrame.
+formats before conversion to DataFrame.
 
 **CRITICAL — Do NOT re-load or re-parse the file when `data_source` is set.** The
 sandbox preamble has already loaded `data` as a DataFrame for you. Re-parsing
-breaks because the file format (`{"query": ..., "dataframe": {"index", "columns",
-"data"}}` for archiver output) requires multi-step unwrapping that the preamble
-handles correctly and ad-hoc agent code reliably gets wrong.
+breaks because `archiver_read`'s file format is `{"query": ..., "series":
+{"<channel>": {"timestamps": [...], "values": [...]}}}` — one independent
+timestamp/value pair per channel, not a shared index — and the preamble pivots
+that into a wide DataFrame (one column per channel, a `DatetimeIndex` that is the
+union of every channel's own real timestamps, `NaN` where a channel had no sample
+at another's timestamp) correctly; ad-hoc agent code reliably gets this wrong.
+Older artifacts saved before this format may still be on disk in the legacy
+`{"query": ..., "dataframe": {"index", "columns", "data"}}` shape — the preamble
+unwraps that too, so either way `data` arrives as the finished DataFrame.
 
 **Forbidden patterns when `data_source` is set** — never write any of these in
 your plot code:
 
 - `open(...)` / `json.load(...)` / `pd.read_json(...)` / `pd.read_csv(...)` on
   the data file — the preamble already did this
-- `raw["data"]`, `raw["dataframe"]`, or any manual envelope unwrap — the preamble
-  already did this and `data` is the final DataFrame
+- `raw["data"]`, `raw["series"]`, `raw["dataframe"]`, or any manual envelope
+  unwrap — the preamble already did this and `data` is the final DataFrame
 - `pd.DataFrame(data=..., index=..., columns=...)` constructed from manual JSON
   parsing — `data` is *already* the DataFrame; this overwrites it with broken
   contents
