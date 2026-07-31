@@ -8,44 +8,22 @@ Date: 2026-07-01
 """
 
 import asyncio
-import math
 from datetime import datetime
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from osprey.connectors.archiver._timerange import align_to_grid, resolve_processing, to_utc
+from osprey.connectors.archiver._timerange import (
+    aggregate_series,
+    long_frame,
+    resolve_processing,
+    to_utc,
+)
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
 logger = get_logger("doocs_archiver_connector")
-
-
-def _floor_bin_ms(series: pd.Series, precision_ms: int) -> int:
-    """Floor ``precision_ms`` at the median spacing actually present in ``series``.
-
-    ``resample()`` reindexes onto a full regular grid between the min and max
-    index, so it upsamples whenever a series is sparser than the requested bin
-    (e.g. an infrequently-updated property). Flooring the bin width at the
-    observed spacing keeps a real aggregate from manufacturing samples that
-    were never recorded. Shared by the single- and multi-PV paths in
-    :meth:`DOOCSArchiverConnector.get_data` so the floor is computed once, the
-    same way, regardless of how many properties were requested.
-
-    Args:
-        series: A single PV's raw sample series, UTC-indexed.
-        precision_ms: The requested bin width in milliseconds.
-
-    Returns:
-        ``precision_ms``, or the ceiling of the series' median sample gap in
-        milliseconds if that gap is wider.
-    """
-    if len(series) > 1:
-        gaps = series.index.to_series().diff().dropna()
-        observed_ms = gaps.median().total_seconds() * 1000
-        return max(precision_ms, math.ceil(observed_ms))
-    return precision_ms
 
 
 class DOOCSArchiverConnector(ArchiverConnector):
@@ -140,7 +118,20 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
-            DataFrame with datetime index and columns for each DOOCS property
+            Long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
+            ``channel`` (str), and ``value`` (not dtype-constrained — float64
+            for numeric channels, or the source dtype otherwise, e.g. an
+            enum/status channel archived as a string). See
+            :meth:`ArchiverConnector.get_data` for the full contract.
+
+        Raises:
+            RuntimeError: If archiver not connected, or a DOOCS property's
+                history cannot be read
+            TypeError: If start_date or end_date are not datetime objects
+            TimeoutError: If the request times out
+            ValueError: If a non-raw processing mode is requested for a
+                channel that carries non-numeric values (see
+                :func:`~osprey.connectors.archiver._timerange.aggregate_series`)
         """
 
         if not self._connected:
@@ -161,24 +152,20 @@ class DOOCSArchiverConnector(ArchiverConnector):
         end_utc = to_utc(end_date)
         resolved = resolve_processing(processing, precision_ms)
 
-        duration = (end_utc - start_utc).total_seconds()
-
-        # Limit number of points for performance
-        # Use precision_ms to determine sampling
-        num_points = min(int(duration / (precision_ms / 1000.0)), 10000)
-        num_points = max(num_points, 10)  # At least 10 points
-
-        # "raw" is decimated to num_points inside _read_history -- a zero-order hold
-        # with exactly one sample per precision_ms bin, "binned" by construction. A
-        # real aggregate needs the underlying raw samples to aggregate *over*:
-        # decimating to one sample per bin first would starve mean/count/std down to
-        # a single value per bin, degenerating the aggregate into a relabeled
-        # zero-order hold (finding #1 -- the bug this whole fix pass exists for --
-        # reintroduced here). Passing max_points=None skips that decimation so the
-        # raw samples reach the per-series resample below; _floor_bin_ms there still
-        # bounds the result if the archive itself is sparse.
-        history_max_points = num_points if resolved.mode == "raw" else None
-
+        # max_points=None for every mode, "raw" included: it skips
+        # _read_history's own zero-order-hold decimation (a np.linspace grid
+        # plus nearest-sample-at-or-before hold) so every real archived sample
+        # reaches aggregate_series below. That decimation forces a regular grid
+        # and forward-fills onto it -- both explicitly prohibited by this
+        # framework's "nothing is manufactured" contract, and for "raw" it
+        # meant only 2 of 10,000 returned timestamps were ever real archived
+        # ones. A real aggregate mode needs the underlying raw samples to
+        # aggregate *over* regardless (finding #1 -- the bug this whole fix
+        # pass exists for -- would otherwise starve mean/count/std down to a
+        # single value per bin); "raw" now needs the same thing for the same
+        # reason: decimate_raw (inside aggregate_series) keeps each bin's own
+        # real last sample, at its own real timestamp, which requires the real
+        # samples in the first place.
         def fetch_all() -> dict[str, pd.Series]:
             data = {}
             for add in pv_list:
@@ -186,7 +173,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
                     add,
                     start_utc.timestamp(),
                     end_utc.timestamp(),
-                    history_max_points,
+                    None,
                     self._avg_window,
                 )
                 if hist_data_dict is None:
@@ -199,41 +186,17 @@ class DOOCSArchiverConnector(ArchiverConnector):
         try:
             series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
 
-            if resolved.mode == "raw":
-                # "raw" was already decimated to num_points inside _read_history, so
-                # every series is binned by construction; align_to_grid only needs
-                # to union already-binned series onto a common precision_ms index.
-                if len(pv_list) == 1:
-                    data = pd.DataFrame(series_dict)
-                else:
-                    data = align_to_grid(series_dict, start_utc, end_utc, precision_ms)
-            else:
-                # A real aggregate must resample each series over its own raw
-                # samples *before* any alignment: align_to_grid forward-fills onto
-                # a single value per grid point, so resampling an already-aligned
-                # frame would aggregate over one decimated sample per bin and
-                # degenerate into a relabeled zero-order hold -- finding #1, the
-                # bug this whole fix pass exists for, reached here via alignment
-                # instead of via _read_history's decimation. Each series floors
-                # its own bin width at its own observed spacing first (shared
-                # logic with the single-PV path via _floor_bin_ms), so resample()
-                # cannot upsample past what that series actually recorded.
-                resampled = {
-                    pv: series.resample(f"{_floor_bin_ms(series, precision_ms)}ms").agg(
-                        resolved.pandas_agg
-                    )
-                    for pv, series in series_dict.items()
-                }
-                if len(pv_list) == 1:
-                    data = pd.DataFrame(resampled)
-                else:
-                    # The common grid can be no finer than the sparsest series'
-                    # own floor -- otherwise aligning the already-resampled
-                    # series below would itself upsample the sparser ones.
-                    grid_ms = max(
-                        _floor_bin_ms(series, precision_ms) for series in series_dict.values()
-                    )
-                    data = align_to_grid(resampled, start_utc, end_utc, grid_ms)
+            # Each channel is aggregated over its own real samples independently
+            # of every other requested channel -- aggregate_series drops any bin
+            # with no samples rather than emitting one, so no grid alignment or
+            # bin-width floor is needed regardless of how differently two
+            # channels are sampled. "raw" decimates via aggregate_series's
+            # decimate_raw path: one real sample per precision_ms bin, at its
+            # own real timestamp.
+            series = {
+                pv: aggregate_series(s, precision_ms, resolved) for pv, s in series_dict.items()
+            }
+            data = long_frame(series)
 
             logger.debug(
                 f"Retrieved DOOCS archiver data: {len(data)} points "

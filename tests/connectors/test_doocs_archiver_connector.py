@@ -171,10 +171,10 @@ class TestGetDataSinglePV:
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
         assert isinstance(df, pd.DataFrame)
 
-    async def test_single_pv_column_present(self, archiver):
+    async def test_single_pv_channel_present(self, archiver):
         conn, _ = archiver
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
-        assert "FAC/DEV/LOC/PROP" in df.columns
+        assert (df["channel"] == "FAC/DEV/LOC/PROP").all()
 
     async def test_single_pv_has_data(self, archiver):
         conn, _ = archiver
@@ -201,7 +201,7 @@ class TestGetDataSinglePV:
 
 
 class TestGetDataMultiPV:
-    async def test_multi_pv_all_columns_present(self):
+    async def test_multi_pv_all_channels_present(self):
         """Two PVs: each gets its own mock get() sequence.
 
         _read_history fetches chunks in reverse chronological order.  A single
@@ -235,8 +235,7 @@ class TestGetDataMultiPV:
             )
             await conn.disconnect()
 
-        assert "FAC/DEV/LOC/A" in df.columns
-        assert "FAC/DEV/LOC/B" in df.columns
+        assert set(df["channel"]) == {"FAC/DEV/LOC/A", "FAC/DEV/LOC/B"}
 
 
 # --------------------------------------------------------------------------------------
@@ -573,8 +572,9 @@ class TestProcessingSparseData:
         # actually spaced ~1 hour apart would inflate this to ~21,601 rows,
         # almost entirely NaN. The row count must stay near the archived
         # sample count instead, with no NaN rows.
-        assert len(df) <= 10
-        assert not df["FAC/DEV/LOC/P"].isna().any()
+        values = df.loc[df["channel"] == "FAC/DEV/LOC/P", "value"]
+        assert len(values) <= 10
+        assert not values.isna().any()
 
 
 class TestProcessingGenuineAggregation:
@@ -623,7 +623,7 @@ class TestProcessingGenuineAggregation:
         # Bin 0: values 0..9 -> true mean 4.5; bin 1: 10..19 -> 14.5;
         # bin 2: 20..29 -> 24.5. A zero-order-hold-then-resample bug instead
         # reports a single raw sample's value, relabeled, per bin.
-        values = df["FAC/DEV/LOC/P"].dropna().tolist()
+        values = df.loc[df["channel"] == "FAC/DEV/LOC/P", "value"].tolist()
         assert values == pytest.approx([4.5, 14.5, 24.5])
 
     async def test_count_returns_true_per_bin_sample_count(self):
@@ -648,7 +648,7 @@ class TestProcessingGenuineAggregation:
 
         # 10 real samples land in each 1 s bin; a zero-order-hold-then-resample
         # bug instead reports (at most) 1 per bin.
-        counts = df["FAC/DEV/LOC/P"].dropna().tolist()
+        counts = df.loc[df["channel"] == "FAC/DEV/LOC/P", "value"].tolist()
         assert counts == [10, 10, 10]
 
     @staticmethod
@@ -665,11 +665,15 @@ class TestProcessingGenuineAggregation:
         mock_d4py.get.side_effect = [r_a, r_b]
         return mock_d4py
 
-    async def test_multi_pv_mean_aggregates_true_within_bin_average_for_both_columns(self):
-        """Regression for finding #1 reached via alignment: align_to_grid forward-fills
-        onto one value per grid point, so resampling *after* alignment (the brief's
-        original order) would aggregate over an already-decimated series, same as the
-        single-PV bug. Both columns must carry the true within-bin means.
+    async def test_multi_pv_mean_aggregates_true_within_bin_average_for_both_channels(self):
+        """Each channel must carry its own true within-bin means, independently.
+
+        Formerly a regression test for finding #1 reached via alignment:
+        align_to_grid forward-filled onto one value per grid point, so resampling
+        *after* alignment aggregated over an already-decimated series, same as the
+        single-PV bug. align_to_grid is gone entirely now -- long_frame just
+        assembles each channel's own aggregate_series output, so there is no
+        shared grid left to forward-fill onto.
         """
         chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
         mock_d4py = self._two_pv_mock(chunk, chunk)
@@ -691,13 +695,13 @@ class TestProcessingGenuineAggregation:
             await conn.disconnect()
 
         # Bin 0: values 0..9 -> 4.5; bin 1: 10..19 -> 14.5; bin 2: 20..29 -> 24.5.
-        # align_to_grid's query-window grid runs one step past the last real bin
-        # (00:00:03), forward-filling the last bin's mean there -- expected and
-        # unrelated to aggregation correctness, which is what this test pins.
-        assert df["FAC/DEV/LOC/A"].tolist() == pytest.approx([4.5, 14.5, 24.5, 24.5])
-        assert df["FAC/DEV/LOC/B"].tolist() == pytest.approx([4.5, 14.5, 24.5, 24.5])
+        # No trailing duplicate: with align_to_grid gone there is no query-window
+        # grid point past the last real bin to forward-fill onto.
+        expected = pytest.approx([4.5, 14.5, 24.5])
+        assert df.loc[df["channel"] == "FAC/DEV/LOC/A", "value"].tolist() == expected
+        assert df.loc[df["channel"] == "FAC/DEV/LOC/B", "value"].tolist() == expected
 
-    async def test_multi_pv_count_returns_true_per_bin_sample_count_for_both_columns(self):
+    async def test_multi_pv_count_returns_true_per_bin_sample_count_for_both_channels(self):
         chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
         mock_d4py = self._two_pv_mock(chunk, chunk)
 
@@ -718,14 +722,20 @@ class TestProcessingGenuineAggregation:
             await conn.disconnect()
 
         # 10 real samples land in each 1 s bin, on both PVs.
-        assert df["FAC/DEV/LOC/A"].tolist() == [10, 10, 10, 10]
-        assert df["FAC/DEV/LOC/B"].tolist() == [10, 10, 10, 10]
+        assert df.loc[df["channel"] == "FAC/DEV/LOC/A", "value"].tolist() == [10, 10, 10]
+        assert df.loc[df["channel"] == "FAC/DEV/LOC/B", "value"].tolist() == [10, 10, 10]
 
-    async def test_multi_pv_raw_output_unchanged_by_the_aggregation_restructure(self):
-        """Pin the default (raw) multi-PV path so the aggregation restructure above
-        cannot silently change it: raw still decimates via _read_history's
-        num_points zero-order hold, then align_to_grid unions at precision_ms --
-        exactly as before this fix pass.
+    async def test_multi_pv_raw_output_is_each_channels_own_decimated_series(self):
+        """ "raw" now reaches _read_history with max_points=None (I4), so every
+        real archived sample survives _read_history untouched; decimate_raw
+        (inside aggregate_series) then keeps each 1s bin's own last real
+        sample, at its own real timestamp. 30 real samples across 3 true 1s
+        bins (10 samples/bin) decimate to exactly 3 rows per channel: the
+        bin's last sample, value 9/19/29, each at its own real timestamp --
+        never a bin-edge timestamp resample().agg("last") would fabricate.
+        long_frame then just assembles each channel's own decimated series
+        with no shared grid, so with identical input chunks the two channels
+        must decimate identically.
         """
         chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
         mock_d4py = self._two_pv_mock(chunk, chunk)
@@ -746,5 +756,205 @@ class TestProcessingGenuineAggregation:
             )
             await conn.disconnect()
 
-        assert df["FAC/DEV/LOC/A"].tolist() == pytest.approx([0.0, 9.0, 19.0, 29.0])
-        assert df["FAC/DEV/LOC/B"].tolist() == pytest.approx([0.0, 9.0, 19.0, 29.0])
+        # The last real sample of each of the 3 true 1s bins: chunk indices
+        # 9, 19, 29 (values 9.0, 19.0, 29.0), at their own real timestamps.
+        expected_values = [chunk[9][3], chunk[19][3], chunk[29][3]]
+        expected_times = pd.to_datetime(
+            [chunk[9][0], chunk[19][0], chunk[29][0]], unit="s", utc=True
+        )
+
+        assert len(df) == 6  # exactly 3 rows per channel, no more, no fewer
+        for channel in ("FAC/DEV/LOC/A", "FAC/DEV/LOC/B"):
+            rows = df.loc[df["channel"] == channel]
+            assert rows["value"].tolist() == pytest.approx(expected_values)
+            assert list(rows["timestamp"]) == list(expected_times)
+
+    async def test_raw_returns_only_real_archived_timestamps(self):
+        """Every "raw"-mode timestamp must be a real archived sample, never a
+        manufactured grid point (I4). Before this fix, "raw" passed
+        ``max_points=num_points`` into ``_read_history``, which built a
+        ``np.linspace`` grid and zero-order-held onto it -- measured over
+        288,000 archived samples in an 8h window, only 2 of the 10,000
+        returned timestamps were real archived ones. ``max_points=None`` now
+        lets every real sample reach ``decimate_raw``, which only ever keeps
+        samples that were actually archived.
+        """
+        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
+        mock_d4py = _make_doocs4py(chunk=chunk)
+        archived_timestamps = set(pd.to_datetime([c[0] for c in chunk], unit="s", utc=True))
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/P"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
+                precision_ms=1000,
+                # processing defaults to "raw"
+            )
+            await conn.disconnect()
+
+        assert len(df) > 0
+        assert set(df["timestamp"]) <= archived_timestamps
+
+    @staticmethod
+    def _mixed_cadence_mock(fast_chunk, slow_chunk):
+        """A mock doocs4py wired for one dense and one sparse channel.
+
+        The dense channel's chunk spans the whole window (its oldest sample is
+        at ``start_ts``), so its single ``get()`` call terminates
+        ``_read_history``'s pagination loop immediately, per the convention
+        established for ``_two_pv_mock`` above. The sparse channel's one real
+        sample sits mid-window, so its oldest-in-chunk timestamp is still
+        *after* ``start_ts`` -- the loop does not yet know it has reached the
+        start of the range, and pages once more. A second, empty result
+        terminates it, matching real DOOCS pagination semantics.
+        """
+        mock_d4py = MagicMock()
+        mock_d4py.__version__ = "2.0.0"
+        mock_d4py.names.return_value = [("FACILITY", "XFEL")]
+        r_fast = MagicMock()
+        r_fast.value = fast_chunk
+        r_slow = MagicMock()
+        r_slow.value = slow_chunk
+        r_slow_empty = MagicMock()
+        r_slow_empty.value = []
+        mock_d4py.get.side_effect = [r_fast, r_slow, r_slow_empty]
+        return mock_d4py
+
+    async def test_multi_pv_mixed_cadence_channels_aggregate_independently(self):
+        """A 10 Hz and a 0.1 Hz channel queried together must each be aggregated over
+        only their own samples -- the exact defect this redesign eliminates. Under
+        the old grid, the common bin width was floored at the *sparsest* channel's
+        own floor, so the dense channel's fine per-bin means got forward-filled
+        onto that coarse grid instead of keeping their true within-bin average.
+        """
+        fast_chunk = self._dense_chunk(n_bins=10, samples_per_bin=10)  # 10 Hz, 10 s
+        slow_chunk = [(_START_TS + 5.0, 0, 0, 500.0)]  # 0.1 Hz: one real sample
+        mock_d4py = self._mixed_cadence_mock(fast_chunk, slow_chunk)
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/FAST", "FAC/DEV/LOC/SLOW"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC),
+                precision_ms=1000,
+                processing="mean",
+            )
+            await conn.disconnect()
+
+        fast_values = df.loc[df["channel"] == "FAC/DEV/LOC/FAST", "value"].tolist()
+        slow_values = df.loc[df["channel"] == "FAC/DEV/LOC/SLOW", "value"].tolist()
+
+        # FAST: 10 true per-bin means over its own 10 samples/bin, not deflated
+        # to a single value borrowed via SLOW's 10 s cadence.
+        assert fast_values == pytest.approx([4.5 + 10 * b for b in range(10)])
+        # SLOW: its own single real sample, unaffected by FAST's cadence.
+        assert slow_values == pytest.approx([500.0])
+
+    async def test_multi_pv_mixed_cadence_dense_channel_count_not_deflated(self):
+        """Same mixed-cadence scenario via "count": the dense channel's true
+        per-bin sample count must not be deflated by the sparse channel's
+        coarser cadence (the "count came back 10x low" symptom of the old bug).
+        """
+        fast_chunk = self._dense_chunk(n_bins=10, samples_per_bin=10)
+        slow_chunk = [(_START_TS + 5.0, 0, 0, 500.0)]
+        mock_d4py = self._mixed_cadence_mock(fast_chunk, slow_chunk)
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAC/DEV/LOC/FAST", "FAC/DEV/LOC/SLOW"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC),
+                precision_ms=1000,
+                processing="count",
+            )
+            await conn.disconnect()
+
+        fast_counts = df.loc[df["channel"] == "FAC/DEV/LOC/FAST", "value"].tolist()
+        slow_counts = df.loc[df["channel"] == "FAC/DEV/LOC/SLOW", "value"].tolist()
+
+        assert fast_counts == [10] * 10
+        assert slow_counts == [1]
+
+    async def test_multi_pv_sparse_dominated_mixed_cadence_defect_is_gone(self):
+        """Reproduces the real DOOCS defect the earlier mixed-cadence tests above
+        didn't actually exercise. A single SLOW sample never engaged
+        ``_floor_bin_ms``'s multi-sample branch (it needs ``len(series) > 1`` to
+        compute a gap at all), so the earlier fixture passed for the wrong
+        reason -- it never widened SLOW's own floor past ``precision_ms``.
+
+        Reconstructing the deleted DOOCS logic (``_floor_bin_ms`` +
+        ``align_to_grid``) against a fixture with >=2 SLOW samples spaced wider
+        than ``precision_ms`` confirms a genuine aggregation-content defect: with
+        FAST truly at 10 Hz over 4 real 1s bins (count 10 each) and SLOW at just
+        2 samples 5 s apart, ``_floor_bin_ms(SLOW)`` computes 5000ms, so
+        ``grid_ms = max(1000, 5000) = 5000``. FAST's own correctly-resampled
+        4-bin series (``[10, 10, 10, 10]``) then gets forward-filled onto that
+        coarse shared grid and reindexed down to just 2 points, reproducing
+        ``FAST: [10.0, 10.0]`` -- 2 of FAST's 4 real bins vanish, and the second
+        surviving value is relabeled at t=5s, where FAST has zero real samples.
+        That is a real content defect (not a shape/KeyError failure), driven
+        entirely by SLOW's cadence dominating the shared bin width.
+        """
+        base_ts = _START.timestamp()
+        fast_chunk = [
+            (base_ts + i * 0.1, 0, 0, float(i)) for i in range(40)
+        ]  # 10 Hz, 4 true 1s bins
+        slow_chunk = [(base_ts, 0, 0, 500.0), (base_ts + 5.0, 0, 0, 501.0)]  # 5 s apart
+
+        mock_d4py = MagicMock()
+        mock_d4py.__version__ = "2.0.0"
+        mock_d4py.names.return_value = [("FACILITY", "XFEL")]
+        r_fast = MagicMock()
+        r_fast.value = fast_chunk
+        r_slow = MagicMock()
+        r_slow.value = slow_chunk
+        r_slow_empty = MagicMock()
+        r_slow_empty.value = []
+        # FAST's chunk spans the whole window -> 1 get() call. SLOW's first
+        # sample sits at start_ts too, so its oldest-in-chunk also reaches
+        # start_ts on the first call -> also 1 get() call; the spare empty
+        # result is unused but keeps this robust to either outcome.
+        mock_d4py.get.side_effect = [r_fast, r_slow, r_slow_empty]
+
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            df = await conn.get_data(
+                pv_list=["FAST", "SLOW"],
+                start_date=_START,
+                end_date=datetime(2026, 1, 1, 0, 0, 5, tzinfo=UTC),
+                precision_ms=1000,
+                processing="count",
+            )
+            await conn.disconnect()
+
+        fast_counts = df.loc[df["channel"] == "FAST", "value"].tolist()
+        slow_counts = df.loc[df["channel"] == "SLOW", "value"].tolist()
+
+        # All 4 of FAST's true 1s bins survive, each with its true count of 10
+        # -- not collapsed to 2 points by SLOW's much coarser cadence.
+        assert fast_counts == [10, 10, 10, 10]
+        assert slow_counts == [1, 1]

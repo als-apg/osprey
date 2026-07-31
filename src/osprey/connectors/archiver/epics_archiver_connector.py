@@ -16,7 +16,7 @@ from typing import Any
 
 import pandas as pd
 
-from osprey.connectors.archiver._timerange import align_to_grid, resolve_processing, to_utc
+from osprey.connectors.archiver._timerange import long_frame, resolve_processing, to_utc
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
@@ -146,7 +146,12 @@ class EPICSArchiverConnector(ArchiverConnector):
                 it client-side. Anything else raises ValueError.
 
         Returns:
-            DataFrame with datetime index and PV columns
+            Long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
+            ``channel`` (str), and ``value`` (not dtype-constrained — float64
+            for numeric channels, or the source dtype otherwise, e.g. an
+            enum/status channel archived as a string), sorted by channel then
+            timestamp. See :meth:`ArchiverConnector.get_data` for the full
+            contract.
 
         Raises:
             RuntimeError: If archiver not connected
@@ -191,10 +196,10 @@ class EPICSArchiverConnector(ArchiverConnector):
         try:
             series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
 
-            if len(pv_list) == 1:
-                data = pd.DataFrame(series_dict)
-            else:
-                data = align_to_grid(series_dict, start_utc, end_utc, precision_ms)
+            # The Archiver Appliance already binned each series server-side via
+            # the operator prefix above; aggregate_series is not called here —
+            # doing so would re-bin already-binned data.
+            data = long_frame(series_dict)
 
             logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")
             return data

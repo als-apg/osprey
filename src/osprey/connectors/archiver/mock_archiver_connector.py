@@ -6,14 +6,18 @@ Ideal for R&D and development without archiver access.
 
 """
 
-import math
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
-from osprey.connectors.archiver._timerange import resolve_processing
+from osprey.connectors.archiver._timerange import (
+    aggregate_series,
+    long_frame,
+    resolve_processing,
+    to_utc,
+)
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.connectors.pv_taxonomy import classify_pv
 from osprey.simulation import engine_serves
@@ -104,7 +108,11 @@ class MockArchiverConnector(ArchiverConnector):
             pv_list: List of PV names (all accepted)
             start_date: Start of time range
             end_date: End of time range
-            precision_ms: Time precision (affects downsampling)
+            precision_ms: Time precision (affects downsampling). ``<= 0`` means
+                full resolution: samples are generated at the connector's own
+                configured ``sample_rate_hz`` instead of a density derived from
+                ``precision_ms``, since the mock has no backing store of real
+                samples to return in full.
             timeout: Ignored for mock archiver
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Backends
@@ -112,53 +120,72 @@ class MockArchiverConnector(ArchiverConnector):
                 it client-side. Anything else raises ValueError.
 
         Returns:
-            DataFrame with datetime index and columns for each PV
+            Long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
+            ``channel`` (str), and ``value`` (not dtype-constrained — float64
+            for numeric channels, or the source dtype otherwise, e.g. an
+            enum/status channel archived as a string). See
+            :meth:`ArchiverConnector.get_data` for the full contract.
+
+        Raises:
+            ValueError: If ``processing`` other than ``"raw"`` is requested for
+                a channel that synthesizes non-numeric values — aggregation
+                over non-numeric samples is undefined (see
+                :func:`~osprey.connectors.archiver._timerange.aggregate_series`).
         """
+        # long_frame requires a UTC-aware index on every per-channel series; a
+        # naive start/end (facility wall-clock, per the framework's convention)
+        # is normalized the same way every other archiver connector normalizes
+        # its query window, before any timestamps are generated from it.
+        start_date = to_utc(start_date)
+        end_date = to_utc(end_date)
         duration = (end_date - start_date).total_seconds()
 
-        # Limit number of points for performance
-        # Use precision_ms to determine sampling
-        num_points = min(int(duration / (precision_ms / 1000.0)), 10000)
+        # Limit number of points for performance.
+        # Use precision_ms to determine sampling density. precision_ms <= 0
+        # means full resolution (the same convention resolve_processing and
+        # decimate_raw use), but unlike a real archiver the mock has no
+        # backing store of "real" samples to return in full — it synthesizes
+        # them. "Full resolution" here is therefore defined as generating at
+        # the connector's own configured native rate (sample_rate_hz) rather
+        # than deriving a density from a bin width that doesn't exist; this
+        # also keeps a precision_ms=0 request from dividing by zero.
+        effective_precision_ms = precision_ms if precision_ms > 0 else 1000.0 / self._sample_rate_hz
+        num_points = min(int(duration / (effective_precision_ms / 1000.0)), 10000)
         num_points = max(num_points, 10)  # At least 10 points
 
         # Generate timestamps
         time_step = duration / (num_points - 1) if num_points > 1 else 0
         timestamps = [start_date + timedelta(seconds=i * time_step) for i in range(num_points)]
+        index = pd.DatetimeIndex(timestamps)
 
         # Generate data for each PV. Channels known to the simulation engine
         # are synthesized from the machine model; everything else uses the
-        # generic procedural generation.
-        data = {}
+        # generic procedural generation. Each channel is then aggregated on
+        # its own — aggregate_series drops any bin with no samples rather
+        # than emitting one, so no upsampling floor is needed here regardless
+        # of how much wider the real sample spacing is than precision_ms.
+        resolved = resolve_processing(processing, precision_ms)
+        series = {}
         for pv in pv_list:
             if engine_serves(self._sim_engine, pv):
-                data[pv] = self._sim_engine.synthesize_series(pv, timestamps)
+                values = self._sim_engine.synthesize_series(pv, timestamps)
             else:
-                data[pv] = self._generate_time_series(pv, num_points)
+                values = self._generate_time_series(pv, num_points)
+            # No dtype is forced: a numeric series (list[float] or a float
+            # ndarray) infers float64 as always; an enum/status channel's
+            # list[str] is passed through untouched, per the long_frame
+            # contract that leaves `value` dtype-unconstrained.
+            raw_series = pd.Series(values, index=index, name=pv)
+            series[pv] = aggregate_series(raw_series, precision_ms, resolved)
 
-        df = pd.DataFrame(data, index=pd.to_datetime(timestamps))
-
-        # The 10,000-point cap above means the actual spacing (time_step) can be
-        # much wider than precision_ms for a long window, and even when the cap
-        # doesn't bind, time_step is marginally wider than precision_ms (it's
-        # duration / (num_points - 1), not duration / num_points). Resampling at
-        # the requested precision_ms would then ask pandas to fill a much finer
-        # grid than the data actually has, inflating the frame with NaN rows.
-        # Bounding the bin width by the real spacing keeps the resampled grid no
-        # finer than the data that was generated.
-        resolved = resolve_processing(processing, precision_ms)
-        if resolved.mode != "raw":
-            if time_step > 0:
-                effective_ms = max(precision_ms, math.ceil(time_step * 1000))
-            else:
-                effective_ms = precision_ms
-            df = df.resample(f"{effective_ms}ms").agg(resolved.pandas_agg)
+        data = long_frame(series)
 
         logger.debug(
-            f"Mock archiver generated {len(df)} points for "
+            f"Mock archiver generated {len(data)} points for "
             f"{len(pv_list)} PVs from {start_date} to {end_date}"
         )
 
-        return df
+        return data
 
     async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
         """Get mock archiver metadata."""

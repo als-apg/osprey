@@ -89,13 +89,26 @@ class ArchiverConnector(ABC):
                 it client-side. Anything else raises ValueError.
 
         Returns:
-            DataFrame with datetime index and PV columns
-            Each column contains the time series for one PV
+            A long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
+            ``channel`` (str), and ``value`` — not dtype-constrained: ``float64``
+            when every requested channel's samples are numeric, or whatever
+            dtype pandas needs to hold the mix (typically ``object``) once any
+            channel is non-numeric (e.g. an enum/status PV archived as a
+            string). Sorted by channel then timestamp. Channels are never
+            placed on a shared index: each channel contributes only its own
+            real samples (or, when ``processing`` bins them, only its own real
+            per-bin aggregates), so nothing is ever manufactured — no
+            forward-fill, no reindex onto a regular grid, no bin for a period
+            with no samples. A PV with no data in range contributes no rows.
+            An empty result is an empty frame with these columns, ``value``
+            defaulting to ``float64``.
 
         Raises:
             ConnectionError: If archiver cannot be reached
             TimeoutError: If operation times out
-            ValueError: If time range, PV names, or processing mode are invalid
+            ValueError: If time range, PV names, or processing mode are
+                invalid, or if a non-"raw" processing mode is requested for a
+                channel whose values are non-numeric
         """
         pass
 

@@ -13,6 +13,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `archiver_read` gained `bin_size=0` for full resolution — every real
+  archived sample in the requested range, with no per-bin decimation. Only
+  valid with `processing="raw"` (an aggregate has no bin to aggregate
+  over); a non-raw `processing` with `bin_size=0`, or a negative
+  `bin_size`, is a validation error.
 - Every service image is now overridable through the same `env → config →
   default` chain: new `OSPREY_POSTGRES_IMAGE` env var plus
   `services.postgresql.image`, `services.openobserve.image`, and
@@ -31,6 +36,45 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- **Breaking change: `ArchiverConnector.get_data` now returns long-format
+  data instead of a shared-index wide frame.** Every archiver connector
+  correctness bug fixed above traced back to forcing every requested
+  channel onto one shared index, which required forward-filling gaps and
+  resampling data into existence just to keep a rectangular shape.
+  - **Before:** a wide `pandas.DataFrame` indexed by timestamp, one column
+    per channel, reindexed/forward-filled onto a shared grid so every
+    column had a value at every row.
+  - **After:** a long `pandas.DataFrame` with exactly three columns —
+    `timestamp` (`datetime64[ns, UTC]`), `channel` (`str`), and `value` —
+    sorted by `channel` then `timestamp`. Each channel contributes only its
+    own real samples (or, under a non-`raw` `processing` mode, only its own
+    real per-bin aggregates); nothing is forward-filled, reindexed onto a
+    shared grid, or otherwise manufactured, and a channel with no data in
+    range contributes no rows. An empty result is an empty frame with the
+    same three columns.
+  - `value` is not dtype-constrained: `float64` when every requested
+    channel's samples are numeric, or pandas' natural mixed dtype once any
+    channel is non-numeric — enum/status channels (EPICS `mbbi` / DOOCS
+    `DBR_STRING`: machine mode, interlock state, RF state) are archived as
+    strings and round-trip as strings, never coerced.
+  - `raw` processing now decimates each bin to its last **real** sample,
+    keeping that sample's own true timestamp rather than a relabeled bin
+    edge — matching EPICS's long-standing `lastSample_N` semantics on every
+    backend.
+  - The `archiver_read` artifact payload changed from a split-orient wide
+    frame to `{"query": ..., "series": {"<channel>": {"timestamps": [...],
+    "values": [...]}}}`. Artifacts already saved in the old layout still
+    render — `extract_channel_series` normalizes all three historical
+    layouts.
+  - **Any out-of-tree `ArchiverConnector` subclass must be updated** to
+    return the new long-format shape; downstream code no longer accepts
+    the old wide, shared-index format.
+- `ArchiverConnector.get_data` gained a trailing `processing: str = "raw"`
+  keyword (one of `raw`, `mean`, `min`, `max`, `median`, `std`, `count`).
+  It's appended last with a default, so existing positional callers are
+  unaffected; an out-of-tree connector that overrides `get_data` must
+  accept the new keyword (even just to ignore it) to remain
+  call-compatible.
 - `osprey deploy --dev` now fails with a clear error when the local osprey wheel
   cannot be built, instead of warning and deploying the pinned PyPI release.
   Previously a missing `build` package (or a broken local checkout) produced one
@@ -66,6 +110,43 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The archiver connectors (EPICS, MongoDB, DOOCS, and the mock/simulation
+  archiver) formatted query-window bounds with a literal UTC `Z` suffix
+  without actually converting to UTC first, so at any facility whose
+  `system.timezone` is not UTC every `archiver_read` window landed hours
+  away from the one an operator actually asked for — e.g. "the last hour"
+  could silently pull data from several hours in the past or future,
+  depending on the facility's UTC offset. Every archiver connector now
+  converts operator-supplied datetimes to UTC before they reach the wire;
+  a naive (timezone-less) datetime is read as facility-local, matching how
+  the rest of the framework interprets operator wall-clock times, rather
+  than the deploy host's own zone.
+- `archiver_read`'s `processing` parameter (e.g. `mean`, `min`, `max`) was
+  accepted and echoed back in the response, but never actually applied to
+  the query — a request for a 60-second mean silently returned the same
+  last-sample-per-60-second data as `processing="raw"`, with no error or
+  warning. `processing` is now honored end-to-end: the EPICS connector
+  pushes the aggregation to the Archiver Appliance server-side, and
+  MongoDB/DOOCS/mock apply it client-side, so the values returned actually
+  match the requested aggregation.
+- The MongoDB archiver connector ANDed a `$exists` condition for every
+  requested PV onto the same query, so a request spanning channels
+  archived in separate documents — a common ingestion pattern — matched no
+  documents at all and silently returned an empty frame with no error, as
+  if none of the channels had ever been archived. It also ignored
+  `precision_ms` entirely (returning every raw document at ingestion
+  cadence regardless of the requested bin width) and treated `timeout=0`
+  as "no timeout given," silently substituting the connector's default.
+  The query now matches any document carrying at least one requested PV
+  (`$or` instead of ANDed per-PV `$exists` checks), `precision_ms` is
+  honored via per-channel resampling, and an explicit `timeout=0` is
+  respected rather than overridden.
+- `DOOCSArchiverConnector.check_availability` built its "everything
+  unavailable" result when the connector was disconnected, but never
+  returned it, so execution fell through into querying the live DOOCS ENS
+  anyway — a disconnected connector could still report channels as
+  available instead of cleanly reporting all of them unavailable. The
+  disconnected guard now returns immediately.
 - `osprey web --project <dir>` launched from outside the project now behaves the
   same as running `osprey web` inside it. Previously the flag only set the
   terminal's working directory, so the project's `.env` was never loaded

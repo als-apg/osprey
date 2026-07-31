@@ -6,31 +6,22 @@ Documents are expected to have a 'date' field and PV names as fields.
 """
 
 import asyncio
-import math
 import os
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
 
-from osprey.connectors.archiver._timerange import resolve_processing, to_utc
+from osprey.connectors.archiver._timerange import (
+    aggregate_series,
+    long_frame,
+    resolve_processing,
+    to_utc,
+)
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
 logger = get_logger("mongodb_archiver_connector")
-
-
-def _empty_frame(pv_list: list[str]) -> pd.DataFrame:
-    """Return the canonical empty result: UTC-indexed, one float column per PV.
-
-    A bare ``pd.DataFrame(columns=pv_list)`` yields an object-dtype index and
-    columns, which breaks timestamp arithmetic in consumers such as the
-    archiver-freshness probe.
-    """
-    return pd.DataFrame(
-        {pv: pd.Series(dtype=float) for pv in pv_list},
-        index=pd.DatetimeIndex([], tz="UTC"),
-    )
 
 
 class MongoDBArchiverConnector(ArchiverConnector):
@@ -218,14 +209,21 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
-            DataFrame with datetime index and PV columns
+            Long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
+            ``channel`` (str), and ``value`` (not dtype-constrained — float64
+            for numeric channels, or the source dtype otherwise, e.g. an
+            enum/status channel archived as a string). See
+            :meth:`ArchiverConnector.get_data` for the full contract.
 
         Raises:
             RuntimeError: If archiver not connected
             TimeoutError: If operation times out
             ConnectionError: If MongoDB cannot be reached
             TypeError: If start_date or end_date are not datetime objects
-            ValueError: If pv_list is empty or data retrieval fails
+            ValueError: If pv_list is empty, data retrieval fails, or a
+                non-raw processing mode is requested for a channel that
+                carries non-numeric values (see
+                :func:`~osprey.connectors.archiver._timerange.aggregate_series`)
         """
         timeout = timeout if timeout is not None else self._timeout
 
@@ -272,70 +270,41 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             if not documents:
                 logger.debug(f"No documents found in date range {start_date} to {end_date}")
-                # Return empty DataFrame with correct structure
-                return _empty_frame(pv_list)
 
-            # Extract data into lists for DataFrame construction
-            dates = []
-            data_dict = {pv: [] for pv in pv_list}
-
+            # Group documents into one series per requested PV. A PV absent
+            # from a given document contributes no sample for that channel —
+            # not a None placeholder and not a NaN row — so a PV archived at a
+            # different cadence (or living only in a sibling document the
+            # $or above also pulled in) never grows a padded column the way
+            # the old wide frame required.
+            timestamps: dict[str, list] = {pv: [] for pv in pv_list}
+            values: dict[str, list] = {pv: [] for pv in pv_list}
             for doc in documents:
-                # Extract date
                 doc_date = doc.get("date")
                 if doc_date is None:
                     logger.warning("Document missing 'date' field, skipping")
                     continue
-
-                # Convert to datetime if needed
-                if isinstance(doc_date, str):
-                    doc_date = pd.to_datetime(doc_date)
-                elif not isinstance(doc_date, datetime):
-                    doc_date = pd.to_datetime(doc_date)
-
-                dates.append(doc_date)
-
-                # Extract PV values
                 for pv in pv_list:
-                    value = doc.get(pv)
-                    data_dict[pv].append(value)
-
-            # Create DataFrame
-            if not dates:
-                logger.debug("No valid documents with date field found")
-                return _empty_frame(pv_list)
-
-            df = pd.DataFrame(data_dict, index=pd.to_datetime(dates, utc=True))
-
-            # A PV that matched zero of the returned documents (it lives in a
-            # sibling document the $or above also pulled in) is an all-None
-            # column here; pandas infers object dtype for that, not float.
-            # Force float so every column honors the same dtype contract as
-            # the empty-frame path below.
-            for pv in pv_list:
-                if df[pv].isna().all():
-                    df[pv] = df[pv].astype(float)
+                    if pv in doc:
+                        timestamps[pv].append(doc_date)
+                        values[pv].append(doc[pv])
 
             # Documents arrive at whatever cadence the ingester wrote them, so
-            # every mode — including "raw" — needs binning here. This is the one
-            # place Mongo bins; there is no server-side aggregation to defer to.
-            # resample() builds a full regular grid from the first to the last
-            # timestamp: on documents sparser than precision_ms that upsamples
-            # rather than reduces, manufacturing samples the ingester never
-            # wrote (a 5-hour window of hourly documents at the default 1 s
-            # precision would inflate to 18,001 rows). Floor the bin width at
-            # the observed document spacing — the median gap between
-            # consecutive timestamps — so a fine precision_ms over a sparse
-            # collection can't inflate the frame.
-            if precision_ms > 0 and not df.empty:
-                if len(df) > 1:
-                    gaps = df.index.to_series().diff().dropna()
-                    observed_ms = gaps.median().total_seconds() * 1000
-                else:
-                    observed_ms = 0
-                effective_ms = max(precision_ms, math.ceil(observed_ms))
-                df = df.resample(f"{effective_ms}ms").agg(resolved.pandas_agg)
-
-            return df
+            # every mode — including "raw" — needs binning here; there is no
+            # server-side aggregation to defer to. aggregate_series resamples
+            # each channel independently and drops any bin with no samples,
+            # so a fine precision_ms over a sparsely (or differently)
+            # archived PV can only return fewer rows than it has samples,
+            # never manufacture more — no bin-width floor is needed.
+            series = {
+                pv: aggregate_series(
+                    pd.Series(values[pv], index=pd.to_datetime(timestamps[pv], utc=True), name=pv),
+                    precision_ms,
+                    resolved,
+                )
+                for pv in pv_list
+            }
+            return long_frame(series)
 
         try:
             # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution

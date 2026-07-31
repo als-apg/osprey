@@ -1,7 +1,7 @@
 """Tests for MongoDB Archiver connector."""
 
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pandas as pd
@@ -202,8 +202,8 @@ class TestGetDataMethod:
         )
 
         assert isinstance(df, pd.DataFrame)
-        assert isinstance(df.index, pd.DatetimeIndex)
-        assert "BEAM:CURRENT" in df.columns
+        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert (df["channel"] == "BEAM:CURRENT").all()
         assert len(df) > 0  # Should have data
 
         await connector.disconnect()
@@ -225,10 +225,8 @@ class TestGetDataMethod:
         )
 
         assert isinstance(df, pd.DataFrame)
-        # All PVs should be columns
-        for pv in pv_list:
-            assert pv in df.columns
-        assert len(df.columns) == len(pv_list)
+        # All PVs should be represented as channels, long-format
+        assert set(df["channel"]) == set(pv_list)
         assert len(df) > 0
 
         await connector.disconnect()
@@ -251,8 +249,9 @@ class TestGetDataMethod:
 
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 0
-        assert "BEAM:CURRENT" in df.columns
-        assert isinstance(df.index, pd.DatetimeIndex)
+        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
+        assert df["value"].dtype == "float64"
 
         await connector.disconnect()
 
@@ -337,8 +336,8 @@ class TestGetDataMethod:
         )
 
         assert len(df) == 6  # hourly samples at 00:00..05:00 inclusive
-        assert df.index[0] >= start_date
-        assert df.index[-1] <= end_date
+        assert df["timestamp"].iloc[0] >= start_date
+        assert df["timestamp"].iloc[-1] <= end_date
 
         await connector.disconnect()
 
@@ -573,8 +572,35 @@ class TestQueryShapeWithoutDocker:
         assert "BEAM:CURRENT" not in captured["query"]
 
     @pytest.mark.asyncio
-    async def test_precision_ms_bins_the_result(self):
-        """precision_ms must actually downsample rather than being a no-op."""
+    async def test_precision_ms_bins_a_non_raw_processing_mode(self):
+        """precision_ms must actually downsample a non-raw mode rather than being a no-op.
+
+        "raw" itself is never binned regardless of precision_ms — aggregate_series
+        returns it unchanged by contract — so this exercises "max" instead.
+        """
+        documents = [
+            {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
+            for s in range(6)
+        ]
+        connector, _ = self._stub_connector(documents)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+            precision_ms=2000,
+            processing="max",
+        )
+
+        # Six 1-second samples binned at 2 s, "max" keeping the larger of each pair.
+        assert df.loc[df["channel"] == "BEAM:CURRENT", "value"].tolist() == [1.0, 3.0, 5.0]
+
+    @pytest.mark.asyncio
+    async def test_raw_processing_decimates_to_last_real_sample_per_bin(self):
+        """ "raw" with a real precision_ms keeps one real sample per bin -- its own
+        real timestamp, never a bin-edge timestamp resample().agg("last") would
+        fabricate. Six 1s-apart documents at precision_ms=2000 -> three 2s bins.
+        """
         documents = [
             {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
             for s in range(6)
@@ -588,8 +614,42 @@ class TestQueryShapeWithoutDocker:
             precision_ms=2000,
         )
 
-        # Six 1-second samples binned at 2 s, "raw" keeping the last of each bin.
-        assert df["BEAM:CURRENT"].tolist() == [1.0, 3.0, 5.0]
+        rows = df.loc[df["channel"] == "BEAM:CURRENT"]
+        assert rows["value"].tolist() == [1.0, 3.0, 5.0]
+        # Real archived timestamps (t=1,3,5s), not the bin edges (t=0,2,4s).
+        assert rows["timestamp"].tolist() == [
+            documents[1]["date"],
+            documents[3]["date"],
+            documents[5]["date"],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_raw_processing_at_full_resolution_returns_every_sample(self):
+        """precision_ms <= 0 is "raw" processing's full-resolution case: every real
+        sample, unbinned -- distinct from a real precision_ms, which decimates
+        (see test_raw_processing_decimates_to_last_real_sample_per_bin above).
+        """
+        documents = [
+            {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
+            for s in range(6)
+        ]
+        connector, _ = self._stub_connector(documents)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+            precision_ms=0,
+        )
+
+        assert df.loc[df["channel"] == "BEAM:CURRENT", "value"].tolist() == [
+            0.0,
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
 
     @pytest.mark.asyncio
     async def test_processing_selects_the_aggregation(self):
@@ -607,22 +667,28 @@ class TestQueryShapeWithoutDocker:
             processing="mean",
         )
 
-        assert df["BEAM:CURRENT"].tolist() == [0.5, 2.5, 4.5]
+        assert df.loc[df["channel"] == "BEAM:CURRENT", "value"].tolist() == [0.5, 2.5, 4.5]
 
     @pytest.mark.asyncio
-    async def test_empty_window_returns_utc_indexed_float_frame(self):
+    @pytest.mark.parametrize("processing", ["raw", "mean"])
+    async def test_empty_window_returns_the_typed_empty_long_frame(self, processing):
+        # A non-raw mode must not choke on an empty channel: aggregate_series's
+        # non-numeric-dtype guard used to run before an emptiness check, so an
+        # empty (object-dtype) series raised a misleading "non-numeric" error
+        # instead of just contributing no rows (C1).
         connector, _ = self._stub_connector([])
 
         df = await connector.get_data(
             pv_list=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
+            processing=processing,
         )
 
-        assert list(df.columns) == ["BEAM:CURRENT"]
+        assert list(df.columns) == ["timestamp", "channel", "value"]
         assert df.empty
-        assert str(df.index.tz) == "UTC"
-        assert df["BEAM:CURRENT"].dtype == "float64"
+        assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
+        assert df["value"].dtype == "float64"
 
     @pytest.mark.asyncio
     async def test_timeout_zero_respected_not_falsy(self):
@@ -655,15 +721,27 @@ class TestQueryShapeWithoutDocker:
         )
 
         # Documents are 1 hour apart; naively resampling at the requested 1 s
-        # precision would reindex onto an 18,001-row grid (5 h / 1 s + 1). The
-        # bin width must be floored at the observed document spacing instead,
-        # so the frame stays bounded at one row per document.
-        assert len(df) == 6
-        assert df["BEAM:CURRENT"].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+        # precision would reindex onto an 18,001-row grid (5 h / 1 s + 1).
+        # aggregate_series drops every bin with no samples instead, so the
+        # frame stays bounded at one row per document with no floor needed.
+        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
+        assert len(values) == 6
+        assert values.tolist() == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
 
     @pytest.mark.asyncio
-    async def test_absent_pv_is_float_nan_not_object_none(self):
-        """A PV present in zero matched documents must be a float NaN column, not object/None."""
+    @pytest.mark.parametrize("processing", ["raw", "mean"])
+    async def test_absent_pv_contributes_no_rows_not_nan(self, processing):
+        """A PV present in zero matched documents contributes no rows at all -- not a NaN row.
+
+        The old wide frame forced a NaN-filled column for a requested PV that
+        matched none of the documents pulled in by the ``$or``. The long
+        format has no shared index to pad, so that PV simply does not appear.
+
+        Parameterized over "mean" too (C1): one requested PV matching zero
+        documents used to raise "non-numeric" and kill the *whole* query --
+        including BEAM:CURRENT, which did return data -- exactly what the
+        ``$or`` and this test exist to prevent.
+        """
         documents = [
             {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
             for s in range(3)
@@ -674,7 +752,61 @@ class TestQueryShapeWithoutDocker:
             pv_list=["BEAM:CURRENT", "BEAM:LIFETIME"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
+            processing=processing,
         )
 
-        assert df["BEAM:LIFETIME"].dtype == "float64"
-        assert df["BEAM:LIFETIME"].isna().all()
+        assert set(df["channel"]) == {"BEAM:CURRENT"}
+
+    @pytest.mark.asyncio
+    async def test_mixed_cadence_channels_aggregate_independently(self):
+        """A 10 Hz and a much sparser channel queried together must each be
+        aggregated over only their own samples.
+
+        This is the defect the long-format redesign eliminates: the deleted
+        median-gap floor picked ONE bin width from the *combined* timestamp
+        union of every requested PV, so a sparse channel whose own gaps
+        dominate that union would have widened the dense channel's bins too.
+
+        The fixture matters: a single sparse sample (or too few of them) never
+        drove the old median past precision_ms, so the dense channel came out
+        correct by accident regardless of the bug. Reconstructing the deleted
+        logic against 40 FAST samples (10 Hz, 4 true 1s bins) plus 1 SLOW
+        sample confirmed the median stayed at 100ms (no defect). This fixture
+        instead uses 50 SLOW samples spaced 1500ms apart -- enough of them,
+        each gap wider than precision_ms, to dominate the combined median (it
+        becomes 1500ms) -- and reconstructing the deleted logic against it
+        reproduces the real defect: FAST's reported counts come back
+        ``[15, 15, 10, 0, 0, ...]`` against precision_ms=1000, instead of the
+        true ``[10, 10, 10, 10]``. A shape-only bug (e.g. a bare KeyError) would
+        never have produced numbers like that -- this is a genuine aggregation
+        failure, confirmed against the deleted logic before it was deleted.
+        """
+        base = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        fast_docs = [
+            {"date": base + timedelta(milliseconds=i * 100), "FAST": float(i)}
+            for i in range(40)  # 10 Hz, 4 true 1s bins of 10 samples each
+        ]
+        slow_docs = [
+            {"date": base + timedelta(milliseconds=i * 1500), "SLOW": 500.0 + i}
+            for i in range(50)  # far sparser, but numerous and evenly spread
+        ]
+        documents = sorted(fast_docs + slow_docs, key=lambda d: d["date"])
+        connector, _ = self._stub_connector(documents)
+
+        df = await connector.get_data(
+            pv_list=["FAST", "SLOW"],
+            start_date=base,
+            end_date=base + timedelta(milliseconds=49 * 1500 + 100),
+            precision_ms=1000,
+            processing="mean",
+        )
+
+        fast_values = df.loc[df["channel"] == "FAST", "value"].tolist()
+        slow_values = df.loc[df["channel"] == "SLOW", "value"].tolist()
+
+        # FAST: the true per-1s-bin means, not corrupted by SLOW's much wider
+        # cadence dominating a shared bin width.
+        assert fast_values == pytest.approx([4.5, 14.5, 24.5, 34.5])
+        # SLOW: its own 50 real samples, each its own bin, unaffected by FAST.
+        assert len(slow_values) == 50
+        assert slow_values == pytest.approx([500.0 + i for i in range(50)])

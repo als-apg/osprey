@@ -220,15 +220,13 @@ class TestMockArchiverConnector:
 
         assert df is not None
         assert len(df) > 0
-        assert len(df.columns) == len(pv_list)
-        for pv in pv_list:
-            assert pv in df.columns
+        assert set(df["channel"]) == set(pv_list)
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_get_data_returns_dataframe(self):
-        """Test that get_data returns proper DataFrame format."""
+        """Test that get_data returns the canonical long-format DataFrame."""
         connector = MockArchiverConnector()
         await connector.connect({"noise_level": 0.01})
 
@@ -242,7 +240,10 @@ class TestMockArchiverConnector:
         import pandas as pd
 
         assert isinstance(df, pd.DataFrame)
-        assert isinstance(df.index, pd.DatetimeIndex)
+        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert df["timestamp"].dtype == "datetime64[ns, UTC]"
+        assert df["value"].dtype == "float64"
+        assert (df["channel"] == "BEAM:CURRENT").all()
 
         await connector.disconnect()
 
@@ -288,9 +289,40 @@ class TestMockArchiverConnector:
         )
 
         # Check that values vary (not all the same)
-        values = df["BEAM:CURRENT"].values
+        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"].to_numpy()
         assert len(set(values)) > 1
         assert values.std() > 0
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_multi_pv_returns_independent_rows_per_channel(self):
+        """Each channel contributes its own rows to the long frame; nothing is
+        collapsed, dropped, or cross-mixed between PVs the way a shared-index
+        wide frame would force."""
+        connector = MockArchiverConnector()
+        await connector.connect({"noise_level": 0.01})
+
+        start_date = datetime(2024, 1, 1, 0, 0, 0)
+        end_date = datetime(2024, 1, 1, 0, 1, 0)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT", "MAGNET:VOLTAGE"],
+            start_date=start_date,
+            end_date=end_date,
+            precision_ms=1000,
+        )
+
+        assert list(df.columns) == ["timestamp", "channel", "value"]
+        current_rows = df[df["channel"] == "BEAM:CURRENT"]
+        voltage_rows = df[df["channel"] == "MAGNET:VOLTAGE"]
+
+        assert len(current_rows) > 0
+        assert len(voltage_rows) > 0
+        # Every row belongs to exactly one of the two requested channels: no
+        # row is dropped or double-counted when the per-channel series are
+        # assembled into one frame.
+        assert len(current_rows) + len(voltage_rows) == len(df)
 
         await connector.disconnect()
 
@@ -303,8 +335,11 @@ class TestMockArchiverProcessing:
     long window the 10,000-point cap makes the real sample spacing far wider
     than precision_ms, and even without the cap, the natural spacing
     (duration / (num_points - 1)) is marginally wider than precision_ms.
-    Resampling at the requested precision_ms then asks pandas to fill a much
-    finer grid than the data has, inflating the frame with mostly-NaN rows.
+    Resampling at the requested precision_ms used to ask pandas to fill a much
+    finer grid than the data had, inflating the frame with mostly-NaN rows.
+    That is now structurally impossible: aggregate_series drops any bin with
+    no samples instead of filling it, so no bin-width floor is needed to
+    prevent the inflation.
     """
 
     @pytest.mark.asyncio
@@ -316,10 +351,14 @@ class TestMockArchiverProcessing:
         # each drawing its own noise — are directly comparable.
         await connector.connect({"noise_level": 0.0})
 
-        # A 10s window with a 60s requested bin forces every raw sample
-        # (the generator's forced minimum of 10 points) into a single
-        # aggregation bin, so a real mean is distinguishable from a
-        # relabeled pass-through.
+        # Both calls generate the same 10 points (the generator's forced
+        # minimum) over this 10s window regardless of precision_ms, since
+        # num_points is floored at 10 either way. The raw fetch uses a 1s bin
+        # -- finer than the ~1.11s natural sample spacing, so every point
+        # keeps its own bin (decimate_raw is a no-op here) -- to get the true
+        # per-sample ground truth. The mean fetch uses a 60s bin, wide enough
+        # to force every sample into a single aggregation bin, so a real mean
+        # is distinguishable from a relabeled pass-through.
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 0, 0, 10)
         pv = "BEAM:CURRENT"
@@ -328,7 +367,7 @@ class TestMockArchiverProcessing:
             pv_list=[pv],
             start_date=start_date,
             end_date=end_date,
-            precision_ms=60_000,
+            precision_ms=1_000,
             processing="raw",
         )
         mean_df = await connector.get_data(
@@ -341,7 +380,7 @@ class TestMockArchiverProcessing:
 
         assert len(raw_df) > 1
         assert len(mean_df) == 1
-        assert mean_df[pv].iloc[0] == pytest.approx(raw_df[pv].mean())
+        assert mean_df["value"].iloc[0] == pytest.approx(raw_df["value"].mean())
 
         await connector.disconnect()
 
@@ -364,9 +403,10 @@ class TestMockArchiverProcessing:
 
         # Before the fix, resampling at the raw precision_ms (1000ms) against
         # data actually spaced ~60s apart inflated this to ~604,801 rows,
-        # almost entirely NaN. The row count must stay near the generator's
-        # 10,000-point cap, and no NaN rows should appear.
+        # almost entirely NaN. aggregate_series now drops empty bins outright
+        # instead of filling them, so the row count stays near the generator's
+        # 10,000-point cap and no NaN values can appear at all.
         assert len(df) <= 10_001
-        assert not df["BEAM:CURRENT"].isna().any()
+        assert not df["value"].isna().any()
 
         await connector.disconnect()

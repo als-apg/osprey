@@ -111,7 +111,7 @@ class TestGetDataMethod:
 
     @pytest.mark.asyncio
     async def test_get_data_returns_dataframe(self):
-        """Test that get_data returns a DataFrame with DatetimeIndex."""
+        """Test that get_data returns the canonical long-format DataFrame."""
         points = [(1704067200, 0, 499.8), (1704067201, 0, 499.7)]
         response = _make_urlopen_response(_archiver_payload("BEAM:CURRENT", points))
 
@@ -126,14 +126,16 @@ class TestGetDataMethod:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert isinstance(df.index, pd.DatetimeIndex)
-            assert "BEAM:CURRENT" in df.columns
+            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert df["timestamp"].dtype == "datetime64[ns, UTC]"
+            assert df["value"].dtype == "float64"
+            assert set(df["channel"]) == {"BEAM:CURRENT"}
 
             await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_get_data_single_pv_correct_values(self):
-        """Test that single-PV fetch returns correct values."""
+        """Test that single-PV fetch returns correct values, in timestamp order."""
         points = [(1704067200, 0, 1.0), (1704067201, 0, 2.0), (1704067202, 0, 3.0)]
         response = _make_urlopen_response(_archiver_payload("PV:X", points))
 
@@ -147,13 +149,37 @@ class TestGetDataMethod:
                 end_date=datetime(2024, 1, 1, 1),
             )
 
-            assert list(df["PV:X"]) == [1.0, 2.0, 3.0]
+            assert (df["channel"] == "PV:X").all()
+            assert list(df["value"]) == [1.0, 2.0, 3.0]
 
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_get_data_multi_pv_returns_one_column_per_pv(self):
-        """Test that multi-PV fetch returns DataFrame with one column per PV."""
+    async def test_get_data_string_valued_pv_round_trips(self):
+        """An mbbi/DBR_STRING-style PV (e.g. machine mode, interlock state)
+        archives a string ``val``; the long-format contract's ``value`` column
+        is not dtype-constrained, so this must come back unchanged, not raise."""
+        points = [(1704067200, 0, "CW"), (1704067201, 0, "CW"), (1704067202, 0, "STANDBY")]
+        response = _make_urlopen_response(_archiver_payload("RF:MODE", points))
+
+        with patch("urllib.request.urlopen", return_value=response):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            df = await connector.get_data(
+                pv_list=["RF:MODE"],
+                start_date=datetime(2024, 1, 1),
+                end_date=datetime(2024, 1, 1, 1),
+            )
+
+            assert (df["channel"] == "RF:MODE").all()
+            assert list(df["value"]) == ["CW", "CW", "STANDBY"]
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_get_data_multi_pv_returns_rows_for_each_channel(self):
+        """Test that multi-PV fetch returns long-format rows for each channel."""
         points = [(1704067200 + i, 0, float(i)) for i in range(5)]
 
         call_count = [0]
@@ -175,8 +201,10 @@ class TestGetDataMethod:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert "PV:1" in df.columns
-            assert "PV:2" in df.columns
+            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert set(df["channel"]) == {"PV:1", "PV:2"}
+            assert (df["channel"] == "PV:1").sum() == 5
+            assert (df["channel"] == "PV:2").sum() == 5
 
             await connector.disconnect()
 
@@ -246,6 +274,7 @@ class TestGetDataMethod:
 
             assert isinstance(df, pd.DataFrame)
             assert len(df) == 0
+            assert list(df.columns) == ["timestamp", "channel", "value"]
 
             await connector.disconnect()
 
@@ -266,6 +295,7 @@ class TestGetDataMethod:
 
             assert isinstance(df, pd.DataFrame)
             assert len(df) == 0
+            assert list(df.columns) == ["timestamp", "channel", "value"]
 
             await connector.disconnect()
 
@@ -313,12 +343,14 @@ class TestGetDataMethod:
         await connector.disconnect()
 
 
-class TestMultiPVAlignment:
-    """Tests for multi-PV timestamp alignment."""
+class TestMultiPVLongFormat:
+    """Each channel in a multi-PV response keeps its own real timestamps."""
 
     @pytest.mark.asyncio
-    async def test_multi_pv_different_timestamps_produces_aligned_dataframe(self):
-        """Test that multi-PV with different timestamps produces aligned DataFrame."""
+    async def test_multi_pv_each_channel_keeps_its_own_timestamps(self):
+        """Channels sampled at different instants are not forced onto a shared
+        index — no timestamp is manufactured for a channel that wasn't
+        actually sampled at it, and no channel's rows leak into another's."""
         base = 1704067200
         pv1_points = [(base, 0, 1.0), (base + 2, 0, 2.0)]
         pv2_points = [(base + 1, 0, 10.0), (base + 3, 0, 20.0)]
@@ -347,9 +379,21 @@ class TestMultiPVAlignment:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert "PV:A" in df.columns
-            assert "PV:B" in df.columns
-            assert isinstance(df.index, pd.DatetimeIndex)
+            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert len(df) == 4
+            assert set(df["channel"]) == {"PV:A", "PV:B"}
+
+            expected_a = list(pd.to_datetime([base, base + 2], unit="s", utc=True))
+            expected_b = list(pd.to_datetime([base + 1, base + 3], unit="s", utc=True))
+
+            a_timestamps = list(df.loc[df["channel"] == "PV:A", "timestamp"])
+            b_timestamps = list(df.loc[df["channel"] == "PV:B", "timestamp"])
+
+            assert a_timestamps == expected_a
+            assert b_timestamps == expected_b
+            # Neither channel's timestamps appear against the other — no
+            # shared/aligned grid was fabricated between them.
+            assert set(a_timestamps).isdisjoint(set(b_timestamps))
 
             await connector.disconnect()
 

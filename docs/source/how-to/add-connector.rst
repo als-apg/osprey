@@ -124,8 +124,13 @@ Appliance, configure the archiver block independently of the control-system choi
        password_env: MONGODB_READONLY_PASSWORD
 
 Documents in the collection are expected to have a ``date`` field (``ISODate``) and
-PV names as top-level fields: ``{date: ISODate(...), PV1: value1, PV2: value2, ...}``.
-The connector requires the optional ``archiver-mongodb`` extra:
+one or more PV names as top-level fields: ``{date: ISODate(...), PV1: value1, PV2:
+value2, ...}``. A query matches any document that carries **at least one** of the
+requested PVs (an ``$or`` across per-PV ``$exists`` checks) -- documents do not need
+to carry every requested PV together, so channels archived at different cadences, or
+written into separate documents by different collectors, are still returned
+correctly, each on its own timestamp series. The connector requires the optional
+``archiver-mongodb`` extra:
 
 .. code-block:: bash
 
@@ -283,6 +288,93 @@ Subclass :class:`~osprey.connectors.control_system.base.ControlSystemConnector` 
 You may also override the non-abstract ``write_multiple_channels()`` method if your backend benefits from atomic batch writes (e.g., disabling lattice recalculation between writes in a simulator). The default implementation writes sequentially via ``write_channel()``.
 
 Your connector must return the standard data models from ``osprey.connectors.control_system.base``: :class:`~osprey.connectors.control_system.base.ChannelValue`, :class:`~osprey.connectors.control_system.base.ChannelMetadata`, :class:`~osprey.connectors.control_system.base.ChannelWriteResult`, and :class:`~osprey.connectors.control_system.base.WriteVerification`.
+
+Archiver Connectors
+~~~~~~~~~~~~~~~~~~~
+
+.. versionchanged:: Unreleased
+
+   ``get_data`` returns long-format data (below) instead of a shared-index wide
+   ``DataFrame``. Out-of-tree connectors written against the old contract must be updated.
+
+Subclass :class:`~osprey.connectors.archiver.base.ArchiverConnector` and implement
+``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
+
+``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
+with exactly three columns, sorted by ``channel`` then ``timestamp``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 25 60
+
+   * - Column
+     - Dtype
+     - Contents
+   * - ``timestamp``
+     - ``datetime64[ns, UTC]``
+     - When the sample -- or, under a ``processing`` mode, the bin's aggregate --
+       occurred.
+   * - ``channel``
+     - ``str``
+     - The channel/PV name the row belongs to.
+   * - ``value``
+     - not dtype-constrained
+     - ``float64`` when every requested channel's samples are numeric; pandas'
+       natural mixed dtype (typically ``object``) once any channel is non-numeric.
+
+An empty result is an empty frame with these same three columns (``value`` defaults
+to ``float64``, since there is no data to infer a dtype from).
+
+**Nothing is manufactured.** Channels are never placed on a shared index. Each
+channel contributes only its own real samples -- never forward-filled, never
+reindexed onto a regular grid, never padded with a row for a bin or timestamp
+nothing was actually recorded at. A channel with no data in the requested range
+simply contributes no rows; it does not appear as an all-NaN column the way the old
+wide, shared-index format required. Every connector correctness bug this contract
+replaced traced back to violating this rule, so hold to it strictly: if a custom
+connector finds itself building a shared ``DatetimeIndex`` and reindexing per-channel
+series onto it, that is the bug.
+
+**Per-channel aggregation.** ``get_data`` takes a trailing ``processing: str =
+"raw"`` keyword -- one of ``raw``, ``mean``, ``min``, ``max``, ``median``, ``std``,
+``count`` -- applied independently to each channel's own real samples, never across
+channels and never onto a shared grid:
+
+- ``raw`` decimates each ``precision_ms`` bin down to its **last real sample**,
+  keeping that sample's own true timestamp -- never a timestamp invented at the
+  bin's edge to hold it. This matches the EPICS Archiver Appliance's long-standing
+  ``lastSample_N`` semantics, and every in-tree backend now applies it the same way.
+- Every other mode aggregates the real samples that landed in each ``precision_ms``
+  bin. A bin with no samples is dropped, not emitted as ``NaN`` -- so a sparse
+  channel returns *fewer* rows than it has samples, never more, and no bin-width
+  floor is ever needed to avoid upsampling.
+- ``precision_ms <= 0`` means full resolution: every real sample, undecimated. It is
+  only valid with ``processing="raw"`` -- an aggregate has no bin to aggregate over,
+  and requesting one must raise ``ValueError`` rather than silently falling back to
+  raw.
+- Aggregating a non-numeric channel with anything but ``raw`` must raise
+  ``ValueError`` naming the channel -- never coerce it, drop it, or silently emit
+  ``NaN``.
+
+The shared helpers in ``osprey.connectors.archiver._timerange`` (``to_utc``,
+``resolve_processing``, ``long_frame``, ``decimate_raw``, ``aggregate_series``)
+implement all of the above and are the easiest way to get it right -- every in-tree
+connector (EPICS, MongoDB, DOOCS, mock) builds on them rather than reimplementing
+binning.
+
+**Why the ``value`` dtype rule matters.** Enum/status channels -- machine mode,
+interlock state, RF state, anything archived as EPICS ``mbbi`` or DOOCS
+``DBR_STRING`` -- carry string values, not numbers. ``get_data`` never coerces them:
+a channel's own dtype flows straight through, and only combining a non-numeric
+channel with a numeric one in the same query promotes the shared ``value`` column to
+a mixed dtype. A custom connector must resist forcing ``value`` to ``float64`` "for
+consistency" -- doing so silently corrupts every enum/status channel it touches.
+
+Query windows must also be normalized to UTC before touching the wire: a naive
+(timezone-less) ``start_date``/``end_date`` is facility-local, matching how the rest
+of the framework reads operator wall-clock times, and must be converted -- not
+relabeled -- to your backend's UTC wire format. ``to_utc()`` in
+``osprey.connectors.archiver._timerange`` does this.
 
 Registering Custom Connectors
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
