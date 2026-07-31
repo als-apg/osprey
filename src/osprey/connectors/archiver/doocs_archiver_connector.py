@@ -33,8 +33,9 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
     Provides access to local history data of a given DOOCS property if available.
 
-    A moving average can be applied, by supplying `avg_window`. If not None, it forces
-    a uniform grid, so the window has a well-defined constant dt to operate on.
+    A centered moving average can be applied by supplying `avg_window` (seconds).
+    It averages over a real time span, so it operates on the archived samples at
+    their own irregular timestamps -- no resampling onto a uniform grid.
 
     Example:
         >>> config = {
@@ -53,13 +54,17 @@ class DOOCSArchiverConnector(ArchiverConnector):
         self._connected = False
         self._avg_window = None
         self._doocs4py = None
+        self._timeout = 60
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
         Configure DOOCS environment and test connection.
 
         Args:
-            config: No config needed for DOOCS
+            config: Configuration with optional keys:
+                - avg_window: Centered moving-average window in seconds
+                  (default: None, no smoothing)
+                - timeout: Default request timeout in seconds (default: 60)
 
         Raises:
             ImportError: If doocs4py is not installed
@@ -86,6 +91,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raise Exception("DOOCS archiver connector failed to connect to the ENS.") from None
 
         self._avg_window = config.get("avg_window", None)
+        self._timeout = config.get("timeout", 60)
 
         self._connected = True
         logger.debug("DOOCS archiver connector initialized")
@@ -113,7 +119,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling)
-            timeout: Timeout in seconds
+            timeout: Timeout in seconds. ``None`` falls back to the connector's
+                configured default rather than waiting indefinitely.
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Applied
                 client-side via pandas resampling. Anything else raises ValueError.
@@ -132,6 +139,11 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 channel that carries non-numeric values (see
                 :func:`~osprey.connectors.archiver._timerange.aggregate_series`)
         """
+
+        # An omitted timeout means "the connector's default", not "wait forever":
+        # asyncio.wait_for(timeout=None) blocks indefinitely, so an unresponsive
+        # ENS would hang the caller. Matches EPICS and MongoDB.
+        timeout = timeout if timeout is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("DOOCS archiver not connected")
@@ -253,15 +265,17 @@ class DOOCSArchiverConnector(ArchiverConnector):
             available points, the grid falls back to the full resolution (no
             upsampling).
         avg_window:
-            Length (in seconds) of a centered moving average applied to the
-            resampled data. Supplying avg_window forces a uniform grid even when
-            max_points is None (falling back to full resolution), so the window has
-            a well-defined constant dt to operate on.
+            Length (in seconds) of a centered moving average. The window is a real
+            duration, so it applies to whatever series is in hand -- the max_points
+            grid if one was requested, otherwise the archived samples at their own
+            irregular timestamps. It never introduces a grid of its own, and it
+            returns exactly one value per input sample, at that sample's own time.
 
         Returns
         -------
         A dict with "time" and "data" arrays holding the most processed series
         available (smoothed > reduced > raw), or None if no data was retrieved.
+        Timestamps are the real archived ones unless max_points requested a grid.
         """
 
         start_ts: int = int(start_time)
@@ -314,15 +328,19 @@ class DOOCSArchiverConnector(ArchiverConnector):
             reduced_time = reduced_data = None
             smooth_data = None
 
-            # Build a uniform grid if either a point limit or an averaging window
-            # is requested. The grid never exceeds the available point count, so
-            # max_points=None (with avg_window set) falls back to full resolution.
-            if max_points is not None or (avg_window is not None and avg_window > 0):
-                if max_points is None:
-                    n_points = raw_time.size
-                else:
-                    n_points = min(max_points, raw_time.size)
-
+            # Build a uniform grid only when a point limit is requested. The grid
+            # used to be built for avg_window too, because the moving average was
+            # a fixed-width convolution kernel that needed a constant dt to turn
+            # a duration into a sample count. A time-based rolling window needs
+            # no such thing, and the grid was never free: its timestamps are
+            # np.linspace positions rather than archived ones, and its values are
+            # forward-filled onto them by the zero-order hold below -- both
+            # prohibited by this framework's "nothing is manufactured" contract.
+            # get_data always passes max_points=None, so it no longer reaches
+            # this branch at all; an explicit max_points is a caller asking for
+            # a fixed-size grid, which is what they get.
+            if max_points is not None:
+                n_points = min(max_points, raw_time.size)
                 reduced_time = np.linspace(raw_time[0], raw_time[-1], n_points)
 
                 # Zero-order hold: most recent sample at or before each grid point.
@@ -330,25 +348,28 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 idx = np.clip(idx, 0, raw_time.size - 1)
                 reduced_data = raw_data[idx]
 
-                # Optional centered moving average over the constant-dt grid.
-                # Requires at least 2 grid points to define dt.
-                if avg_window is not None and avg_window > 0 and n_points > 1:
-                    dt = reduced_time[1] - reduced_time[0]
-                    win = max(1, int(round(avg_window / dt)))
-                    if win > 1:
-                        # rolling(min_periods=1) shrinks the window at the edges
-                        # instead of zero-padding, so no renormalization pass is
-                        # needed. It also always returns exactly n_points values:
-                        # np.convolve(mode="same") returns max(n_points, win) of
-                        # them, so an avg_window wider than the queried span used
-                        # to hand back `data` longer than `time` and blow up in
-                        # get_data with a length mismatch.
-                        smooth_data = (
-                            pd.Series(reduced_data)
-                            .rolling(win, center=True, min_periods=1)
-                            .mean()
-                            .to_numpy()
-                        )
+            # Optional centered moving average over whichever series we have: the
+            # decimated grid when max_points asked for one, the real samples
+            # otherwise. The window is a real duration, so irregular sample
+            # spacing is fine -- each output value averages the samples that
+            # actually fall within avg_window of its own timestamp, and every
+            # timestamp returned is one an archived sample really carries.
+            #
+            # An offset window also shrinks at the edges rather than zero-padding
+            # (no renormalization pass needed) and always returns exactly one
+            # value per input sample: np.convolve(mode="same") returned
+            # max(n_samples, window_width), so an avg_window wider than the
+            # queried span used to hand back `data` longer than `time` and blow
+            # up in get_data with a length mismatch.
+            if avg_window is not None and avg_window > 0:
+                src_time = reduced_time if reduced_time is not None else raw_time
+                src_data = reduced_data if reduced_data is not None else raw_data
+                smooth_data = (
+                    pd.Series(src_data, index=pd.to_datetime(src_time, unit="s"))
+                    .rolling(pd.Timedelta(seconds=avg_window), center=True)
+                    .mean()
+                    .to_numpy()
+                )
 
             # Build metadata describing the request and the retrieved raw data.
             metadata = {
@@ -360,8 +381,11 @@ class DOOCSArchiverConnector(ArchiverConnector):
             }
 
             # Return the most processed series available, along with metadata.
+            # Smoothing keeps whichever timestamps it operated on -- the real
+            # ones unless max_points asked for a grid.
             if smooth_data is not None:
-                out_time, out_data = reduced_time, smooth_data
+                out_time = reduced_time if reduced_time is not None else raw_time
+                out_data = smooth_data
             elif reduced_data is not None:
                 out_time, out_data = reduced_time, reduced_data
             else:

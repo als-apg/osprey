@@ -18,6 +18,7 @@ import pandas as pd
 
 from osprey.connectors.archiver._timerange import (
     long_frame,
+    reject_non_numeric,
     require_datetime,
     resolve_processing,
     to_utc,
@@ -143,7 +144,10 @@ class EPICSArchiverConnector(ArchiverConnector):
             pv_list: List of PV names to retrieve
             start_date: Start of time range
             end_date: End of time range
-            precision_ms: Time precision in milliseconds (for downsampling)
+            precision_ms: Bin width in milliseconds, applied server-side. Must be
+                a whole number of seconds: the Archiver Appliance's operator
+                syntax takes seconds, so a finer width cannot be expressed and is
+                rejected rather than rounded. ``<= 0`` means full resolution.
             timeout: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Backends
@@ -159,7 +163,11 @@ class EPICSArchiverConnector(ArchiverConnector):
             RuntimeError: If archiver not connected
             TimeoutError: If operation times out
             ConnectionError: If archiver cannot be reached
-            ValueError: If data format is unexpected
+            ValueError: If data format is unexpected; if ``precision_ms`` is
+                positive but not a multiple of 1000; or if a non-raw
+                ``processing`` mode is requested for a channel whose values are
+                non-numeric (see
+                :func:`~osprey.connectors.archiver._timerange.reject_non_numeric`)
         """
         timeout = timeout if timeout is not None else self._timeout
 
@@ -175,6 +183,21 @@ class EPICSArchiverConnector(ArchiverConnector):
         end_utc = to_utc(end_date)
         start_str = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         end_str = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        # The appliance's operator syntax takes a whole number of seconds, so a
+        # bin width like 500 ms or 1500 ms has no faithful server-side operator.
+        # Reject it rather than serve data at a resolution nobody asked for:
+        # this used to floor to the nearest second, so a 500 ms request came
+        # back binned at 1 s with nothing to indicate it. Unreachable through
+        # archiver_read (its bin_size is whole seconds) but reachable by any
+        # caller using the connector API directly.
+        if precision_ms > 0 and precision_ms % 1000 != 0:
+            raise ValueError(
+                f"precision_ms={precision_ms} is not a whole number of seconds. The EPICS "
+                "Archiver Appliance bins server-side in whole seconds only, so this bin "
+                "width cannot be requested from it. Use a multiple of 1000, or "
+                "precision_ms<=0 with processing='raw' for full resolution."
+            )
 
         # Push the aggregation server-side. resolve_processing rejects unknown
         # modes and aggregates with no bin width; a None operator means full
@@ -196,7 +219,15 @@ class EPICSArchiverConnector(ArchiverConnector):
 
             # The Archiver Appliance already binned each series server-side via
             # the operator prefix above; aggregate_series is not called here —
-            # doing so would re-bin already-binned data.
+            # doing so would re-bin already-binned data. But aggregate_series is
+            # also where the other backends enforce "only raw is valid for a
+            # non-numeric channel", so that check has to be made explicitly:
+            # asking the appliance for mean_60(SR:MODE) on a string-valued PV
+            # returns its CW/STANDBY values, which would otherwise be handed
+            # back labelled as means.
+            for s in series_dict.values():
+                reject_non_numeric(s, resolved)
+
             data = long_frame(series_dict)
 
             logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")

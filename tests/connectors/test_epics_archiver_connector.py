@@ -821,3 +821,162 @@ class TestProcessingModes:
             )
 
         await connector.disconnect()
+
+
+class TestNonNumericAggregation:
+    """Only ``raw`` is valid for an enum/status channel — on every backend.
+
+    ``base.py`` and ``docs/source/how-to/add-connector.rst`` both state this as
+    a contract every connector must honor, and Mongo/DOOCS/Mock get it for free
+    through ``aggregate_series``. EPICS pushes the aggregation to the appliance
+    and never calls that helper, so asking for ``mean_60(SR:MODE)`` on a
+    string-valued PV returned its raw ``CW``/``STANDBY`` values labelled as
+    means — the documented rule going unenforced in the one backend the ALS
+    actually runs.
+    """
+
+    @staticmethod
+    def _connector_returning(payload: list):
+        return patch("urllib.request.urlopen", return_value=_make_urlopen_response(payload))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["mean", "min", "max", "median", "std", "count"])
+    async def test_aggregate_over_string_channel_raises_naming_it(self, mode):
+        payload = _archiver_payload("SR:MODE", [(1000, 0, "CW"), (1060, 0, "STANDBY")])
+
+        with self._connector_returning(payload):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            with pytest.raises(ValueError, match="SR:MODE"):
+                await connector.get_data(
+                    pv_list=["SR:MODE"],
+                    start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                    end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                    precision_ms=60_000,
+                    processing=mode,
+                )
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_raw_over_string_channel_is_allowed(self):
+        """``raw`` never aggregates, so an enum channel passes through untouched."""
+        payload = _archiver_payload("SR:MODE", [(1000, 0, "CW"), (1060, 0, "STANDBY")])
+
+        with self._connector_returning(payload):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            df = await connector.get_data(
+                pv_list=["SR:MODE"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=60_000,
+                processing="raw",
+            )
+
+            assert df["value"].tolist() == ["CW", "STANDBY"]
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_empty_channel_does_not_fail_an_aggregate_query(self):
+        """A channel that matched nothing has nothing to reject."""
+        with self._connector_returning([]):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            df = await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=60_000,
+                processing="mean",
+            )
+
+            assert df.empty
+
+            await connector.disconnect()
+
+
+class TestSubSecondPrecision:
+    """A bin width the appliance cannot express is rejected, not rounded.
+
+    The operator syntax takes whole seconds, and the width used to be floored
+    with ``max(1, precision_ms // 1000)``: a 500 ms request was served at 1 s
+    and a 1500 ms request at 1 s, with nothing in the response saying so. Every
+    other backend bins at exactly the requested width, so the same call meant
+    two different things depending on which archiver was configured.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("precision_ms", [1, 500, 999, 1500, 2500])
+    async def test_non_whole_second_precision_is_rejected(self, precision_ms):
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        with pytest.raises(ValueError, match="whole number of seconds"):
+            await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=precision_ms,
+                processing="raw",
+            )
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("precision_ms", "expected"),
+        [(1000, "mean_1"), (60_000, "mean_60"), (3600_000, "mean_3600")],
+    )
+    async def test_whole_second_precision_renders_the_operator(self, precision_ms, expected):
+        captured_urls = []
+
+        def mock_urlopen(req, timeout=None):
+            captured_urls.append(req.full_url)
+            return _make_urlopen_response([])
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=precision_ms,
+                processing="mean",
+            )
+
+            assert expected in captured_urls[0]
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_full_resolution_is_still_allowed(self):
+        """precision_ms <= 0 is full resolution, not a sub-second bin width."""
+        captured_urls = []
+
+        def mock_urlopen(req, timeout=None):
+            captured_urls.append(req.full_url)
+            return _make_urlopen_response([])
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=0,
+                processing="raw",
+            )
+
+            # Bare PV name, no operator wrapper.
+            assert "lastSample" not in captured_urls[0]
+
+            await connector.disconnect()

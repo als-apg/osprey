@@ -182,6 +182,43 @@ Compatibility is documented in release notes, not encoded in the version string.
   length mismatch. The average is now a pandas centered rolling mean, which
   returns one value per input point and shrinks the window at the edges instead
   of zero-padding — removing the separate edge-renormalization pass as well.
+- The EPICS connector now honors two contract rules it documented but did not
+  enforce, both reachable only through the connector API directly (not through
+  `archiver_read`):
+  - Aggregating a non-numeric channel with anything but `processing="raw"` now
+    raises `ValueError` naming the channel, as `base.py` and the add-a-connector
+    guide both require. EPICS pushes aggregation to the appliance and so never
+    reached the client-side helper where the other three backends enforce this —
+    `mean` over a string-valued PV came back as its raw `CW`/`STANDBY` values
+    labelled as means.
+  - A `precision_ms` that is not a whole number of seconds is now rejected
+    instead of floored. The appliance's operator syntax takes seconds, so a
+    500 ms request was silently served at 1 s (and 1500 ms likewise), while every
+    other backend binned at exactly the width asked for.
+- A DOOCS connector configured with `avg_window` no longer manufactures its
+  timestamps. Because the moving average was a fixed-width convolution kernel,
+  it needed a constant `dt`, so setting `avg_window` forced the samples onto a
+  `numpy.linspace` grid via a zero-order hold — every returned timestamp was a
+  grid position rather than an archived one, and every value was forward-filled
+  onto it. `get_data` deliberately bypasses that grid, but `avg_window` brought
+  it back through a config key, so the one connector with a smoothing knob was
+  also the one still violating the no-manufacturing contract. The average is now
+  a real time-duration window applied to the archived samples at their own
+  irregular timestamps. An explicit `max_points` still returns a uniform grid —
+  that is what the caller asked for.
+- The DOOCS connector no longer waits forever when `get_data` is called without
+  an explicit `timeout`. It passed the argument straight to `asyncio.wait_for`,
+  where `None` blocks indefinitely, and had no configured default to fall back
+  on — so an unresponsive ENS hung the caller with no recovery. `connect` now
+  accepts a `timeout` config key (default 60 seconds), matching EPICS and
+  MongoDB. An explicit `timeout=0` is still honored as a real request.
+- The mock archiver is now genuinely reproducible, as its docstring always
+  claimed. Noise for every non-BPM channel was drawn from the unseeded global
+  `numpy.random` instead of the per-PV generator, so two identical queries in
+  one process returned different data; and the per-PV generator was seeded from
+  `hash(pv_name)`, which CPython salts per process, so even the seeded path
+  differed between runs. Seeding now uses a stable checksum and all noise comes
+  from the per-PV generator.
 - `data_read`'s over-cap preview now also unwraps the legacy `_osprey_metadata`
   envelope, matching the plot tools' reader. Older archiver artifacts on disk
   carry that wrapper and were previewed as an opaque JSON object.

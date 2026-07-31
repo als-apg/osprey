@@ -354,10 +354,19 @@ channels and never onto a shared grid:
   raw.
 - Aggregating a non-numeric channel with anything but ``raw`` must raise
   ``ValueError`` naming the channel -- never coerce it, drop it, or silently emit
-  ``NaN``.
+  ``NaN``. Backends that bin client-side get this from ``aggregate_series``; a
+  backend that pushes the aggregation to its server must call
+  ``reject_non_numeric`` on what comes back, since it never reaches
+  ``aggregate_series``.
+- A bin width your backend cannot express must raise ``ValueError``, never round
+  to one it can. The EPICS Archiver Appliance's operator syntax takes whole
+  seconds, so that connector rejects any positive ``precision_ms`` that is not a
+  multiple of 1000 rather than serving a different resolution than was asked
+  for.
 
 The shared helpers in ``osprey.connectors.archiver._timerange`` (``to_utc``,
-``resolve_processing``, ``long_frame``, ``decimate_raw``, ``aggregate_series``)
+``require_datetime``, ``resolve_processing``, ``long_frame``, ``decimate_raw``,
+``aggregate_series``, ``reject_non_numeric``)
 implement all of the above and are the easiest way to get it right -- every in-tree
 connector (EPICS, MongoDB, DOOCS, mock) builds on them rather than reimplementing
 binning.

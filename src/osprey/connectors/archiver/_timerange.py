@@ -101,7 +101,11 @@ class Processing:
         mode: The canonical mode name, one of :data:`PROCESSING_MODES`.
         epics_operator: Archiver Appliance operator prefix to wrap the PV name
             with (e.g. ``"mean_60"``), or ``None`` when no server-side binning
-            applies.
+            applies — either because full resolution was requested, or because
+            the bin width is not a whole number of seconds, which the
+            appliance's operator syntax cannot express. Callers that need to
+            tell those two cases apart must check ``precision_ms`` themselves;
+            see :meth:`EPICSArchiverConnector.get_data`.
         pandas_agg: The pandas resample aggregation name for client-side backends.
     """
 
@@ -118,7 +122,9 @@ def resolve_processing(processing: str, precision_ms: int) -> Processing:
         precision_ms: Bin width in milliseconds; ``<= 0`` means full resolution.
 
     Returns:
-        The resolved :class:`Processing`.
+        The resolved :class:`Processing`. ``epics_operator`` is ``None`` unless
+        ``precision_ms`` is a positive whole number of seconds — see that
+        attribute's docstring.
 
     Raises:
         ValueError: If ``processing`` is not a known mode, or if a non-raw mode is
@@ -135,9 +141,14 @@ def resolve_processing(processing: str, precision_ms: int) -> Processing:
             f"processing={processing!r} requires precision_ms > 0 (got {precision_ms}); "
             "an aggregate needs a bin width."
         )
-    if precision_ms > 0:
-        n_secs = max(1, precision_ms // 1000)
-        operator = f"{_EPICS_OPERATORS[processing]}_{n_secs}"
+    # The appliance's operator syntax takes a whole number of seconds, so a bin
+    # width that is not a multiple of 1000 ms has no faithful operator. It used
+    # to be floored (`max(1, precision_ms // 1000)`), which silently binned a
+    # 500 ms request at 1 s and a 1500 ms request at 1 s — quietly returning
+    # data at a different resolution than was asked for. No operator is
+    # returned instead; EPICS rejects the request rather than guessing.
+    if precision_ms > 0 and precision_ms % 1000 == 0:
+        operator = f"{_EPICS_OPERATORS[processing]}_{precision_ms // 1000}"
     else:
         operator = None
     return Processing(
@@ -224,6 +235,39 @@ def decimate_raw(s: pd.Series, precision_ms: int) -> pd.Series:
     return s[~pd.Series(bins).duplicated(keep="last").to_numpy()]
 
 
+def reject_non_numeric(s: pd.Series, resolved: Processing) -> None:
+    """Enforce the contract that only ``raw`` is valid for a non-numeric channel.
+
+    Aggregating (mean/min/max/median/std/count) over enum or status values is
+    undefined, so :meth:`ArchiverConnector.get_data` requires every backend to
+    raise rather than return something that looks like an aggregate.
+
+    Backends that aggregate client-side get this for free through
+    :func:`aggregate_series`. A backend that pushes the aggregation down to its
+    server (EPICS) never calls that, so it must call this on each channel's
+    returned samples instead — otherwise a string-valued PV comes back with its
+    raw ``CW``/``STANDBY`` values labelled as means.
+
+    Args:
+        s: One channel's samples, ``s.name`` set to the channel so the error can
+            name it. An empty series is always accepted: there is nothing to
+            reject, and a channel that matched no samples must not fail the
+            query for every other requested channel.
+        resolved: The resolved processing mode. ``"raw"`` is always accepted.
+
+    Raises:
+        ValueError: If a non-raw mode was requested for a non-empty channel
+            whose values are non-numeric, naming the channel.
+    """
+    if resolved.mode == "raw" or s.empty or pd.api.types.is_numeric_dtype(s):
+        return
+    channel = repr(s.name) if s.name is not None else "<unnamed channel>"
+    raise ValueError(
+        f"Cannot apply processing={resolved.mode!r} to channel {channel}: its values are "
+        "non-numeric (enum/status channels only support processing='raw')"
+    )
+
+
 def aggregate_series(s: pd.Series, precision_ms: int, resolved: Processing) -> pd.Series:
     """Bin one channel's real samples, dropping periods that contained no samples.
 
@@ -270,12 +314,7 @@ def aggregate_series(s: pd.Series, precision_ms: int, resolved: Processing) -> p
         return decimate_raw(s, precision_ms)
     if s.empty:
         return s
-    if not pd.api.types.is_numeric_dtype(s):
-        channel = repr(s.name) if s.name is not None else "<unnamed channel>"
-        raise ValueError(
-            f"Cannot apply processing={resolved.mode!r} to channel {channel}: its values are "
-            "non-numeric (enum/status channels only support processing='raw')"
-        )
+    reject_non_numeric(s, resolved)
     if s.index.dtype != "datetime64[ns, UTC]":
         s = s.set_axis(s.index.as_unit("ns"))
     resampler = s.resample(f"{precision_ms}ms")

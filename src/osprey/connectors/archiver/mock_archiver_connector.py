@@ -6,6 +6,7 @@ Ideal for R&D and development without archiver access.
 
 """
 
+import zlib
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -226,7 +227,11 @@ class MockArchiverConnector(ArchiverConnector):
         """
         t = np.linspace(0, 1, num_points)
         pv_lower = pv_name.lower()
-        rng = np.random.default_rng(seed=hash(pv_name) % (2**32))
+        # crc32, not hash(): Python salts str hashing per process (PYTHONHASHSEED),
+        # so a hash()-derived seed made this generator reproducible only *within*
+        # one run. Two processes asked for the same PV over the same window got
+        # different data, which defeats the point of seeding at all.
+        rng = np.random.default_rng(seed=zlib.crc32(pv_name.encode()))
 
         # BPM channels — reproducible random offsets with slow oscillations
         if "position" in pv_lower or "pos" in pv_lower or "bpm" in pv_lower:
@@ -280,6 +285,9 @@ class MockArchiverConnector(ArchiverConnector):
             wave = 10 * np.sin(2 * np.pi * t * 2)
 
         noise_amplitude = abs(base) * self._noise_level
-        noise = np.random.normal(0, noise_amplitude, num_points)
+        # rng, not the global np.random: the BPM branch above already uses the
+        # per-PV generator, and drawing this noise from the unseeded global made
+        # every non-BPM channel non-reproducible even inside a single process.
+        noise = rng.normal(0, noise_amplitude, num_points)
 
         return trend + wave + noise

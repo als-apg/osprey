@@ -125,6 +125,38 @@ class TestArchiverConnect:
             assert conn._avg_window == 30
             await conn.disconnect()
 
+    async def test_connect_defaults_timeout_when_config_omits_it(self):
+        """An omitted timeout must not mean "wait forever".
+
+        ``get_data`` passes its ``timeout`` straight to ``asyncio.wait_for``,
+        where ``None`` blocks indefinitely — so a caller that omitted the
+        argument would hang on an unresponsive ENS with no way out. EPICS and
+        MongoDB both fall back to a configured default; DOOCS had neither the
+        fallback nor the attribute to fall back to.
+        """
+        mock_d4py = _make_doocs4py()
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({})
+            assert conn._timeout == 60
+            await conn.disconnect()
+
+    async def test_connect_stores_configured_timeout(self):
+        mock_d4py = _make_doocs4py()
+        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            await conn.connect({"timeout": 5})
+            assert conn._timeout == 5
+            await conn.disconnect()
+
     async def test_disconnect_clears_connected(self, archiver):
         conn, _ = archiver
         await conn.disconnect()
@@ -193,6 +225,65 @@ class TestGetDataSinglePV:
         await conn.get_data(["FAC/DEV/LOC/PROP.HIST"], _START, _END)
         addr_calls = [str(c) for c in mock_d4py.Address.call_args_list]
         assert not any("HIST.HIST" in c for c in addr_calls)
+
+
+class TestGetDataTimeout:
+    """``timeout`` reaches ``asyncio.wait_for``, with the configured default applied."""
+
+    @staticmethod
+    def _spy_wait_for(monkeypatch):
+        """Capture the timeout handed to asyncio.wait_for, then run it for real."""
+        from osprey.connectors.archiver import doocs_archiver_connector as mod
+
+        seen = {}
+        real = mod.asyncio.wait_for
+
+        async def spy(awaitable, timeout):
+            seen["timeout"] = timeout
+            return await real(awaitable, timeout)
+
+        monkeypatch.setattr(mod.asyncio, "wait_for", spy)
+        return seen
+
+    async def test_omitted_timeout_uses_configured_default(self, archiver, monkeypatch):
+        """None reached wait_for verbatim, which means "block indefinitely"."""
+        conn, _ = archiver
+        seen = self._spy_wait_for(monkeypatch)
+
+        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
+
+        assert seen["timeout"] == 60
+
+    async def test_configured_default_is_honored(self, archiver, monkeypatch):
+        conn, _ = archiver
+        conn._timeout = 7
+        seen = self._spy_wait_for(monkeypatch)
+
+        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
+
+        assert seen["timeout"] == 7
+
+    async def test_explicit_timeout_wins_over_default(self, archiver, monkeypatch):
+        conn, _ = archiver
+        seen = self._spy_wait_for(monkeypatch)
+
+        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END, timeout=3)
+
+        assert seen["timeout"] == 3
+
+    async def test_explicit_zero_timeout_is_not_treated_as_unset(self, archiver, monkeypatch):
+        """``timeout=0`` is a real request, not a missing argument.
+
+        The same distinction the MongoDB connector was fixed for: a falsy check
+        here would silently substitute the 60-second default.
+        """
+        conn, _ = archiver
+        seen = self._spy_wait_for(monkeypatch)
+
+        with pytest.raises(TimeoutError):
+            await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END, timeout=0)
+
+        assert seen["timeout"] == 0
 
 
 # --------------------------------------------------------------------------------------
@@ -329,6 +420,61 @@ class TestReadHistory:
         assert out_smooth is not None
         # Smoothed step has values between 0 and 1 near the transition
         assert np.any((out_smooth["data"] > 0.0) & (out_smooth["data"] < 1.0))
+
+    def test_smoothing_without_max_points_keeps_real_irregular_timestamps(self):
+        """avg_window alone must not resample onto a uniform grid.
+
+        The moving average used to require a constant dt, so supplying
+        avg_window forced a ``np.linspace`` grid plus a zero-order hold even
+        when no ``max_points`` was requested. Every returned timestamp was then
+        a grid position rather than an archived one, and every value had been
+        forward-filled onto it — precisely what this framework's "nothing is
+        manufactured" contract forbids, reintroduced through a config knob.
+        ``get_data`` passes ``max_points=None``, so this is the path a real
+        DOOCS deployment with ``avg_window`` set actually takes.
+        """
+        # Deliberately bursty sampling: three clusters with long gaps between.
+        # A uniform grid over this span looks nothing like the real timestamps.
+        real_times = [
+            _START_TS,
+            _START_TS + 1,
+            _START_TS + 2,
+            _START_TS + 1800,
+            _START_TS + 1801,
+            _END_TS,
+        ]
+        chunk = [(float(t), 0, 0, float(i)) for i, t in enumerate(real_times)]
+        mock_d4py = MagicMock()
+        self._mock_get(mock_d4py, chunk)
+
+        conn = self._make_connector_with_d4py(mock_d4py)
+        out = conn._read_history(
+            "FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=None, avg_window=600.0
+        )
+
+        assert out is not None
+        assert list(out["time"]) == [float(t) for t in real_times]
+        assert len(out["data"]) == len(real_times)
+        # Smoothing still happened: the isolated first cluster averages its own
+        # three samples (0, 1, 2) rather than passing 0 through untouched.
+        assert out["data"][0] != 0.0
+
+    def test_smoothing_with_max_points_still_grids(self):
+        """An explicit max_points is a caller asking for a grid, and still gets one."""
+        chunk = _make_raw_chunk(n=100)
+        mock_d4py = MagicMock()
+        self._mock_get(mock_d4py, chunk)
+
+        conn = self._make_connector_with_d4py(mock_d4py)
+        out = conn._read_history(
+            "FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=10, avg_window=600.0
+        )
+
+        assert out is not None
+        assert len(out["time"]) == len(out["data"]) == 10
+        # Uniform spacing is the point of max_points.
+        gaps = np.diff(out["time"])
+        assert np.allclose(gaps, gaps[0])
 
     def test_smoothing_window_wider_than_span_keeps_arrays_aligned(self):
         """An avg_window wider than the queried span must not desynchronize the arrays.

@@ -81,7 +81,11 @@ class ArchiverConnector(ABC):
             pv_list: List of PV names to retrieve
             start_date: Start of time range
             end_date: End of time range
-            precision_ms: Time precision in milliseconds (for downsampling)
+            precision_ms: Bin width in milliseconds; ``<= 0`` means full
+                resolution. A backend that bins server-side may not be able to
+                express every width — the EPICS Archiver Appliance takes whole
+                seconds — and must raise ``ValueError`` rather than serve a
+                different width than was asked for.
             timeout: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Backends

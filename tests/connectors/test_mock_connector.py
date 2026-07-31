@@ -1,5 +1,10 @@
 """Tests for mock connector."""
 
+import json
+import os
+import subprocess
+import sys
+import textwrap
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -410,3 +415,84 @@ class TestMockArchiverProcessing:
         assert not df["value"].isna().any()
 
         await connector.disconnect()
+
+
+class TestMockArchiverReproducibility:
+    """The mock's synthetic data must be reproducible, which it advertises but did not do.
+
+    Two separate defects made it non-reproducible:
+
+    - the noise for every non-BPM channel was drawn from the *global*
+      ``np.random`` rather than the per-PV generator the BPM branch already
+      used, so repeated calls in one process disagreed;
+    - the per-PV generator was seeded from ``hash(pv_name)``, and CPython salts
+      string hashing per process (``PYTHONHASHSEED``), so even the seeded path
+      produced different data in different processes.
+
+    Both matter in practice: a mock deployment that returns different history
+    for the same query is indistinguishable from a machine that actually
+    changed, which is exactly the confusion the mock exists to avoid.
+    """
+
+    _WINDOW = (datetime(2024, 1, 15, 10, 0, 0), datetime(2024, 1, 15, 10, 5, 0))
+
+    async def _values(self, pv: str) -> list[float]:
+        connector = MockArchiverConnector()
+        await connector.connect({})
+        start, end = self._WINDOW
+        df = await connector.get_data(pv_list=[pv], start_date=start, end_date=end)
+        await connector.disconnect()
+        return df["value"].tolist()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("pv", ["SR:UNKNOWN:PRESSURE", "SR:BPM01:POSITION"])
+    async def test_same_pv_and_window_repeats_within_a_process(self, pv):
+        assert await self._values(pv) == await self._values(pv)
+
+    @pytest.mark.asyncio
+    async def test_distinct_pvs_do_not_collide(self):
+        """Reproducible must not mean identical across channels."""
+        assert await self._values("SR:UNKNOWN:PRESSURE") != await self._values("SR:OTHER:PRESSURE")
+
+    def test_same_pv_and_window_repeats_across_processes(self):
+        """The point of the fix — run it in fresh interpreters with different hash seeds.
+
+        ``hash()`` is salted per process, so this is the only form of the test
+        that can catch a seed derived from it. Run in-process it would pass
+        even against the original bug.
+        """
+        script = textwrap.dedent("""
+            import asyncio, json
+            from datetime import datetime
+            from osprey.connectors.archiver.mock_archiver_connector import (
+                MockArchiverConnector,
+            )
+
+            async def main():
+                c = MockArchiverConnector()
+                await c.connect({})
+                df = await c.get_data(
+                    pv_list=["SR:UNKNOWN:PRESSURE"],
+                    start_date=datetime(2024, 1, 15, 10, 0, 0),
+                    end_date=datetime(2024, 1, 15, 10, 5, 0),
+                )
+                await c.disconnect()
+                print(json.dumps(df["value"].tolist()))
+
+            asyncio.run(main())
+        """)
+
+        runs = []
+        for seed in ("0", "1", "12345"):
+            env = {**os.environ, "PYTHONHASHSEED": seed}
+            proc = subprocess.run(  # noqa: S603
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            runs.append(json.loads(proc.stdout.strip().splitlines()[-1]))
+
+        assert runs[0] == runs[1] == runs[2]
+        assert len(runs[0]) > 0
