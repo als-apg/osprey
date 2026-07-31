@@ -117,13 +117,42 @@ function _tsShortTime(iso) {
   });
 }
 
-/** @param {any} chartData */
+/**
+ * RFC4180-ish CSV field quoting: a field containing a comma, double quote, or
+ * line break is wrapped in double quotes with internal double quotes doubled.
+ * Needed now that a CSV row's fields include free-form channel names and
+ * non-numeric (enum/status) values -- e.g. a status string like
+ * `"OFF, LOCAL"` -- rather than only numbers, which never need escaping.
+ * @param {any} value
+ * @returns {string}
+ */
+function _tsCsvField(value) {
+  const str = value === null || value === undefined ? "" : String(value);
+  if (/["\n\r,]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
+ * Long-format CSV: one row per (channel, timestamp) pair. Each channel now
+ * carries its own timestamps independent of every other channel's (see
+ * app.py's `format=chart` branch), so there is no shared axis to pivot into
+ * a wide `timestamp,ch1,ch2,...` table without re-implementing the
+ * server-side union pivot client-side (that pivot already exists, for the
+ * table view, via `format=table`). Long format is the honest shape of the
+ * data actually on hand here.
+ * @param {any} chartData
+ */
 function _tsExportCSV(chartData) {
-  const cols = chartData.columns || [];
-  const rows = [["timestamp", ...cols].join(",")];
-  chartData.index.forEach((/** @type {any} */ ts, /** @type {number} */ i) => {
-    const vals = chartData.data[i] || [];
-    rows.push([ts, ...vals].join(","));
+  const channels = chartData.channels || [];
+  const rows = ["channel,timestamp,value"];
+  channels.forEach((/** @type {any} */ ch) => {
+    const timestamps = ch.timestamps || [];
+    const values = ch.values || [];
+    timestamps.forEach((/** @type {any} */ ts, /** @type {number} */ i) => {
+      rows.push([ch.channel, ts, values[i]].map(_tsCsvField).join(","));
+    });
   });
   const blob = new Blob([rows.join("\n")], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -160,7 +189,21 @@ export async function renderTimeseriesView(container, artifact) {
     );
     if (!chartResp.ok) throw new Error(`Chart fetch failed: ${chartResp.status}`);
     const chartData = await chartResp.json();
-    const columns = chartData.columns || [];
+    // format=chart returns one entry per channel, each with its own
+    // timestamps/values (see app.py's chart branch) -- there is no shared
+    // `columns`/`total_rows` frame any more. `columns` here is just the
+    // channel-name projection, kept for the toggle logic and for
+    // renderTimeseriesTable, which still consumes the (unchanged) `format=table`
+    // shape and expects a plain name list.
+    const channels = chartData.channels || [];
+    const columns = channels.map((/** @type {any} */ ch) => ch.channel);
+    // Whether renderTimeseriesChart will add a secondary category `yaxis2`
+    // for any enum/status channel -- needed here too, both so Reset Zoom
+    // also autoranges that axis (Plotly.relayout's autorange keys are
+    // per-axis; `yaxis.autorange` alone never touches `yaxis2`) and so a
+    // channel toggle can show/hide that axis as its last visible occupant
+    // is hidden/shown (see the toggle handler below).
+    const hasNonNumeric = channels.some((/** @type {any} */ ch) => ch.numeric === false);
 
     const visible = new Set(columns);
 
@@ -168,12 +211,19 @@ export async function renderTimeseriesView(container, artifact) {
 
     // Info bar
     html += '<div class="ts-info-bar">';
-    columns.forEach((/** @type {any} */ c) => {
-      html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${escapeHtml(_tsShortChannelName(c))}</span>`;
+    channels.forEach((/** @type {any} */ ch) => {
+      html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${escapeHtml(_tsShortChannelName(ch.channel))}</span>`;
     });
-    html += `<span class="ts-badge ts-badge-rows"><span class="badge-label">Rows</span> ${chartData.total_rows.toLocaleString()}</span>`;
-    if (chartData.downsampled) {
-      html += `<span class="ts-badge ts-badge-downsampled"><span class="badge-label">Downsampled</span> ${chartData.returned_points.toLocaleString()} pts</span>`;
+    // No single shared row count exists any more -- each channel has its own
+    // total_points. Sum across channels as the closest honest proxy for "how
+    // much raw data feeds this chart" (the table view's own pagination footer
+    // shows the exact unioned row count once it loads).
+    const totalPoints = channels.reduce((/** @type {number} */ sum, /** @type {any} */ ch) => sum + (ch.total_points || 0), 0);
+    html += `<span class="ts-badge ts-badge-points"><span class="badge-label">Points</span> ${totalPoints.toLocaleString()}</span>`;
+    const anyDownsampled = channels.some((/** @type {any} */ ch) => ch.downsampled);
+    if (anyDownsampled) {
+      const returnedPoints = channels.reduce((/** @type {number} */ sum, /** @type {any} */ ch) => sum + (ch.returned_points || 0), 0);
+      html += `<span class="ts-badge ts-badge-downsampled"><span class="badge-label">Downsampled</span> ${returnedPoints.toLocaleString()} pts</span>`;
     }
     html += '</div>';
 
@@ -181,11 +231,14 @@ export async function renderTimeseriesView(container, artifact) {
     html += '<div class="ts-toolbar">';
     html += '<div class="ts-toolbar-group">';
     const _tsPalette = chartSeries();
-    columns.forEach((/** @type {any} */ col, /** @type {number} */ ci) => {
+    channels.forEach((/** @type {any} */ ch, /** @type {number} */ ci) => {
       const color = _tsPalette[ci % _tsPalette.length];
-      html += `<button class="ts-ch-toggle" data-ch-index="${ci}" data-ch-name="${escapeHtml(col)}" title="${escapeHtml(col)}">`;
+      const isNonNumeric = ch.numeric === false;
+      const title = isNonNumeric ? `${ch.channel} (status/enum -- plotted on right axis)` : ch.channel;
+      html += `<button class="ts-ch-toggle" data-ch-name="${escapeHtml(ch.channel)}" title="${escapeHtml(title)}">`;
       html += `<span class="ts-ch-dot" style="background:${color}"></span>`;
-      html += escapeHtml(_tsShortChannelName(col));
+      html += escapeHtml(_tsShortChannelName(ch.channel));
+      if (isNonNumeric) html += ' <span class="ts-ch-axis-tag">R</span>';
       html += '</button>';
     });
     html += '</div>';
@@ -210,8 +263,7 @@ export async function renderTimeseriesView(container, artifact) {
 
     container.querySelectorAll(".ts-ch-toggle").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const ci = parseInt(/** @type {string} */ (/** @type {HTMLElement} */ (btn).dataset.chIndex), 10);
-        const col = columns[ci];
+        const col = /** @type {string} */ (/** @type {HTMLElement} */ (btn).dataset.chName);
         if (visible.has(col)) {
           if (visible.size <= 1) return;
           visible.delete(col);
@@ -221,8 +273,22 @@ export async function renderTimeseriesView(container, artifact) {
           btn.classList.remove("ts-ch-off");
         }
         if (chartEl && /** @type {any} */ (chartEl).data) {
+          // `columns` is in the same order as `channels`, which is the same
+          // order traces were built in (renderTimeseriesChart), so this
+          // boolean array lines up positionally with Plotly's trace array
+          // even though visibility itself is tracked by channel name.
           const update = columns.map((/** @type {any} */ c) => visible.has(c));
           Plotly.restyle(chartEl, { visible: update });
+          if (hasNonNumeric) {
+            // Hiding the last visible enum/status channel would otherwise
+            // leave an empty category `yaxis2` sitting on the right with
+            // nothing plotted against it; show it again once any
+            // non-numeric channel is visible again.
+            const nonNumericVisible = channels.some(
+              (/** @type {any} */ ch) => ch.numeric === false && visible.has(ch.channel)
+            );
+            Plotly.relayout(chartEl, { "yaxis2.visible": nonNumericVisible });
+          }
         }
       });
     });
@@ -231,7 +297,17 @@ export async function renderTimeseriesView(container, artifact) {
       btn.addEventListener("click", () => {
         const action = /** @type {HTMLElement} */ (btn).dataset.action;
         if (action === "zoom-reset" && chartEl) {
-          Plotly.relayout(chartEl, { "xaxis.autorange": true, "yaxis.autorange": true });
+          // `yaxis2` (the enum/status channels' secondary category axis, see
+          // renderTimeseriesChart) predates this handler and needs its own
+          // autorange key -- otherwise a user who zooms it and clicks Reset
+          // Zoom gets the numeric axis reset while the status trace stays
+          // clipped or off-screen, reading as "that channel has no data".
+          const resetLayout = {
+            "xaxis.autorange": true,
+            "yaxis.autorange": true,
+            ...(hasNonNumeric ? { "yaxis2.autorange": true } : {}),
+          };
+          Plotly.relayout(chartEl, resetLayout);
         } else if (action === "export-csv") {
           _tsExportCSV(chartData);
         } else if (action === "export-json") {
@@ -265,6 +341,21 @@ export function _tsChartTheme() {
 }
 
 /**
+ * Builds one Plotly trace per channel, each with its own `x`/`y` (Plotly
+ * supports per-trace `x` natively -- there is no shared axis to slice
+ * multiple columns against any more, see app.py's `format=chart` branch and
+ * `extract_channel_series`'s docstring).
+ *
+ * A non-numeric (enum/status) channel -- `numeric: false` -- can't share a
+ * linear y-axis with a numeric signal like beam current, so it is never
+ * silently dropped: it gets its own categorical trace on a secondary
+ * right-hand y-axis (`yaxis2`, `type: "category"`, `overlaying: "y"`), drawn
+ * with an `hv` step line (a status value holds until its next transition,
+ * unlike a numeric signal that's meaningfully interpolated between samples).
+ * This lets an operator read machine state time-aligned against a numeric
+ * signal on the same plot, rather than losing the channel or corrupting the
+ * numeric axis. The secondary axis is only added to the layout when at
+ * least one channel actually needs it.
  * @param {any} el
  * @param {any} chartData
  * @returns {Promise<void>}
@@ -273,14 +364,25 @@ export async function renderTimeseriesChart(el, chartData) {
   await ensurePlotlyLoaded();
   if (!el) return;
 
-  const traces = chartData.columns.map((/** @type {any} */ col, /** @type {number} */ ci) => ({
-    x: chartData.index,
-    y: chartData.data.map((/** @type {any} */ row) => row[ci]),
-    name: col,
-    type: "scattergl",
-    mode: "lines",
-    hovertemplate: "%{y:.4g}<extra>%{fullData.name}</extra>",
-  }));
+  const channels = chartData.channels || [];
+  const hasNonNumeric = channels.some((/** @type {any} */ ch) => ch.numeric === false);
+
+  const traces = channels.map((/** @type {any} */ ch) => {
+    const numeric = ch.numeric !== false;
+    return {
+      x: ch.timestamps,
+      y: ch.values,
+      name: ch.channel,
+      // scattergl (WebGL) is faster for the common numeric case; a
+      // categorical y-axis is safer on the plain SVG "scatter" renderer.
+      type: numeric ? "scattergl" : "scatter",
+      mode: numeric ? "lines" : "lines+markers",
+      ...(numeric ? {} : { yaxis: "y2", line: { shape: "hv" } }),
+      hovertemplate: numeric
+        ? "%{y:.4g}<extra>%{fullData.name}</extra>"
+        : "%{y}<extra>%{fullData.name}</extra>",
+    };
+  });
 
   const t = _tsChartTheme();
 
@@ -292,6 +394,17 @@ export async function renderTimeseriesChart(el, chartData) {
     hovermode: "x unified",
     xaxis: { gridcolor: t.xaxis.gridcolor, linecolor: t.line, tickfont: { size: 10 } },
     yaxis: { gridcolor: t.yaxis.gridcolor, linecolor: t.line, tickfont: { size: 10 } },
+    ...(hasNonNumeric
+      ? {
+          yaxis2: {
+            overlaying: "y",
+            side: "right",
+            type: "category",
+            linecolor: t.line,
+            tickfont: { size: 10 },
+          },
+        }
+      : {}),
     legend: { bgcolor: t.legendBg, bordercolor: t.legendBorder, borderwidth: 1, font: { size: 10 } },
     colorway: chartSeries(),
   };

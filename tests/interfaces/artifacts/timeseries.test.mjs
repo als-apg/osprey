@@ -44,15 +44,33 @@ import {
  * @typedef {HTMLScriptElement & { onload: (() => void) | null, onerror: (() => void) | null }} InjectedScript
  */
 
+/**
+ * Fixture chart-format *channel* entry (one element of the `channels` array
+ * the real `/api/artifacts/{id}/data?format=chart` response returns -- see
+ * app.py's chart branch). Each channel carries its own `timestamps`/`values`,
+ * independent of every other channel's (no shared axis any more).
+ */
+function makeChartChannel(overrides = {}) {
+  return {
+    channel: 'SR:MAG:QF1:I',
+    timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
+    values: [1.0, 1.5],
+    total_points: 2,
+    downsampled: false,
+    returned_points: 2,
+    numeric: true,
+    ...overrides,
+  };
+}
+
 /** Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`). */
 function makeChartData(overrides = {}) {
   return {
-    columns: ['SR:MAG:QF1:I', 'SR:MAG:QF2:I'],
-    index: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
-    data: [[1.0, 2.0], [1.5, 2.5]],
-    total_rows: 2,
-    downsampled: false,
-    returned_points: 2,
+    channels: [
+      makeChartChannel({ channel: 'SR:MAG:QF1:I', values: [1.0, 1.5] }),
+      makeChartChannel({ channel: 'SR:MAG:QF2:I', values: [2.0, 2.5] }),
+    ],
+    metadata: {},
     ...overrides,
   };
 }
@@ -209,23 +227,52 @@ describe('renderTimeseriesView', () => {
 
     expect(container.querySelector('.ts-info-bar')).not.toBeNull();
     expect(container.querySelectorAll('.ts-badge-channel').length).toBe(2);
-    expect(qs(container, '.ts-badge-rows').textContent).toContain('2');
+    // The row-count badge is no longer a shared `total_rows` (that key no
+    // longer exists in the response) -- it's now the sum of each channel's
+    // own `total_points`. Default fixture: two channels, 2 points each = 4.
+    expect(qs(container, '.ts-badge-points').textContent).toContain('4');
     expect(container.querySelector('[data-ts-chart]')).not.toBeNull();
     expect(container.querySelector('[data-ts-table]')).not.toBeNull();
     expect(container.querySelectorAll('.ts-ch-toggle').length).toBe(2);
+    // The `[data-ts-table]` div is emitted into the HTML string regardless of
+    // whether the table ever actually renders -- it's present even if the
+    // `renderTimeseriesTable` call before it is silently skipped or dropped.
+    // Assert real, populated rows (the fixture's `format=table` response has
+    // 2), which is the one thing a silent (non-throwing) regression here
+    // could not fake.
+    expect(container.querySelectorAll('.ts-data-table tbody tr').length).toBe(2);
   });
 
-  test('shows a downsampled badge only when the chart response reports downsampling', async () => {
+  test('shows a downsampled badge only when at least one channel reports downsampling, summed across channels', async () => {
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(makeChartData({ downsampled: true, returned_points: 500, total_rows: 5000 })),
+        json: () => Promise.resolve(makeChartData({
+          channels: [
+            makeChartChannel({ channel: 'A', downsampled: true, returned_points: 500, total_points: 5000 }),
+            makeChartChannel({ channel: 'B', downsampled: false, returned_points: 2, total_points: 2 }),
+          ],
+        })),
       }),
     });
 
     await renderTimeseriesView(container, { id: 'ts1' });
 
-    expect(qs(container, '.ts-badge-downsampled').textContent).toContain('500');
+    // 500 (downsampled channel) + 2 (untouched channel) = 502.
+    expect(qs(container, '.ts-badge-downsampled').textContent).toContain('502');
+  });
+
+  test('does not show a downsampled badge when no channel was downsampled', async () => {
+    stubFetchRouting();
+
+    await renderTimeseriesView(container, { id: 'ts1' });
+
+    // Positive anchor: a view that throws before rendering anything (e.g.
+    // the pre-fix `total_rows` crash) would ALSO leave `.ts-badge-downsampled`
+    // null, for the wrong reason. Confirming the points badge rendered
+    // proves this is "no downsampling happened", not "the view died".
+    expect(qs(container, '.ts-badge-points')).not.toBeNull();
+    expect(container.querySelector('.ts-badge-downsampled')).toBeNull();
   });
 
   test('on a chart-fetch failure: shows the failure fallback', async () => {
@@ -234,6 +281,33 @@ describe('renderTimeseriesView', () => {
     await renderTimeseriesView(container, { id: 'ts1' });
 
     expect(container.textContent).toContain('Failed to load timeseries data');
+  });
+
+  test('the toolbar marks a channel non-numeric from the `numeric` flag alone, even when its values look like numbers', async () => {
+    // Same mutation this guards against as the renderTimeseriesChart test of
+    // the same name: a dtype check that re-derives from the values (instead
+    // of trusting `numeric: false`) would treat 0/1/0 as a numeric channel
+    // and never mark the toggle button at all.
+    stubFetchRouting({
+      chartResp: Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(makeChartData({
+          channels: [
+            makeChartChannel({
+              channel: 'SR:RF:INTERLOCK_STATE',
+              values: [0, 1],
+              numeric: false,
+            }),
+          ],
+        })),
+      }),
+    });
+
+    await renderTimeseriesView(container, { id: 'ts1' });
+
+    const toggle = qs(container, '.ts-ch-toggle');
+    expect(toggle.querySelector('.ts-ch-axis-tag')).not.toBeNull();
+    expect(toggle.getAttribute('title')).toContain('status/enum');
   });
 
   describe('channel toggling', () => {
@@ -275,6 +349,76 @@ describe('renderTimeseriesView', () => {
       expect(toggles[0].classList.contains('ts-ch-off')).toBe(false);
       expect(Plotly.restyle).toHaveBeenLastCalledWith(expect.anything(), { visible: [true, true] });
     });
+
+    test('toggles are keyed by channel name (data-ch-name), not by a column index', async () => {
+      stubFetchRouting({
+        chartResp: Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeChartData({
+            channels: [
+              makeChartChannel({ channel: 'SR:MAG:QF1:I' }),
+              makeChartChannel({ channel: 'SR:MAG:QF2:I' }),
+              makeChartChannel({ channel: 'SR:BPM:X:1' }),
+            ],
+          })),
+        }),
+      });
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      const toggles = Array.from(container.querySelectorAll('.ts-ch-toggle'));
+      expect(toggles.map((b) => /** @type {HTMLElement} */ (b).dataset.chName)).toEqual([
+        'SR:MAG:QF1:I', 'SR:MAG:QF2:I', 'SR:BPM:X:1',
+      ]);
+      // `data-ch-index` was the old (broken-by-reshape) key; it must not be
+      // relied on any more.
+      expect(/** @type {HTMLElement} */ (toggles[0]).dataset.chIndex).toBeUndefined();
+
+      const chartEl = container.querySelector('[data-ts-chart]');
+      /** @type {HTMLElement} */ (toggles[1]).click(); // hide the middle channel, by name
+
+      expect(Plotly.restyle).toHaveBeenCalledWith(chartEl, { visible: [true, false, true] });
+    });
+
+    test('hiding the only visible non-numeric channel hides its secondary axis; showing it again restores it', async () => {
+      stubFetchRouting({
+        chartResp: Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeChartData({
+            channels: [
+              makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
+              makeChartChannel({ channel: 'SR:RF:STATE', values: ['STANDBY', 'CW'], numeric: false }),
+            ],
+          })),
+        }),
+      });
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      const chartEl = container.querySelector('[data-ts-chart]');
+      const toggles = Array.from(container.querySelectorAll('.ts-ch-toggle'));
+      const enumToggle = /** @type {HTMLElement} */ (
+        toggles.find((b) => /** @type {HTMLElement} */ (b).dataset.chName === 'SR:RF:STATE')
+      );
+
+      enumToggle.click(); // hide the only non-numeric channel
+
+      // Otherwise an empty category yaxis2 is left sitting on the right with
+      // nothing plotted against it.
+      expect(Plotly.relayout).toHaveBeenLastCalledWith(chartEl, { 'yaxis2.visible': false });
+
+      enumToggle.click(); // show it again
+
+      expect(Plotly.relayout).toHaveBeenLastCalledWith(chartEl, { 'yaxis2.visible': true });
+    });
+
+    test('does not touch yaxis2 visibility when no channel is non-numeric', async () => {
+      stubFetchRouting();
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+      toggles[0].click();
+
+      expect(Plotly.relayout).not.toHaveBeenCalled();
+    });
   });
 
   describe('toolbar actions', () => {
@@ -290,7 +434,32 @@ describe('renderTimeseriesView', () => {
       );
     });
 
-    test('export-csv builds a CSV blob (header + one row per index entry) and triggers a download', async () => {
+    test('zoom-reset also autoranges yaxis2 when a non-numeric channel is present', async () => {
+      stubFetchRouting({
+        chartResp: Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeChartData({
+            channels: [
+              makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
+              makeChartChannel({ channel: 'SR:RF:STATE', values: ['STANDBY', 'CW'], numeric: false }),
+            ],
+          })),
+        }),
+      });
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      qs(container, '[data-action="zoom-reset"]').click();
+
+      // Without this, a user who zooms the enum channel's secondary axis and
+      // clicks Reset Zoom gets the numeric axis reset while the status trace
+      // stays clipped/off-screen -- reading as "that channel has no data".
+      expect(Plotly.relayout).toHaveBeenCalledWith(
+        container.querySelector('[data-ts-chart]'),
+        { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true }
+      );
+    });
+
+    test('export-csv builds a long-format CSV blob (channel,timestamp,value per sample) and triggers a download', async () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
@@ -303,10 +472,50 @@ describe('renderTimeseriesView', () => {
       expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
       const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
       expect(blob.type).toBe('text/csv');
-      const text = await blob.text();
-      expect(text.split('\n')[0]).toBe('timestamp,SR:MAG:QF1:I,SR:MAG:QF2:I');
-      expect(text.split('\n')).toHaveLength(3); // header + 2 data rows
+      const lines = (await blob.text()).split('\n');
+      // Header + 2 channels x 2 samples each = 5 lines. Long format (not the
+      // old wide `timestamp,ch1,ch2` shape) since each channel now has its
+      // own independent timestamps -- there is no shared axis to pivot into
+      // a wide row without re-implementing the server's union pivot.
+      expect(lines[0]).toBe('channel,timestamp,value');
+      expect(lines).toHaveLength(5);
+      expect(lines[1]).toBe('SR:MAG:QF1:I,2026-07-01T00:00:00Z,1');
+      expect(lines[2]).toBe('SR:MAG:QF1:I,2026-07-01T00:01:00Z,1.5');
+      expect(lines[3]).toBe('SR:MAG:QF2:I,2026-07-01T00:00:00Z,2');
+      expect(lines[4]).toBe('SR:MAG:QF2:I,2026-07-01T00:01:00Z,2.5');
       expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fake-csv');
+    });
+
+    test('export-csv quotes/escapes a value containing a comma or a double quote', async () => {
+      // Non-numeric (enum/status) values are first-class chart data now, and
+      // a channel name is a CSV field rather than a fixed header -- an
+      // unquoted comma or embedded quote would silently corrupt the row.
+      stubFetchRouting({
+        chartResp: Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeChartData({
+            channels: [
+              makeChartChannel({
+                channel: 'SR:RF:STATE',
+                timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
+                values: ['OFF, LOCAL', 'STANDBY "armed"'],
+                numeric: false,
+              }),
+            ],
+          })),
+        }),
+      });
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-csv');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+      qs(container, '[data-action="export-csv"]').click();
+
+      const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
+      const lines = (await blob.text()).split('\n');
+      expect(lines[1]).toBe('SR:RF:STATE,2026-07-01T00:00:00Z,"OFF, LOCAL"');
+      expect(lines[2]).toBe('SR:RF:STATE,2026-07-01T00:01:00Z,"STANDBY ""armed"""');
     });
 
     test('export-json builds a JSON blob of the full chart payload', async () => {
@@ -322,14 +531,14 @@ describe('renderTimeseriesView', () => {
       const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
       expect(blob.type).toBe('application/json');
       const parsed = JSON.parse(await blob.text());
-      expect(parsed.columns).toEqual(['SR:MAG:QF1:I', 'SR:MAG:QF2:I']);
+      expect(parsed.channels.map((/** @type {any} */ ch) => ch.channel)).toEqual(['SR:MAG:QF1:I', 'SR:MAG:QF2:I']);
       expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fake-json');
     });
   });
 });
 
 describe('renderTimeseriesChart', () => {
-  test('hands Plotly.newPlot traces built from the chart columns/index/data and a themed layout', async () => {
+  test('hands Plotly.newPlot one trace per channel, each with its own x, and a themed layout', async () => {
     const el = document.createElement('div');
     const chartData = makeChartData();
 
@@ -339,8 +548,8 @@ describe('renderTimeseriesChart', () => {
     const [plotEl, traces, layout, config] = Plotly.newPlot.mock.calls[0];
     expect(plotEl).toBe(el);
     expect(traces).toEqual([
-      { x: chartData.index, y: [1.0, 1.5], name: 'SR:MAG:QF1:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
-      { x: chartData.index, y: [2.0, 2.5], name: 'SR:MAG:QF2:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
+      { x: chartData.channels[0].timestamps, y: [1.0, 1.5], name: 'SR:MAG:QF1:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
+      { x: chartData.channels[1].timestamps, y: [2.0, 2.5], name: 'SR:MAG:QF2:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
     ]);
     expect(layout.hovermode).toBe('x unified');
     expect(layout.margin).toEqual({ t: 30, r: 20, b: 50, l: 60 });
@@ -349,6 +558,115 @@ describe('renderTimeseriesChart', () => {
       displaylogo: false,
       modeBarButtonsToRemove: ['lasso2d', 'select2d'],
     });
+  });
+
+  test('two channels of different cadence each keep their own independent x -- not a shared axis', async () => {
+    const el = document.createElement('div');
+    const chartData = makeChartData({
+      channels: [
+        // Slow-cadence channel: 3 samples.
+        makeChartChannel({
+          channel: 'SR:MAG:QF1:I',
+          timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:10:00Z', '2026-07-01T00:20:00Z'],
+          values: [1.0, 1.1, 1.2],
+          total_points: 3,
+          returned_points: 3,
+        }),
+        // Fast-cadence channel: 5 samples over the same window, on a
+        // completely different timestamp grid.
+        makeChartChannel({
+          channel: 'SR:BPM:X:1',
+          timestamps: [
+            '2026-07-01T00:00:00Z', '2026-07-01T00:02:00Z', '2026-07-01T00:04:00Z',
+            '2026-07-01T00:06:00Z', '2026-07-01T00:08:00Z',
+          ],
+          values: [0.1, 0.2, 0.3, 0.4, 0.5],
+          total_points: 5,
+          returned_points: 5,
+        }),
+      ],
+    });
+
+    await renderTimeseriesChart(el, chartData);
+
+    const [, traces] = Plotly.newPlot.mock.calls[0];
+    expect(traces[0].x).toEqual(chartData.channels[0].timestamps);
+    expect(traces[0].x).toHaveLength(3);
+    expect(traces[1].x).toEqual(chartData.channels[1].timestamps);
+    expect(traces[1].x).toHaveLength(5);
+    // Genuinely independent arrays, not the same shared axis sliced twice.
+    expect(traces[0].x).not.toEqual(traces[1].x);
+  });
+
+  test('a non-numeric (enum/status) channel is not dropped -- it gets its own categorical trace on a secondary y-axis', async () => {
+    const el = document.createElement('div');
+    const chartData = makeChartData({
+      channels: [
+        makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
+        makeChartChannel({
+          channel: 'SR:RF:STATE',
+          timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
+          values: ['STANDBY', 'CW'],
+          numeric: false,
+        }),
+      ],
+    });
+
+    await renderTimeseriesChart(el, chartData);
+
+    const [, traces, layout] = Plotly.newPlot.mock.calls[0];
+    expect(traces).toHaveLength(2);
+
+    const numericTrace = traces.find((/** @type {any} */ t) => t.name === 'SR:MAG:QF1:I');
+    expect(numericTrace.yaxis).toBeUndefined(); // default primary axis
+    expect(numericTrace.y).toEqual([1.0, 1.5]);
+
+    const statusTrace = traces.find((/** @type {any} */ t) => t.name === 'SR:RF:STATE');
+    expect(statusTrace.y).toEqual(['STANDBY', 'CW']); // real string values, never coerced
+    expect(statusTrace.yaxis).toBe('y2');
+    expect(statusTrace.line).toEqual({ shape: 'hv' }); // step trace: holds until the next transition
+    expect(statusTrace.hovertemplate).toBe('%{y}<extra>%{fullData.name}</extra>'); // no :.4g on a string
+
+    expect(layout.yaxis2).toMatchObject({ overlaying: 'y', side: 'right', type: 'category' });
+  });
+
+  test('non-numeric routing is driven by the `numeric` flag, not by sniffing whether the values look like numbers', async () => {
+    // Enum codes that happen to be numbers (e.g. an interlock state machine
+    // reporting 0/1/2) with `numeric: false` -- a dtype check that re-derives
+    // from the values instead of trusting the flag (e.g. `typeof v ===
+    // 'number'`) would misclassify this channel as numeric and route it onto
+    // the primary linear axis, silently defeating the whole point of the flag.
+    const el = document.createElement('div');
+    const chartData = makeChartData({
+      channels: [
+        makeChartChannel({
+          channel: 'SR:RF:INTERLOCK_STATE',
+          timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z', '2026-07-01T00:02:00Z'],
+          values: [0, 1, 0],
+          numeric: false,
+        }),
+      ],
+    });
+
+    await renderTimeseriesChart(el, chartData);
+
+    const [, traces, layout] = Plotly.newPlot.mock.calls[0];
+    const trace = traces[0];
+    expect(trace.y).toEqual([0, 1, 0]);
+    expect(trace.yaxis).toBe('y2');
+    expect(trace.type).toBe('scatter'); // not scattergl -- the non-numeric branch
+    expect(trace.line).toEqual({ shape: 'hv' });
+    expect(trace.hovertemplate).toBe('%{y}<extra>%{fullData.name}</extra>'); // no :.4g
+    expect(layout.yaxis2).toBeDefined();
+  });
+
+  test('does not add a secondary y-axis when every channel is numeric', async () => {
+    const el = document.createElement('div');
+
+    await renderTimeseriesChart(el, makeChartData());
+
+    const [, , layout] = Plotly.newPlot.mock.calls[0];
+    expect(layout.yaxis2).toBeUndefined();
   });
 
   test('is a no-op when the target element is falsy (but still awaits the Plotly load)', async () => {

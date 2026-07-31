@@ -1,8 +1,11 @@
 """MCP tool: archiver_downsample.
 
-Returns chart-ready downsampled timeseries data from an artifact entry.
+Returns per-channel downsampled timeseries data from an artifact entry.
 Uses LTTB (Largest-Triangle-Three-Buckets) to preserve visual shape while
-keeping the payload small enough for inline report generation.
+keeping the payload small enough for inline report generation. Each channel
+carries its OWN timestamps -- channels have independent sample cadences and
+are not aligned to a shared axis, so this is no longer a shared-``labels``
+Chart.js config.
 """
 
 import json
@@ -10,7 +13,11 @@ import logging
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
-from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
+from osprey.utils.timeseries import (
+    extract_channel_series,
+    is_numeric_channel,
+    lttb_downsample_channel,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_downsample")
 
@@ -23,21 +30,29 @@ async def archiver_downsample(
 ) -> str:
     """Downsample a timeseries artifact entry for chart embedding.
 
-    Uses LTTB (Largest-Triangle-Three-Buckets) to reduce point count while
-    preserving the visual shape of the data. Returns a chart-ready payload
-    with labels and datasets that can be directly embedded in Chart.js config.
+    Uses LTTB (Largest-Triangle-Three-Buckets) to reduce each channel's point
+    count independently while preserving its visual shape. A non-numeric
+    (enum/status) channel's values are never coerced for the triangle-area
+    math -- it passes through unchanged when it already fits under
+    ``max_points`` and is evenly subsampled (keeping the first and last
+    points) otherwise.
 
     Only works on category="archiver_data" entries.
 
     Args:
         entry_id: Artifact entry ID to downsample.
-        max_points: Maximum number of points to return (default 200).
+        max_points: Maximum number of points to return per channel (default 200).
         channels: Optional list of channel names to include. If omitted,
             all channels are included.
 
     Returns:
-        JSON with labels, datasets, original_points, downsampled_points,
-        and time_range suitable for Chart.js.
+        JSON with ``datasets`` (each ``{"channel", "timestamps", "values",
+        "original_points", "downsampled_points", "numeric"}``), plus top-level
+        ``original_points``/``downsampled_points`` summed across channels
+        and a ``time_range`` spanning all returned channels. Each dataset
+        carries its own timestamps -- this is no longer a shared-``labels``
+        Chart.js config. ``numeric`` is False for enum/status channels, which
+        cannot share a numeric axis with the others.
     """
     from osprey.stores.artifact_store import get_artifact_store
 
@@ -73,64 +88,61 @@ async def archiver_downsample(
             f"Could not read data file: {e}",
         )
 
-    frame, query_meta = extract_timeseries_frame(raw)
-    all_columns = frame.get("columns", [])
-    index = frame.get("index", [])
-    rows = frame.get("data", [])
-    original_points = len(index)
-
-    if original_points == 0:
-        return json.dumps(
-            {
-                "labels": [],
-                "datasets": [],
-                "original_points": 0,
-                "downsampled_points": 0,
-                "time_range": {"start": None, "end": None},
-            }
-        )
+    series, _query_meta = extract_channel_series(raw)
+    all_channels = list(series.keys())
 
     # Filter channels if requested
     if channels:
-        col_indices = [i for i, c in enumerate(all_columns) if c in channels]
-        if not col_indices:
+        selected_channels = [c for c in channels if c in series]
+        if not selected_channels:
             return make_error(
                 "validation_error",
-                f"None of the requested channels {channels} found in entry columns {all_columns}.",
+                f"None of the requested channels {channels} found in entry channels "
+                f"{all_channels}.",
             )
-        selected_columns = [all_columns[i] for i in col_indices]
-        filtered_rows = [[row[i] for i in col_indices] for row in rows]
     else:
-        selected_columns = all_columns
-        filtered_rows = rows
+        selected_channels = all_channels
 
-    # Downsample
     max_points = max(3, min(max_points, 10000))
-    ds_index, ds_rows = lttb_downsample(index, filtered_rows, max_points)
-    downsampled_points = len(ds_index)
 
-    # Build Chart.js-ready datasets
     datasets = []
-    for col_idx, col_name in enumerate(selected_columns):
-        values = [row[col_idx] if col_idx < len(row) else None for row in ds_rows]
+    original_points = 0
+    downsampled_points = 0
+    range_start = None
+    range_end = None
+
+    for channel in selected_channels:
+        chan_data = series[channel]
+        timestamps = chan_data.get("timestamps", [])
+        values = chan_data.get("values", [])
+        n_points = len(timestamps)
+        original_points += n_points
+
+        ds_timestamps, ds_values = lttb_downsample_channel(timestamps, values, max_points)
+        downsampled_points += len(ds_timestamps)
+
         datasets.append(
             {
-                "channel": col_name,
-                "values": values,
+                "channel": channel,
+                "timestamps": ds_timestamps,
+                "values": ds_values,
+                "original_points": n_points,
+                "downsampled_points": len(ds_timestamps),
+                "numeric": is_numeric_channel(values),
             }
         )
 
-    time_range = {
-        "start": ds_index[0] if ds_index else None,
-        "end": ds_index[-1] if ds_index else None,
-    }
+        if ds_timestamps:
+            if range_start is None or ds_timestamps[0] < range_start:
+                range_start = ds_timestamps[0]
+            if range_end is None or ds_timestamps[-1] > range_end:
+                range_end = ds_timestamps[-1]
 
     result = {
-        "labels": ds_index,
         "datasets": datasets,
         "original_points": original_points,
         "downsampled_points": downsampled_points,
-        "time_range": time_range,
+        "time_range": {"start": range_start, "end": range_end},
     }
 
     return json.dumps(result, indent=2)

@@ -21,7 +21,11 @@ from pydantic import BaseModel
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
-from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
+from osprey.utils.timeseries import (
+    extract_channel_series,
+    is_numeric_channel,
+    lttb_downsample_channel,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -432,6 +436,80 @@ class _SSEBroadcaster:
 MAX_TIMESERIES_FILE_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
+def _pivot_channel_series_to_table(
+    series: dict[str, dict], columns: list[str]
+) -> tuple[list, list[list]]:
+    """Pivot per-channel series into aligned rows for table display.
+
+    Channels are not aligned to a shared axis (see ``extract_channel_series``),
+    but the table view still needs one row per timestamp with one cell per
+    channel. This unions every channel's own timestamps into one sorted axis
+    and looks up each channel's value at each shared timestamp, leaving
+    ``None`` where that channel has no sample there.
+
+    This is presentation-only: a no-fill pivot computed fresh on every
+    request, never written back to storage, and independent of the
+    per-channel ``series`` a caller may also use for the chart path.
+
+    Two malformed-input cases are handled deliberately, not by accident:
+
+    - A channel with more than one sample at the *same* timestamp label
+      cannot be represented here -- a table has exactly one cell per
+      (timestamp, channel) pair. Silently keeping the last sample would
+      quietly discard the other(s), so this raises a clear error instead
+      (a visible failure beats a corrupted row count).
+    - A channel whose ``timestamps``/``values`` lengths differ (a malformed
+      artifact, not a shape collision) is tolerated the same way the chart
+      path already tolerates it -- pairs are built with ``zip(..., strict=
+      False)``, so the mismatch never crashes the endpoint.
+
+    Args:
+        series: Per-channel series as returned by ``extract_channel_series``.
+        columns: Channel names, in the column order the table should use.
+
+    Returns:
+        Tuple of (index, data) -- a sorted union of timestamps, and one row
+        per timestamp with one value (or ``None``) per column.
+
+    Raises:
+        HTTPException: if any channel has more than one sample at the same
+            timestamp label.
+    """
+    value_by_channel: dict[str, dict] = {}
+    for ch, data in series.items():
+        timestamps = data.get("timestamps", [])
+        values = data.get("values", [])
+        by_ts: dict = {}
+        for ts, val in zip(timestamps, values, strict=False):
+            if ts in by_ts:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Channel {ch!r} has more than one sample at timestamp {ts!r}; "
+                        "a table view has exactly one cell per channel per timestamp "
+                        "and cannot represent both without silently discarding one."
+                    ),
+                )
+            by_ts[ts] = val
+        value_by_channel[ch] = by_ts
+
+    all_timestamps: set = set()
+    for data in series.values():
+        all_timestamps.update(data.get("timestamps", []))
+    try:
+        index = sorted(all_timestamps)
+    except TypeError:
+        # Timestamps of mutually-incomparable types (e.g. int from one channel,
+        # str from another) can't be compared by `<`. Real archiver artifacts
+        # never mix types within one shared index/series, so this is a
+        # defensive fallback, not an expected path -- a deterministic (if not
+        # necessarily chronological) order beats crashing the endpoint.
+        index = sorted(all_timestamps, key=str)
+
+    rows = [[value_by_channel[ch].get(ts) for ch in columns] for ts in index]
+    return index, rows
+
+
 def create_app(workspace_root: Path | None = None) -> FastAPI:
     """Create the Artifact Gallery FastAPI application.
 
@@ -651,25 +729,38 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
 
         raw = json.loads(filepath.read_bytes())
-        frame, query_meta = extract_timeseries_frame(raw)
-        columns = frame.get("columns", [])
-        index = frame.get("index", [])
-        rows = frame.get("data", [])
-        total_rows = len(index)
+        series, query_meta = extract_channel_series(raw)
+        columns = list(series.keys())
 
         if format == "chart":
-            ds_index, ds_rows = lttb_downsample(index, rows, max_points)
+            channels_out = []
+            for channel in columns:
+                timestamps = series[channel].get("timestamps", [])
+                values = series[channel].get("values", [])
+                total_points = len(timestamps)
+                ds_timestamps, ds_values = lttb_downsample_channel(timestamps, values, max_points)
+                channels_out.append(
+                    {
+                        "channel": channel,
+                        "timestamps": ds_timestamps,
+                        "values": ds_values,
+                        "total_points": total_points,
+                        "downsampled": len(ds_timestamps) < total_points,
+                        "returned_points": len(ds_timestamps),
+                        "numeric": is_numeric_channel(values),
+                    }
+                )
             return {
-                "columns": columns,
-                "index": ds_index,
-                "data": ds_rows,
-                "total_rows": total_rows,
-                "downsampled": len(ds_index) < total_rows,
-                "returned_points": len(ds_index),
+                "channels": channels_out,
                 "metadata": query_meta,
             }
 
-        # format == "table"
+        # format == "table": union every channel's own timestamps into one
+        # sorted axis and pivot to columns/index/data for display.
+        # Presentation-only -- a missing sample at a shared timestamp becomes
+        # `null`, never filled, and nothing here is written back to storage.
+        index, rows = _pivot_channel_series_to_table(series, columns)
+        total_rows = len(index)
         end = min(offset + limit, total_rows)
         sliced_index = index[offset:end]
         sliced_data = rows[offset:end]

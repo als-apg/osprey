@@ -456,15 +456,26 @@ describe('TYPES path (types.js) — typeBadge / thumbnailHtml / id-encoding', ()
 // =========================================================================
 
 describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
-  /** Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`). */
-  function makeChartData(overrides = {}) {
+  /**
+   * Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`) --
+   * one entry per channel, each with its own timestamps/values (see app.py's
+   * chart branch). `overrides.columns`, if given, replaces the one channel's
+   * name (mirrors this suite's other fixtures' `columns` override shape).
+   */
+  function makeChartData({ columns = [HOSTILE.DQ_IMG], ...overrides } = {}) {
     return {
-      columns: [HOSTILE.DQ_IMG],
-      index: ['2026-07-01T00:00:00Z'],
-      data: [[1.0]],
-      total_rows: 1,
-      downsampled: false,
-      returned_points: 1,
+      channels: [
+        {
+          channel: columns[0],
+          timestamps: ['2026-07-01T00:00:00Z'],
+          values: [1.0],
+          total_points: 1,
+          downsampled: false,
+          returned_points: 1,
+          numeric: true,
+        },
+      ],
+      metadata: {},
       ...overrides,
     };
   }
