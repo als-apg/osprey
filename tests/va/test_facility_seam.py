@@ -42,19 +42,33 @@ def _free_port() -> int:
         return int(s.getsockname()[1])
 
 
+# Every root the no-lattice path must stay clear of. ``at`` is the original
+# seam: PyAT is what ``VA_LATTICE=none`` exists to avoid. ``lume`` and ``h5py``
+# joined it once the physics moved behind a LUMEModel -- ``import lume`` eagerly
+# pulls h5py (plus matplotlib and scipy), so a stray model import on this path
+# would quietly make the whole heavy stack a hard requirement of a boot mode
+# whose entire purpose is not needing one. h5py is listed separately rather than
+# left to arrive via ``lume`` so the guard still bites if some other module
+# reaches for it directly.
+_BLOCKED_ROOTS = ("at", "lume", "h5py")
+
+
 def _run_seam_ioc_subprocess() -> None:
-    """Subprocess entry point: make PyAT unimportable, then boot main().
+    """Subprocess entry point: make the heavy stack unimportable, then boot main().
 
     The blocker sits at the front of ``sys.meta_path``, so even an installed
-    PyAT cannot be imported in this process -- equivalent to (and stricter
-    than) running on a machine without PyAT.
+    PyAT (or lume, or h5py) cannot be imported in this process -- equivalent to
+    (and stricter than) running on a machine without them.
     """
     import importlib.abc
 
     class ATBlocker(importlib.abc.MetaPathFinder):
         def find_spec(self, fullname, path=None, target=None):
-            if fullname == "at" or fullname.startswith("at."):
-                raise ImportError("SEAM VIOLATION: PyAT imported on the no-lattice path")
+            root = fullname.split(".")[0]
+            if root in _BLOCKED_ROOTS:
+                raise ImportError(
+                    f"SEAM VIOLATION: {root} imported on the no-lattice path (via {fullname!r})"
+                )
             return None
 
     sys.meta_path.insert(0, ATBlocker())
