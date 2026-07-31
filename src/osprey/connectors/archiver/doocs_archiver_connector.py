@@ -17,6 +17,7 @@ import pandas as pd
 from osprey.connectors.archiver._timerange import (
     aggregate_series,
     long_frame,
+    require_datetime,
     resolve_processing,
     to_utc,
 )
@@ -118,11 +119,9 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
-            Long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
-            ``channel`` (str), and ``value`` (not dtype-constrained — float64
-            for numeric channels, or the source dtype otherwise, e.g. an
-            enum/status channel archived as a string). See
-            :meth:`ArchiverConnector.get_data` for the full contract.
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`
+            for the full contract (columns, dtypes, ordering, and the rule that
+            nothing is ever manufactured).
 
         Raises:
             RuntimeError: If archiver not connected, or a DOOCS property's
@@ -137,11 +136,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         if not self._connected:
             raise RuntimeError("DOOCS archiver not connected")
 
-        # Validate inputs
-        if not isinstance(start_date, datetime):
-            raise TypeError(f"start_date must be a datetime object, got {type(start_date)}")
-        if not isinstance(end_date, datetime):
-            raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
+        require_datetime(start_date, end_date)
 
         # A naive datetime's .timestamp() resolves against the *host* zone; convert
         # explicitly so the window means the same thing on every deploy box. Deriving
@@ -341,11 +336,19 @@ class DOOCSArchiverConnector(ArchiverConnector):
                     dt = reduced_time[1] - reduced_time[0]
                     win = max(1, int(round(avg_window / dt)))
                     if win > 1:
-                        kernel = np.ones(win) / win
-                        smooth_data = np.convolve(reduced_data, kernel, mode="same")
-                        # Correct edge underweighting from zero-padding in 'same'.
-                        norm = np.convolve(np.ones_like(reduced_data), kernel, mode="same")
-                        smooth_data = smooth_data / norm
+                        # rolling(min_periods=1) shrinks the window at the edges
+                        # instead of zero-padding, so no renormalization pass is
+                        # needed. It also always returns exactly n_points values:
+                        # np.convolve(mode="same") returns max(n_points, win) of
+                        # them, so an avg_window wider than the queried span used
+                        # to hand back `data` longer than `time` and blow up in
+                        # get_data with a length mismatch.
+                        smooth_data = (
+                            pd.Series(reduced_data)
+                            .rolling(win, center=True, min_periods=1)
+                            .mean()
+                            .to_numpy()
+                        )
 
             # Build metadata describing the request and the retrieved raw data.
             metadata = {

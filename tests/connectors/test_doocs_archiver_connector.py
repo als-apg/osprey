@@ -330,6 +330,35 @@ class TestReadHistory:
         # Smoothed step has values between 0 and 1 near the transition
         assert np.any((out_smooth["data"] > 0.0) & (out_smooth["data"] < 1.0))
 
+    def test_smoothing_window_wider_than_span_keeps_arrays_aligned(self):
+        """An avg_window wider than the queried span must not desynchronize the arrays.
+
+        The moving average used ``np.convolve(..., mode="same")``, which returns
+        ``max(len(data), win)`` elements — not ``len(data)``. So whenever the
+        configured ``avg_window`` covered more samples than the query returned,
+        ``data`` came back longer than ``time`` and ``get_data`` died building
+        the per-channel Series ("Length of values does not match length of
+        index"). A one-hour ``avg_window`` on a connector queried for a few
+        minutes is an ordinary configuration, not a pathological one.
+        """
+        n = 20
+        chunk = _make_raw_chunk(n=n)
+        mock_d4py = MagicMock()
+        self._mock_get(mock_d4py, chunk)
+
+        conn = self._make_connector_with_d4py(mock_d4py)
+        # dt over the 1-hour span at 20 points is 180 s, so avg_window=36000 s
+        # asks for a 200-sample window over 20 samples.
+        out = conn._read_history(
+            "FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=n, avg_window=36000.0
+        )
+
+        assert out is not None
+        assert len(out["data"]) == len(out["time"]) == n
+        # min_periods=1 shrinks the window at the edges rather than padding with
+        # zeros, so every point is a real average of real samples.
+        assert np.all(np.isfinite(out["data"]))
+
     def test_hist_suffix_appended(self):
         chunk = _make_raw_chunk(n=5)
         mock_d4py = MagicMock()

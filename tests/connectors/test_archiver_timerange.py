@@ -13,9 +13,42 @@ from osprey.connectors.archiver._timerange import (
     aggregate_series,
     decimate_raw,
     long_frame,
+    require_datetime,
     resolve_processing,
     to_utc,
 )
+
+
+class TestRequireDatetime:
+    """The shared query-bound guard every connector calls before ``to_utc``."""
+
+    def test_two_datetimes_pass(self):
+        require_datetime(datetime(2026, 7, 30), datetime(2026, 7, 31, tzinfo=UTC))
+
+    @pytest.mark.parametrize(
+        ("start", "end", "expected"),
+        [
+            ("2026-07-30", datetime(2026, 7, 31), "start_date"),
+            (datetime(2026, 7, 30), "2026-07-31", "end_date"),
+            (None, datetime(2026, 7, 31), "start_date"),
+            (datetime(2026, 7, 30), 1234567890, "end_date"),
+        ],
+    )
+    def test_non_datetime_raises_naming_the_argument(self, start, end, expected):
+        """The message must name which bound was wrong, not just that one was."""
+        with pytest.raises(TypeError, match=f"{expected} must be a datetime object"):
+            require_datetime(start, end)
+
+    def test_start_is_reported_first_when_both_are_wrong(self):
+        with pytest.raises(TypeError, match="start_date must be a datetime object"):
+            require_datetime("a", "b")
+
+    def test_date_is_not_accepted_as_datetime(self):
+        """``datetime.date`` has no ``tzinfo``, so ``to_utc`` would fail on it."""
+        from datetime import date
+
+        with pytest.raises(TypeError, match="start_date must be a datetime object"):
+            require_datetime(date(2026, 7, 30), datetime(2026, 7, 31))
 
 
 class TestToUtc:

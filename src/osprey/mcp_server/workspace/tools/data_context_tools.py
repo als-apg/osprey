@@ -112,6 +112,15 @@ def _build_oversize_preview(file_path, size: int) -> dict:
         preview["tail"] = text[-256:] if len(text) > 512 else ""
         return preview
 
+    # Unwrap the legacy OSPREY metadata envelope, the same way the viz reader
+    # and extract_channel_series do. Nothing writes it today, but files already
+    # on disk carry it, and without this an old archiver artifact over the cap
+    # gets a bare json_object preview instead of its channels. Guarded on the
+    # metadata key so an unrelated file with a top-level "data" key is left
+    # alone.
+    if isinstance(data, dict) and "_osprey_metadata" in data and "data" in data:
+        data = data["data"]
+
     # Archiver-style wrapper: {"query": ..., "dataframe": {split-orient}}.
     df_block = data.get("dataframe") if isinstance(data, dict) else None
     if (

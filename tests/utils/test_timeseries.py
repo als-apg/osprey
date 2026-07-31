@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from osprey.utils.timeseries import (
     extract_channel_series,
-    extract_timeseries_frame,
     is_numeric_channel,
     lttb_downsample,
     lttb_downsample_channel,
@@ -121,51 +120,13 @@ class TestLttbDownsampleReduction:
         assert len(result) == 2
 
 
-class TestExtractTimeseriesFrame:
-    def test_archiver_layout_with_query(self):
-        frame = {"columns": ["t", "v"], "index": [1, 2], "data": [[1], [2]]}
-        query = {"channels": ["A"], "start": "2026-01-01"}
-        raw = {"data": {"dataframe": frame, "query": query}}
-        out_frame, out_query = extract_timeseries_frame(raw)
-        assert out_frame is frame
-        assert out_query is query
-
-    def test_archiver_layout_missing_query_defaults_empty(self):
-        frame = {"columns": ["t"], "index": [1], "data": [[1]]}
-        raw = {"data": {"dataframe": frame}}
-        out_frame, out_query = extract_timeseries_frame(raw)
-        assert out_frame is frame
-        assert out_query == {}
-
-    def test_flat_layout(self):
-        payload = {"columns": ["t", "v"], "index": [1, 2], "data": [[1], [2]]}
-        raw = {"data": payload}
-        out_frame, out_query = extract_timeseries_frame(raw)
-        assert out_frame is payload
-        assert out_query == {}
-
-    def test_no_data_or_dataframe_key_uses_raw_as_payload(self):
-        """With neither ``data`` nor ``dataframe`` present, raw is the payload."""
-        raw = {"columns": ["t"], "index": [1]}
-        out_frame, out_query = extract_timeseries_frame(raw)
-        assert out_frame is raw
-        assert out_query == {}
-
-    def test_no_data_key_with_nested_dataframe(self):
-        frame = {"columns": ["t"], "index": [1], "data": [[1]]}
-        raw = {"dataframe": frame, "query": {"k": "v"}}
-        out_frame, out_query = extract_timeseries_frame(raw)
-        assert out_frame is frame
-        assert out_query == {"k": "v"}
-
-
 class TestExtractChannelSeries:
     """Normalizes all three artifact timeseries layouts to per-channel series.
 
-    Reproduces the bug this task fixes: ``extract_timeseries_frame`` has no
-    branch for the new archiver_read payload (``{"query": ..., "series": ...}``)
-    and returns it unchanged, so downstream readers see empty ``columns``/
-    ``index``/``data`` rather than the real per-channel arrays.
+    This is the sole extractor. It replaced a split-orient-only predecessor
+    that had no branch for the long-format ``{"query": ..., "series": ...}``
+    payload and returned it unchanged, leaving downstream readers with empty
+    ``columns``/``index``/``data`` instead of the real per-channel arrays.
     """
 
     def test_new_series_layout_returned_as_is(self):
@@ -190,17 +151,6 @@ class TestExtractChannelSeries:
 
         assert out_series == series
         assert out_query == {"k": "v"}
-
-    def test_bug_reproduction_extract_timeseries_frame_sees_new_layout_as_empty(self):
-        """Confirms the reported defect: the legacy extractor can't see this layout."""
-        series = {"PV:A": {"timestamps": ["t0", "t1"], "values": [1.0, 2.0]}}
-        raw = {"query": {}, "series": series}
-
-        frame, _query = extract_timeseries_frame(raw)
-
-        assert frame.get("columns", []) == []
-        assert frame.get("index", []) == []
-        assert frame.get("data", []) == []
 
     def test_archiver_split_orient_layout_transposed_per_channel(self):
         frame = {

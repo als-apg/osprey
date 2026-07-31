@@ -16,7 +16,12 @@ from typing import Any
 
 import pandas as pd
 
-from osprey.connectors.archiver._timerange import long_frame, resolve_processing, to_utc
+from osprey.connectors.archiver._timerange import (
+    long_frame,
+    require_datetime,
+    resolve_processing,
+    to_utc,
+)
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
@@ -146,12 +151,9 @@ class EPICSArchiverConnector(ArchiverConnector):
                 it client-side. Anything else raises ValueError.
 
         Returns:
-            Long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
-            ``channel`` (str), and ``value`` (not dtype-constrained — float64
-            for numeric channels, or the source dtype otherwise, e.g. an
-            enum/status channel archived as a string), sorted by channel then
-            timestamp. See :meth:`ArchiverConnector.get_data` for the full
-            contract.
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`
+            for the full contract (columns, dtypes, ordering, and the rule that
+            nothing is ever manufactured).
 
         Raises:
             RuntimeError: If archiver not connected
@@ -164,11 +166,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         if not self._connected:
             raise RuntimeError("Archiver not connected")
 
-        # Validate inputs
-        if not isinstance(start_date, datetime):
-            raise TypeError(f"start_date must be a datetime object, got {type(start_date)}")
-        if not isinstance(end_date, datetime):
-            raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
+        require_datetime(start_date, end_date)
 
         # The retrieval API's ".000Z" wire format is UTC. Convert rather than
         # relabel: a facility-local datetime formatted with a literal Z shifts

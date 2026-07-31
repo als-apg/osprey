@@ -172,6 +172,46 @@ class TestDataRead:
         assert preview["per_channel"]["CH_DOWN"]["last"] is None
 
     @pytest.mark.asyncio
+    async def test_oversize_series_preview_under_legacy_metadata_envelope(self, store, read_tool):
+        """An artifact wrapped in the legacy `_osprey_metadata` envelope still previews.
+
+        Nothing writes that envelope today, but files already on disk carry it,
+        and the viz reader and ``extract_channel_series`` both unwrap it. The
+        preview did not, so an old archiver artifact over the cap reported
+        ``top_level_keys: ["_osprey_metadata", "data"]`` and no channels.
+        """
+        entry = _save_entry(store)
+        stamps = [f"2026-05-11T00:{i // 60:02d}:{i % 60:02d}+00:00" for i in range(200)]
+        payload = {
+            "_osprey_metadata": {"tool": "archiver_read"},
+            "data": {
+                "query": {"channels": ["CH_A"], "padding": "z" * (110 * 1024)},
+                "series": {"CH_A": {"timestamps": stamps, "values": list(range(200))}},
+            },
+        }
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "timeseries_series"
+        assert preview["channels"] == ["CH_A"]
+        assert preview["row_count"] == 200
+
+    @pytest.mark.asyncio
+    async def test_oversize_plain_data_key_is_not_unwrapped(self, store, read_tool):
+        """A top-level "data" key without the metadata marker is not an envelope."""
+        entry = _save_entry(store)
+        payload = {"data": {"anything": "z" * (150 * 1024)}, "other": 1}
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "json_object"
+        assert set(preview["top_level_keys"]) == {"data", "other"}
+
+    @pytest.mark.asyncio
     async def test_oversize_series_key_collision_falls_through(self, store, read_tool):
         """A non-archiver file with a top-level 'series' key keeps the generic preview."""
         entry = _save_entry(store)

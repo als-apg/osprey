@@ -120,11 +120,9 @@ class MockArchiverConnector(ArchiverConnector):
                 it client-side. Anything else raises ValueError.
 
         Returns:
-            Long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
-            ``channel`` (str), and ``value`` (not dtype-constrained — float64
-            for numeric channels, or the source dtype otherwise, e.g. an
-            enum/status channel archived as a string). See
-            :meth:`ArchiverConnector.get_data` for the full contract.
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`
+            for the full contract (columns, dtypes, ordering, and the rule that
+            nothing is ever manufactured).
 
         Raises:
             ValueError: If ``processing`` other than ``"raw"`` is requested for
@@ -254,10 +252,10 @@ class MockArchiverConnector(ArchiverConnector):
         kind = classify_pv(pv_name)
         base = kind.base_value
         if kind.name == "beam_current":
-            trend = np.ones(num_points) * base
-            for i in range(num_points):
-                decay_phase = i % (num_points // 10)
-                trend[i] = base * (1 - 0.05 * (decay_phase / (num_points // 10)))
+            # Ten sawtooth refill cycles across the window: current decays 5%
+            # over each cycle, then jumps back to base.
+            period = num_points // 10
+            trend = base * (1 - 0.05 * (np.arange(num_points) % period) / period)
             wave = 5 * np.sin(2 * np.pi * t * 5)
         elif kind.name == "current":
             trend = base + 10 * t

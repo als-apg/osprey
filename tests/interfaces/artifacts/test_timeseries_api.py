@@ -227,9 +227,9 @@ class TestArtifactDataAPI:
     def test_chart_format_new_layout_channels_have_independent_timestamps(self, app_client):
         """A new-format archiver artifact renders per-channel series, not empty.
 
-        Reproduces + verifies the fix for the reported bug: before this task,
-        ``extract_timeseries_frame`` had no branch for the new
-        ``{"query", "series"}`` payload, so this endpoint returned empty
+        Reproduces + verifies the fix for the reported bug: the split-orient-only
+        extractor this endpoint used to call had no branch for the
+        ``{"query", "series"}`` payload, so it returned empty
         ``columns``/``index``/``data`` for it.
         """
         client, workspace = app_client

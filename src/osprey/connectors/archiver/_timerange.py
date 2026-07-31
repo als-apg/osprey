@@ -53,6 +53,26 @@ _PANDAS_AGGS = {
 }
 
 
+def require_datetime(start_date: object, end_date: object) -> None:
+    """Raise ``TypeError`` unless both query bounds are ``datetime`` objects.
+
+    Every connector validated this identically before delegating to
+    :func:`to_utc`, which would otherwise fail on a ``str`` with an
+    ``AttributeError`` naming ``tzinfo`` — an error that says nothing about
+    which argument the caller got wrong.
+
+    Args:
+        start_date: The caller's start bound, unvalidated.
+        end_date: The caller's end bound, unvalidated.
+
+    Raises:
+        TypeError: If either bound is not a ``datetime``, naming which one.
+    """
+    for name, value in (("start_date", start_date), ("end_date", end_date)):
+        if not isinstance(value, datetime):
+            raise TypeError(f"{name} must be a datetime object, got {type(value)}")
+
+
 def to_utc(dt: datetime) -> datetime:
     """Return ``dt`` as a timezone-aware UTC datetime.
 
@@ -157,18 +177,8 @@ def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
         with the same columns; ``value`` defaults to ``float64`` in that case,
         since there is no data to infer a dtype from.
     """
-    frames = [
-        pd.DataFrame(
-            {
-                "timestamp": s.index,
-                "channel": channel,
-                "value": s.to_numpy(),
-            }
-        )
-        for channel, s in series.items()
-        if not s.empty
-    ]
-    if not frames:
+    live = {channel: s for channel, s in series.items() if not s.empty}
+    if not live:
         return pd.DataFrame(
             {
                 "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
@@ -176,7 +186,10 @@ def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
                 "value": pd.Series(dtype="float64"),
             }
         )
-    frame = pd.concat(frames, ignore_index=True)
+    # Concatenating the mapping keys each channel's samples under its own name,
+    # producing a (channel, timestamp) MultiIndex that reset_index turns into
+    # the two long-format label columns -- no per-channel frame construction.
+    frame = pd.concat(live, names=["channel", "timestamp"]).rename("value").reset_index()
     # Real samples can arrive at any datetime64 resolution; the contract is ns.
     frame["timestamp"] = frame["timestamp"].astype("datetime64[ns, UTC]")
     frame = frame.sort_values(["channel", "timestamp"], ignore_index=True)

@@ -175,6 +175,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   wrong. The recipe now maps per-dataset `{x, y}` points, skips enum/status
   channels that cannot share the numeric axis, and needs no date-adapter
   script.
+- The DOOCS connector no longer fails when its configured `avg_window` is wider
+  than the queried time span. The moving average used `np.convolve(mode="same")`,
+  which returns `max(len(data), window)` points rather than `len(data)`, so the
+  returned `data` array outgrew its `time` array and `get_data` died with a
+  length mismatch. The average is now a pandas centered rolling mean, which
+  returns one value per input point and shrinks the window at the edges instead
+  of zero-padding — removing the separate edge-renormalization pass as well.
+- `data_read`'s over-cap preview now also unwraps the legacy `_osprey_metadata`
+  envelope, matching the plot tools' reader. Older archiver artifacts on disk
+  carry that wrapper and were previewed as an opaque JSON object.
 - `osprey web --project <dir>` launched from outside the project now behaves the
   same as running `osprey web` inside it. Previously the flag only set the
   terminal's working directory, so the project's `.env` was never loaded

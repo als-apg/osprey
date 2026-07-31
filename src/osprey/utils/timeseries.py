@@ -74,21 +74,6 @@ def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[lis
     return new_index, new_data
 
 
-def extract_timeseries_frame(raw: dict) -> tuple[dict, dict]:
-    """Extract split-orient DataFrame + query metadata from a data context file.
-
-    Handles two layouts:
-      - Archiver: raw["data"]["dataframe"] = {columns, index, data},
-                  raw["data"]["query"] = {...}
-      - Flat:     raw["data"] = {columns, index, data}
-    Returns (frame_dict, query_dict).
-    """
-    payload = raw.get("data", raw)
-    if "dataframe" in payload:
-        return payload["dataframe"], payload.get("query", {})
-    return payload, {}
-
-
 def extract_channel_series(raw: dict) -> tuple[dict[str, dict], dict]:
     """Normalize any artifact timeseries layout into per-channel series.
 
@@ -176,15 +161,12 @@ def _even_subsample(timestamps: list, values: list, max_points: int) -> tuple[li
     triangle-area math over the values is meaningless. Callers only reach
     this with ``max_points >= 3`` and ``len(timestamps) > max_points``.
     """
+    # i=0 and i=max_points-1 land exactly on 0 and n-1, so first and last are
+    # kept by construction. The set collapses the repeats rounding produces as
+    # max_points approaches n; sorted restores order.
     n = len(timestamps)
     step = (n - 1) / (max_points - 1)
-    selected = []
-    for i in range(max_points):
-        idx = min(round(i * step), n - 1)
-        if not selected or idx > selected[-1]:
-            selected.append(idx)
-    if selected[-1] != n - 1:
-        selected[-1] = n - 1
+    selected = sorted({min(round(i * step), n - 1) for i in range(max_points)})
     return [timestamps[i] for i in selected], [values[i] for i in selected]
 
 

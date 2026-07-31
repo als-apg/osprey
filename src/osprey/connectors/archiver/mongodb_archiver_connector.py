@@ -15,6 +15,7 @@ import pandas as pd
 from osprey.connectors.archiver._timerange import (
     aggregate_series,
     long_frame,
+    require_datetime,
     resolve_processing,
     to_utc,
 )
@@ -186,6 +187,15 @@ class MongoDBArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("MongoDB Archiver connector disconnected")
 
+    def _require_connected(self) -> None:
+        """Raise ``RuntimeError`` unless a live collection is available.
+
+        Raises:
+            RuntimeError: If the connector is not connected.
+        """
+        if not self._connected or self._collection is None:
+            raise RuntimeError("MongoDB archiver not connected")
+
     async def get_data(
         self,
         pv_list: list[str],
@@ -209,11 +219,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
-            Long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
-            ``channel`` (str), and ``value`` (not dtype-constrained — float64
-            for numeric channels, or the source dtype otherwise, e.g. an
-            enum/status channel archived as a string). See
-            :meth:`ArchiverConnector.get_data` for the full contract.
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`
+            for the full contract (columns, dtypes, ordering, and the rule that
+            nothing is ever manufactured).
 
         Raises:
             RuntimeError: If archiver not connected
@@ -227,14 +235,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         timeout = timeout if timeout is not None else self._timeout
 
-        if not self._connected or self._collection is None:
-            raise RuntimeError("MongoDB archiver not connected")
+        self._require_connected()
 
-        # Validate inputs
-        if not isinstance(start_date, datetime):
-            raise TypeError(f"start_date must be a datetime object, got {type(start_date)}")
-        if not isinstance(end_date, datetime):
-            raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
+        require_datetime(start_date, end_date)
 
         if not pv_list:
             raise ValueError("pv_list cannot be empty")
@@ -342,8 +345,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
         """
-        if not self._connected or self._collection is None:
-            raise RuntimeError("MongoDB archiver not connected")
+        self._require_connected()
 
         def check_pv():
             """Check if PV exists in any document."""
@@ -377,8 +379,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
         """
-        if not self._connected or self._collection is None:
-            raise RuntimeError("MongoDB archiver not connected")
+        self._require_connected()
 
         def check_pvs():
             """Check which PVs exist in the collection."""

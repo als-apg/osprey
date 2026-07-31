@@ -23,8 +23,8 @@
  *
  * Table cells apply magnitude-adaptive formatting: index cells go through
  * `_tsShortTime` (short month/day + hour:minute:second, no year, since the
- * backend's split-orient `index` is ISO timestamp strings — see
- * src/osprey/utils/timeseries.py's `extract_timeseries_frame`), value cells
+ * backend's `index` is ISO timestamp strings — see
+ * src/osprey/utils/timeseries.py's `extract_channel_series`), value cells
  * through `_tsFormatValue` (<=5 significant figures, scientific notation for
  * very large/small magnitudes). Both helpers fall back to raw `String(...)`
  * for inputs that aren't a number/valid date, so their output is still run
