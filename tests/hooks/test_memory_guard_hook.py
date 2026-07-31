@@ -326,14 +326,20 @@ def test_uses_claude_project_dir_env(tmp_path, hook_runner, memory_dir_for, monk
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+@pytest.mark.parametrize(
+    "stdin",
+    ["", "{nope", "[]", "[1,2,3]"],
+    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
+)
 def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     """Unusable stdin yields no opinion — not a deny.
 
     The guard denies writes it can see and does not recognise, but a closed
-    pipe, a truncated write or a non-object payload names no tool at all. With
-    no ``tool_name`` to match, the hook exits 0 silently and Write is left to
-    the rest of the permission chain.
+    pipe, a truncated write, or a non-object payload — falsy (``[]``) or
+    truthy (``[1,2,3]``) — names no tool at all. With no ``tool_name`` to
+    match, the hook exits 0 silently and Write is left to the rest of the
+    permission chain. The truthy payload is the one that slips past an
+    emptiness check, so it has to be rejected on shape.
     """
     returncode, stdout, stderr = hook_runner_raw(
         "osprey_memory_guard.py",

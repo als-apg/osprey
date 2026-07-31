@@ -285,13 +285,19 @@ class TestFeedbackCaptureNoTotal:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+@pytest.mark.parametrize(
+    "stdin",
+    ["", "{nope", "[]", "[1,2,3]"],
+    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
+)
 def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     """Unusable stdin captures nothing and leaves the tool call untouched.
 
-    A closed pipe, a truncated write and a non-object payload give the hook no
-    channel finder result to store, so it exits 0 without writing a pending
-    review or a decision envelope.
+    A closed pipe, a truncated write and a non-object payload — falsy (``[]``)
+    or truthy (``[1,2,3]``) — give the hook no channel finder result to store,
+    so it exits 0 without writing a pending review or a decision envelope. The
+    truthy payload is the one an emptiness check lets through, so it has to be
+    rejected on shape.
     """
     returncode, stdout, stderr = hook_runner_raw(
         "osprey_cf_feedback_capture.py",

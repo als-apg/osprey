@@ -171,13 +171,19 @@ def test_notebook_update_swallows_unlink_failure(tmp_path, run_notebook_update_h
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+@pytest.mark.parametrize(
+    "stdin",
+    ["", "{nope", "[]", "[1,2,3]"],
+    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
+)
 def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     """Unusable stdin leaves the tree alone and the tool call intact.
 
-    A closed pipe, a truncated write and a non-object payload name no
-    notebook, so there is no cache entry to invalidate: exit 0, nothing on
-    stdout, and not a byte changed under the project directory.
+    A closed pipe, a truncated write and a non-object payload — falsy (``[]``)
+    or truthy (``[1,2,3]``) — name no notebook, so there is no cache entry to
+    invalidate: exit 0, nothing on stdout, and not a byte changed under the
+    project directory. The truthy payload is the one an emptiness check lets
+    through, so it has to be rejected on shape.
     """
     before = snapshot(tmp_path)
 
