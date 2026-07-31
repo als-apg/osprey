@@ -22,9 +22,10 @@ def display_registry_contents(verbose: bool = False):
         # Get registry (initialize if needed) - suppress initialization logs
         with quiet_logger(["registry", "CONFIG"]):
             registry = get_registry()
-            if not registry._initialized:
+            if not registry.get_stats()["initialized"]:
                 console.print("\n[dim]Initializing registry...[/dim]")
-                registry.initialize()
+            # Idempotent -- self-guards when already initialized.
+            registry.initialize()
 
         # Get registry stats
         stats = registry.get_stats()
