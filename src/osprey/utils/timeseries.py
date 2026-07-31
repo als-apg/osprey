@@ -8,11 +8,17 @@ import math
 
 
 def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[list, list[list]]:
-    """Largest-Triangle-Three-Buckets downsampling.
+    """Largest-Triangle-Three-Buckets downsampling over a shared index.
 
-    Operates on split-orient DataFrame arrays.  Uses the first data column as
-    the representative for triangle-area index selection, then slices all
-    columns at the same indices so every channel shares the same x-axis.
+    Takes a single index shared by every column -- the legacy split-orient
+    layout, and the internal shape :func:`lttb_downsample_channel` reduces one
+    channel through. It selects indices by triangle area using the first data
+    column as the representative, then slices every column at those same
+    indices, so all columns necessarily come out on one x-axis.
+
+    Archiver artifacts no longer have a shared index: each channel carries its
+    own timestamps. Reduce those with :func:`lttb_downsample_channel`, which
+    calls this per channel with that channel's own index.
 
     Returns (downsampled_index, downsampled_data) where data keeps all columns.
     """

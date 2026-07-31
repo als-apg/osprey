@@ -458,7 +458,13 @@ async def test_archiver_read_rejects_unknown_processing(tmp_path, monkeypatch):
             processing="p99",
         )
 
-    assert "mean" in ctx["envelope"]["error_message"]
+    # The message says what is wrong; the suggestions say what to do instead.
+    # The valid set belongs in exactly one of them, not verbatim in both.
+    envelope = ctx["envelope"]
+    assert "p99" in envelope["error_message"]
+    suggestions = " ".join(envelope["suggestions"])
+    for mode in ("raw", "mean", "min", "max", "median", "std", "count"):
+        assert mode in suggestions
 
 
 @pytest.mark.unit

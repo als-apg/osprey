@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from osprey.connectors.archiver._timerange import PROCESSING_MODES
+from osprey.connectors.archiver import PROCESSING_MODES
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
@@ -90,7 +90,7 @@ async def archiver_read(
     if processing not in PROCESSING_MODES:
         return make_error(
             "validation_error",
-            f"Unknown processing mode '{processing}'. Use one of: {', '.join(PROCESSING_MODES)}.",
+            f"Unknown processing mode '{processing}'.",
             [f"Use one of: {', '.join(PROCESSING_MODES)}."],
         )
 
@@ -230,11 +230,12 @@ async def archiver_read(
                     "list of sample values, one per timestamp: numeric for "
                     "ordinary channels, the channel's own strings for "
                     "enum/status channels, or JSON null where the archived "
-                    "sample was missing or non-numeric. A channel's 'points' "
-                    "count (and the summary's total) includes null entries; "
-                    "min/max/mean are computed only over the non-null "
-                    "numeric values, so 'points' is not the count of usable "
-                    "numbers."
+                    "sample itself was null. Non-numeric samples pass through "
+                    "as their own values and are never nulled. A channel's "
+                    "'points' count (and the summary's total) includes null "
+                    "and non-numeric entries; min/max/mean are computed only "
+                    "over the numeric values, so 'points' is not the count of "
+                    "usable numbers."
                 ),
             },
             "access_patterns": {

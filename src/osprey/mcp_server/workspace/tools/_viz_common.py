@@ -115,12 +115,17 @@ elif _data_path.endswith('.json'):
     # for plotting; each channel keeps its own real samples and its own dtype
     # (non-numeric/enum channels included) -- only the alignment for a shared
     # x-axis is new here, nothing is forward-filled.
-    # Guarded on shape (a dict of per-channel dicts) so a coincidental
-    # top-level 'series' key of some other shape (e.g. a list, or a dict of
-    # bare lists) falls through to the generic dict/list handling below
-    # instead of crashing on .items()/.get().
+    # Guarded on every entry carrying 'timestamps', so a coincidental top-level
+    # 'series' key of some other shape falls through to the generic dict/list
+    # handling below instead of being pivoted. A bare dict-of-dicts check is not
+    # enough: {'series': {'a': {'x': 1}, 'b': {'x': 2}}} is a dict of dicts and
+    # is not an archiver envelope -- it used to enter this branch and come out
+    # as an empty two-column frame, where the generic path below builds a usable
+    # one. Matches the guard in _build_oversize_preview.
     _series = data.get('series') if isinstance(data, dict) else None
-    if isinstance(_series, dict) and all(isinstance(_v, dict) for _v in _series.values()):
+    if isinstance(_series, dict) and all(
+        isinstance(_v, dict) and 'timestamps' in _v for _v in _series.values()
+    ):
         _channel_cols = {}
         for _channel, _entry in _series.items():
             _timestamps = _entry.get('timestamps', [])

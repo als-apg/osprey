@@ -112,7 +112,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
-        Generate synthetic historical data.
+        Retrieve historical data from the DOOCS local histories.
 
         Args:
             pv_list: List of DOOCS property addresses
@@ -206,8 +206,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
             data = long_frame(series)
 
             logger.debug(
-                f"Retrieved DOOCS archiver data: {len(data)} points "
-                f"for {len(pv_list)} DOOCS properties"
+                f"Retrieved DOOCS archiver data: {len(data)} rows "
+                f"across {len(pv_list)} DOOCS properties"
             )
             return data
 

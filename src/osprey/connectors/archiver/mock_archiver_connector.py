@@ -76,7 +76,13 @@ class MockArchiverConnector(ArchiverConnector):
                   the machine model; without it, every channel uses the generic
                   PV-type procedural synthesizer.
         """
-        self._sample_rate_hz = config.get("sample_rate_hz", 1.0)
+        # A zero or negative rate has no meaning and would divide by zero in
+        # get_data's full-resolution path and in get_metadata's sampling_period,
+        # so reject it at configuration time rather than at the first query.
+        sample_rate_hz = config.get("sample_rate_hz", 1.0)
+        if sample_rate_hz <= 0:
+            raise ValueError(f"sample_rate_hz must be > 0 (got {sample_rate_hz})")
+        self._sample_rate_hz = sample_rate_hz
         self._noise_level = config.get("noise_level", 0.1)
 
         # Optional data-driven simulation engine (machine file)
@@ -113,7 +119,10 @@ class MockArchiverConnector(ArchiverConnector):
                 full resolution: samples are generated at the connector's own
                 configured ``sample_rate_hz`` instead of a density derived from
                 ``precision_ms``, since the mock has no backing store of real
-                samples to return in full.
+                samples to return in full. Either way the generator is capped at
+                10,000 points, so a window longer than
+                ``10000 / sample_rate_hz`` seconds comes back sparser than the
+                configured rate.
             timeout: Ignored for mock archiver
             processing: Aggregation applied within each precision_ms bin. One of
                 "raw", "mean", "min", "max", "median", "std", "count". Backends
@@ -180,7 +189,7 @@ class MockArchiverConnector(ArchiverConnector):
         data = long_frame(series)
 
         logger.debug(
-            f"Mock archiver generated {len(data)} points for "
+            f"Mock archiver generated {len(data)} rows across "
             f"{len(pv_list)} PVs from {start_date} to {end_date}"
         )
 

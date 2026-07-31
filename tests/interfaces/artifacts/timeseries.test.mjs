@@ -622,12 +622,53 @@ describe('renderTimeseriesChart', () => {
     expect(numericTrace.y).toEqual([1.0, 1.5]);
 
     const statusTrace = traces.find((/** @type {any} */ t) => t.name === 'SR:RF:STATE');
-    expect(statusTrace.y).toEqual(['STANDBY', 'CW']); // real string values, never coerced
+    // The plotted category is namespaced by channel so two enum channels can't
+    // interleave on the shared axis (see the multi-channel test below), and the
+    // real string values -- never coerced -- ride along in customdata.
+    expect(statusTrace.y).toEqual(['SR:RF:STATE: STANDBY', 'SR:RF:STATE: CW']);
+    expect(statusTrace.customdata).toEqual(['STANDBY', 'CW']);
     expect(statusTrace.yaxis).toBe('y2');
     expect(statusTrace.line).toEqual({ shape: 'hv' }); // step trace: holds until the next transition
-    expect(statusTrace.hovertemplate).toBe('%{y}<extra>%{fullData.name}</extra>'); // no :.4g on a string
+    // Hover shows the real state, not the namespaced label, and no :.4g on a string.
+    expect(statusTrace.hovertemplate).toBe('%{customdata}<extra>%{fullData.name}</extra>');
 
     expect(layout.yaxis2).toMatchObject({ overlaying: 'y', side: 'right', type: 'category' });
+  });
+
+  test('two enum channels get disjoint rungs on the shared category axis', async () => {
+    // Plotly builds a category axis's rungs from the union of its traces in
+    // first-appearance order. Plotting each channel's bare values put both
+    // vocabularies on one interleaved ladder, so each channel's step line
+    // crossed rungs belonging to the other -- rendering as a state the channel
+    // was never in. Namespacing by channel keeps each one's rungs contiguous.
+    const el = document.createElement('div');
+    const chartData = makeChartData({
+      channels: [
+        makeChartChannel({
+          channel: 'SR:RF:STATE',
+          timestamps: ['2026-07-01T00:00:00Z'],
+          values: ['CW'],
+          numeric: false,
+        }),
+        makeChartChannel({
+          channel: 'SR:MODE',
+          timestamps: ['2026-07-01T00:00:00Z'],
+          values: ['CW'],
+          numeric: false,
+        }),
+      ],
+    });
+
+    await renderTimeseriesChart(el, chartData);
+
+    const [, traces] = Plotly.newPlot.mock.calls[0];
+    const [rf, mode] = traces;
+
+    // Same underlying value 'CW' on both channels, but distinct rungs.
+    expect(rf.customdata).toEqual(['CW']);
+    expect(mode.customdata).toEqual(['CW']);
+    expect(rf.y).not.toEqual(mode.y);
+    expect(new Set([...rf.y, ...mode.y]).size).toBe(2);
   });
 
   test('non-numeric routing is driven by the `numeric` flag, not by sniffing whether the values look like numbers', async () => {
@@ -652,11 +693,18 @@ describe('renderTimeseriesChart', () => {
 
     const [, traces, layout] = Plotly.newPlot.mock.calls[0];
     const trace = traces[0];
-    expect(trace.y).toEqual([0, 1, 0]);
+    // The numeric-looking codes stay numeric in customdata and become category
+    // labels on the axis -- they are never plotted on the linear y-axis.
+    expect(trace.customdata).toEqual([0, 1, 0]);
+    expect(trace.y).toEqual([
+      'SR:RF:INTERLOCK_STATE: 0',
+      'SR:RF:INTERLOCK_STATE: 1',
+      'SR:RF:INTERLOCK_STATE: 0',
+    ]);
     expect(trace.yaxis).toBe('y2');
     expect(trace.type).toBe('scatter'); // not scattergl -- the non-numeric branch
     expect(trace.line).toEqual({ shape: 'hv' });
-    expect(trace.hovertemplate).toBe('%{y}<extra>%{fullData.name}</extra>'); // no :.4g
+    expect(trace.hovertemplate).toBe('%{customdata}<extra>%{fullData.name}</extra>'); // no :.4g
     expect(layout.yaxis2).toBeDefined();
   });
 

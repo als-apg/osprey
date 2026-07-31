@@ -118,6 +118,21 @@ function _tsShortTime(iso) {
 }
 
 /**
+ * Whether any channel is enum/status, i.e. whether the chart needs the
+ * secondary category `yaxis2`.
+ *
+ * Both the view shell and the chart renderer need this answer and must agree:
+ * the shell uses it to autorange and show/hide that axis on Reset Zoom and on
+ * channel toggles, and the renderer uses it to decide whether to put the axis
+ * in the layout at all. Computed once here so the two cannot drift.
+ * @param {any[]} channels
+ * @returns {boolean}
+ */
+function _tsHasNonNumeric(channels) {
+  return (channels || []).some((/** @type {any} */ ch) => ch.numeric === false);
+}
+
+/**
  * RFC4180-ish CSV field quoting: a field containing a comma, double quote, or
  * line break is wrapped in double quotes with internal double quotes doubled.
  * Needed now that a CSV row's fields include free-form channel names and
@@ -203,7 +218,7 @@ export async function renderTimeseriesView(container, artifact) {
     // per-axis; `yaxis.autorange` alone never touches `yaxis2`) and so a
     // channel toggle can show/hide that axis as its last visible occupant
     // is hidden/shown (see the toggle handler below).
-    const hasNonNumeric = channels.some((/** @type {any} */ ch) => ch.numeric === false);
+    const hasNonNumeric = _tsHasNonNumeric(channels);
 
     const visible = new Set(columns);
 
@@ -365,7 +380,7 @@ export async function renderTimeseriesChart(el, chartData) {
   if (!el) return;
 
   const channels = chartData.channels || [];
-  const hasNonNumeric = channels.some((/** @type {any} */ ch) => ch.numeric === false);
+  const hasNonNumeric = _tsHasNonNumeric(channels);
 
   const traces = channels.map((/** @type {any} */ ch) => {
     const numeric = ch.numeric !== false;
@@ -377,10 +392,25 @@ export async function renderTimeseriesChart(el, chartData) {
       // categorical y-axis is safer on the plain SVG "scatter" renderer.
       type: numeric ? "scattergl" : "scatter",
       mode: numeric ? "lines" : "lines+markers",
-      ...(numeric ? {} : { yaxis: "y2", line: { shape: "hv" } }),
+      ...(numeric
+        ? {}
+        : {
+            yaxis: "y2",
+            line: { shape: "hv" },
+            // Every enum channel shares one category axis, and Plotly builds
+            // that axis's rungs from the union of its traces in first-
+            // appearance order. Two status channels with different vocabularies
+            // therefore interleave: each one's step line crosses rungs that
+            // belong to the other, which reads as a state it was never in.
+            // Prefixing each value with its channel keeps every channel's rungs
+            // in its own contiguous block. `customdata` carries the unprefixed
+            // value so the hover label still shows the real state.
+            y: (ch.values || []).map((/** @type {any} */ v) => `${ch.channel}: ${v}`),
+            customdata: ch.values,
+          }),
       hovertemplate: numeric
         ? "%{y:.4g}<extra>%{fullData.name}</extra>"
-        : "%{y}<extra>%{fullData.name}</extra>",
+        : "%{customdata}<extra>%{fullData.name}</extra>",
     };
   });
 

@@ -314,7 +314,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=timeout)
 
             logger.debug(
-                f"Retrieved MongoDB archiver data: {len(data)} points for {len(pv_list)} PVs"
+                f"Retrieved MongoDB archiver data: {len(data)} rows across {len(pv_list)} PVs"
             )
             return data
 

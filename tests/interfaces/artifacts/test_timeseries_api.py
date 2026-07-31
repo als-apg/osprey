@@ -694,3 +694,90 @@ class TestLTTBAlgorithm:
         assert new_data[0] == [0.0, None]
         for row in new_data:
             assert row[1] is None
+
+
+class TestTablePivotPagination:
+    """``format=table`` must build only the requested page, not the whole file.
+
+    The pivot used to materialize one cell per (timestamp, channel) pair across
+    the entire artifact and slice afterwards -- redone from scratch on every
+    page click, with a 50-row default page and a 200 MB file cap. The shared
+    axis still has to be unioned and sorted in full to know where the page
+    starts, but that is one entry per timestamp rather than one per timestamp
+    *and* channel.
+    """
+
+    @staticmethod
+    def _series(n_rows: int, channels: list[str]) -> dict[str, dict]:
+        stamps = [f"2026-07-30T00:00:{i:02d}+00:00" for i in range(n_rows)]
+        return {
+            ch: {"timestamps": stamps, "values": [float(i + c) for i in range(n_rows)]}
+            for c, ch in enumerate(channels)
+        }
+
+    @pytest.mark.unit
+    def test_only_the_requested_page_is_materialized(self):
+        """Counts the actual row-building work rather than trusting the shape.
+
+        ``columns`` is iterated exactly once per row built, so a counting list
+        measures rows materialized directly. Asserting only ``len(rows) ==
+        limit`` would still pass a version that builds every row and slices
+        inside the function -- which is the regression this guards.
+        """
+        from osprey.interfaces.artifacts.app import _pivot_channel_series_to_table
+
+        class CountingColumns(list):
+            rows_built = 0
+
+            def __iter__(self):
+                type(self).rows_built += 1
+                return super().__iter__()
+
+        channels = ["PV:A", "PV:B", "PV:C"]
+        series = self._series(1000, channels)
+        columns = CountingColumns(channels)
+
+        page, rows, total = _pivot_channel_series_to_table(series, columns, offset=0, limit=10)
+
+        assert total == 1000
+        assert len(page) == len(rows) == 10
+        assert CountingColumns.rows_built == 10
+
+    @pytest.mark.unit
+    def test_page_contents_match_the_full_pivot(self):
+        """Pagination must not change which values land in which cell."""
+        from osprey.interfaces.artifacts.app import _pivot_channel_series_to_table
+
+        channels = ["PV:A", "PV:B"]
+        series = self._series(50, channels)
+
+        full_index, full_rows, full_total = _pivot_channel_series_to_table(series, channels)
+        page_index, page_rows, page_total = _pivot_channel_series_to_table(
+            series, channels, offset=20, limit=5
+        )
+
+        assert full_total == page_total == 50
+        assert len(full_rows) == 50  # limit=None still returns everything
+        assert page_index == full_index[20:25]
+        assert page_rows == full_rows[20:25]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("offset", "limit", "expected"),
+        [
+            (0, 5, 5),
+            (8, 5, 2),  # page runs past the end
+            (10, 5, 0),  # offset at the end
+            (99, 5, 0),  # offset past the end
+        ],
+    )
+    def test_page_boundaries(self, offset, limit, expected):
+        from osprey.interfaces.artifacts.app import _pivot_channel_series_to_table
+
+        series = self._series(10, ["PV:A"])
+        page, rows, total = _pivot_channel_series_to_table(
+            series, ["PV:A"], offset=offset, limit=limit
+        )
+
+        assert total == 10
+        assert len(page) == len(rows) == expected

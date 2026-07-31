@@ -230,7 +230,7 @@ class EPICSArchiverConnector(ArchiverConnector):
 
             data = long_frame(series_dict)
 
-            logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")
+            logger.debug(f"Retrieved archiver data: {len(data)} rows across {len(pv_list)} PVs")
             return data
 
         except TimeoutError as e:

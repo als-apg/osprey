@@ -437,8 +437,11 @@ MAX_TIMESERIES_FILE_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
 def _pivot_channel_series_to_table(
-    series: dict[str, dict], columns: list[str]
-) -> tuple[list, list[list]]:
+    series: dict[str, dict],
+    columns: list[str],
+    offset: int = 0,
+    limit: int | None = None,
+) -> tuple[list, list[list], int]:
     """Pivot per-channel series into aligned rows for table display.
 
     Channels are not aligned to a shared axis (see ``extract_channel_series``),
@@ -463,13 +466,25 @@ def _pivot_channel_series_to_table(
       path already tolerates it -- pairs are built with ``zip(..., strict=
       False)``, so the mismatch never crashes the endpoint.
 
+    Only the requested page's rows are materialized. Building every row and
+    slicing afterwards costs one cell per (timestamp, channel) pair across the
+    whole file — on every page click, against a file cap of
+    ``MAX_TIMESERIES_FILE_BYTES`` and a default page of 50 rows. The shared
+    axis still has to be unioned and sorted in full to know the row count and
+    where the page starts, but that is one entry per timestamp rather than one
+    per timestamp *and* channel.
+
     Args:
         series: Per-channel series as returned by ``extract_channel_series``.
         columns: Channel names, in the column order the table should use.
+        offset: Index of the first row to return.
+        limit: Maximum rows to return; ``None`` returns every row from
+            ``offset`` onward.
 
     Returns:
-        Tuple of (index, data) -- a sorted union of timestamps, and one row
-        per timestamp with one value (or ``None``) per column.
+        Tuple of (index, data, total_rows) -- the requested page's timestamps,
+        its rows with one value (or ``None``) per column, and the full row count
+        the page was taken from.
 
     Raises:
         HTTPException: if any channel has more than one sample at the same
@@ -506,8 +521,11 @@ def _pivot_channel_series_to_table(
         # necessarily chronological) order beats crashing the endpoint.
         index = sorted(all_timestamps, key=str)
 
-    rows = [[value_by_channel[ch].get(ts) for ch in columns] for ts in index]
-    return index, rows
+    total_rows = len(index)
+    end = total_rows if limit is None else min(offset + limit, total_rows)
+    page = index[offset:end]
+    rows = [[value_by_channel[ch].get(ts) for ch in columns] for ts in page]
+    return page, rows, total_rows
 
 
 def create_app(workspace_root: Path | None = None) -> FastAPI:
@@ -759,11 +777,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         # sorted axis and pivot to columns/index/data for display.
         # Presentation-only -- a missing sample at a shared timestamp becomes
         # `null`, never filled, and nothing here is written back to storage.
-        index, rows = _pivot_channel_series_to_table(series, columns)
-        total_rows = len(index)
-        end = min(offset + limit, total_rows)
-        sliced_index = index[offset:end]
-        sliced_data = rows[offset:end]
+        sliced_index, sliced_data, total_rows = _pivot_channel_series_to_table(
+            series, columns, offset=offset, limit=limit
+        )
         return {
             "columns": columns,
             "index": sliced_index,
