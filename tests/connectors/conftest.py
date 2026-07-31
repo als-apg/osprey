@@ -8,29 +8,11 @@ skip cleanly when Docker is unavailable, matching the pattern used by
 ``tests/services/ariel_search/conftest.py``.
 """
 
-import logging
 from datetime import datetime, timedelta
 
 import pytest
 
-logger = logging.getLogger(__name__)
-
-
-def is_docker_available() -> bool:
-    """Return True if the Docker daemon is reachable.
-
-    Used to gate testcontainers-backed fixtures so that contributors
-    without a running Docker engine see a skip rather than an error.
-    """
-    try:
-        import docker
-
-        client = docker.from_env()
-        client.ping()
-        return True
-    except Exception as e:
-        logger.warning(f"Docker not available: {e}")
-        return False
+from tests._container_support import is_docker_available, start_or_skip, stop_quietly
 
 
 @pytest.fixture(scope="session")
@@ -58,25 +40,26 @@ def mongodb_container():
     collection_name = "test_archiver_collection"
     auth_db = "admin"
 
-    container = MongoDbContainer("mongo:7", username=username, password=password)
-    container.start()
-
-    import atexit
-
-    atexit.register(container.stop)
+    container = start_or_skip(
+        lambda: MongoDbContainer("mongo:7", username=username, password=password),
+        label="mongodb",
+    )
 
     host = container.get_container_host_ip()
     port = int(container.get_exposed_port(27017))
 
-    yield {
-        "host": host,
-        "port": port,
-        "username": username,
-        "password": password,
-        "auth_db": auth_db,
-        "db_name": db_name,
-        "collection_name": collection_name,
-    }
+    try:
+        yield {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "auth_db": auth_db,
+            "db_name": db_name,
+            "collection_name": collection_name,
+        }
+    finally:
+        stop_quietly(container)
 
 
 @pytest.fixture(scope="function")
