@@ -42,6 +42,22 @@ TEST_MACHINE = {
         "T:MODE": {"value": "CW", "description": "Operating mode"},
         "T:NOISY": {"value": 100.0, "noise": 0.05, "description": "Noisy diagnostic"},
         "T:VAC": {"value": 8.0e-9, "units": "Torr", "noise": 0.0, "description": "Vacuum"},
+        # Zero-baseline channels: the regime where relative 'noise' multiplies to a
+        # dead-flat constant. They carry the additive keys instead, so they exercise
+        # absolute noise and baseline texture at the 0.0 baseline that broke.
+        "T:ZERO:NOISY": {
+            "value": 0.0,
+            "units": "mm",
+            "noise_abs": 0.02,
+            "description": "Zero-baseline position with absolute noise only",
+        },
+        "T:ZERO:TEXTURED": {
+            "value": 0.0,
+            "units": "mm",
+            "noise_abs": 0.005,
+            "texture": {"kind": "wander", "amplitude": 0.05, "period_s": 3600.0},
+            "description": "Zero-baseline position with absolute noise and wander texture",
+        },
     },
     "scenarios": {
         "nominal": {"description": "All systems nominal."},

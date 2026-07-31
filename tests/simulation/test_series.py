@@ -1,5 +1,6 @@
 """Tests for synthesize_series(): archiver event shapes and pointwise exprs."""
 
+import copy
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -16,7 +17,13 @@ def _timestamps(n=200):
 
 
 class TestBaselineSeries:
-    """Baseline-value channels: constant baseline plus per-channel noise."""
+    """Baseline-value channels: constant baseline plus the channel's declared signal model.
+
+    Relative ``noise`` scales the series multiplicatively, ``noise_abs`` adds an
+    absolute-sigma term, and both are deterministic keyed draws addressed by
+    (channel, absolute timestamp) — not stateful RNG streams — so a channel with
+    neither declared stays exactly constant.
+    """
 
     def test_constant_baseline_no_noise(self, machine_file):
         engine = SimulationEngine.from_file(machine_file)
@@ -43,6 +50,192 @@ class TestBaselineSeries:
         engine = SimulationEngine.from_file(machine_file)
         with pytest.raises(KeyError):
             engine.synthesize_series("NO:SUCH:PV", _timestamps())
+
+
+def _abs_window(offset_s=0, n=600, step_s=1):
+    """UTC-aware 1 Hz (by default) timestamps, absolutely positioned."""
+    start = datetime(2024, 3, 11, 12, 0, 0, tzinfo=UTC) + timedelta(seconds=offset_s)
+    return [start + timedelta(seconds=i * step_s) for i in range(n)]
+
+
+class TestSignalModelSynthesis:
+    """Deterministic keyed noise (relative + absolute) and wander texture.
+
+    Synthesis draws are pure functions of (channel name, absolute timestamp):
+    identical or overlapping archiver windows agree pointwise on shared
+    timestamps, zero-baseline channels carry additive ``noise_abs``, and
+    ``texture`` adds slow baseline motion that rides post-event levels.
+    """
+
+    def test_absolute_noise_on_zero_baseline(self, machine_file):
+        """FR1: sigma>0 on a 0.0 baseline produces N(0, sigma) samples, never a constant."""
+        engine = SimulationEngine.from_file(machine_file)
+        series = np.array(engine.synthesize_series("T:ZERO:NOISY", _abs_window(n=500)))
+        sigma = 0.02  # T:ZERO:NOISY noise_abs in conftest
+        assert len(set(series.tolist())) > 1
+        assert 0.5 * sigma < series.std() < 1.5 * sigma
+        assert abs(series.mean()) < 0.5 * sigma
+
+    def test_identical_windows_agree_across_engine_instances(self, machine_dict, make_machine_file):
+        """FR2: two independently-built engines synthesize identical series."""
+        engine_a = SimulationEngine.from_file(make_machine_file(machine_dict, "machine_a.json"))
+        engine_b = SimulationEngine.from_file(make_machine_file(machine_dict, "machine_b.json"))
+        ts = _abs_window(n=300)
+        for pv in ("T:NOISY", "T:ZERO:NOISY", "T:ZERO:TEXTURED"):
+            assert engine_a.synthesize_series(pv, ts) == engine_b.synthesize_series(pv, ts)
+
+    def test_overlapping_windows_agree_pointwise(self, machine_file):
+        """FR2: overlapping windows agree exactly on shared timestamps.
+
+        Covers texture and both noise kinds; fails if any draw or the texture is
+        evaluated on window-relative rather than absolute time.
+        """
+        engine = SimulationEngine.from_file(machine_file)
+        window_a = _abs_window(offset_s=0, n=600)
+        window_b = _abs_window(offset_s=300, n=600)
+        for pv in ("T:NOISY", "T:ZERO:NOISY", "T:ZERO:TEXTURED"):
+            series_a = engine.synthesize_series(pv, window_a)
+            series_b = engine.synthesize_series(pv, window_b)
+            assert series_a[300:600] == series_b[0:300]
+
+    def test_jittered_windows_agree_on_shared_timestamps(self, machine_file):
+        """FR2: window start, length, and sampling stride don't perturb shared samples."""
+        engine = SimulationEngine.from_file(machine_file)
+        full = engine.synthesize_series("T:ZERO:TEXTURED", _abs_window(n=600))
+        shifted = engine.synthesize_series("T:ZERO:TEXTURED", _abs_window(offset_s=37, n=100))
+        assert shifted == full[37:137]
+        strided = engine.synthesize_series("T:ZERO:TEXTURED", _abs_window(n=100, step_s=5))
+        assert strided == full[0:500:5]
+
+    def test_relative_and_absolute_noise_are_independent_streams(
+        self, machine_dict, make_machine_file
+    ):
+        """The two noise draws compose in quadrature, proving distinct subkeys.
+
+        With value=10, noise=0.1, noise_abs=1.0 the independent-stream std is
+        sqrt((10*0.1)^2 + 1^2) ~= 1.414; a shared stream would add the sigmas
+        coherently and read ~2.0, well outside the asserted band.
+        """
+        machine_dict["channels"]["T:BOTH"] = {
+            "value": 10.0,
+            "noise": 0.1,
+            "noise_abs": 1.0,
+            "description": "Composed relative + absolute noise",
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        series = np.array(engine.synthesize_series("T:BOTH", _abs_window(n=2000)))
+        assert series.mean() == pytest.approx(10.0, abs=0.15)
+        assert series.std() == pytest.approx(np.sqrt(2.0), rel=0.12)
+
+    def test_texture_moves_the_baseline(self, machine_dict, make_machine_file):
+        """Anti-degenerate: texture measurably changes and varies the series, bounded."""
+        machine_dict["channels"]["T:TEX"] = {
+            "value": 5.0,
+            "noise": 0.0,
+            "texture": {"kind": "wander", "amplitude": 1.0, "period_s": 3600.0},
+            "description": "Pure texture channel",
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        series = np.array(engine.synthesize_series("T:TEX", _abs_window(n=600)))
+        offsets = series - 5.0
+        assert np.max(np.abs(offsets)) > 0.01  # differs from the texture-free constant
+        assert np.ptp(offsets) > 0.05  # and actually moves within the window
+        assert np.max(np.abs(offsets)) <= 1.0 + 1e-9  # |wander| <= amplitude
+
+    def test_step_plateau_carries_texture_and_noise(self, machine_dict, make_machine_file):
+        """FR6: texture and noise ride the post-step plateau (events applied first).
+
+        The textured/texture-free twin comparison isolates the texture
+        contribution (same channel name, hence identical noise draws): applying
+        texture before the step would let the overwrite erase it and collapse
+        the plateau difference to zero.
+        """
+        machine_dict["channels"]["T:STEPPED"] = {
+            "value": 42.0,
+            "noise": 0.0,
+            "noise_abs": 0.05,
+            "texture": {"kind": "wander", "amplitude": 1.0, "period_s": 3600.0},
+            "description": "Stepped channel with texture and absolute noise",
+        }
+        machine_dict["scenarios"]["stepped"] = {
+            "description": "Step down mid-window.",
+            "archiver": [
+                {
+                    "channel": "T:STEPPED",
+                    "events": [{"shape": "step", "at": 0.35, "to": 28.4}],
+                }
+            ],
+        }
+        textured_file = make_machine_file(machine_dict, "textured.json")
+        plain_dict = copy.deepcopy(machine_dict)
+        del plain_dict["channels"]["T:STEPPED"]["texture"]
+        plain_file = make_machine_file(plain_dict, "plain.json")
+
+        ts = _abs_window(n=600)
+        t = np.linspace(0, 1, 600)
+        engine = SimulationEngine.from_file(textured_file)
+        engine.set_active_scenario("stepped")
+        textured = np.array(engine.synthesize_series("T:STEPPED", ts))
+        plain_engine = SimulationEngine.from_file(plain_file)
+        plain_engine.set_active_scenario("stepped")
+        plain = np.array(plain_engine.synthesize_series("T:STEPPED", ts))
+
+        # Noise rides the plateau: the texture-free twin shows the declared
+        # noise_abs sigma there — and nothing more (texture-scale motion would
+        # blow the upper band).
+        plateau_noise = (plain - 28.4)[t >= 0.4]
+        assert 0.5 * 0.05 < plateau_noise.std() < 1.5 * 0.05
+        # Texture rides the plateau: the twin diff isolates it from the noise.
+        texture_contribution = (textured - plain)[t >= 0.4]
+        assert np.ptp(texture_contribution) > 0.05  # survives the step overwrite
+        assert np.max(np.abs(texture_contribution)) <= 1.0 + 1e-9
+
+    def test_at_time_recurrence_unaffected_by_texture(self, machine_dict, make_machine_file):
+        """FR6: daily ``at_time`` events still fire every date on a textured channel."""
+        machine_dict["channels"]["T:VAC"]["texture"] = {
+            "kind": "wander",
+            "amplitude": 1.0e-9,
+            "period_s": 3600.0,
+        }
+        machine_dict["scenarios"]["burst"] = {
+            "description": "Daily vacuum burst.",
+            "archiver": [
+                {
+                    "channel": "T:VAC",
+                    "events": [
+                        {"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 600}
+                    ],
+                }
+            ],
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("burst")
+        start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        ts = [start + timedelta(minutes=10 * i) for i in range(288)]  # 2 days @ 10 min
+        series = engine.synthesize_series("T:VAC", ts)
+        peaks = [i for i in range(1, 287) if series[i] > 1.0e-7]
+        assert {ts[i].date() for i in peaks} == {ts[0].date(), ts[-1].date()}
+
+    def test_non_epoch_timestamps_fall_back_deterministically(
+        self, machine_dict, make_machine_file
+    ):
+        """t_abs=None: noise falls back to sample-index counters; texture is skipped."""
+        opaque = ["not-a-timestamp"] * 200
+        textured_file = make_machine_file(machine_dict, "textured.json")
+        plain_dict = copy.deepcopy(machine_dict)
+        del plain_dict["channels"]["T:ZERO:TEXTURED"]["texture"]
+        plain_file = make_machine_file(plain_dict, "plain.json")
+
+        engine = SimulationEngine.from_file(textured_file)
+        noisy = np.array(engine.synthesize_series("T:ZERO:NOISY", opaque))
+        assert noisy.std() > 0  # the fallback still draws real noise
+        assert engine.synthesize_series("T:ZERO:NOISY", opaque) == noisy.tolist()
+
+        # Texture needs absolute time; without it the textured channel matches
+        # its texture-free twin exactly (identical fallback noise draws).
+        textured = engine.synthesize_series("T:ZERO:TEXTURED", opaque)
+        plain_engine = SimulationEngine.from_file(plain_file)
+        assert textured == plain_engine.synthesize_series("T:ZERO:TEXTURED", opaque)
 
 
 class TestSeriesBounds:

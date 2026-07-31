@@ -1,7 +1,9 @@
 """Tests for the SimulationEngine: schema, precedence, scenarios, noise."""
 
 import os
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from osprey.simulation import SimulationEngine, engine_serves
@@ -218,7 +220,12 @@ class TestReadsAndPrecedence:
 
 
 class TestNoise:
-    """Noise semantics: value * (1 + N(0, noise)); strings and noise=0 untouched."""
+    """Live-read noise semantics: ``value * (1 + N(0, noise))`` per ``read()``.
+
+    Strings and ``noise=0`` channels are untouched. This covers the live-read
+    path only; series synthesis uses deterministic keyed draws (relative and
+    absolute) plus texture, pinned in ``test_series.py``.
+    """
 
     def test_noise_zero_is_exact(self, machine_file):
         engine = SimulationEngine.from_file(machine_file)
@@ -236,6 +243,151 @@ class TestNoise:
         machine_dict["channels"]["T:MODE"]["noise"] = 0.5
         engine = SimulationEngine.from_file(make_machine_file(machine_dict))
         assert engine.read("T:MODE").value == "CW"
+
+
+class TestLiveReadSignalModel:
+    """Live-read pipeline: effective -> + texture(now) -> noise -> noise_abs -> clamp.
+
+    Texture is the shared deterministic term (same implementation as synthesis,
+    evaluated at wall-clock now), so a live read and a synthesized sample agree
+    exactly at a shared timestamp for non-overridden channels. Both live noise
+    draws stay stochastic on the engine's RNG — that asymmetry with synthesis
+    is deliberate.
+    """
+
+    TEX_CHANNEL = {
+        "value": 5.0,
+        "noise": 0.0,
+        "texture": {"kind": "wander", "amplitude": 1.0, "period_s": 3600.0},
+        "description": "Noise-free textured channel",
+    }
+    # Spread across the 3600 s period so the instants cannot all sit near
+    # zero crossings of the texture stack.
+    FROZEN_INSTANTS = (1_764_000_000.0, 1_764_000_700.0, 1_764_001_500.0, 1_764_002_600.0)
+
+    @staticmethod
+    def _freeze_now(monkeypatch, epoch):
+        """Freeze the engine module's wall clock without touching stdlib time."""
+        monkeypatch.setattr("osprey.simulation.engine.time", SimpleNamespace(time=lambda: epoch))
+
+    def test_live_read_matches_synthesis_at_frozen_now(
+        self, machine_dict, make_machine_file, monkeypatch
+    ):
+        """FR4: textured live read equals the synthesis sample at the same t, exactly."""
+        machine_dict["channels"]["T:TEX"] = dict(self.TEX_CHANNEL)
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        contributions = []
+        for frozen in self.FROZEN_INSTANTS:
+            self._freeze_now(monkeypatch, frozen)
+            live = engine.read("T:TEX").value
+            (synthesized,) = engine.synthesize_series("T:TEX", [frozen])
+            assert live == synthesized  # bit-exact, not approx
+            assert live != 5.0  # anti-degenerate: texture actually contributed
+            contributions.append(abs(live - 5.0))
+        # Anti-degenerate: the agreement is about a non-trivial quantity.
+        assert max(contributions) > 0.05
+
+    def test_zero_baseline_live_reads_vary(self, machine_file):
+        """The original bug: zero-baseline channels must not read as hard zeros."""
+        engine = SimulationEngine.from_file(machine_file)
+        sigma = 0.02  # T:ZERO:NOISY noise_abs in conftest
+        values = np.array([engine.read("T:ZERO:NOISY").value for _ in range(300)])
+        assert len(set(values.tolist())) > 1
+        assert 0.5 * sigma < values.std() < 1.5 * sigma
+        assert abs(values.mean()) < 0.5 * sigma
+
+    def test_composed_noise_distribution(self, machine_dict, make_machine_file):
+        """Relative and absolute live noise compose in quadrature around the baseline."""
+        machine_dict["channels"]["T:BOTH"] = {
+            "value": 10.0,
+            "noise": 0.1,
+            "noise_abs": 1.0,
+            "description": "Composed relative + absolute noise",
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        values = np.array([engine.read("T:BOTH").value for _ in range(400)])
+        assert values.mean() == pytest.approx(10.0, abs=0.3)
+        assert values.std() == pytest.approx(np.sqrt(2.0), rel=0.2)
+
+    def test_string_channels_untouched(self, machine_file):
+        """String channels pass through the live-read pipeline verbatim."""
+        engine = SimulationEngine.from_file(machine_file)
+        assert {engine.read("T:MODE").value for _ in range(10)} == {"CW"}
+
+    def test_override_shifts_live_read_not_history(self, machine_dict, make_machine_file):
+        """Pin the pre-existing `_effective()` seam — deliberately not fixed here.
+
+        Live reads resolve through ``_effective`` (write > override > baseline),
+        while ``_synthesize`` builds history from ``channel.value`` plus archiver
+        events. An override therefore shifts the live read but not the
+        synthesized history; scenarios that want consistent history declare
+        matching archiver events (the shipped scenarios all do).
+        """
+        machine_dict["channels"]["T:PLAIN"] = {
+            "value": 10.0,
+            "noise": 0.0,
+            "description": "Override-seam probe",
+        }
+        machine_dict["scenarios"]["override-only"] = {
+            "description": "Override without archiver events.",
+            "overrides": {"T:PLAIN": 99.0},
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("override-only")
+        assert engine.read("T:PLAIN").value == 99.0
+        series = engine.synthesize_series("T:PLAIN", [1_764_000_000.0 + i for i in range(20)])
+        assert series == [10.0] * 20
+
+
+class TestExprRefTextureSemantics:
+    """Derived (expression) channels: the accepted live/archive texture asymmetry.
+
+    Texture is a top-level measurement effect, like noise: a synthesized
+    derived series inherits its referenced channels' texture through the
+    cached per-window series, while a live derived read resolves its
+    references texture-free via ``_numeric_effective``. The asymmetry is
+    documented and pinned here, not silently widened.
+    """
+
+    @staticmethod
+    def _machine(machine_dict):
+        machine_dict["channels"]["T:TEX"] = {
+            "value": 5.0,
+            "noise": 0.0,
+            "texture": {"kind": "wander", "amplitude": 1.0, "period_s": 3600.0},
+            "description": "Noise-free textured channel",
+        }
+        machine_dict["channels"]["T:DERIVED"] = {
+            "expr": "2 * ch('T:TEX')",
+            "noise": 0.0,
+            "description": "Derived from the textured channel",
+        }
+        return machine_dict
+
+    def test_synthesized_derived_series_inherits_texture(self, machine_dict, make_machine_file):
+        """Archive path: the derived series tracks the referenced TEXTURED series exactly."""
+        engine = SimulationEngine.from_file(make_machine_file(self._machine(machine_dict)))
+        ts = [1_764_000_000.0 + i for i in range(300)]
+        tex = np.array(engine.synthesize_series("T:TEX", ts))
+        derived = np.array(engine.synthesize_series("T:DERIVED", ts))
+        np.testing.assert_array_equal(derived, 2.0 * tex)
+        # Anti-degenerate: the inherited texture actually moves — two flat
+        # series would satisfy the relation above trivially.
+        assert np.ptp(derived) > 0.05
+
+    def test_live_derived_read_resolves_texture_free(
+        self, machine_dict, make_machine_file, monkeypatch
+    ):
+        """Live path: references resolve texture-free; only the read channel's own
+        texture would apply (T:DERIVED declares none, so the read is exact)."""
+        engine = SimulationEngine.from_file(make_machine_file(self._machine(machine_dict)))
+        monkeypatch.setattr(
+            "osprey.simulation.engine.time", SimpleNamespace(time=lambda: 1_764_000_000.0)
+        )
+        # Texture is alive on the referenced channel at this frozen instant...
+        assert engine.read("T:TEX").value != 5.0
+        # ...but does not propagate into the derived read.
+        assert engine.read("T:DERIVED").value == 10.0
 
 
 class TestActiveScenarioStateFile:
