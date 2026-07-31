@@ -44,6 +44,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   DSN read the same value (previously both used the fixed `ariel` password).
   Existing Postgres volumes keep their original password — see the deploy
   how-to for the migration note.
+- Simulation machine files accept two optional per-channel keys: `noise_abs`, an
+  absolute Gaussian sigma in the channel's own units, and `texture`, slow
+  baseline motion declared as `{"kind": "wander", "amplitude": …, "period_s": …}`.
+  The existing `noise` key stays relative (a fraction of the value), so channels
+  that sit at zero can now be given movement. Machine files using neither key
+  parse and behave exactly as before.
 
 ### Changed
 
@@ -108,6 +114,22 @@ Compatibility is documented in release notes, not encoded in the version string.
   deploy/build semantics (`--force` preservation, `--dev` image builds, full
   subcommand list), telemetry now documented as on-by-default, MCP/executor error
   contracts, and the ARIEL web-interface module tables.
+- Simulated channels sitting at a `0.0` baseline no longer read back as dead-flat
+  constants. Relative `noise` is multiplicative, so it vanishes at zero and BPM
+  positions and corrector current readbacks declared noisy were perfectly still —
+  in live reads and in synthesized history alike. Mock and Virtual Accelerator
+  reads now put an absolute per-kind floor under the noise (a `noise_level` of
+  exactly `0.0` still means deterministic), machine files can declare `noise_abs`
+  and `texture`, and loading a machine file that declares relative noise on a zero
+  baseline now warns and names the affected channels.
+- Synthesized archiver history is pointwise deterministic: each sample's noise is
+  keyed to its channel and timestamp instead of drawn from a running stream, so
+  repeated, overlapping and time-shifted queries agree at shared timestamps.
+  Timestamps are keyed at millisecond resolution; windows whose timestamps are not
+  convertible to epoch seconds keep per-window determinism only.
+- The shipped control-assistant simulation data now produces organic BPM and
+  corrector-readback signals instead of flat lines, and corrector channels gained
+  the symmetric upper current limit their lower limit implied.
 
 ### Added
 
