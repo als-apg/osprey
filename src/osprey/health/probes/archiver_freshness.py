@@ -193,22 +193,23 @@ def _archiver_block(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
 def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, Any] | None:
     """Return the ``(timestamp, value)`` of the newest non-null sample, or ``None``.
 
-    Reads the ``channel`` column of the archiver DataFrame (a datetime-indexed
-    frame with one column per queried PV), drops nulls, and picks the row with
-    the latest index. Returns ``None`` when the column is absent or holds no
-    non-null samples in the window. The returned timestamp is normalized to a
-    timezone-aware UTC :class:`~datetime.datetime`: a naive index timestamp is
-    read as UTC, so the caller's age arithmetic never hits a naive/aware
-    ``TypeError``.
+    Filters the canonical long-format archiver frame (columns ``timestamp``,
+    ``channel``, ``value``) to rows for ``channel``, drops null values, and
+    returns the row with the maximum timestamp. Returns ``None`` when the frame
+    carries no ``channel`` column at all (e.g. the empty-result frame with no
+    columns) or when ``channel`` has no non-null samples in the window. The
+    returned timestamp is normalized to a timezone-aware UTC
+    :class:`~datetime.datetime`: a naive timestamp is read as UTC, so the
+    caller's age arithmetic never hits a naive/aware ``TypeError``.
     """
-    if channel not in frame.columns:
+    if "channel" not in frame.columns:
         return None
-    series = frame[channel].dropna()
-    if series.empty:
+    sub = frame.loc[frame["channel"] == channel].dropna(subset=["value"])
+    if sub.empty:
         return None
-    series = series.sort_index()
-    raw_ts = series.index[-1]
-    value = series.iloc[-1]
+    row = sub.loc[sub["timestamp"].idxmax()]
+    raw_ts = row["timestamp"]
+    value = row["value"]
 
     stamp = raw_ts.to_pydatetime() if hasattr(raw_ts, "to_pydatetime") else raw_ts
     if not isinstance(stamp, datetime):

@@ -78,16 +78,22 @@ def _ctx(
 
 
 def _frame(newest_age_s: float, value: float = 1.5, *, tz: bool = True) -> pd.DataFrame:
-    """A single-channel frame whose newest sample is ``newest_age_s`` seconds old.
+    """A single-channel long-format frame whose newest sample is ``newest_age_s`` s old.
 
-    With ``tz=False`` the index is timezone-*naive UTC* — how the EPICS Archiver
-    Appliance can return timestamps — not naive local time.
+    With ``tz=False`` the ``timestamp`` column is timezone-*naive UTC* — how the
+    EPICS Archiver Appliance can return timestamps — not naive local time.
     """
     now = datetime.now(UTC)
     if not tz:
         now = now.replace(tzinfo=None)
     stamps = [now - timedelta(seconds=newest_age_s + 30), now - timedelta(seconds=newest_age_s)]
-    return pd.DataFrame({"BEAM:CURRENT": [value - 0.1, value]}, index=pd.to_datetime(stamps))
+    return pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(stamps),
+            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "value": [value - 0.1, value],
+        }
+    )
 
 
 # --- Registry wiring --------------------------------------------------------
@@ -168,8 +174,13 @@ async def test_empty_window_is_warning() -> None:
 
 async def test_all_null_column_is_warning() -> None:
     frame = pd.DataFrame(
-        {"BEAM:CURRENT": [float("nan"), float("nan")]},
-        index=pd.to_datetime([datetime.now(UTC) - timedelta(seconds=s) for s in (60, 30)]),
+        {
+            "timestamp": pd.to_datetime(
+                [datetime.now(UTC) - timedelta(seconds=s) for s in (60, 30)]
+            ),
+            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "value": [float("nan"), float("nan")],
+        }
     )
     ctx, _runtime = _ctx(_SpyArchiver(frame))
     result = await run({"channel": "BEAM:CURRENT"}, ctx)
