@@ -253,9 +253,7 @@ class TestRunSync:
         # Step 3 short-circuits when nothing is enabled.
         assert "No enhancement modules enabled or selected" in messages
 
-    async def test_unset_source_url_is_reported_verbatim(
-        self, monkeypatch, mock_repository, fake_pool
-    ):
+    async def test_unset_source_url_reports_unknown(self, monkeypatch, mock_repository, fake_pool):
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=[])
         _patch_scheduler(monkeypatch, _poll_result())
@@ -265,11 +263,7 @@ class TestRunSync:
         messages: list[str] = []
         await ops.run_sync(_config(adapter="generic_json"), progress=messages.append)
 
-        # The "unknown" fallback in the progress line is unreachable: the
-        # deep-copied dict always gains an ``ingestion`` block, so
-        # ``sync_config.ingestion`` is an always-truthy dataclass and an unset
-        # ``source_url`` prints as None.
-        assert "Polling for new entries (source: None)..." in messages
+        assert "Polling for new entries (source: unknown)..." in messages
 
     async def test_runs_silently_without_a_progress_callback(
         self, monkeypatch, mock_repository, fake_pool

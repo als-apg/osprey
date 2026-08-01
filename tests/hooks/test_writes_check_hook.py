@@ -254,14 +254,20 @@ def test_fallback_defaults_when_no_hook_config(tmp_path, hook_runner, make_confi
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+@pytest.mark.parametrize(
+    "stdin",
+    ["", "{nope", "[]", "[1,2,3]"],
+    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
+)
 def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     """Stdin the hook cannot use lets the tool through instead of blocking it.
 
-    The three shapes are a closed pipe, a truncated write, and a payload whose
-    JSON is valid but is not the expected object. A PreToolUse hook fails open
-    by exiting 0 and printing no decision — anything else would turn a bad
-    payload into a denied tool call.
+    The four shapes are a closed pipe, a truncated write, and two payloads
+    whose JSON is valid but is not the expected object — one falsy (``[]``)
+    and one truthy (``[1,2,3]``). The truthy one is the sharper case: it
+    survives an emptiness check, so only a shape check keeps it out. A
+    PreToolUse hook fails open by exiting 0 and printing no decision —
+    anything else would turn a bad payload into a denied tool call.
     """
     returncode, stdout, stderr = hook_runner_raw(
         "osprey_writes_check.py",

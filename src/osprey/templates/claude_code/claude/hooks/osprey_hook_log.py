@@ -36,9 +36,10 @@ def load_hook_config():
 def get_hook_input():
     """Read and return hook input JSON from stdin. Returns {} on failure."""
     try:
-        return json.load(sys.stdin)
+        parsed = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def get_project_dir(hook_input):

@@ -30,10 +30,11 @@ import sys
 # imports ``softioc.builder`` too, so it needs the same treatment -- but it must
 # exit with pytest's *real* status so genuine failures still fail CI.
 #
-# This runs from an ``atexit`` hook registered at import time.  atexit fires
-# last-registered-first, so cleanup hooks other suites register during the run
-# (e.g. ``atexit.register(container.stop)``) still run first; we then ``os._exit``
-# before the crashing C++ static destructors, skipping only them.
+# This runs from an ``atexit`` hook registered at import time.  pytest's own
+# fixture teardown has already completed by then, and atexit fires
+# last-registered-first, so any interpreter-exit handlers other suites register
+# during the run still get to run; we then ``os._exit`` before the crashing C++
+# static destructors, skipping only them.
 
 _PYTEST_EXIT_CODE: int | None = None
 

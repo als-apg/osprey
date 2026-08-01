@@ -563,13 +563,19 @@ def test_custom_server_prefix_triggers_guidance(hook_runner, make_config):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+@pytest.mark.parametrize(
+    "stdin",
+    ["", "{nope", "[]", "[1,2,3]"],
+    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
+)
 def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     """Unusable stdin injects nothing instead of crashing the tool call.
 
-    A closed pipe, a truncated write and a non-object payload carry no tool
-    response to inspect. A PostToolUse hook that exited non-zero here would
-    surface as a failure on a tool call that already succeeded.
+    A closed pipe, a truncated write and a non-object payload — falsy (``[]``)
+    or truthy (``[1,2,3]``) — carry no tool response to inspect. A PostToolUse
+    hook that exited non-zero here would surface as a failure on a tool call
+    that already succeeded. The truthy payload is the one an emptiness check
+    lets through, so it has to be rejected on shape.
     """
     returncode, stdout, stderr = hook_runner_raw(
         "osprey_error_guidance.py",

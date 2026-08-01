@@ -25,6 +25,7 @@ from osprey.services.ariel_search.enhancement.semantic_processor.processor impor
 from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
     TextEmbeddingModule,
 )
+from tests._container_support import is_docker_available, start_or_skip, stop_quietly
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -206,37 +207,29 @@ def is_dev_database_available() -> tuple[bool, str]:
     return False, ""
 
 
-def is_docker_available() -> bool:
-    """Check if Docker is available for testcontainers.
-
-    Returns:
-        True if Docker daemon is running and accessible, False otherwise.
-    """
-    try:
-        import docker
-
-        client = docker.from_env()
-        client.ping()
-        logger.info("Docker is available for integration tests")
-        return True
-    except Exception as e:
-        logger.warning(f"Docker not available: {e}")
-        return False
-
-
 # ============================================================================
 # Integration test fixtures (require Docker)
 # ============================================================================
 
 
 @pytest.fixture(scope="session")
-def database_url() -> str:
+def database_url(request: pytest.FixtureRequest) -> str:
     """Get database connection URL for tests.
 
     Tries in order:
     1. ARIEL_TEST_DATABASE_URL environment variable
     2. Existing docker-compose dev database (ariel-dev-db on port 5433)
     3. Testcontainers (spins up fresh container)
+
+    Deliberately a plain (non-generator) fixture: only the third exit owns a
+    container, while the first two return a URL to a database this fixture did
+    not create. A ``yield`` would make *all three* paths generator paths, so the
+    two resource-free exits would raise "did not yield a value". Container
+    teardown is registered with ``request.addfinalizer`` instead, which runs at
+    session teardown exactly as a ``finally`` would.
+
+    Args:
+        request: Fixture request, used to register container teardown.
 
     Returns:
         PostgreSQL connection URL
@@ -264,21 +257,23 @@ def database_url() -> str:
         )
 
     logger.info("Starting testcontainers PostgreSQL (dev database not running)")
-    from testcontainers.postgres import PostgresContainer
+    try:
+        from testcontainers.postgres import PostgresContainer
+    except ImportError:
+        pytest.skip("testcontainers[postgres] not installed")
 
     # Use pgvector image for vector search support
-    container = PostgresContainer(
-        image="ankane/pgvector:latest",
-        username="ariel",
-        password="ariel",
-        dbname="ariel_test",
+    container = start_or_skip(
+        lambda: PostgresContainer(
+            image="ankane/pgvector:latest",
+            username="ariel",
+            password="ariel",
+            dbname="ariel_test",
+        ),
+        label="postgres",
     )
-    container.start()
 
-    # Register cleanup
-    import atexit
-
-    atexit.register(container.stop)
+    request.addfinalizer(lambda: stop_quietly(container))
 
     url = container.get_connection_url()
     # Convert psycopg2 format to psycopg (v3) format

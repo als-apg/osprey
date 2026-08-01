@@ -975,13 +975,19 @@ def test_fallback_pattern_parity_with_framework(hook_module):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+@pytest.mark.parametrize(
+    "stdin",
+    ["", "{nope", "[]", "[1,2,3]"],
+    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
+)
 def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     """Unusable stdin passes the tool through without asking for approval.
 
-    A closed pipe, a truncated write and a non-object payload each leave the
-    hook with no tool to gate, so it exits 0 and emits no decision. Emitting an
-    "ask" here would stall every tool call behind a prompt nobody can answer.
+    A closed pipe, a truncated write and a non-object payload — falsy (``[]``)
+    or truthy (``[1,2,3]``) — each leave the hook with no tool to gate, so it
+    exits 0 and emits no decision. Emitting an "ask" here would stall every
+    tool call behind a prompt nobody can answer. The truthy payload is the one
+    an emptiness check lets through, so it has to be rejected on shape.
     """
     returncode, stdout, stderr = hook_runner_raw(
         "osprey_approval.py",

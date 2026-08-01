@@ -222,7 +222,7 @@ async def run_sync(
     async with service:
         scheduler = IngestionScheduler(config=sync_config, repository=service.repository)
         if progress:
-            source = sync_config.ingestion.source_url if sync_config.ingestion else "unknown"
+            source = sync_config.ingestion.source_url or "unknown"
             progress(f"Polling for new entries (source: {source})...")
 
         poll_result = await scheduler.poll_once(limit=limit)
