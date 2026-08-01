@@ -53,6 +53,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `osprey web` now resolves the project it serves once, up front (`--project`,
+  then `OSPREY_CONFIG`, then the current directory) and refuses to launch when
+  no `config.yml` is resolvable, instead of silently serving a terminal with
+  only the universal panels. The launch banner names the resolved project, the
+  resolved config is published to child processes (including the `--reload`
+  worker), and a detached server's command line always carries `--project` so
+  a copied restart cannot lose the project identity.
 - `osprey deploy --dev` now fails with a clear error when the local osprey wheel
   cannot be built, instead of warning and deploying the pinned PyPI release.
   Previously a missing `build` package (or a broken local checkout) produced one
