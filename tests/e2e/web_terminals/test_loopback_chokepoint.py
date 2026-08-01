@@ -153,6 +153,11 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
     free_port = _free_port()
     project_dir = tmp_path / "project"
     project_dir.mkdir()
+    # `osprey web` refuses to launch without a resolvable project config, so
+    # the directory it runs in has to be a real (if minimal) project — same as
+    # the deployment this test mirrors. Without it the server exits before
+    # binding and the bind assertions below never get to run.
+    (project_dir / "config.yml").write_text("system:\n  name: loopback-chokepoint\n")
     log_path = tmp_path / "server.log"
 
     # sys.executable, NEVER bare "python": in this shared worktree, bare
@@ -173,6 +178,11 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
 
     env = dict(os.environ)
     env[DECLARED_BIND_ENV] = "127.0.0.1"
+    # An OSPREY_CONFIG exported in the developer's shell outranks the cwd when
+    # the child resolves its project, which would silently point this launch at
+    # some other project's config. Drop it so `cwd=project_dir` is what decides.
+    env.pop("OSPREY_CONFIG", None)
+    env.pop("CONFIG_FILE", None)
     # Neutralize the browser-open side effect (run_web -> _open_browser_when_ready
     # -> webbrowser.open()). The BROWSER env var is read by the webbrowser
     # module's standard-browser registration and, when set, is registered
