@@ -92,6 +92,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- The EPICS connector now rejects a `bin_size` the appliance cannot express
+  rather than quietly serving a different resolution. Sub-second and
+  non-whole-second widths used to be floored to the nearest second (500 ms
+  *and* 1500 ms both became 1 s).
+- `archiver_read`'s `access_details` payload no longer repeats the same access
+  rule once per channel: 3548 → 1075 bytes for a twenty-channel read, and now
+  flat in channel count rather than growing with it.
 - **Breaking change: `ArchiverConnector.get_data` now returns long-format
   data instead of a shared-index wide frame.** Every archiver connector
   correctness bug fixed below traced back to forcing every requested
@@ -213,9 +220,38 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Retired the Tuning optimization panel and its companion web server. It is no longer a built-in panel, and `web_panels: [tuning]` entries should be removed from project configs.
 - Dropped the unused `basePath` iframe query parameter from the Web Terminal.
 - Retired the tier-2 channel databases and their benchmark query set; build profiles can no longer select tier 2.
+- Removed the DOOCS connector's `max_points` history-decimation path. It built
+  a fixed `np.linspace` grid and forward-filled onto it with a zero-order hold,
+  which the "nothing is manufactured" contract forbids, and no production
+  caller could reach it — the connector always passed `None`.
 
 ### Fixed
 
+- Enum/status channels no longer render a state the channel was never in. A
+  gap in an enum channel (a `null` sample) was being turned into the literal
+  category rung `"<channel>: null"` on the chart's shared category axis, so a
+  disconnect drew as a real state. Gaps now break the line as they always did
+  for numeric channels. The same axis also had its tick labels clipped by a
+  fixed right margin and drew an off-theme gridline per rung; both fixed.
+- `raw` and the aggregate processing modes now place bin boundaries on the same
+  lattice. `raw` decimation anchored its bins to the Unix epoch while the
+  aggregates anchored theirs to the start of the day, so for any `bin_size`
+  that does not divide a day evenly (7 s, say) the two disagreed — an operator
+  comparing `raw` against `mean` over one window got bins that did not line up.
+  Whole-second widths that divide a day, which is every width the framework had
+  been exercised with, are unaffected.
+- The archiver freshness health probe stopped silently discarding sub-microsecond
+  precision. It converted each sample's timestamp through `to_pydatetime()`,
+  which emits `Discarding nonzero nanoseconds` on every EPICS probe run.
+- The timeseries table's header came from a different HTTP request than its
+  cells — the header from `format=chart`, the rows from `format=table`. For an
+  artifact being written while it is viewed the two can disagree, showing values
+  under the wrong PV name. `format=table` now returns the very column list its
+  rows were built from, and the client uses it.
+- The artifact gallery's info-bar totals are now computed server-side and
+  reported under a new `summary` object on `format=chart`. The client had been
+  summing each channel's own point count, a number that cannot be reconciled
+  with the table's unioned row count — only the server sees both axes.
 - The EPICS Archiver Appliance connector formatted query-window bounds
   with a literal UTC `Z` suffix without actually converting to UTC first,
   so at any facility whose `system.timezone` is not UTC every
