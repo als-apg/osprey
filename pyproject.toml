@@ -335,6 +335,7 @@ markers = [
     "flaky: Rerun on failure to absorb nondeterminism outside the process — LLM sampling in e2e, OS event delivery in a couple of watcher tests (pytest-rerunfailures). Not for flaky unit tests; see tests/README.md",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
     "dockerbuild: E2E tests that run a real docker build (skipped when docker is unavailable)",
+    "real_workspace_watcher: Web-terminal app test that needs a live filesystem observer — opts out of the conftest stub that keeps broadcaster assertions deterministic",
 ]
 
 # Ruff configuration for modern Python linting
