@@ -50,6 +50,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   The existing `noise` key stays relative (a fraction of the value), so channels
   that sit at zero can now be given movement. Machine files using neither key
   parse and behave exactly as before.
+- Build profiles take a new `environment:` block declaring the Python
+  environment agent code runs in: `python` (the base interpreter — either a
+  bare interpreter or a venv's), `packages` (extra requirements, additive to
+  `dependencies`), and `inherit_exclude`. Where `python` names a venv, that
+  venv's installed distributions are frozen into the built project's dependency
+  record; basing on a venv interpreter does not otherwise carry its packages
+  over. The build fails, naming every offender at once, on packages it cannot
+  reproduce — ones installed from no package index, and ones whose version
+  conflicts with osprey's own requirements. `inherit_exclude` is how you drop
+  them.
 
 ### Changed
 
@@ -77,6 +87,25 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Shipped preset configs now document `deployment.bind_address` and point the
   Virtual Accelerator instructions at `osprey deploy up` instead of a
   repo-internal container path.
+- Deploying the Bluesky bridge with `control_system.writes_enabled: true`
+  no longer leaves the launch path permanently unarmed — `BLUESKY_LAUNCH_TOKEN`
+  is now minted for every deployed bridge. The enforced boundary is unchanged:
+  the connector re-reads `writes_enabled` and applies limits on every setpoint.
+- `execution.execution_method` now names the backend that actually runs:
+  `subprocess`. Generated configs write it, `local` is accepted silently as a
+  synonym, and `container` still loads but runs on the subprocess backend and
+  logs a one-time deprecation warning naming the config file it came from. Both
+  legacy values stop being accepted in 2027.1.
+- Generated `config.yml` files no longer record `execution.python_env_path`, an
+  absolute host interpreter path that went stale as soon as the project moved.
+  Agent Python runs in the project's own `.venv` when it has one, resolved at
+  run time. Configs that still carry the key load unchanged; it is ignored.
+- The Python-execution and visualization tool descriptions now name the
+  packages actually importable where each one runs code, enumerated once at
+  server start, instead of a fixed `numpy, pandas, scipy, at, matplotlib,
+  plotly` list. The visualization tools report the sandbox's installed set
+  intersected with its import allowlist. If the environment cannot be
+  enumerated, the description names no packages rather than guessing.
 
 - The model-benchmark matrix now scores two lanes separately: `agentic_benchmark`
   marks genuine model-capability e2e tests (the headline pass rate) and
@@ -94,6 +123,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   (leaving `${VAR}` placeholders such as a provider `api_key` unexpanded), the
   project's `web_terminal` and `claude_code` settings were replaced by built-in
   defaults, and `_agent_data/` was created next to wherever the command was run.
+- A built project's container image now installs the same package set as its
+  host environment — both are rendered from the project's own recorded
+  dependencies. Previously the image was built from a separate list, so a
+  package the agent could import on the host could be missing from the
+  deployed image.
+- Agent Python execution works in a freshly built project. Any
+  `execution_method` other than the literal `local` fell through to a
+  Jupyter-container backend that OSPREY does not ship, so execution failed;
+  the subprocess backend is now the only path.
 - ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
   payload omits its `id`: the ALS and generic adapters now fall back to an empty
   entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
