@@ -115,6 +115,109 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
     return resolved
 
 
+# OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
+# ``local`` is the historical name for that same backend; ``container`` named a
+# Jupyter kernel gateway OSPREY never shipped.
+EXECUTION_METHOD_SUBPROCESS = "subprocess"
+
+# Module-level latch so the ``container`` deprecation is logged once per process
+# rather than on every config read (the executor resolves per tool call).
+# Tests reset it via ``osprey.utils.config._container_method_warned = False``.
+_container_method_warned = False
+
+
+def _describe_config_source(source: str | None) -> str:
+    """Describe where an execution method came from, for log messages.
+
+    Args:
+        source: Caller-supplied description (usually a config file path). When
+            ``None``, the active config path is resolved on a best-effort basis.
+
+    Returns:
+        str: A human-readable config source, never empty.
+    """
+    if source:
+        return str(source)
+    try:
+        from osprey.utils.workspace import resolve_config_path
+
+        return str(resolve_config_path())
+    except Exception:  # pragma: no cover - defensive: never fail a config read
+        return "config.yml"
+
+
+def resolve_execution_method(
+    config: "Mapping[str, Any] | None", *, source: str | None = None
+) -> str:
+    """Normalize ``execution.execution_method`` to the backend that actually runs.
+
+    This is the single choke point for the execution vocabulary. Every reader of
+    ``execution.execution_method`` goes through it so legacy configs keep loading
+    while the config file stops claiming a backend OSPREY does not ship:
+
+    - ``subprocess`` — the honest name; returned as-is.
+    - ``local`` — historical name for the same subprocess backend; mapped silently.
+    - ``container`` — named a Jupyter kernel gateway that was never shipped, so it
+      failed outright at execution time. Mapped to ``subprocess`` with a one-time
+      deprecation warning, because that value's behavior genuinely changes.
+    - unset (missing, ``None``, or blank) — defaults to ``subprocess``.
+
+    Args:
+        config: Full configuration mapping (the one containing the ``execution``
+            section), or ``None``. Anything without a usable ``execution`` section
+            resolves to the default.
+        source: Optional description of where the config came from (typically the
+            config file path), used in the deprecation warning. Defaults to the
+            active config path.
+
+    Returns:
+        str: Always ``"subprocess"`` — the only execution backend OSPREY ships.
+
+    Raises:
+        ValueError: If ``execution.execution_method`` is set to any other value.
+
+    Example:
+        >>> resolve_execution_method({"execution": {"execution_method": "local"}})
+        'subprocess'
+    """
+    global _container_method_warned
+
+    execution = config.get("execution") if isinstance(config, dict) else None
+    raw = execution.get("execution_method") if isinstance(execution, dict) else None
+
+    if raw is None:
+        return EXECUTION_METHOD_SUBPROCESS
+
+    if not isinstance(raw, str):
+        raise ValueError(
+            f"Invalid execution.execution_method: {raw!r} "
+            f"(in {_describe_config_source(source)}). Expected 'subprocess'."
+        )
+
+    method = raw.strip().lower()
+
+    if method in ("", EXECUTION_METHOD_SUBPROCESS, "local"):
+        return EXECUTION_METHOD_SUBPROCESS
+
+    if method == "container":
+        if not _container_method_warned:
+            _container_method_warned = True
+            logger.warning(
+                "execution.execution_method: 'container' is deprecated (in %s). "
+                "OSPREY ships no containerized Python backend, so this value never "
+                "worked; agent Python code now runs via the subprocess backend. "
+                "Set execution.execution_method: subprocess.",
+                _describe_config_source(source),
+            )
+        return EXECUTION_METHOD_SUBPROCESS
+
+    raise ValueError(
+        f"Invalid execution.execution_method: {raw!r} "
+        f"(in {_describe_config_source(source)}). Expected 'subprocess' "
+        f"(legacy 'local' and 'container' are also accepted)."
+    )
+
+
 class ConfigBuilder:
     """Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and
     pre-computes a ``configurable`` dict for framework and standalone use.
@@ -291,26 +394,41 @@ class ConfigBuilder:
     def _get_execution_config(self) -> dict[str, Any]:
         """Get execution configuration with sensible defaults.
 
-        Returns execution configuration from config.yml if present, otherwise provides
-        defaults suitable for local Python execution in tutorial environments.
+        The retired ``python_env_path`` key is dropped here if an older config
+        still carries it: the interpreter that runs agent code is resolved
+        conventionally at run time (the project's own ``.venv``, else the
+        interpreter running OSPREY), so a recorded host path is stale by
+        construction. Dropping it keeps already-deployed configs loading
+        unchanged instead of failing on a key nothing honours any more.
 
         Returns:
-            dict: Execution configuration including method, python_env_path, and modes
+            dict: Execution configuration including method and modes.
         """
         # Try to get execution config from file
         execution_config = self.get("execution", None)
 
         # If execution section exists and has content, use it
         if execution_config:
+            if isinstance(execution_config, dict) and "python_env_path" in execution_config:
+                logger.debug(
+                    "Ignoring retired 'execution.python_env_path' (%s) in %s; the agent "
+                    "interpreter is resolved at run time.",
+                    execution_config["python_env_path"],
+                    self.config_path,
+                )
+                execution_config = {
+                    key: value
+                    for key, value in execution_config.items()
+                    if key != "python_env_path"
+                }
             return execution_config
 
         logger.warning(
-            "'execution' section missing from config.yml; defaulting to local Python execution"
+            "'execution' section missing from config.yml; defaulting to subprocess Python execution"
         )
 
         return {
-            "execution_method": "local",
-            "python_env_path": sys.executable,
+            "execution_method": EXECUTION_METHOD_SUBPROCESS,
             "modes": {
                 "read_only": {
                     "kernel_name": "python3-readonly",

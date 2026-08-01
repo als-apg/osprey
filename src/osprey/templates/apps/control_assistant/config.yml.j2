@@ -464,8 +464,22 @@ channel_finder:
 
 # Python execution configuration
 execution:
-  execution_method: "local"              # Options: local | container
-  python_env_path: {{ current_python_env }}  # Path to Python with dependencies
+  execution_method: "subprocess"         # Agent Python runs as a host subprocess
+
+  # The environment declaration this project was built from, recorded so the
+  # build can be reproduced. Nothing reads it at run time, and editing it here
+  # changes nothing — rebuild the project to change the environment.
+  #   python           base interpreter the build profile declared. null means
+  #                    the build used its own interpreter; its installed
+  #                    packages are deliberately not carried over.
+  #   packages         extra requirements installed on top of the base.
+  #   inherit_exclude  distributions left out when a declared venv base is frozen.
+  # No interpreter path is recorded: agent Python runs in this project's own
+  # .venv when it has one, resolved at run time.
+  environment:
+    python: {{ environment_python | default(none) | tojson }}
+    packages: {{ environment_packages | default([]) | tojson }}
+    inherit_exclude: {{ environment_inherit_exclude | default([]) | tojson }}
 
 
 # ============================================================

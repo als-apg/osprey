@@ -119,11 +119,6 @@ config:
   # deployed VA end-to-end (correctors move, BPMs read); use "epics" for live
   # hardware.
   control_system.type: mock
-  # Required for arming: a local-exec posture withholds the auto-minted
-  # BLUESKY_LAUNCH_TOKEN (see container_lifecycle.py's
-  # _local_exec_arming_unsafe) — container execution is what lets `osprey
-  # deploy up` mint the token safely.
-  execution.execution_method: container
   # The Bluesky MCP server is off-by-default in the framework registry
   # (default_enabled=False); opt in here so the tutorial's agent can author
   # and launch scan plans out of the box.

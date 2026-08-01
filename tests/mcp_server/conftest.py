@@ -229,7 +229,7 @@ def mock_config_with_execution(tmp_path):
                 },
                 "archiver": {"type": "mock"},
                 "execution": {
-                    "execution_method": "container",
+                    "execution_method": "subprocess",
                     "modes": {
                         "read_only": {"kernel_name": "python3-epics-readonly"},
                         "write_access": {"kernel_name": "python3-epics-write"},
@@ -294,7 +294,7 @@ def mock_config_with_limits(tmp_path):
                 },
                 "archiver": {"type": "mock"},
                 "execution": {
-                    "execution_method": "local",
+                    "execution_method": "subprocess",
                     "modes": {
                         "read_only": {"kernel_name": "python3"},
                         "write_access": {"kernel_name": "python3"},

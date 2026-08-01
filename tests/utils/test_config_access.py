@@ -106,11 +106,11 @@ class TestGetFullConfiguration:
         assert get_config_builder().get("project_root") == "/root"
 
     def test_execution_defaults_when_section_absent(self, tmp_path):
-        """A config without ``execution:`` still exposes local-execution defaults."""
+        """A config without ``execution:`` still exposes the subprocess defaults."""
         cfg = _write_config(tmp_path, "project_root: /root\n")
         configurable = get_full_configuration(str(cfg))
         execution = configurable["execution"]
-        assert execution["execution_method"] == "local"
+        assert execution["execution_method"] == "subprocess"
         assert "read_only" in execution["modes"]
         assert execution["modes"]["write_access"]["allows_writes"] is True
 
