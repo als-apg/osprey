@@ -9,6 +9,7 @@ merging.
 
 from __future__ import annotations
 
+import os
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,7 @@ from .build_profile_schema import (
     BlueskyPanelsConfig,
     DispatchConfig,
     EnvConfig,
+    EnvironmentConfig,
     LifecycleConfig,
     McpServerDef,
     NextcloudBridgeProfileConfig,
@@ -82,6 +84,12 @@ class BuildProfile:
     services: dict[str, ServiceDef] = field(default_factory=dict)
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
     env: EnvConfig = field(default_factory=EnvConfig)
+    environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    """Python-environment declaration (``environment:``). Always present; an
+    absent block parses to an all-default :class:`EnvironmentConfig` whose
+    ``python`` is ``None`` and whose lists are empty, so consumers never need a
+    ``None`` check. Coexists with :attr:`dependencies` — both contribute
+    packages to the built environment."""
     dependencies: list[str] = field(default_factory=list)
     requires_osprey_version: str | None = None  # PEP 440 specifier, e.g. ">=0.12.0"
     osprey_install: str = (
@@ -147,6 +155,74 @@ class BuildProfile:
         if pid in self.web_panels:
             return True
         return f"web.panels.{pid}.url" in self.config
+
+    def _validate_environment(self) -> list[str]:
+        """Return validation errors for the ``environment:`` block (empty when clean).
+
+        Takes no ``profile_dir``: ``environment.python`` names a host
+        interpreter, not a profile-relative asset, so it must be absolute. That
+        keeps :meth:`EnvironmentConfig.resolved_python` and
+        :meth:`EnvironmentConfig.venv_base` usable by build-time consumers that
+        hold only the profile.
+        """
+        errors: list[str] = []
+        cfg = self.environment
+
+        python_usable = False
+        if cfg.python is not None:
+            if not isinstance(cfg.python, str) or not cfg.python.strip():
+                errors.append(
+                    f"environment.python must be a non-empty string path (got {cfg.python!r})"
+                )
+            else:
+                resolved = cfg.resolved_python()
+                assert resolved is not None  # non-empty string → never None
+                if not resolved.is_absolute():
+                    errors.append(
+                        f"environment.python must be an absolute path to a Python "
+                        f"interpreter (got {cfg.python!r})"
+                    )
+                elif not resolved.exists():
+                    errors.append(f"environment.python not found: {resolved}")
+                elif not (resolved.is_file() and os.access(resolved, os.X_OK)):
+                    errors.append(f"environment.python is not an executable file: {resolved}")
+                else:
+                    python_usable = True
+
+        for label, entries in (
+            ("packages", cfg.packages),
+            ("inherit_exclude", cfg.inherit_exclude),
+        ):
+            if not isinstance(entries, list):
+                errors.append(
+                    f"environment.{label} must be a list of strings (got {type(entries).__name__})"
+                )
+                continue
+            for entry in entries:
+                if not isinstance(entry, str) or not entry.strip():
+                    errors.append(
+                        f"environment.{label} entries must be non-empty strings (got {entry!r})"
+                    )
+
+        # inherit_exclude only means something when there is a venv base to
+        # exclude distributions *from*. A bare interpreter carries no installed
+        # set to freeze, so the key would be a silent no-op — reject it rather
+        # than let a facility believe an exclusion took effect. Stays quiet when
+        # the interpreter itself is already reported bad: one root cause, one error.
+        if isinstance(cfg.inherit_exclude, list) and cfg.inherit_exclude:
+            if cfg.python is None:
+                errors.append(
+                    "environment.inherit_exclude requires environment.python to point at an "
+                    "existing venv's interpreter (there is nothing to exclude from)"
+                )
+            elif python_usable and cfg.venv_base() is None:
+                errors.append(
+                    f"environment.inherit_exclude requires a venv base, but "
+                    f"environment.python is a bare interpreter (no pyvenv.cfg beside "
+                    f"{cfg.resolved_python()})"
+                )
+
+        return errors
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -242,6 +318,9 @@ class BuildProfile:
             env_file_path = profile_dir / self.env.file
             if not env_file_path.is_file():
                 errors.append(f"env.file not found: {self.env.file} (resolved: {env_file_path})")
+
+        # Validate the environment block (interpreter base + extra packages)
+        errors.extend(self._validate_environment())
 
         # Validate dependencies
         for dep in self.dependencies:

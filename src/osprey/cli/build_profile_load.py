@@ -26,6 +26,7 @@ from .build_profile_schema import (
     BlueskyPanelsConfig,
     DispatchConfig,
     EnvConfig,
+    EnvironmentConfig,
     LifecycleConfig,
     LifecycleStep,
     McpServerDef,
@@ -88,6 +89,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "services",
         "lifecycle",
         "env",
+        "environment",
         "dependencies",
         "requires_osprey_version",
         "osprey_install",
@@ -109,6 +111,65 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "nextcloud_bridge",
     }
 )
+
+
+# Keys recognized inside the ``environment:`` block. Unlike the top-level
+# schema (lenient — see _warn_unknown_keys), a typo here is rejected outright:
+# the block is small and closed, and a silently ignored ``package:`` would leave
+# the built environment missing what the facility asked for.
+_KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
+
+
+def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
+    """Parse the raw ``environment:`` block into an :class:`EnvironmentConfig`.
+
+    Structural problems (wrong container types, unknown keys) raise here;
+    semantic ones (interpreter must exist, inherit_exclude needs a venv base)
+    are accumulated by :meth:`BuildProfile._validate_environment`.
+
+    Args:
+        raw: The full raw profile dict.
+
+    Returns:
+        The parsed config — all defaults when the block is absent or ``null``.
+
+    Raises:
+        BuildProfileError: If the block or one of its fields has the wrong
+            shape, or names an unknown key.
+    """
+    block = raw.get("environment") or {}
+    if not isinstance(block, dict):
+        raise BuildProfileError(
+            f"Profile 'environment' must be a mapping (got {type(block).__name__})"
+        )
+
+    unknown = sorted(set(block) - _KNOWN_ENVIRONMENT_KEYS)
+    if unknown:
+        raise BuildProfileError(
+            f"Unknown environment key(s): {', '.join(unknown)} "
+            f"(must be one of {sorted(_KNOWN_ENVIRONMENT_KEYS)})"
+        )
+
+    python = block.get("python")
+    if python is not None and not isinstance(python, str):
+        raise BuildProfileError(
+            f"environment.python must be a string path (got {type(python).__name__})"
+        )
+
+    lists: dict[str, list[str]] = {}
+    for key in ("packages", "inherit_exclude"):
+        value = block.get(key, [])
+        if not isinstance(value, list):
+            raise BuildProfileError(
+                f"environment.{key} must be a list of strings (got {type(value).__name__})"
+            )
+        lists[key] = list(value)
+
+    return EnvironmentConfig(
+        python=python,
+        packages=lists["packages"],
+        inherit_exclude=lists["inherit_exclude"],
+    )
 
 
 def _warn_unknown_keys(raw: dict[str, Any]) -> None:
@@ -191,6 +252,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         defaults=env_raw.get("defaults", {}),
         file=env_raw.get("file"),
     )
+
+    environment = _parse_environment(raw)
 
     dependencies = raw.get("dependencies", [])
 
@@ -276,6 +339,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         services=services,
         lifecycle=lifecycle,
         env=env,
+        environment=environment,
         dependencies=dependencies,
         requires_osprey_version=raw.get("requires_osprey_version"),
         osprey_install=raw.get("osprey_install", "local"),
