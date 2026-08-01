@@ -2,9 +2,14 @@
 
 Validates platform detection, singleton caching, dependency checking, and
 error messages.  All platform/import checks are mocked — runs on any OS.
+
+``get_backend()`` reads ``sys.platform`` at call time, so patching the factory
+module's ``sys`` attribute is the platform seam. Do not reload the module to
+force a platform: it has no import-time platform branch, and a reload performed
+under a mocked ``sys`` leaves mock-derived state behind for every later importer
+in the worker.
 """
 
-import importlib
 from unittest.mock import patch
 
 import pytest
@@ -22,15 +27,6 @@ def test_darwin_returns_macos_backend():
     """On macOS, get_backend() returns a MacOSBackend."""
     reset_backend()
 
-    with patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys:
-        mock_sys.platform = "darwin"
-        # Re-import to pick up the patched sys
-        import osprey.mcp_server.workspace.tools.screen_capture_backends as factory
-
-        importlib.reload(factory)
-
-    # After reload with darwin, calling get_backend should return MacOSBackend
-    reset_backend()
     with patch("osprey.mcp_server.workspace.tools.screen_capture_backends.sys") as mock_sys:
         mock_sys.platform = "darwin"
         from osprey.mcp_server.workspace.tools.screen_capture_backends import get_backend

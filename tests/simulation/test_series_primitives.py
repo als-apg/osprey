@@ -8,7 +8,6 @@ without going through the full engine each time.
 
 import hashlib
 import math
-import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -201,17 +200,14 @@ class TestDailyOccurrences:
         t_abs = np.array([start.timestamp(), end.timestamp()])
         expected = datetime(2026, 1, 1, 12, 0, 0, tzinfo=tz).timestamp()
 
-        old_tz = os.environ.get("TZ")
-        try:
-            os.environ["TZ"] = "Pacific/Kiritimati"  # UTC+14, maximally far from UTC
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("TZ", "Pacific/Kiritimati")  # UTC+14, maximally far from UTC
             time.tzset()
-            occ = daily_occurrences("12:00:00", t_abs, tz=tz)
-        finally:
-            if old_tz is None:
-                os.environ.pop("TZ", None)
-            else:
-                os.environ["TZ"] = old_tz
-            time.tzset()
+            try:
+                occ = daily_occurrences("12:00:00", t_abs, tz=tz)
+            finally:
+                mp.undo()
+                time.tzset()
 
         assert occ == [expected]
 

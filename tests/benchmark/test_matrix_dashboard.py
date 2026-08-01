@@ -38,6 +38,9 @@ def _load_dashboard():
     return mod
 
 
+# import-time required because scripts/ is not a package: the dashboard is
+# loaded by path and registered in sys.modules so its dataclasses can resolve
+# cls.__module__. The module object is what the tests below are written against.
 dash = _load_dashboard()
 EXCLUDED = json.load(open(_CONFIG))["excluded_files"]
 

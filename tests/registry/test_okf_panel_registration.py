@@ -228,12 +228,12 @@ def test_frontend_panel_manager_registers_okf_tab():
 
 
 def test_build_chain_reads_builtins_dynamically_no_hardcoded_okf():
-    """DA IA-1: build_profile / manifest gate on BUILTIN_PANELS, not literals."""
-    from osprey.cli import build_profile
+    """DA IA-1: build_profile_model / manifest gate on BUILTIN_PANELS, not literals."""
+    from osprey.cli import build_profile_model
     from osprey.cli.templates import manifest
 
     # Both import the shared set rather than hardcoding panel ids; adding "okf"
     # to BUILTIN_PANELS is therefore sufficient (no separate edit needed).
     # Fresh-file reads (not inspect.getsource) keep this guard deterministic.
-    assert "BUILTIN_PANELS" in _fresh_source(build_profile)
+    assert "BUILTIN_PANELS" in _fresh_source(build_profile_model)
     assert "BUILTIN_PANELS" in _fresh_source(manifest)

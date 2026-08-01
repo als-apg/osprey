@@ -16,6 +16,11 @@ from osprey.cli.registry_cmd import (
 )
 
 
+def _printed_text(mock_console) -> str:
+    """Join every positional argument passed to a patched ``console.print``."""
+    return " ".join(str(call.args[0]) for call in mock_console.print.call_args_list if call.args)
+
+
 @pytest.fixture
 def mock_registry():
     """Create a mock registry with test data."""
@@ -23,6 +28,7 @@ def mock_registry():
 
     # Mock stats
     registry.get_stats.return_value = {
+        "initialized": True,
         "services": 1,
         "service_names": ["test_service"],
     }
@@ -34,8 +40,6 @@ def mock_registry():
     registry.list_providers.return_value = ["test_provider"]
     registry.get_provider.return_value = MagicMock(description="Test AI provider")
 
-    registry._initialized = True
-
     return registry
 
 
@@ -46,28 +50,34 @@ class TestDisplayRegistryContents:
         """Test displaying registry contents when registry is already initialized."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
             with patch("osprey.utils.log_filter.quiet_logger"):
-                mock_get_registry.return_value = mock_registry
+                with patch("osprey.cli.registry_cmd.console") as mock_console:
+                    mock_get_registry.return_value = mock_registry
 
-                result = display_registry_contents(verbose=False)
+                    result = display_registry_contents(verbose=False)
 
-                # Should succeed
-                assert result is True
-                # Should get stats
-                assert mock_registry.get_stats.called
+                    # Should succeed
+                    assert result is True
+                    # Should get stats
+                    assert mock_registry.get_stats.called
+                    # Already initialized -- no progress notice
+                    assert "Initializing registry" not in _printed_text(mock_console)
 
     def test_initializes_registry_if_not_initialized(self, mock_registry):
         """Test that uninitialized registry gets initialized."""
-        mock_registry._initialized = False
+        mock_registry.get_stats.return_value["initialized"] = False
 
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
             with patch("osprey.utils.log_filter.quiet_logger"):
-                mock_get_registry.return_value = mock_registry
+                with patch("osprey.cli.registry_cmd.console") as mock_console:
+                    mock_get_registry.return_value = mock_registry
 
-                result = display_registry_contents(verbose=False)
+                    result = display_registry_contents(verbose=False)
 
-                # Should initialize registry
-                assert mock_registry.initialize.called
-                assert result is True
+                    # Should initialize registry
+                    assert mock_registry.initialize.called
+                    assert result is True
+                    # Cold run announces the load, which is otherwise silent
+                    assert "Initializing registry" in _printed_text(mock_console)
 
     def test_handles_exceptions_gracefully(self):
         """Test that exceptions are handled gracefully."""

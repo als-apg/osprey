@@ -10,6 +10,7 @@ Commands:
 """
 
 import os
+import subprocess
 from pathlib import Path
 
 import click
@@ -538,6 +539,4 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
     # Launch claude CLI.  Companion servers and the translation proxy run in
     # daemon threads, so the parent process must stay alive — always use
     # subprocess.run (never os.execvp, which replaces the process).
-    import subprocess
-
     raise SystemExit(subprocess.run(args).returncode)

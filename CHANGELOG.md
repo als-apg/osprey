@@ -114,6 +114,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   deploy/build semantics (`--force` preservation, `--dev` image builds, full
   subcommand list), telemetry now documented as on-by-default, MCP/executor error
   contracts, and the ARIEL web-interface module tables.
+- Presets that render Claude Code artifacts now ship the `osprey_focus_validate.py`
+  and `osprey_panels_context.py` hooks their `settings.json` already referenced;
+  existing rendered projects will be flagged stale and pick up the two hooks on
+  regeneration.
 - Simulated channels sitting at a `0.0` baseline no longer read back as dead-flat
   constants. Relative `noise` is multiplicative, so it vanishes at zero and BPM
   positions and corrector current readbacks declared noisy were perfectly still —
@@ -144,6 +148,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Logging is now configured explicitly and writes to stderr. Importing Osprey no longer installs a log handler as a side effect — entry points call `osprey.configure_logging()` once at startup, and code that embeds Osprey as a library (notebooks, scripts, preset repos) should do the same to see log output. Log lines that previously appeared on stdout now appear on stderr, so stdout carries only program output: `--json` payloads stay machine-readable and MCP stdio traffic stays clean. `configure_logging()` adds to whatever logging a host application has already set up and never removes handlers it did not install.
 - The ARIEL panel no longer shows the logbook Search tab when embedded in the web terminal — search there goes through the agent, so the embedded panel offers Browse, New Entry, and Status and opens on Browse. Standalone ARIEL keeps Search as the default view.
 - `osprey build` now records a project's dependencies in a generated `pyproject.toml` instead of `requirements.txt`. This makes `uv run osprey web` (and any other command) resolve the project's own `.venv` rather than walking up to an ancestor project's environment, and makes `uv sync` rebuild the environment instead of pruning it empty. Existing projects can delete their now-unused `requirements.txt` on the next `osprey build --force`.
 - `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).

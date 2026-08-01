@@ -134,7 +134,14 @@ def cli(ctx):
       osprey health                   Check system health
       osprey channel-finder           Interactive channel search
     """
+    from osprey.utils.logger import configure_logging
+
     from .styles import initialize_theme_from_config
+
+    # The CLI is a process entry point: nothing else configures logging, and
+    # importing the framework deliberately does not. Records go to stderr, so
+    # `--json` subcommand output on stdout stays machine-readable.
+    configure_logging()
 
     initialize_theme_from_config()
 

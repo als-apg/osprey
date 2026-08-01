@@ -33,8 +33,7 @@ def get_adapter(config: ARIELConfig) -> FacilityAdapter:
 
     registry = get_registry()
 
-    if not registry._initialized:
-        registry.initialize(silent=True)
+    registry.initialize(silent=True)
 
     if not config.ingestion:
         raise AdapterNotFoundError(
