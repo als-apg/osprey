@@ -20,8 +20,10 @@ Covers:
     (aria-checked + the scope pill above the list), and the pill's ✕
     returns to the session scope
   - selecting an artifact of a given type renders that type's preview
-    header (title, type badge) and viewport (markdown -> #md-viewport,
-    html -> a sandboxed iframe)
+    header (title, type badge) and viewport (markdown -> the marked/KaTeX
+    container, html -> a sandboxed iframe)
+  - Simple mode's result card renders those same viewports, through the
+    same dispatch, for every seeded type
   - the logbook/print inject buttons are present in the preview's action
     bar -- proving the direct-import wiring actually renders them (a
     grep-level check that no window bridge exists can't show that)
@@ -30,8 +32,8 @@ Unlike test_load_smokes.py's `_launch_artifacts` (an empty tmp_path -- fine
 there, since it only checks the page loads clean), this suite needs real
 on-disk artifacts: ArtifactStore.list_entries() reflects whatever the
 `artifacts.json` index says, and the gallery has nothing to filter/select
-without it. `_launch_artifacts` here first seeds two fixture artifacts
-(markdown + html) via a throwaway ArtifactStore pointed at the same
+without it. `_launch_artifacts` here first seeds three fixture artifacts
+(markdown + html + json) via a throwaway ArtifactStore pointed at the same
 `workspace_root` the app will use -- BaseStore.__init__ loads the index
 from disk, so the app's own store picks up the seeded entries on
 construction (mirrors the `_make_artifact` helper already used in
@@ -70,6 +72,7 @@ VIEWPORT = {"width": 1280, "height": 800}
 
 MARKDOWN_TITLE = "Beam Current Summary"
 HTML_TITLE = "Orbit Plot"
+JSON_TITLE = "Corrector Readback Set"
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +82,7 @@ HTML_TITLE = "Orbit Plot"
 
 @contextmanager
 def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
-    """Seed two fixture artifacts (markdown + html), then serve the gallery.
+    """Seed three fixture artifacts (markdown + html + json), then serve the gallery.
 
     Mirrors test_logbook.py's `_make_artifact` helper: a throwaway
     ArtifactStore writes the index + content files, then create_app()'s own
@@ -115,6 +118,20 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
         mime_type="text/html",
         tool_source="test_fixture",
         category="visualization",
+    )
+    # A json fixture: the shape a channel-finder result lands as, and one of
+    # the types Simple mode could not render while it had a viewport builder
+    # of its own. Seeded last, so it is the newest -- Simple's result card
+    # shows the newest artifact until the user picks another.
+    seed_store.save_file(
+        file_content=b'{"correctors": {"SR01C:HCM1:SP": 0.42}}',
+        filename="correctors.json",
+        artifact_type="json",
+        title=JSON_TITLE,
+        description="A json fixture artifact",
+        mime_type="application/json",
+        tool_source="test_fixture",
+        category="channel_values",
     )
 
     from osprey.interfaces.artifacts.app import create_app
@@ -231,7 +248,7 @@ def test_selecting_artifact_renders_preview_for_its_type(tmp_path, monkeypatch, 
         # _launch_artifacts) over artifact_type; viewport dispatch below is
         # keyed on the raw artifact_type regardless.
         expect(page.locator(".preview-header .badge")).to_have_class("badge badge-document")
-        expect(page.locator("#md-viewport")).to_be_visible(timeout=5_000)
+        expect(page.locator(".preview-viewport .md-preview-container")).to_be_visible(timeout=5_000)
 
         _card_for_title(page, HTML_TITLE).click()
         expect(page.locator(".preview-header-title")).to_have_text(HTML_TITLE, timeout=10_000)
@@ -267,4 +284,60 @@ def test_logbook_and_print_buttons_present_after_bridge_kill(
         actions_bar = page.locator(".preview-header-actions")
         expect(actions_bar.locator(".logbook-action-btn")).to_be_visible(timeout=5_000)
         expect(actions_bar.locator(".print-action-btn")).to_be_visible(timeout=5_000)
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 4: Simple mode renders the same viewports as Expert
+# ---------------------------------------------------------------------------
+
+
+def _simple_row(page: Page, title: str):
+    """Locate a row in Simple mode's "Results from this session" list."""
+    return page.locator(".simple-list-item", has_text=title)
+
+
+def test_simple_mode_renders_the_same_viewports_as_expert(tmp_path, monkeypatch, chromium_browser):
+    """Every seeded type renders in Simple's result card, not just the
+    iframe/img ones.
+
+    Simple mode used to build its card preview from types.js's
+    `thumbnailHtml()` -- the sidebar *card* builder, which knows only the
+    <img>/<iframe> types and drops markdown, JSON, text, PDF and timeseries
+    to a summary dump or a type-icon placeholder. Both surfaces now share
+    artifact-viewport.js's single dispatch, so this asserts the two types
+    that shortfall actually swallowed (markdown, JSON) reach their real
+    renderers here, down to the rendered output rather than just the
+    container: an empty `.md-preview-container` would satisfy a
+    presence-only check while still showing the user nothing.
+    """
+    with _launch_artifacts(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.goto(f"{base_url}?mode=simple", wait_until="domcontentloaded")
+
+        preview = page.locator("#simple-result-preview")
+        expect(_simple_row(page, MARKDOWN_TITLE)).to_be_visible(timeout=10_000)
+
+        # Markdown: the marked/KaTeX pipeline ran, producing real headings.
+        _simple_row(page, MARKDOWN_TITLE).click()
+        expect(page.locator("#simple-result-title")).to_have_text(MARKDOWN_TITLE, timeout=5_000)
+        expect(preview.locator(".osprey-md-rendered h1")).to_have_text(
+            "Beam Current", timeout=5_000
+        )
+
+        # JSON: the recursive viewer ran, producing keyed rows.
+        _simple_row(page, JSON_TITLE).click()
+        expect(page.locator("#simple-result-title")).to_have_text(JSON_TITLE, timeout=5_000)
+        expect(preview.locator(".json-viewer .json-key").first).to_have_text(
+            '"correctors"', timeout=5_000
+        )
+
+        # HTML: the type that already worked, still working.
+        _simple_row(page, HTML_TITLE).click()
+        expect(page.locator("#simple-result-title")).to_have_text(HTML_TITLE, timeout=5_000)
+        expect(preview.locator("iframe.preview-iframe-light")).to_be_visible(timeout=5_000)
+
+        # Nothing anywhere in the card fell back to the sidebar-thumbnail
+        # placeholder the old builder produced for unrenderable types.
+        expect(preview.locator(".thumb-placeholder, .thumb-summary")).to_have_count(0)
         page.close()

@@ -296,7 +296,8 @@ describe('printArtifact: guards and dispatch', () => {
   describe('timeseries strategy (dispatch precedes artifact_type switch)', () => {
     function mountChart() {
       document.body.innerHTML =
-        '<div id="ts-viewport"><div data-ts-chart><div class="js-plotly-plot"></div></div></div>';
+        '<div id="preview-content"><div class="ts-viewport-container">' +
+        '<div data-ts-chart><div class="js-plotly-plot"></div></div></div></div>';
     }
 
     test.each([
@@ -339,7 +340,7 @@ describe('printArtifact: guards and dispatch', () => {
       vi.stubGlobal('alert', alertSpy);
       const openSpy = vi.fn();
       vi.stubGlobal('open', openSpy);
-      // No mountChart(): #ts-viewport [data-ts-chart] .js-plotly-plot is absent.
+      // No mountChart(): the preview pane's [data-ts-chart] .js-plotly-plot is absent.
 
       printArtifact(makeArtifact({ category: 'archiver_data' }));
 

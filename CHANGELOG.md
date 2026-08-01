@@ -228,6 +228,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The shipped control-assistant simulation data now produces organic BPM and
   corrector-readback signals instead of flat lines, and corrector channels gained
   the symmetric upper current limit their lower limit implied.
+- Workspace gallery: the Simple view's result card now shows every artifact type
+  the Expert preview does. Markdown, JSON, plain text, PDFs and archiver
+  timeseries previously appeared there as a type icon or a raw summary dump —
+  which covered channel-finder results and the agent's own written answers, since
+  those are saved as markdown or JSON. Both views now render through one shared
+  renderer, so no type can display in one view and not the other.
 
 ### Added
 

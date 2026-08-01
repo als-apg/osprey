@@ -26,7 +26,6 @@ import {
 } from "./state.js";
 import {
   initTypeRegistry,
-  thumbnailHtml,
   typeIcon,
   formatTime,
   formatFullTime,
@@ -38,7 +37,8 @@ import { createSidebarRenderer } from "./render.js";
 import { initBrowseLayout } from "./browse-layout.js";
 import { initSidebarMenu } from "./sidebar-menu.js";
 import { createPreviewRenderer } from "./preview.js";
-import { renderTimeseriesView, restyleVisibleChart } from "./timeseries.js";
+import { artifactViewportHtml, mountArtifactViewport } from "./artifact-viewport.js";
+import { renderTimeseriesView, restyleMountedCharts } from "./timeseries.js";
 
 // ---- DOM Refs ----
 
@@ -140,6 +140,12 @@ function updateScopeUi() {
 // under html[data-ui-mode="simple"]). renderSimple() is called alongside the
 // sidebar re-render on every data change, so switching modes shows fresh
 // content instantly. It writes into hidden DOM in Expert mode, which is cheap.
+//
+// What Simple owns is the chrome around the result — a friendlier header
+// (title, NEW badge, Open full size / Save) and the session list beneath it.
+// The result *content* is artifact-viewport.js's shared dispatch, exactly as
+// Expert's preview pane renders it: Simple has no renderer of its own, so no
+// artifact type can render in one mode and not the other.
 
 /**
  * The artifact Simple mode shows in the big latest-result card: the
@@ -154,17 +160,6 @@ function simpleResultArtifact(recent) {
   const foc = getFocusedArtifact();
   if (foc && recent.some((a) => a.id === foc.id)) return foc;
   return recent[0] || null;
-}
-
-/**
- * Simple mode's inline preview. Reuses types.js's thumbnailHtml (same
- * <img>/<iframe> markup the Expert preview builds) — the result card's CSS
- * sizes it full-bleed rather than as a thumbnail.
- * @param {any} a
- * @returns {string}
- */
-function simplePreviewHtml(a) {
-  return thumbnailHtml(a);
 }
 
 /** @returns {void} */
@@ -188,7 +183,14 @@ function renderSimple() {
     if (simpleResultBadge) simpleResultBadge.hidden = !isNewThisSession(latest, _sessionStart);
     if (simpleOpenFull) simpleOpenFull.href = openUrl(latest);
     if (simpleSave) { simpleSave.href = fileUrl(latest); simpleSave.setAttribute("download", latest.filename); }
-    if (simpleResultPreview) simpleResultPreview.innerHTML = simplePreviewHtml(latest);
+    if (simpleResultPreview) {
+      // Same dispatch the Expert preview pane renders through — Simple has no
+      // renderer of its own, so every type Expert can show, Simple shows too.
+      simpleResultPreview.innerHTML = artifactViewportHtml(latest);
+      mountArtifactViewport(simpleResultPreview, latest, {
+        onTimeseriesNeeded: renderTimeseriesView,
+      });
+    }
     if (simpleResultCaption) {
       simpleResultCaption.textContent =
         latest.description || `${latest.title} · ${formatFullTime(latest.timestamp)}`;
@@ -452,7 +454,7 @@ function _forwardThemeToPreviewFrames(theme) {
 
 subscribe((theme) => {
   _forwardThemeToPreviewFrames(theme);
-  restyleVisibleChart();
+  restyleMountedCharts();
 });
 
 // Session changes are unrelated to theming and stay a plain message

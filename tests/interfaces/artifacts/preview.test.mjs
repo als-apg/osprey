@@ -122,8 +122,8 @@ describe('renderPreview: per-type viewport dispatch', () => {
     ['html', 'iframe.preview-iframe-light'],
     ['plot_png', 'img'],
     ['image', 'img'],
-    ['markdown', '#md-viewport.md-preview-container'],
-    ['json', '#json-viewport.json-viewer'],
+    ['markdown', '.md-preview-container'],
+    ['json', '.json-viewer'],
     ['text', 'iframe.preview-iframe-dark'],
   ])('artifact_type "%s" renders %s', (artifact_type, selector) => {
     setSelectedArtifact(makeArtifact({ artifact_type }));
@@ -176,7 +176,7 @@ describe('renderPreview: per-type viewport dispatch', () => {
     expect(link.textContent).toContain('blob.bin');
   });
 
-  test('timeseries data (metadata.data_type) renders the ts-viewport container and fires onTimeseriesNeeded', () => {
+  test('timeseries data (metadata.data_type) renders the timeseries container and fires onTimeseriesNeeded', () => {
     const artifact = makeArtifact({
       artifact_type: 'plot_html',
       metadata: { data_type: 'timeseries', data_file: 'x.parquet' },
@@ -186,7 +186,7 @@ describe('renderPreview: per-type viewport dispatch', () => {
     const renderer = createPreviewRenderer(callbacks);
     renderer.renderPreview();
 
-    const tsEl = document.getElementById('ts-viewport');
+    const tsEl = document.querySelector('.preview-viewport .ts-viewport-container');
     expect(tsEl).not.toBeNull();
     expect(callbacks.onTimeseriesNeeded).toHaveBeenCalledTimes(1);
     expect(callbacks.onTimeseriesNeeded.mock.calls[0][0]).toBe(tsEl);
@@ -200,7 +200,7 @@ describe('renderPreview: per-type viewport dispatch', () => {
     const renderer = createPreviewRenderer(callbacks);
     renderer.renderPreview();
 
-    expect(document.getElementById('ts-viewport')).not.toBeNull();
+    expect(document.querySelector('.preview-viewport .ts-viewport-container')).not.toBeNull();
     expect(callbacks.onTimeseriesNeeded).toHaveBeenCalledTimes(1);
   });
 });

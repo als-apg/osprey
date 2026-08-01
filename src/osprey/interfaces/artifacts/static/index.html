@@ -262,7 +262,11 @@
                   <a class="btn btn-secondary" id="simple-save">Save</a>
                 </div>
               </div>
-              <div class="simple-result-preview" id="simple-result-preview"></div>
+              <!-- Carries .preview-viewport as well: this slot holds the very
+                   markup the Expert preview pane's viewport does (one shared
+                   dispatch, artifact-viewport.js), so it takes that class's
+                   sizing rules rather than restating them. -->
+              <div class="simple-result-preview preview-viewport" id="simple-result-preview"></div>
               <div class="simple-result-caption" id="simple-result-caption"></div>
             </div>
           </div>
