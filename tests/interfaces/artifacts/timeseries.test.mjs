@@ -217,6 +217,40 @@ describe('renderTimeseriesView', () => {
     document.body.appendChild(container);
   });
 
+  test('info-bar totals come from the server summary, not a client-side re-derivation', async () => {
+    // The per-channel numbers are deliberately inconsistent with `summary` so
+    // the assertion can only pass if the server's figures are the ones shown.
+    // They must be: the "Points" sum is over each channel's own timestamps,
+    // while the table paginates a *unioned* row axis, and the two cannot be
+    // reconciled client-side. `summary.row_count` is the same number the
+    // `format=table` request reports as `total_rows`, computed once server-side.
+    stubFetchRouting({
+      chartResp: Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(makeChartData({
+          summary: { total_points: 999, returned_points: 40, downsampled: true, row_count: 7 },
+        })),
+      }),
+    });
+
+    await renderTimeseriesView(container, { id: 'ts1' });
+
+    expect(qs(container, '.ts-badge-points').textContent).toContain('999');
+    expect(qs(container, '.ts-badge-downsampled').textContent).toContain('40');
+    expect(qs(container, '.ts-badge-rows').textContent).toContain('7');
+  });
+
+  test('falls back to summing channels when the server sends no summary', async () => {
+    // Older artifacts (and any response predating the `summary` field) must
+    // still render totals rather than showing a blank or NaN badge.
+    stubFetchRouting();
+
+    await renderTimeseriesView(container, { id: 'ts1' });
+
+    expect(qs(container, '.ts-badge-points').textContent).toContain('4');
+    expect(container.querySelector('.ts-badge-rows')).toBeNull();
+  });
+
   test('shows a loading placeholder, then the info bar, toolbar, chart, and table containers on success', async () => {
     stubFetchRouting();
 
@@ -1025,6 +1059,20 @@ describe('renderTimeseriesTable', () => {
 
   beforeEach(() => {
     el = document.createElement('div');
+  });
+
+  test('header comes from the table response, not from the caller-supplied columns', async () => {
+    // The caller's `columns` originate in a *separate* `format=chart` request.
+    // For an artifact being written while it is viewed, the two responses can
+    // disagree, which would pair this page's cells with the other request's
+    // header -- i.e. values shown under the wrong PV name. The table response
+    // now carries the very column list its rows were built from.
+    stubTableFetch({ columns: ['FRESH:A', 'FRESH:B'] });
+
+    await renderTimeseriesTable(el, 'ts1', ['STALE:A', 'STALE:B'], 0);
+
+    const headers = Array.from(el.querySelectorAll('thead th')).map((th) => th.textContent);
+    expect(headers).toEqual(['Index', 'FRESH:A', 'FRESH:B']);
   });
 
   test('renders a header row and one data row per index entry, from fixture series', async () => {

@@ -250,15 +250,26 @@ export async function renderTimeseriesView(container, artifact) {
     channels.forEach((/** @type {any} */ ch) => {
       html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${escapeHtml(_tsShortChannelName(ch.channel))}</span>`;
     });
-    // No single shared row count exists any more -- each channel has its own
-    // total_points. Sum across channels as the closest honest proxy for "how
-    // much raw data feeds this chart" (the table view's own pagination footer
-    // shows the exact unioned row count once it loads).
-    const totalPoints = channels.reduce((/** @type {number} */ sum, /** @type {any} */ ch) => sum + (ch.total_points || 0), 0);
+    // Totals are the server's when it sends them. Summing here is a fallback
+    // for responses predating `summary`, and it can only ever be a proxy: the
+    // sum counts each channel's own timestamps, whereas the table paginates a
+    // *unioned* row axis, so the two numbers disagree whenever channels are
+    // sampled at different times. Only the server sees both, so only the
+    // server can report a `row_count` that matches the table's `total_rows`.
+    const summary = chartData.summary ?? null;
+    const sumOver = (/** @type {string} */ key) =>
+      channels.reduce((/** @type {number} */ sum, /** @type {any} */ ch) => sum + (ch[key] || 0), 0);
+
+    const totalPoints = summary?.total_points ?? sumOver("total_points");
     html += `<span class="ts-badge ts-badge-points"><span class="badge-label">Points</span> ${totalPoints.toLocaleString()}</span>`;
-    const anyDownsampled = channels.some((/** @type {any} */ ch) => ch.downsampled);
+    if (summary && typeof summary.row_count === "number") {
+      html += `<span class="ts-badge ts-badge-rows"><span class="badge-label">Rows</span> ${summary.row_count.toLocaleString()}</span>`;
+    }
+    const anyDownsampled = summary
+      ? summary.downsampled
+      : channels.some((/** @type {any} */ ch) => ch.downsampled);
     if (anyDownsampled) {
-      const returnedPoints = channels.reduce((/** @type {number} */ sum, /** @type {any} */ ch) => sum + (ch.returned_points || 0), 0);
+      const returnedPoints = summary?.returned_points ?? sumOver("returned_points");
       html += `<span class="ts-badge ts-badge-downsampled"><span class="badge-label">Downsampled</span> ${returnedPoints.toLocaleString()} pts</span>`;
     }
     html += '</div>';
@@ -522,9 +533,16 @@ export async function renderTimeseriesTable(el, artifactId, columns, offset) {
     const totalPages = Math.ceil(tableData.total_rows / TS_TABLE_PAGE_SIZE);
     const currentPage = Math.floor(offset / TS_TABLE_PAGE_SIZE) + 1;
 
+    // Header from THIS response, not from `columns` -- those came from a
+    // separate format=chart request, and for an artifact being written while
+    // it is viewed the two can disagree, putting this page's cells under the
+    // other request's PV names. `columns` remains the fallback for a response
+    // that predates the field, and still seeds the first render's toggles.
+    const headerColumns = tableData.columns ?? columns;
+
     let html = '<div class="ts-data-table-wrapper"><table class="ts-data-table">';
     html += '<thead><tr><th>Index</th>';
-    columns.forEach((c) => { html += `<th>${escapeHtml(c)}</th>`; });
+    headerColumns.forEach((/** @type {string} */ c) => { html += `<th>${escapeHtml(c)}</th>`; });
     html += '</tr></thead><tbody>';
 
     tableData.index.forEach((/** @type {any} */ idx, /** @type {number} */ i) => {

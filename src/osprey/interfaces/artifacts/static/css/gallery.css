@@ -2059,7 +2059,8 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   background: color-mix(in srgb, var(--color-info) 8%, transparent);
 }
 
-.ts-info-bar .ts-badge.ts-badge-points {
+.ts-info-bar .ts-badge.ts-badge-points,
+.ts-info-bar .ts-badge.ts-badge-rows {
   color: var(--text-secondary);
 }
 

@@ -4,19 +4,21 @@ Pins the archiver-freshness contract: a missing ``channel`` and a missing
 ``archiver:`` block are config-style errors; an unreachable archiver (or a
 raising query) is an error carrying ``str(exc)``; a sample within ``max_age_s``
 is ``ok`` with its age reported; a sample older than the threshold — or an empty
-query window — is a ``warning``; timezone-naive archiver timestamps are read as
-UTC. The archiver connector is acquired lazily via ``ctx.runtime.get_archiver``
-with the ``ctx.config`` archiver block taking precedence, and one test drives the
-real in-tree :class:`MockArchiverConnector` end to end through a real
-:class:`HealthRuntime`.
+query window — is a ``warning``; a frame that breaks the long-format contract is
+*not* laundered into a staleness warning. The archiver connector is acquired
+lazily via ``ctx.runtime.get_archiver`` with the ``ctx.config`` archiver block
+taking precedence, and one test drives the real in-tree
+:class:`MockArchiverConnector` end to end through a real :class:`HealthRuntime`.
 """
 
 from __future__ import annotations
 
+import warnings
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
+import pytest
 
 from osprey.health.models import Status
 from osprey.health.probes import ProbeContext, get_probe
@@ -77,21 +79,32 @@ def _ctx(
     return ProbeContext(runtime=runtime, config=config), runtime  # type: ignore[arg-type]
 
 
-def _frame(newest_age_s: float, value: float = 1.5, *, tz: bool = True) -> pd.DataFrame:
-    """A single-channel long-format frame whose newest sample is ``newest_age_s`` s old.
-
-    With ``tz=False`` the ``timestamp`` column is timezone-*naive UTC* — how the
-    EPICS Archiver Appliance can return timestamps — not naive local time.
-    """
+def _frame(newest_age_s: float, value: float = 1.5) -> pd.DataFrame:
+    """A single-channel long-format frame whose newest sample is ``newest_age_s`` s old."""
     now = datetime.now(UTC)
-    if not tz:
-        now = now.replace(tzinfo=None)
     stamps = [now - timedelta(seconds=newest_age_s + 30), now - timedelta(seconds=newest_age_s)]
     return pd.DataFrame(
         {
             "timestamp": pd.to_datetime(stamps),
             "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
             "value": [value - 0.1, value],
+        }
+    )
+
+
+def _empty_long_frame() -> pd.DataFrame:
+    """The contract's empty result: the long frame with its three columns.
+
+    Every in-tree connector returns through ``long_frame``, which builds exactly
+    this frame (``value`` defaulting to ``float64``) for a query that matched no
+    samples — see :meth:`ArchiverConnector.get_data`. A *column-less*
+    ``pd.DataFrame()`` is not that shape and no connector produces it.
+    """
+    return pd.DataFrame(
+        {
+            "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
+            "channel": pd.Series(dtype=str),
+            "value": pd.Series(dtype="float64"),
         }
     )
 
@@ -166,8 +179,22 @@ async def test_stale_sample_is_warning_with_age() -> None:
 
 
 async def test_empty_window_is_warning() -> None:
-    ctx, _runtime = _ctx(_SpyArchiver(pd.DataFrame()))
+    ctx, _runtime = _ctx(_SpyArchiver(_empty_long_frame()))
     result = await run({"channel": "BEAM:CURRENT"}, ctx)
+    assert result.status is Status.WARNING
+    assert "No samples" in result.message
+
+
+async def test_channel_absent_from_a_populated_frame_is_warning() -> None:
+    """A PV with no rows in a frame that carries other channels' samples.
+
+    This is the real "this channel had no data" case — the one the removed
+    ``"channel" not in frame.columns`` guard was mistakenly credited with
+    handling — and ``sub.empty`` is what catches it.
+    """
+    frame = _frame(newest_age_s=10)
+    ctx, _runtime = _ctx(_SpyArchiver(frame))
+    result = await run({"channel": "OTHER:PV"}, ctx)
     assert result.status is Status.WARNING
     assert "No samples" in result.message
 
@@ -196,16 +223,53 @@ async def test_default_max_age_is_600() -> None:
     assert (await run({"channel": "BEAM:CURRENT"}, stale_ctx)).status is Status.WARNING
 
 
-# --- Timezone handling ------------------------------------------------------
+# --- Frame handling ---------------------------------------------------------
 
 
-async def test_naive_timestamps_read_as_utc() -> None:
-    # A naive index (no tzinfo) must not raise and is read as UTC; a recent
-    # naive sample grades fresh rather than crashing on naive/aware subtraction.
-    archiver = _SpyArchiver(_frame(newest_age_s=42, tz=False))
-    ctx, _runtime = _ctx(archiver)
-    result = await run({"channel": "BEAM:CURRENT", "max_age_s": 600}, ctx)
+async def test_non_conforming_frame_is_not_laundered_into_a_staleness_warning() -> None:
+    """A connector that breaks the long-format contract must not read as "no samples".
+
+    ``get_data`` is contracted to return the ``timestamp``/``channel``/``value``
+    long frame, and every in-tree connector returns through ``long_frame``,
+    which always emits those three columns. A frame without a ``channel``
+    column is therefore a *broken connector*, and the probe lets it raise: the
+    runner isolates it into one ``error`` row naming the exception
+    (``archiver_freshness raised KeyError`` + ``details``), which is the useful
+    diagnosis. Grading it ``warning`` instead — "No samples for X in the last
+    1200 s" — points the operator at a wedged ingester that is not the problem.
+    """
+    ctx, _runtime = _ctx(_SpyArchiver(pd.DataFrame({"ts": [], "val": []})))
+    with pytest.raises(KeyError):
+        await run({"channel": "BEAM:CURRENT"}, ctx)
+
+
+async def test_nanosecond_timestamps_are_not_truncated_with_a_warning() -> None:
+    """The EPICS connector carries real nanoseconds into the ``timestamp`` column.
+
+    ``Timestamp.to_pydatetime()`` discards them and emits ``UserWarning:
+    Discarding nonzero nanoseconds in conversion`` on every such probe run. The
+    age comparison never needed that conversion — ``pd.Timestamp`` *is* a
+    ``datetime``, so the newest sample is returned as-is.
+    """
+    now = pd.Timestamp.now(tz=UTC).as_unit("ns")
+    stamps = pd.DatetimeIndex(
+        [now - pd.Timedelta(seconds=72), now - pd.Timedelta(seconds=42) + pd.Timedelta(123, "ns")]
+    )
+    assert stamps[-1].nanosecond == 123  # the input really carries sub-µs precision
+    frame = pd.DataFrame(
+        {
+            "timestamp": stamps,
+            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "value": [1.4, 1.5],
+        }
+    )
+    ctx, _runtime = _ctx(_SpyArchiver(frame))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = await run({"channel": "BEAM:CURRENT", "max_age_s": 600}, ctx)
+
     assert result.status is Status.OK
+    assert [str(w.message) for w in caught if "nanosecond" in str(w.message)] == []
 
 
 # --- Lazy acquisition and config precedence ---------------------------------

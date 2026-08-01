@@ -39,9 +39,8 @@ the runner), and this probe invents no staleness-specific severity param.
 ``wait_for`` allows a small margin so the connector's own timeout fires first.
 The trailing window is derived from ``max_age_s`` to be comfortably wider than
 the threshold, so a moderately stale sample's true age is still observable rather
-than collapsing to an empty-window warning. Archiver timestamps that arrive
-timezone-naive are read as UTC (the EPICS Archiver Appliance returns UTC-aware
-timestamps; the age comparison is done entirely in UTC).
+than collapsing to an empty-window warning. The age comparison is done entirely
+in UTC, which ``get_data``'s ``datetime64[ns, UTC]`` timestamp column guarantees.
 """
 
 from __future__ import annotations
@@ -195,27 +194,26 @@ def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, Any] | 
 
     Filters the canonical long-format archiver frame (columns ``timestamp``,
     ``channel``, ``value``) to rows for ``channel``, drops null values, and
-    returns the row with the maximum timestamp. Returns ``None`` when the frame
-    carries no ``channel`` column at all (e.g. the empty-result frame with no
-    columns) or when ``channel`` has no non-null samples in the window. The
-    returned timestamp is normalized to a timezone-aware UTC
-    :class:`~datetime.datetime`: a naive timestamp is read as UTC, so the
-    caller's age arithmetic never hits a naive/aware ``TypeError``.
+    returns the row with the maximum timestamp. ``None`` means "this channel has
+    no non-null samples in the window" — including the empty-result frame, and
+    including a frame carrying only *other* channels' samples.
+
+    The timestamp is returned as pandas hands it over: :meth:`get_data`
+    guarantees a ``datetime64[ns, UTC]`` column, so the row's value is a
+    UTC-aware :class:`pandas.Timestamp`, which *is* a
+    :class:`~datetime.datetime` — the caller's age arithmetic works directly on
+    it. It is deliberately **not** passed through ``to_pydatetime()``: that
+    discards the nanoseconds the EPICS connector really carries and warns while
+    doing it, to buy nothing the age comparison needs.
+
+    A frame that does not conform to the long-format contract (no ``channel``
+    column, no ``timestamp`` column) is a connector bug, not a quiet archiver,
+    and is left to raise. The health runner isolates it into one ``error`` row
+    naming the exception; degrading it here to "no samples" would report a
+    reachable-but-idle archiver, sending an operator after the wrong fault.
     """
-    if "channel" not in frame.columns:
-        return None
     sub = frame.loc[frame["channel"] == channel].dropna(subset=["value"])
     if sub.empty:
         return None
     row = sub.loc[sub["timestamp"].idxmax()]
-    raw_ts = row["timestamp"]
-    value = row["value"]
-
-    stamp = raw_ts.to_pydatetime() if hasattr(raw_ts, "to_pydatetime") else raw_ts
-    if not isinstance(stamp, datetime):
-        return None
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=UTC)
-    else:
-        stamp = stamp.astimezone(UTC)
-    return stamp, value
+    return row["timestamp"], row["value"]
