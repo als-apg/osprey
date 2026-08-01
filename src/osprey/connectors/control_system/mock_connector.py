@@ -135,9 +135,10 @@ class MockConnector(ControlSystemConnector):
         if channel_address not in self._state:
             self._state[channel_address] = self._generate_initial_value(channel_address)
 
-        # Add noise
+        # Add noise, floored per kind so a 0.0 baseline is not dead-flat.
         base_value = self._state[channel_address]
-        noise = np.random.normal(0, abs(base_value) * self._noise_level)
+        sigma = classify_pv(channel_address).noise_sigma(base_value, self._noise_level)
+        noise = np.random.normal(0, sigma)
         value = base_value + noise
 
         return ChannelValue(

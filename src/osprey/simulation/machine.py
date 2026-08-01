@@ -24,7 +24,10 @@ from osprey.simulation.expressions import (
     compile_expression,
     extract_channel_refs,
 )
+from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import RelativeTimestamp
+
+logger = get_logger("simulation_machine")
 
 DEFAULT_SCENARIO = "nominal"
 
@@ -39,10 +42,42 @@ _EVENT_VALUE_KEYS = {
     "spike": ("amplitude", "width"),
 }
 
+# Texture-object schema, validated with the same closed-key discipline as events:
+# every key is required and no others are accepted, so a typo is a load-time error
+# rather than a silently ignored parameter. 'kind' is a validated vocabulary so
+# further kinds can be added without a schema break.
+_TEXTURE_KEYS = ("kind", "amplitude", "period_s")
+_TEXTURE_KINDS = ("wander",)
+
+# Cap on channel names listed in the aggregated dead-noise warning.
+_DEAD_NOISE_EXAMPLES = 5
+
+
+@dataclass(frozen=True)
+class TextureSpec:
+    """Declared baseline-texture parameters for a channel.
+
+    Attributes:
+        kind: Texture vocabulary term; only ``"wander"`` is defined today.
+        amplitude: Envelope bound of the texture, in the channel's declared units.
+        period_s: The slowest period of the texture, in seconds.
+    """
+
+    kind: str
+    amplitude: float
+    period_s: float
+
 
 @dataclass(frozen=True)
 class SimChannel:
-    """Parsed channel definition from the machine file."""
+    """Parsed channel definition from the machine file.
+
+    ``noise`` is *relative* (multiplicative, ``value * (1 + N(0, noise))``) and is
+    therefore inert on a ``0.0`` baseline; ``noise_abs`` is the additive sigma in
+    the channel's declared ``units`` and composes with it. ``texture`` adds slow
+    baseline motion. Both signal fields default to the no-op, so machine files
+    written before they existed parse unchanged.
+    """
 
     name: str
     value: float | str | None
@@ -54,6 +89,8 @@ class SimChannel:
     expr_source: str = ""
     min_value: float | None = None
     max_value: float | None = None
+    noise_abs: float = 0.0
+    texture: TextureSpec | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +198,7 @@ def parse_machine(machine: Any, machine_path: Path) -> ParsedMachine:
 
     channels = {pv: _parse_channel(pv, spec) for pv, spec in machine["channels"].items()}
     _check_references(channels)
+    _warn_dead_noise_channels(channels, machine_path)
     scenarios_dir = machine_path.parent / "scenarios"
     if scenarios_dir.is_dir():
         scenarios = load_scenario_bundles(scenarios_dir, channels)
@@ -212,6 +250,8 @@ def _parse_channel(pv: str, spec: Any) -> SimChannel:
         raise ValueError(
             f"Channel {pv!r}: 'min' ({min_value:g}) must be less than 'max' ({max_value:g})"
         )
+    noise_abs = _parse_noise_abs(pv, spec, is_string_channel)
+    texture = _parse_texture(pv, spec, is_string_channel)
 
     return SimChannel(
         name=pv,
@@ -224,6 +264,8 @@ def _parse_channel(pv: str, spec: Any) -> SimChannel:
         expr_source=spec["expr"] if has_expr else "",
         min_value=min_value,
         max_value=max_value,
+        noise_abs=noise_abs,
+        texture=texture,
     )
 
 
@@ -237,6 +279,120 @@ def _parse_bound(pv: str, spec: dict[str, Any], key: str, is_string_channel: boo
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise ValueError(f"Channel {pv!r}: {key!r} must be a number, got {raw!r}")
     return float(raw)
+
+
+def _parse_noise_abs(pv: str, spec: dict[str, Any], is_string_channel: bool) -> float:
+    """Parse the optional ``noise_abs`` sigma (absolute, channel units).
+
+    Args:
+        pv: Channel name, for error messages.
+        spec: The raw channel spec.
+        is_string_channel: Whether the channel holds a string value (no signal model).
+
+    Returns:
+        The declared sigma, or ``0.0`` when the key is absent.
+
+    Raises:
+        ValueError: If the channel is string-valued, or the value is not a
+            non-negative number.
+    """
+    if "noise_abs" not in spec:
+        return 0.0
+    if is_string_channel:
+        raise ValueError(f"Channel {pv!r}: 'noise_abs' is not supported on string-valued channels")
+    raw = spec["noise_abs"]
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
+        raise ValueError(f"Channel {pv!r}: 'noise_abs' must be a non-negative number, got {raw!r}")
+    return float(raw)
+
+
+def _parse_texture(pv: str, spec: dict[str, Any], is_string_channel: bool) -> TextureSpec | None:
+    """Parse the optional ``texture`` block into a :class:`TextureSpec`.
+
+    Every key in :data:`_TEXTURE_KEYS` is required and no others are accepted, so
+    a mistyped parameter fails at load time instead of being silently dropped.
+
+    Args:
+        pv: Channel name, for error messages.
+        spec: The raw channel spec.
+        is_string_channel: Whether the channel holds a string value (no signal model).
+
+    Returns:
+        The parsed texture, or ``None`` when the key is absent.
+
+    Raises:
+        ValueError: If the channel is string-valued, or the block is not a mapping
+            with exactly the required keys, a known ``kind``, and positive
+            ``amplitude``/``period_s``.
+    """
+    if "texture" not in spec:
+        return None
+    if is_string_channel:
+        raise ValueError(f"Channel {pv!r}: 'texture' is not supported on string-valued channels")
+    raw = spec["texture"]
+    if not isinstance(raw, dict):
+        raise ValueError(f"Channel {pv!r}: 'texture' must be a mapping, got {raw!r}")
+
+    unknown = sorted(set(raw) - set(_TEXTURE_KEYS))
+    if unknown:
+        raise ValueError(f"Channel {pv!r}: 'texture' has unknown keys {unknown}")
+    missing = [key for key in _TEXTURE_KEYS if key not in raw]
+    if missing:
+        raise ValueError(f"Channel {pv!r}: 'texture' missing keys {missing}")
+    if raw["kind"] not in _TEXTURE_KINDS:
+        raise ValueError(
+            f"Channel {pv!r}: 'texture' kind must be one of {list(_TEXTURE_KINDS)}, "
+            f"got {raw['kind']!r}"
+        )
+    return TextureSpec(
+        kind=str(raw["kind"]),
+        amplitude=_positive_texture_number(pv, raw, "amplitude"),
+        period_s=_positive_texture_number(pv, raw, "period_s"),
+    )
+
+
+def _positive_texture_number(pv: str, texture: dict[str, Any], key: str) -> float:
+    """Validate one strictly positive numeric ``texture`` parameter."""
+    raw = texture[key]
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw <= 0:
+        raise ValueError(f"Channel {pv!r}: 'texture' {key} must be a number > 0, got {raw!r}")
+    return float(raw)
+
+
+def _warn_dead_noise_channels(channels: dict[str, SimChannel], machine_path: Path) -> None:
+    """Warn once per file about channels whose noise declaration cannot express.
+
+    Relative ``noise`` is multiplicative (``value * (1 + N(0, noise))``), so a
+    channel with a ``0.0`` baseline and neither additive key synthesizes a
+    dead-flat constant — structurally valid, semantically wrong data. That is a
+    misconfiguration rather than a schema error, so it is reported and never
+    raised, and it is reported *once* with a bounded example list: a stale project
+    copy can hold hundreds of such channels, and one line each would bury the log
+    on every engine construction.
+
+    Args:
+        channels: The parsed channels of one machine file.
+        machine_path: Path the machine was loaded from, named in the warning.
+    """
+    dead = [
+        name
+        for name, channel in channels.items()
+        if channel.value == 0.0
+        and channel.noise > 0
+        and channel.noise_abs == 0.0
+        and channel.texture is None
+    ]
+    if not dead:
+        return
+
+    examples = ", ".join(dead[:_DEAD_NOISE_EXAMPLES])
+    if len(dead) > _DEAD_NOISE_EXAMPLES:
+        examples += f", ... (+{len(dead) - _DEAD_NOISE_EXAMPLES} more)"
+    logger.warning(
+        f"{machine_path}: {len(dead)} channel(s) declare relative 'noise' on a 0.0 baseline, "
+        f"which multiplies to a dead-flat constant: {examples}. Give them motion with "
+        f"'noise_abs' (absolute sigma in the channel's units) and/or a 'texture' block."
+    )
 
 
 def _check_references(channels: dict[str, SimChannel]) -> None:

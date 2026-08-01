@@ -36,7 +36,7 @@ from typing import Any
 
 import numpy as np
 
-from osprey.connectors.pv_taxonomy import classify_pv
+from osprey.connectors.pv_taxonomy import PVKind, classify_pv
 from osprey.services.virtual_accelerator.manifest import PARTITION_STATIC_NOISY, RECORD_TYPE_BINARY
 from osprey.simulation.engine import SimulationEngine, engine_serves
 
@@ -96,7 +96,8 @@ class EngineSource:
         self._records = dict(static_noisy_records)
         self._noise_level = noise_level
         self._rng = np.random.default_rng()
-        self._legacy_base: dict[str, float] = {}
+        # address -> PV taxonomy classification, memoised on first legacy read
+        self._legacy_kind: dict[str, PVKind] = {}
         self._setpoint_echo_records = {
             address: record
             for address, record in (setpoint_echo_records or {}).items()
@@ -223,14 +224,18 @@ class EngineSource:
 
     def _legacy_value(self, address: str) -> float | bool:
         record_type, noisy = self._channel_info.get(address, ("ai", False))
-        base = self._legacy_base.get(address)
-        if base is None:
-            base = classify_pv(address).base_value
-            self._legacy_base[address] = base
+        kind = self._legacy_kind.get(address)
+        if kind is None:
+            kind = classify_pv(address)
+            self._legacy_kind[address] = kind
+        base = kind.base_value
 
         if record_type == RECORD_TYPE_BINARY:
             return bool(base)
 
         if not noisy:
             return base
-        return base * (1.0 + float(self._rng.normal(0.0, self._noise_level)))
+
+        # Sigma is floored per kind so a legitimately-0.0 base is not dead-flat.
+        sigma = kind.noise_sigma(base, self._noise_level)
+        return base + float(self._rng.normal(0.0, sigma))
