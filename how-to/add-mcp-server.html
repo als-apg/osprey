@@ -612,6 +612,13 @@ import it directly.</p></li>
 the <code class="docutils literal notranslate"><span class="pre">mcp</span></code> instance.</p></li>
 <li><p>Tool modules are imported inside <code class="docutils literal notranslate"><span class="pre">create_server()</span></code> so that
 <code class="docutils literal notranslate"><span class="pre">&#64;mcp.tool()</span></code> decorators run after context is ready.</p></li>
+<li><p>Log through the standard <code class="docutils literal notranslate"><span class="pre">logging</span></code> module and leave handler setup to
+<code class="docutils literal notranslate"><span class="pre">run_mcp_server()</span></code>, which calls <code class="docutils literal notranslate"><span class="pre">osprey.configure_logging()</span></code> on your
+behalf.  Every log line goes to stderr; stdout belongs to the JSON-RPC
+transport, so a <code class="docutils literal notranslate"><span class="pre">print()</span></code> there will break the client connection.  Anything
+embedding Osprey outside an entry point — a notebook, a script — must call
+<code class="docutils literal notranslate"><span class="pre">osprey.configure_logging()</span></code> itself to see log output; importing the
+framework configures nothing.</p></li>
 </ul>
 </section>
 <section id="step-3-register-tools">
