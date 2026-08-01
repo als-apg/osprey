@@ -71,6 +71,11 @@ dependencies = [
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
     "numpy>=2.2.6",  # Required by pandas
+    # archiver_read imports dateutil.parser directly to accept ISO/human start
+    # and end times. It resolves today only because pandas happens to depend on
+    # it; declare it so a future pandas that drops the dependency cannot break
+    # the tool silently.
+    "python-dateutil>=2.9.0",
     "matplotlib>=3.10.3",  # Required for Python capability visualization (core use case)
     # Networking and protocols
     "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
