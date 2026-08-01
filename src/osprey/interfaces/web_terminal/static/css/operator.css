@@ -4,7 +4,7 @@
    terminal-card's body (framed in terminal.css) and inherits that flat card's
    chrome, so this file styles only the console interior on the shared design
    tokens: flat surfaces, hairline separators, an azure interactive accent, and
-   amber reserved for the operator's own turns. */
+   the secondary accent reserved for the operator's own turns. */
 
 /* ---- Container + mode gate ---- */
 
@@ -119,14 +119,14 @@ html[data-ui-mode="simple"] #operator-container {
   border-left: 2px solid transparent;
 }
 
-/* Operator (the human's own turns) — amber left edge + faint amber wash. */
+/* Operator (the human's own turns) — secondary-accent left edge + faint wash. */
 .op-entry.operator {
-  border-left-color: var(--color-amber);
-  background: var(--amber-tint-04);
+  border-left-color: var(--color-accent-secondary);
+  background: var(--accent-secondary-tint-04);
 }
 
 .op-entry.operator .op-entry-prefix {
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 /* Agent turns — azure left edge, tracking the interactive accent. */
@@ -358,9 +358,9 @@ html[data-ui-mode="simple"] #operator-container {
 }
 
 .op-ts-badge-ds {
-  color: var(--color-amber-light);
-  border-color: var(--amber-tint-25);
-  background: var(--amber-tint-06);
+  color: var(--color-accent-secondary-light);
+  border-color: var(--accent-secondary-tint-25);
+  background: var(--accent-secondary-tint-06);
 }
 
 .op-ts-plotly {

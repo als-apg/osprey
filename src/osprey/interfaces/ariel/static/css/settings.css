@@ -31,9 +31,9 @@
 }
 
 .settings-mode-btn.active {
-  color: var(--color-amber-light);
-  background: var(--amber-tint-08);
-  border-color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border-color: var(--color-accent-secondary);
 }
 
 /* === Config form === */
@@ -52,14 +52,14 @@
 
 .settings-section-header {
   padding: var(--ariel-space-2) var(--ariel-space-3);
-  background: var(--amber-tint-08);
+  background: var(--accent-secondary-tint-08);
   border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .settings-section-header .section-title {
   font-size: var(--ariel-text-xs);
   font-weight: 600;
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }

@@ -37,7 +37,7 @@
   --ok: var(--color-success);
   --ok-glow: var(--success-tint-40);
   --warn: var(--color-warning);
-  --warn-glow: var(--amber-tint-25);
+  --warn-glow: var(--accent-secondary-tint-25);
   --err: var(--color-error);
   --err-glow: var(--error-tint-30);
   --skip: var(--text-muted);
@@ -184,7 +184,7 @@ body.embedded .hdr { justify-content: flex-end; }
 }
 .card:hover { border-color: var(--border-1); transform: translateY(-1px); }
 .card.c-err { border-color: var(--error-tint-25); box-shadow: 0 0 20px var(--error-tint-08); }
-.card.c-wrn { border-color: var(--amber-tint-15); }
+.card.c-wrn { border-color: var(--accent-secondary-tint-15); }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 .c-hd {

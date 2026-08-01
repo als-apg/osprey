@@ -796,13 +796,17 @@ def test_wcag_gates_constant_matches_proposal_pairs_and_thresholds() -> None:
         ("accent.base", "bg.primary", 3.0),
         # accent.on is gated against accent.base (its fill), not bg.primary.
         ("accent.on", "accent.base", 4.5),
+        # accent-secondary.light is the secondary accent's text-safe slot and
+        # carries body text fleet-wide, so it is gated at the body-text floor
+        # rather than accent.base's non-text-UI 3.0.
+        ("accent-secondary.light", "bg.primary", 4.5),
     }
 
 
 def test_wcag_gates_aaa_constant_matches_high_contrast_thresholds() -> None:
-    # AAA body text (text.primary/secondary) requires 7:1; AAA large-scale
-    # text and non-text UI (text.muted/accent.base) requires 4.5:1 -- see
-    # WCAG_GATES_AAA's docstring/comment for the citation.
+    # AAA body text (text.primary/secondary, accent-secondary.light) requires
+    # 7:1; AAA large-scale text and non-text UI (text.muted/accent.base)
+    # requires 4.5:1 -- see WCAG_GATES_AAA's docstring/comment for the citation.
     pairs = {(gate.foreground, gate.background, gate.minimum) for gate in WCAG_GATES_AAA}
     assert pairs == {
         ("text.primary", "bg.primary", 7.0),
@@ -810,6 +814,9 @@ def test_wcag_gates_aaa_constant_matches_high_contrast_thresholds() -> None:
         ("text.muted", "bg.primary", 4.5),
         ("accent.base", "bg.primary", 4.5),
         ("accent.on", "accent.base", 7.0),
+        # Body text, so the 7:1 tier -- not the 4.5:1 large-text tier its
+        # accent.base sibling sits in.
+        ("accent-secondary.light", "bg.primary", 7.0),
     }
 
 

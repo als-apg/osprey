@@ -88,8 +88,8 @@
 .prompts-chip-toggle.active {
   border-style: solid;
   color: var(--bg-primary);
-  background: var(--color-amber);
-  border-color: var(--color-amber);
+  background: var(--color-accent-secondary);
+  border-color: var(--color-accent-secondary);
 }
 
 .prompts-chip-sep {
@@ -126,9 +126,9 @@
   font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   padding: 10px 12px 4px;
-  background: var(--amber-tint-04);
+  background: var(--accent-secondary-tint-04);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -216,9 +216,9 @@
 }
 
 .prompts-badge.user-owned {
-  color: var(--color-amber-light);
-  background: var(--amber-tint-12);
-  border: 1px solid var(--amber-tint-25);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-12);
+  border: 1px solid var(--accent-secondary-tint-25);
 }
 
 /* ---- Detail View — Header ---- */
@@ -638,7 +638,7 @@
   font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   margin-bottom: var(--space-2);
 }
 
@@ -811,9 +811,9 @@
 /* ---- Safety Layer Shield Pill ---- */
 
 .prompts-fm-pill-shield {
-  background: var(--amber-tint-12);
-  border-color: var(--amber-tint-25);
-  color: var(--color-amber-light);
+  background: var(--accent-secondary-tint-12);
+  border-color: var(--accent-secondary-tint-25);
+  color: var(--color-accent-secondary-light);
 }
 
 /* ---- No-diff Message ---- */

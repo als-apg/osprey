@@ -363,7 +363,7 @@ body.drawer-resizing {
   padding: 1px 4px;
   border-radius: var(--radius-xs);
   font-size: var(--text-base);
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   word-break: break-all;
 }
 
@@ -399,7 +399,7 @@ body.drawer-resizing {
 }
 
 .mcp-env-key {
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   font-weight: var(--weight-medium);
   flex-shrink: 0;
 }

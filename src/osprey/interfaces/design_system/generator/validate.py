@@ -324,8 +324,9 @@ class WcagGate:
 #: theme of the default/``main`` family (see :func:`gates_for_family`),
 #: per the proposal's WCAG AA gates: text.primary/secondary >= 4.5:1 (body
 #: text), text.muted >= 3:1 (large/secondary text), accent.base >= 3:1
-#: (non-text UI). Never weakened to fit a value — a failing value gets
-#: nudged in the token source instead.
+#: (non-text UI), accent-secondary.light >= 4.5:1 (body text). Never
+#: weakened to fit a value — a failing value gets nudged in the token
+#: source instead.
 WCAG_GATES: tuple[WcagGate, ...] = (
     WcagGate(foreground="text.primary", background="bg.primary", minimum=4.5),
     WcagGate(foreground="text.secondary", background="bg.primary", minimum=4.5),
@@ -335,19 +336,27 @@ WCAG_GATES: tuple[WcagGate, ...] = (
     # is gated against accent.base, not bg.primary — the one consumer-color
     # pairing the fleet actually depends on that bg.primary gates never see.
     WcagGate(foreground="accent.on", background="accent.base", minimum=4.5),
+    # accent-secondary.light is the secondary accent's text-safe slot (the
+    # base is decorative-only). It carries body text fleet-wide —
+    # .text-accent-secondary, .tag-accent-secondary, inline code, and the
+    # shell's orientation labels — so it is gated as body text, not as the
+    # non-text UI tier its .base sibling would fall under.
+    WcagGate(foreground="accent-secondary.light", background="bg.primary", minimum=4.5),
 )
 
 #: Required contrast pairs for the ``high-contrast`` theme family (WCAG
 #: AAA), evaluated the same way as :data:`WCAG_GATES`: text.primary/
 #: secondary >= 7:1 (AAA normal/body text — both are treated as body-weight
 #: here, not the "large text" AAA exception, which permits 4.5:1),
-#: text.muted/accent.base >= 4.5:1 (AAA large-scale text / non-text UI).
+#: text.muted/accent.base >= 4.5:1 (AAA large-scale text / non-text UI),
+#: accent-secondary.light >= 7:1 (body text, same tier as text.primary).
 WCAG_GATES_AAA: tuple[WcagGate, ...] = (
     WcagGate(foreground="text.primary", background="bg.primary", minimum=7.0),
     WcagGate(foreground="text.secondary", background="bg.primary", minimum=7.0),
     WcagGate(foreground="text.muted", background="bg.primary", minimum=4.5),
     WcagGate(foreground="accent.base", background="bg.primary", minimum=4.5),
     WcagGate(foreground="accent.on", background="accent.base", minimum=7.0),
+    WcagGate(foreground="accent-secondary.light", background="bg.primary", minimum=7.0),
 )
 
 #: Theme ``$extensions.family`` to its required WCAG gate tuple.

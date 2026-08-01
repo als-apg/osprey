@@ -5,7 +5,7 @@
  * ~/.claude/projects/<encoded>/memory/*.md via the /api/claude-memory
  * route family.
  *
- * Aesthetic: Lab-notebook with amber (primary MEMORY.md) and teal
+ * Aesthetic: Lab-notebook with the secondary accent (primary MEMORY.md) and teal
  * (topic files) accents, monospace typography, geometric icons.
  *
  * API endpoints consumed:

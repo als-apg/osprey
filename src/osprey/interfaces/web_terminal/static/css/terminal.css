@@ -190,11 +190,17 @@
   text-overflow: ellipsis;
 }
 
+/* Rides the secondary accent: the shell's three always-visible orientation
+   marks — what this is (here), which session (.terminal-label), which panel
+   (.panel-rail-button.active) — share one color, distinct from the primary
+   accent that means "you can act here". --color-accent-secondary-light is the
+   text-safe slot of the pair (the base is decorative-only and is not gated
+   for body text). */
 .header-title {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: var(--weight-regular);
-  color: var(--text-secondary);
+  color: var(--color-accent-secondary-light);
   text-transform: uppercase;
   letter-spacing: 0.14em;
 }
@@ -542,7 +548,7 @@ html[data-ui-mode="simple"] .display-menu-settings {
 .panel-rail::-webkit-scrollbar { display: none; }
 
 /* One panel entry: a flat 62×52 cell with a stacked icon + label. Active state
-   is a filled cell with an amber left-edge accent (see .active). */
+   is a filled cell with a secondary-accent left edge (see .active). */
 .panel-rail-button {
   position: relative;
   display: flex;
@@ -568,10 +574,16 @@ html[data-ui-mode="simple"] .display-menu-settings {
   background: var(--bg-elevated);
 }
 
+/* "This panel is active" is decorative state, not a fault, so the edge marker
+   rides the secondary accent rather than --color-warning. The two happen to
+   coincide on themes whose warning is orange-ish; on the rest, borrowing the
+   status color said the wrong thing. Uses the -light slot, not .base, for
+   both reasons the other orientation marks do: it is the gated one, and
+   .base clears only 2.3:1 against this cell's fill on desy-light. */
 .panel-rail-button.active {
   color: var(--text-primary);
   background: var(--bg-elevated);
-  border-left-color: var(--color-warning);
+  border-left-color: var(--color-accent-secondary-light);
 }
 
 .panel-rail-button.disabled {
@@ -877,7 +889,7 @@ html[data-rail-position="top"] .panel-rail-button {
 
 /* Active state deliberately echoes the old header tabs: accent-colored
    label with an accent underline (teal under the retro family, blue
-   under the flat themes) instead of the column rail's amber left edge. */
+   under the flat themes) instead of the column rail's secondary-accent edge. */
 html[data-rail-position="top"] .panel-rail-button.active {
   background: transparent;
   color: var(--color-accent-light);
@@ -1101,11 +1113,13 @@ html[data-rail-position="top"] .rail-hint {
   background: var(--color-success);
 }
 
+/* "SESSION <hex>" — the second of the shell's orientation marks (see
+   .header-title). */
 .terminal-label {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-  color: var(--text-secondary);
+  color: var(--color-accent-secondary-light);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }

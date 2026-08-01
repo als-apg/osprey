@@ -2,13 +2,13 @@
  * OSPREY Artifact Gallery — Styles
  *
  * "Precision Instrumentation" aesthetic — an industrial control-room feel
- * with monospace readouts, teal instrument indicators, amber warnings,
+ * with monospace readouts, teal instrument indicators, a warm secondary accent,
  * and deep-blue panel backgrounds. Split-pane browse view with file tree
  * and activity timeline modes.
  *
  * Color/font tokens come from the shared design system
  * (/design-system/css/tokens.css, linked in index.html's <head> before
- * this file) — --bg-*, --text-*, --color-accent*, --color-amber*,
+ * this file) — --bg-*, --text-*, --color-accent*, --color-accent-secondary*,
  * --color-success/warning/error, --border-default/accent, --font-display,
  * --font-mono, --accent-tint-10, and the artifacts-only --art-violet-*
  * extensions. Only concepts with no fleet-wide equivalent (a few extra
@@ -22,12 +22,12 @@
 
 :root {
   /* === Local-only color shades ===
-     No canonical "-dark" accent/amber step exists; both are close to a
+     No canonical "-dark" accent/accent-secondary step exists; both are close to a
      70-80% mix toward black of the canonical base, so they're expressed
      that way instead of a hand-picked literal — same result, and it
      tracks the canonical color automatically if that ever moves. */
   --color-accent-dark: color-mix(in srgb, var(--color-accent) 70%, black);
-  --color-amber-dark: color-mix(in srgb, var(--color-amber) 80%, black);
+  --color-accent-secondary-dark: color-mix(in srgb, var(--color-accent-secondary) 80%, black);
   /* No canonical generic "info" status token, but this gallery's info
      blue has always been exactly --ansi-blue in both themes. */
   --color-info: var(--ansi-blue);
@@ -172,7 +172,7 @@ code {
   padding: 0.15em 0.4em;
   background: var(--bg-elevated);
   border-radius: var(--art-radius-sm);
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   border: 1px solid var(--neutral-tint-10);
 }
 
@@ -209,7 +209,7 @@ code {
 .text-muted { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
 .text-accent { color: var(--color-accent-light); }
-.text-amber { color: var(--color-amber-light); }
+.text-accent-secondary { color: var(--color-accent-secondary-light); }
 .text-sm { font-size: var(--art-text-sm); }
 .text-xs { font-size: var(--art-text-xs); }
 .font-mono { font-family: var(--font-mono); }
@@ -974,9 +974,9 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .tree-item-badge.mod {
-  color: var(--color-amber);
-  background: var(--amber-tint-08);
-  border: 1px solid var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border: 1px solid var(--accent-secondary-tint-15);
 }
 
 .tree-item-size {
@@ -1901,8 +1901,10 @@ html[data-browse-orient="column"] .sidebar-body {
   border: 1px solid color-mix(in srgb, var(--art-violet-base) 15%, transparent);
 }
 
+/* An importance star rates a memory; it does not report a fault. Decorative
+   emphasis is the secondary accent's job, not --color-warning's. */
 .mem-importance-star {
-  color: var(--color-warning);
+  color: var(--color-accent-secondary-light);
   font-size: var(--art-text-sm);
 }
 
@@ -1975,9 +1977,9 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .logo-count.context-count {
-  color: var(--color-amber);
-  background: var(--amber-tint-15);
-  border-color: var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-15);
+  border-color: var(--accent-secondary-tint-15);
 }
 
 /* ================================================================
@@ -2007,7 +2009,7 @@ html[data-browse-orient="column"] .sidebar-body {
 }
 
 .json-string {
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 .json-number {
@@ -2131,7 +2133,7 @@ body.fullscreen-mode .fullscreen-enter-btn {
   display: none;
 }
 
-/* New artifact badge — amber pill, hidden by default */
+/* New artifact badge — secondary-accent pill, hidden by default */
 .fullscreen-new-badge {
   display: none;
   align-items: center;
@@ -2139,9 +2141,9 @@ body.fullscreen-mode .fullscreen-enter-btn {
   font-size: 10px;
   font-weight: 500;
   letter-spacing: var(--tracking-wide);
-  color: var(--color-amber);
-  background: var(--amber-tint-15);
-  border: 1px solid var(--amber-tint-25);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-15);
+  border: 1px solid var(--accent-secondary-tint-25);
   border-radius: var(--art-radius-full);
   padding: 2px 8px;
   cursor: pointer;
@@ -2150,7 +2152,7 @@ body.fullscreen-mode .fullscreen-enter-btn {
 }
 
 .fullscreen-new-badge:hover {
-  background: var(--amber-tint-25);
+  background: var(--accent-secondary-tint-25);
 }
 
 body.fullscreen-mode .fullscreen-new-badge[data-count]:not([data-count="0"]) {
@@ -2244,9 +2246,9 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .ts-query-badge.downsampled {
-  color: var(--color-amber-light);
-  border-color: var(--amber-tint-25);
-  background: var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  border-color: var(--accent-secondary-tint-25);
+  background: var(--accent-secondary-tint-15);
 }
 
 .ts-chart-container {
@@ -2375,9 +2377,9 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .ts-info-bar .ts-badge.ts-badge-downsampled {
-  color: var(--color-amber-light);
-  border-color: var(--amber-tint-25);
-  background: var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  border-color: var(--accent-secondary-tint-25);
+  background: var(--accent-secondary-tint-15);
 }
 
 /* ---- Toolbar (channel toggles + action buttons) ---- */
@@ -2708,9 +2710,9 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   gap: var(--art-space-1);
   font-family: var(--font-mono);
   font-size: var(--art-text-xs);
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   background: transparent;
-  border: 1px solid var(--color-amber-dark);
+  border: 1px solid var(--color-accent-secondary-dark);
   border-radius: var(--art-radius-sm);
   padding: 3px 8px;
   cursor: pointer;
@@ -2720,9 +2722,9 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .logbook-action-btn:hover {
-  background: var(--amber-tint-15);
-  border-color: var(--color-amber);
-  color: var(--color-amber-light);
+  background: var(--accent-secondary-tint-15);
+  border-color: var(--color-accent-secondary);
+  color: var(--color-accent-secondary-light);
 }
 
 .logbook-action-btn svg {
@@ -3028,7 +3030,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   border: 1px solid var(--border-default);
   border-radius: 3px;
   padding: 1px 4px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 .osprey-md-rendered pre {
@@ -3083,16 +3085,16 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   margin: 0.8em 0;
   padding: 8px 12px;
   background: var(--bg-secondary);
-  border-left: 3px solid var(--color-amber);
+  border-left: 3px solid var(--color-accent-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   white-space: pre-wrap;
 }
 .osprey-md-rendered .katex-error-inline {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   background: var(--bg-elevated);
   padding: 1px 4px;
   border-radius: 3px;
@@ -3159,7 +3161,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   border-color: var(--error-tint-40);
 }
 
-/* Logbook button — override to icon-only 28x28, keep amber identity */
+/* Logbook button — override to icon-only 28x28, keep secondary-accent identity */
 .preview-header-actions .logbook-action-btn {
   width: 28px;
   height: 28px;

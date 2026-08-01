@@ -131,9 +131,9 @@
   font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   padding: 6px 12px;
-  background: var(--amber-tint-06);
+  background: var(--accent-secondary-tint-06);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
@@ -230,7 +230,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--color-amber);
+  background: var(--color-accent-secondary);
   flex-shrink: 0;
   opacity: 0;
   transition: opacity var(--duration-slow) ease;

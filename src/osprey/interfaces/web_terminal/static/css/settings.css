@@ -55,12 +55,12 @@
   padding: 10px 16px;
   cursor: pointer;
   user-select: none;
-  background: var(--amber-tint-04);
+  background: var(--accent-secondary-tint-04);
   transition: background var(--wt-transition-fast);
 }
 
 .settings-section-header:hover {
-  background: var(--amber-tint-08);
+  background: var(--accent-secondary-tint-08);
 }
 
 .settings-section-chevron {
@@ -83,7 +83,7 @@
   font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
 }
 
 .settings-section-body {
@@ -100,7 +100,7 @@
 .settings-subgroup {
   margin-top: var(--space-2);
   padding-left: var(--space-3);
-  border-left: 1px solid var(--amber-tint-15);
+  border-left: 1px solid var(--accent-secondary-tint-15);
 }
 
 .settings-subgroup-label {
@@ -109,7 +109,7 @@
   font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   opacity: 0.7;
   padding: 6px 0 2px;
 }
@@ -422,7 +422,7 @@
 }
 
 .settings-confirm-btn:hover {
-  background: var(--color-amber-hover);
+  background: var(--color-accent-secondary-hover);
 }
 
 /* ---- Loading / Error ---- */
@@ -499,7 +499,7 @@
 }
 
 .hook-debug-log-header:hover {
-  background: var(--amber-tint-04);
+  background: var(--accent-secondary-tint-04);
 }
 
 .hook-debug-log-chevron {

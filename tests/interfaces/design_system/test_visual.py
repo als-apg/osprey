@@ -472,14 +472,24 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
                     if target.dismiss_welcome:
                         page.locator("#welcome-dismiss").click(timeout=15_000)
                     if target.dock_shell:
-                        # The dockview grid and the auto-docked artifacts overlay
-                        # iframe settle a beat after the rail renders; wait for both
-                        # so the baseline captures the built default layout, not a
-                        # half-constructed (empty) grid.
+                        # The dockview grid settles a beat after the rail renders;
+                        # wait for it so the baseline captures the built layout,
+                        # not a half-constructed (empty) grid.
                         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
-                        expect(
-                            page.locator('.dock-iframe-overlay iframe[data-panel-id="artifacts"]')
-                        ).to_be_visible(timeout=10_000)
+                        # The auto-docked service overlay is expert-only. Simple
+                        # mode over an empty agent workspace boots chat-only by
+                        # design (panel-manager.js's `workspaceSuppressed`: simple
+                        # + /api/panels workspace_has_artifacts false => no
+                        # placeholder is ever created), and these fixtures always
+                        # build a fresh, empty workspace. Waiting for the overlay
+                        # in that mode waits for something that correctly never
+                        # arrives; the chat-only shell IS the state to capture.
+                        if mode != "simple":
+                            expect(
+                                page.locator(
+                                    '.dock-iframe-overlay iframe[data-panel-id="artifacts"]'
+                                )
+                            ).to_be_visible(timeout=10_000)
                     # Let async init (panel health polling, SSE-driven layout,
                     # font swaps) settle before the screenshot.
                     page.wait_for_timeout(600)

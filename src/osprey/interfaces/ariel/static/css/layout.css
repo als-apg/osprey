@@ -55,7 +55,7 @@
 }
 
 .logo-text {
-  background: linear-gradient(90deg, var(--color-accent-light), var(--color-amber));
+  background: linear-gradient(90deg, var(--color-accent-light), var(--color-accent-secondary));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

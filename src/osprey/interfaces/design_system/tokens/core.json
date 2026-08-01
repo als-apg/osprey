@@ -36,19 +36,19 @@
       "700": { "$value": "#065f5c", "$type": "color", "$description": "wt-welcome.link-hover (light)" }
     },
     "amber": {
-      "$description": "Decorative amber accent + warning status family. Dark/light diverge because light-theme amber uses a deeper shade for on-light contrast.",
-      "100": { "$value": "#e8c9a0", "$type": "color", "$description": "amber.light (dark)" },
+      "$description": "Hue family behind the accent-secondary role and the warning status. Dark/light diverge because the light themes need a deeper shade for on-light contrast.",
+      "100": { "$value": "#e8c9a0", "$type": "color", "$description": "accent-secondary.light (dark)" },
       "200": { "$value": "#fbbf24", "$type": "color", "$description": "terminal.ansi.bright-yellow (dark)" },
       "250": { "$value": "#eab308", "$type": "color", "$description": "lattice LED computing status (single-use, dashboard.css --led-computing)" },
-      "300": { "$value": "#d4a574", "$type": "color", "$description": "amber.base (dark)" },
+      "300": { "$value": "#d4a574", "$type": "color", "$description": "accent-secondary.base (dark)" },
       "350": { "$value": "#f5b73d", "$type": "color", "$description": "status.warning / ansi.yellow (dark) — web-terminal redesign frame 2a Grafana yellow" },
       "400": { "$value": "#f59e0b", "$type": "color", "$description": "status.warning (dark); terminal.ansi.yellow (dark); terminal.ansi.bright-yellow (light)" },
-      "500": { "$value": "#e08e00", "$type": "color", "$description": "amber.hover (dark)" },
+      "500": { "$value": "#e08e00", "$type": "color", "$description": "accent-secondary.hover (dark)" },
       "600": { "$value": "#d97706", "$type": "color", "$description": "status.warning (light); terminal.ansi.yellow (light)" },
-      "700": { "$value": "#c07a00", "$type": "color", "$description": "amber.hover (light)" },
+      "700": { "$value": "#c07a00", "$type": "color", "$description": "accent-secondary.hover (light)" },
       "750": { "$value": "#b5710d", "$type": "color", "$description": "status.warning / ansi.yellow (light) — web-terminal redesign frame 2c ochre" },
-      "800": { "$value": "#a07040", "$type": "color", "$description": "amber.base (light)" },
-      "900": { "$value": "#7a5530", "$type": "color", "$description": "amber.light (light)" }
+      "800": { "$value": "#a07040", "$type": "color", "$description": "accent-secondary.base (light)" },
+      "900": { "$value": "#7a5530", "$type": "color", "$description": "accent-secondary.light (light)" }
     },
     "red": {
       "$description": "Error/danger status family.",
@@ -145,11 +145,11 @@
       "600": { "$value": "#00619e", "$type": "color", "$description": "accent.light / hover-emphasis (desy-light)" }
     },
     "orange": {
-      "$description": "DESY brand orange family (DESY Styleguide 06/24) — the brand's accent colour, mapped onto the decorative-amber semantic slot in the `desy` theme family. #f18f1f is the brand orange; #eb6e0f is DESY's official screen-accessibility variant.",
-      "200": { "$value": "#f6ae5c", "$type": "color", "$description": "amber.light (desy-dark)" },
-      "300": { "$value": "#f18f1f", "$type": "color", "$description": "DESY brand orange — amber.base + status.warning (desy-dark); amber.hover (desy-light)" },
-      "500": { "$value": "#eb6e0f", "$type": "color", "$description": "DESY accessibility orange (official styleguide hex) — amber.hover (desy-dark); amber.base + status.warning (desy-light)" },
-      "650": { "$value": "#c25a0b", "$type": "color", "$description": "amber.light (desy-light) — deeper on-light shade, mirroring the main light theme's darker amber.light slot" }
+      "$description": "DESY brand orange family (DESY Styleguide 06/24) — the brand's accent colour, mapped onto the accent-secondary semantic slot in the `desy` theme family. #f18f1f is the brand orange; #eb6e0f is DESY's official screen-accessibility variant.",
+      "200": { "$value": "#f6ae5c", "$type": "color", "$description": "accent-secondary.light (desy-dark)" },
+      "300": { "$value": "#f18f1f", "$type": "color", "$description": "DESY brand orange — accent-secondary.base + status.warning (desy-dark); accent-secondary.hover (desy-light)" },
+      "500": { "$value": "#eb6e0f", "$type": "color", "$description": "DESY accessibility orange (official styleguide hex) — accent-secondary.hover (desy-dark); accent-secondary.base + status.warning (desy-light)" },
+      "650": { "$value": "#ad5009", "$type": "color", "$description": "accent-secondary.light (desy-light) — deeper on-light shade, mirroring the main light theme's darker accent-secondary.light slot. Darkened from #c25a0b, which scored only 4.13:1 on desy-light's canvas: this slot carries body text (.text-accent-secondary, .tag-accent-secondary, inline code, the shell's orientation labels), so it is gated at AA 4.5:1 and now clears it at 5.00:1. Same hue as the brand orange, one rung down in lightness — the styleguide's #eb6e0f stays untouched in accent-secondary.base and status.warning." }
     },
     "petrol": {
       "$description": "Cyan-hued neutral ramp for the `desy` theme family's canvas and text — hue ~203°, taken from DESY dark blue #004a6e (the styleguide's 'black to dark blue' background direction), desaturating toward the light end. Light steps (50–300) are the desy-light canvas; dark steps (750–950) are the desy-dark canvas; mids carry text/border shades for both modes.",

@@ -29,7 +29,7 @@ happens. Everything below is built around that.
 The left **rail** is a membership list: an entry exists only while its panel is a
 member; a hidden panel waits in the "+" catalog. The workspace shows **one panel
 per tile**, each with its own header bar. `switch_panel` swaps which panel holds
-the focused tile — the amber accent moves on the rail, and the previous panel
+the focused tile — the active marker moves on the rail, and the previous panel
 stays one rail-click away with its state intact. `hide_panel` removes the rail
 entry *and* closes its tile; `show_panel` adds the entry back (with a glow) but
 does not put the panel on screen — follow it with `switch_panel` when the audience
@@ -100,7 +100,7 @@ the agent can reach every one of them.
    is for, in one line each. Say which one holds the tile now.
 2. **Switch** — `switch_panel` through two or three of them, pausing on each with a
    sentence about what an operator uses it for. Tell the audience to watch the
-   tile swap and the amber accent move on the rail. Choose panels that look
+   tile swap and the active marker move on the rail. Choose panels that look
    different from each other; three similar-looking pages is a dull tour.
 3. **Reshape** — `hide_panel` one panel: its rail entry vanishes and its tile
    closes — say it now waits in the "+" catalog. Then `show_panel` it back and

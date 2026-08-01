@@ -133,7 +133,7 @@ export function renderStatusIndicator(healthy, label) {
 /**
  * Render a tag list.
  * @param {string[]} tags - Tag values
- * @param {string} type - Tag type (default, accent, amber)
+ * @param {string} type - Tag type (default, accent, accent-secondary)
  * @returns {string} HTML string
  */
 export function renderTags(tags, type = '') {

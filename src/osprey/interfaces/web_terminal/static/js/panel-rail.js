@@ -254,7 +254,7 @@ export function getEntry(railEl, panelId) {
 }
 
 /**
- * Mark exactly one entry active (the amber left-edge accent lives on
+ * Mark exactly one entry active (the secondary-accent left edge lives on
  * `.panel-rail-button.active` in CSS) and clear it from every other entry.
  * Passing an id with no matching entry clears the active state on all.
  * @param {HTMLElement} railEl

@@ -83,7 +83,7 @@
 
 @keyframes perm-col-flash {
   0%, 100% { background: transparent; }
-  50% { background: var(--amber-tint-15); }
+  50% { background: var(--accent-secondary-tint-15); }
 }
 
 /* Drop zone highlight when dragging over */

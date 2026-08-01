@@ -1,5 +1,5 @@
 {
-  "$description": "Light theme ('Lab Instrument Panel') — remapped to the web-terminal redesign (Panel Designs frame 2c): a grey canvas (#f4f5f5) with white panel cards (#fafbfc), a Grafana-blue accent (azure family — working candidate, final blue-vs-teal decision deferred to the accent-decision-gate), and Grafana status colors. Same key set as dark.json (contract-enforced). Solid colors are one-hop aliases into core.json; accent-derived composites recomputed for the azure accent (accent tints + border.accent as rgba; terminal selection uses the azure.50 solid tint #e8f1fb per frame 2c); non-accent tint families neutral/error/success re-based onto the new gray neutral and Grafana status primitives (consistency follow-up); tint.amber tracks the unchanged decorative-amber base. WCAG AA gates all pass vs bg.primary (#f4f5f5): text.primary 13.43:1, text.secondary 4.62:1, text.muted 3.27:1, accent 5.34:1, accent.on 5.63:1. Nudge: frame 2c's muted #a3a4a6 scores only 2.28:1 on this light canvas (below the 3:1 floor), so text.muted uses the darker #86878f.",
+  "$description": "Light theme ('Lab Instrument Panel') — remapped to the web-terminal redesign (Panel Designs frame 2c): a grey canvas (#f4f5f5) with white panel cards (#fafbfc), a Grafana-blue accent (azure family — working candidate, final blue-vs-teal decision deferred to the accent-decision-gate), and Grafana status colors. Same key set as dark.json (contract-enforced). Solid colors are one-hop aliases into core.json; accent-derived composites recomputed for the azure accent (accent tints + border.accent as rgba; terminal selection uses the azure.50 solid tint #e8f1fb per frame 2c); non-accent tint families neutral/error/success re-based onto the new gray neutral and Grafana status primitives (consistency follow-up); tint.accent-secondary tracks the unchanged secondary-accent base. WCAG AA gates all pass vs bg.primary (#f4f5f5): text.primary 13.43:1, text.secondary 4.62:1, text.muted 3.27:1, accent 5.34:1, accent.on 5.63:1. Nudge: frame 2c's muted #a3a4a6 scores only 2.28:1 on this light canvas (below the 3:1 floor), so text.muted uses the darker #86878f.",
   "$extensions": { "mode": "light", "id": "light", "label": "Light", "family": "main" },
   "bg": {
     "terminal": { "$value": "{color.gray.50}", "$type": "color" },
@@ -18,7 +18,7 @@
     "light": { "$value": "{color.azure.500}", "$type": "color", "$description": "Provisional = accent.base; frames specify only the base accent, the hover/light shade is deferred to the accent-decision-gate." },
     "on": { "$value": "{color.gray.50}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 5.63:1 on azure.500." }
   },
-  "amber": {
+  "accent-secondary": {
     "base": { "$value": "{color.amber.800}", "$type": "color" },
     "light": { "$value": "{color.amber.900}", "$type": "color" },
     "hover": { "$value": "{color.amber.700}", "$type": "color" }
@@ -44,7 +44,7 @@
       "25": { "$value": "rgba(31, 98, 196, 0.25)", "$type": "color" },
       "30": { "$value": "rgba(31, 98, 196, 0.30)", "$type": "color" }
     },
-    "amber": {
+    "accent-secondary": {
       "04": { "$value": "rgba(160, 112, 64, 0.04)", "$type": "color" },
       "06": { "$value": "rgba(160, 112, 64, 0.06)", "$type": "color" },
       "08": { "$value": "rgba(160, 112, 64, 0.08)", "$type": "color" },

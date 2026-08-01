@@ -27,15 +27,18 @@ __all__ = ["PROMOTED_PRIMITIVE_GROUPS", "css_variable_name", "promoted_css_name"
 _EXCLUDED_GROUPS = frozenset({"code"})
 
 #: Dot-path -> CSS custom property name overrides that don't follow the
-#: naive kebab-join rule, preserving today's widely-used legacy names
-#: (per Task 1.1's naming-reconciliation report).
+#: naive kebab-join rule. Most preserve today's widely-used legacy names;
+#: the ``accent``/``accent-secondary``/``status`` entries also keep the two
+#: accent roles and the status colors on a single ``--color-*`` prefix, so
+#: the emitted names read as one semantic family rather than as whatever
+#: their group nesting happens to be.
 _NAME_OVERRIDES: dict[str, str] = {
     "accent.base": "--color-accent",
     "accent.light": "--color-accent-light",
     "accent.on": "--color-on-accent",
-    "amber.base": "--color-amber",
-    "amber.light": "--color-amber-light",
-    "amber.hover": "--color-amber-hover",
+    "accent-secondary.base": "--color-accent-secondary",
+    "accent-secondary.light": "--color-accent-secondary-light",
+    "accent-secondary.hover": "--color-accent-secondary-hover",
     "status.success": "--color-success",
     "status.warning": "--color-warning",
     "status.error": "--color-error",

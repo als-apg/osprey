@@ -18,7 +18,7 @@
     "light": { "$value": "{color.teal.500}", "$type": "color" },
     "on": { "$value": "{color.slate.1000}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 4.85:1 on teal.400 (white would be 3.95:1, sub-AA)." }
   },
-  "amber": {
+  "accent-secondary": {
     "base": { "$value": "{color.amber.800}", "$type": "color" },
     "light": { "$value": "{color.amber.900}", "$type": "color" },
     "hover": { "$value": "{color.amber.700}", "$type": "color" }
@@ -44,7 +44,7 @@
       "25": { "$value": "rgba(13, 115, 119, 0.25)", "$type": "color" },
       "30": { "$value": "rgba(13, 115, 119, 0.30)", "$type": "color" }
     },
-    "amber": {
+    "accent-secondary": {
       "04": { "$value": "rgba(160, 112, 64, 0.04)", "$type": "color" },
       "06": { "$value": "rgba(160, 112, 64, 0.06)", "$type": "color" },
       "08": { "$value": "rgba(160, 112, 64, 0.08)", "$type": "color" },

@@ -1,5 +1,5 @@
 {
-  "$description": "DESY light theme — the DESY corporate palette (DESY Styleguide 06/24) on a white-forward canvas, per the styleguide's external-communications rule ('higher proportion of white with the DESY branding elements in their standard colours'). The terminal surface is pure white; page backgrounds are the light end of the petrol neutral ramp (cold near-whites at the DESY dark-blue hue). accent.base is cyan.450 #0077c4 — DESY's official screen-accessibility cyan #007bc8 nudged 2 points darker because white-on-#007bc8 scores 4.4995:1, a hair under the 4.5:1 accent.on gate (see the cyan family description in core.json). The decorative-amber slot carries DESY accessibility orange #eb6e0f. Status colors and the non-cyan/orange ANSI + chart slots keep the main light theme's functional primitives. WCAG AA gates all pass vs bg.primary (#f3f8fc): text.primary 9.02:1, text.secondary 5.61:1, text.muted 3.40:1, accent 4.43:1, accent.on (white on accent) 4.73:1.",
+  "$description": "DESY light theme — the DESY corporate palette (DESY Styleguide 06/24) on a white-forward canvas, per the styleguide's external-communications rule ('higher proportion of white with the DESY branding elements in their standard colours'). The terminal surface is pure white; page backgrounds are the light end of the petrol neutral ramp (cold near-whites at the DESY dark-blue hue). accent.base is cyan.450 #0077c4 — DESY's official screen-accessibility cyan #007bc8 nudged 2 points darker because white-on-#007bc8 scores 4.4995:1, a hair under the 4.5:1 accent.on gate (see the cyan family description in core.json). The accent-secondary slot carries DESY accessibility orange #eb6e0f. Status colors and the non-cyan/orange ANSI + chart slots keep the main light theme's functional primitives. WCAG AA gates all pass vs bg.primary (#f3f8fc): text.primary 9.02:1, text.secondary 5.61:1, text.muted 3.40:1, accent 4.43:1, accent.on (white on accent) 4.73:1.",
   "$extensions": { "mode": "light", "id": "desy-light", "label": "DESY Light", "family": "desy" },
   "bg": {
     "terminal": { "$value": "{color.mono.0}", "$type": "color", "$description": "Pure white terminal surface — the styleguide's 'higher proportion of white'." },
@@ -18,9 +18,9 @@
     "light": { "$value": "{color.cyan.600}", "$type": "color", "$description": "Darker emphasis/hover shade — light mode darkens on hover, mirroring the retro-light pattern." },
     "on": { "$value": "{color.mono.0}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 4.73:1 on cyan.450." }
   },
-  "amber": {
-    "base": { "$value": "{color.orange.500}", "$type": "color", "$description": "DESY accessibility orange #eb6e0f in the decorative-amber slot — the styleguide's prescribed on-screen orange for light backgrounds." },
-    "light": { "$value": "{color.orange.650}", "$type": "color", "$description": "Deeper on-light shade — the main light theme's amber.light slot is likewise darker than its base." },
+  "accent-secondary": {
+    "base": { "$value": "{color.orange.500}", "$type": "color", "$description": "DESY accessibility orange #eb6e0f in the accent-secondary slot — the styleguide's prescribed on-screen orange for light backgrounds." },
+    "light": { "$value": "{color.orange.650}", "$type": "color", "$description": "Deeper on-light shade — the main light theme's accent-secondary.light slot is likewise darker than its base." },
     "hover": { "$value": "{color.orange.300}", "$type": "color", "$description": "Brand orange #f18f1f as the brighter hover, mirroring the main light theme's lighter-than-base hover." }
   },
   "status": {
@@ -44,8 +44,8 @@
       "25": { "$value": "rgba(0, 119, 196, 0.25)", "$type": "color" },
       "30": { "$value": "rgba(0, 119, 196, 0.30)", "$type": "color" }
     },
-    "amber": {
-      "$description": "Base rgb(235,110,15) = amber.base (DESY accessibility orange #eb6e0f).",
+    "accent-secondary": {
+      "$description": "Base rgb(235,110,15) = accent-secondary.base (DESY accessibility orange #eb6e0f).",
       "04": { "$value": "rgba(235, 110, 15, 0.04)", "$type": "color" },
       "06": { "$value": "rgba(235, 110, 15, 0.06)", "$type": "color" },
       "08": { "$value": "rgba(235, 110, 15, 0.08)", "$type": "color" },

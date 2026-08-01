@@ -208,7 +208,7 @@ body.embedded .panel-chrome { display: none; }
   border-radius: 50%;
 }
 .dot.ok   { background: var(--color-success); }
-.dot.warn { background: var(--color-amber); }
+.dot.warn { background: var(--color-accent-secondary); }
 .dot.err  { background: var(--color-error); }
 
 /* ---- Detail pane ---- */
@@ -327,7 +327,7 @@ body.embedded .panel-chrome { display: none; }
 .draft-agent-note {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
 }
 /* Agent-draft banner: "agent drafted <plan> — View draft". Replaces the
  * passive affordance while active (draft-client suppresses the affordance
@@ -847,9 +847,9 @@ select.field-input { cursor: pointer; }
   border-color: var(--color-success);
 }
 .banner-warn {
-  color: var(--color-amber);
-  background: var(--amber-tint-08);
-  border-color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border-color: var(--color-accent-secondary);
 }
 .banner-err {
   color: var(--color-error);
@@ -886,11 +886,11 @@ select.field-input { cursor: pointer; }
   border-color: var(--border-default);
 }
 .btn.confirm {
-  background: var(--color-amber);
+  background: var(--color-accent-secondary);
   color: var(--color-on-accent);
 }
 .btn.confirm:hover:not(:disabled) {
-  background: var(--color-amber-hover);
+  background: var(--color-accent-secondary-hover);
 }
 
 code {

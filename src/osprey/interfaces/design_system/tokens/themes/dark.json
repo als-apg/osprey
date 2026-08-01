@@ -1,5 +1,5 @@
 {
-  "$description": "Dark theme — remapped to the web-terminal redesign (Panel Designs frame 2a): a Grafana-style neutral canvas via the gray primitive family, a Grafana-blue accent (azure family — the working candidate; the final blue-vs-teal accent decision is deferred to the accent-decision-gate), and Grafana status colors. Solid colors are one-hop aliases into core.json; accent-derived alpha composites (accent tints, border.accent, terminal selection) were recomputed for the azure accent. Non-accent tint families neutral/error/success were re-based onto the new gray neutral and Grafana status primitives (consistency follow-up); tint.amber tracks the unchanged decorative-amber base. WCAG AA gates all pass vs bg.primary (#111217): text.primary 11.79:1, text.secondary 5.78:1, text.muted 3.71:1, accent 7.18:1, accent.on 7.18:1. Nudge: frame 2a's faint-text #565b64 scores only 2.74:1 on this very dark canvas (below the 3:1 floor), so text.muted uses the slightly lighter #6e6e77.",
+  "$description": "Dark theme — remapped to the web-terminal redesign (Panel Designs frame 2a): a Grafana-style neutral canvas via the gray primitive family, a Grafana-blue accent (azure family — the working candidate; the final blue-vs-teal accent decision is deferred to the accent-decision-gate), and Grafana status colors. Solid colors are one-hop aliases into core.json; accent-derived alpha composites (accent tints, border.accent, terminal selection) were recomputed for the azure accent. Non-accent tint families neutral/error/success were re-based onto the new gray neutral and Grafana status primitives (consistency follow-up); tint.accent-secondary tracks the unchanged secondary-accent base. WCAG AA gates all pass vs bg.primary (#111217): text.primary 11.79:1, text.secondary 5.78:1, text.muted 3.71:1, accent 7.18:1, accent.on 7.18:1. Nudge: frame 2a's faint-text #565b64 scores only 2.74:1 on this very dark canvas (below the 3:1 floor), so text.muted uses the slightly lighter #6e6e77.",
   "$extensions": { "mode": "dark", "id": "dark", "label": "Dark", "family": "main", "default": true },
   "bg": {
     "terminal": { "$value": "{color.gray.900}", "$type": "color" },
@@ -18,7 +18,7 @@
     "light": { "$value": "{color.azure.300}", "$type": "color", "$description": "Provisional = accent.base; frames specify only the base accent, the hover/light shade is deferred to the accent-decision-gate." },
     "on": { "$value": "{color.gray.950}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 7.18:1 on azure.300." }
   },
-  "amber": {
+  "accent-secondary": {
     "base": { "$value": "{color.amber.300}", "$type": "color" },
     "light": { "$value": "{color.amber.100}", "$type": "color" },
     "hover": { "$value": "{color.amber.500}", "$type": "color" }
@@ -44,7 +44,7 @@
       "25": { "$value": "rgba(110, 159, 255, 0.25)", "$type": "color" },
       "30": { "$value": "rgba(110, 159, 255, 0.30)", "$type": "color" }
     },
-    "amber": {
+    "accent-secondary": {
       "04": { "$value": "rgba(212, 165, 116, 0.04)", "$type": "color" },
       "06": { "$value": "rgba(212, 165, 116, 0.06)", "$type": "color" },
       "08": { "$value": "rgba(212, 165, 116, 0.08)", "$type": "color" },

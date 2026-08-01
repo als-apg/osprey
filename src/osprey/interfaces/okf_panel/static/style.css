@@ -6,7 +6,7 @@
  * same "Precision Instrumentation" design system as every other OSPREY
  * interface and honours the hub's dark/light theme automatically:
  *   --bg-primary/secondary/panel/elevated, --text-primary/secondary/muted,
- *   --color-accent[-light], --color-amber-light, --color-success/warning,
+ *   --color-accent[-light], --color-accent-secondary-light, --color-success/warning,
  *   --border-default/accent, --font-display, --font-mono, and the
  *   --accent-tint-N and --neutral-tint-N ramps. (Never write the token
  *   families glob-style here: an asterisk followed by a slash terminates
@@ -385,7 +385,7 @@ body {
   border: 1px solid var(--border-default);
   border-radius: 3px;
   padding: 1px 4px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 .osprey-md-rendered pre {
@@ -492,7 +492,7 @@ body {
 }
 
 .bundle-health.has-warnings .health-text {
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 /* ================================================================
