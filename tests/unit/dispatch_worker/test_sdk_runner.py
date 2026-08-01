@@ -69,11 +69,11 @@ async def _drain(queue: asyncio.Queue) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_happy_path(monkeypatch):
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(content=[TextBlock(text="hello world")], model="m")
         yield _result_message(cost_usd=0.5, num_turns=4)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
@@ -98,7 +98,7 @@ async def test_tool_result_in_user_message_is_captured(monkeypatch):
     must pair them with the originating ToolUseBlock (permission-denial
     messages surface this way; the parity e2e depends on seeing them)."""
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(
             content=[ToolUseBlock(id="tu1", name="mcp__x__y", input={})], model="m"
         )
@@ -112,7 +112,7 @@ async def test_tool_result_in_user_message_is_captured(monkeypatch):
         )
         yield _result_message(cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue())
 
@@ -147,12 +147,12 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
     captured: dict = {}
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         captured["options"] = options
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
 
     # Act
     await sdk_runner.run_dispatch(
@@ -215,12 +215,12 @@ async def test_config_file_env_points_at_project(monkeypatch):
     monkeypatch.setenv("OSPREY_PROJECT_DIR", "/srv/myproj")
     captured: dict = {}
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         captured["options"] = options
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert captured["options"].env["CONFIG_FILE"] == "/srv/myproj/config.yml"
@@ -234,7 +234,7 @@ async def test_sdk_missing(monkeypatch):
     def _boom(*a, **k):
         raise AssertionError("query should not be called when HAS_SDK is False")
 
-    monkeypatch.setattr(sdk_runner, "query", _boom)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", _boom)
 
     result = await sdk_runner.run_dispatch("do it", ["Read"])
     assert result["status"] == "error"
@@ -243,11 +243,11 @@ async def test_sdk_missing(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancellation_propagates(monkeypatch):
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(content=[TextBlock(text="partial")], model="m")
         raise asyncio.CancelledError
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
 
     with pytest.raises(asyncio.CancelledError):
         await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
@@ -255,11 +255,11 @@ async def test_cancellation_propagates(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_error_path_does_not_raise(monkeypatch):
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         raise Exception("boom")
         yield  # pragma: no cover - makes this an async generator
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
 
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
@@ -284,11 +284,11 @@ async def test_inactivity_timeout_aborts_with_clear_error(monkeypatch):
     stalling silently to the outer dispatch timeout."""
     monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         await asyncio.sleep(30)  # hang — never yields a message
         yield  # pragma: no cover - never reached
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
 
     queue: asyncio.Queue = asyncio.Queue()
     # Outer guard so a regression (no watchdog) fails fast instead of hanging
@@ -314,12 +314,12 @@ async def test_inactivity_timeout_after_partial_progress(monkeypatch):
     then stalls is still aborted, with the partial text preserved."""
     monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(content=[TextBlock(text="working...")], model="m")
         await asyncio.sleep(30)  # then hang
         yield  # pragma: no cover - never reached
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     result = await asyncio.wait_for(
         sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue()),
         timeout=5,
@@ -353,11 +353,11 @@ def test_scrub_replaces_secret_values():
 async def test_oversized_text_output_is_truncated(monkeypatch):
     huge = "y" * (sdk_runner._MAX_TEXT_OUTPUT + 10000)
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(content=[TextBlock(text=huge)], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert len(result["text_output"]) <= sdk_runner._MAX_TEXT_OUTPUT + 100
@@ -369,11 +369,11 @@ async def test_secret_scrubbed_from_text_output(monkeypatch):
     secret = "tok-abcdef-1234567890"  # len >= 12
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", secret)
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(content=[TextBlock(text=f"leaked {secret} here")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert secret not in result["text_output"]
@@ -385,7 +385,7 @@ async def test_tool_use_and_result_are_captured(monkeypatch):
     """A ToolUseBlock + matching ToolResultBlock land in tool_calls with the result."""
     from claude_agent_sdk import ToolResultBlock, ToolUseBlock
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(
             content=[ToolUseBlock(id="tu1", name="Read", input={"path": "f"})], model="m"
         )
@@ -394,7 +394,7 @@ async def test_tool_use_and_result_are_captured(monkeypatch):
         )
         yield _result_message(cost_usd=0.2, num_turns=2)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     queue: asyncio.Queue = asyncio.Queue()
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
 
@@ -430,11 +430,11 @@ async def test_surface_prompt_forwarded_to_build_system_prompt(monkeypatch):
         _spy_build_system_prompt,
     )
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     await sdk_runner.run_dispatch(
         "do it", ["Read"], event_queue=asyncio.Queue(), surface_prompt="triggered from Slack"
     )
@@ -459,11 +459,11 @@ async def test_surface_prompt_omitted_leaves_system_prompt_unchanged(monkeypatch
         _spy_build_system_prompt,
     )
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert len(calls) == 1
@@ -477,14 +477,14 @@ async def test_oversized_tool_result_is_truncated(monkeypatch):
 
     huge = "z" * (sdk_runner._MAX_TOOL_RESULT + 5000)
 
-    async def fake_query(prompt, options):
+    async def fake_query(options, project_dir, prompt):
         yield AssistantMessage(content=[ToolUseBlock(id="tu1", name="Read", input={})], model="m")
         yield AssistantMessage(
             content=[ToolResultBlock(tool_use_id="tu1", content=huge)], model="m"
         )
         yield _result_message(cost_usd=0.1, num_turns=1)
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     body = result["tool_calls"][0]["result"]

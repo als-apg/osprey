@@ -145,6 +145,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   `execution_method` other than the literal `local` fell through to a
   Jupyter-container backend that OSPREY does not ship, so execution failed;
   the subprocess backend is now the only path.
+- A dispatched agent run no longer starts before its MCP servers finish
+  registering. The servers connect asynchronously, so a run whose first turn
+  fired during that window saw none of the project's tools and answered "I
+  don't have that tool" — indistinguishable, after the fact, from the model
+  declining to use them. The worker now waits for the project's declared
+  servers to report connected before sending the prompt, as interactive runs
+  already did. A server that never registers is logged and the run proceeds.
 - Turning off a telemetry content gate (e.g.
   `claude_code.telemetry.log_assistant_responses: false`) now writes an
   explicit `OTEL_LOG_*=0` into the deployed environment. Previously the
