@@ -145,6 +145,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   `execution_method` other than the literal `local` fell through to a
   Jupyter-container backend that OSPREY does not ship, so execution failed;
   the subprocess backend is now the only path.
+- Turning off a telemetry content gate (e.g.
+  `claude_code.telemetry.log_assistant_responses: false`) now writes an
+  explicit `OTEL_LOG_*=0` into the deployed environment. Previously the
+  variable was simply omitted, and Claude Code's own fallback chain could
+  re-enable capture the config had turned off.
 - ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
   payload omits its `id`: the ALS and generic adapters now fall back to an empty
   entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the

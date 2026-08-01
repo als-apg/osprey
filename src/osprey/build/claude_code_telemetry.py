@@ -39,9 +39,9 @@ TELEMETRY_ENV_VARS: frozenset[str] = frozenset(
 )
 
 # Content-capture gates: OTEL env var → config key that suppresses it.
-# Each defaults ON (emitted as "1") and is dropped only when its config key is
-# explicitly ``false``. ``OTEL_LOG_TOOL_CONTENT`` is intentionally absent — it
-# requires tracing, which is out of scope for this metrics/logs pipeline.
+# Each defaults ON (emitted as "1") and is emitted as an explicit "0" when its
+# config key is ``false``. ``OTEL_LOG_TOOL_CONTENT`` is intentionally absent —
+# it requires tracing, which is out of scope for this metrics/logs pipeline.
 _TELEMETRY_CONTENT_GATES: dict[str, str] = {
     "OTEL_LOG_USER_PROMPTS": "log_user_prompts",
     "OTEL_LOG_ASSISTANT_RESPONSES": "log_assistant_responses",
@@ -286,15 +286,19 @@ def _build_telemetry_env(
     if resource_attrs:
         env["OTEL_RESOURCE_ATTRIBUTES"] = _render_kv_map(resource_attrs)
 
-    # Content-capture gates default ON; each is dropped only on an explicit
+    # Content-capture gates default ON; each turns off only on an explicit
     # false-y value (bool False, or a false-y string from ${VAR:-false}).
+    # A disabled gate must be emitted as an explicit "0", never omitted: the
+    # CLI resolves an absent var through its own fallback chain (e.g.
+    # OTEL_LOG_ASSISTANT_RESPONSES ?? OTEL_LOG_USER_PROMPTS), which would
+    # silently re-enable capture the config turned off.
     on_gates = [
         env_var
         for env_var, cfg_key in _TELEMETRY_CONTENT_GATES.items()
         if _gate_is_on(telemetry_cfg.get(cfg_key))
     ]
-    for env_var in on_gates:
-        env[env_var] = "1"
+    for env_var in _TELEMETRY_CONTENT_GATES:
+        env[env_var] = "1" if env_var in on_gates else "0"
 
     # Safe-state advisory: full-fidelity content capture is the default only
     # because the openobserve backend is local and air-gapped. On any other
