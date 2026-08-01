@@ -485,14 +485,14 @@ plotting, and control-system interactions on behalf of the operator.</p>
 <section id="what-it-does">
 <h2>What It Does<a class="headerlink" href="#what-it-does" title="Link to this heading">#</a></h2>
 <p>The service accepts Python source code, applies layered safety checks, and
-runs it in either a <strong>container</strong> (Jupyter kernel over WebSocket) or a
-<strong>local subprocess</strong> (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code>). Results—stdout, stderr,
-figures, and saved artifacts—are returned as structured JSON.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Osprey agent → execute MCP tool → safety checks → container / subprocess → result JSON
+runs it as a <strong>subprocess</strong> on the host (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code>).
+Results—stdout, stderr, figures, and saved artifacts—are returned as
+structured JSON.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Osprey agent → execute MCP tool → safety checks → host subprocess → result JSON
 </pre></div>
 </div>
-<p>All packages installed in the deployment environment are available to
-executed code (numpy, pandas, scipy, matplotlib, plotly, etc.).
+<p>Executed code can import whatever is installed in the project’s environment;
+see <a class="reference internal" href="#executor-environment"><span class="std std-ref">The Execution Environment</span></a> for how to find out what that is.
 A <code class="docutils literal notranslate"><span class="pre">save_artifact(obj,</span> <span class="pre">title=&quot;Untitled&quot;,</span> <span class="pre">description=&quot;&quot;,</span> <span class="pre">artifact_type=None,</span> <span class="pre">category=&quot;&quot;)</span></code>
 helper is injected into the subprocess namespace for saving objects to the
 artifact gallery. The <code class="docutils literal notranslate"><span class="pre">artifact_type</span></code> parameter overrides automatic type
@@ -558,47 +558,49 @@ a structured error (<code class="docutils literal notranslate"><span class="pre"
 carries the same information, so the agent receives an explicit error rather
 than a status field it might overlook.</p>
 </section>
-<section id="execution-modes">
-<h2>Execution Modes<a class="headerlink" href="#execution-modes" title="Link to this heading">#</a></h2>
-<section id="container-execution">
-<h3>Container Execution<a class="headerlink" href="#container-execution" title="Link to this heading">#</a></h3>
-<p>The default mode. Code is sent to a Jupyter kernel running inside a Docker
-container via WebSocket. Separate containers can be configured for
-<code class="docutils literal notranslate"><span class="pre">readonly</span></code> and <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> modes:</p>
+<section id="where-code-runs">
+<h2>Where Code Runs<a class="headerlink" href="#where-code-runs" title="Link to this heading">#</a></h2>
+<p>Agent-authored Python runs as a subprocess on the same host as the Osprey
+agent. This is the only execution backend, so there is nothing to choose
+between:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
 <span class="nt">execution</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">container</span>
-<span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">jupyter</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">containers</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">read</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
-<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
-<span class="w">      </span><span class="nt">write</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
-<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
+<span class="w">  </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">subprocess</span>
 </pre></div>
 </div>
-<p>Container mode provides the strongest isolation—the MCP server
-process is never exposed to user code.</p>
+<p><code class="docutils literal notranslate"><span class="pre">subprocess</span></code> is the default and the key can be left out entirely. Two older
+values still load, so existing projects keep working: <code class="docutils literal notranslate"><span class="pre">local</span></code> is the former
+name for this same backend and is accepted silently, and <code class="docutils literal notranslate"><span class="pre">container</span></code> is
+treated as <code class="docutils literal notranslate"><span class="pre">subprocess</span></code> and logs a one-time warning naming the config file it
+came from. Any other value is a configuration error.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code> wraps user code with safety monkeypatches (e.g.
+<code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> validation against the limits database), writes the wrapped
+script to an execution folder, and runs it. The subprocess working directory is
+set to the project root so that relative workspace paths (e.g.
+<code class="docutils literal notranslate"><span class="pre">_agent_data/data/002_archiver_read.json</span></code>) resolve correctly.</p>
 </section>
-<section id="local-subprocess-execution">
-<h3>Local Subprocess Execution<a class="headerlink" href="#local-subprocess-execution" title="Link to this heading">#</a></h3>
-<p>Local mode is selected explicitly by setting <code class="docutils literal notranslate"><span class="pre">execution_method:</span> <span class="pre">local</span></code>
-(there is no automatic fallback from container mode). The <code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code>
-wraps user code with safety
-monkeypatches (e.g., <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> validation against the limits
-database), writes the wrapped script to an execution folder, and runs it
-as a subprocess:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">execution</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<span class="w">  </span><span class="nt">python_env_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/venv</span><span class="w">   </span><span class="c1"># optional; defaults to sys.executable</span>
+<section id="the-execution-environment">
+<span id="executor-environment"></span><h2>The Execution Environment<a class="headerlink" href="#the-execution-environment" title="Link to this heading">#</a></h2>
+<p>Executed code runs in the project’s own virtual environment
+(<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;/.venv</span></code>) when the project has one, and otherwise in the
+interpreter running Osprey. <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> records no interpreter path and
+offers no setting to point execution somewhere else — which environment
+exists is decided when the project is built, from the build profile’s
+<code class="docutils literal notranslate"><span class="pre">environment:</span></code> block (see <a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
+<p>Anything installed in that environment is importable by executed code:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-project
+uv<span class="w"> </span>pip<span class="w"> </span>list<span class="w">             </span><span class="c1"># what executed code can import</span>
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>lmfit<span class="w">    </span><span class="c1"># importable by the next execution</span>
 </pre></div>
 </div>
-<p>The subprocess working directory is set to the project root so that
-relative workspace paths (e.g. <code class="docutils literal notranslate"><span class="pre">_agent_data/data/002_archiver_read.json</span></code>)
-resolve correctly.</p>
-</section>
+<p>The description the agent sees for the <code class="docutils literal notranslate"><span class="pre">execute</span></code> tool is generated from this
+environment rather than from a fixed list, so the agent is told what is really
+installed. It is computed once when the MCP server starts: a package installed
+mid-session is importable straight away, but the agent will not know about it
+until the next session. If the environment cannot be read at startup, the
+description names no packages at all instead of guessing.</p>
+<p>A container image built from the project installs the same package set as the
+project’s own environment, so executed code sees the same imports either way.</p>
 </section>
 <section id="security-model">
 <h2>Security Model<a class="headerlink" href="#security-model" title="Link to this heading">#</a></h2>
@@ -615,8 +617,8 @@ rejection.</p></li>
 <code class="docutils literal notranslate"><span class="pre">LimitsValidator</span></code>)—at runtime, <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> calls are
 intercepted and validated against the channel limits database.
 Out-of-range values are blocked.</p></li>
-<li><p><strong>Process isolation</strong>—code always runs outside the MCP server
-process, either in a container or a local subprocess.</p></li>
+<li><p><strong>Process isolation</strong>—code always runs in a separate subprocess, never
+inside the MCP server process.</p></li>
 <li><p><strong>Execution timeout</strong>—configurable via
 <code class="docutils literal notranslate"><span class="pre">python_executor.execution_timeout_seconds</span></code> (default 600 s). The
 process is killed if it exceeds the limit.</p></li>
@@ -651,9 +653,7 @@ requests user confirmation before calling <code class="docutils literal notransl
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync
 </pre></div>
 </div>
-<p>No additional setup is needed for local subprocess mode. For container
-mode, configure the Jupyter container endpoints in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as shown
-above.</p>
+<p>No additional setup is needed.</p>
 </section>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
@@ -716,11 +716,8 @@ safety checks, and pattern detection.</p></li>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-it-does">What It Does</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-tool-interface">MCP Tool Interface</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#execution-modes">Execution Modes</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#container-execution">Container Execution</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-subprocess-execution">Local Subprocess Execution</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-code-runs">Where Code Runs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-execution-environment">The Execution Environment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security-model">Security Model</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>

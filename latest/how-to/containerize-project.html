@@ -498,7 +498,7 @@ every project.</p>
 <p>Every project built by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> includes a reference container
 recipe at the project root:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> — an image definition that installs Claude Code and OSPREY,
+<li><p><code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> — an image definition that installs the agent CLI and OSPREY,
 copies the project in, relocates its recorded paths, and serves the web
 terminal.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — keeps secrets (<code class="docutils literal notranslate"><span class="pre">.env</span></code>) and host-specific state
@@ -592,24 +592,22 @@ internal mirror.</p>
 </section>
 <section id="path-relocation">
 <h2>Path Relocation<a class="headerlink" href="#path-relocation" title="Link to this heading">#</a></h2>
-<p>A project built on a host records host paths in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-(<code class="docutils literal notranslate"><span class="pre">project_root</span></code>, <code class="docutils literal notranslate"><span class="pre">execution.python_env_path</span></code>). The generated Dockerfile
-fixes both during the image build:</p>
+<p>A project built on a host records that host’s path in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as
+<code class="docutils literal notranslate"><span class="pre">project_root</span></code>. The generated Dockerfile fixes it during the image build:</p>
 <div class="highlight-docker notranslate"><div class="highlight"><pre><span></span><span class="k">RUN</span><span class="w"> </span>osprey<span class="w"> </span>claude<span class="w"> </span>regen<span class="w"> </span>--project<span class="w"> </span>/app/my-project<span class="w"> </span>--runtime-root<span class="w"> </span>/app/my-project
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span></code> rewrites <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-(comment-preserving), replaces a recorded <code class="docutils literal notranslate"><span class="pre">python_env_path</span></code> that doesn’t
-exist in the container with the image’s interpreter, and re-renders the
-Claude Code artifacts (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>) against
-the new root. This works for projects built with or without
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span></code>.</p>
+(comment-preserving) and re-renders the agent artifacts (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>,
+<code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>) against the new root. No interpreter path is
+recorded in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, so nothing else needs relocating. This works for
+projects built with or without <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span></code>.</p>
 </section>
 <section id="why-non-root">
 <h2>Why Non-Root<a class="headerlink" href="#why-non-root" title="Link to this heading">#</a></h2>
 <p>The image creates and switches to an unprivileged <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user because
-<strong>Claude Code refuses to run in bypassPermissions mode as root</strong>. The agent
-CLI itself is installed as a pinned global npm package, so it is runnable
+<strong>the agent CLI refuses to run in bypassPermissions mode as root</strong>. The CLI
+itself is installed as a pinned global npm package, so it is runnable
 by any user — keep the non-root user if you customize the recipe.</p>
 </section>
 <section id="runtime-state-and-volumes">
@@ -623,7 +621,7 @@ by any user — keep the non-root user if you customize the recipe.</p>
 </div>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> — executed scripts, user memory, API call logs.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> — Claude Code’s per-user state (sessions, credentials);
+<li><p><code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> — the agent CLI’s per-user state (sessions, credentials);
 set <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code> if you want it somewhere more explicit.</p></li>
 </ul>
 <section id="kubernetes-notes">

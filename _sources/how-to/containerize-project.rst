@@ -24,7 +24,7 @@ Overview
 Every project built by ``osprey build`` includes a reference container
 recipe at the project root:
 
-- ``Dockerfile`` — an image definition that installs Claude Code and OSPREY,
+- ``Dockerfile`` — an image definition that installs the agent CLI and OSPREY,
   copies the project in, relocates its recorded paths, and serves the web
   terminal.
 - ``.dockerignore`` — keeps secrets (``.env``) and host-specific state
@@ -114,27 +114,25 @@ vendored assets for an air-gapped host:
 Path Relocation
 ===============
 
-A project built on a host records host paths in ``config.yml``
-(``project_root``, ``execution.python_env_path``). The generated Dockerfile
-fixes both during the image build:
+A project built on a host records that host's path in ``config.yml`` as
+``project_root``. The generated Dockerfile fixes it during the image build:
 
 .. code-block:: docker
 
    RUN osprey claude regen --project /app/my-project --runtime-root /app/my-project
 
 ``--runtime-root`` rewrites ``project_root`` in ``config.yml``
-(comment-preserving), replaces a recorded ``python_env_path`` that doesn't
-exist in the container with the image's interpreter, and re-renders the
-Claude Code artifacts (``.mcp.json``, ``CLAUDE.md``, ``.claude/``) against
-the new root. This works for projects built with or without
-``osprey build --runtime-root``.
+(comment-preserving) and re-renders the agent artifacts (``.mcp.json``,
+``CLAUDE.md``, ``.claude/``) against the new root. No interpreter path is
+recorded in ``config.yml``, so nothing else needs relocating. This works for
+projects built with or without ``osprey build --runtime-root``.
 
 Why Non-Root
 ============
 
 The image creates and switches to an unprivileged ``osprey`` user because
-**Claude Code refuses to run in bypassPermissions mode as root**. The agent
-CLI itself is installed as a pinned global npm package, so it is runnable
+**the agent CLI refuses to run in bypassPermissions mode as root**. The CLI
+itself is installed as a pinned global npm package, so it is runnable
 by any user — keep the non-root user if you customize the recipe.
 
 Runtime State and Volumes
@@ -150,7 +148,7 @@ Two kinds of state are worth persisting across container restarts:
      my-project
 
 - ``_agent_data/`` — executed scripts, user memory, API call logs.
-- ``/home/osprey`` — Claude Code's per-user state (sessions, credentials);
+- ``/home/osprey`` — the agent CLI's per-user state (sessions, credentials);
   set ``CLAUDE_CONFIG_DIR`` if you want it somewhere more explicit.
 
 Kubernetes notes

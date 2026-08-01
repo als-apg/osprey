@@ -13,16 +13,16 @@ What It Does
 ============
 
 The service accepts Python source code, applies layered safety checks, and
-runs it in either a **container** (Jupyter kernel over WebSocket) or a
-**local subprocess** (``ExecutionWrapper``). Results---stdout, stderr,
-figures, and saved artifacts---are returned as structured JSON.
+runs it as a **subprocess** on the host (``ExecutionWrapper``).
+Results---stdout, stderr, figures, and saved artifacts---are returned as
+structured JSON.
 
 .. code-block:: text
 
-   Osprey agent → execute MCP tool → safety checks → container / subprocess → result JSON
+   Osprey agent → execute MCP tool → safety checks → host subprocess → result JSON
 
-All packages installed in the deployment environment are available to
-executed code (numpy, pandas, scipy, matplotlib, plotly, etc.).
+Executed code can import whatever is installed in the project's environment;
+see :ref:`executor-environment` for how to find out what that is.
 A ``save_artifact(obj, title="Untitled", description="", artifact_type=None, category="")``
 helper is injected into the subprocess namespace for saving objects to the
 artifact gallery. The ``artifact_type`` parameter overrides automatic type
@@ -79,53 +79,60 @@ a structured error (``error_type: "execution_error"``) whose ``details`` field
 carries the same information, so the agent receives an explicit error rather
 than a status field it might overlook.
 
-Execution Modes
+Where Code Runs
 ===============
 
-Container Execution
--------------------
-
-The default mode. Code is sent to a Jupyter kernel running inside a Docker
-container via WebSocket. Separate containers can be configured for
-``readonly`` and ``readwrite`` modes:
+Agent-authored Python runs as a subprocess on the same host as the Osprey
+agent. This is the only execution backend, so there is nothing to choose
+between:
 
 .. code-block:: yaml
 
    # config.yml
    execution:
-     execution_method: container
-   services:
-     jupyter:
-       containers:
-         read:
-           hostname: localhost
-           port_host: 8088
-         write:
-           hostname: localhost
-           port_host: 8089
+     execution_method: subprocess
 
-Container mode provides the strongest isolation---the MCP server
-process is never exposed to user code.
+``subprocess`` is the default and the key can be left out entirely. Two older
+values still load, so existing projects keep working: ``local`` is the former
+name for this same backend and is accepted silently, and ``container`` is
+treated as ``subprocess`` and logs a one-time warning naming the config file it
+came from. Any other value is a configuration error.
 
-Local Subprocess Execution
---------------------------
+The ``ExecutionWrapper`` wraps user code with safety monkeypatches (e.g.
+``epics.caput()`` validation against the limits database), writes the wrapped
+script to an execution folder, and runs it. The subprocess working directory is
+set to the project root so that relative workspace paths (e.g.
+``_agent_data/data/002_archiver_read.json``) resolve correctly.
 
-Local mode is selected explicitly by setting ``execution_method: local``
-(there is no automatic fallback from container mode). The ``ExecutionWrapper``
-wraps user code with safety
-monkeypatches (e.g., ``epics.caput()`` validation against the limits
-database), writes the wrapped script to an execution folder, and runs it
-as a subprocess:
+.. _executor-environment:
 
-.. code-block:: yaml
+The Execution Environment
+=========================
 
-   execution:
-     execution_method: local
-     python_env_path: /path/to/venv   # optional; defaults to sys.executable
+Executed code runs in the project's own virtual environment
+(``<project>/.venv``) when the project has one, and otherwise in the
+interpreter running Osprey. ``config.yml`` records no interpreter path and
+offers no setting to point execution somewhere else --- which environment
+exists is decided when the project is built, from the build profile's
+``environment:`` block (see :doc:`build-profiles`).
 
-The subprocess working directory is set to the project root so that
-relative workspace paths (e.g. ``_agent_data/data/002_archiver_read.json``)
-resolve correctly.
+Anything installed in that environment is importable by executed code:
+
+.. code-block:: bash
+
+   cd my-project
+   uv pip list             # what executed code can import
+   uv pip install lmfit    # importable by the next execution
+
+The description the agent sees for the ``execute`` tool is generated from this
+environment rather than from a fixed list, so the agent is told what is really
+installed. It is computed once when the MCP server starts: a package installed
+mid-session is importable straight away, but the agent will not know about it
+until the next session. If the environment cannot be read at startup, the
+description names no packages at all instead of guessing.
+
+A container image built from the project installs the same package set as the
+project's own environment, so executed code sees the same imports either way.
 
 Security Model
 ==============
@@ -146,8 +153,8 @@ Five safety layers are applied in sequence:
    intercepted and validated against the channel limits database.
    Out-of-range values are blocked.
 
-4. **Process isolation**---code always runs outside the MCP server
-   process, either in a container or a local subprocess.
+4. **Process isolation**---code always runs in a separate subprocess, never
+   inside the MCP server process.
 
 5. **Execution timeout**---configurable via
    ``python_executor.execution_timeout_seconds`` (default 600 s). The
@@ -186,9 +193,7 @@ The Python executor is included in the default Osprey installation:
 
    uv sync
 
-No additional setup is needed for local subprocess mode. For container
-mode, configure the Jupyter container endpoints in ``config.yml`` as shown
-above.
+No additional setup is needed.
 
 See Also
 ========
