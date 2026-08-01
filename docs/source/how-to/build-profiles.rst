@@ -299,6 +299,11 @@ Profile YAML Schema
      - ``[]``
      - Python packages to install into the project venv and record in
        ``pyproject.toml``.
+   * - ``environment``
+     - mapping
+     - ``{}``
+     - Base interpreter the project environment is built from, plus extra
+       packages (see :ref:`profile-environment`).
    * - ``requires_osprey_version``
      - string
      - ``None``
@@ -505,7 +510,7 @@ Supported keys:
 .. admonition:: Deny wins, and it wins at runtime too
    :class: important
 
-   Claude Code resolves permissions as **deny > ask > allow**, and a static ``deny``
+   The agent resolves permissions as **deny > ask > allow**, and a static ``deny``
    entry cannot be overridden during a session. While a tool sits in the deny list,
    an in-session ``/permissions`` "allow once" will **not** unblock it — you must
    ``remove_deny`` it and rebuild. Use ``ask`` instead of ``deny`` for tools you want
@@ -649,6 +654,84 @@ declares the same set, ``uv run`` inside the project resolves the project's own
 
 Builds run with ``--skip-deps`` create no environment and no ``pyproject.toml``;
 install dependencies yourself in that mode.
+
+.. _profile-environment:
+
+The Execution Environment
+-------------------------
+
+``dependencies`` says what *else* to install. The ``environment:`` block says
+what the project environment is built *on top of* — which interpreter it starts
+from, and, when that interpreter belongs to a virtual environment your facility
+already maintains, which of its packages to carry over. This is the environment
+the agent's Python code runs in.
+
+.. code-block:: yaml
+
+   environment:
+     python: /opt/facility/analysis-env/bin/python   # base interpreter
+     packages:                                       # installed on top
+       - lmfit>=1.3
+     inherit_exclude:                                # left out of the freeze
+       - facility-inhouse-tools
+
+All three keys are optional; the block as a whole can be omitted.
+
+``python``
+   The base interpreter, as an absolute path. It may be a plain interpreter
+   (``/usr/bin/python3.12``) or the interpreter inside a virtual environment
+   (``.../analysis-env/bin/python``) — the syntax is the same and there is no
+   mode to select. The build aborts if the path does not exist or is not
+   executable. Leave the key out and the build uses its own interpreter.
+
+``packages``
+   Extra requirements (PEP 508 specifiers) installed into the project
+   environment. Additive in both cases: pointing ``python`` at a facility
+   environment does not stop you adding packages on top. ``packages`` and
+   ``dependencies`` are resolved in the same install, so they cannot disagree;
+   where both name the same distribution, a pinned version wins over a bare
+   name, and between two pinned versions ``packages`` wins.
+
+``inherit_exclude``
+   Distribution names to leave out of the freeze described below. It is only
+   meaningful with a virtual environment base; declaring it against a plain
+   interpreter, or with no ``python`` at all, is rejected at validation time
+   rather than silently doing nothing.
+
+**Carrying a virtual environment's packages over.** Basing a project on a
+virtual environment's *interpreter* does not inherit that environment's
+*packages* — creating a new environment from another one's interpreter yields
+an empty one. What carries them over is a **freeze**: when
+``environment.python`` names a virtual environment's interpreter, the build
+records that environment's installed distributions as exact ``name==version``
+requirements in the project's generated ``pyproject.toml``. The project venv,
+and any container image built from it, install that same set — so the built
+project matches the environment it was based on.
+
+A pin written in ``dependencies`` or ``packages`` overrides the version the
+base happened to carry, so you can base a project on a facility environment and
+still choose a different version of one package.
+
+The freeze runs **only when a base interpreter is declared**. Without
+``environment.python`` the base is whatever interpreter OSPREY itself happens
+to be installed into — an accident of how the framework was installed, not a
+curated environment — and its packages are deliberately not carried over.
+
+**The build stops if a package cannot be reproduced.** A freeze that would not
+survive the move fails the build rather than producing a project that quietly
+differs from its base. Two cases are refused:
+
+- **No package-index coordinate.** A distribution installed from a local path,
+  a VCS checkout, or a bare archive URL — an editable install, for instance —
+  has no ``name==version`` that would reinstall it anywhere else.
+- **A version OSPREY itself forbids.** If the base carries a version outside
+  OSPREY's own requirement for that package, both cannot hold. OSPREY's
+  requirement is authoritative.
+
+Every offending package is named in a single message, along with the
+``inherit_exclude`` block that clears all of them, so you fix them in one edit
+instead of one build at a time. Excluding a conflicting package leaves OSPREY's
+own version in place.
 
 
 Repository Structure

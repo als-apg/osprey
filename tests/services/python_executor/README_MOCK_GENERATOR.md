@@ -116,7 +116,7 @@ with patch('osprey.services.python_executor.generation.create_code_generator',
     result = await service.ainvoke(request, config={
         "thread_id": "test",
         "configurable": {
-            "execution": {"execution_method": "local"}
+            "execution": {"execution_method": "subprocess"}
         }
     })
 

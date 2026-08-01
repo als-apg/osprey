@@ -603,6 +603,7 @@ jobs:
             --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
             --ignore=tests/e2e/test_bluesky_deploy.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py \
+            --ignore=tests/e2e/test_execution_environment_parity.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
             --ignore=tests/e2e/test_orm_roundtrip.py \
@@ -1371,6 +1372,45 @@ jobs:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: uv run pytest tests/e2e/test_dockerfile_e2e.py -v --tb=short
 
+  execution-environment-parity-e2e:
+    name: Execution Environment Parity E2E (host venv vs generated image)
+    runs-on: ubuntu-latest
+    # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
+    # job. This one needs no secrets: it builds an image and runs `print(2+2)`
+    # through the python-executor path; no LLM is called anywhere in the file.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Must exceed the test's own BUILD_TIMEOUT (1200s) plus checkout, uv sync,
+    # the wheel build and four container runs — so a slow-but-progressing build
+    # is killed by the test (which prints the docker log) rather than silently
+    # by this cap.
+    timeout-minutes: 40
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    # Installs osprey editable + the `build` package, which is what lets the
+    # test stage a wheel from this checkout into the image build context. That
+    # staging is load-bearing: without it the image would install the released
+    # PyPI osprey and the parity assertions would describe released code
+    # instead of the branch under review.
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run execution environment parity E2E
+      run: |
+        uv run pytest tests/e2e/test_execution_environment_parity.py -v --tb=short
+
   multi-user-deploy-lifecycle-e2e:
     name: Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)
     runs-on: ubuntu-latest
@@ -1510,7 +1550,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, dockerfile-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
     runs-on: ubuntu-latest
     if: always()
 
@@ -1587,6 +1627,7 @@ jobs:
         check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"
         check_pr_lane "Nextcloud Talk bridge E2E"    "${{ needs.nextcloud-talk-bridge-e2e.result }}"
         check_pr_lane "Dockerfile E2E"               "${{ needs.dockerfile-e2e.result }}"
+        check_pr_lane "Execution env parity E2E"     "${{ needs.execution-environment-parity-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (podman)" "${{ needs.multi-user-deploy-lifecycle-e2e-podman.result }}"
         echo "✅ All CI checks passed!"

@@ -94,7 +94,7 @@ async def test_valid_code_passes_safety_checks(tmp_path, monkeypatch):
 
     mock_exec = AsyncMock(
         return_value=ExecutionResult(
-            success=True, stdout="4\n", stderr="", execution_method_used="local"
+            success=True, stdout="4\n", stderr="", execution_method_used="subprocess"
         )
     )
 

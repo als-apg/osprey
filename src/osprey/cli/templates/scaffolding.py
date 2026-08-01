@@ -628,7 +628,6 @@ def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dic
 
     # Create standard subdirectories
     subdirs = [
-        "executed_scripts",
         "user_memory",
         "api_calls",
     ]
@@ -646,7 +645,6 @@ def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dic
 
 This directory contains runtime data for the Claude Code project:
 
-- `executed_scripts/`: Python scripts executed via MCP tools
 - `user_memory/`: User memory data
 - `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
 """

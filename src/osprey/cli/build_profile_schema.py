@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 
@@ -62,6 +63,77 @@ class EnvConfig:
     required: list[str] = field(default_factory=list)
     defaults: dict[str, str] = field(default_factory=dict)
     file: str | None = None  # Profile-relative path to copy as .env
+
+
+@dataclass
+class EnvironmentConfig:
+    """The Python environment agent-authored code executes in (``environment:`` block).
+
+    Distinct from :class:`EnvConfig` (the ``env:`` block), which templates
+    environment *variables*. This block describes the *interpreter and packages*
+    the project's environment is built from.
+
+    There is deliberately no mode flag. :attr:`python` may name either a bare
+    interpreter or the interpreter of an already-initialised venv — a venv's
+    python *is* an interpreter, so both bases take the identical path when the
+    project environment is created. What distinguishes a venv base is that its
+    installed distributions can additionally be frozen into the project's
+    dependency record, with :attr:`inherit_exclude` naming distributions to
+    leave out of that freeze.
+
+    Basing an environment on a venv's interpreter does **not** inherit that
+    venv's packages (``uv venv --python <venv>/bin/python`` yields an empty
+    environment); the freeze is what reproduces them.
+    """
+
+    python: str | None = None
+    """Absolute path (``~`` is expanded) to the interpreter the project
+    environment is based on. ``None`` — the default — means the build uses its
+    own interpreter, i.e. no custom base."""
+
+    packages: list[str] = field(default_factory=list)
+    """Additional requirement specifiers (PEP 508) to install into the project
+    environment. Independent of, and additive to, ``BuildProfile.dependencies``."""
+
+    inherit_exclude: list[str] = field(default_factory=list)
+    """Distribution names to omit when freezing a venv base's installed
+    packages. Only meaningful when :attr:`python` is a venv interpreter —
+    validation rejects it otherwise, since a bare interpreter has no installed
+    set to exclude from."""
+
+    def resolved_python(self) -> Path | None:
+        """Return :attr:`python` as a ``~``-expanded path, or ``None`` when unset.
+
+        Returns:
+            The interpreter path, or ``None`` if no custom base is declared.
+            Validation guarantees the path is absolute, existing, and
+            executable whenever it is not ``None``.
+        """
+        if not self.python:
+            return None
+        return Path(self.python).expanduser()
+
+    def venv_base(self) -> Path | None:
+        """Return the venv root when :attr:`python` is a venv's interpreter.
+
+        Venv-ness is *detected*, not declared: a ``pyvenv.cfg`` beside the
+        interpreter's directory (``<venv>/bin/python`` → ``<venv>/pyvenv.cfg``)
+        marks the base as a venv.
+
+        Returns:
+            The venv root directory, or ``None`` when :attr:`python` is unset or
+            names a bare interpreter. ``venv_base() is not None`` is therefore
+            the venv-base predicate.
+        """
+        python = self.resolved_python()
+        if python is None:
+            return None
+        # `<venv>/bin/python` first (the posix layout); fall back to an
+        # interpreter sitting directly in the venv root.
+        for candidate in (python.parent.parent, python.parent):
+            if (candidate / "pyvenv.cfg").is_file():
+                return candidate
+        return None
 
 
 @dataclass

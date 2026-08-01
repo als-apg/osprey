@@ -139,8 +139,15 @@ approval:
 # ============================================================
 
 execution:
-  execution_method: "local"
-  python_env_path: {{ current_python_env }}
+  execution_method: "subprocess"
+
+  # Build provenance: the environment declaration this project was built from.
+  # Nothing reads it at run time — agent Python runs in this project's own .venv
+  # when it has one, resolved at run time, so no interpreter path is recorded.
+  environment:
+    python: {{ environment_python | default(none) | tojson }}
+    packages: {{ environment_packages | default([]) | tojson }}
+    inherit_exclude: {{ environment_inherit_exclude | default([]) | tojson }}
 
 # ============================================================
 # SYSTEM CONFIGURATION
@@ -155,7 +162,6 @@ system:
 
 file_paths:
   agent_data_dir: _agent_data
-  executed_python_scripts_dir: executed_scripts
   user_memory_dir: user_memory
   api_calls_dir: api_calls
 

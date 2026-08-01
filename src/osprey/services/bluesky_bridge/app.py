@@ -577,10 +577,9 @@ _PLAN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
 _MAX_PLAN_NAME_LENGTH = 100
 
 # Neither `/plans/session` nor `/plans/validate` is gated on
-# `BLUESKY_LAUNCH_TOKEN` (`security.py`) — that token is deliberately
-# unminted whenever writes are unsafe to arm (see
-# `container_lifecycle._local_exec_arming_unsafe`), and both these routes
-# MUST keep working with writes disabled: authoring and validating a plan
+# `BLUESKY_LAUNCH_TOKEN` (`security.py`) — that token authenticates network
+# callers to the two launch routes only, and both these routes MUST keep
+# working with writes disabled: authoring and validating a plan
 # body never touches a device (the validator's stage-3 dry run drives mock
 # devices only, in a subprocess with `EPICS_CA_*` neutralized — see
 # `plan_validation.py`). Their protection is the bridge's loopback-only bind

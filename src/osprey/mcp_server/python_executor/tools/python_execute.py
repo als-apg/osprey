@@ -5,11 +5,13 @@ import logging
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.python_executor.server import mcp
+from osprey.mcp_server.python_executor.tools._package_inventory import with_live_packages
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
 
 
 @mcp.tool()
+@with_live_packages
 async def execute(
     code: str,
     description: str,
@@ -19,8 +21,7 @@ async def execute(
     """Execute Python code with process isolation, limits enforcement, and timeout.
 
     Code runs in a container or local subprocess (configured via config.yml).
-    All packages installed in the deployment environment are available
-    (e.g. numpy, pandas, scipy, at, matplotlib, plotly).
+    <<AVAILABLE_PACKAGES>>
 
     Safety layers applied before execution:
       1. ``quick_safety_check()`` — blocks exec/eval/__import__/subprocess

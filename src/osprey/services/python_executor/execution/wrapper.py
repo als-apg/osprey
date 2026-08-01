@@ -1,9 +1,7 @@
 """
-Unified Execution Wrapper System
+Execution Wrapper System
 
-Consolidates wrapper logic between container and local execution.
-Both execution methods create the same wrapper infrastructure with
-environment-specific adaptations.
+Wraps agent-generated Python code for execution in a host subprocess.
 """
 
 import textwrap
@@ -16,7 +14,7 @@ logger = get_logger("execution_wrapper")
 
 class ExecutionWrapper:
     """
-    Unified wrapper system for both container and local Python execution.
+    Wrapper system for subprocess Python execution.
 
     Creates wrapped Python scripts with:
     - Standard imports and setup
@@ -24,19 +22,15 @@ class ExecutionWrapper:
     - Output capture
     - Results export
     - Error handling
-
-    Environment-specific adaptations handled via parameters.
     """
 
-    def __init__(self, execution_mode: str = "container", limits_validator=None):
+    def __init__(self, limits_validator=None):
         """
-        Initialize wrapper for specific execution environment.
+        Initialize the wrapper.
 
         Args:
-            execution_mode: "container" or "local"
             limits_validator: Optional LimitsValidator instance for channel checking
         """
-        self.execution_mode = execution_mode
         self.limits_validator = limits_validator
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
@@ -78,7 +72,7 @@ class ExecutionWrapper:
         return wrapped_code
 
     def _get_imports(self) -> str:
-        """Get standard imports for both environments."""
+        """Get standard imports."""
         imports = """
 # Standard imports for agent execution
 import sys
@@ -111,24 +105,12 @@ except ImportError:
     print("Matplotlib not available")
 """
 
-        # Container-specific Jupyter magic
-        if self.execution_mode == "container":
-            imports += """
-# Jupyter-specific optimizations (container only)
-try:
-    get_ipython().run_line_magic('matplotlib', 'inline')
-except:
-    pass  # Not in IPython environment
-"""
-
         return textwrap.dedent(imports).strip()
 
     def _get_environment_setup(self, execution_folder: Path | None) -> str:
-        """Get environment-specific setup code."""
+        """Get subprocess environment setup code (sys.path, registry init)."""
 
-        if self.execution_mode == "local":
-            # Local execution needs sys.path setup and directory changes
-            setup = """
+        setup = """
 # Local execution environment setup
 import sys
 import os
@@ -180,40 +162,16 @@ except Exception as e:
     print("Context loading may not work properly", file=sys.stderr)
 """
 
-            # Set execution directory variable (but do NOT chdir — user code
-            # needs cwd to be the project root so relative workspace paths work)
-            if execution_folder:
-                setup += f"""
+        # Set execution directory variable (but do NOT chdir — user code
+        # needs cwd to be the project root so relative workspace paths work)
+        if execution_folder:
+            setup += f"""
 # Execution directory for wrapper outputs (results, figures, artifacts).
 # User code cwd stays at the project root so relative paths like
 # "_agent_data/data/002_archiver_read.json" resolve correctly.
 _execution_dir = Path(r"{execution_folder}")
 if not _execution_dir.exists():
     print(f"Warning: Execution directory {{_execution_dir}} does not exist")
-"""
-
-        else:  # Container execution
-            # Container handles path mounting, just needs directory info
-            if execution_folder:
-                # Convert host path to container path
-                container_path = self._convert_host_path_to_container_path(execution_folder)
-                setup = f"""
-# Container execution directory setup
-execution_dir = Path("{container_path}")
-print(f"Container working directory: {{Path.cwd()}}")
-print(f"Target execution directory: {{execution_dir}}")
-
-if execution_dir.exists():
-    print(f"Changing to execution directory: {{execution_dir}}")
-    os.chdir(execution_dir)
-    print(f"Current working directory: {{Path.cwd()}}")
-else:
-    print(f"ERROR: Execution directory {{execution_dir}} does not exist!")
-"""
-            else:
-                setup = """
-# Container execution - using current directory
-print(f"Container working directory: {{Path.cwd()}}")
 """
 
         return textwrap.dedent(setup).strip()
@@ -311,9 +269,9 @@ print(f"Container working directory: {{Path.cwd()}}")
     def _get_metadata_init(self) -> str:
         """Initialize execution metadata tracking."""
         return textwrap.dedent(
-            f"""
+            """
             # Execution metadata
-            execution_metadata = {{
+            execution_metadata = {
                 "start_time": _datetime.now().isoformat(),
                 "success": True,
                 "error": None,
@@ -325,9 +283,8 @@ print(f"Container working directory: {{Path.cwd()}}")
                 "results_captured": False,  # Runtime validation flag
                 "results_missing": False,   # Set to True if results not found
                 "figures_saved": [],
-                "figure_count": 0,
-                "execution_mode": "{self.execution_mode}"
-            }}
+                "figure_count": 0
+            }
         """
         ).strip()
 
@@ -341,7 +298,7 @@ print(f"Container working directory: {{Path.cwd()}}")
         """
         return textwrap.dedent(
             """
-            # Inject save_artifact() for subprocess/container execution
+            # Inject save_artifact() for subprocess execution
             def save_artifact(obj, title="Untitled", description="", artifact_type=None, category=""):
                 \"\"\"Save an object as a gallery artifact.
 
@@ -364,7 +321,7 @@ print(f"Container working directory: {{Path.cwd()}}")
                 import uuid as _uuid
                 from pathlib import Path as _Path
 
-                # Use _execution_dir if set (local subprocess), else cwd (container)
+                # Use _execution_dir if set, else cwd
                 _art_base = globals().get('_execution_dir', _Path.cwd())
                 artifacts_dir = _art_base / "artifacts"
                 artifacts_dir.mkdir(exist_ok=True)
@@ -534,43 +491,29 @@ print(f"Container working directory: {{Path.cwd()}}")
 """
 
     def _get_cleanup_and_export(self) -> str:
-        """Get cleanup and results export code - consolidated for both execution modes."""
+        """Get cleanup and results export code."""
 
-        # Environment-specific differences
-        if self.execution_mode == "local":
-            # Local execution needs to output captured content to host process
-            host_output_section = textwrap.dedent(
-                """
-                # Output captured content so host process can see it (LOCAL ONLY)
-                captured_stdout = stdout_capture.getvalue()
-                captured_stderr = stderr_capture.getvalue()
-
-                if captured_stdout:
-                    print(captured_stdout, end='')
-                if captured_stderr:
-                    print(captured_stderr, file=sys.stderr, end='')
+        # Output captured content so the host process can see it
+        host_output_section = textwrap.dedent(
             """
-            ).strip()
+            # Output captured content so host process can see it
+            captured_stdout = stdout_capture.getvalue()
+            captured_stderr = stderr_capture.getvalue()
 
-            # Local execution is more forgiving about metadata save failures
-            metadata_error_handling = textwrap.dedent(
-                """
-                    print(f"ERROR: Failed to save execution metadata: {e}", file=sys.stderr)
-                    # Don't raise for local execution - just log the error
+            if captured_stdout:
+                print(captured_stdout, end='')
+            if captured_stderr:
+                print(captured_stderr, file=sys.stderr, end='')
+        """
+        ).strip()
+
+        # Be forgiving about metadata save failures: log, don't raise
+        metadata_error_handling = textwrap.dedent(
             """
-            ).strip()
-
-        else:  # Container execution
-            # Container doesn't need host output (Jupyter handles this)
-            host_output_section = ""
-
-            # Container execution is strict about metadata save failures
-            metadata_error_handling = textwrap.dedent(
-                """
-                    print(f"CRITICAL ERROR: Failed to save execution metadata: {e}", file=sys.stderr)
-                    raise RuntimeError(f"Failed to save execution metadata: {e}")
-            """
-            ).strip()
+                print(f"ERROR: Failed to save execution metadata: {e}", file=sys.stderr)
+                # Don't raise - just log the error
+        """
+        ).strip()
 
         # Build the complete code block properly
         base_cleanup = textwrap.dedent(
@@ -673,56 +616,14 @@ print(f"Container working directory: {{Path.cwd()}}")
         """
         ).strip()
 
-        # Combine all parts properly
-        parts = [base_cleanup]
-
-        # Add host output section if needed (with proper indentation)
-        if host_output_section:
-            # Add proper indentation for the host output section (4 spaces to match finally block)
-            indented_host_section = "\n".join(
-                "    " + line if line.strip() else line for line in host_output_section.split("\n")
-            )
-            parts.append(indented_host_section)
-
-        parts.append(file_persistence_section)
-
-        # Add proper indentation for metadata error handling
-        if metadata_error_handling:
-            indented_error_handling = "\n".join(
-                "    " + line if line.strip() else line
-                for line in metadata_error_handling.split("\n")
-            )
-            parts.append(indented_error_handling)
-
-        return "\n".join(parts)
-
-    def _convert_host_path_to_container_path(self, host_path: Path) -> str:
-        """Convert host path to container path (for container execution)."""
-        # Use the convenient get_agent_dir function to get the configured executed scripts directory
-        from osprey.utils.config import get_agent_dir
-
-        # Get the full path to the executed scripts directory as configured
-        executed_scripts_base_path = get_agent_dir("executed_python_scripts_dir")
-        executed_scripts_base = Path(executed_scripts_base_path)
-
-        host_path_str = str(host_path)
-        executed_scripts_base_str = str(executed_scripts_base)
-
-        # Check if the host path is under the configured executed scripts directory
-        if host_path_str.startswith(executed_scripts_base_str):
-            # Extract the relative path from the executed scripts base directory
-            try:
-                relative_path = host_path.relative_to(executed_scripts_base)
-                return f"/home/jovyan/work/executed_scripts/{relative_path.as_posix()}"
-            except ValueError:
-                # Should not happen if startswith check passed, but handle gracefully
-                logger.warning(
-                    f"Could not get relative path from {host_path} to {executed_scripts_base}"
-                )
-
-        # Fallback: log the issue and use the folder name
-        logger.warning(
-            f"Host path {host_path} is not under configured executed scripts directory {executed_scripts_base}"
+        # Combine all parts properly (4-space indent to sit inside the finally block)
+        indented_host_section = "\n".join(
+            "    " + line if line.strip() else line for line in host_output_section.split("\n")
         )
-        logger.warning("Using fallback container path mapping")
-        return f"/home/jovyan/work/executed_scripts/{host_path.name}"
+        indented_error_handling = "\n".join(
+            "    " + line if line.strip() else line for line in metadata_error_handling.split("\n")
+        )
+
+        return "\n".join(
+            [base_cleanup, indented_host_section, file_persistence_section, indented_error_handling]
+        )

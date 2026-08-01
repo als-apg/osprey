@@ -106,21 +106,15 @@ class TestGetFullConfiguration:
         assert get_config_builder().get("project_root") == "/root"
 
     def test_execution_defaults_when_section_absent(self, tmp_path):
-        """A config without ``execution:`` still exposes local-execution defaults."""
+        """A config without ``execution:`` still exposes the subprocess defaults."""
         cfg = _write_config(tmp_path, "project_root: /root\n")
         configurable = get_full_configuration(str(cfg))
-        execution = configurable["execution"]
-        assert execution["execution_method"] == "local"
-        assert "read_only" in execution["modes"]
-        assert execution["modes"]["write_access"]["allows_writes"] is True
+        assert configurable["execution"] == {"execution_method": "subprocess"}
 
     def test_python_executor_defaults_when_section_absent(self, tmp_path):
         cfg = _write_config(tmp_path, "project_root: /root\n")
         configurable = get_full_configuration(str(cfg))
-        pe = configurable["python_executor"]
-        assert pe["max_generation_retries"] == 3
-        assert pe["max_execution_retries"] == 3
-        assert pe["execution_timeout_seconds"] == 600
+        assert configurable["python_executor"] == {"execution_timeout_seconds": 600}
 
 
 class TestGetFrameworkServiceConfig:

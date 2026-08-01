@@ -115,6 +115,109 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
     return resolved
 
 
+# OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
+# ``local`` is the historical name for that same backend; ``container`` named a
+# Jupyter kernel gateway OSPREY never shipped.
+EXECUTION_METHOD_SUBPROCESS = "subprocess"
+
+# Module-level latch so the ``container`` deprecation is logged once per process
+# rather than on every config read (the executor resolves per tool call).
+# Tests reset it via ``osprey.utils.config._container_method_warned = False``.
+_container_method_warned = False
+
+
+def _describe_config_source(source: str | None) -> str:
+    """Describe where an execution method came from, for log messages.
+
+    Args:
+        source: Caller-supplied description (usually a config file path). When
+            ``None``, the active config path is resolved on a best-effort basis.
+
+    Returns:
+        str: A human-readable config source, never empty.
+    """
+    if source:
+        return str(source)
+    try:
+        from osprey.utils.workspace import resolve_config_path
+
+        return str(resolve_config_path())
+    except Exception:  # pragma: no cover - defensive: never fail a config read
+        return "config.yml"
+
+
+def resolve_execution_method(
+    config: "Mapping[str, Any] | None", *, source: str | None = None
+) -> str:
+    """Normalize ``execution.execution_method`` to the backend that actually runs.
+
+    This is the single choke point for the execution vocabulary. Every reader of
+    ``execution.execution_method`` goes through it so legacy configs keep loading
+    while the config file stops claiming a backend OSPREY does not ship:
+
+    - ``subprocess`` — the honest name; returned as-is.
+    - ``local`` — historical name for the same subprocess backend; mapped silently.
+    - ``container`` — named a Jupyter kernel gateway that was never shipped, so it
+      failed outright at execution time. Mapped to ``subprocess`` with a one-time
+      deprecation warning, because that value's behavior genuinely changes.
+    - unset (missing, ``None``, or blank) — defaults to ``subprocess``.
+
+    Args:
+        config: Full configuration mapping (the one containing the ``execution``
+            section), or ``None``. Anything without a usable ``execution`` section
+            resolves to the default.
+        source: Optional description of where the config came from (typically the
+            config file path), used in the deprecation warning. Defaults to the
+            active config path.
+
+    Returns:
+        str: Always ``"subprocess"`` — the only execution backend OSPREY ships.
+
+    Raises:
+        ValueError: If ``execution.execution_method`` is set to any other value.
+
+    Example:
+        >>> resolve_execution_method({"execution": {"execution_method": "local"}})
+        'subprocess'
+    """
+    global _container_method_warned
+
+    execution = config.get("execution") if isinstance(config, dict) else None
+    raw = execution.get("execution_method") if isinstance(execution, dict) else None
+
+    if raw is None:
+        return EXECUTION_METHOD_SUBPROCESS
+
+    if not isinstance(raw, str):
+        raise ValueError(
+            f"Invalid execution.execution_method: {raw!r} "
+            f"(in {_describe_config_source(source)}). Expected 'subprocess'."
+        )
+
+    method = raw.strip().lower()
+
+    if method in ("", EXECUTION_METHOD_SUBPROCESS, "local"):
+        return EXECUTION_METHOD_SUBPROCESS
+
+    if method == "container":
+        if not _container_method_warned:
+            _container_method_warned = True
+            logger.warning(
+                "execution.execution_method: 'container' is deprecated (in %s). "
+                "OSPREY ships no containerized Python backend, so this value never "
+                "worked; agent Python code now runs via the subprocess backend. "
+                "Set execution.execution_method: subprocess.",
+                _describe_config_source(source),
+            )
+        return EXECUTION_METHOD_SUBPROCESS
+
+    raise ValueError(
+        f"Invalid execution.execution_method: {raw!r} "
+        f"(in {_describe_config_source(source)}). Expected 'subprocess' "
+        f"(legacy 'local' and 'container' are also accepted)."
+    )
+
+
 class ConfigBuilder:
     """Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and
     pre-computes a ``configurable`` dict for framework and standalone use.
@@ -288,45 +391,48 @@ class ConfigBuilder:
 
         return copy.deepcopy(self._unexpanded_config)
 
+    #: Keys older deployed configs may still carry but nothing honours any more:
+    #: ``python_env_path`` (the agent interpreter is resolved at run time) and
+    #: ``modes`` (Jupyter-era kernel/gateway descriptions with no reader).
+    _RETIRED_EXECUTION_KEYS = ("python_env_path", "modes")
+
     def _get_execution_config(self) -> dict[str, Any]:
         """Get execution configuration with sensible defaults.
 
-        Returns execution configuration from config.yml if present, otherwise provides
-        defaults suitable for local Python execution in tutorial environments.
+        Retired keys (:attr:`_RETIRED_EXECUTION_KEYS`) are dropped here if an
+        older config still carries them, so already-deployed projects keep
+        loading unchanged instead of failing on keys nothing honours any more.
 
         Returns:
-            dict: Execution configuration including method, python_env_path, and modes
+            dict: Execution configuration including the execution method.
         """
         # Try to get execution config from file
         execution_config = self.get("execution", None)
 
         # If execution section exists and has content, use it
         if execution_config:
+            if isinstance(execution_config, dict):
+                for key in self._RETIRED_EXECUTION_KEYS:
+                    if key in execution_config:
+                        logger.debug(
+                            "Ignoring retired 'execution.%s' (%s) in %s; the key has "
+                            "no effect on the subprocess execution backend.",
+                            key,
+                            execution_config[key],
+                            self.config_path,
+                        )
+                execution_config = {
+                    key: value
+                    for key, value in execution_config.items()
+                    if key not in self._RETIRED_EXECUTION_KEYS
+                }
             return execution_config
 
-        logger.warning(
-            "'execution' section missing from config.yml; defaulting to local Python execution"
+        logger.debug(
+            "'execution' section missing from config.yml; defaulting to subprocess Python execution"
         )
 
-        return {
-            "execution_method": "local",
-            "python_env_path": sys.executable,
-            "modes": {
-                "read_only": {
-                    "kernel_name": "python3-readonly",
-                    "gateway": "read_only",
-                    "allows_writes": False,
-                    "environment": {},
-                },
-                "write_access": {
-                    "kernel_name": "python3-write",
-                    "gateway": "write_access",
-                    "allows_writes": True,
-                    "requires_approval": True,
-                    "environment": {},
-                },
-            },
-        }
+        return {"execution_method": EXECUTION_METHOD_SUBPROCESS}
 
     def _get_writes_enabled_with_fallback(self) -> bool:
         """Get control system writes_enabled setting.
@@ -340,10 +446,10 @@ class ConfigBuilder:
         """Get python executor configuration with sensible defaults.
 
         Returns python_executor configuration from config.yml if present, otherwise
-        provides reasonable defaults for retry and timeout settings.
+        provides a reasonable default for the execution timeout.
 
         Returns:
-            dict: Python executor configuration with retry and timeout settings
+            dict: Python executor configuration with timeout settings
         """
         # Try to get python_executor config from file
         python_executor_config = self.get("python_executor", None)
@@ -354,8 +460,6 @@ class ConfigBuilder:
 
         # Otherwise, provide sensible defaults
         return {
-            "max_generation_retries": 3,
-            "max_execution_retries": 3,
             "execution_timeout_seconds": 600,
         }
 

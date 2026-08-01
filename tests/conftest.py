@@ -431,7 +431,7 @@ def test_config(tmp_path):
                 with open(test_config) as f:
                     config = yaml.safe_load(f)
                 # Modify
-                config['execution']['execution_method'] = 'container'
+                config['execution']['execution_method'] = 'subprocess'
                 # Write back
                 with open(test_config, 'w') as f:
                     yaml.dump(config, f)
@@ -469,7 +469,7 @@ class TestRegistryProvider(RegistryConfigProvider):
             "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
         },
         "execution": {
-            "execution_method": "local",  # Fast for tests
+            "execution_method": "subprocess",
             "modes": {
                 "read_only": {
                     "kernel_name": "python3",
@@ -537,7 +537,7 @@ class TestRegistryProvider(RegistryConfigProvider):
             "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
         },
         "execution": {
-            "execution_method": "local",
+            "execution_method": "subprocess",
             "modes": {
                 "read_only": {
                     "kernel_name": "python3",

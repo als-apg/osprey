@@ -10,6 +10,7 @@ import logging
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
+from osprey.mcp_server.workspace.tools._sandbox_packages import with_sandbox_packages
 from osprey.mcp_server.workspace.tools._viz_common import (
     build_data_reader,
     build_viz_response,
@@ -27,6 +28,7 @@ import scipy.stats as stats
 
 
 @mcp.tool()
+@with_sandbox_packages
 async def create_interactive_plot(
     code: str,
     title: str,
@@ -35,9 +37,12 @@ async def create_interactive_plot(
 ) -> str:
     """Execute Plotly code and save results as interactive HTML artifacts.
 
-    Runs Python code with auto-imported data libraries (numpy, pandas, scipy).
-    Additional packages are importable, including at (Accelerator Toolbox).
-    EPICS and network access are blocked.
+    A preamble runs before your code and binds the data-science stack as ``np``,
+    ``pd`` and ``stats``; no plotting library is imported for you.
+    <<AVAILABLE_PACKAGES>>
+    Imports outside the sandbox allowlist are rejected before your code runs, as
+    are EPICS access and network access. The allowlist also admits a safe stdlib
+    subset (json, datetime, math, pathlib, collections, itertools, re, ...).
 
     You MUST call ``save_artifact(fig, "title")`` on your Plotly figure to
     produce output — figures are not auto-captured.

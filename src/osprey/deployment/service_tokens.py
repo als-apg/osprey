@@ -3,10 +3,10 @@
 This module owns the per-variable *policy* half of service-token provisioning:
 how to mint a secret for a given env var (the alphabet/entropy recipe) and how
 to validate an effective value against the downstream consumer's parsing rules.
-The deploy-time *orchestration* — which services require which vars, the
-write-arming safety gate, and appending minted values to the project ``.env`` —
-lives in :mod:`osprey.deployment.container_lifecycle`, which imports the recipes
-below. Splitting the recipes out keeps the deterministic, side-effect-free
+The deploy-time *orchestration* — which services require which vars, and
+appending minted values to the project ``.env`` — lives in
+:mod:`osprey.deployment.container_lifecycle`, which imports the recipes below.
+Splitting the recipes out keeps the deterministic, side-effect-free
 generation/validation logic testable in isolation from the provisioning flow.
 """
 
@@ -162,16 +162,12 @@ def _validate_openobserve_password(value: str) -> bool:
 # whether that value was freshly minted, carried over from an existing
 # ``.env``, supplied by the operator, or overridden in the process
 # environment. A var absent from this map has no registered constraint and
-# ``_validate_var`` returns True for it — this fails OPEN, the deliberate
-# inverse of the ``_LOCAL_EXEC_SAFE_VARS`` allowlist in container_lifecycle.
-#
-# ``_LOCAL_EXEC_SAFE_VARS`` fails CLOSED on an unenumerated var because
-# minting there is a privilege grant — the bar for opting a var *out* of that
-# safety restriction must be high. Validating a var nobody has triaged yet is
-# the opposite kind of decision: opting a var *into* a format constraint is
-# additive hardening, not a prerequisite the deploy must clear, so withholding
-# it by default must not block an otherwise-working deploy. Adding an entry
-# here is opt-in per var, exactly like ``_VAR_GENERATORS``.
+# ``_validate_var`` returns True for it — deliberately fail-open. Opting a var
+# *into* a format constraint is additive hardening (it turns a downstream
+# crash-loop into a clear deploy-time error), not a prerequisite the deploy
+# must clear, so withholding it by default must not block an otherwise-working
+# deploy. Adding an entry here is opt-in per var, exactly like
+# ``_VAR_GENERATORS``.
 _VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
     # Tiled rejects a non-alphanumeric --api-key at startup (see
     # _VAR_GENERATORS above); reject it here too so an *operator-supplied*

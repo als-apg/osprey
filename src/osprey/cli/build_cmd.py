@@ -23,6 +23,7 @@ persistence (config overrides, overlays, MCP servers, git init) in
 from __future__ import annotations
 
 import shlex
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -433,10 +434,26 @@ def build(
 
         # 6c. Create project venv with OSPREY + profile deps
         # Moved before template rendering so templates get the real project Python path.
+        # The merged requirement list it installed — and recorded in the
+        # project's pyproject.toml — is carried forward to step 6f, which
+        # renders it into the generated Dockerfile.
         if not skip_deps:
-            _create_project_venv(project_path, build_profile)
+            project_deps = _create_project_venv(project_path, build_profile)
+        else:
+            # No venv was created, so nothing was frozen and nothing merged.
+            # The profile's own `dependencies` are all that is known to declare,
+            # and `environment.packages` describes an environment this build
+            # never assembled.
+            project_deps = list(build_profile.dependencies or [])
 
-        # 6d. Resolve python_env for template context
+        # 6d. Resolve the OSPREY-runtime interpreter for the template context.
+        # This key feeds .mcp.json server commands, framework hook commands, and
+        # registry `{current_python_env}` substitution — all processes that
+        # import `osprey`, so every branch below must yield an interpreter that
+        # has it. The build profile chooses here; config.yml never does, at build
+        # time or later (`osprey claude regen` derives `sys.executable` for the
+        # same reason). Agent-authored code is the other half of the split and is
+        # resolved separately at run time by `resolve_agent_interpreter`.
         python_env = build_profile.python_env or "project"
         if skip_deps:
             # No venv created — pin to the python running osprey-build, which is
@@ -444,27 +461,41 @@ def build(
             # run). Bare "python" gambles on PATH and breaks for subprocess
             # contexts that don't inherit the venv's PATH (Claude Code SDK,
             # containerized launchers).
-            import sys
-
             resolved_python_env = sys.executable
         elif python_env == "project":
             resolved_python_env = str(project_path / ".venv" / "bin" / "python")
         elif python_env == "build":
-            import sys
-
             resolved_python_env = sys.executable
         else:
             resolved_python_env = python_env
         context["current_python_env"] = resolved_python_env
 
+        # 6d2. Record the environment declaration for the rendered config.yml.
+        # This is provenance, not configuration: it is the profile's `environment:`
+        # block verbatim, so a config.yml states which environment the project was
+        # built from and the build can be reproduced from it. Deliberately no
+        # interpreter path — the runtime resolves the interpreter conventionally
+        # (project `.venv`, else the interpreter running OSPREY), so a config.yml
+        # never carries an absolute host path that a move or a container would
+        # invalidate.
+        environment = build_profile.environment
+        context["environment_python"] = environment.python
+        context["environment_packages"] = list(environment.packages or [])
+        context["environment_inherit_exclude"] = list(environment.inherit_exclude or [])
+
         # 6e. Override project_root for container builds
         if runtime_root:
             context["project_root"] = str(runtime_root)
 
-        # 6f. Profile pip dependencies for the generated Dockerfile's install line
-        deps = list(build_profile.dependencies or [])
-        context["dependencies"] = deps
-        context["pip_dependency_args"] = " ".join(shlex.quote(d) for d in deps)
+        # 6f. Project dependencies for the generated Dockerfile's install line.
+        # Not re-derived from the profile: this is the very list step 6c
+        # installed into the project venv and recorded in its pyproject.toml, so
+        # the image and the host it was built from carry the same packages. A
+        # second derivation here is how the two drifted before — the profile's
+        # `dependencies` alone omit both the frozen base and
+        # `environment.packages`, leaving the image short of what the host has.
+        context["dependencies"] = project_deps
+        context["pip_dependency_args"] = " ".join(shlex.quote(d) for d in project_deps)
 
         # 7. Create project from template (also materializes tier-specific
         # channel DBs from the preset's tiers/ subtree, before the Claude Code

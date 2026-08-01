@@ -127,9 +127,11 @@ def test_tool_content_never_wired():
 
 
 @pytest.mark.parametrize("env_var,cfg_key", CONTENT_GATES)
-def test_each_content_gate_toggle_drops_exactly_one_key(env_var, cfg_key):
+def test_each_content_gate_toggle_zeroes_exactly_one_key(env_var, cfg_key):
+    """A disabled gate ships an explicit "0" — omission would let the CLI's
+    own fallback chain (e.g. ASSISTANT_RESPONSES ?? USER_PROMPTS) re-enable it."""
     env = _build_telemetry_env({"enabled": True, "endpoint": "http://c:4318", cfg_key: False})
-    assert env_var not in env
+    assert env[env_var] == "0"
     # every OTHER gate stays on
     for other_var, _other_key in CONTENT_GATES:
         if other_var != env_var:
@@ -477,7 +479,7 @@ def test_resolve_consults_host_override(monkeypatch):
     "falsey", [False, "false", "False", "FALSE", "0", "no", "off", " false ", ""]
 )
 def test_falsey_gate_values_suppress(env_var, cfg_key, falsey):
-    """bool False AND false-y strings (incl. ${VAR:-false} -> "false") drop the gate."""
+    """bool False AND false-y strings (incl. ${VAR:-false} -> "false") zero the gate."""
     env = _build_telemetry_env(
         {
             "enabled": True,
@@ -486,7 +488,7 @@ def test_falsey_gate_values_suppress(env_var, cfg_key, falsey):
             cfg_key: falsey,
         }
     )
-    assert env_var not in env
+    assert env[env_var] == "0"
 
 
 @pytest.mark.parametrize("truthy", [True, "true", "True", "1", "yes"])
