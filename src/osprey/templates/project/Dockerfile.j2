@@ -109,7 +109,7 @@ RUN mkdir -p /app/{{ project_name }}/_agent_data/executed_scripts \
              /app/{{ project_name }}/_agent_data/user_memory \
              /app/{{ project_name }}/_agent_data/api_calls
 
-# Rewrite recorded host paths for the container layout and re-render the
+# Rewrite the recorded project_root for the container layout and re-render the
 # Claude Code artifacts (.mcp.json, CLAUDE.md, .claude/) against it
 RUN osprey claude regen --project /app/{{ project_name }} --runtime-root /app/{{ project_name }}
 

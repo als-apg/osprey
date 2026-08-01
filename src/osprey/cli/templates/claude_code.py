@@ -3,6 +3,7 @@
 import json
 import logging
 import shutil
+import sys
 import warnings
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +28,48 @@ logger = logging.getLogger("osprey.cli.templates")
 _MIXED_READ_WRITE_TEMPLATES = {"python"}
 
 
+def _derive_runtime_interpreter(
+    project_dir: Path, project_root_override: Path | str | None = None
+) -> str:
+    """Pick the interpreter OSPREY-runtime processes launch with.
+
+    Every OSPREY-runtime launch site takes this one value: ``.mcp.json`` server
+    commands, framework hook commands, and the registry's
+    ``{current_python_env}`` substitution. All of them ``import osprey``, so the
+    single hard requirement is that the result has ``osprey`` importable.
+
+    It is *derived* from the filesystem, never read from config. A path recorded
+    in a config file is a snapshot of one machine and goes stale the moment the
+    project is moved, remounted, or rebuilt elsewhere — every MCP server then
+    fails to launch. Ending that failure mode is the point of this role split.
+
+    The project's own ``.venv`` wins when the project has one: ``osprey build``
+    installs ``osprey`` into it, and a command pointing inside the build output
+    keeps working when the framework tree that built it is moved or deleted.
+    Without one, the generating interpreter is used — whatever process is
+    rendering this is running OSPREY, so ``osprey`` is importable there by
+    definition.
+
+    ``project_root_override`` means the artifact is being rendered *for*
+    somewhere else, typically a container's ``/app/<project>``. The host's
+    ``.venv`` is then neither the interpreter that will exist at run time nor
+    probeable from here, so the generating interpreter is the only honest answer.
+
+    Args:
+        project_dir: Project directory on the filesystem being rendered from.
+        project_root_override: Runtime project root when it differs from
+            *project_dir*, e.g. a container mount point.
+
+    Returns:
+        str: Absolute path to the interpreter runtime processes launch with.
+    """
+    if project_root_override is None:
+        venv_python = Path(project_dir) / ".venv" / "bin" / "python"
+        if venv_python.is_file():
+            return str(venv_python)
+    return sys.executable
+
+
 def build_claude_code_context(
     template_root: Path,
     jinja_env,
@@ -49,8 +92,6 @@ def build_claude_code_context(
     Returns:
         Template context dict suitable for Claude Code templates
     """
-    import sys
-
     project_name = config.get("project_name", project_dir.name)
     package_name = project_name.replace("-", "_").lower()
 
@@ -87,9 +128,12 @@ def build_claude_code_context(
         "project_root": str(project_root_override)
         if project_root_override
         else str(project_dir.absolute()),
-        "current_python_env": (
-            config.get("execution", {}).get("python_env_path") or sys.executable
-        ),
+        # Derived from the filesystem, never read from config — see
+        # _derive_runtime_interpreter. Agent-authored code is the other half of
+        # the split and does not come through here: it re-resolves per call at
+        # run time (resolve_agent_interpreter), where this value is frozen into
+        # a generated artifact at render time.
+        "current_python_env": _derive_runtime_interpreter(project_dir, project_root_override),
         "template_name": template_name,
         "data_bundle": data_bundle,
         "claude_md_template": claude_md_template,

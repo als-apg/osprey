@@ -956,17 +956,53 @@ class TestRegenRuntimeRoot:
         config = yaml.safe_load(text)
         assert config["project_root"] == "/app/rr-rewrite"
 
-    def test_stale_python_env_path_replaced(self, tmp_path):
-        """A recorded python_env_path that doesn't exist is healed to sys.executable."""
+    def test_relocation_records_no_interpreter_path(self, tmp_path):
+        """Relocation rewrites ``project_root`` and records no interpreter.
+
+        ``project_root`` is the only host path config.yml carries, so a
+        relocated project's config must name no interpreter at all — not the
+        one that ran the regen, not any other.
+        """
+        import sys
+
+        project_dir = self._create(tmp_path, "rr-no-interp")
+        config_file = project_dir / "config.yml"
+
+        result = self._invoke(
+            [
+                "claude",
+                "regen",
+                "--project",
+                str(project_dir),
+                "--runtime-root",
+                "/app/rr-no-interp",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+
+        text = config_file.read_text()
+        config = yaml.safe_load(text)
+        assert config["project_root"] == "/app/rr-no-interp"
+        assert "python_env_path" not in config.get("execution", {})
+        assert sys.executable not in text, (
+            "relocation must not write the regenerating interpreter into config.yml"
+        )
+
+    def test_stale_interpreter_path_is_left_alone_and_stays_inert(self, tmp_path):
+        """A legacy config's recorded interpreter is neither healed nor honoured.
+
+        Older projects may still carry ``execution.python_env_path``. Relocation
+        no longer rewrites it — nothing reads it — and the artifacts it renders
+        must not launch MCP servers with that stale path.
+        """
         import sys
 
         from osprey.utils.config_writer import config_update_fields
 
+        stale = "/nonexistent/host/.venv/bin/python"
         project_dir = self._create(tmp_path, "rr-stale-env")
         config_file = project_dir / "config.yml"
-        config_update_fields(
-            config_file, {"execution.python_env_path": "/nonexistent/host/.venv/bin/python"}
-        )
+        config_update_fields(config_file, {"execution.python_env_path": stale})
 
         result = self._invoke(
             ["claude", "regen", "--project", str(project_dir), "--runtime-root", str(project_dir)]
@@ -974,25 +1010,19 @@ class TestRegenRuntimeRoot:
         assert result.exit_code == 0, result.output
 
         config = yaml.safe_load(config_file.read_text())
-        assert config["execution"]["python_env_path"] == sys.executable
-
-    def test_valid_python_env_path_untouched(self, tmp_path):
-        """An existing python_env_path is left alone."""
-        from osprey.utils.config_writer import config_update_fields
-
-        project_dir = self._create(tmp_path, "rr-valid-env")
-        config_file = project_dir / "config.yml"
-        fake_python = tmp_path / "some-other-venv-python"
-        fake_python.touch()
-        config_update_fields(config_file, {"execution.python_env_path": str(fake_python)})
-
-        result = self._invoke(
-            ["claude", "regen", "--project", str(project_dir), "--runtime-root", str(project_dir)]
+        assert config["execution"]["python_env_path"] == stale, (
+            "regen must leave the retired key untouched rather than healing it"
         )
-        assert result.exit_code == 0, result.output
 
-        config = yaml.safe_load(config_file.read_text())
-        assert config["execution"]["python_env_path"] == str(fake_python)
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        commands = {s.get("command") for s in mcp_data["mcpServers"].values()}
+        assert stale not in commands, (
+            f"a stale recorded interpreter must never reach .mcp.json, got {commands}"
+        )
+        assert sys.executable in commands, (
+            "the OSPREY-native servers must launch with the resolved interpreter "
+            f"(this also proves the check above is not vacuous), got {commands}"
+        )
 
     def test_rendered_artifacts_reference_runtime_root(self, tmp_path):
         """.mcp.json paths point at the runtime root after relocation."""
