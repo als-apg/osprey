@@ -87,8 +87,8 @@ class ExecutionMode(Enum):
     :cvar WRITE_ACCESS: Full-access environment enabling system writes and control operations
 
     .. note::
-       Each execution mode corresponds to a specific Jupyter container configuration
-       with appropriate kernel settings, environment variables, and access controls.
+       The execution mode gates what the generated code is permitted to do;
+       enforcement happens before execution via approval workflows.
 
     .. warning::
        WRITE_ACCESS mode can perform operations with real-world consequences in

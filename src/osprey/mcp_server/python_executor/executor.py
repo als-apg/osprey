@@ -147,7 +147,7 @@ async def _execute_via_local(
     """Execute code in a host subprocess with the ExecutionWrapper."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(execution_mode="local", limits_validator=limits_validator)
+    wrapper = ExecutionWrapper(limits_validator=limits_validator)
     wrapped_code = wrapper.create_wrapper(code, execution_folder)
 
     # Write wrapped script to execution folder

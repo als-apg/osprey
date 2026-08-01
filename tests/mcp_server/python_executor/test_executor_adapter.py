@@ -298,7 +298,7 @@ def test_wrapper_includes_monkeypatch_when_validator_present(tmp_path, monkeypat
     validator = _load_limits_validator()
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(execution_mode="local", limits_validator=validator)
+    wrapper = ExecutionWrapper(limits_validator=validator)
     wrapped = wrapper.create_wrapper("print('hello')", tmp_path)
     assert "_checked_caput" in wrapped
     assert "LimitsValidator" in wrapped
@@ -311,7 +311,7 @@ def test_wrapper_omits_monkeypatch_when_no_validator(tmp_path, monkeypatch):
     _write_config(tmp_path)
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(execution_mode="local", limits_validator=None)
+    wrapper = ExecutionWrapper(limits_validator=None)
     wrapped = wrapper.create_wrapper("print('hello')", tmp_path)
     assert "_checked_caput" not in wrapped
 

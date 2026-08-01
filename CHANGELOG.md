@@ -107,6 +107,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   an already-deployed config is ignored on load. A config without an
   `execution:` section no longer logs a warning — subprocess execution is the
   default, not an anomaly.
+- The unreachable Jupyter-container execution machinery is deleted: the
+  container engine, the wrapper's container mode, the notebook/file managers
+  (and the `http://localhost:8088` notebook links they minted), their models
+  and exception hierarchy, and the artifacts API's interactive-notebook
+  endpoint. `osprey.services.python_executor` now exports only the analysis,
+  limits-validation, and serialization utilities the subprocess backend uses.
 - The Python-execution and visualization tool descriptions now name the
   packages actually importable where each one runs code, enumerated once at
   server start, instead of a fixed `numpy, pandas, scipy, at, matplotlib,

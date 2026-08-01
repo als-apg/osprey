@@ -5,7 +5,7 @@ Osprey Framework. Templates are organized into:
 
 - project/ : Base project structure (config, pyproject.toml, README, etc.)
 - apps/ : Application code templates (hello_world, control_assistant)
-- services/ : Docker/Podman service configurations (Jupyter, web-terminal)
+- services/ : Docker/Podman service configurations (postgresql, openobserve, ...)
 
 Templates are bundled with the pip-installed framework package and used by
 the CLI scaffolding command (osprey build).

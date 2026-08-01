@@ -212,55 +212,6 @@ def mock_config_writes_disabled(tmp_path):
 
 
 @pytest.fixture
-def mock_config_with_execution(tmp_path):
-    """Config including execution infrastructure settings for adapter tests."""
-    config = tmp_path / "config.yml"
-    config.write_text(
-        yaml.dump(
-            {
-                "control_system": {
-                    "type": "mock",
-                    "writes_enabled": True,
-                    "write_verification": {
-                        "default_level": "callback",
-                        "default_tolerance": 0.1,
-                    },
-                    "limits_checking": {"enabled": False},
-                },
-                "archiver": {"type": "mock"},
-                "execution": {
-                    "execution_method": "subprocess",
-                    "modes": {
-                        "read_only": {"kernel_name": "python3-epics-readonly"},
-                        "write_access": {"kernel_name": "python3-epics-write"},
-                    },
-                },
-                "services": {
-                    "jupyter": {
-                        "containers": {
-                            "read": {
-                                "hostname": "localhost",
-                                "port_host": 8088,
-                                "execution_modes": ["read_only"],
-                            },
-                            "write": {
-                                "hostname": "localhost",
-                                "port_host": 8089,
-                                "execution_modes": ["write_access"],
-                            },
-                        }
-                    }
-                },
-                "python_executor": {
-                    "execution_timeout_seconds": 300,
-                },
-            }
-        )
-    )
-    return config
-
-
-@pytest.fixture
 def mock_config_with_limits(tmp_path):
     """Config with limits_checking enabled and a channel_limits.json database."""
     limits_db = tmp_path / "channel_limits.json"

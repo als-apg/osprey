@@ -632,7 +632,7 @@ def test_save_artifact_injection_generates_code():
 
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(execution_mode="local")
+    wrapper = ExecutionWrapper()
     code = wrapper._get_save_artifact_injection()
 
     assert "def save_artifact(" in code
@@ -646,7 +646,7 @@ def test_save_artifact_in_full_wrapper():
     """create_wrapper() includes save_artifact() in the output."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(execution_mode="local")
+    wrapper = ExecutionWrapper()
     full_code = wrapper.create_wrapper("x = 1")
 
     assert "def save_artifact(" in full_code
