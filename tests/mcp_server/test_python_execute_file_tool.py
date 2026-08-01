@@ -24,7 +24,7 @@ def _mock_execute_code(
     stdout="",
     stderr="",
     figures=None,
-    execution_method_used="local",
+    execution_method_used="subprocess",
 ):
     """Build an AsyncMock for execute_code returning a configured ExecutionResult."""
     result = ExecutionResult(

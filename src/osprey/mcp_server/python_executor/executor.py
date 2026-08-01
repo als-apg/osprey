@@ -1,15 +1,20 @@
-"""MCP execution adapter — bridges execute tool to existing execution infrastructure.
+"""MCP execution adapter — bridges the execute tool to the subprocess backend.
 
-Delegates code execution to ContainerExecutor (Jupyter containers) or local subprocess
-with ExecutionWrapper, adding limits monkeypatch, process isolation, and timeout.
+Agent-authored Python runs in exactly one place: a host subprocess wrapped by
+:class:`~osprey.services.python_executor.execution.wrapper.ExecutionWrapper`,
+which adds the limits monkeypatch, process isolation, and a timeout.
 
-This module reuses the existing execution infrastructure (container_engine,
-wrapper, limits_validator) as-is.
+The interpreter for that subprocess follows the *project venv* convention (see
+:func:`resolve_agent_interpreter`), which is deliberately different from how
+OSPREY-runtime processes (MCP servers, hooks) pick their interpreter: those
+derive ``sys.executable`` so ``osprey`` stays importable, while agent code runs
+in whatever environment the project installed for it.
 """
 
 import asyncio
 import logging
 import os
+import sys
 import time
 import traceback
 import uuid
@@ -18,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from osprey.mcp_server.sandbox_env import scrub_sensitive_env
+from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
 
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 
@@ -37,41 +43,26 @@ class ExecutionResult:
     stderr: str
     figures: list[Path] = field(default_factory=list)
     artifacts: list[dict] = field(default_factory=list)
-    execution_method_used: str = "container"
+    execution_method_used: str = EXECUTION_METHOD_SUBPROCESS
     execution_time_seconds: float | None = None
     error_message: str | None = None
 
 
 def _read_config() -> dict:
-    """Read execution-related config values from config.yml."""
+    """Read execution-related config values from config.yml.
+
+    Returns:
+        dict: ``execution_method`` (always the resolved backend name, never the
+        raw config string) and ``timeout`` in seconds.
+    """
+    from osprey.utils.config import resolve_execution_method
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
 
-    execution_method = config.get("execution", {}).get("execution_method", "container")
-    timeout = config.get("python_executor", {}).get("execution_timeout_seconds", 600)
-
-    # Container configs
-    containers = config.get("services", {}).get("jupyter", {}).get("containers", {})
-    read_container = containers.get("read", {})
-    write_container = containers.get("write", {})
-
-    # Kernel names
-    modes = config.get("execution", {}).get("modes", {})
-    readonly_kernel = modes.get("read_only", {}).get("kernel_name", "python3")
-    readwrite_kernel = modes.get("write_access", {}).get("kernel_name", "python3")
-
-    # Python env path for local execution
-    python_env_path = config.get("execution", {}).get("python_env_path")
-
     return {
-        "execution_method": execution_method,
-        "timeout": timeout,
-        "read_container": read_container,
-        "write_container": write_container,
-        "readonly_kernel": readonly_kernel,
-        "readwrite_kernel": readwrite_kernel,
-        "python_env_path": python_env_path,
+        "execution_method": resolve_execution_method(config),
+        "timeout": config.get("python_executor", {}).get("execution_timeout_seconds", 600),
     }
 
 
@@ -85,6 +76,39 @@ def _resolve_project_root() -> Path:
     from osprey.utils.workspace import resolve_workspace_root
 
     return resolve_workspace_root().parent
+
+
+def resolve_agent_interpreter(project_root: Path | None = None) -> Path:
+    """Resolve the Python interpreter that runs agent-authored code.
+
+    Agent code runs in the project's own virtual environment when the project
+    ships one, so the packages an operator installed for their analysis code are
+    the packages agent code can import. When there is no project venv, agent code
+    falls back to the interpreter running OSPREY itself.
+
+    This is *only* for agent code. OSPREY-runtime processes (MCP server launch
+    commands, hook commands, registry substitution) must keep deriving
+    ``sys.executable`` so that ``osprey`` stays importable.
+
+    Args:
+        project_root: Project directory to look for ``.venv`` in. Defaults to the
+            resolved project root (the parent of the workspace root).
+
+    Returns:
+        Path: ``<project_root>/.venv/bin/python`` when it exists, otherwise
+        :data:`sys.executable`.
+    """
+    if project_root is None:
+        try:
+            project_root = _resolve_project_root()
+        except Exception:  # pragma: no cover - defensive: never fail resolution
+            logger.debug("Project root not resolvable; using sys.executable", exc_info=True)
+            return Path(sys.executable)
+
+    venv_python = Path(project_root) / ".venv" / "bin" / "python"
+    if venv_python.exists():
+        return venv_python
+    return Path(sys.executable)
 
 
 def _create_execution_folder() -> Path:
@@ -113,63 +137,6 @@ def _load_limits_validator():
         return None
 
 
-async def _execute_via_container(
-    code: str,
-    execution_mode: str,
-    config: dict,
-    execution_folder: Path,
-    limits_validator,
-) -> ExecutionResult:
-    """Execute code in a Jupyter container via WebSocket."""
-    from osprey.services.python_executor.config import PythonExecutorConfig
-    from osprey.services.python_executor.execution.container_engine import (
-        ContainerEndpoint,
-        ContainerExecutor,
-    )
-
-    # Select container based on execution_mode
-    if execution_mode == "readwrite":
-        container_config = config["write_container"]
-        kernel_name = config["readwrite_kernel"]
-    else:
-        container_config = config["read_container"]
-        kernel_name = config["readonly_kernel"]
-
-    host = container_config.get("hostname", "localhost")
-    port = container_config.get("port_host", 8088)
-
-    endpoint = ContainerEndpoint(host=host, port=port, kernel_name=kernel_name)
-
-    # Build executor config with limits validator
-    executor_config = PythonExecutorConfig()
-    if limits_validator:
-        executor_config._limits_validator = limits_validator
-
-    executor = ContainerExecutor(
-        endpoint=endpoint,
-        execution_folder=execution_folder,
-        timeout=config["timeout"],
-        executor_config=executor_config,
-    )
-
-    start_time = time.time()
-    result = await executor.execute_code(code)
-    elapsed = time.time() - start_time
-
-    artifacts = _collect_artifacts(execution_folder)
-
-    return ExecutionResult(
-        success=result.success,
-        stdout=result.stdout or "",
-        stderr=result.error_message or "",
-        figures=result.captured_figures or [],
-        artifacts=artifacts,
-        execution_method_used="container",
-        execution_time_seconds=elapsed,
-        error_message=result.error_message,
-    )
-
-
 async def _execute_via_local(
     code: str,
     execution_mode: str,
@@ -177,9 +144,7 @@ async def _execute_via_local(
     execution_folder: Path,
     limits_validator,
 ) -> ExecutionResult:
-    """Execute code in a local subprocess with the ExecutionWrapper."""
-    import sys
-
+    """Execute code in a host subprocess with the ExecutionWrapper."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
     wrapper = ExecutionWrapper(execution_mode="local", limits_validator=limits_validator)
@@ -189,25 +154,13 @@ async def _execute_via_local(
     script_path = execution_folder / "wrapped_script.py"
     script_path.write_text(wrapped_code, encoding="utf-8")
 
-    # Determine python binary — python_env_path may be an executable or a venv dir
-    python_env_path = config.get("python_env_path")
-    if python_env_path:
-        p = Path(python_env_path)
-        if p.is_file():
-            python_bin = str(p)
-        else:
-            python_bin = str(p / "bin" / "python")
-            if not Path(python_bin).exists():
-                python_bin = sys.executable
-    else:
-        python_bin = sys.executable
-
     timeout = config["timeout"]
     start_time = time.time()
 
     # cwd = project root so user code can access workspace files via relative
     # paths (e.g. "_agent_data/data/002_archiver_read.json")
     project_root = _resolve_project_root()
+    python_bin = str(resolve_agent_interpreter(project_root))
 
     sandbox_env = scrub_sensitive_env(os.environ.copy())
 
@@ -231,7 +184,7 @@ async def _execute_via_local(
             success=False,
             stdout="",
             stderr=f"Execution timed out after {timeout} seconds",
-            execution_method_used="local",
+            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
             execution_time_seconds=elapsed,
             error_message=f"Execution timed out after {timeout} seconds",
         )
@@ -261,7 +214,7 @@ async def _execute_via_local(
         stderr=final_stderr,
         figures=figures,
         artifacts=artifacts,
-        execution_method_used="local",
+        execution_method_used=EXECUTION_METHOD_SUBPROCESS,
         execution_time_seconds=elapsed,
         error_message=error_msg,
     )
@@ -274,7 +227,8 @@ def _read_execution_metadata(execution_folder: Path) -> dict | None:
     metadata_path = execution_folder / "execution_metadata.json"
     if metadata_path.exists():
         try:
-            return json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            return metadata if isinstance(metadata, dict) else None
         except Exception:
             logger.debug("Failed to read execution metadata", exc_info=True)
     return None
@@ -334,11 +288,11 @@ async def execute_code(
     execution_mode: str,
     description: str,
 ) -> ExecutionResult:
-    """Execute Python code via container or local subprocess.
+    """Execute Python code in a host subprocess.
 
-    Reads ``config.yml`` to determine execution method, creates an isolated
-    execution folder, loads the limits validator, and delegates to the
-    appropriate executor.
+    Reads ``config.yml`` for the execution timeout, creates an isolated
+    execution folder, loads the limits validator, and runs the wrapped code in
+    a subprocess. The subprocess backend is the only backend OSPREY ships.
 
     Args:
         code: Python source code to execute.
@@ -349,22 +303,14 @@ async def execute_code(
         :class:`ExecutionResult` with stdout, stderr, success status, figures,
         and the execution method that was actually used.
     """
-    config = _read_config()
-    execution_method = config["execution_method"]
-
     try:
+        config = _read_config()
         execution_folder = _create_execution_folder()
         limits_validator = _load_limits_validator()
 
-        if execution_method == "local":
-            return await _execute_via_local(
-                code, execution_mode, config, execution_folder, limits_validator
-            )
-        else:
-            # Default to container
-            return await _execute_via_container(
-                code, execution_mode, config, execution_folder, limits_validator
-            )
+        return await _execute_via_local(
+            code, execution_mode, config, execution_folder, limits_validator
+        )
     except Exception as exc:
         logger.error(
             "Execution setup failed (%s: %s)",
@@ -375,6 +321,6 @@ async def execute_code(
             success=False,
             stdout="",
             stderr=traceback.format_exc(),
-            execution_method_used=execution_method,
+            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
             error_message=f"Execution setup failed: {exc}",
         )

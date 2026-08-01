@@ -16,7 +16,7 @@ def mock_execution_result():
         stdout="42\n",
         stderr="",
         figures=None,
-        execution_method_used="container",
+        execution_method_used="subprocess",
         execution_time_seconds=1.5,
         error_message=None,
     ):
