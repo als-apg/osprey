@@ -391,60 +391,48 @@ class ConfigBuilder:
 
         return copy.deepcopy(self._unexpanded_config)
 
+    #: Keys older deployed configs may still carry but nothing honours any more:
+    #: ``python_env_path`` (the agent interpreter is resolved at run time) and
+    #: ``modes`` (Jupyter-era kernel/gateway descriptions with no reader).
+    _RETIRED_EXECUTION_KEYS = ("python_env_path", "modes")
+
     def _get_execution_config(self) -> dict[str, Any]:
         """Get execution configuration with sensible defaults.
 
-        The retired ``python_env_path`` key is dropped here if an older config
-        still carries it: the interpreter that runs agent code is resolved
-        conventionally at run time (the project's own ``.venv``, else the
-        interpreter running OSPREY), so a recorded host path is stale by
-        construction. Dropping it keeps already-deployed configs loading
-        unchanged instead of failing on a key nothing honours any more.
+        Retired keys (:attr:`_RETIRED_EXECUTION_KEYS`) are dropped here if an
+        older config still carries them, so already-deployed projects keep
+        loading unchanged instead of failing on keys nothing honours any more.
 
         Returns:
-            dict: Execution configuration including method and modes.
+            dict: Execution configuration including the execution method.
         """
         # Try to get execution config from file
         execution_config = self.get("execution", None)
 
         # If execution section exists and has content, use it
         if execution_config:
-            if isinstance(execution_config, dict) and "python_env_path" in execution_config:
-                logger.debug(
-                    "Ignoring retired 'execution.python_env_path' (%s) in %s; the agent "
-                    "interpreter is resolved at run time.",
-                    execution_config["python_env_path"],
-                    self.config_path,
-                )
+            if isinstance(execution_config, dict):
+                for key in self._RETIRED_EXECUTION_KEYS:
+                    if key in execution_config:
+                        logger.debug(
+                            "Ignoring retired 'execution.%s' (%s) in %s; the key has "
+                            "no effect on the subprocess execution backend.",
+                            key,
+                            execution_config[key],
+                            self.config_path,
+                        )
                 execution_config = {
                     key: value
                     for key, value in execution_config.items()
-                    if key != "python_env_path"
+                    if key not in self._RETIRED_EXECUTION_KEYS
                 }
             return execution_config
 
-        logger.warning(
+        logger.debug(
             "'execution' section missing from config.yml; defaulting to subprocess Python execution"
         )
 
-        return {
-            "execution_method": EXECUTION_METHOD_SUBPROCESS,
-            "modes": {
-                "read_only": {
-                    "kernel_name": "python3-readonly",
-                    "gateway": "read_only",
-                    "allows_writes": False,
-                    "environment": {},
-                },
-                "write_access": {
-                    "kernel_name": "python3-write",
-                    "gateway": "write_access",
-                    "allows_writes": True,
-                    "requires_approval": True,
-                    "environment": {},
-                },
-            },
-        }
+        return {"execution_method": EXECUTION_METHOD_SUBPROCESS}
 
     def _get_writes_enabled_with_fallback(self) -> bool:
         """Get control system writes_enabled setting.
@@ -458,10 +446,10 @@ class ConfigBuilder:
         """Get python executor configuration with sensible defaults.
 
         Returns python_executor configuration from config.yml if present, otherwise
-        provides reasonable defaults for retry and timeout settings.
+        provides a reasonable default for the execution timeout.
 
         Returns:
-            dict: Python executor configuration with retry and timeout settings
+            dict: Python executor configuration with timeout settings
         """
         # Try to get python_executor config from file
         python_executor_config = self.get("python_executor", None)
@@ -472,8 +460,6 @@ class ConfigBuilder:
 
         # Otherwise, provide sensible defaults
         return {
-            "max_generation_retries": 3,
-            "max_execution_retries": 3,
             "execution_timeout_seconds": 600,
         }
 

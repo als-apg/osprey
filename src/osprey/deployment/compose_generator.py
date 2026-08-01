@@ -444,7 +444,6 @@ def _ensure_agent_data_structure(config):
 
     # Create all configured subdirectories
     subdirs = [
-        "executed_python_scripts_dir",
         "execution_plans_dir",
         "user_memory_dir",
         "registry_exports_dir",
@@ -693,22 +692,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
             # Recursively adjust all src/ paths in the config
             adjust_src_paths_recursive(flattened_config)
-
-            # Handle claude_config_path: copy the file and adjust path
-            # The config explicitly specifies which file to use, so we copy exactly that
-            # and update the reference to match where we put it
-            claude_generators = (
-                flattened_config.get("execution", {}).get("generators", {}).get("claude_code", {})
-            )
-            claude_config_path = claude_generators.get("claude_config_path")
-            if claude_config_path and os.path.exists(claude_config_path):
-                # Copy the config file to build directory
-                filename = os.path.basename(claude_config_path)
-                dst_path = os.path.join(out_dir, filename)
-                shutil.copy2(claude_config_path, dst_path)
-                logger.debug(f"Copied {claude_config_path} to {dst_path}")
-
-                claude_generators["claude_config_path"] = filename
 
             config_yml_dst = os.path.join(out_dir, "config.yml")
             with open(config_yml_dst, "w") as f:

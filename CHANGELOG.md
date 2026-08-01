@@ -100,6 +100,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   absolute host interpreter path that went stale as soon as the project moved.
   Agent Python runs in the project's own `.venv` when it has one, resolved at
   run time. Configs that still carry the key load unchanged; it is ignored.
+- Other Jupyter-era execution keys nothing reads are gone the same way:
+  generated configs no longer carry `execution.modes`,
+  `python_executor.max_generation_retries` / `max_execution_retries`, or
+  `file_paths.executed_python_scripts_dir`, and an `execution.modes` block in
+  an already-deployed config is ignored on load. A config without an
+  `execution:` section no longer logs a warning — subprocess execution is the
+  default, not an anomaly.
 - The Python-execution and visualization tool descriptions now name the
   packages actually importable where each one runs code, enumerated once at
   server start, instead of a fixed `numpy, pandas, scipy, at, matplotlib,
