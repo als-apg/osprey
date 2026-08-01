@@ -3,12 +3,11 @@
  *
  * One quiet faders button in the header collapses every display preference
  * behind a popover card: Appearance (light/dark within the active theme family), View
- * (Expert/Simple), Theme (the family pills), and — last, expert-only — the
- * System Settings row that opens the settings drawer. It replaces the hub
- * header's always-visible segmented mode toggle + `<osprey-theme-switcher>`
- * pair and the standalone settings gear beside them; standalone fleet pages
- * (session.html, the panels) keep the shared switcher component; this menu is
- * hub chrome only.
+ * (Expert/Simple), Theme (the family pills), and — last — the System Settings
+ * row that opens the settings drawer. It replaces the hub header's
+ * always-visible segmented mode toggle + `<osprey-theme-switcher>` pair and the
+ * standalone settings gear beside them; standalone fleet pages (session.html,
+ * the panels) keep the shared switcher component; this menu is hub chrome only.
  *
  * Division of labour:
  *   - This module owns the popover (open/close, outside-click, Escape) and
@@ -21,16 +20,16 @@
  *     the same `#mode-toggle` / `.mode-segment[data-mode]` markup, so the mode
  *     flip, persistence, and panel broadcast all live where they always did,
  *     and the active segment stays CSS-driven off `html[data-ui-mode]`.
- *     This module only closes the card after a mode pick — flipping the whole
- *     shell is a context switch, unlike the stay-open theme rows, which are
- *     kept open so an operator can compare appearances without re-opening.
- *   - The SYSTEM SETTINGS row is likewise not this module's to open: it keeps
- *     the `[data-drawer-trigger="settings-drawer"]` contract, so settings.js's
+ *     Like the theme rows, a mode pick leaves the card OPEN: every row of the
+ *     card renders identically in both modes, so the card an operator is
+ *     looking at survives the flip and they can compare the two shells (or go
+ *     straight back) without re-opening the menu.
+ *   - The SYSTEM SETTINGS row is not this module's to open: it keeps the
+ *     `[data-drawer-trigger="settings-drawer"]` contract, so settings.js's
  *     first-time warning gate stays the sole open path and app.js still
- *     mirrors the drawer's open state onto it as `.active`. This module closes
- *     the card on the click, as for a mode pick. Its expert-only visibility is
- *     pure CSS off `html[data-ui-mode]` (terminal.css) — no JS gate, so a live
- *     Expert/Simple flip is instant and leaves no DOM behind.
+ *     mirrors the drawer's open state onto it as `.active`. This is the ONE
+ *     row that closes the card, because opening the drawer moves the operator
+ *     to a different surface entirely.
  *
  * The popover grammar (open renders nothing lazily except the family pills'
  * one-time build; capture-phase outside-click + Escape close; aria-expanded
@@ -150,15 +149,12 @@ export function initDisplayMenu() {
     else openMenu();
   });
 
-  // View row: initModeToggle() (app.js) owns the actual flip; a mode pick
-  // just also closes the card (see module docstring for why only this row).
-  card.querySelector('#mode-toggle')?.addEventListener('click', (e) => {
-    if (e.target instanceof Element && e.target.closest('.mode-segment')) closeMenu();
-  });
+  // View row: nothing to wire. initModeToggle() (app.js) owns the flip, and
+  // the card deliberately stays open across it (see the module docstring).
 
   // System Settings row: settings.js's warning gate owns the open (it binds
   // the same `[data-drawer-trigger]` button); this module only dismisses the
-  // card, since opening the drawer is a context switch like a mode pick.
+  // card, since opening the drawer is a move to another surface.
   card.querySelector('.display-menu-settings')?.addEventListener('click', () => closeMenu());
 
   // Appearance row: flip light/dark within the active family, only when the

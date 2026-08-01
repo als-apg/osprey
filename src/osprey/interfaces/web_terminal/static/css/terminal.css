@@ -207,10 +207,9 @@
 
 /* ---- Header action cluster (bordered chips, frame 2a) ---- */
 
-/* The header's remaining icon buttons — the simple-mode help chip and logout —
-   render as `.header-icon-btn` (base style in drawer.css); reshape them into
-   28px bordered chips only within the header, leaving the drawer's own icon
-   buttons untouched. */
+/* The header's remaining icon button — logout — renders as `.header-icon-btn`
+   (base style in drawer.css); reshape it into a 28px bordered chip only within
+   the header, leaving the drawer's own icon buttons untouched. */
 .header .header-actions {
   gap: var(--space-2);
 }
@@ -468,21 +467,17 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
    in-terminal Claude Code output (its model/context/token status line and any
    approval prompts) are untouched and stay fully functional.
 
-   Resting (expert) state: the simple-only affordances are hidden. The help chip
-   is scoped under .header so its display:none outranks the base
-   .header-icon-btn { display: flex } it also carries (drawer.css loads after
-   this file, so equal-specificity would otherwise reveal it in expert too). */
+   The header action cluster is deliberately NOT part of this: search, the
+   display menu, and its System Settings row render identically in both modes,
+   so an operator's muscle memory for the top-right chrome survives a flip.
+
+   Resting (expert) state: the simple-only affordances are hidden. */
 .terminal-label-simple {
   display: none;
 }
 
-.header .header-help-chip {
-  display: none;
-  text-decoration: none;
-}
-
 /* Simple: swap the mono SESSION <hex> + selector for the plain "Connected"
-   label, and reveal the header help chip. */
+   label. */
 html[data-ui-mode="simple"] .terminal-label {
   display: none;
 }
@@ -492,17 +487,6 @@ html[data-ui-mode="simple"] .terminal-label-simple {
 }
 
 html[data-ui-mode="simple"] .session-selector {
-  display: none;
-}
-
-html[data-ui-mode="simple"] .header-help-chip {
-  display: flex;
-}
-
-/* Simple: the display menu keeps Appearance/View/Theme but drops the System
-   Settings row entirely — the settings drawer is expert configuration (its own
-   warning dialog says so), so simple mode offers no route to it at all. */
-html[data-ui-mode="simple"] .display-menu-settings {
   display: none;
 }
 

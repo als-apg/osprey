@@ -15,7 +15,12 @@
 /* A pill that sits among the header's bordered-chip controls but is wider and
  * carries a magnifier + muted placeholder-style label + a keyboard hint, so it
  * reads as "search" rather than a plain icon button. Tone (bg-panel border,
- * radius, muted text) matches `.header .header-icon-btn` in terminal.css. */
+ * radius, muted text) matches `.header .header-icon-btn` in terminal.css.
+ *
+ * Deliberately NOT gated on html[data-ui-mode]: the trigger renders identically
+ * in Expert and Simple so the header's action cluster never shifts under an
+ * operator on a mode flip. palette-boot.js trims the palette's REGISTRY in
+ * simple mode instead — see its docstring. */
 .command-palette-trigger {
   display: inline-flex;
   align-items: center;
@@ -64,13 +69,6 @@
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* ---- Simple UI mode: hide the trigger (LOAD-BEARING) ----
- * Attribute selector on <html> + the id keeps this specific enough to win over
- * the base `.command-palette-trigger { display: inline-flex }` above. */
-html[data-ui-mode="simple"] #command-palette-btn {
-  display: none;
 }
 
 /* ---- Keyboard-hint chip ---- */

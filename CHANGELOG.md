@@ -136,7 +136,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   renamed to `channel_finder_benchmark` to say what it actually covers.
 - Web terminal header: the Expert/Simple toggle and theme controls are collapsed
   into a single display-menu dot that opens a popover with appearance
-  (light/dark), view, and theme-family pickers.
+  (light/dark), view, and theme-family pickers. The header's search box and the
+  display menu — System Settings included — now look and behave the same in both
+  Expert and Simple, so nothing in the top-right corner moves when you switch
+  view; the standalone "?" button is gone (the safety guide is still one search
+  away). The popover also stays open while you switch appearance, theme, or
+  view, so you can flip back and forth without reopening it.
 - The default theme family is now named **main** (it was `osprey`): use
   `web.theme: main`.
 - Workspace gallery browser: the three stacked header rows (title/count bar,

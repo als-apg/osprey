@@ -208,11 +208,12 @@ def _close_display_menu(page: Page) -> None:
 
 
 def _click_segment(page: Page, mode: str) -> None:
-    # The mode toggle lives inside the header display-menu popover (the sliders button);
-    # open it first. A mode pick closes the card again, so every call starts
-    # from the collapsed state.
+    # The mode toggle lives inside the header display-menu popover (the sliders
+    # button); open it first. A mode pick deliberately LEAVES the card open, so
+    # dismiss it here to return callers to the collapsed state.
     _open_display_menu(page)
     page.locator(f'#mode-toggle .mode-segment[data-mode="{mode}"]').click()
+    _close_display_menu(page)
 
 
 # ---------------------------------------------------------------------------
@@ -383,23 +384,27 @@ def test_query_param_beats_localstorage(tmp_path, chromium_browser):
 
 
 # ---------------------------------------------------------------------------
-# (f) the System Settings row is Expert-only
+# (f) the header action cluster does not move under a mode flip
 # ---------------------------------------------------------------------------
 
 
-def test_settings_row_is_expert_only(tmp_path, chromium_browser):
-    """The display menu offers System Settings in Expert and hides it in Simple.
+def test_header_action_cluster_is_mode_invariant(tmp_path, chromium_browser):
+    """Search, the display menu, and System Settings render the same in both modes.
 
-    The settings drawer is expert configuration (its own gate calls it an
-    "Expert Configuration Area"), and after the header gear was folded into the
-    display menu this row is hub chrome's ONLY route to it -- so Simple must
-    offer no route at all.  The gate is pure CSS off ``html[data-ui-mode]``, so
-    this is asserted across a LIVE flip (no reload): the row is visible in
-    Expert, gone once Simple is picked, and back on the flip return.
+    The top-right cluster is the operator's fixed handhold: nothing there
+    appears, disappears, or shifts when the shell flips between Expert and
+    Simple, so muscle memory built in one mode still lands in the other.  Only
+    the shell BELOW the header changes.  Asserted across a LIVE flip (no
+    reload), since the mode axis is a pure CSS gate off ``html[data-ui-mode]``.
     """
     with _hub_with_artifacts(tmp_path, ui_mode="expert") as (base_url, _app):
         page = _open_hub_page(chromium_browser, base_url)
+        search = page.locator("#command-palette-btn")
+        menu_btn = page.locator("#display-menu-btn")
         settings_row = page.locator("#display-menu-settings")
+
+        expect(search).to_be_visible()
+        expect(menu_btn).to_be_visible()
 
         # Expert: the row is there, and it is the trigger settings.js gates.
         _open_display_menu(page)
@@ -407,18 +412,51 @@ def test_settings_row_is_expert_only(tmp_path, chromium_browser):
         expect(settings_row).to_have_attribute("data-drawer-trigger", "settings-drawer")
         _close_display_menu(page)
 
-        # Live flip to Simple (the mode pick closes the card), then reopen it.
+        # Live flip to Simple: every header control is still there, unmoved.
         _click_segment(page, "simple")
+        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
+        expect(search).to_be_visible()
+        expect(menu_btn).to_be_visible()
         _open_display_menu(page)
-        expect(settings_row).to_be_hidden()
-        # The other rows survive -- Simple loses settings, not the whole menu.
+        expect(settings_row).to_be_visible()
         expect(page.locator("#appearance-toggle")).to_be_visible()
         expect(page.locator("#mode-toggle")).to_be_visible()
         _close_display_menu(page)
 
-        # Flip back: Expert restores the row (no DOM was torn down).
+        # Flip back: unchanged again (no DOM was torn down either way).
         _click_segment(page, "expert")
+        expect(search).to_be_visible()
         _open_display_menu(page)
         expect(settings_row).to_be_visible()
+
+        page.close()
+
+
+def test_display_menu_survives_a_mode_flip(tmp_path, chromium_browser):
+    """A mode pick leaves the card open so the operator can flip straight back.
+
+    The View row behaves like the Appearance and Theme rows: the card stays put
+    across the pick, and since every row renders in both modes the card an
+    operator is looking at is the same card afterwards.  Only System Settings --
+    which moves the operator to another surface -- dismisses it.
+    """
+    with _hub_with_artifacts(tmp_path, ui_mode="expert") as (base_url, _app):
+        page = _open_hub_page(chromium_browser, base_url)
+        card = page.locator("#display-menu-card")
+        open_re = re.compile(r"\bopen\b")
+
+        _open_display_menu(page)
+        page.locator('#mode-toggle .mode-segment[data-mode="simple"]').click()
+        expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
+        expect(card).to_have_class(open_re)
+
+        # ...and straight back, without ever re-opening the menu.
+        page.locator('#mode-toggle .mode-segment[data-mode="expert"]').click()
+        expect(page.locator("html")).to_have_attribute("data-ui-mode", "expert")
+        expect(card).to_have_class(open_re)
+
+        # The one row that DOES dismiss the card.
+        page.locator("#display-menu-settings").click()
+        expect(card).not_to_have_class(open_re)
 
         page.close()

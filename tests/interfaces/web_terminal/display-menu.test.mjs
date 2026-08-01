@@ -128,12 +128,18 @@ describe('display-menu', () => {
       expect(document.activeElement).toBe(qs('#display-menu-btn'));
     });
 
-    test('a View-row segment click closes the card', () => {
+    test('a View-row segment click leaves the card open', () => {
+      // Every row renders in both ui modes, so the card an operator is looking
+      // at survives a mode flip -- they can go straight back without re-opening
+      // the menu, exactly as for the Appearance and Theme rows.
       mountAndInit();
       qs('#display-menu-btn').click();
 
       qs('#mode-toggle .mode-segment[data-mode="simple"]').click();
-      expect(qs('#display-menu-card').classList.contains('open')).toBe(false);
+      expect(qs('#display-menu-card').classList.contains('open')).toBe(true);
+
+      qs('#mode-toggle .mode-segment[data-mode="expert"]').click();
+      expect(qs('#display-menu-card').classList.contains('open')).toBe(true);
     });
 
     test('a System Settings click closes the card', () => {

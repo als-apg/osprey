@@ -157,19 +157,14 @@
                  `data-drawer-trigger` contract (settings.js's warning gate is
                  the sole open path; app.js mirrors `.active` onto it), so the
                  move from a standalone header gear into this card changes
-                 placement only. CSS-gated off html[data-ui-mode]: expert-only,
-                 absent entirely in simple. -->
+                 placement only. Present in BOTH ui modes — the warning gate,
+                 not the mode, is what guards expert configuration. -->
             <button class="display-menu-settings" id="display-menu-settings" type="button"
                     data-drawer-trigger="settings-drawer" title="Open system settings">
               <span class="display-menu-settings-icon" aria-hidden="true">&#9881;</span>System Settings
             </button>
           </div>
         </div>
-        <!-- Simple-mode help chip (frame 2b). CSS-gated off html[data-ui-mode]:
-             hidden in expert, shown in simple. An anchor to the safety guide so
-             it needs no JS and reacts to live mode flips purely through CSS. -->
-        <a class="header-icon-btn header-help-chip" href="{{ prefixed('/static/safety.html') }}"
-           target="_blank" rel="noopener" title="Help" aria-label="Help">?</a>
         {% if landing_url %}<button class="header-icon-btn" id="logout-btn" data-landing-url="{{ landing_url }}" title="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page" aria-label="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page"><span aria-hidden="true">&#128682;</span></button>{% endif %}
       </div>
     </div>

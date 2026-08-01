@@ -8,10 +8,15 @@
  * thin init dispatcher and the palette's app-facing wiring lives beside the
  * palette itself.
  *
- * The palette is expert-mode only: both entry points no-op in simple mode (the
- * button is also CSS-hidden there), since simple mode locks the dock and hides
- * the terminal, so panel/terminal commands would touch state the operator can't
- * see.
+ * The palette runs in BOTH ui modes — the header trigger is not mode-gated, so
+ * the action cluster never shifts under an operator on an Expert/Simple flip.
+ * What changes is the REGISTRY, not the entry points: simple mode hides the
+ * terminal (the operator console takes its place) and locks the dock to a
+ * single service tile, so `buildPaletteDeps` drops the terminal/session actions
+ * and the Layouts group there rather than offering picks that would silently do
+ * nothing. Everything simple mode can honour — settings search, the panel
+ * show/focus verbs the rail already exposes, rail placement, the drawer tabs,
+ * the safety reference — stays.
  */
 
 import { restartTerminal, startTerminal } from './terminal.js';
@@ -36,65 +41,94 @@ function isMacPlatform() {
   return /Mac|iPhone|iPad|iPod/i.test(platform);
 }
 
+/** @returns {'expert'|'simple'} the resolved ui mode from the authoritative <html> attribute. */
+function currentUiMode() {
+  return document.documentElement.dataset.uiMode === 'simple' ? 'simple' : 'expert';
+}
+
 /**
  * Assemble the live dependency bundle `openPalette` needs. Built fresh on each
- * open because panel visibility, presets, and the config snapshot all drift
- * over a session — the palette must reflect the CURRENT state, not boot state.
- * The action closures are the vetted mechanisms (paired restart, gated drawer
- * tabs, new-tab safety nav) — do not collapse or reorder them casually.
+ * open because panel visibility, presets, the config snapshot AND the ui mode
+ * all drift over a session — the palette must reflect the CURRENT state, not
+ * boot state. The action closures are the vetted mechanisms (paired restart,
+ * gated drawer tabs, new-tab safety nav) — do not collapse or reorder them
+ * casually.
  * @returns {import('./palette.js').OpenDeps}
  */
 function buildPaletteDeps() {
+  const simple = currentUiMode() === 'simple';
+
   /** @type {Array<{ label: string, detail?: string, run: () => void }>} */
-  const actions = [
+  const actions = [];
+
+  // Terminal + session verbs address the xterm card, which simple mode replaces
+  // with the operator console — offering them there would act on a surface the
+  // operator cannot see.
+  if (!simple) {
     // restartTerminal tears down the PTY but does NOT reconnect — pair with
     // startTerminal or the terminal is left stranded.
-    { label: 'Restart terminal', run: async () => { await restartTerminal(); startTerminal(); } },
-    { label: 'New session', run: () => { startNewSession(); } },
-    // Reuse the wired mode-toggle handler rather than re-implementing the flip.
-    { label: 'Switch to Simple mode', run: () => document.querySelector('.mode-segment[data-mode="simple"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) },
-    // Both rail directions are always offered (the palette is searched, not
-    // browsed) — flipping to the current position is a harmless no-op.
-    { label: 'Move panel rail to top', run: () => setRailPosition('top') },
-    { label: 'Move panel rail to left', run: () => setRailPosition('left') },
-    // Drawer tabs always go THROUGH openDrawerTab's warning gate.
-    { label: 'Open Settings', run: () => { openDrawerTab('tab-config'); } },
-    { label: 'Open Memory gallery', run: () => { openDrawerTab('tab-memory'); } },
-    { label: 'Open Prompt gallery', run: () => { openDrawerTab('tab-behavior'); } },
-    // New tab — a same-window navigation would tear down the PTY.
-    { label: 'Open Safety reference', run: () => window.open(withPrefix('/static/safety.html'), '_blank', 'noopener') },
-  ];
+    actions.push({ label: 'Restart terminal', run: async () => { await restartTerminal(); startTerminal(); } });
+    actions.push({ label: 'New session', run: () => { startNewSession(); } });
+  }
+
+  // Always offer the mode the operator is NOT in, and reuse the wired
+  // mode-toggle handler rather than re-implementing the flip.
+  const otherMode = simple ? 'expert' : 'simple';
+  actions.push({
+    label: `Switch to ${simple ? 'Expert' : 'Simple'} mode`,
+    run: () => document.querySelector(`.mode-segment[data-mode="${otherMode}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+  });
+
+  // Both rail directions are always offered (the palette is searched, not
+  // browsed) — flipping to the current position is a harmless no-op.
+  actions.push({ label: 'Move panel rail to top', run: () => setRailPosition('top') });
+  actions.push({ label: 'Move panel rail to left', run: () => setRailPosition('left') });
+  // Drawer tabs always go THROUGH openDrawerTab's warning gate.
+  actions.push({ label: 'Open Settings', run: () => { openDrawerTab('tab-config'); } });
+  actions.push({ label: 'Open Memory gallery', run: () => { openDrawerTab('tab-memory'); } });
+  actions.push({ label: 'Open Prompt gallery', run: () => { openDrawerTab('tab-behavior'); } });
+  // New tab — a same-window navigation would tear down the PTY.
+  actions.push({ label: 'Open Safety reference', run: () => window.open(withPrefix('/static/safety.html'), '_blank', 'noopener') });
+
   // Logout only exists in multi-user deployments (the button is server-gated).
   if (document.getElementById('logout-btn')) {
     actions.push({ label: 'Log out', run: () => document.getElementById('logout-btn')?.click() });
   }
 
-  return {
+  /** @type {import('./palette.js').OpenDeps} */
+  const deps = {
+    // Panel show/focus is exactly what a rail click does, and the rail is
+    // present in both modes — in simple the show path takes over the single
+    // locked service tile, which is the rail's own behaviour there.
     getHiddenPanels,
     getVisiblePanels,
-    getPresets,
     showPanel,
     // "Focus" reports as a user-initiated activation so the server sees it.
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
-    applyPreset: applyMenuPreset,
     revealSetting,
     actions,
   };
+
+  // Layouts restore a multi-tile arrangement; simple mode's locked layout holds
+  // exactly one service tile, so a preset there could not be honoured. Omitting
+  // the getter drops the whole group from the registry.
+  if (!simple) {
+    deps.getPresets = getPresets;
+    deps.applyPreset = applyMenuPreset;
+  }
+
+  return deps;
 }
 
 /**
- * Wire the header trigger + Cmd/Ctrl+K hotkey for the command palette. The
- * palette is expert-mode only, so both entry points no-op in simple mode (the
- * button is also CSS-hidden there). Degrades gracefully if the button is
- * absent.
+ * Wire the header trigger + Cmd/Ctrl+K hotkey for the command palette. Both
+ * entry points are live in both ui modes; `buildPaletteDeps` is what narrows
+ * the registry in simple. Degrades gracefully if the button is absent.
  */
 export function initCommandPalette() {
   const btn = document.getElementById('command-palette-btn');
   if (btn) {
-    btn.addEventListener('click', () => {
-      if (document.documentElement.dataset.uiMode === 'simple') return;
-      openPalette(buildPaletteDeps());
-    });
+    btn.addEventListener('click', () => openPalette(buildPaletteDeps()));
   }
 
   const isMac = isMacPlatform();
@@ -103,7 +137,6 @@ export function initCommandPalette() {
   // Capture phase: xterm swallows bubbled keydowns, so the hotkey must be read
   // before the event reaches the terminal.
   document.addEventListener('keydown', (e) => {
-    if (document.documentElement.dataset.uiMode === 'simple') return;
     if (e.key !== 'k' && e.key !== 'K') return;
 
     let match;
