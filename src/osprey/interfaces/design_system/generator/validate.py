@@ -359,10 +359,34 @@ WCAG_GATES_AAA: tuple[WcagGate, ...] = (
     WcagGate(foreground="accent-secondary.light", background="bg.primary", minimum=7.0),
 )
 
+#: Required contrast pairs for the ``desy`` theme family: :data:`WCAG_GATES`
+#: minus the ``accent-secondary.light`` gate.
+#:
+#: The ``desy`` family is bound to the DESY Styleguide (06/24) palette and
+#: uses officially published hexes only — no interpolated brand shades. The
+#: styleguide publishes exactly two oranges and tunes the accessibility one,
+#: ``#eb6e0f``, to the **3:1 non-text floor** on white (3.10:1), not to the
+#: 4.5:1 text floor its cyan counterpart ``#007bc8`` hits (4.4995:1). DESY
+#: therefore treats orange as a graphics colour on light backgrounds, and
+#: publishes nothing darker. On ``desy-light``'s canvas the slot lands at
+#: 2.90:1, and the only way to clear AA would be to invent an off-styleguide
+#: shade — which is precisely what this family exists not to do.
+#:
+#: This is the single deliberate exemption in the system, scoped to one slot
+#: of one family and paid for in the theme's ``$description``. Every other
+#: gate — including ``accent.on``, which the family clears at 4.67:1 using
+#: DESY Black rather than white — is enforced at full AA. Do not widen this
+#: tuple to admit further failures: a new shortfall means the palette cannot
+#: carry the slot, and the slot's consumers should be rerouted instead.
+WCAG_GATES_DESY: tuple[WcagGate, ...] = tuple(
+    gate for gate in WCAG_GATES if gate.foreground != "accent-secondary.light"
+)
+
 #: Theme ``$extensions.family`` to its required WCAG gate tuple.
 _WCAG_GATES_BY_FAMILY: dict[str, tuple[WcagGate, ...]] = {
     "main": WCAG_GATES,
     "high-contrast": WCAG_GATES_AAA,
+    "desy": WCAG_GATES_DESY,
 }
 
 

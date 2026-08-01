@@ -1,6 +1,6 @@
 {
   "$description": "Artifacts-only extension tokens: the 'memory domain' violet accent (art-violet-*) plus the workspace browse-shell constants (art-panel-*, art-browser-band-height). The violet source is artifacts/static/css/gallery.css lines 34-38 (dark) and 161-164 (light) — a decorative brand accent (not body text). The high-contrast family AUTHORS its own groups rather than inheriting: that family is fully monochrome, and an inherited violet would be the one hue left on the page — so art-violet resolves to the achromatic mono ramp there, keeping the memory domain's visual separation as a lightness step instead of a hue. The art-panel-*/art-browser-band-height group is the stacked two-card browse shell (a compact browser band above a dominant detail card): theme-independent layout constants, repeated identically in every group here (mirroring web_terminal.json's wt-header-height pattern).",
-  "$extensions": { "inherits": { "desy-dark": "dark", "desy-light": "light", "retro-dark": "dark", "retro-light": "light" } },
+  "$extensions": { "inherits": { "retro-dark": "dark", "retro-light": "light" } },
   "dark": {
     "art-violet": {
       "base": { "$value": "{color.violet.200}", "$type": "color" },
@@ -40,6 +40,30 @@
       "light": { "$value": "{color.mono.600}", "$type": "color" },
       "dark": { "$value": "{color.mono.1000}", "$type": "color" },
       "glow": { "$value": "rgba(0, 0, 0, 0.1)", "$type": "color", "$description": "art-violet.base composited monochrome at 10% alpha." }
+    },
+    "art-panel-radius": { "$value": "2px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-panel-gap": { "$value": "8px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-browser-band-height": { "$value": "210px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." }
+  },
+  "desy-dark": {
+    "art-violet": {
+      "$description": "AUTHORED rather than inherited, for the same reason the high-contrast groups are: the `desy` family uses DESY Styleguide (06/24) hexes only, and an inherited #9f7aea would be the one off-palette hue on the page. The styleguide publishes its own Violet, so the memory domain keeps its violet identity rather than degrading to a lightness step. `light` collapses onto `base` — DESY publishes nothing lighter than Violet in this hue.",
+      "base": { "$value": "{color.desy.violet}", "$type": "color", "$description": "DESY Violet — 5.05:1 vs desy-dark's bg.primary." },
+      "light": { "$value": "{color.desy.violet}", "$type": "color", "$description": "Collapsed onto base: the palette has no lighter violet, and Purple (2.56:1) is darker." },
+      "dark": { "$value": "{color.desy.purple}", "$type": "color", "$description": "DESY Purple — the deeper step of the pair." },
+      "glow": { "$value": "rgba(145, 125, 185, 0.2)", "$type": "color", "$description": "DESY Violet at 20% alpha." }
+    },
+    "art-panel-radius": { "$value": "2px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-panel-gap": { "$value": "8px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-browser-band-height": { "$value": "210px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." }
+  },
+  "desy-light": {
+    "art-violet": {
+      "$description": "AUTHORED rather than inherited — see the desy-dark group. On a near-white canvas the ladder runs Aubergine -> Violet -> Purple, all published hexes, with `base` and `dark` both clearing AA as text.",
+      "base": { "$value": "{color.desy.aubergine}", "$type": "color", "$description": "DESY Aubergine — 6.42:1 vs desy-light's bg.primary." },
+      "light": { "$value": "{color.desy.violet}", "$type": "color", "$description": "DESY Violet — 3.36:1, the lighter step." },
+      "dark": { "$value": "{color.desy.purple}", "$type": "color", "$description": "DESY Purple — 6.63:1, the deeper step." },
+      "glow": { "$value": "rgba(140, 60, 125, 0.1)", "$type": "color", "$description": "DESY Aubergine at 10% alpha." }
     },
     "art-panel-radius": { "$value": "2px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
     "art-panel-gap": { "$value": "8px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },

@@ -9,7 +9,7 @@ Read this before touching a token file or a `.css` file in an enforced interface
 
 | Path | What it is |
 |---|---|
-| `tokens/core.json` | Theme-independent primitives: the ten color families (`slate`, `gray`, `mono`, `teal`, `azure`, `amber`, `red`, `green`, `blue`, `violet`), `font`, and the `text`/`weight`/`leading`/`space`/`radius`/`z`/`duration` scales. Colors are **never** emitted as CSS variables directly — themes and interfaces reference a color step one hop away via `{color.family.step}` aliases. |
+| `tokens/core.json` | Theme-independent primitives: the fourteen color families — ten fleet-wide (`slate`, `gray`, `mono`, `teal`, `azure`, `amber`, `red`, `green`, `blue`, `violet`) and four owned by the `desy` family (`cyan`, `orange`, `petrol`, `desy`) — plus `font` and the `text`/`weight`/`leading`/`space`/`radius`/`z`/`duration` scales. Colors are **never** emitted as CSS variables directly — themes and interfaces reference a color step one hop away via `{color.family.step}` aliases. |
 | `tokens/themes/*.json` | One file per theme (8 today). Each aliases `core.json` primitives into semantic names (`bg.primary`, `text.secondary`, `accent.base`, ...). |
 | `tokens/interfaces/*.json` | Per-interface extension tokens (`ariel.json`, `artifacts.json`, `channel_finder.json`, `lattice_dashboard.json`, `web_terminal.json` today) — values an interface needs that aren't fleet-wide semantics. |
 | `generator/` | The build pipeline: `model.py` (load/parse), `validate.py` (fail-closed checks), `emit_css.py`/`emit_js.py` (renderers), `build.py` (orchestrator + CLI + `--check`). |

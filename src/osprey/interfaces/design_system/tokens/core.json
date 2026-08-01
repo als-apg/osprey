@@ -136,20 +136,33 @@
       "500": { "$value": "#1f62c4", "$type": "color", "$description": "accent.base (light)" }
     },
     "cyan": {
-      "$description": "DESY brand cyan family (DESY Styleguide 06/24). #009fdf is the brand cyan ('the primary brand identifier'); #007bc8 is DESY's official screen-accessibility variant for readable colored text on light backgrounds; #0077c4 is that accessibility hex nudged 2 points darker so white-on-accent clears the 4.5:1 AA button gate (#007bc8 scores 4.4995:1 — fails by a hair). Referenced one-hop by the `desy` theme family.",
-      "50": { "$value": "#d6effa", "$type": "color", "$description": "terminal selection (desy-light) — solid pale-cyan tint, mirroring light.json's azure.50 pattern" },
-      "200": { "$value": "#53bfea", "$type": "color", "$description": "accent.light (desy-dark); terminal.ansi.bright-cyan (desy-dark)" },
-      "300": { "$value": "#009fdf", "$type": "color", "$description": "DESY brand cyan — accent.base (desy-dark); terminal.ansi.cyan (desy-dark); ansi.bright-cyan + chart series-1 slots (desy-light uses it as the bright variant)" },
-      "400": { "$value": "#007bc8", "$type": "color", "$description": "DESY accessibility cyan (official styleguide hex) — terminal.ansi.cyan (desy-light)" },
-      "450": { "$value": "#0077c4", "$type": "color", "$description": "accent.base (desy-light) — WCAG nudge of the official #007bc8, see family description; white accent.on scores 4.73:1 on it" },
-      "600": { "$value": "#00619e", "$type": "color", "$description": "accent.light / hover-emphasis (desy-light)" }
+      "$description": "DESY brand cyan (DESY Styleguide 06/24) — official hexes only, no interpolated steps. #009fdf is the brand cyan ('the primary brand identifier'); #007bc8 is the official screen-accessibility variant for readable coloured text on light backgrounds, engineered to land on the 4.5:1 text floor against white (4.4995:1). The styleguide publishes exactly these two, so accent.light has no third shade to occupy and collapses onto accent.base in both modes. accent.on is DESY Black, not white: black clears 4.67:1 on #007bc8 where white scores 4.4995:1, which is what previously forced an off-styleguide nudge. Referenced one-hop by the `desy` theme family.",
+      "300": { "$value": "#009fdf", "$type": "color", "$description": "DESY brand cyan — accent.base + accent.light (desy-dark); ansi.cyan + ansi.bright-cyan (desy-dark); ansi.bright-cyan (desy-light)" },
+      "400": { "$value": "#007bc8", "$type": "color", "$description": "DESY accessibility cyan — accent.base + accent.light (desy-light); ansi.cyan + chart series-1 (desy-light)" }
     },
     "orange": {
-      "$description": "DESY brand orange family (DESY Styleguide 06/24) — the brand's accent colour, mapped onto the accent-secondary semantic slot in the `desy` theme family. #f18f1f is the brand orange; #eb6e0f is DESY's official screen-accessibility variant.",
-      "200": { "$value": "#f6ae5c", "$type": "color", "$description": "accent-secondary.light (desy-dark)" },
-      "300": { "$value": "#f18f1f", "$type": "color", "$description": "DESY brand orange — accent-secondary.base + status.warning (desy-dark); accent-secondary.hover (desy-light)" },
-      "500": { "$value": "#eb6e0f", "$type": "color", "$description": "DESY accessibility orange (official styleguide hex) — accent-secondary.hover (desy-dark); accent-secondary.base + status.warning (desy-light)" },
-      "650": { "$value": "#ad5009", "$type": "color", "$description": "accent-secondary.light (desy-light) — deeper on-light shade, mirroring the main light theme's darker accent-secondary.light slot. Darkened from #c25a0b, which scored only 4.13:1 on desy-light's canvas: this slot carries body text (.text-accent-secondary, .tag-accent-secondary, inline code, the shell's orientation labels), so it is gated at AA 4.5:1 and now clears it at 5.00:1. Same hue as the brand orange, one rung down in lightness — the styleguide's #eb6e0f stays untouched in accent-secondary.base and status.warning." }
+      "$description": "DESY brand orange (DESY Styleguide 06/24) — official hexes only, no interpolated steps. #f18f1f is the brand orange (the styleguide's accent colour); #eb6e0f is the official screen-accessibility variant. Note the asymmetry with the cyan pair: DESY tunes the accessibility cyan to the 4.5:1 text floor on white but the accessibility orange only to the 3:1 non-text floor (3.10:1 on white), i.e. the styleguide treats orange as a graphics colour on light backgrounds rather than a text colour. DESY publishes no darker orange, so desy-light carries a documented AA shortfall on accent-secondary instead of an interpolated shade — see gates_for_family() and the desy-light theme description.",
+      "300": { "$value": "#f18f1f", "$type": "color", "$description": "DESY brand orange — accent-secondary.base + accent-secondary.light (desy-dark); accent-secondary.hover (desy-light)" },
+      "500": { "$value": "#eb6e0f", "$type": "color", "$description": "DESY accessibility orange — accent-secondary.base + accent-secondary.light + status.warning (desy-light); accent-secondary.hover (desy-dark)" }
+    },
+    "desy": {
+      "$description": "The DESY styleguide's secondary colour palette (DESY Styleguide 06/24), verbatim. These are the officially published hexes used for status, diff, chart-series and ANSI slots in the `desy` theme family, replacing the generic functional primitives those slots previously borrowed from the main light/dark themes. The palette is print-derived and splits sharply by canvas: the bright half (yellow, olive, light-green, turquoise, orange) is AA-legible only on the dark canvas, and the dark half (black, dark-blue, purple, aubergine, petrol, dark-red) only on the light canvas — each theme draws from its own half. Contrast figures in the per-key descriptions are against that theme's bg.primary.",
+      "black": { "$value": "#000000", "$type": "color", "$description": "DESY Black — accent.on (both modes): 4.67:1 on the accessibility cyan, 7.02:1 on the brand cyan" },
+      "white": { "$value": "#ffffff", "$type": "color", "$description": "DESY White — bg.terminal (desy-light); ansi.bright-white (desy-dark)" },
+      "red": { "$value": "#eb5a2d", "$type": "color", "$description": "DESY Red — status.error + ansi.red (desy-dark) 5.22:1; ansi.bright-red (desy-light)" },
+      "dark-red": { "$value": "#b92d41", "$type": "color", "$description": "DESY Dark red — status.error + ansi.red (desy-light) 5.59:1; status.error-hover (desy-dark)" },
+      "light-green": { "$value": "#8cb423", "$type": "color", "$description": "DESY Light green — ansi.bright-green + chart series-6 (desy-dark) 7.50:1" },
+      "green": { "$value": "#00a54b", "$type": "color", "$description": "DESY Green — status.success + ansi.green (desy-dark) 5.61:1; status.success (desy-light) 3.03:1, non-text tier only" },
+      "turquoise": { "$value": "#00b1aa", "$type": "color", "$description": "DESY Turquoise — ansi.bright-cyan (desy-dark) 6.81:1" },
+      "petrol": { "$value": "#006987", "$type": "color", "$description": "DESY Petrol — ansi.blue (desy-light) 5.83:1. Distinct from the `petrol` neutral ramp, which is an interpolation of DESY Dark blue rather than this published hex." },
+      "magenta": { "$value": "#d2006e", "$type": "color", "$description": "DESY Magenta — ansi.magenta (desy-light) 4.95:1; ansi.bright-magenta (desy-dark)" },
+      "violet": { "$value": "#917db9", "$type": "color", "$description": "DESY Violet — ansi.magenta + ansi.bright-blue + chart series-5 (desy-dark) 5.05:1" },
+      "aubergine": { "$value": "#8c3c7d", "$type": "color", "$description": "DESY Aubergine — ansi.bright-magenta + chart series-5 (desy-light) 6.42:1" },
+      "purple": { "$value": "#50509b", "$type": "color", "$description": "DESY Purple — ansi.bright-blue + chart series-6 (desy-light) 6.63:1" },
+      "olive": { "$value": "#c3b900", "$type": "color", "$description": "DESY Olive — ansi.bright-yellow (desy-dark) 8.88:1" },
+      "dark-olive": { "$value": "#828728", "$type": "color", "$description": "DESY Dark olive — ansi.yellow (desy-light) 3.61:1, non-text tier only; the palette has no AA-legible warm yellow on a near-white canvas" },
+      "yellow": { "$value": "#fac800", "$type": "color", "$description": "DESY Yellow — status.warning + ansi.yellow (desy-dark) 11.54:1. Gives the dark theme a warning colour of its own, so warning no longer borrows the orange accent." },
+      "dark-blue": { "$value": "#004a6e", "$type": "color", "$description": "DESY Dark blue — ansi.bright-blue base + chart series-4 (desy-light) 8.91:1. Also the hue source for the interpolated `petrol` neutral ramp." }
     },
     "petrol": {
       "$description": "Cyan-hued neutral ramp for the `desy` theme family's canvas and text — hue ~203°, taken from DESY dark blue #004a6e (the styleguide's 'black to dark blue' background direction), desaturating toward the light end. Light steps (50–300) are the desy-light canvas; dark steps (750–950) are the desy-dark canvas; mids carry text/border shades for both modes.",

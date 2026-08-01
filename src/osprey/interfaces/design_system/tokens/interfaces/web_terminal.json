@@ -53,7 +53,7 @@
     "wt-accent-system-tint-04": { "$value": "rgba(31, 98, 196, 0.04)", "$type": "color", "$description": "This theme's own accent.base (azure.500 #1f62c4) at the same 4% alpha as dark's — re-based off the pre-redesign teal for the same reason given in the dark group." }
   },
   "desy-dark": {
-    "$description": "The `desy` family repeats the main family's flat chrome verbatim (neutralized CRT gates, phosphor welcome banner, same layout/motion constants) and departs from it in exactly one entry: wt-accent-system-tint-04, which is accent-bearing and so must track this family's own accent. It cannot use $extensions.inherits for that reason — inherits is all-or-nothing per mode group.",
+    "$description": "The `desy` family keeps the main family's flat chrome (neutralized CRT gates, same layout/motion constants) but recolours every chromatic entry onto DESY Styleguide (06/24) hexes, since this family uses published colours only. The welcome banner no longer borrows the main family's green phosphor palette — green is not a DESY brand colour, and the banner is the largest single block of colour in the shell — so it runs on brand cyan with brand orange for links and prompt. wt-accent-system-tint-04 tracks this family's own accent.",
     "wt-crt": {
       "scanline-opacity": { "$value": "0", "$type": "number" },
       "vignette-opacity": { "$value": "0", "$type": "number" },
@@ -63,13 +63,13 @@
       "glow-shadow": { "$value": "none", "$type": "shadow" }
     },
     "wt-welcome": {
-      "bg": { "$value": "{color.slate.1100}", "$type": "color" },
-      "text": { "$value": "{color.green.200}", "$type": "color" },
-      "text-glow": { "$value": "0 0 8px rgba(126, 200, 160, 0.25)", "$type": "shadow" },
-      "link": { "$value": "{color.green.600}", "$type": "color" },
-      "link-hover": { "$value": "{color.green.100}", "$type": "color" },
-      "prompt": { "$value": "{color.green.500}", "$type": "color" },
-      "cursor": { "$value": "{color.green.200}", "$type": "color" },
+      "bg": { "$value": "{color.petrol.950}", "$type": "color", "$description": "The family's own canvas, replacing the main family's slate.1100." },
+      "text": { "$value": "{color.cyan.300}", "$type": "color", "$description": "DESY brand cyan — 6.08:1 on the banner background." },
+      "text-glow": { "$value": "0 0 8px rgba(0, 159, 223, 0.25)", "$type": "shadow", "$description": "Brand cyan at 25% alpha." },
+      "link": { "$value": "{color.orange.300}", "$type": "color", "$description": "DESY brand orange — 7.52:1, and the warm counterpoint to the cyan body text." },
+      "link-hover": { "$value": "{color.desy.yellow}", "$type": "color", "$description": "DESY Yellow — 11.54:1, brightening on hover." },
+      "prompt": { "$value": "{color.orange.300}", "$type": "color" },
+      "cursor": { "$value": "{color.cyan.300}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
     },
     "wt-header-height": { "$value": "44px", "$type": "dimension" },
@@ -88,20 +88,21 @@
       "glow-shadow": { "$value": "none", "$type": "shadow" }
     },
     "wt-welcome": {
-      "bg": { "$value": "{color.slate.150}", "$type": "color" },
-      "text": { "$value": "{color.teal.500}", "$type": "color" },
+      "$description": "Recoloured off the main family's teal onto DESY hexes — see the desy-dark group. On this canvas the banner body text takes DESY Dark blue rather than the cyan, which reaches only 4.21:1; the cyan carries the links and cursor, where it is chrome rather than prose.",
+      "bg": { "$value": "{color.petrol.100}", "$type": "color", "$description": "The family's own panel step, replacing the main family's slate.150." },
+      "text": { "$value": "{color.desy.dark-blue}", "$type": "color", "$description": "DESY Dark blue — 8.91:1 on this canvas." },
       "text-glow": { "$value": "none", "$type": "shadow" },
-      "link": { "$value": "{color.teal.400}", "$type": "color" },
-      "link-hover": { "$value": "{color.teal.700}", "$type": "color" },
-      "prompt": { "$value": "{color.teal.400}", "$type": "color" },
-      "cursor": { "$value": "{color.teal.500}", "$type": "color" },
+      "link": { "$value": "{color.cyan.400}", "$type": "color", "$description": "DESY accessibility cyan — 4.21:1." },
+      "link-hover": { "$value": "{color.desy.petrol}", "$type": "color", "$description": "DESY Petrol — 5.83:1, deepening on hover." },
+      "prompt": { "$value": "{color.orange.500}", "$type": "color", "$description": "DESY accessibility orange, matching the dark theme's warm prompt." },
+      "cursor": { "$value": "{color.cyan.400}", "$type": "color" },
       "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string" }
     },
     "wt-header-height": { "$value": "44px", "$type": "dimension" },
     "wt-status-bar-height": { "$value": "26px", "$type": "dimension" },
     "wt-transition-fast": { "$value": "120ms ease", "$type": "string" },
     "wt-transition-normal": { "$value": "200ms ease", "$type": "string" },
-    "wt-accent-system-tint-04": { "$value": "rgba(0, 119, 196, 0.04)", "$type": "color", "$description": "This theme's own accent.base (cyan.450 #0077c4, the nudged DESY accessibility cyan) at the same 4% alpha the other groups use." }
+    "wt-accent-system-tint-04": { "$value": "rgba(0, 123, 200, 0.04)", "$type": "color", "$description": "This theme's own accent.base (cyan.400 #007bc8, the official DESY accessibility cyan) at the same 4% alpha the other groups use." }
   },
   "retro-dark": {
     "wt-crt": {
