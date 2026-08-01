@@ -184,7 +184,7 @@ class MockArchiverConnector(ArchiverConnector):
             # list[str] is passed through untouched, per the long_frame
             # contract that leaves `value` dtype-unconstrained.
             raw_series = pd.Series(values, index=index, name=pv)
-            series[pv] = aggregate_series(raw_series, precision_ms, resolved)
+            series[pv] = aggregate_series(raw_series, resolved)
 
         data = long_frame(series)
 

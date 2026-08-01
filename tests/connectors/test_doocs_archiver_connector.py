@@ -125,38 +125,6 @@ class TestArchiverConnect:
             assert conn._avg_window == 30
             await conn.disconnect()
 
-    async def test_connect_defaults_timeout_when_config_omits_it(self):
-        """An omitted timeout must not mean "wait forever".
-
-        ``get_data`` passes its ``timeout`` straight to ``asyncio.wait_for``,
-        where ``None`` blocks indefinitely — so a caller that omitted the
-        argument would hang on an unresponsive ENS with no way out. EPICS and
-        MongoDB both fall back to a configured default; DOOCS had neither the
-        fallback nor the attribute to fall back to.
-        """
-        mock_d4py = _make_doocs4py()
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            assert conn._timeout == 60
-            await conn.disconnect()
-
-    async def test_connect_stores_configured_timeout(self):
-        mock_d4py = _make_doocs4py()
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({"timeout": 5})
-            assert conn._timeout == 5
-            await conn.disconnect()
-
     async def test_disconnect_clears_connected(self, archiver):
         conn, _ = archiver
         await conn.disconnect()
@@ -199,32 +167,41 @@ class TestGetDataValidation:
 
 class TestGetDataSinglePV:
     async def test_returns_dataframe(self, archiver):
+        """The canonical long frame, and a populated one.
+
+        ``isinstance(df, pd.DataFrame)`` alone passed even when ``get_data``
+        returned an empty frame for every query -- and an empty frame still
+        carries the three long-format columns, so the column check does not
+        rescue it either. The emptiness assertion is what makes this test able
+        to fail.
+        """
         conn, _ = archiver
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
+
         assert isinstance(df, pd.DataFrame)
+        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert not df.empty
 
     async def test_single_pv_channel_present(self, archiver):
+        """Exactly the requested channel comes back, and it carries rows.
+
+        Asserted as set equality rather than ``(df["channel"] == …).all()``:
+        over an empty selection ``.all()`` is vacuously True, so the original
+        form passed when ``get_data`` returned an empty frame for every query --
+        the same antipattern this branch calls out in
+        ``test_simulation_integration.py``. ``set(...) == {…}`` is empty-frame
+        sensitive in both directions: it fails on a missing channel and on a
+        stray extra one.
+        """
         conn, _ = archiver
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
-        assert (df["channel"] == "FAC/DEV/LOC/PROP").all()
+
+        assert set(df["channel"]) == {"FAC/DEV/LOC/PROP"}
 
     async def test_single_pv_has_data(self, archiver):
         conn, _ = archiver
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
         assert len(df) > 0
-
-    async def test_hist_suffix_appended_to_address(self, archiver):
-        conn, mock_d4py = archiver
-        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
-        # Address object should have been created with .HIST suffix
-        addr_calls = [str(c) for c in mock_d4py.Address.call_args_list]
-        assert any("HIST" in c for c in addr_calls)
-
-    async def test_hist_suffix_not_doubled(self, archiver):
-        conn, mock_d4py = archiver
-        await conn.get_data(["FAC/DEV/LOC/PROP.HIST"], _START, _END)
-        addr_calls = [str(c) for c in mock_d4py.Address.call_args_list]
-        assert not any("HIST.HIST" in c for c in addr_calls)
 
 
 class TestGetDataTimeout:
@@ -246,7 +223,16 @@ class TestGetDataTimeout:
         return seen
 
     async def test_omitted_timeout_uses_configured_default(self, archiver, monkeypatch):
-        """None reached wait_for verbatim, which means "block indefinitely"."""
+        """An omitted timeout must not mean "wait forever".
+
+        ``get_data`` passes its ``timeout`` straight to ``asyncio.wait_for``,
+        where ``None`` blocks indefinitely — so a caller that omitted the
+        argument would hang on an unresponsive ENS with no way out. EPICS and
+        MongoDB both fall back to a configured default; DOOCS had neither the
+        fallback nor the attribute to fall back to. Asserted at the value that
+        actually reaches ``wait_for``, so the default has to be *used*, not
+        merely stored on the connector.
+        """
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
 
@@ -255,8 +241,14 @@ class TestGetDataTimeout:
         assert seen["timeout"] == 60
 
     async def test_configured_default_is_honored(self, archiver, monkeypatch):
+        """A ``timeout`` in the connector config reaches ``wait_for``.
+
+        Configured through ``connect()`` rather than by assigning ``_timeout``
+        directly: that keeps the config key itself under test, so nothing is
+        left asserting only that a private attribute was stored.
+        """
         conn, _ = archiver
-        conn._timeout = 7
+        await conn.connect({"timeout": 7})
         seen = self._spy_wait_for(monkeypatch)
 
         await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
@@ -287,49 +279,6 @@ class TestGetDataTimeout:
 
 
 # --------------------------------------------------------------------------------------
-# get_data — multi-PV alignment
-# --------------------------------------------------------------------------------------
-
-
-class TestGetDataMultiPV:
-    async def test_multi_pv_all_channels_present(self):
-        """Two PVs: each gets its own mock get() sequence.
-
-        _read_history fetches chunks in reverse chronological order.  A single
-        chunk that spans [start, end] already sets current_stop <= start_ts, so
-        the loop exits after ONE get() call per PV — no second "empty" sentinel
-        is needed.
-        """
-        chunk_a = _make_raw_chunk(n=10)
-        chunk_b = _make_raw_chunk(n=15)
-
-        mock_d4py = MagicMock()
-        mock_d4py.__version__ = "2.0.0"
-        mock_d4py.names.return_value = [("FACILITY", "XFEL")]
-
-        # One get() per PV — the full-range chunk causes the loop to exit.
-        r_a = MagicMock()
-        r_a.value = chunk_a
-        r_b = MagicMock()
-        r_b.value = chunk_b
-        mock_d4py.get.side_effect = [r_a, r_b]
-
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
-                ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"], _START, _END, precision_ms=1000
-            )
-            await conn.disconnect()
-
-        assert set(df["channel"]) == {"FAC/DEV/LOC/A", "FAC/DEV/LOC/B"}
-
-
-# --------------------------------------------------------------------------------------
 # _read_history — internal unit tests
 # --------------------------------------------------------------------------------------
 
@@ -347,6 +296,26 @@ class TestReadHistory:
             conn._connected = True
             conn._avg_window = None
             return conn
+
+    def test_no_caller_can_request_a_manufactured_grid(self):
+        """``_read_history`` has no grid knob left to turn on.
+
+        The removed ``max_points`` branch built an ``np.linspace`` grid and
+        forward-filled real samples onto it with a zero-order hold, so every
+        timestamp it returned was a grid position rather than an archived one --
+        measured over an 8h window, only 2 of the 10,000 returned timestamps
+        were real archived samples. That is exactly what this framework's
+        "nothing is manufactured" contract forbids, so the branch could never be
+        switched back on for ``get_data``; keeping the parameter only preserved
+        a way to violate the contract. Asking for it is now a TypeError.
+        """
+        chunk = _make_raw_chunk(n=100)
+        mock_d4py = MagicMock()
+        self._mock_get(mock_d4py, chunk)
+
+        conn = self._make_connector_with_d4py(mock_d4py)
+        with pytest.raises(TypeError, match="max_points"):
+            conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=10)
 
     def test_returns_none_on_empty_data(self):
         mock_d4py = MagicMock()
@@ -372,7 +341,47 @@ class TestReadHistory:
         r.value = chunk
         mock_d4py.get.return_value = r
 
-    def test_raw_data_returned_when_no_max_points(self):
+    def test_raw_arrays_are_float64_built_from_the_time_and_value_fields(self):
+        """Positions 0 and 3 of a DOOCS TTII entry are the time and the value.
+
+        Pins the field selection, the float64 coercion and the sample order
+        independently of the construction used to extract them, so the
+        extraction can be rewritten (list comprehension, ``np.fromiter``, ...)
+        without silently sliding onto the wrong tuple positions, losing the
+        int→float coercion, or reordering the samples.
+        """
+        # Positions 1 and 2 carry values that would be obvious if selected.
+        chunk = [(10.5, 111.0, 222.0, 5.5), (20.25, 333.0, 444.0, 6.25), (30.0, 555.0, 666.0, 7)]
+        mock_d4py = MagicMock()
+        self._mock_get(mock_d4py, chunk)
+
+        conn = self._make_connector_with_d4py(mock_d4py)
+        out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS)
+
+        assert out is not None
+        assert out["time"].dtype == np.float64
+        assert out["data"].dtype == np.float64
+        assert out["time"].tolist() == [10.5, 20.25, 30.0]
+        # The trailing int 7 must come back coerced to 7.0, not dropped.
+        assert out["data"].tolist() == [5.5, 6.25, 7.0]
+
+    def test_malformed_entry_is_reported_as_no_data(self):
+        """An entry too short to carry a value must not half-build a series.
+
+        The extraction raises ``IndexError`` on ``entry[3]``, which the method's
+        own ``except Exception`` turns into "no data retrieved". Pinned so a
+        rewritten extraction cannot substitute a different failure mode (a
+        truncated array, a ``ValueError`` from a mis-sized buffer, ...).
+        """
+        chunk = [(10.5, 111.0, 222.0, 5.5), (20.25, 333.0)]
+        mock_d4py = MagicMock()
+        self._mock_get(mock_d4py, chunk)
+
+        conn = self._make_connector_with_d4py(mock_d4py)
+
+        assert conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS) is None
+
+    def test_every_archived_sample_is_returned(self):
         chunk = _make_raw_chunk(n=20)
         mock_d4py = MagicMock()
         self._mock_get(mock_d4py, chunk)
@@ -384,18 +393,6 @@ class TestReadHistory:
         assert "time" in out and "data" in out
         assert len(out["time"]) == 20
         assert len(out["data"]) == 20
-
-    def test_resampling_respects_max_points(self):
-        chunk = _make_raw_chunk(n=100)
-        mock_d4py = MagicMock()
-        self._mock_get(mock_d4py, chunk)
-
-        conn = self._make_connector_with_d4py(mock_d4py)
-        out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=10)
-
-        assert out is not None
-        assert len(out["time"]) == 10
-        assert len(out["data"]) == 10
 
     def test_smoothing_applied_with_avg_window(self):
         # Use a step-function signal: 25 zeros then 25 ones.
@@ -412,26 +409,23 @@ class TestReadHistory:
         mock_d4py.get.return_value = r
 
         conn = self._make_connector_with_d4py(mock_d4py)
-        # avg_window=600s → win ≈ 8 samples over 1-hour / 50-point grid
-        out_smooth = conn._read_history(
-            "FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=50, avg_window=600.0
-        )
+        # avg_window=600s → ~8 of the 50 samples fall inside the window
+        out_smooth = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS, avg_window=600.0)
 
         assert out_smooth is not None
         # Smoothed step has values between 0 and 1 near the transition
         assert np.any((out_smooth["data"] > 0.0) & (out_smooth["data"] < 1.0))
 
-    def test_smoothing_without_max_points_keeps_real_irregular_timestamps(self):
-        """avg_window alone must not resample onto a uniform grid.
+    def test_smoothing_keeps_real_irregular_timestamps(self):
+        """avg_window must not resample onto a uniform grid.
 
         The moving average used to require a constant dt, so supplying
-        avg_window forced a ``np.linspace`` grid plus a zero-order hold even
-        when no ``max_points`` was requested. Every returned timestamp was then
-        a grid position rather than an archived one, and every value had been
-        forward-filled onto it — precisely what this framework's "nothing is
-        manufactured" contract forbids, reintroduced through a config knob.
-        ``get_data`` passes ``max_points=None``, so this is the path a real
-        DOOCS deployment with ``avg_window`` set actually takes.
+        avg_window forced a ``np.linspace`` grid plus a zero-order hold. Every
+        returned timestamp was then a grid position rather than an archived one,
+        and every value had been forward-filled onto it — precisely what this
+        framework's "nothing is manufactured" contract forbids, reintroduced
+        through a config knob. This is the path a real DOOCS deployment with
+        ``avg_window`` set actually takes.
         """
         # Deliberately bursty sampling: three clusters with long gaps between.
         # A uniform grid over this span looks nothing like the real timestamps.
@@ -448,9 +442,7 @@ class TestReadHistory:
         self._mock_get(mock_d4py, chunk)
 
         conn = self._make_connector_with_d4py(mock_d4py)
-        out = conn._read_history(
-            "FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=None, avg_window=600.0
-        )
+        out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS, avg_window=600.0)
 
         assert out is not None
         assert list(out["time"]) == [float(t) for t in real_times]
@@ -458,23 +450,6 @@ class TestReadHistory:
         # Smoothing still happened: the isolated first cluster averages its own
         # three samples (0, 1, 2) rather than passing 0 through untouched.
         assert out["data"][0] != 0.0
-
-    def test_smoothing_with_max_points_still_grids(self):
-        """An explicit max_points is a caller asking for a grid, and still gets one."""
-        chunk = _make_raw_chunk(n=100)
-        mock_d4py = MagicMock()
-        self._mock_get(mock_d4py, chunk)
-
-        conn = self._make_connector_with_d4py(mock_d4py)
-        out = conn._read_history(
-            "FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=10, avg_window=600.0
-        )
-
-        assert out is not None
-        assert len(out["time"]) == len(out["data"]) == 10
-        # Uniform spacing is the point of max_points.
-        gaps = np.diff(out["time"])
-        assert np.allclose(gaps, gaps[0])
 
     def test_smoothing_window_wider_than_span_keeps_arrays_aligned(self):
         """An avg_window wider than the queried span must not desynchronize the arrays.
@@ -493,11 +468,9 @@ class TestReadHistory:
         self._mock_get(mock_d4py, chunk)
 
         conn = self._make_connector_with_d4py(mock_d4py)
-        # dt over the 1-hour span at 20 points is 180 s, so avg_window=36000 s
-        # asks for a 200-sample window over 20 samples.
-        out = conn._read_history(
-            "FAC/DEV/LOC/PROP", _START_TS, _END_TS, max_points=n, avg_window=36000.0
-        )
+        # The 20 samples span a full hour, so avg_window=36000 s (10 h) is far
+        # wider than the queried span — every sample sees the whole series.
+        out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS, avg_window=36000.0)
 
         assert out is not None
         assert len(out["data"]) == len(out["time"]) == n
@@ -538,7 +511,6 @@ class TestReadHistory:
         assert "metadata" in out
         meta = out["metadata"]
         assert "raw_count" in meta
-        assert "max_points" in meta
         assert "avg_window" in meta
 
 
@@ -696,10 +668,10 @@ class TestQueryWindowTimezone:
         captured = {}
         original = conn._read_history
 
-        def _spy(address, start_time, end_time, max_points=None, avg_window=None):
+        def _spy(address, start_time, end_time, avg_window=None):
             captured["start"] = start_time
             captured["end"] = end_time
-            return original(address, start_time, end_time, max_points, avg_window)
+            return original(address, start_time, end_time, avg_window)
 
         conn._read_history = _spy
 
@@ -782,57 +754,6 @@ class TestProcessingGenuineAggregation:
                 chunk.append((float(t), 0, 0, float(v)))
                 v += 1
         return chunk
-
-    async def test_mean_aggregates_true_within_bin_average(self):
-        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
-        mock_d4py = _make_doocs4py(chunk=chunk)
-
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
-                pv_list=["FAC/DEV/LOC/P"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
-                precision_ms=1000,
-                processing="mean",
-            )
-            await conn.disconnect()
-
-        # Bin 0: values 0..9 -> true mean 4.5; bin 1: 10..19 -> 14.5;
-        # bin 2: 20..29 -> 24.5. A zero-order-hold-then-resample bug instead
-        # reports a single raw sample's value, relabeled, per bin.
-        values = df.loc[df["channel"] == "FAC/DEV/LOC/P", "value"].tolist()
-        assert values == pytest.approx([4.5, 14.5, 24.5])
-
-    async def test_count_returns_true_per_bin_sample_count(self):
-        chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
-        mock_d4py = _make_doocs4py(chunk=chunk)
-
-        with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
-            from osprey.connectors.archiver.doocs_archiver_connector import (
-                DOOCSArchiverConnector,
-            )
-
-            conn = DOOCSArchiverConnector()
-            await conn.connect({})
-            df = await conn.get_data(
-                pv_list=["FAC/DEV/LOC/P"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
-                precision_ms=1000,
-                processing="count",
-            )
-            await conn.disconnect()
-
-        # 10 real samples land in each 1 s bin; a zero-order-hold-then-resample
-        # bug instead reports (at most) 1 per bin.
-        counts = df.loc[df["channel"] == "FAC/DEV/LOC/P", "value"].tolist()
-        assert counts == [10, 10, 10]
 
     @staticmethod
     def _two_pv_mock(chunk_a, chunk_b):

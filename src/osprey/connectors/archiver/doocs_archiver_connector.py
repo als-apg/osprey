@@ -9,6 +9,7 @@ Date: 2026-07-01
 
 import asyncio
 from datetime import datetime
+from operator import itemgetter
 from typing import Any
 
 import numpy as np
@@ -159,20 +160,24 @@ class DOOCSArchiverConnector(ArchiverConnector):
         end_utc = to_utc(end_date)
         resolved = resolve_processing(processing, precision_ms)
 
-        # max_points=None for every mode, "raw" included: it skips
-        # _read_history's own zero-order-hold decimation (a np.linspace grid
-        # plus nearest-sample-at-or-before hold) so every real archived sample
-        # reaches aggregate_series below. That decimation forces a regular grid
-        # and forward-fills onto it -- both explicitly prohibited by this
-        # framework's "nothing is manufactured" contract, and for "raw" it
-        # meant only 2 of 10,000 returned timestamps were ever real archived
-        # ones. A real aggregate mode needs the underlying raw samples to
-        # aggregate *over* regardless (finding #1 -- the bug this whole fix
-        # pass exists for -- would otherwise starve mean/count/std down to a
-        # single value per bin); "raw" now needs the same thing for the same
-        # reason: decimate_raw (inside aggregate_series) keeps each bin's own
-        # real last sample, at its own real timestamp, which requires the real
-        # samples in the first place.
+        # Every real archived sample reaches aggregate_series below. It did not
+        # always: _read_history used to take a max_points parameter, and get_data
+        # used to pass one (derived from precision_ms) for every mode, "raw"
+        # included. _read_history then decimated onto a np.linspace grid with a
+        # nearest-sample-at-or-before zero-order hold -- a regular grid plus a
+        # forward-fill, both explicitly prohibited by this framework's "nothing
+        # is manufactured" contract. Measured against an 8h window holding
+        # 288,000 archived samples, only 2 of the 10,000 timestamps "raw"
+        # returned were real archived ones; the rest were grid positions
+        # carrying forward-filled values. The aggregate modes were starved the
+        # same way -- finding #1, the bug this whole fix pass exists for --
+        # because mean/count/std need the underlying raw samples to aggregate
+        # *over*, and the grid handed them a single held value per bin. "raw"
+        # needs those same real samples for the same reason: decimate_raw
+        # (inside aggregate_series) keeps each bin's own real last sample, at
+        # its own real timestamp, which requires the real samples in the first
+        # place. The parameter and its grid branch have since been removed
+        # outright -- the contract left them no way back.
         def fetch_all() -> dict[str, pd.Series]:
             data = {}
             for add in pv_list:
@@ -180,7 +185,6 @@ class DOOCSArchiverConnector(ArchiverConnector):
                     add,
                     start_utc.timestamp(),
                     end_utc.timestamp(),
-                    None,
                     self._avg_window,
                 )
                 if hist_data_dict is None:
@@ -200,9 +204,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             # channels are sampled. "raw" decimates via aggregate_series's
             # decimate_raw path: one real sample per precision_ms bin, at its
             # own real timestamp.
-            series = {
-                pv: aggregate_series(s, precision_ms, resolved) for pv, s in series_dict.items()
-            }
+            series = {pv: aggregate_series(s, resolved) for pv, s in series_dict.items()}
             data = long_frame(series)
 
             logger.debug(
@@ -247,7 +249,6 @@ class DOOCSArchiverConnector(ArchiverConnector):
         address: str,
         start_time: float,
         end_time: float,
-        max_points: int | None = None,
         avg_window: float | None = None,
     ) -> dict[str, np.ndarray] | None:
         """Read history data from DOOCS using doocs4py. Timestamps are in UNIX format.
@@ -258,24 +259,18 @@ class DOOCSArchiverConnector(ArchiverConnector):
             DOOCS history address. ".HIST" is appended automatically if missing.
         start_time, end_time:
             Time range in UNIX timestamps.
-        max_points:
-            If given and the number of retrieved samples exceeds it, the data is
-            resampled onto a uniform time grid (constant dt) of at most this many
-            points using a zero-order hold. If max_points exceeds the number of
-            available points, the grid falls back to the full resolution (no
-            upsampling).
         avg_window:
-            Length (in seconds) of a centered moving average. The window is a real
-            duration, so it applies to whatever series is in hand -- the max_points
-            grid if one was requested, otherwise the archived samples at their own
-            irregular timestamps. It never introduces a grid of its own, and it
-            returns exactly one value per input sample, at that sample's own time.
+            Length (in seconds) of a centered moving average over the archived
+            samples at their own irregular timestamps. The window is a real
+            duration, so it needs no constant dt: it never introduces a grid of
+            its own, and it returns exactly one value per input sample, at that
+            sample's own time.
 
         Returns
         -------
-        A dict with "time" and "data" arrays holding the most processed series
-        available (smoothed > reduced > raw), or None if no data was retrieved.
-        Timestamps are the real archived ones unless max_points requested a grid.
+        A dict with "time" and "data" arrays holding the smoothed series if
+        ``avg_window`` asked for one and the raw samples otherwise, or None if
+        no data was retrieved. Every timestamp is a real archived one.
         """
 
         start_ts: int = int(start_time)
@@ -316,44 +311,30 @@ class DOOCSArchiverConnector(ArchiverConnector):
             if not all_data:
                 return None
 
-            raw_time = np.array([entry[0] for entry in all_data], dtype=float)
-            raw_data = np.array([entry[3] for entry in all_data], dtype=float)
+            # np.fromiter with an explicit count sizes the buffer once and fills
+            # it directly, skipping the intermediate Python list (measured 1.75x
+            # over 400k entries -- this is the chunked-fetch path, so all_data is
+            # the right shape for it). count must stay len(all_data): a short
+            # count would silently truncate real archived samples.
+            n_entries = len(all_data)
+            raw_time = np.fromiter(map(itemgetter(0), all_data), dtype=float, count=n_entries)
+            raw_data = np.fromiter(map(itemgetter(3), all_data), dtype=float, count=n_entries)
 
             # Remove duplicates and ensure monotonically increasing time.
             # np.unique returns sorted unique values, which the routines below require.
             raw_time, unique_indices = np.unique(raw_time, return_index=True)
             raw_data = raw_data[unique_indices]
 
-            # These will hold the resampled / smoothed series if produced.
-            reduced_time = reduced_data = None
             smooth_data = None
 
-            # Build a uniform grid only when a point limit is requested. The grid
-            # used to be built for avg_window too, because the moving average was
-            # a fixed-width convolution kernel that needed a constant dt to turn
-            # a duration into a sample count. A time-based rolling window needs
-            # no such thing, and the grid was never free: its timestamps are
-            # np.linspace positions rather than archived ones, and its values are
-            # forward-filled onto them by the zero-order hold below -- both
-            # prohibited by this framework's "nothing is manufactured" contract.
-            # get_data always passes max_points=None, so it no longer reaches
-            # this branch at all; an explicit max_points is a caller asking for
-            # a fixed-size grid, which is what they get.
-            if max_points is not None:
-                n_points = min(max_points, raw_time.size)
-                reduced_time = np.linspace(raw_time[0], raw_time[-1], n_points)
-
-                # Zero-order hold: most recent sample at or before each grid point.
-                idx = np.searchsorted(raw_time, reduced_time, side="right") - 1
-                idx = np.clip(idx, 0, raw_time.size - 1)
-                reduced_data = raw_data[idx]
-
-            # Optional centered moving average over whichever series we have: the
-            # decimated grid when max_points asked for one, the real samples
-            # otherwise. The window is a real duration, so irregular sample
-            # spacing is fine -- each output value averages the samples that
-            # actually fall within avg_window of its own timestamp, and every
-            # timestamp returned is one an archived sample really carries.
+            # Optional centered moving average over the real samples. The window
+            # is a real duration, so irregular sample spacing is fine -- each
+            # output value averages the samples that actually fall within
+            # avg_window of its own timestamp, and every timestamp returned is
+            # one an archived sample really carries. A time-based rolling window
+            # also needs no constant dt, which is why smoothing no longer drags
+            # a uniform grid in behind it the way the old fixed-width
+            # convolution kernel did.
             #
             # An offset window also shrinks at the edges rather than zero-padding
             # (no renormalization pass needed) and always returns exactly one
@@ -362,10 +343,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
             # queried span used to hand back `data` longer than `time` and blow
             # up in get_data with a length mismatch.
             if avg_window is not None and avg_window > 0:
-                src_time = reduced_time if reduced_time is not None else raw_time
-                src_data = reduced_data if reduced_data is not None else raw_data
                 smooth_data = (
-                    pd.Series(src_data, index=pd.to_datetime(src_time, unit="s"))
+                    pd.Series(raw_data, index=pd.to_datetime(raw_time, unit="s"))
                     .rolling(pd.Timedelta(seconds=avg_window), center=True)
                     .mean()
                     .to_numpy()
@@ -374,24 +353,16 @@ class DOOCSArchiverConnector(ArchiverConnector):
             # Build metadata describing the request and the retrieved raw data.
             metadata = {
                 "raw_count": int(raw_time.size),
-                "max_points": max_points,
                 "avg_window": avg_window,
                 "start_iso": np.datetime64(int(raw_time[0]), "s").astype(str),
                 "end_iso": np.datetime64(int(raw_time[-1]), "s").astype(str),
             }
 
-            # Return the most processed series available, along with metadata.
-            # Smoothing keeps whichever timestamps it operated on -- the real
-            # ones unless max_points asked for a grid.
-            if smooth_data is not None:
-                out_time = reduced_time if reduced_time is not None else raw_time
-                out_data = smooth_data
-            elif reduced_data is not None:
-                out_time, out_data = reduced_time, reduced_data
-            else:
-                out_time, out_data = raw_time, raw_data
+            # Smoothing keeps the real timestamps it operated on, so either way
+            # every timestamp returned is one an archived sample really carries.
+            out_data = smooth_data if smooth_data is not None else raw_data
 
-            return {"time": out_time, "data": out_data, "metadata": metadata}
+            return {"time": raw_time, "data": out_data, "metadata": metadata}
 
         except Exception:
             return None

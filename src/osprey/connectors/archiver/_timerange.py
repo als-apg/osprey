@@ -36,14 +36,12 @@ _EPICS_OPERATORS = {
     "count": "count",
 }
 
-# pandas resample aggregation names, keyed by our canonical mode. "raw" is kept
-# here for symmetry (every mode renders a Processing.pandas_agg, "raw" included
-# — see test_each_mode_renders_for_both_backends) even though aggregate_series
-# never resamples with it: "raw" is decimated by decimate_raw instead, which
-# keeps a bin's last *real* sample rather than relabeling it at the bin edge the
-# way `resample(...).agg("last")` would.
+# pandas resample aggregation names, keyed by our canonical mode. "raw" has no
+# entry on purpose: it is decimated by decimate_raw, and the aggregation that
+# looks equivalent, `resample(...).agg("last")`, is not — it relabels the kept
+# sample at the bin's leading edge. Rendering "last" here would put that
+# substitution one attribute access away.
 _PANDAS_AGGS = {
-    "raw": "last",
     "mean": "mean",
     "min": "min",
     "max": "max",
@@ -56,10 +54,9 @@ _PANDAS_AGGS = {
 def require_datetime(start_date: object, end_date: object) -> None:
     """Raise ``TypeError`` unless both query bounds are ``datetime`` objects.
 
-    Every connector validated this identically before delegating to
-    :func:`to_utc`, which would otherwise fail on a ``str`` with an
-    ``AttributeError`` naming ``tzinfo`` — an error that says nothing about
-    which argument the caller got wrong.
+    Without it :func:`to_utc` fails on a ``str`` with an ``AttributeError``
+    naming ``tzinfo`` — an error that says nothing about which argument was
+    wrong.
 
     Args:
         start_date: The caller's start bound, unvalidated.
@@ -76,11 +73,11 @@ def require_datetime(start_date: object, end_date: object) -> None:
 def to_utc(dt: datetime) -> datetime:
     """Return ``dt`` as a timezone-aware UTC datetime.
 
-    An aware datetime is converted. A naive one carries no zone, so it is read as
-    facility-local — matching how the rest of the framework reads operator
-    wall-clock times — and then converted. ``get_facility_timezone()`` degrades to
-    UTC when ``system.timezone`` is unset, so an unconfigured deployment sees
-    naive input treated as UTC exactly as before.
+    An aware datetime is converted. A naive one carries no zone, so it is read
+    as facility-local — matching how the rest of the framework reads operator
+    wall-clock times — and then converted. ``get_facility_timezone()`` degrades
+    to UTC when ``system.timezone`` is unset, so an unconfigured deployment
+    still treats naive input as UTC.
 
     Args:
         dt: The datetime to normalize.
@@ -99,19 +96,26 @@ class Processing:
 
     Attributes:
         mode: The canonical mode name, one of :data:`PROCESSING_MODES`.
+        precision_ms: The bin width this mode was resolved against; ``<= 0``
+            means full resolution. Carried here so the width a backend resolved
+            with is necessarily the width it bins with.
         epics_operator: Archiver Appliance operator prefix to wrap the PV name
             with (e.g. ``"mean_60"``), or ``None`` when no server-side binning
-            applies — either because full resolution was requested, or because
-            the bin width is not a whole number of seconds, which the
-            appliance's operator syntax cannot express. Callers that need to
-            tell those two cases apart must check ``precision_ms`` themselves;
-            see :meth:`EPICSArchiverConnector.get_data`.
-        pandas_agg: The pandas resample aggregation name for client-side backends.
+            applies — either full resolution was requested, or the bin width is
+            not a whole number of seconds, which the operator syntax cannot
+            express. ``precision_ms`` tells those two apart; see
+            :meth:`EPICSArchiverConnector.get_data`, which turns the second into
+            a ``ValueError``.
+        pandas_agg: The pandas resample aggregation name for client-side
+            backends, or ``None`` for ``"raw"`` — which is decimated by
+            :func:`decimate_raw`, not resampled. Read it only from the non-raw
+            branch that :func:`aggregate_series` already takes.
     """
 
     mode: str
+    precision_ms: int
     epics_operator: str | None
-    pandas_agg: str
+    pandas_agg: str | None
 
 
 def resolve_processing(processing: str, precision_ms: int) -> Processing:
@@ -122,15 +126,13 @@ def resolve_processing(processing: str, precision_ms: int) -> Processing:
         precision_ms: Bin width in milliseconds; ``<= 0`` means full resolution.
 
     Returns:
-        The resolved :class:`Processing`. ``epics_operator`` is ``None`` unless
-        ``precision_ms`` is a positive whole number of seconds — see that
-        attribute's docstring.
+        The resolved :class:`Processing`.
 
     Raises:
-        ValueError: If ``processing`` is not a known mode, or if a non-raw mode is
-            requested with a non-positive ``precision_ms`` — an aggregate with no
-            bin width is meaningless, and silently returning raw samples instead
-            is the failure mode this helper exists to prevent.
+        ValueError: If ``processing`` is not a known mode, or if a non-raw mode
+            is requested with a non-positive ``precision_ms`` — silently
+            returning raw samples for an aggregate request is the failure this
+            helper exists to prevent.
     """
     if processing not in PROCESSING_MODES:
         raise ValueError(
@@ -141,55 +143,50 @@ def resolve_processing(processing: str, precision_ms: int) -> Processing:
             f"processing={processing!r} requires precision_ms > 0 (got {precision_ms}); "
             "an aggregate needs a bin width."
         )
-    # The appliance's operator syntax takes a whole number of seconds, so a bin
-    # width that is not a multiple of 1000 ms has no faithful operator. It used
-    # to be floored (`max(1, precision_ms // 1000)`), which silently binned a
-    # 500 ms request at 1 s and a 1500 ms request at 1 s — quietly returning
-    # data at a different resolution than was asked for. No operator is
-    # returned instead; EPICS rejects the request rather than guessing.
+    # The appliance's operator syntax takes a whole number of seconds, so a
+    # width that is not a multiple of 1000 ms has no faithful operator. Return
+    # None rather than flooring: `max(1, precision_ms // 1000)` silently served
+    # both a 500 ms and a 1500 ms request at 1 s. This is the one place the rule
+    # lives — EPICS turns the None into a ValueError, and the client-side
+    # backends bin at the exact width themselves.
     if precision_ms > 0 and precision_ms % 1000 == 0:
         operator = f"{_EPICS_OPERATORS[processing]}_{precision_ms // 1000}"
     else:
         operator = None
     return Processing(
         mode=processing,
+        precision_ms=precision_ms,
         epics_operator=operator,
-        pandas_agg=_PANDAS_AGGS[processing],
+        pandas_agg=_PANDAS_AGGS.get(processing),
     )
 
 
 def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
     """Build the canonical long frame from per-channel series.
 
-    Nothing is manufactured: the frame contains exactly the real samples each
-    input series carries, with no shared index and no fill. A channel whose
-    series is empty contributes no rows and does not appear in the output at
-    all — it is not padded with NaNs to preserve a "one column per channel"
-    shape the way the old wide format required.
+    Each channel contributes exactly its own real samples, with no shared index
+    and no fill — see :meth:`ArchiverConnector.get_data` for the contract. A
+    channel whose series is empty contributes no rows and does not appear at
+    all, rather than being padded with NaNs to keep a column.
 
-    ``value`` is not dtype-constrained. A channel may carry non-numeric
-    samples (e.g. an enum/status PV archived as a string), and no channel is
-    coerced or dropped for being non-numeric — this function performs no
-    dtype coercion at all, so the input series' own dtype flows straight
-    through. When every input series is numeric, ordinary ``pandas.concat``
-    type promotion keeps the combined ``value`` column ``float64``; once any
-    channel is non-numeric, the column takes on whatever dtype pandas needs to
-    hold the mix (typically ``object`` once a non-numeric channel is combined
-    with a numeric one).
+    ``value`` is not dtype-constrained and nothing here coerces it: the input
+    series' own dtype flows through, so an all-numeric mapping stays ``float64``
+    by ordinary ``concat`` promotion while a mapping containing an enum/status
+    channel takes whatever dtype holds the mix (typically ``object``).
 
     Args:
-        series: Mapping of channel name to its sample series. Each series must
-            have a UTC-aware ``DatetimeIndex``. Values may be any dtype the
-            source produced — numeric, string, or otherwise.
+        series: Mapping of channel name to its sample series, each with a
+            UTC-aware ``DatetimeIndex`` and values of any dtype.
 
     Returns:
         A frame with :data:`LONG_COLUMNS`, sorted by channel then timestamp. An
         empty mapping (or a mapping of only empty series) yields the empty frame
-        with the same columns; ``value`` defaults to ``float64`` in that case,
-        since there is no data to infer a dtype from.
+        with the same columns, ``value`` defaulting to ``float64``.
     """
     live = {channel: s for channel, s in series.items() if not s.empty}
     if not live:
+        # Built explicitly, not via concat: `pd.concat({})` raises
+        # ValueError("No objects to concatenate").
         return pd.DataFrame(
             {
                 "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
@@ -208,51 +205,56 @@ def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
 
 
 def decimate_raw(s: pd.Series, precision_ms: int) -> pd.Series:
-    """Keep the last real sample in each ``precision_ms`` bin, with its true timestamp.
+    """Keep the last real sample in each ``precision_ms`` bin, at its true timestamp.
 
-    This is "raw" processing's own binning. Unlike an aggregate mode it never
-    computes a derived value, so the row kept is a real, previously-recorded
-    sample at its own real timestamp — never a bin-edge timestamp. Contrast with
-    ``s.resample(f"{precision_ms}ms").agg("last")``, which would relabel that
-    same sample at the *bin's* start time instead, fabricating a timestamp
-    nothing was ever recorded at — exactly what this framework's "nothing is
-    manufactured" contract forbids. Dtype-agnostic (no numeric check), so an
-    enum/status channel still round-trips under ``processing="raw"``. A channel
-    already sparser than ``precision_ms`` is left bit-identical: with at most one
-    real sample per bin, there is nothing to drop.
+    "raw" processing's own binning: it computes no derived value, so every row
+    it returns is a real, previously-recorded sample carrying its own real
+    timestamp. Do NOT replace it with
+    ``s.resample(f"{precision_ms}ms").agg("last")`` — that returns the same
+    *value* but relabels it at the bin's leading edge, fabricating a timestamp
+    nothing was ever recorded at.
 
     Args:
-        s: One channel's real samples, time-sorted (ascending), any dtype.
+        s: One channel's real samples, time-sorted (ascending), any dtype — no
+            numeric check, so an enum/status channel round-trips.
         precision_ms: Bin width in milliseconds; ``<= 0`` means full resolution.
 
     Returns:
         The subsequence of ``s`` at each bin's last real sample, in original
-        order. ``s`` unchanged when it is empty or ``precision_ms <= 0``.
+        order. ``s`` unchanged when empty, when ``precision_ms <= 0``, or when
+        it is already sparser than one sample per bin.
     """
     if precision_ms <= 0 or s.empty:
         return s
-    bins = s.index.floor(f"{precision_ms}ms")
-    return s[~pd.Series(bins).duplicated(keep="last").to_numpy()]
+    # Anchor the lattice the way `aggregate_series`' `resample` does, not the
+    # way `DatetimeIndex.floor` does. `floor` is epoch-anchored; `resample`
+    # defaults to origin="start_day", i.e. midnight of the first sample's day.
+    # The two agree for every width that divides a day and diverge otherwise
+    # (measured: at 7000 ms they sit up to 6 s apart, date-dependent), which
+    # left `processing="raw"` and `processing="mean"` binning the same window on
+    # two different grids. Reproducing resample's anchor here rather than moving
+    # `aggregate_series` onto `floor` keeps existing aggregate output unchanged.
+    width = pd.Timedelta(milliseconds=precision_ms)
+    origin = s.index.min().normalize()
+    bins = origin + (s.index - origin) // width * width
+    return s[~bins.duplicated(keep="last")]
 
 
 def reject_non_numeric(s: pd.Series, resolved: Processing) -> None:
     """Enforce the contract that only ``raw`` is valid for a non-numeric channel.
 
     Aggregating (mean/min/max/median/std/count) over enum or status values is
-    undefined, so :meth:`ArchiverConnector.get_data` requires every backend to
-    raise rather than return something that looks like an aggregate.
-
-    Backends that aggregate client-side get this for free through
-    :func:`aggregate_series`. A backend that pushes the aggregation down to its
-    server (EPICS) never calls that, so it must call this on each channel's
-    returned samples instead — otherwise a string-valued PV comes back with its
-    raw ``CW``/``STANDBY`` values labelled as means.
+    undefined, so every backend must raise rather than return something that
+    looks like an aggregate. Client-side backends get this free through
+    :func:`aggregate_series`; a backend that pushes the aggregation down to its
+    server (EPICS) never calls that, so it must call this on each returned
+    channel instead — otherwise ``mean_60(SR:MODE)`` comes back with its raw
+    ``CW``/``STANDBY`` values labelled as means.
 
     Args:
         s: One channel's samples, ``s.name`` set to the channel so the error can
-            name it. An empty series is always accepted: there is nothing to
-            reject, and a channel that matched no samples must not fail the
-            query for every other requested channel.
+            name it. An empty series is always accepted — a channel that matched
+            no samples must not fail the query for every other one.
         resolved: The resolved processing mode. ``"raw"`` is always accepted.
 
     Raises:
@@ -268,56 +270,47 @@ def reject_non_numeric(s: pd.Series, resolved: Processing) -> None:
     )
 
 
-def aggregate_series(s: pd.Series, precision_ms: int, resolved: Processing) -> pd.Series:
+def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
     """Bin one channel's real samples, dropping periods that contained no samples.
 
-    This is the single reason no bin-width floor is needed anywhere: a bin with
-    no samples is dropped rather than emitted as NaN, so ``resample`` can never
-    upsample onto a fixed grid. A sparse channel queried at a fine
-    ``precision_ms`` returns *fewer* rows than it has samples, never more. An
-    empty ``s`` is returned unchanged for every mode, "raw" included — there is
-    nothing to aggregate or to reject as non-numeric, and a channel that
-    matched zero samples must not fail a query for every *other* requested
-    channel.
+    Dropping empty bins rather than emitting them as NaN is the single reason no
+    bin-width floor is needed anywhere: ``resample`` can never upsample onto a
+    fixed grid, so a sparse channel queried at a fine width returns *fewer* rows
+    than it has samples, never more. An empty ``s`` is returned unchanged for
+    every mode — there is nothing to aggregate or to reject, and one empty
+    channel must not fail the query for every other one.
 
     Args:
-        s: One channel's real samples, UTC-aware ``DatetimeIndex``. The index may
-            carry any datetime64 resolution (e.g. a source that builds its index
-            with ``unit="s"`` yields ``datetime64[s, UTC]``); it is normalized to
-            ns internally so ``resample`` can bin at any ``precision_ms``,
-            including sub-second or non-whole-second widths that a coarser
-            resolution cannot represent. Named (``s.name`` set to the channel)
-            so a non-numeric aggregation request can name the offending channel.
-        precision_ms: Bin width in milliseconds. For ``"raw"``, ``<= 0`` means
-            full resolution; otherwise it is the width ``decimate_raw`` keeps
-            one real sample per bin from.
-        resolved: The resolved processing mode; ``resolved.pandas_agg`` names the
-            aggregation to apply per bin (unused for ``"raw"`` — see
-            :func:`decimate_raw`).
+        s: One channel's real samples, UTC-aware ``DatetimeIndex``, named
+            (``s.name`` set to the channel) so a non-numeric aggregation request
+            can name the offending channel.
+        resolved: The resolved processing mode. ``resolved.precision_ms`` is the
+            bin width — it travels with the mode rather than alongside it, so a
+            caller cannot resolve at one width and bin at another.
+            ``resolved.pandas_agg`` names the per-bin aggregation, and is
+            ``None`` for ``"raw"``, which is decimated by :func:`decimate_raw`
+            instead of resampled.
 
     Returns:
-        For ``"raw"``: ``s`` decimated by :func:`decimate_raw` — one real sample
-        (its own real timestamp, unchanged value) per ``precision_ms`` bin, or
-        every real sample when ``precision_ms <= 0``. For every other mode: one
-        value per non-empty ``precision_ms`` bin, aggregated with
-        ``resolved.pandas_agg``, indexed at ns resolution. An empty ``s`` is
-        returned unchanged regardless of mode.
+        For ``"raw"``: whatever :func:`decimate_raw` returns. For every other
+        mode: one value per *non-empty* bin, aggregated with
+        ``resolved.pandas_agg``, indexed at ns resolution.
 
     Raises:
-        ValueError: If ``resolved.mode`` is not ``"raw"``, ``s`` is non-empty,
-            and ``s`` holds non-numeric values (e.g. an enum/status channel
-            archived as a string) — aggregating (mean/min/max/median/std/count)
-            over non-numeric samples is undefined. ``raw`` is always valid for
-            any channel, numeric or not.
+        ValueError: If a non-raw mode is applied to a non-empty channel holding
+            non-numeric values — see :func:`reject_non_numeric`.
     """
     if resolved.mode == "raw":
-        return decimate_raw(s, precision_ms)
+        return decimate_raw(s, resolved.precision_ms)
     if s.empty:
         return s
     reject_non_numeric(s, resolved)
     if s.index.dtype != "datetime64[ns, UTC]":
+        # Load-bearing, not defensive dtype churn. A source that builds its
+        # index with unit="s" yields datetime64[s, UTC], and resampling that at
+        # "500ms" raises ZeroDivisionError: integer modulo by zero (pandas 3.0).
         s = s.set_axis(s.index.as_unit("ns"))
-    resampler = s.resample(f"{precision_ms}ms")
+    resampler = s.resample(f"{resolved.precision_ms}ms")
     counts = resampler.count()
     aggregated = resampler.agg(resolved.pandas_agg)
     return aggregated[counts > 0]

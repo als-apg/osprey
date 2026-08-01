@@ -260,10 +260,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 "$or": [{pv: {"$exists": True}} for pv in pv_list],
             }
 
-            # Project only the fields we need: date and requested PVs
-            projection = {"date": 1}
-            for pv in pv_list:
-                projection[pv] = 1
+            # Project only the fields we need: date and requested PVs.
+            projection = {"date": 1, **dict.fromkeys(pv_list, 1)}
 
             # Query MongoDB collection
             cursor = self._collection.find(query, projection).sort("date", 1)
@@ -302,7 +300,6 @@ class MongoDBArchiverConnector(ArchiverConnector):
             series = {
                 pv: aggregate_series(
                     pd.Series(values[pv], index=pd.to_datetime(timestamps[pv], utc=True), name=pv),
-                    precision_ms,
                     resolved,
                 )
                 for pv in pv_list

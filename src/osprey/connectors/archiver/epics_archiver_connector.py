@@ -184,14 +184,19 @@ class EPICSArchiverConnector(ArchiverConnector):
         start_str = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         end_str = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-        # The appliance's operator syntax takes a whole number of seconds, so a
-        # bin width like 500 ms or 1500 ms has no faithful server-side operator.
-        # Reject it rather than serve data at a resolution nobody asked for:
-        # this used to floor to the nearest second, so a 500 ms request came
-        # back binned at 1 s with nothing to indicate it. Unreachable through
-        # archiver_read (its bin_size is whole seconds) but reachable by any
-        # caller using the connector API directly.
-        if precision_ms > 0 and precision_ms % 1000 != 0:
+        # Push the aggregation server-side. resolve_processing rejects unknown
+        # modes and aggregates with no bin width, and renders an operator only
+        # for a width the appliance can actually express.
+        resolved = resolve_processing(processing, precision_ms)
+
+        # A bin width was asked for but no operator came back, so the appliance
+        # cannot serve it. Reject rather than fall through to the bare PV name,
+        # which would answer an aggregate query with full-resolution samples.
+        # Deliberately NOT re-derived here as `precision_ms % 1000 != 0`:
+        # resolve_processing owns that rule, and a second copy would drift
+        # silently in the worst direction — `500 // 1000 == 0`, so a helper that
+        # stopped returning None would put `mean_0(SR:DCCT)` on the wire.
+        if precision_ms > 0 and resolved.epics_operator is None:
             raise ValueError(
                 f"precision_ms={precision_ms} is not a whole number of seconds. The EPICS "
                 "Archiver Appliance bins server-side in whole seconds only, so this bin "
@@ -199,10 +204,8 @@ class EPICSArchiverConnector(ArchiverConnector):
                 "precision_ms<=0 with processing='raw' for full resolution."
             )
 
-        # Push the aggregation server-side. resolve_processing rejects unknown
-        # modes and aggregates with no bin width; a None operator means full
-        # resolution, where the bare PV name is sent.
-        resolved = resolve_processing(processing, precision_ms)
+        # A None operator here can only mean full resolution: the branch above
+        # already rejected every other way of getting one.
         if resolved.epics_operator is not None:
             effective_pvs = [f"{resolved.epics_operator}({pv})" for pv in pv_list]
         else:

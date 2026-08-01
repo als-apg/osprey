@@ -310,29 +310,15 @@ class TestMockArchiverSimulation:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_string_channel_series(self, machine_file):
-        """An enum/status channel's history round-trips through the archiver:
-        the long-format contract's ``value`` column is not dtype-constrained,
-        so a string-valued channel is neither coerced nor dropped."""
-        connector = MockArchiverConnector()
-        await connector.connect({"simulation_file": str(machine_file)})
-
-        df = await connector.get_data(
-            pv_list=["T:MODE"],
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 1, 0, 10, 0),
-        )
-        mode = df.loc[df["channel"] == "T:MODE", "value"]
-        assert len(mode) > 0
-        assert (mode == "CW").all()
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
     async def test_mixed_numeric_and_string_channels_both_present(self, machine_file):
         """A single request mixing a numeric channel and a string (enum/status)
         channel returns rows for both — neither is dropped or coerced to fit
-        the other's dtype."""
+        the other's dtype.
+
+        Also covers the single-channel case: an enum/status channel's history
+        round-trips because the long-format ``value`` column is not
+        dtype-constrained. A standalone ``T:MODE``-only test asserted exactly
+        the two ``mode`` assertions below and nothing else."""
         connector = MockArchiverConnector()
         await connector.connect({"simulation_file": str(machine_file)})
 

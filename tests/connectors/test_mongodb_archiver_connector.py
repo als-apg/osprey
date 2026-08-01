@@ -572,6 +572,43 @@ class TestQueryShapeWithoutDocker:
         assert "BEAM:CURRENT" not in captured["query"]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pv_list", "expected"),
+        [
+            (["BEAM:CURRENT"], {"date": 1, "BEAM:CURRENT": 1}),
+            (
+                ["BEAM:CURRENT", "BEAM:LIFETIME"],
+                {"date": 1, "BEAM:CURRENT": 1, "BEAM:LIFETIME": 1},
+            ),
+            # A PV literally named "date", and a repeated PV, both collapse
+            # into the single key the projection already has. Pinned because
+            # the projection is built by merging pv_list over a dict that
+            # already contains "date" -- the collapse is the merge's behaviour,
+            # not an accident of how the merge is spelled.
+            (["date"], {"date": 1}),
+            (["BEAM:CURRENT", "BEAM:CURRENT"], {"date": 1, "BEAM:CURRENT": 1}),
+        ],
+    )
+    async def test_projection_requests_date_plus_exactly_the_requested_pvs(self, pv_list, expected):
+        """``date`` must be projected alongside the PVs, and nothing else.
+
+        Every sample's timestamp comes from ``date``; drop it from the
+        projection and each document is skipped as "missing 'date' field", so
+        the query returns an empty frame while the matching documents sit right
+        there in the cursor. Projecting more than the requested PVs is the
+        opposite failure -- it pulls whole documents over the wire.
+        """
+        connector, captured = self._stub_connector([])
+
+        await connector.get_data(
+            pv_list=pv_list,
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        assert captured["projection"] == expected
+
+    @pytest.mark.asyncio
     async def test_precision_ms_bins_a_non_raw_processing_mode(self):
         """precision_ms must actually downsample a non-raw mode rather than being a no-op.
 

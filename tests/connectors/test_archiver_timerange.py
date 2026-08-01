@@ -80,7 +80,10 @@ class TestResolveProcessing:
     @pytest.mark.parametrize(
         "mode,operator,agg",
         [
-            ("raw", "lastSample_60", "last"),
+            # "raw" renders a server-side operator (the appliance's lastSample
+            # is faithful — it returns a real archived sample) but NO pandas
+            # aggregation: see test_raw_renders_no_pandas_aggregation.
+            ("raw", "lastSample_60", None),
             ("mean", "mean_60", "mean"),
             ("min", "min_60", "min"),
             ("max", "max_60", "max"),
@@ -94,12 +97,32 @@ class TestResolveProcessing:
         assert p.epics_operator == operator
         assert p.pandas_agg == agg
 
-    def test_every_declared_mode_resolves(self):
+    def test_raw_renders_no_pandas_aggregation(self):
+        # There is no resample aggregation that does what "raw" means. The
+        # closest, `agg("last")`, returns the bin's last value but relabels it
+        # at the bin's leading edge — a timestamp nothing was recorded at.
+        # decimate_raw exists precisely to avoid that, so "raw" must render no
+        # pandas aggregation at all: a value here is a standing invitation for
+        # a future caller to hand it to resample() and manufacture a timestamp.
+        assert resolve_processing("raw", 60_000).pandas_agg is None
+
+    def test_every_aggregate_mode_renders_a_pandas_aggregation(self):
         for mode in PROCESSING_MODES:
+            if mode == "raw":
+                continue
             assert resolve_processing(mode, 1000).pandas_agg
 
     def test_raw_at_full_resolution_has_no_operator(self):
         assert resolve_processing("raw", 0).epics_operator is None
+
+    @pytest.mark.parametrize("precision_ms", [0, 1, 500, 1000, 7000, 60_000])
+    def test_the_resolved_processing_carries_its_own_bin_width(self, precision_ms):
+        # The bin width travels with the mode it was resolved against. Every
+        # backend used to keep a local copy and hand it to aggregate_series
+        # separately, so three call sites each re-asserted by hand that the
+        # width resolved with is the width aggregated with. Nothing checked it.
+        mode = "raw" if precision_ms <= 0 else "mean"
+        assert resolve_processing(mode, precision_ms).precision_ms == precision_ms
 
     def test_unknown_mode_lists_the_valid_set(self):
         with pytest.raises(ValueError, match="Unknown processing mode"):
@@ -201,7 +224,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime([0, 5, 9], unit="s", utc=True)
         s = pd.Series([1.0, 2.0, 3.0], index=idx, name="PV")
         resolved = resolve_processing("raw", 0)
-        out = aggregate_series(s, 0, resolved)
+        out = aggregate_series(s, resolved)
         pd.testing.assert_series_equal(out, s)
 
     def test_raw_with_precision_ms_decimates_to_last_real_sample_per_bin(self):
@@ -211,7 +234,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime([0, 1, 2, 3, 4, 5], unit="s", utc=True)
         s = pd.Series([0.0, 1.0, 2.0, 3.0, 4.0, 5.0], index=idx, name="PV")
         resolved = resolve_processing("raw", 2000)
-        out = aggregate_series(s, 2000, resolved)
+        out = aggregate_series(s, resolved)
         assert out.tolist() == [1.0, 3.0, 5.0]
         assert list(out.index) == [idx[1], idx[3], idx[5]]
 
@@ -221,7 +244,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime([0, 1, 2], unit="s", utc=True)
         s = pd.Series(["CW", "CW", "STANDBY"], index=idx, name="T:MODE")
         resolved = resolve_processing("raw", 2000)
-        out = aggregate_series(s, 2000, resolved)
+        out = aggregate_series(s, resolved)
         assert out.tolist() == ["CW", "STANDBY"]
 
     def test_empty_series_returns_unchanged_for_every_mode(self):
@@ -232,7 +255,7 @@ class TestAggregateSeries:
         s = pd.Series([], index=pd.to_datetime([], utc=True), dtype=object, name="PV")
         for mode in PROCESSING_MODES:
             resolved = resolve_processing(mode, 1000)
-            out = aggregate_series(s, 1000, resolved)
+            out = aggregate_series(s, resolved)
             assert out.empty
             assert not out.index.has_duplicates
 
@@ -242,7 +265,7 @@ class TestAggregateSeries:
         values = np.arange(20, dtype=float)
         s = pd.Series(values, index=idx, name="PV")
         resolved = resolve_processing("mean", 1000)
-        out = aggregate_series(s, 1000, resolved)
+        out = aggregate_series(s, resolved)
         assert len(out) == 2
         assert out.iloc[0] == pytest.approx(values[:10].mean())
         assert out.iloc[1] == pytest.approx(values[10:].mean())
@@ -252,7 +275,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime([0, 100, 900, 1500], unit="ms", utc=True)
         s = pd.Series([1.0, 2.0, 3.0, 4.0], index=idx, name="PV")
         resolved = resolve_processing("count", 1000)
-        out = aggregate_series(s, 1000, resolved)
+        out = aggregate_series(s, resolved)
         assert out.tolist() == [3, 1]
 
     def test_sparse_channel_does_not_upsample_onto_the_grid(self):
@@ -261,7 +284,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime(np.arange(6) * 3600, unit="s", utc=True)
         s = pd.Series(np.arange(6, dtype=float), index=idx, name="PV")
         resolved = resolve_processing("mean", 1000)
-        out = aggregate_series(s, 1000, resolved)
+        out = aggregate_series(s, resolved)
         assert len(out) == 6
         assert out.tolist() == list(range(6))
 
@@ -285,7 +308,7 @@ class TestAggregateSeries:
         assert idx.dtype == "datetime64[s, UTC]"
         s = pd.Series([1.0, 2.0, 3.0, 4.0], index=idx, name="PV")
         resolved = resolve_processing("mean", precision_ms)
-        out = aggregate_series(s, precision_ms, resolved)
+        out = aggregate_series(s, resolved)
         assert out.index.dtype == "datetime64[ns, UTC]"
         assert out.tolist() == expected
 
@@ -295,7 +318,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime([0, 60], unit="s", utc=True)
         s = pd.Series(["CW", "STANDBY"], index=idx, name="T:MODE")
         resolved = resolve_processing("raw", 0)
-        out = aggregate_series(s, 0, resolved)
+        out = aggregate_series(s, resolved)
         pd.testing.assert_series_equal(out, s)
 
     def test_non_raw_mode_on_non_numeric_channel_raises_naming_channel_and_mode(self):
@@ -303,7 +326,7 @@ class TestAggregateSeries:
         s = pd.Series(["CW", "STANDBY"], index=idx, name="T:MODE")
         resolved = resolve_processing("mean", 60_000)
         with pytest.raises(ValueError, match="'T:MODE'") as exc_info:
-            aggregate_series(s, 60_000, resolved)
+            aggregate_series(s, resolved)
         assert "'mean'" in str(exc_info.value)
 
     def test_non_raw_mode_on_unnamed_non_numeric_channel_names_it_as_unset(self):
@@ -315,7 +338,7 @@ class TestAggregateSeries:
         assert s.name is None
         resolved = resolve_processing("mean", 60_000)
         with pytest.raises(ValueError) as exc_info:
-            aggregate_series(s, 60_000, resolved)
+            aggregate_series(s, resolved)
         message = str(exc_info.value)
         assert "None" not in message
         assert "unnamed" in message.lower()
@@ -328,7 +351,7 @@ class TestAggregateSeries:
         idx = pd.to_datetime([0, 1, 2], unit="s", utc=True)
         s = pd.Series([1.0, 2.0, 3.0], index=idx, name="PV")
         resolved = resolve_processing("std", 1000)
-        out = aggregate_series(s, 1000, resolved)
+        out = aggregate_series(s, resolved)
         assert len(out) == 3
         assert out.isna().all()
 
@@ -371,3 +394,58 @@ class TestDecimateRaw:
         out = decimate_raw(s, 2000)
         assert out.tolist() == ["CW", "STANDBY"]
         assert list(out.index) == [idx[1], idx[2]]
+
+
+class TestBinOriginIsSharedByEveryMode:
+    """``raw`` and the aggregate modes must bin on the *same* lattice.
+
+    ``decimate_raw`` used to bin with ``DatetimeIndex.floor``, which is
+    epoch-anchored, while ``aggregate_series`` bins with ``resample``, which is
+    anchored at the start of the first sample's day. The two agree for every
+    width that divides a day and disagree otherwise, so an operator comparing
+    ``processing="raw"`` against ``processing="mean"`` at, say, 7000 ms got two
+    grids offset from each other. Nothing was manufactured either way; the bins
+    simply did not line up.
+    """
+
+    # 2026-07-31 is chosen deliberately. 86_400_000 ms is not a multiple of
+    # 7000, so which side of the epoch lattice UTC midnight falls on is
+    # date-dependent: on 2026-07-30 midnight happens to sit exactly on it and
+    # the two conventions coincide even at 7000 ms, while on 2026-07-31 they
+    # are 1 s apart. Pin the date or this test silently stops testing anything.
+    BASE = "2026-07-31T10:00:00Z"
+
+    def _samples(self):
+        base = pd.Timestamp(self.BASE)
+        idx = pd.DatetimeIndex([base + pd.Timedelta(seconds=i) for i in range(40)])
+        return pd.Series(np.arange(40, dtype=float), index=idx, name="PV")
+
+    @pytest.mark.parametrize(
+        "precision_ms",
+        [
+            # 7000 ms does not divide a day: the divergent case. This is the
+            # only width family that can catch the defect.
+            7000,
+            # 1000 ms divides a day: the two conventions coincide here, which
+            # is why every pre-existing test (all whole-second divisors) passed
+            # while the lattices were different. Kept so a "fix" that merely
+            # moves the divergence somewhere else still fails.
+            1000,
+        ],
+    )
+    def test_raw_bins_on_the_same_lattice_as_the_aggregate_modes(self, precision_ms):
+        s = self._samples()
+        width = pd.Timedelta(milliseconds=precision_ms)
+
+        # aggregate_series indexes each bin at its own leading edge, so its
+        # index *is* the aggregate lattice.
+        edges = aggregate_series(s, resolve_processing("mean", precision_ms)).index
+        kept = decimate_raw(s, precision_ms)
+
+        assert len(kept) == len(edges)
+        for edge, (timestamp, value) in zip(edges, kept.items(), strict=True):
+            in_bin = s[(s.index >= edge) & (s.index < edge + width)]
+            # The kept row must be the last REAL sample of the SAME bin the
+            # aggregate modes used -- at its own real timestamp, never the edge.
+            assert timestamp == in_bin.index[-1]
+            assert value == in_bin.iloc[-1]

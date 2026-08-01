@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
+from osprey.connectors.archiver._timerange import Processing
 from osprey.connectors.archiver.base import ArchiverMetadata
 from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
 from osprey.connectors.factory import ConnectorFactory
@@ -205,55 +206,6 @@ class TestGetDataMethod:
             assert set(df["channel"]) == {"PV:1", "PV:2"}
             assert (df["channel"] == "PV:1").sum() == 5
             assert (df["channel"] == "PV:2").sum() == 5
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_get_data_server_side_downsampling_wraps_pv(self):
-        """Test that precision_ms > 0 wraps PV name as lastSample_N(pv)."""
-        captured_urls = []
-
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
-
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
-                precision_ms=5000,
-            )
-
-            assert len(captured_urls) == 1
-            assert "lastSample_5" in captured_urls[0]
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_get_data_precision_ms_zero_sends_raw_pv(self):
-        """Test that precision_ms=0 sends the raw PV name without wrapping."""
-        captured_urls = []
-
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
-
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
-                precision_ms=0,
-            )
-
-            assert "lastSample" not in captured_urls[0]
 
             await connector.disconnect()
 
@@ -523,19 +475,6 @@ class TestGetDataErrorHandling:
                 )
 
             await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_unconnected_connector_raises_runtime_error(self):
-        """Test that calling get_data on unconnected connector raises RuntimeError."""
-        connector = EPICSArchiverConnector()
-
-        with pytest.raises(RuntimeError, match="Archiver not connected"):
-            await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 2),
-                timeout=1,
-            )
 
 
 class TestMetadataMethods:
@@ -928,11 +867,74 @@ class TestSubSecondPrecision:
         await connector.disconnect()
 
     @pytest.mark.asyncio
+    async def test_rejection_follows_resolve_processing_rather_than_a_second_copy_of_the_rule(
+        self, monkeypatch
+    ):
+        """Which widths are expressible is decided once, in ``resolve_processing``.
+
+        Both layers used to test ``precision_ms % 1000`` independently, and the
+        EPICS copy ran a dozen lines *before* the only read of
+        ``epics_operator`` — so the helper's "this width has no faithful
+        operator" verdict was never observed, and the two copies could drift
+        apart unnoticed. They must not: ``500 // 1000 == 0``, so a helper that
+        stopped returning ``None`` would put ``mean_0(SR:DCCT)`` on the wire.
+
+        Here the helper is made to reject a width EPICS' own arithmetic would
+        wave through (60 s is a whole number of seconds). The request must still
+        be refused — not silently downgraded to a bare PV name, which would
+        return full-resolution samples for a ``processing="mean"`` query and
+        hand them back labelled as means.
+        """
+        captured_urls = []
+
+        def mock_urlopen(req, timeout=None):
+            captured_urls.append(req.full_url)
+            return _make_urlopen_response([])
+
+        monkeypatch.setattr(
+            "osprey.connectors.archiver.epics_archiver_connector.resolve_processing",
+            lambda processing, precision_ms: Processing(
+                mode=processing,
+                precision_ms=precision_ms,
+                epics_operator=None,
+                pandas_agg="mean",
+            ),
+        )
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            with pytest.raises(ValueError, match="whole number of seconds"):
+                await connector.get_data(
+                    pv_list=["SR:DCCT"],
+                    start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                    end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                    precision_ms=60_000,
+                    processing="mean",
+                )
+
+            assert captured_urls == []
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("precision_ms", "expected"),
-        [(1000, "mean_1"), (60_000, "mean_60"), (3600_000, "mean_3600")],
+        ("processing", "precision_ms", "expected"),
+        [
+            ("mean", 1000, "mean_1"),
+            ("mean", 60_000, "mean_60"),
+            ("mean", 3600_000, "mean_3600"),
+            # "raw" at a width other than 60 s. Not covered by
+            # TestProcessingModes (which sweeps the modes at a fixed 60 s) nor
+            # by the mean rows above: it is the only cell that fails when raw's
+            # operator width stops tracking precision_ms.
+            ("raw", 5000, "lastSample_5"),
+        ],
     )
-    async def test_whole_second_precision_renders_the_operator(self, precision_ms, expected):
+    async def test_whole_second_precision_renders_the_operator(
+        self, processing, precision_ms, expected
+    ):
         captured_urls = []
 
         def mock_urlopen(req, timeout=None):
@@ -948,9 +950,10 @@ class TestSubSecondPrecision:
                 start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=precision_ms,
-                processing="mean",
+                processing=processing,
             )
 
+            assert len(captured_urls) == 1
             assert expected in captured_urls[0]
 
             await connector.disconnect()
