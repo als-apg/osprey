@@ -42,8 +42,8 @@ This application demonstrates production-validated patterns for building AI assi
 - **`mock`** (default) — in-process simulation; no hardware, no container.
 - **`virtual_accelerator`** — a containerized PyAT soft-IOC serving real EPICS
   Channel Access with live storage-ring physics (corrector setpoints move BPM
-  readbacks). **Requires the container** in `docker/virtual-accelerator/` —
-  start it with `scripts/va/run_va.sh`, then
+  readbacks). **Requires the VA service** — add `virtual_accelerator` to
+  `deployed_services` in `config.yml`, run `osprey deploy up`, then
   `osprey config set-control-system virtual_accelerator`. See the
   "Use the Virtual Accelerator" how-to guide for scenarios, limits, and the
   archiver live-vs-history note.
@@ -53,23 +53,22 @@ This application demonstrates production-validated patterns for building AI assi
 
 ## 🚀 Quick Start
 
-### 1. Activate Virtual Environment
+### 1. Check the Environment
+
+`osprey build` already created a `.venv` here with the framework and this
+project's dependencies installed. There is nothing to install by hand.
+
+Run commands through `uv run`, which picks this project's `.venv` no matter
+which environment your shell happens to have active:
 
 ```bash
-# Create and activate virtual environment (if not already done)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+uv run osprey --version
 ```
 
-### 2. Install Dependencies
+If a dependency changes later, `uv sync` rebuilds the environment from
+`pyproject.toml`.
 
-```bash
-uv pip install -r requirements.txt
-# or
-pip install -r requirements.txt
-```
-
-### 3. Configure API Keys
+### 2. Configure API Keys
 
 Create a `.env` file in the project root:
 
@@ -84,17 +83,17 @@ CBORG_API_KEY=your_cborg_api_key_here
 # ANTHROPIC_API_KEY=your_anthropic_key
 ```
 
-### 4. Run the Assistant
+### 3. Run the Assistant
 
 ```bash
 # Start interactive chat with full Osprey framework
-osprey chat
+uv run osprey chat
 
 # Or use the standalone channel finder CLI
-python -m {{ package_name }}.services.channel_finder.cli
+uv run python -m {{ package_name }}.services.channel_finder.cli
 
 # Or run benchmarks
-python -m {{ package_name }}.services.channel_finder.benchmarks.cli
+uv run python -m {{ package_name }}.services.channel_finder.benchmarks.cli
 ```
 
 ---
@@ -109,13 +108,13 @@ Query the channel finder directly without the full framework:
 
 ```bash
 # Start interactive mode
-python -m {{ package_name }}.services.channel_finder.cli
+uv run python -m {{ package_name }}.services.channel_finder.cli
 
 # Query directly from command line
-python -m {{ package_name }}.services.channel_finder.cli "beam current channel"
+uv run python -m {{ package_name }}.services.channel_finder.cli "beam current channel"
 
 # With custom facility configuration
-python -m {{ package_name }}.services.channel_finder.cli --facility my_facility "vacuum pressure"
+uv run python -m {{ package_name }}.services.channel_finder.cli --facility my_facility "vacuum pressure"
 ```
 
 **Features:**
@@ -132,17 +131,17 @@ Manage channel databases via the `osprey channel-finder` CLI:
 
 ```bash
 {% if channel_finder_mode == 'in_context' %}# Build database from CSV
-osprey channel-finder build-database \
+uv run osprey channel-finder build-database \
   --csv data/raw/address_list.csv \
   --output data/channel_databases/{{ channel_finder_mode }}.json \
   --use-llm  # Optional: generate descriptive names
 
 {% endif %}# Validate database format
-osprey channel-finder validate \
+uv run osprey channel-finder validate \
   --database data/channel_databases/{{ channel_finder_mode }}.json
 
 # Preview database contents
-osprey channel-finder preview \
+uv run osprey channel-finder preview \
   --database data/channel_databases/{{ channel_finder_mode }}.json
 ```
 
@@ -152,16 +151,16 @@ Evaluate channel finder performance:
 
 ```bash
 # Run all benchmarks
-python -m {{ package_name }}.services.channel_finder.benchmarks.cli
+uv run python -m {{ package_name }}.services.channel_finder.benchmarks.cli
 
 # Run subset of queries
-python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0:10
+uv run python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0:10
 
 # Override model
-python -m {{ package_name }}.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
+uv run python -m {{ package_name }}.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
 
 # Show detailed logs
-python -m {{ package_name }}.services.channel_finder.benchmarks.cli --verbose
+uv run python -m {{ package_name }}.services.channel_finder.benchmarks.cli --verbose
 ```
 
 ---
@@ -246,13 +245,13 @@ The template includes a comprehensive benchmarking system to evaluate channel fi
 
 ```bash
 # Run all enabled benchmarks
-python -m {{ package_name }}.services.channel_finder.benchmarks.cli
+uv run python -m {{ package_name }}.services.channel_finder.benchmarks.cli
 
 # Run first 10 queries only
-python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0:10
+uv run python -m {{ package_name }}.services.channel_finder.benchmarks.cli --queries 0:10
 
 # Use different model
-python -m {{ package_name }}.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
+uv run python -m {{ package_name }}.services.channel_finder.benchmarks.cli --model anthropic/claude-sonnet
 ```
 
 ### Benchmark Results
@@ -373,7 +372,7 @@ pip install pyepics
 **Step 2:** Use interactive menu to switch to production mode:
 
 ```bash
-osprey  # Launch interactive menu
+uv run osprey  # Launch interactive menu
 ```
 
 Navigate: **Your Project** → `config` → `set-control-system`
@@ -393,7 +392,7 @@ Supported facilities:
 **Step 4:** Test your connection:
 
 ```bash
-osprey chat
+uv run osprey chat
 # Try: "What is the current beam current?"
 ```
 
@@ -583,7 +582,7 @@ deployed_services:
 2. Deploy:
 
 ```bash
-osprey deploy up
+uv run osprey deploy up
 ```
 
 3. Configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):

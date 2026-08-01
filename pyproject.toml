@@ -131,6 +131,11 @@ dependencies = [
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.12.0",
+    # `osprey deploy up --dev` builds a wheel from the local checkout. A shipped
+    # CLI flag must not depend on an optional extra: an editable install without
+    # `--extra dev` would otherwise satisfy every other --dev precondition and
+    # fail only at wheel-build time.
+    "build",
 ]
 
 [project.optional-dependencies]
@@ -159,7 +164,6 @@ dev = [
     "mypy",
     "pre-commit",
     "ruff",
-    "build",  # Required for 'osprey deploy up --dev' to build local wheel
     "testcontainers[postgres]>=4.14.2",  # Real PostgreSQL for integration tests
     "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
@@ -238,6 +242,12 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 [tool.hatch.version]
 path = "src/osprey/__init__.py"
 
+[tool.hatch.build]
+# Never package benchmark results produced by running the channel-finder
+# benchmark from inside the template tree (untracked in git, but hatchling
+# packages the working tree — see the matching .gitignore entry).
+exclude = ["src/osprey/templates/apps/control_assistant/data/benchmarks/results"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey"]
 
@@ -308,8 +318,10 @@ markers = [
     "integration: Integration tests (real external services)",
     "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
     "e2e_smoke: Quick smoke tests for critical workflows",
-    "e2e_benchmark: Channel finder benchmark validation tests",
+    "channel_finder_benchmark: Channel finder benchmark validation tests",
     "e2e_tutorial: Tutorial workflow validation tests",
+    "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic tasks (multi-tool reasoning, judged answers) where the model-under-test can fail",
+    "harness_benchmark: Harness-integrity lane of the benchmark matrix — an agent runs but the assertion is model-independent OSPREY behavior (safety hooks, approval flow, plumbing)",
     "slow: Tests that take significant time",
     "browser: Real-browser Playwright tests (requires chromium; skips if absent)",
     "requires_api: Tests that require API credentials",

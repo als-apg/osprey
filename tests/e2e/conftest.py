@@ -49,13 +49,59 @@ def pytest_runtest_logreport(report):
             pass
 
 
+def pytest_collection_finish(session):
+    """Write the benchmark-lane manifest (nodeid -> lane) when OSPREY_E2E_LANES is set.
+
+    The model-matrix runner points OSPREY_E2E_LANES at
+    ``results/<model>__seed<seed>.lanes.json``; the dashboard joins each test
+    outcome against this manifest to score the ``agentic_benchmark``
+    (model-capability) and ``harness_benchmark`` (harness-integrity) lanes
+    separately. Markers on the tests are the single source of truth — the
+    manifest is re-derived from live collection every cell, so it can never
+    drift. No-op unless the env var is set, so normal e2e runs are unaffected.
+    """
+    lanes_path = os.environ.get("OSPREY_E2E_LANES")
+    if not lanes_path:
+        return
+    lanes = {}
+    for item in session.items:
+        agentic = item.get_closest_marker("agentic_benchmark") is not None
+        harness = item.get_closest_marker("harness_benchmark") is not None
+        if agentic and harness:
+            lane = "both"  # invalid — check_e2e_coverage --check-lanes rejects it
+        elif agentic:
+            lane = "agentic"
+        elif harness:
+            lane = "harness"
+        else:
+            lane = "unmarked"
+        lanes[item.nodeid] = lane
+    try:
+        with open(lanes_path, "w") as f:
+            json.dump(lanes, f, indent=1)
+    except Exception:
+        pass
+
+
 def pytest_configure(config):
     """Register E2E markers and warn if tests are being run incorrectly."""
     # Register custom markers
     config.addinivalue_line("markers", "e2e: End-to-end workflow tests (requires API keys, slow)")
     config.addinivalue_line("markers", "e2e_smoke: Quick smoke tests for critical workflows")
     config.addinivalue_line("markers", "e2e_tutorial: Tutorial workflow validation tests")
-    config.addinivalue_line("markers", "e2e_benchmark: Channel finder benchmark validation tests")
+    config.addinivalue_line(
+        "markers", "channel_finder_benchmark: Channel finder benchmark validation tests"
+    )
+    config.addinivalue_line(
+        "markers",
+        "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic "
+        "tasks where the model-under-test can fail",
+    )
+    config.addinivalue_line(
+        "markers",
+        "harness_benchmark: Harness-integrity lane of the benchmark matrix — an agent runs "
+        "but the assertion is model-independent OSPREY behavior",
+    )
 
     # Warn if invoked with `-m e2e` from outside tests/e2e/ (causes registry leaks)
     if config.option.markexpr and "e2e" in config.option.markexpr:

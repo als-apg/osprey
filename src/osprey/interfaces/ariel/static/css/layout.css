@@ -96,6 +96,9 @@
 /* When embedded in web terminal, hide logo (tab bar shows module name) */
 body.embedded .logo { display: none; }
 
+/* Search is standalone-only: embedded users search the logbook via the agent */
+body.embedded .nav-link[data-view='search'] { display: none; }
+
 /* === Main Content === */
 .main {
   flex: 1;

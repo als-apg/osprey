@@ -35,7 +35,10 @@ from __future__ import annotations
 
 import ast
 import copy
+import importlib.util
 import json
+import re
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -64,6 +67,9 @@ CATALOG_JOB = "bluesky-catalog-e2e"
 SANDBOX_JOB = "bluesky-sandbox-escape-e2e"
 BENCHMARKS_JOB = "channel-finder-benchmarks"
 BENCHMARKS_TEST_FILE = "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py"
+NEXTCLOUD_JOB = "nextcloud-talk-bridge-e2e"
+NEXTCLOUD_TEST_FILE = "tests/e2e/test_nextcloud_talk_bridge_e2e.py"
+NEXTCLOUD_DOCKERFILE = "tests/e2e/fixtures/Dockerfile.nextcloud_talk"
 
 CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
@@ -713,6 +719,194 @@ def test_all_checks_passed_needs_promoted_lanes__mutation_drops_sandbox() -> Non
     assert CATALOG_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the other survives untouched
     with pytest.raises(AssertionError):
         assert _gating_e2e_jobs(mutated) == [ORM_JOB, OVERLAY_JOB, CATALOG_JOB, SANDBOX_JOB]
+
+
+# ---------------------------------------------------------------------------
+# (h) nextcloud-talk-bridge-e2e lane
+# ---------------------------------------------------------------------------
+
+
+def test_nextcloud_talk_bridge_job_exists(workflow: dict[str, Any]) -> None:
+    assert NEXTCLOUD_JOB in _jobs(workflow)
+
+
+def test_nextcloud_talk_bridge_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][NEXTCLOUD_JOB]
+    with pytest.raises(AssertionError):
+        assert NEXTCLOUD_JOB in _jobs(mutated)
+
+
+def test_e2e_lane_ignores_nextcloud_talk_bridge(workflow: dict[str, Any]) -> None:
+    """The lane runs a real Nextcloud container plus a dispatcher/worker pair;
+    swept into the shared e2e-tests lane it would double-execute against its
+    own fixed host port and exact-named container."""
+    assert _run_step_ignores_all(workflow, [NEXTCLOUD_TEST_FILE]) == []
+
+
+def test_e2e_lane_ignores_nextcloud_talk_bridge__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], NEXTCLOUD_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [BENCHMARKS_TEST_FILE]) == []  # others survive
+    assert _run_step_ignores_all(mutated, [NEXTCLOUD_TEST_FILE]) == [NEXTCLOUD_TEST_FILE]
+
+
+def test_all_checks_passed_needs_nextcloud_talk_bridge(workflow: dict[str, Any]) -> None:
+    assert NEXTCLOUD_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+
+
+def test_all_checks_passed_needs_nextcloud_talk_bridge__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(NEXTCLOUD_JOB)
+    with pytest.raises(AssertionError):
+        assert NEXTCLOUD_JOB in _jobs(mutated)[GATE_JOB]["needs"]
+
+
+def test_gate_checks_nextcloud_talk_bridge_result(workflow: dict[str, Any]) -> None:
+    """A ``needs`` entry the gate script never reads is decorative — the
+    generic completeness guard above catches that, but this lane gets its own
+    named check so a partial removal names the right lane in the failure."""
+    assert f"needs.{NEXTCLOUD_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_gate_checks_nextcloud_talk_bridge_result__mutation_drops_check_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if NEXTCLOUD_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    with pytest.raises(AssertionError):
+        assert f"needs.{NEXTCLOUD_JOB}.result" in _gate_run_text(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (i) Nextcloud fixture image-pin drift guard
+# ---------------------------------------------------------------------------
+#
+# .github/workflows/build-nextcloud-fixture.yml already cross-checks the four
+# values that live INSIDE the Dockerfile and refuses to publish on any
+# disagreement. What no workflow can see is the fifth value: the ghcr tag the
+# e2e module asks for at run time. That constant is what binds the published
+# image to the pins it claims to carry, so a bump that moves `FROM`/`ARG`
+# without moving the tag (or the reverse) yields an image whose name lies about
+# its contents. The comparison below is therefore always against the
+# authoritative `FROM`/`ARG`, never against the `# ..._PIN=` comments — a guard
+# that validated a comment against a comment would constrain nothing.
+
+_FROM_RE = re.compile(r"^FROM\s+nextcloud:(\S+)-apache\s*$", re.MULTILINE)
+_ARG_RE = re.compile(r"^ARG\s+SPREED_VERSION=(\S+)\s*$", re.MULTILINE)
+_NEXTCLOUD_COMMENT_RE = re.compile(r"^#\s*NEXTCLOUD_PIN=(\S+)\s*$", re.MULTILINE)
+_SPREED_COMMENT_RE = re.compile(r"^#\s*SPREED_PIN=(\S+)\s*$", re.MULTILINE)
+
+
+def _dockerfile_text() -> str:
+    return (CI_YML.parents[2] / NEXTCLOUD_DOCKERFILE).read_text(encoding="utf-8")
+
+
+def _sole_match(pattern: re.Pattern[str], text: str, label: str) -> str:
+    found = pattern.findall(text)
+    assert len(found) == 1, f"expected exactly one {label} in {NEXTCLOUD_DOCKERFILE}; got {found}"
+    return found[0]
+
+
+def _e2e_fixture_image() -> str:
+    """The image reference constant from the e2e module, imported not regexed.
+
+    The module imports cleanly with no container runtime present: its only
+    module-level runtime touch is ``shutil.which`` inside a ``skipif`` marker,
+    and the daemon/image checks are ``pytest.skip`` calls inside a fixture
+    body. So the real object is available, and a source parse would only be a
+    second, weaker spelling of the same fact. Loaded under a private module
+    name so it can never collide with pytest's own collection of that file.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_nextcloud_e2e_pin_probe", CI_YML.parents[2] / NEXTCLOUD_TEST_FILE
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    # Registered before exec_module: @dataclass resolves annotations through
+    # sys.modules[cls.__module__] and raises AttributeError without it.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        return str(module.NEXTCLOUD_FIXTURE_IMAGE)
+    finally:
+        sys.modules.pop(spec.name, None)
+
+
+def _assert_fixture_pins_agree(dockerfile_text: str, image_reference: str) -> None:
+    """The whole pin contract in one place, parameterized on its two inputs so
+    a mutation can feed it a drifted copy of either side."""
+    nextcloud = _sole_match(_FROM_RE, dockerfile_text, "FROM nextcloud:<ver>-apache")
+    spreed = _sole_match(_ARG_RE, dockerfile_text, "ARG SPREED_VERSION=<ver>")
+    nextcloud_comment = _sole_match(_NEXTCLOUD_COMMENT_RE, dockerfile_text, "# NEXTCLOUD_PIN=")
+    spreed_comment = _sole_match(_SPREED_COMMENT_RE, dockerfile_text, "# SPREED_PIN=")
+
+    assert nextcloud == nextcloud_comment, (
+        f"Dockerfile FROM pins nextcloud {nextcloud} but the NEXTCLOUD_PIN comment "
+        f"says {nextcloud_comment}"
+    )
+    assert spreed == spreed_comment, (
+        f"Dockerfile ARG pins spreed {spreed} but the SPREED_PIN comment says {spreed_comment}"
+    )
+
+    expected_tag = f"{nextcloud}-spreed{spreed}"
+    actual_tag = image_reference.rsplit(":", 1)[-1]
+    assert actual_tag == expected_tag, (
+        f"{NEXTCLOUD_TEST_FILE}'s NEXTCLOUD_FIXTURE_IMAGE is tagged {actual_tag!r}, but the "
+        f"authoritative FROM/ARG in {NEXTCLOUD_DOCKERFILE} build {expected_tag!r} — the "
+        f"published image would advertise contents it does not have"
+    )
+
+
+def test_nextcloud_fixture_pins_agree_across_dockerfile_and_e2e_module() -> None:
+    _assert_fixture_pins_agree(_dockerfile_text(), _e2e_fixture_image())
+
+
+def test_nextcloud_fixture_pins__mutation_bumps_from_without_the_tag() -> None:
+    """The real drift shape: someone bumps the base image (and dutifully the
+    NEXTCLOUD_PIN comment with it) but leaves the module's ghcr tag behind."""
+    text = _dockerfile_text()
+    mutated = text.replace("FROM nextcloud:33.0.7-apache", "FROM nextcloud:33.0.8-apache").replace(
+        "NEXTCLOUD_PIN=33.0.7", "NEXTCLOUD_PIN=33.0.8"
+    )
+    assert mutated != text, "mutation matched nothing — the pin spelling moved"
+    with pytest.raises(AssertionError, match="advertise contents it does not have"):
+        _assert_fixture_pins_agree(mutated, _e2e_fixture_image())
+
+
+def test_nextcloud_fixture_pins__mutation_bumps_spreed_arg_without_the_tag() -> None:
+    """Same failure from the other authoritative value, proving both halves of
+    the derived tag are independently load-bearing."""
+    text = _dockerfile_text()
+    mutated = text.replace("ARG SPREED_VERSION=23.0.9", "ARG SPREED_VERSION=23.1.0").replace(
+        "SPREED_PIN=23.0.9", "SPREED_PIN=23.1.0"
+    )
+    assert mutated != text, "mutation matched nothing — the pin spelling moved"
+    with pytest.raises(AssertionError, match="advertise contents it does not have"):
+        _assert_fixture_pins_agree(mutated, _e2e_fixture_image())
+
+
+def test_nextcloud_fixture_pins__mutation_comment_drifts_from_authoritative_from() -> None:
+    """Bumping only the comment must fail on the comment/authoritative check —
+    and must NOT be waved through by the tag check, which is deliberately
+    derived from FROM/ARG and would still agree here."""
+    text = _dockerfile_text()
+    mutated = text.replace("NEXTCLOUD_PIN=33.0.7", "NEXTCLOUD_PIN=33.0.8")
+    assert mutated != text, "mutation matched nothing — the pin spelling moved"
+    with pytest.raises(AssertionError, match="NEXTCLOUD_PIN comment"):
+        _assert_fixture_pins_agree(mutated, _e2e_fixture_image())
+
+
+def test_nextcloud_fixture_pins__mutation_tag_drifts_from_dockerfile() -> None:
+    """And the inverse: the module's tag moves while the Dockerfile stands
+    still. Feeding a drifted reference through the same helper proves the tag
+    comparison, not just the comment comparison, is doing work."""
+    with pytest.raises(AssertionError, match="advertise contents it does not have"):
+        _assert_fixture_pins_agree(
+            _dockerfile_text(), "ghcr.io/als-apg/nextcloud-talk-fixture:33.0.7-spreed23.1.0"
+        )
 
 
 # ---------------------------------------------------------------------------

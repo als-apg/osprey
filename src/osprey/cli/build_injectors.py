@@ -5,9 +5,9 @@ writes the matching ``services.<name>`` block into ``config.yml`` (and
 registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
-``BlueskyPanelsConfig``, ``VAConfig``). ``_copy_service_templates`` /
-``_inject_profile_services`` handle the framework and facility-declared
-service templates.
+``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``).
+``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
+and facility-declared service templates.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         BlueskyConfig,
         BlueskyPanelsConfig,
         DispatchConfig,
+        NextcloudBridgeProfileConfig,
         VAConfig,
     )
 
@@ -45,6 +46,43 @@ def _locate_pkg_services() -> Path:
         return Path(osprey.templates.__file__).parent / "services"
     except (ImportError, AttributeError):
         return Path(__file__).parent.parent / "templates" / "services"
+
+
+def _user_owned_services(project_path: Path) -> set[str]:
+    """Return the claimed service names from config.yml's ``scaffold.user_owned``.
+
+    Entries use the catalog's canonical form (``services/<name>``); the
+    returned set holds the bare ``<name>`` part for direct comparison with
+    service keys.  Build must not refresh a claimed service template — that
+    is the whole point of ``osprey scaffold claim services/<name>``.
+    """
+    import yaml as _yaml
+
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return set()
+    try:
+        with open(config_path, encoding="utf-8") as fh:
+            config = _yaml.safe_load(fh) or {}
+    except Exception:
+        return set()
+    owned = config.get("scaffold", {}).get("user_owned", []) or []
+    return {str(entry).split("/", 1)[1] for entry in owned if str(entry).startswith("services/")}
+
+
+def _refresh_service_dir(src_dir: Path, dest_dir: Path, name: str, owned: set[str]) -> bool:
+    """Copy a packaged service template into the project, honoring claims.
+
+    Returns True when the template was (re)copied, False when the service is
+    user-owned and the project copy was left untouched.
+    """
+    if name in owned:
+        logger.info("  ⏭  services/%s is user-owned — left untouched (scaffold claim)", name)
+        return False
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    shutil.copytree(src_dir, dest_dir)
+    return True
 
 
 def _copy_service_templates(project_path: Path) -> int:
@@ -108,6 +146,7 @@ def _copy_service_templates(project_path: Path) -> int:
         return 0
 
     deployed_set = set(deployed)
+    owned = _user_owned_services(project_path)
 
     count = 0
     for name in names:
@@ -135,10 +174,8 @@ def _copy_service_templates(project_path: Path) -> int:
         dest_rel = svc_config.get("path", f"./services/{parts[-1]}")
         dest_dir = project_path / dest_rel.lstrip("./")
 
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir)
-        shutil.copytree(src_dir, dest_dir)
-        count += 1
+        if _refresh_service_dir(src_dir, dest_dir, parts[-1], owned):
+            count += 1
 
     return count
 
@@ -149,7 +186,9 @@ def _inject_profile_services(
     """Copy facility-defined service templates and register them in config.yml.
 
     For each service declared in the profile's ``services:`` section:
-    1. Copies the template directory to ``{project}/services/{name}/``
+    1. Copies the template directory to ``{project}/services/{name}/``, resolving
+       ``template: osprey.<name>`` to the framework's bundled template and any
+       other value relative to the profile directory
     2. Writes ``services.{name}`` config entries to config.yml
     3. Appends the service to ``deployed_services``
 
@@ -175,15 +214,31 @@ def _inject_profile_services(
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    owned = _user_owned_services(project_path)
 
     count = 0
     for name, svc_def in services.items():
-        # Copy template directory
-        src_dir = profile_dir / svc_def.template
+        # Resolve the template source. ``osprey.<name>`` selects the framework's
+        # own bundled template (same form _copy_service_templates accepts, and the
+        # form BuildProfile.validate deliberately leaves unresolved); anything else
+        # is a directory shipped inside the profile.
+        parts = svc_def.template.split(".")
+        if parts[0] == "osprey" and len(parts) == 2:
+            src_dir = _locate_pkg_services() / parts[1]
+        else:
+            src_dir = profile_dir / svc_def.template
+
+        if not src_dir.is_dir():
+            # Warn and skip rather than raise, mirroring _copy_service_templates:
+            # one unresolvable service must not abort the whole build. A missing
+            # profile-relative dir is already a validation error, so in practice
+            # this only fires for an unknown ``osprey.<name>``.
+            logger.warning("No template for profile service %r at %s — skipping", name, src_dir)
+            continue
+
+        # Copy template directory (skipped for claimed services)
         dest_dir = dest_services_root / name
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir)
-        shutil.copytree(src_dir, dest_dir)
+        _refresh_service_dir(src_dir, dest_dir, name, owned)
 
         # Register service config in config.yml
         if "services" not in config:
@@ -260,6 +315,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    owned = _user_owned_services(project_path)
 
     for name in ("event_dispatcher", "dispatch_worker"):
         src_dir = pkg_services / name
@@ -267,9 +323,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
             logger.warning("No package template for dispatch service %r at %s", name, src_dir)
             continue
         dest_dir = dest_services_root / name
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir)
-        shutil.copytree(src_dir, dest_dir)
+        _refresh_service_dir(src_dir, dest_dir, name, owned)
 
     # 3. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
@@ -391,9 +445,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     dest_dir = dest_services_root / "bluesky"
-    if dest_dir.exists():
-        shutil.rmtree(dest_dir)
-    shutil.copytree(src_dir, dest_dir)
+    _refresh_service_dir(src_dir, dest_dir, "bluesky", _user_owned_services(project_path))
 
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
@@ -496,9 +548,9 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     dest_dir = dest_services_root / "virtual_accelerator"
-    if dest_dir.exists():
-        shutil.rmtree(dest_dir)
-    shutil.copytree(src_dir, dest_dir)
+    _refresh_service_dir(
+        src_dir, dest_dir, "virtual_accelerator", _user_owned_services(project_path)
+    )
 
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
@@ -579,9 +631,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     dest_dir = dest_services_root / "bluesky_panels"
-    if dest_dir.exists():
-        shutil.rmtree(dest_dir)
-    shutil.copytree(src_dir, dest_dir)
+    _refresh_service_dir(src_dir, dest_dir, "bluesky_panels", _user_owned_services(project_path))
 
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
@@ -643,4 +693,100 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         "    Images:     `osprey deploy up` builds the bluesky-panels image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_BLUESKY_PANELS_IMAGE to use a published image."
+    )
+
+
+def _inject_nextcloud_bridge(
+    nextcloud_bridge: NextcloudBridgeProfileConfig, project_path: Path
+) -> None:
+    """Wire the Nextcloud Talk bridge service into a built project.
+
+    1. Copy the bundled ``templates/services/nextcloud_bridge/`` compose
+       template into ``<project>/services/nextcloud_bridge/``.
+    2. Write ``services.nextcloud_bridge`` config + register it in
+       ``deployed_services`` (so ``find_service_config`` resolves it,
+       mirroring ``_inject_bluesky``).
+    3. Print a post-build hint naming the bot credentials the operator must
+       supply — unlike every other injected service, this one cannot come up on
+       deploy-minted secrets alone.
+
+    Structurally a thin mirror of :func:`_inject_bluesky`: one poller container,
+    one config block, no source-tree staging. It must run *after*
+    :func:`_inject_dispatch`, which is what puts ``event_dispatcher`` /
+    ``dispatch_worker`` into ``deployed_services`` — the compose template gates
+    both its ``depends_on`` and its in-network ``DISPATCHER_URL``/``WORKER_URL``
+    on their presence there.
+
+    Args:
+        nextcloud_bridge: Validated bridge configuration from the build profile.
+            ``BuildProfile.validate`` has already established that a
+            ``dispatch:`` block exists and that ``trigger`` names a trigger
+            declared in the resolved triggers file.
+        project_path: Root of the built project.
+    """
+    from ruamel.yaml import YAML
+
+    # 1. Copy the bundled compose template (located the same way as service templates).
+    pkg_services = _locate_pkg_services()
+
+    src_dir = pkg_services / "nextcloud_bridge"
+    if not src_dir.is_dir():
+        logger.warning("No package template for nextcloud_bridge service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    dest_dir = dest_services_root / "nextcloud_bridge"
+    _refresh_service_dir(src_dir, dest_dir, "nextcloud_bridge", _user_owned_services(project_path))
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found — skipping nextcloud_bridge config registration")
+        return
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    # ``trigger`` is the one key the compose template reads with NO ``| default``
+    # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
+    # break the render loudly rather than silently firing another facility's
+    # trigger. No ``image`` key: the service builds the local
+    # <project>-nextcloud-bridge image on first ``osprey deploy up`` (the
+    # template's own ``| default`` supplies that tag). Override with
+    # OSPREY_NEXTCLOUD_BRIDGE_IMAGE, or set ``services.nextcloud_bridge.image``
+    # here, to use a prebuilt/published image.
+    config.setdefault("services", {})
+    config["services"]["nextcloud_bridge"] = {
+        "path": "./services/nextcloud_bridge",
+        "trigger": nextcloud_bridge.trigger,
+    }
+    deployed = config.get("deployed_services", []) or []
+    if "nextcloud_bridge" not in [str(s) for s in deployed]:
+        deployed.append("nextcloud_bridge")
+    config["deployed_services"] = deployed
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    # 3. Post-build hint.
+    logger.info("  ✓ Injected Nextcloud Talk bridge (trigger %r)", nextcloud_bridge.trigger)
+    logger.info(
+        "    Credentials: set NEXTCLOUD_BASE_URL, NEXTCLOUD_BOT_ACCOUNT, "
+        "NEXTCLOUD_APP_PASSWORD and NEXTCLOUD_ROOMS in the project .env before "
+        "`osprey deploy up`. These are user-supplied — unlike the dispatch "
+        "tokens, deploy does not mint them, and the bridge aborts at boot "
+        "naming whichever is missing."
+    )
+    logger.info(
+        "    Rooms:       NEXTCLOUD_ROOMS is a comma-separated list of Talk room "
+        "tokens. Room membership is the access gate: whoever can post in a "
+        "listed room can reach the agent."
+    )
+    logger.info(
+        "    Images:     `osprey deploy up` builds the nextcloud-bridge image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_NEXTCLOUD_BRIDGE_IMAGE to use a published image."
     )

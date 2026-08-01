@@ -14,6 +14,7 @@ from osprey.deployment.container_manager import (
     rebuild_deployment,
     show_status,
 )
+from osprey.deployment.errors import DevModeUnavailableError
 
 from .project_utils import resolve_config_path, resolve_project_path
 
@@ -347,6 +348,16 @@ def deploy(
 
     except KeyboardInterrupt:
         console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        raise click.Abort() from None
+    except DevModeUnavailableError as e:
+        # Rendered ahead of the generic handler: the reason alone is not
+        # actionable, and this failure is precisely the one that used to be a
+        # warning nobody saw. Print the remedy and say plainly that nothing was
+        # deployed, so it cannot be mistaken for a partial success.
+        console.print(f"\n✗ --dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
+        for line in e.remedy.splitlines():
+            console.print(f"  {line}" if line else "")
+        console.print("\n  Nothing was deployed.\n", style=Styles.WARNING)
         raise click.Abort() from None
     except Exception as e:
         console.print(f"✗ Deployment failed: {e}", style=Styles.ERROR)

@@ -36,6 +36,7 @@ WHITELIST: dict[str, set[str]] = {
     # registered in sys.modules so their dataclasses resolve cls.__module__.
     "benchmark/test_matrix.py": {"sys.modules"},
     "benchmark/test_matrix_dashboard.py": {"sys.modules"},
+    "benchmark/test_matrix_lanes.py": {"sys.modules"},
     "va/e2e/conftest.py": {"sys.modules"},
 }
 

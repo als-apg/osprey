@@ -3,8 +3,8 @@
 The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-``bluesky_panels``) plus the environment-variable name pattern their
-validators share. Parsing, inheritance merging, and validation live in
+``bluesky_panels``, ``nextcloud_bridge``) plus the environment-variable name
+pattern their validators share. Parsing, inheritance merging, and validation live in
 :mod:`osprey.cli.build_profile_load`, :mod:`osprey.cli.build_profile_merge`,
 and :mod:`osprey.cli.build_profile_model`, respectively; this module is a
 leaf holding only the shapes, so the service injectors can type against them
@@ -163,6 +163,36 @@ class BlueskyPanelsConfig:
     port: int = 8095
     """Host/container port the sidecar's uvicorn process binds and publishes
     (see ``templates/services/bluesky_panels/docker-compose.yml.j2``)."""
+
+
+@dataclass
+class NextcloudBridgeProfileConfig:
+    """Nextcloud Talk bridge configuration for a build profile (opt-in via the
+    ``nextcloud_bridge:`` key).
+
+    Consumed by the build pipeline's nextcloud-bridge-injection step
+    (``_inject_nextcloud_bridge`` in ``build_cmd.py``) to deploy the single
+    ``nextcloud_bridge`` service — an outbound-only poller that ingests Talk
+    mentions and dispatches them through the event-dispatch pair, so the block
+    is only meaningful alongside a ``dispatch:`` block.
+
+    Talk room tokens and bot credentials are deliberately *not* profile fields:
+    ``NEXTCLOUD_ROOMS``, ``NEXTCLOUD_BOT_ACCOUNT`` and
+    ``NEXTCLOUD_APP_PASSWORD`` are user-supplied runtime env (declared via
+    ``env.required``), never baked into a build. Validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    trigger: str = "nextcloud-question"
+    """Dispatcher trigger the bridge fires (``POST /webhook/{trigger}``),
+    rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
+
+    This default is the ONLY place the ``nextcloud-question`` name is defaulted:
+    the runtime config's ``from_env`` applies no trigger default, so a
+    hand-rolled (non-build) deployment still fails loudly on a missing trigger
+    rather than silently firing a name nobody declared. The value must name a
+    trigger declared in the ``dispatch.triggers`` file.
+    """
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")

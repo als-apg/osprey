@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,147 @@ from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
 logger = get_logger("build")
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialStatus:
+    """Whether one provider's API-key env var is available to the built project.
+
+    ``source`` is a human-readable origin (``"project .env"``, ``"shell
+    environment"``, ``".env in <dir>"``) and is ``None`` when the key is not
+    set. The key's *value* is deliberately never carried — this record is built
+    to be logged.
+    """
+
+    provider: str
+    var: str
+    found: bool
+    source: str | None = None
+
+
+def _dotenv_keys(path: Path) -> dict[str, str]:
+    """Parse *path* into a dict, dropping empty values. Unreadable → ``{}``.
+
+    Empty values matter: ``.env.template`` ships bare ``VAR=`` lines, and a key
+    with no value authenticates nothing.
+    """
+    if not path.is_file():
+        return {}
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    try:
+        return {key: value for key, value in parse_dotenv_file(path).items() if value}
+    except OSError as e:
+        # e.g. a 0600 .env owned by another uid — report as "not set" rather
+        # than failing a build that is otherwise complete.
+        logger.debug("Could not read %s while checking provider credentials: %s", path, e)
+        return {}
+
+
+def detect_provider_credentials(
+    project_path: Path, *, cwd: Path | None = None
+) -> list[CredentialStatus]:
+    """Resolve every keyed provider's API-key env var to a found/not-found status.
+
+    Sources are checked in the order that actually determines whether the built
+    project can authenticate:
+
+    1. the built project's ``.env`` — what ships with the project;
+    2. the build's working-directory ``.env`` — ``osprey.utils.config`` loads
+       this into ``os.environ`` as an import side effect, so it is a real
+       source even though nothing in the build reads it explicitly;
+    3. the shell environment.
+
+    Keyless providers (ollama, vllm, ds4, asksage) are excluded — they have no
+    API-key env var to report on.
+
+    Args:
+        project_path: Root of the built project.
+        cwd: Directory whose ``.env`` acts as source 2. Defaults to the process
+            working directory.
+
+    Returns:
+        One :class:`CredentialStatus` per keyed provider, in registry order.
+    """
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    cwd = Path.cwd() if cwd is None else cwd
+    project_env = _dotenv_keys(project_path / ".env")
+    cwd_env_path = cwd / ".env"
+    # Skip when the build ran from inside the project: same file, already read.
+    cwd_env = (
+        {}
+        if cwd_env_path.resolve() == (project_path / ".env").resolve()
+        else _dotenv_keys(cwd_env_path)
+    )
+
+    statuses: list[CredentialStatus] = []
+    for provider, var in PROVIDER_API_KEYS.items():
+        if var is None:
+            continue
+        if var in project_env:
+            source: str | None = "project .env"
+        elif var in cwd_env:
+            source = f".env in {cwd}"
+        elif os.environ.get(var):
+            source = "shell environment"
+        else:
+            source = None
+        statuses.append(
+            CredentialStatus(provider=provider, var=var, found=source is not None, source=source)
+        )
+    return statuses
+
+
+def report_provider_credentials(
+    project_path: Path, provider: str, *, cwd: Path | None = None
+) -> list[CredentialStatus]:
+    """Log a provider-credentials summary, leading with the selected provider.
+
+    Reports keys that *were* found as well as those that were not. The generic
+    ``${VAR}`` resolver in :mod:`osprey.utils.config` can only report misses —
+    and knows nothing about which provider the build selected — so a missing key
+    for the selected provider would otherwise be indistinguishable from the
+    handful of irrelevant misses for providers the project will never use.
+
+    A missing key warns but never aborts: the project is still worth building,
+    and the key can be filled into ``.env`` afterwards.
+
+    Args:
+        project_path: Root of the built project.
+        provider: The provider this project was built for.
+        cwd: Passed through to :func:`detect_provider_credentials`.
+
+    Returns:
+        The statuses that were reported.
+    """
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    statuses = detect_provider_credentials(project_path, cwd=cwd)
+    selected = next((s for s in statuses if s.provider == provider), None)
+
+    if selected is None:
+        # Keyless provider, or a name outside the registry (custom adapter).
+        if provider in PROVIDER_API_KEYS:
+            logger.info("  ✓ Provider: %s — no API key required", provider)
+        else:
+            logger.info("  ✓ Provider: %s — no known API key env var; skipping check", provider)
+    elif selected.found:
+        logger.info("  ✓ Provider: %s — %s found (%s)", provider, selected.var, selected.source)
+    else:
+        logger.warning("  ✗ Provider: %s — %s NOT SET", provider, selected.var)
+        logger.warning("      The build will complete, but the agent cannot reach the model.")
+        logger.warning("      Add %s to %s or export it.", selected.var, project_path / ".env")
+
+    others = [s for s in statuses if s is not selected]
+    found_others = [s.var for s in others if s.found]
+    missing_others = [s.var for s in others if not s.found]
+    if found_others:
+        logger.info("      Other keys detected: %s", ", ".join(found_others))
+    if missing_others:
+        logger.info("      Not set:             %s", ", ".join(missing_others))
+
+    return statuses
 
 
 def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None:
@@ -117,6 +260,98 @@ def _resolve_osprey_spec(osprey_install: str) -> tuple[str, str]:
         return "osprey-framework", "osprey-framework"
 
     return osprey_install, osprey_install
+
+
+def _normalize_project_name(raw: str) -> str:
+    """Normalize a project directory name into a PEP 508-safe project name.
+
+    Project directories are named by the operator (``osprey build "My Rig"``),
+    so they carry spaces and punctuation that a ``[project] name`` field may
+    not. Runs of invalid characters collapse to a single dash.
+    """
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-._").lower()
+    return slug or "osprey-project"
+
+
+def _osprey_requirement(osprey_spec: str) -> str:
+    """Render the resolved osprey install spec as a PEP 508 requirement.
+
+    :func:`_resolve_osprey_spec` returns a value suitable for ``uv pip install``
+    on the command line, where a bare filesystem path is legal. A ``[project]
+    dependencies`` entry is not a command line: a bare path there is
+    unparseable, so source-tree and editable installs are rewritten as PEP 508
+    direct references (``osprey-framework @ file:///path``). Version pins and
+    plain names pass through untouched.
+    """
+    if osprey_spec.startswith((".", "~", "/")):
+        resolved = Path(osprey_spec).expanduser().resolve()
+        return f"osprey-framework @ {resolved.as_uri()}"
+    return osprey_spec
+
+
+def _project_requires_python() -> str:
+    """Mirror the framework's own ``Requires-Python`` into the built project.
+
+    A built project runs osprey, so its floor is osprey's floor. Reading it from
+    installed metadata keeps the two from drifting when the framework raises its
+    minimum.
+    """
+    try:
+        requires = distribution("osprey-framework").metadata["Requires-Python"]
+    except PackageNotFoundError:
+        requires = None
+    return requires or ">=3.11"
+
+
+def _write_project_pyproject(
+    project_path: Path, osprey_spec: str, osprey_label: str, profile: Any
+) -> None:
+    """Write the built project's ``pyproject.toml`` dependency record.
+
+    Serves two purposes, both load-bearing:
+
+    1. **Dependency record.** Declares the exact set
+       :func:`_create_project_venv` installed, so ``uv sync`` rebuilds the
+       environment rather than pruning it down to nothing.
+    2. **Project anchor.** ``uv run`` locates an environment by walking *up*
+       from the working directory looking for a ``pyproject.toml``. Without one,
+       ``uv run osprey web`` inside a built project that happens to sit under
+       another project (a checkout, a monorepo) silently resolves the
+       *ancestor's* venv. This file stops that walk at the project root.
+
+    Written whole on every build — never appended — so ``osprey build --force``
+    cannot stack duplicate dependency blocks.
+
+    Only called when a venv is created; ``--skip-deps`` leaves no environment
+    for the file to describe, and emitting one would invite ``uv run`` to
+    resolve and install in a mode that exists to avoid exactly that.
+    """
+    deps = [_osprey_requirement(osprey_spec)] + list(profile.dependencies or [])
+
+    lines = [
+        "# Generated by `osprey build` — rewritten on every build.",
+        "# Edit the build profile, not this file.",
+        "#",
+        f"# osprey source: {osprey_label}",
+        "",
+        "[project]",
+        f"name = {json.dumps(_normalize_project_name(project_path.name))}",
+        'version = "0.1.0"',
+        f"requires-python = {json.dumps(_project_requires_python())}",
+        "dependencies = [",
+        *(f"    {json.dumps(dep)}," for dep in deps),
+        "]",
+        "",
+        "# Intentionally no [build-system]. A built project is a configuration",
+        "# directory, not an installable package — it has no importable source",
+        "# tree. Declaring a build backend would make every `uv run` invocation",
+        "# try to build the project and fail. With a [project] table and no",
+        "# [build-system], uv treats this as a virtual project: it anchors the",
+        "# environment lookup here without attempting a build.",
+        "",
+    ]
+    (project_path / "pyproject.toml").write_text("\n".join(lines), encoding="utf-8")
+    logger.info("  ✓ Recorded %d dependencies in pyproject.toml", len(deps))
 
 
 def _create_project_venv(project_path: Path, profile: Any) -> None:
@@ -292,12 +527,5 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
             f"Failed to install project dependencies (exit {result.returncode}):\n{output}"
         )
 
-    # --- Record deps in requirements.txt for documentation ---
-    req_path = project_path / "requirements.txt"
-    lines = ["\n", f"# osprey ({osprey_label})\n", f"{osprey_spec}\n"]
-    if profile.dependencies:
-        lines.append("\n# Profile dependencies\n")
-        for dep in profile.dependencies:
-            lines.append(f"{dep}\n")
-    with open(req_path, "a", encoding="utf-8") as f:
-        f.writelines(lines)
+    # --- Record deps in pyproject.toml ---
+    _write_project_pyproject(project_path, osprey_spec, osprey_label, profile)

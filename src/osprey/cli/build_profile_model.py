@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from osprey.build.build_tiers import (
     VALID_CHANNEL_FINDER_MODES,
     default_tier_for_mode,
@@ -31,6 +33,7 @@ from .build_profile_schema import (
     EnvConfig,
     LifecycleConfig,
     McpServerDef,
+    NextcloudBridgeProfileConfig,
     ServiceDef,
     VAConfig,
 )
@@ -115,6 +118,7 @@ class BuildProfile:
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
     bluesky_panels: BlueskyPanelsConfig | None = None
+    nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -406,6 +410,63 @@ class BuildProfile:
             sp = self.bluesky_panels
             if not (1 <= sp.port <= 65535):
                 errors.append(f"bluesky_panels.port must be in 1..65535 (got {sp.port})")
+
+        # Validate nextcloud_bridge configuration
+        if self.nextcloud_bridge is not None:
+            nb = self.nextcloud_bridge
+            if not nb.trigger:
+                errors.append(
+                    "nextcloud_bridge.trigger is required: name the dispatch trigger the "
+                    "bridge fires, declared in the dispatch.triggers file"
+                )
+            # The bridge does nothing but POST questions to the dispatcher's
+            # webhook, so a bridge without the dispatch pair would deploy and
+            # then fail every message. Reject it at build time instead.
+            if self.dispatch is None:
+                errors.append(
+                    "nextcloud_bridge requires a 'dispatch:' block: the bridge dispatches "
+                    "every Talk mention to the event dispatcher's webhook. Add a dispatch "
+                    f"block whose triggers file declares {nb.trigger!r}, or remove the "
+                    "nextcloud_bridge block."
+                )
+            elif nb.trigger and self.dispatch.triggers:
+                # Check the trigger against the SOURCE triggers file, resolved the
+                # same way the dispatch block above resolves it (profile-relative
+                # first, then bundled). A bridge pointed at an undeclared trigger
+                # builds and deploys cleanly and then 404s on every message.
+                triggers_file = next(
+                    (
+                        candidate
+                        for candidate in (
+                            profile_dir / self.dispatch.triggers,
+                            _triggers_dir() / self.dispatch.triggers,
+                        )
+                        if candidate.is_file()
+                    ),
+                    None,
+                )
+                # An unresolvable path is already reported by the dispatch block.
+                if triggers_file is not None:
+                    # Deferred import: keeps osprey.dispatch out of this module's
+                    # import graph for every profile that declares no bridge.
+                    from osprey.dispatch.trigger_config import load_triggers
+
+                    try:
+                        _, declared_triggers = load_triggers(str(triggers_file))
+                    except (OSError, ValueError, yaml.YAMLError) as e:
+                        errors.append(
+                            f"nextcloud_bridge.trigger cannot be checked: dispatch.triggers "
+                            f"file {triggers_file} failed to parse ({e}); fix that file first"
+                        )
+                    else:
+                        names = sorted(t.name for t in declared_triggers)
+                        if nb.trigger not in names:
+                            errors.append(
+                                f"nextcloud_bridge.trigger {nb.trigger!r} is not declared in "
+                                f"dispatch.triggers file {self.dispatch.triggers!r} "
+                                f"(declares: {names}). Add a trigger named {nb.trigger!r} to "
+                                f"that file, or set nextcloud_bridge.trigger to one of them."
+                            )
 
         if errors:
             raise BuildProfileError(

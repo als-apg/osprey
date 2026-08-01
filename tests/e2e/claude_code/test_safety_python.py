@@ -16,6 +16,8 @@ import pytest
 
 from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
+pytestmark = pytest.mark.harness_benchmark
+
 
 def _combined_text(result) -> str:
     """Combine all text blocks and tool results into a single searchable string."""

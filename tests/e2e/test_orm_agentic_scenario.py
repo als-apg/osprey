@@ -416,6 +416,7 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
     os.environ.get("GITHUB_ACTIONS") == "true",
     reason="needs a real Docker stack; not provisioned on CI runners",
 )
+@pytest.mark.agentic_benchmark
 @pytest.mark.flaky(reruns=2)  # multi-step agentic; absorb rare LLM stochastic misses
 @pytest.mark.asyncio
 async def test_orm_dual_fault_agentic_localizes_both_faults(
@@ -485,6 +486,7 @@ def _synthetic_dual_fault_trace() -> list[ToolTrace]:
     ]
 
 
+@pytest.mark.harness_benchmark  # offline grading-contract check; no model-under-test session
 def test_structural_floor_accepts_orbit_response_class_sequence() -> None:
     """Floor is decoupled from any literal plan_name -- only the device-class
     shape (correctors + detectors) and the draft -> launch -> read order
@@ -493,6 +495,7 @@ def test_structural_floor_accepts_orbit_response_class_sequence() -> None:
     _assert_orbit_response_scan_ran(result)  # must not raise
 
 
+@pytest.mark.harness_benchmark  # offline grading-contract check; no model-under-test session
 def test_structural_floor_rejects_non_orbit_response_plan() -> None:
     """A draft whose plan_args_patch carry no correctors/detectors pair (e.g. a
     generic n-d grid_scan over unrelated axes) must NOT satisfy the floor --
@@ -517,6 +520,7 @@ def test_structural_floor_rejects_non_orbit_response_plan() -> None:
         _assert_orbit_response_scan_ran(SDKWorkflowResult(tool_traces=traces))
 
 
+@pytest.mark.harness_benchmark  # offline grading-contract check; no model-under-test session
 def test_structural_floor_rejects_out_of_order_sequence() -> None:
     """draft/launch/read out of trace order (e.g. a read before the scan
     was ever launched) must NOT satisfy the floor."""
@@ -550,6 +554,7 @@ _CONTROL_CONCLUSION = (
 
 
 @pytest.mark.e2e
+@pytest.mark.harness_benchmark  # judge-contract check on its own provider axis, not the model-under-test
 @pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_judge_discriminates_dual_fault_conclusions() -> None:

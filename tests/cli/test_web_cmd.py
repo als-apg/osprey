@@ -12,6 +12,8 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.web_cmd import (
+    DECLARED_BIND_ENV,
+    DECLARED_WEB_PORT_ENV,
     LOG_FILE,
     PID_FILE,
     _preflight,
@@ -740,3 +742,164 @@ class TestDetachSkipsPreflightInChild:
         cmd = mock_popen.call_args.args[0]
         assert "--skip-preflight" in cmd
         assert "--detach" not in cmd
+
+
+# -- --project makes the project directory authoritative --------------------
+#
+# `osprey web --project X` run from outside X must behave exactly like
+# `cd X && osprey web`. Regression guard for the reported failure where the
+# project's `.env` was never loaded, so `${ARGO_API_KEY}` in the project's
+# config.yml stayed an unexpanded literal and the agent came up without
+# provider credentials. Two independent sites resolved "the project" from the
+# process cwd rather than from the flag: web_cmd's pre-lifespan `.env` load and
+# the lifespan's `app.state.config_path` (which gates provider env injection).
+
+
+@pytest.fixture
+def restore_env_and_cwd():
+    """Undo the process-global state `--project` legitimately mutates.
+
+    The command chdirs and bulk-loads the project `.env` into os.environ, both
+    of which outlive the CliRunner invocation and would leak into later tests.
+    """
+    saved_cwd = os.getcwd()
+    saved_env = dict(os.environ)
+    yield
+    os.chdir(saved_cwd)
+    os.environ.clear()
+    os.environ.update(saved_env)
+
+
+def _make_project(root: Path, port: int) -> Path:
+    """Write a minimal but realistic project: config.yml + .env with a secret."""
+    proj = root / "proj"
+    proj.mkdir()
+    (proj / "config.yml").write_text(
+        "system:\n"
+        "  name: repro\n"
+        "web_terminal:\n"
+        "  host: 127.0.0.1\n"
+        f"  port: {port}\n"
+        "api:\n"
+        "  providers:\n"
+        "    argo:\n"
+        "      base_url: https://argo.example/v1\n"
+        "      api_key: ${OSPREY_TEST_PROJECT_KEY}\n"
+    )
+    (proj / ".env").write_text("OSPREY_TEST_PROJECT_KEY=sk-from-project-dotenv\n")
+    return proj
+
+
+class TestProjectFlagIsAuthoritative:
+    """--project must win over the process cwd for every project-scoped lookup."""
+
+    def _invoke_from_elsewhere(self, tmp_path, runner, monkeypatch, extra_args=()):
+        """Run `osprey web --project <proj>` with cwd set to a non-project dir.
+
+        Returns the kwargs run_web was called with, plus the cwd and the
+        OSPREY_TEST_PROJECT_KEY value observed at the moment run_web ran —
+        i.e. the state the server (and every child PTY) would actually inherit.
+        """
+        port = _free_port()
+        proj = _make_project(tmp_path, port)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+
+        monkeypatch.delenv("OSPREY_TEST_PROJECT_KEY", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        # `web` publishes the bound port to child processes via OSPREY_WEB_PORT,
+        # which is also --port's envvar — so an earlier test's invocation would
+        # otherwise supply the port and mask the config read under test.
+        monkeypatch.delenv("OSPREY_WEB_PORT", raising=False)
+        monkeypatch.delenv(DECLARED_WEB_PORT_ENV, raising=False)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+
+        observed = {}
+
+        def _capture_run_web(**kwargs):
+            observed["kwargs"] = kwargs
+            observed["cwd"] = os.getcwd()
+            observed["key"] = os.environ.get("OSPREY_TEST_PROJECT_KEY")
+            observed["osprey_config"] = os.environ.get("OSPREY_CONFIG")
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _capture_run_web)
+        monkeypatch.chdir(elsewhere)
+
+        result = runner.invoke(
+            web,
+            ["--project", str(proj), "--shell", "true", "--skip-preflight", *extra_args],
+            catch_exceptions=False,
+        )
+        return result, observed, proj, port
+
+    def test_project_dotenv_is_loaded(self, tmp_path, runner, monkeypatch, restore_env_and_cwd):
+        """The project's .env reaches os.environ before the server starts.
+
+        This is the reported bug: without it, config.yml's ${VAR} placeholders
+        stay literal and the provider has no credentials.
+        """
+        result, observed, _proj, _port = self._invoke_from_elsewhere(tmp_path, runner, monkeypatch)
+
+        assert result.exit_code == 0
+        assert observed["key"] == "sk-from-project-dotenv"
+
+    def test_project_becomes_the_working_directory(
+        self, tmp_path, runner, monkeypatch, restore_env_and_cwd
+    ):
+        """Everything downstream resolves cwd-relative (watch_dir/_agent_data,
+        config.yml, .claude/), so the project must be the cwd."""
+        _result, observed, proj, _port = self._invoke_from_elsewhere(tmp_path, runner, monkeypatch)
+
+        assert Path(observed["cwd"]).resolve() == proj.resolve()
+
+    def test_project_web_terminal_port_is_honored(
+        self, tmp_path, runner, monkeypatch, restore_env_and_cwd
+    ):
+        """web_terminal.port from the *project* config, not the 8087 default."""
+        _result, observed, _proj, port = self._invoke_from_elsewhere(tmp_path, runner, monkeypatch)
+
+        assert observed["kwargs"]["port"] == port
+
+    def test_osprey_config_points_at_the_project(
+        self, tmp_path, runner, monkeypatch, restore_env_and_cwd
+    ):
+        """Child processes (PTY shells, MCP servers) resolve config via OSPREY_CONFIG."""
+        _result, observed, proj, _port = self._invoke_from_elsewhere(tmp_path, runner, monkeypatch)
+
+        assert Path(observed["osprey_config"]).resolve() == (proj / "config.yml").resolve()
+
+    def test_explicit_flag_beats_stale_osprey_config_export(
+        self, tmp_path, runner, monkeypatch, restore_env_and_cwd
+    ):
+        """A stale OSPREY_CONFIG in the shell must not defeat an explicit --project."""
+        stale = tmp_path / "stale"
+        stale.mkdir()
+        (stale / "config.yml").write_text("system:\n  name: stale\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(stale / "config.yml"))
+
+        _result, observed, proj, _port = self._invoke_from_elsewhere(tmp_path, runner, monkeypatch)
+
+        assert Path(observed["osprey_config"]).resolve() == (proj / "config.yml").resolve()
+        assert observed["key"] == "sk-from-project-dotenv"
+
+    def test_no_project_flag_leaves_cwd_alone(
+        self, tmp_path, runner, monkeypatch, restore_env_and_cwd
+    ):
+        """Without --project the command must not chdir — plain `osprey web`
+        in a project directory keeps working exactly as before."""
+        port = _free_port()
+        proj = _make_project(tmp_path, port)
+        observed = {}
+
+        def _capture_run_web(**kwargs):
+            observed["cwd"] = os.getcwd()
+
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _capture_run_web)
+        monkeypatch.chdir(proj)
+
+        result = runner.invoke(web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert Path(observed["cwd"]).resolve() == proj.resolve()

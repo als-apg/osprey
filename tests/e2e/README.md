@@ -61,6 +61,26 @@ Running e2e tests together with unit tests can cause:
 - Service initialization conflicts
 - Async fixture lifecycle issues
 
+## Benchmark-lane markers (required for matrix-scope tests)
+
+The model-benchmark matrix (`scripts/benchmark/`) scores two lanes separately,
+declared by a pytest marker on every e2e test that is not in the matrix
+exclusion list (`scripts/benchmark/matrix_e2e_config.json`):
+
+- `@pytest.mark.agentic_benchmark` — the test is a genuine model-capability
+  task: the agent must choose and sequence tools, reason about results, and
+  produce an answer the assertions (or an LLM judge) actually evaluate. A weak
+  model plausibly fails it.
+- `@pytest.mark.harness_benchmark` — an agent runs, but the assertion is
+  model-independent OSPREY behavior (safety hook fires, write is blocked,
+  audit record written). Any responding model passes it.
+
+**When you add an e2e test**, either mark it with exactly one of these or add
+its file to the exclusion config with a reason. The lane gate
+(`scripts/benchmark/check_e2e_coverage.py --check-lanes`, also run as a unit
+test in `tests/benchmark/test_matrix_lanes.py` and at matrix-cell startup)
+fails on unmarked in-scope tests.
+
 ## Test Categories
 
 ### Tutorial Workflows (`test_tutorials.py`)

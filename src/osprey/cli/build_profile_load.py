@@ -29,6 +29,7 @@ from .build_profile_schema import (
     LifecycleConfig,
     LifecycleStep,
     McpServerDef,
+    NextcloudBridgeProfileConfig,
     ServiceDef,
     VAConfig,
 )
@@ -105,6 +106,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "bluesky",
         "virtual_accelerator",
         "bluesky_panels",
+        "nextcloud_bridge",
     }
 )
 
@@ -251,6 +253,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_panels_raw.get("port", 8095),
         )
 
+    nextcloud_bridge_raw = raw.get("nextcloud_bridge")
+    nextcloud_bridge = None
+    if nextcloud_bridge_raw is not None:
+        if not isinstance(nextcloud_bridge_raw, dict):
+            raise BuildProfileError("Profile 'nextcloud_bridge' must be a mapping")
+        nextcloud_bridge = NextcloudBridgeProfileConfig(
+            trigger=nextcloud_bridge_raw.get("trigger", "nextcloud-question"),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
@@ -283,4 +294,5 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
         bluesky_panels=bluesky_panels,
+        nextcloud_bridge=nextcloud_bridge,
     )

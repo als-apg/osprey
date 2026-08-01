@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-15T17:48:41.758344Z"
+exclude-newer = "2026-07-25T08:02:06.617416Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -3768,6 +3768,7 @@ dependencies = [
     { name = "anthropic" },
     { name = "bluesky" },
     { name = "bokeh" },
+    { name = "build" },
     { name = "certifi" },
     { name = "charset-normalizer" },
     { name = "claude-agent-sdk" },
@@ -3821,7 +3822,6 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "build" },
     { name = "docker" },
     { name = "graphviz" },
     { name = "gspread" },
@@ -3864,7 +3864,6 @@ ariel-proxy = [
     { name = "aiohttp-socks" },
 ]
 dev = [
-    { name = "build" },
     { name = "docker" },
     { name = "mypy" },
     { name = "pillow" },
@@ -3914,8 +3913,7 @@ requires-dist = [
     { name = "anthropic" },
     { name = "bluesky", specifier = ">=1.15.1" },
     { name = "bokeh", specifier = ">=3.9.1" },
-    { name = "build", marker = "extra == 'all'" },
-    { name = "build", marker = "extra == 'dev'" },
+    { name = "build" },
     { name = "certifi", specifier = ">=2025.4.26" },
     { name = "charset-normalizer", specifier = ">=3.4.2" },
     { name = "claude-agent-sdk", specifier = "==0.2.110" },

@@ -280,7 +280,7 @@ Workflow:
 - **Manifest-driven**: only artifacts in the template's `manifest.yml` get generated.
 - **`.env` auto-injection**: OSPREY parses `.env` and passes variables to lifecycle subprocesses via `env=`. Lifecycle commands don't need `set -a; . .env; set +a` preambles.
 - **PYTHONPATH auto-injection**: OSPREY prepends `_mcp_servers` to `PYTHONPATH` for all lifecycle commands. Wrap in `sh -c` only if the command uses `${ENV_VAR}` expansion.
-- **Dependencies**: appended to `requirements.txt`, installed in the project `.venv`. Lifecycle commands and MCP servers use this venv automatically.
+- **Dependencies**: installed in the project `.venv` and recorded in the generated `pyproject.toml`. Lifecycle commands and MCP servers use this venv automatically; `uv run` inside the project resolves it too.
 - **`osprey build --force` is destructive**: wipes the entire output project directory. Back up `.env` and manual customizations first.
 - **The built assistant is its own git repo**, sibling to the facility profile repo — not nested inside it.
 

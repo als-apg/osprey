@@ -82,12 +82,13 @@ api:
 # ============================================================
 # ENVIRONMENT VARIABLES
 # ============================================================
-# Set these in your .env file:
+# Set these in your .env file (see .env.example for the full provider list):
 #
 #   CBORG_API_KEY=your-cborg-key
 #   AMSC_I2_API_KEY=your-amsc-key
 #   STANFORD_API_KEY=...
 #   ARGO_API_KEY=your-argo-key
+#   ALS_APG_API_KEY=your-als-apg-key
 #   OPENAI_API_KEY=sk-...
 #   ANTHROPIC_API_KEY=sk-ant-...
 #   GOOGLE_API_KEY=...
@@ -109,6 +110,14 @@ api:
 
 container_runtime: auto
 
+# ── Deployment ──────────────────────────────────────────────────────
+# Host interface the deployed services publish their ports on. The default
+# (127.0.0.1, applied when this block is absent) keeps every service
+# loopback-only — the safe state. Binding 0.0.0.0 exposes every deployed
+# service port to the network; review credentials first.
+# deployment:
+#   bind_address: 127.0.0.1
+
 # ============================================================
 # SERVICE CONFIGURATION
 # ============================================================
@@ -120,7 +129,10 @@ services:
     path: ./services/postgresql
     database_name: ariel
     username: ariel
-    password: ariel
+    # No password key: the Postgres password lives in the project .env as
+    # ARIEL_DB_PASSWORD (minted by `osprey deploy up`), read by both the
+    # container and the ariel DSN below — single source of truth, mirroring
+    # the openobserve credentials convention.
     port_host: 5432
 
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
@@ -193,8 +205,9 @@ control_system:
   # Options (three-state switch):
   #   - mock: Development mode (accepts any channel names, no hardware) — DEFAULT
   #   - virtual_accelerator: Containerized PyAT-backed soft-IOC over real EPICS
-  #     Channel Access. Requires the VA container running first — see
-  #     docker/virtual-accelerator/README.md for the run command.
+  #     Channel Access. Requires the VA service running first — add
+  #     virtual_accelerator to deployed_services and run `osprey deploy up`
+  #     (see the "Use the Virtual Accelerator" how-to in the OSPREY docs).
   #   - epics: Production EPICS control system (ALS values below — untouched)
   type: mock  # <-- Change to 'virtual_accelerator' or 'epics' for other modes
 
@@ -263,8 +276,9 @@ control_system:
     # a containerized PyAT-backed soft-IOC reached over real EPICS Channel
     # Access via VirtualAcceleratorConnector (an EPICSConnector subclass, so
     # the gateway shape below is identical to the `epics` block's). Requires
-    # the VA container running first: see docker/virtual-accelerator/README.md
-    # for the run command.
+    # the VA service running first: add virtual_accelerator to
+    # deployed_services and run `osprey deploy up` (see the "Use the Virtual
+    # Accelerator" how-to in the OSPREY docs).
     #
     # simulation_file: same simulation machine model as the mock connector
     # above, so `osprey sim apply NAME...` stays type-aware and consistent
@@ -511,7 +525,14 @@ file_paths:
 
 ariel:
   database:
-    uri: postgresql://ariel:ariel@localhost:5432/ariel
+    # Password reads ARIEL_DB_PASSWORD from the project .env — the SAME value
+    # the postgresql compose service reads as POSTGRES_PASSWORD, so container
+    # and agent auth stay in sync (single source of truth). `osprey deploy up`
+    # mints a strong ARIEL_DB_PASSWORD into .env; the `${VAR:-ariel}` fallback
+    # keeps the agent launchable before the first deploy. NOTE: an existing
+    # Postgres data volume keeps the password it was initialized with — see
+    # the postgresql compose template.
+    uri: postgresql://ariel:${ARIEL_DB_PASSWORD:-ariel}@localhost:5432/ariel
 
   default_max_results: 10
 

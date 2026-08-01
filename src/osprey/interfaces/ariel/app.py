@@ -60,7 +60,14 @@ def load_ariel_config(config_path: str | Path | None = None) -> dict[str, Any]:
         if path and path.exists() and path.is_file():
             logger.info(f"Loading config from {path}")
             with open(path) as f:
-                config = yaml.safe_load(f)
+                # resolve_env_vars matches the framework's ConfigBuilder
+                # behavior (load_osprey_config): the shipped ariel DSN carries
+                # a ${ARIEL_DB_PASSWORD:-ariel} placeholder that must expand
+                # here too, or the web interface would hand psycopg a literal
+                # `${…}` password.
+                from osprey.utils.config import resolve_env_vars
+
+                config = resolve_env_vars(yaml.safe_load(f))
                 ariel_config = config.get("ariel", {})
 
             # Apply environment variable overrides for Docker networking

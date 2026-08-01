@@ -22,6 +22,7 @@ from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 # and conftest keep patching / importing it from this module's namespace.
 from osprey.deployment.wheel_build import (
     _copy_local_framework_for_override,
+    preflight_dev_mode,
 )
 from osprey.deployment.wheel_build import (
     _reset_wheel_build_cache as _reset_wheel_build_cache,
@@ -338,20 +339,20 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
         logger.info("Production mode: Containers will install osprey from PyPI")
         return False
     if not os.path.isfile(os.path.join(out_dir, "Dockerfile")):
-        logger.info(
+        # Routine and correct: pure-image services (postgresql, openobserve)
+        # never install osprey. DEBUG, not INFO — at INFO these lines outnumber
+        # the ones that carry a decision and bury them.
+        logger.debug(
             f"Development mode: build context {out_dir} has no Dockerfile, "
             "so no osprey wheel was staged for it"
         )
         return False
-    if _copy_local_framework_for_override(out_dir):
-        logger.key_info("Development mode: Osprey override prepared")
-        return True
-    logger.warning(
-        "Development mode requested but osprey wheel staging failed; "
-        "OSPREY_DEV will not be set for this build, so the pinned PyPI "
-        "install applies"
-    )
-    return False
+    # Raises DevModeUnavailableError rather than returning False when --dev
+    # cannot be honored; the deploy stops instead of silently deploying the
+    # pinned PyPI release under a flag that means "run my local code".
+    _copy_local_framework_for_override(out_dir)
+    logger.debug("Development mode: Osprey override prepared")
+    return True
 
 
 def render_kernel_templates(source_dir, config, out_dir):
@@ -934,6 +935,11 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False):
     :rtype: tuple[dict, list[str]]
     :raises RuntimeError: If configuration loading fails
     """
+    # Fail before any work when --dev cannot be honored: every precondition is
+    # a path check away, so there is no reason to surface it seven services in.
+    if dev_mode:
+        preflight_dev_mode()
+
     try:
         with quiet_logger(["registry", "CONFIG"]):
             config = ConfigBuilder(config_path)

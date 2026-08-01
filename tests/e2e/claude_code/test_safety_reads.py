@@ -18,6 +18,8 @@ import pytest
 
 from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
+pytestmark = pytest.mark.harness_benchmark
+
 
 @pytest.mark.requires_api
 @pytest.mark.requires_als_apg

@@ -11,8 +11,83 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- New `osprey.bridges.core` package: a channel-agnostic engine for connecting a
+  chat or email channel to the OSPREY dispatcher/worker pair as its own process.
+  It owns the parts that are the same for every channel — a crash-safe dedup
+  claim taken before dispatch, conversation history replayed with each question,
+  a retry queue drained in the background once the pair is healthy again, startup
+  recovery for messages that were in flight when the process stopped, and worker
+  artifact handling. A channel contributes only its wire format and platform I/O,
+  through the `ChannelOps` seam.
+- Your team can now ask the agent questions from a Nextcloud Talk chat room and
+  get answers — including plots and files — back in the same room. Add a
+  `nextcloud_bridge:` block to a build profile alongside a `dispatch:` block, set
+  the bot account and room list in the project `.env`, and `osprey deploy up`
+  brings up the bridge with the rest of the stack. In a group room only messages
+  that mention the bot are answered; files are shared with the room's members
+  rather than published as public links. Messages posted while the bridge is down
+  are picked up on restart. See the "Deploy a Chat Bridge" how-to.
+- Every service image is now overridable through the same `env → config →
+  default` chain: new `OSPREY_POSTGRES_IMAGE` env var plus
+  `services.postgresql.image`, `services.openobserve.image`, and
+  `services.bluesky.tiled_image` config keys (the built service images already
+  supported both layers). Useful for internal registry mirrors and pinned
+  digests.
+- Service compose templates are now claimable build artifacts: `osprey
+  scaffold claim services/<name>` freezes a template for local editing (with
+  `scaffold diff` drift reporting), and `osprey build` skips claimed services
+  when refreshing templates from the framework.
+- `osprey deploy up` now mints a strong per-deploy `ARIEL_DB_PASSWORD` into
+  `.env` when the postgresql service is deployed; the container and the ariel
+  DSN read the same value (previously both used the fixed `ariel` password).
+  Existing Postgres volumes keep their original password — see the deploy
+  how-to for the migration note.
+
+### Changed
+
+- `osprey deploy --dev` now fails with a clear error when the local osprey wheel
+  cannot be built, instead of warning and deploying the pinned PyPI release.
+  Previously a missing `build` package (or a broken local checkout) produced one
+  warning among many info lines and an exit code of 0, so the containers came up
+  running released osprey and the deployment silently tested something other than
+  the local code. The preconditions — editable install, source checkout, `build`
+  package — are now checked before any deploy work begins, and `build` moved from
+  the `dev` extra to a base dependency so an editable install always has it.
+- `osprey build` now prints a provider-credentials summary that reports the API
+  keys it *found*, not just the ones it didn't. It leads with the provider the
+  project was built for, names where that key came from (project `.env`, the
+  build directory's `.env`, or the shell), and warns if the selected provider's
+  key is missing. Previously the build logged one line per *unresolved*
+  placeholder — twice — so a successful key was silent, and a missing key for
+  the selected provider looked identical to the irrelevant misses for providers
+  the project never uses. The per-placeholder resolver line moved to `DEBUG`.
+- Scaffolded `.env` / `.env.example` files derive their provider API-key list
+  from the provider registry instead of a hand-maintained list (which had
+  drifted: `ALS_APG_API_KEY` was missing, a stale Langfuse block remained, and
+  a detected `ARGO_API_KEY` value was discarded in favor of a `$${USER}`
+  placeholder).
+- Shipped preset configs now document `deployment.bind_address` and point the
+  Virtual Accelerator instructions at `osprey deploy up` instead of a
+  repo-internal container path.
+
+- The model-benchmark matrix now scores two lanes separately: `agentic_benchmark`
+  marks genuine model-capability e2e tests (the headline pass rate) and
+  `harness_benchmark` marks model-independent safety/plumbing assertions, so
+  harness passes no longer pad a model's capability score. Every in-scope e2e
+  test must declare its lane (gated per matrix cell and in CI); 19 non-LLM e2e
+  files moved to the matrix exclusion list. The `e2e_benchmark` marker was
+  renamed to `channel_finder_benchmark` to say what it actually covers.
+
 ### Fixed
 
+- `osprey web --project <dir>` launched from outside the project now behaves the
+  same as running `osprey web` inside it. Previously the flag only set the
+  terminal's working directory, so the project's `.env` was never loaded
+  (leaving `${VAR}` placeholders such as a provider `api_key` unexpanded), the
+  project's `web_terminal` and `claude_code` settings were replaced by built-in
+  defaults, and `_agent_data/` was created next to wherever the command was run.
 - ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
   payload omits its `id`: the ALS and generic adapters now fall back to an empty
   entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
@@ -52,6 +127,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Changed
 
 - Logging is now configured explicitly and writes to stderr. Importing Osprey no longer installs a log handler as a side effect — entry points call `osprey.configure_logging()` once at startup, and code that embeds Osprey as a library (notebooks, scripts, preset repos) should do the same to see log output. Log lines that previously appeared on stdout now appear on stderr, so stdout carries only program output: `--json` payloads stay machine-readable and MCP stdio traffic stays clean. `configure_logging()` adds to whatever logging a host application has already set up and never removes handlers it did not install.
+- The ARIEL panel no longer shows the logbook Search tab when embedded in the web terminal — search there goes through the agent, so the embedded panel offers Browse, New Entry, and Status and opens on Browse. Standalone ARIEL keeps Search as the default view.
+- `osprey build` now records a project's dependencies in a generated `pyproject.toml` instead of `requirements.txt`. This makes `uv run osprey web` (and any other command) resolve the project's own `.venv` rather than walking up to an ancestor project's environment, and makes `uv sync` rebuild the environment instead of pruning it empty. Existing projects can delete their now-unused `requirements.txt` on the next `osprey build --force`.
 - `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).
 - The `osprey-build-interview` skill now asks the installed framework what it offers instead of carrying its own catalog: presets, build artifacts, providers, and config keys are all read from the live installation at interview time, so a newly shipped capability is offered without anyone editing the skill. It generates the profile with `osprey build --emit-profile` rather than a hand-written YAML template, and builds that profile itself before handing it over — what you receive is known to build. The interview now adapts its questions to the person rather than following a fixed script, and takes about five minutes. Legacy-project migration, the feedback prompts, and the web-panel design step were removed; panel authoring belongs to the `creating-an-osprey-panel` skill.
 - New `osprey.build` package holds the build-time kernel shared across layers (Claude Code model/provider resolution, telemetry env block, channel-finder tier defaults, manifest primitives); agent-runtime helpers (clean child-env, SDK system-prompt, artifact-path resolution, Claude Code project-path encoding) moved to `osprey.agent_runner`. This removes the `services`/`mcp_server` → `cli`/`interfaces` layering inversions; internal import paths changed with no compatibility shims.

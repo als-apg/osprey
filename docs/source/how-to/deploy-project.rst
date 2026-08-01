@@ -202,6 +202,76 @@ Common access patterns: ``{{services.<name>.<key>}}``,
 ``{{deployment.bind_address}}``, and ``{{osprey_labels.project_name}}`` /
 ``project_root`` / ``deployed_at`` (injected by the deploy engine).
 
+Service Template Ownership
+==========================
+
+The service templates under ``<project>/services/`` are framework-managed:
+every ``osprey build`` refreshes them from the installed OSPREY version, so
+compose fixes reach your project automatically. Do not edit them in place —
+your changes would be overwritten on the next build.
+
+To customize a service template, claim it first:
+
+.. code-block:: bash
+
+   osprey scaffold claim services/postgresql   # freeze for local editing
+   osprey scaffold diff services/postgresql    # compare against the framework
+   osprey scaffold unclaim services/postgresql # restore framework management
+
+A claimed service is recorded in ``config.yml`` under ``scaffold.user_owned``
+and skipped by every subsequent build; ``osprey scaffold diff`` shows how far
+your copy has drifted from the current framework template. This is the same
+ownership mechanism used for the Claude Code artifacts (``osprey scaffold
+list`` shows both).
+
+Before reaching for a claim, check whether a config key or environment
+variable already covers your need — most service knobs (ports, images,
+credentials, retention) are configurable without forking the template.
+
+Overriding Service Images
+=========================
+
+Every service image resolves through the same three-layer chain — an
+environment variable wins, then a ``config.yml`` key, then the packaged
+default:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Service
+     - Environment variable
+     - Config key
+   * - postgresql
+     - ``OSPREY_POSTGRES_IMAGE``
+     - ``services.postgresql.image``
+   * - openobserve
+     - ``OSPREY_OPENOBSERVE_IMAGE``
+     - ``services.openobserve.image``
+   * - event_dispatcher
+     - ``OSPREY_DISPATCH_IMAGE``
+     - ``services.event_dispatcher.image``
+   * - dispatch_worker
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.dispatch_worker.image``
+   * - nextcloud_bridge
+     - ``OSPREY_NEXTCLOUD_BRIDGE_IMAGE``
+     - ``services.nextcloud_bridge.image``
+   * - bluesky
+     - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
+     - ``services.bluesky.image``
+   * - bluesky (Tiled sidecar)
+     - ``OSPREY_TILED_IMAGE``
+     - ``services.bluesky.tiled_image``
+   * - bluesky_panels
+     - ``OSPREY_BLUESKY_PANELS_IMAGE``
+     - ``services.bluesky_panels.image``
+   * - virtual_accelerator
+     - ``OSPREY_VA_IMAGE``
+     - ``services.virtual_accelerator.image``
+
+Point either layer at an internal registry mirror or a pinned digest when
+your deployment host cannot (or should not) pull public images.
+
 Network Binding and Security
 ============================
 
@@ -227,10 +297,20 @@ running container only where a template maps it in.
    # Edit .env with your actual values
 
 ``osprey deploy up`` also *writes* to this file: on first deploy it mints any
-missing service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``
-or ``ZO_ROOT_USER_PASSWORD``) so services never start with blank credentials,
-and restricts the file to owner-only permissions. Treat ``.env`` as the
-project's secret store and keep it out of version control.
+missing service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``,
+``ZO_ROOT_USER_PASSWORD``, or ``ARIEL_DB_PASSWORD``) so services never start
+with blank or publicly-known credentials, and restricts the file to owner-only
+permissions. Treat ``.env`` as the project's secret store and keep it out of
+version control.
+
+.. note::
+
+   Postgres reads ``ARIEL_DB_PASSWORD`` (as ``POSTGRES_PASSWORD``) only when
+   initializing a **fresh** data volume. A volume created before the password
+   was minted keeps its original password; the ``${ARIEL_DB_PASSWORD:-ariel}``
+   fallback in the shipped configs keeps such deployments working. To adopt
+   the minted password, remove the ``ariel_postgres_data`` volume and redeploy
+   (this deletes the stored logbook data — re-ingest afterwards).
 
 If no ``.env`` file is found, services start with default/empty environment
 variables and a warning is logged.
