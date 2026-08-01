@@ -118,6 +118,22 @@ function _tsShortTime(iso) {
 }
 
 /**
+ * Whether one channel is enum/status rather than a numeric signal.
+ *
+ * Deliberately tri-state: ONLY an explicit `numeric === false` means enum, so a
+ * response that omits the key is still numeric. Four sites ask this question --
+ * whether the layout needs a `yaxis2`, whether the toolbar marks the toggle,
+ * whether hiding a channel hides that axis, and which axis a trace is built on
+ * -- and they must not drift, since getting the last one wrong routes a trace
+ * onto the wrong axis rather than failing loudly.
+ * @param {any} ch
+ * @returns {boolean}
+ */
+function _tsIsNonNumeric(ch) {
+  return ch.numeric === false;
+}
+
+/**
  * Whether any channel is enum/status, i.e. whether the chart needs the
  * secondary category `yaxis2`.
  *
@@ -129,7 +145,7 @@ function _tsShortTime(iso) {
  * @returns {boolean}
  */
 function _tsHasNonNumeric(channels) {
-  return (channels || []).some((/** @type {any} */ ch) => ch.numeric === false);
+  return (channels || []).some(_tsIsNonNumeric);
 }
 
 /**
@@ -142,7 +158,9 @@ function _tsHasNonNumeric(channels) {
  * @returns {string}
  */
 function _tsCsvField(value) {
-  const str = value === null || value === undefined ? "" : String(value);
+  // `??`, not `||`: a gap (null/undefined) becomes an empty field, but the
+  // falsy-but-real values `0` and `""` must survive as themselves.
+  const str = String(value ?? "");
   if (/["\n\r,]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
@@ -161,30 +179,33 @@ function _tsCsvField(value) {
  */
 function _tsExportCSV(chartData) {
   const channels = chartData.channels || [];
-  const rows = ["channel,timestamp,value"];
-  channels.forEach((/** @type {any} */ ch) => {
-    const timestamps = ch.timestamps || [];
-    const values = ch.values || [];
-    timestamps.forEach((/** @type {any} */ ts, /** @type {number} */ i) => {
-      rows.push([ch.channel, ts, values[i]].map(_tsCsvField).join(","));
-    });
-  });
-  const blob = new Blob([rows.join("\n")], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `timeseries_${Date.now()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const rows = channels.flatMap((/** @type {any} */ ch) =>
+    (ch.timestamps || []).map((/** @type {any} */ ts, /** @type {number} */ i) =>
+      [ch.channel, ts, (ch.values || [])[i]].map(_tsCsvField).join(",")
+    )
+  );
+  _tsDownloadBlob(["channel,timestamp,value", ...rows].join("\n"), "text/csv", "csv");
 }
 
 /** @param {any} chartData */
 function _tsExportJSON(chartData) {
-  const blob = new Blob([JSON.stringify(chartData, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
+  _tsDownloadBlob(JSON.stringify(chartData, null, 2), "application/json", "json");
+}
+
+/**
+ * Push `content` at the browser as a download. The two exporters differ only
+ * in their content, MIME type and extension, so the Blob/ObjectURL/anchor
+ * sequence -- including the revoke, which is easy to drop when copied -- lives
+ * here once.
+ * @param {string} content
+ * @param {string} mime
+ * @param {string} ext
+ */
+function _tsDownloadBlob(content, mime, ext) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `timeseries_${Date.now()}.json`;
+  a.download = `timeseries_${Date.now()}.${ext}`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -248,12 +269,19 @@ export async function renderTimeseriesView(container, artifact) {
     const _tsPalette = chartSeries();
     channels.forEach((/** @type {any} */ ch, /** @type {number} */ ci) => {
       const color = _tsPalette[ci % _tsPalette.length];
-      const isNonNumeric = ch.numeric === false;
+      const isNonNumeric = _tsIsNonNumeric(ch);
       const title = isNonNumeric ? `${ch.channel} (status/enum -- plotted on right axis)` : ch.channel;
-      html += `<button class="ts-ch-toggle" data-ch-name="${escapeHtml(ch.channel)}" title="${escapeHtml(title)}">`;
+      // `aria-pressed` + an explicit `aria-label` mirror the design system's own
+      // toggle (osprey-theme-switcher): the button's shown/hidden state must be
+      // exposed to assistive tech rather than carried only by the `ts-ch-off`
+      // class, and the accessible name must be the full PV plus the axis
+      // explanation -- not the truncated display text with the decorative "R"
+      // glyph welded on (accname demotes `title` to a description whenever the
+      // button has content, so `title` alone often goes unannounced).
+      html += `<button class="ts-ch-toggle" type="button" aria-pressed="true" data-ch-name="${escapeHtml(ch.channel)}" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}">`;
       html += `<span class="ts-ch-dot" style="background:${color}"></span>`;
       html += escapeHtml(_tsShortChannelName(ch.channel));
-      if (isNonNumeric) html += ' <span class="ts-ch-axis-tag">R</span>';
+      if (isNonNumeric) html += ' <span class="ts-ch-axis-tag" aria-hidden="true">R</span>';
       html += '</button>';
     });
     html += '</div>';
@@ -287,6 +315,9 @@ export async function renderTimeseriesView(container, artifact) {
           visible.add(col);
           btn.classList.remove("ts-ch-off");
         }
+        // Keep the exposed state in step with the class (the refused-hide path
+        // above returns early, so neither is touched there).
+        btn.setAttribute("aria-pressed", String(visible.has(col)));
         if (chartEl && /** @type {any} */ (chartEl).data) {
           // `columns` is in the same order as `channels`, which is the same
           // order traces were built in (renderTimeseriesChart), so this
@@ -300,7 +331,7 @@ export async function renderTimeseriesView(container, artifact) {
             // nothing plotted against it; show it again once any
             // non-numeric channel is visible again.
             const nonNumericVisible = channels.some(
-              (/** @type {any} */ ch) => ch.numeric === false && visible.has(ch.channel)
+              (/** @type {any} */ ch) => _tsIsNonNumeric(ch) && visible.has(ch.channel)
             );
             Plotly.relayout(chartEl, { "yaxis2.visible": nonNumericVisible });
           }
@@ -383,7 +414,7 @@ export async function renderTimeseriesChart(el, chartData) {
   const hasNonNumeric = _tsHasNonNumeric(channels);
 
   const traces = channels.map((/** @type {any} */ ch) => {
-    const numeric = ch.numeric !== false;
+    const numeric = !_tsIsNonNumeric(ch);
     return {
       x: ch.timestamps,
       y: ch.values,
@@ -405,7 +436,17 @@ export async function renderTimeseriesChart(el, chartData) {
             // Prefixing each value with its channel keeps every channel's rungs
             // in its own contiguous block. `customdata` carries the unprefixed
             // value so the hover label still shows the real state.
-            y: (ch.values || []).map((/** @type {any} */ v) => `${ch.channel}: ${v}`),
+            //
+            // A gap (`null` -- archiver_read.py's chart branch emits real
+            // `None`s for missing samples, and extract_channel_series passes
+            // them through) is deliberately NOT namespaced: prefixing it would
+            // register the literal rung "CH: null" on the category axis and
+            // step the line up to it, i.e. show a state the channel was never
+            // in -- the very failure this namespacing exists to prevent. Left
+            // as `null`, Plotly's category converter returns BADNUM instead of
+            // adding a category, and the step line breaks, matching how the
+            // numeric branch already renders the same gap.
+            y: (ch.values || []).map((/** @type {any} */ v) => (v == null ? null : `${ch.channel}: ${v}`)),
             customdata: ch.values,
           }),
       hovertemplate: numeric
@@ -432,6 +473,18 @@ export async function renderTimeseriesChart(el, chartData) {
             type: "category",
             linecolor: t.line,
             tickfont: { size: 10 },
+            // This axis's tick labels are the namespaced rungs -- "<full PV
+            // name>: <VALUE>" -- the longest strings in the figure, drawn on
+            // the right against a `margin.r` of 20. Plotly's `automargin`
+            // defaults to false for an x-anchored axis, and `margin.autoexpand`
+            // only reacts to components that push margin, so without this the
+            // labels are drawn past the paper edge and clipped.
+            automargin: true,
+            // ...and `showgrid` otherwise defaults to true with no `gridcolor`,
+            // adding one gridline per rung in Plotly's auto blend rather than
+            // the --chart-* token the other two axes use. The numeric `yaxis`
+            // grid is the one that carries meaning here.
+            showgrid: false,
           },
         }
       : {}),

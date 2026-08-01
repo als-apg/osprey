@@ -536,7 +536,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
   });
 
   describe('renderTimeseriesView', () => {
-    test('a hostile column name round-trips through the data-ch-name/title attribute sinks with no breakout', async () => {
+    test('a hostile column name round-trips through the data-ch-name/title/aria-label attribute sinks with no breakout', async () => {
       vi.stubGlobal('fetch', vi.fn((url) => {
         if (url.includes('format=chart')) return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
         return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
@@ -557,6 +557,11 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       // markup above never contained the raw breakout.
       expect(toggle.dataset.chName).toBe(HOSTILE.DQ_IMG);
       expect(toggle.getAttribute('title')).toBe(HOSTILE.DQ_IMG);
+      // `aria-label` is a third sink for the same agent-supplied channel name
+      // (added so the decorative "R" glyph stays out of the accessible name),
+      // and it is double-quoted like the other two -- so the double-quote in
+      // DQ_IMG is the character that would break out of it.
+      expect(toggle.getAttribute('aria-label')).toBe(HOSTILE.DQ_IMG);
     });
 
     test('the info-bar channel badge escapes a hostile column name, no live element', async () => {

@@ -310,7 +310,124 @@ describe('renderTimeseriesView', () => {
     expect(toggle.getAttribute('title')).toContain('status/enum');
   });
 
+  test('an absent `numeric` flag means numeric at every site -- only `numeric === false` is an enum channel', async () => {
+    // The per-channel "is this an enum?" question is asked at four places: does
+    // the layout need a yaxis2, does the toolbar mark this toggle, does hiding
+    // this channel hide that axis, and does this trace go to y2. They must all
+    // answer the same tri-state -- `numeric === false`, never `!ch.numeric` --
+    // because a response that simply omits the key (undefined here, exactly what
+    // an absent JSON key reads as) is a numeric channel, and the shorthand would
+    // route a real numeric signal onto a category axis instead of failing loudly.
+    stubFetchRouting({
+      chartResp: Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(makeChartData({
+          channels: [
+            makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: undefined }),
+            makeChartChannel({ channel: 'SR:MAG:QF2:I', values: [2.0, 2.5], numeric: undefined }),
+          ],
+        })),
+      }),
+    });
+
+    await renderTimeseriesView(container, { id: 'ts1' });
+
+    const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+    // Site: the toolbar marker/title.
+    expect(container.querySelector('.ts-ch-axis-tag')).toBeNull();
+    expect(toggles[0].getAttribute('aria-label')).toBe('SR:MAG:QF1:I');
+    // Site: the trace's axis routing.
+    const [, traces, layout] = Plotly.newPlot.mock.calls[0];
+    expect(traces[0].yaxis).toBeUndefined();
+    expect(traces[0].y).toEqual([1.0, 1.5]);
+    expect(traces[0].type).toBe('scattergl');
+    // Site: whether the layout gets a secondary axis at all.
+    expect(layout.yaxis2).toBeUndefined();
+    // Site: the toggle handler's show/hide of that axis.
+    toggles[0].click();
+    expect(Plotly.relayout).not.toHaveBeenCalled();
+    // ...and the same answer drives Reset Zoom's per-axis autorange keys.
+    qs(container, '[data-action="zoom-reset"]').click();
+    expect(Plotly.relayout).toHaveBeenLastCalledWith(
+      container.querySelector('[data-ts-chart]'),
+      { 'xaxis.autorange': true, 'yaxis.autorange': true }
+    );
+  });
+
+  test('the enum axis marker is kept out of the accessible name, which comes from aria-label', async () => {
+    // The "R" glyph sits INSIDE the button's content, so it lands in the
+    // computed accessible name ("SR:RF:INTERLOCK_STATE R") while the text that
+    // actually explains it lives only in `title`, which accname demotes to a
+    // description whenever content exists -- many AT configurations never
+    // announce it, so a screen-reader user hears a stray "R". An explicit
+    // aria-label wins over content, and aria-hidden keeps the glyph visual-only.
+    // Same pattern as the design system's own osprey-theme-switcher.
+    stubFetchRouting({
+      chartResp: Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(makeChartData({
+          channels: [
+            makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
+            makeChartChannel({ channel: 'SR:RF:INTERLOCK_STATE', values: [0, 1], numeric: false }),
+          ],
+        })),
+      }),
+    });
+
+    await renderTimeseriesView(container, { id: 'ts1' });
+
+    const toggles = Array.from(container.querySelectorAll('.ts-ch-toggle'));
+    const enumToggle = /** @type {HTMLElement} */ (
+      toggles.find((b) => /** @type {HTMLElement} */ (b).dataset.chName === 'SR:RF:INTERLOCK_STATE')
+    );
+    const tag = qs(enumToggle, '.ts-ch-axis-tag');
+    expect(tag.getAttribute('aria-hidden')).toBe('true');
+    // The name is the full PV plus the explanation -- not the truncated display
+    // text with a stray "R" welded onto the end.
+    expect(enumToggle.getAttribute('aria-label')).toBe('SR:RF:INTERLOCK_STATE (status/enum -- plotted on right axis)');
+    // A numeric channel has no marker, so its name is just the full PV.
+    expect(toggles[0].getAttribute('aria-label')).toBe('SR:MAG:QF1:I');
+    // Toolbar buttons must not act as submit buttons if this markup is ever
+    // nested in a form (the design system's own toggle sets this too).
+    expect(toggles.every((b) => b.getAttribute('type') === 'button')).toBe(true);
+  });
+
   describe('channel toggling', () => {
+    test('a toggle reports its shown/hidden state via aria-pressed, not by CSS class alone', async () => {
+      // Hidden/shown was carried ONLY by the `ts-ch-off` class, which is
+      // invisible to assistive tech -- an off toggle was indistinguishable from
+      // an on one. aria-pressed is the design system's own convention here
+      // (osprey-theme-switcher renders it and keeps it in sync).
+      stubFetchRouting();
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+      expect(Array.from(toggles).map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
+
+      toggles[0].click(); // hide
+
+      expect(toggles[0].getAttribute('aria-pressed')).toBe('false');
+      expect(toggles[1].getAttribute('aria-pressed')).toBe('true');
+
+      toggles[0].click(); // show again
+
+      expect(toggles[0].getAttribute('aria-pressed')).toBe('true');
+    });
+
+    test('a refused hide (last visible channel) leaves aria-pressed alone', async () => {
+      stubFetchRouting();
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+      toggles[0].click(); // hide channel 1, leaving channel 2 the only visible one
+
+      toggles[1].click(); // refused
+
+      // The state attribute must not drift from the state the class shows.
+      expect(toggles[1].classList.contains('ts-ch-off')).toBe(false);
+      expect(toggles[1].getAttribute('aria-pressed')).toBe('true');
+    });
+
     test('clicking a channel button hides it and calls Plotly.restyle with the updated visibility mask', async () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
@@ -422,6 +539,22 @@ describe('renderTimeseriesView', () => {
   });
 
   describe('toolbar actions', () => {
+    /**
+     * Capture the `download` filename each exporter puts on its throwaway
+     * anchor. Both exporters build that anchor the same way, so this is the
+     * one observable that distinguishes them.
+     * @returns {string[]}
+     */
+    function spyOnDownloadNames() {
+      /** @type {string[]} */
+      const names = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+        /** @this {HTMLAnchorElement} */
+        function () { names.push(this.download); }
+      );
+      return names;
+    }
+
     test('zoom-reset resets both axes to autorange', async () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
@@ -516,6 +649,90 @@ describe('renderTimeseriesView', () => {
       const lines = (await blob.text()).split('\n');
       expect(lines[1]).toBe('SR:RF:STATE,2026-07-01T00:00:00Z,"OFF, LOCAL"');
       expect(lines[2]).toBe('SR:RF:STATE,2026-07-01T00:01:00Z,"STANDBY ""armed"""');
+    });
+
+    test('a null value exports as an empty CSV field, not the string "null"', async () => {
+      // Gaps reach the client as real nulls (archiver_read.py's chart branch
+      // emits `None` for missing samples). A bare `String(v)` would write the
+      // four characters `null` into the cell, which a spreadsheet reads as the
+      // status text "null" -- indistinguishable from a channel that genuinely
+      // reported that string. An empty field is the honest encoding of a gap.
+      stubFetchRouting({
+        chartResp: Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeChartData({
+            channels: [
+              makeChartChannel({
+                channel: 'SR:RF:STATE',
+                timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
+                values: ['ON', null],
+                numeric: false,
+              }),
+            ],
+          })),
+        }),
+      });
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-csv');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+      qs(container, '[data-action="export-csv"]').click();
+
+      const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
+      const lines = (await blob.text()).split('\n');
+      expect(lines[1]).toBe('SR:RF:STATE,2026-07-01T00:00:00Z,ON');
+      expect(lines[2]).toBe('SR:RF:STATE,2026-07-01T00:01:00Z,');
+    });
+
+    test('a channel with no samples contributes no CSV rows, and the header is emitted exactly once', async () => {
+      // The row set is a flat-map over channels: an empty channel must
+      // contribute nothing rather than a headerless blank row, and the header
+      // must not be re-seeded per channel.
+      stubFetchRouting({
+        chartResp: Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeChartData({
+            channels: [
+              makeChartChannel({ channel: 'EMPTY', timestamps: [], values: [], total_points: 0, returned_points: 0 }),
+              makeChartChannel({ channel: 'SR:MAG:QF1:I', values: [1.0, 1.5] }),
+            ],
+          })),
+        }),
+      });
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-csv');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+      qs(container, '[data-action="export-csv"]').click();
+
+      const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
+      const lines = (await blob.text()).split('\n');
+      expect(lines).toEqual([
+        'channel,timestamp,value',
+        'SR:MAG:QF1:I,2026-07-01T00:00:00Z,1',
+        'SR:MAG:QF1:I,2026-07-01T00:01:00Z,1.5',
+      ]);
+    });
+
+    test('each exporter names its download with its own extension', async () => {
+      // Both exporters build the same Blob/ObjectURL/anchor sequence, so the
+      // filename extension is the one thing that must stay distinct between
+      // them -- the property a shared helper could quietly collapse.
+      stubFetchRouting();
+      await renderTimeseriesView(container, { id: 'ts1' });
+
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      const names = spyOnDownloadNames();
+
+      qs(container, '[data-action="export-csv"]').click();
+      qs(container, '[data-action="export-json"]').click();
+
+      expect(names).toHaveLength(2);
+      expect(names[0]).toMatch(/^timeseries_\d+\.csv$/);
+      expect(names[1]).toMatch(/^timeseries_\d+\.json$/);
     });
 
     test('export-json builds a JSON blob of the full chart payload', async () => {
@@ -671,6 +888,40 @@ describe('renderTimeseriesChart', () => {
     expect(new Set([...rf.y, ...mode.y]).size).toBe(2);
   });
 
+  test('a null gap inside an enum channel stays a gap -- it never becomes a fabricated "CH: null" rung', async () => {
+    // A status channel really can arrive here with `null` in `values`:
+    // archiver_read.py's chart branch emits `None if pd.isna(v) else v`, and
+    // `extract_channel_series` passes the long-format series through as-is.
+    // Mapping EVERY value through `${ch.channel}: ${v}` turns that gap into the
+    // literal string 'SR:RF:STATE: null', which Plotly registers as a real rung
+    // on the category axis and walks the hv step line up to and back down from
+    // -- a state the channel was never in, which is the exact failure the
+    // namespacing exists to prevent, arriving from the other direction.
+    // A real `null` instead hits Plotly's category converter's `!= null` guard,
+    // yields BADNUM rather than a new category, and (connectgaps defaults to
+    // false) breaks the line. The numeric branch already renders such a null as
+    // a gap, since it passes `ch.values` straight through -- only the enum
+    // branch could invent a state.
+    const el = document.createElement('div');
+    const chartData = makeChartData({
+      channels: [
+        makeChartChannel({
+          channel: 'SR:RF:STATE',
+          timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z', '2026-07-01T00:02:00Z'],
+          values: ['ON', null, 'OFF'],
+          numeric: false,
+        }),
+      ],
+    });
+
+    await renderTimeseriesChart(el, chartData);
+
+    const [, traces] = Plotly.newPlot.mock.calls[0];
+    expect(traces[0].y).toEqual(['SR:RF:STATE: ON', null, 'SR:RF:STATE: OFF']);
+    // The namespacing still applies to every real value -- only the gap is exempt.
+    expect(traces[0].customdata).toEqual(['ON', null, 'OFF']);
+  });
+
   test('non-numeric routing is driven by the `numeric` flag, not by sniffing whether the values look like numbers', async () => {
     // Enum codes that happen to be numbers (e.g. an interlock state machine
     // reporting 0/1/2) with `numeric: false` -- a dtype check that re-derives
@@ -706,6 +957,51 @@ describe('renderTimeseriesChart', () => {
     expect(trace.line).toEqual({ shape: 'hv' });
     expect(trace.hovertemplate).toBe('%{customdata}<extra>%{fullData.name}</extra>'); // no :.4g
     expect(layout.yaxis2).toBeDefined();
+  });
+
+  test('the secondary category axis automargins, so its long namespaced rung labels are not clipped', async () => {
+    // yaxis2's tick labels are by construction the longest strings in the
+    // figure -- "<full PV name>: <VALUE>" -- and it sits on the RIGHT, against
+    // a hardcoded `margin.r: 20`. In the vendored plotly-3.3.1 the cartesian
+    // `automargin` attribute defaults to false, and it is only defaulted true
+    // for a `anchor: "free"` axis with `autoshift`; this axis anchors to x, so
+    // it resolves false. `margin.autoexpand` only reacts to components that
+    // push margin (legend, colorbar, automargin axes), so nothing grows `r`
+    // and the labels are drawn past the paper edge and clipped -- i.e. the
+    // capability this axis exists for (reading machine state time-aligned
+    // against a numeric signal) is unreadable for exactly the long-PV case.
+    const el = document.createElement('div');
+
+    await renderTimeseriesChart(el, makeChartData({
+      channels: [makeChartChannel({ channel: 'SR:C03:BPM:STATUS', values: ['OPERATIONAL', 'FAULT'], numeric: false })],
+    }));
+
+    const [, , layout] = Plotly.newPlot.mock.calls[0];
+    expect(layout.yaxis2.automargin).toBe(true);
+    // The numeric axes are left alone: they carry short numeric ticks against
+    // the (unchanged) left margin.
+    expect(layout.margin).toEqual({ t: 30, r: 20, b: 50, l: 60 });
+  });
+
+  test('the secondary category axis draws no gridlines of its own', async () => {
+    // `xaxis`/`yaxis` both take `gridcolor` from the theme bridge; `yaxis2` sets
+    // only `linecolor`/`tickfont`. In the vendored bundle a cartesian axis's
+    // `showgrid` default collapses to `options.showGrid`, which is true for an
+    // overlaying axis -- so yaxis2 would draw ONE GRIDLINE PER RUNG (channels x
+    // states) in Plotly's auto blend of its `#444` default against
+    // `plot_bgcolor`, ignoring the --chart-* tokens, and that mismatch flips
+    // character between light and dark theme. The numeric grid is the one that
+    // carries meaning; the rungs are already legible from the ticks.
+    const el = document.createElement('div');
+
+    await renderTimeseriesChart(el, makeChartData({
+      channels: [makeChartChannel({ channel: 'SR:RF:STATE', values: ['STANDBY', 'CW'], numeric: false })],
+    }));
+
+    const [, , layout] = Plotly.newPlot.mock.calls[0];
+    expect(layout.yaxis2.showgrid).toBe(false);
+    // The themed numeric grid is untouched.
+    expect(layout.yaxis.gridcolor).toBe(_tsChartTheme().yaxis.gridcolor);
   });
 
   test('does not add a secondary y-axis when every channel is numeric', async () => {
