@@ -7,35 +7,33 @@ used by both the Artifact Gallery interface and MCP server tools.
 import math
 
 
-def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[list, list[list]]:
-    """Largest-Triangle-Three-Buckets downsampling over a shared index.
+def _lttb_select_indices(values: list, max_points: int) -> list[int]:
+    """Largest-Triangle-Three-Buckets index selection over one channel's values.
 
-    Takes a single index shared by every column -- the legacy split-orient
-    layout, and the internal shape :func:`lttb_downsample_channel` reduces one
-    channel through. It selects indices by triangle area using the first data
-    column as the representative, then slices every column at those same
-    indices, so all columns necessarily come out on one x-axis.
+    Returns the indices to keep, never the values themselves: the caller slices
+    its own ``timestamps``/``values`` with them, so a ``None`` gap marker
+    (archiver disconnect / IOC reboot) is carried through untouched rather than
+    being reconstructed. Nothing is manufactured -- every returned index refers
+    to a sample that really exists.
 
-    Archiver artifacts no longer have a shared index: each channel carries its
-    own timestamps. Reduce those with :func:`lttb_downsample_channel`, which
-    calls this per channel with that channel's own index.
+    The x coordinate of a point is simply its index, so there is no separate
+    x array: a point's position on the time axis is its ordinal, not its
+    timestamp. (LTTB over unevenly spaced samples would weight by real elapsed
+    time; this implementation deliberately does not, and never has.)
 
-    Returns (downsampled_index, downsampled_data) where data keeps all columns.
+    Only reached with ``max_points >= 3`` and ``len(values) > max_points``;
+    ``lttb_downsample_channel`` handles the pass-through cases before calling.
+
+    Returns ``max_points`` ascending indices, always starting at 0 and ending
+    at ``len(values) - 1``.
     """
-    n = len(index)
-    if n <= max_points or max_points < 3:
-        return index, data
+    n = len(values)
 
     # Sanitized numeric working copy for triangle-area math ONLY.
-    # None gap values (archiver disconnects / IOC reboots) -> 0.0 here so the
-    # bucket-average and area arithmetic never see NoneType. The selected indices
-    # are applied to the ORIGINAL `data` below, so gaps are preserved in the output.
-    def _num(v: float | int | None) -> float:
-        return float(v) if v is not None else 0.0
-
-    clean = [[_num(v) for v in row] if row else [] for row in data]
-    x = list(range(n))
-    y = [clean[i][0] if clean[i] else 0.0 for i in range(n)]  # first channel
+    # None gap values -> 0.0 here so the bucket-average and area arithmetic
+    # never see NoneType. Only this local copy is zero-filled; the caller
+    # slices the ORIGINAL values, so gaps survive into the output.
+    y = [0.0 if v is None else float(v) for v in values]
 
     selected = [0]  # Always keep first point
     bucket_size = (n - 2) / (max_points - 2)
@@ -56,16 +54,16 @@ def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[lis
         if c_end > n:
             c_end = n
         c_len = max(c_end - c_start, 1)
-        avg_x = sum(x[c_start:c_end]) / c_len
+        # x[i] == i, so the mean of the look-ahead bucket's x coordinates is
+        # just the mean of its index range -- no identity list materialized.
+        avg_x = sum(range(c_start, c_end)) / c_len
         avg_y = sum(y[c_start:c_end]) / c_len
 
         # Pick point in current bucket with max triangle area
         max_area = -1.0
         best = b_start
         for j in range(b_start, b_end):
-            area = abs(
-                (x[a_idx] - avg_x) * (y[j] - y[a_idx]) - (x[a_idx] - x[j]) * (avg_y - y[a_idx])
-            )
+            area = abs((a_idx - avg_x) * (y[j] - y[a_idx]) - (a_idx - j) * (avg_y - y[a_idx]))
             if area > max_area:
                 max_area = area
                 best = j
@@ -74,10 +72,7 @@ def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[lis
         a_idx = best
 
     selected.append(n - 1)  # Always keep last point
-
-    new_index = [index[i] for i in selected]
-    new_data = [data[i] for i in selected]
-    return new_index, new_data
+    return selected
 
 
 def extract_channel_series(raw: dict) -> tuple[dict[str, dict], dict]:
@@ -96,8 +91,8 @@ def extract_channel_series(raw: dict) -> tuple[dict[str, dict], dict]:
     so each column is transposed into its own (timestamps, values) pair.
     A `None` value at a given row/column means that channel had no sample at
     that shared timestamp -- not a real value -- so it is dropped rather than
-    kept as a gap marker (contrast with ``lttb_downsample``, which preserves
-    a `None` gap that already survived into a channel's own column).
+    kept as a gap marker (contrast with ``lttb_downsample_channel``, which
+    preserves a `None` gap that already survived into a channel's own column).
 
     Args:
         raw: Parsed JSON content of an artifact data file.
@@ -179,9 +174,16 @@ def _even_subsample(timestamps: list, values: list, max_points: int) -> tuple[li
 def lttb_downsample_channel(timestamps: list, values: list, max_points: int) -> tuple[list, list]:
     """Largest-Triangle-Three-Buckets downsampling for a single channel.
 
-    Per-channel variant of ``lttb_downsample``: each channel carries its own
-    timestamps, independent of every other channel's, so there is no shared
-    x-axis to slice multiple columns against (see that function's docstring).
+    Each channel carries its own timestamps, independent of every other
+    channel's, so there is no shared x-axis and no multi-column slicing: this
+    reduces exactly one (timestamps, values) pair. Callers with several
+    channels call it once per channel.
+
+    Selection and slicing are separate steps -- :func:`_lttb_select_indices`
+    picks indices from a zero-filled numeric copy, and those indices are
+    applied to the ORIGINAL ``timestamps``/``values``. That is what keeps a
+    ``None`` gap a ``None`` in the output instead of a fabricated 0.0, and what
+    guarantees the first and last samples are always returned.
 
     LTTB's triangle-area math requires numeric values. A non-numeric
     (enum/status) channel is never coerced toward that math -- it passes
@@ -219,6 +221,5 @@ def lttb_downsample_channel(timestamps: list, values: list, max_points: int) -> 
     if not is_numeric_channel(values):
         return _even_subsample(timestamps, values, max_points)
 
-    ds_timestamps, ds_rows = lttb_downsample(timestamps, [[v] for v in values], max_points)
-    ds_values = [row[0] for row in ds_rows]
-    return ds_timestamps, ds_values
+    selected = _lttb_select_indices(values, max_points)
+    return [timestamps[i] for i in selected], [values[i] for i in selected]

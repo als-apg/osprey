@@ -10,6 +10,7 @@ per-channel series to the ArtifactStore.
 """
 
 import json
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
@@ -61,28 +62,48 @@ def _get_archiver_read():
     return get_tool_fn(archiver_read)
 
 
-@pytest.mark.unit
-async def test_archiver_read_basic(tmp_path, monkeypatch):
-    """Basic archiver read returns summary with data file path."""
+@pytest.fixture
+def archiver_project(tmp_path, monkeypatch):
+    """A project CWD wired to the mock archiver, with the server context up.
+
+    The three lines every test in this file needs before it can call the tool.
+    """
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
     initialize_server_context()
+    return tmp_path
 
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
 
+@pytest.fixture
+def archiver_read_tool(archiver_project):
+    """``(tool, connector)`` with the archiver connector factory patched out.
+
+    The connector is a bare ``AsyncMock``: a test sets
+    ``connector.get_data.return_value`` to the long frame it wants back (or
+    ``.side_effect`` to raise), then awaits the tool. Tests that need the real
+    ``MockArchiverConnector`` take ``archiver_project`` instead and build the
+    tool themselves.
+    """
+    connector = AsyncMock()
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
-        return_value=mock_connector,
+        return_value=connector,
     ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB"],
-            start_time="2024-01-15T10:00:00",
-            end_time="2024-01-15T11:00:00",
-        )
+        yield _get_archiver_read(), connector
+
+
+@pytest.mark.unit
+async def test_archiver_read_basic(archiver_read_tool):
+    """Basic archiver read returns summary with data file path."""
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
+
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2024-01-15T10:00:00",
+        end_time="2024-01-15T11:00:00",
+    )
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
@@ -93,11 +114,11 @@ async def test_archiver_read_basic(tmp_path, monkeypatch):
     assert "SR:CURRENT:RB" in data["summary"]["per_channel"]
     assert data["summary"]["per_channel"]["SR:CURRENT:RB"]["points"] == 2
 
-    # access_details is returned inline so Claude knows how to read the data file
+    # access_details is returned inline so Claude knows how to read the data
+    # file: the root keys, and the expression that reaches one channel's data.
     ad = data["access_details"]
     assert ad["data_file_structure"]["root_keys"] == ["query", "series"]
-    assert "SR:CURRENT:RB" in ad["access_patterns"]
-    assert ad["total_points"] == 2
+    assert 'json_data["series"]["<channel>"]' in ad["access_pattern"]
     # The schema text is honest about channels not sharing a timestamp axis,
     # documents the query root key too, and doesn't overclaim ISO-8601/UTC
     # for query.start_time/end_time (those are facility-local strings).
@@ -111,27 +132,52 @@ async def test_archiver_read_basic(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_relative_time(tmp_path, monkeypatch):
+async def test_access_details_states_the_read_rule_once(archiver_read_tool):
+    """The inline read guidance is stated once, not once per channel.
+
+    ``access_details`` rides on every response, so anything in it that scales
+    with the channel count is paid on every call — and the per-channel access
+    rule is one rule with the channel name substituted, while the names
+    themselves are already in ``summary.per_channel``. The guidance is
+    therefore identical for a 1-channel and a 20-channel read, and carries
+    nothing ``summary``/``query`` already carry.
+    """
+    fn, connector = archiver_read_tool
+
+    async def read(channels):
+        connector.get_data.return_value = _make_archiver_df(dict.fromkeys(channels, [500.0, 500.1]))
+        result = await fn(channels=channels, start_time="2024-01-15T10:00:00")
+        return extract_response_dict(result)["access_details"]
+
+    one = await read(["SR:CH00:RB"])
+    twenty = await read([f"SR:CH{i:02d}:RB" for i in range(20)])
+
+    assert one == twenty
+
+    # Nothing that summary/query already report.
+    for duplicated in ("total_points", "processing", "bin_size"):
+        assert duplicated not in one
+
+    # The rule an operator actually needs to reach the data survives, stated
+    # once with a placeholder rather than enumerated per channel.
+    pattern = one["access_pattern"]
+    assert 'json_data["series"]' in pattern
+    assert "timestamps" in pattern and "values" in pattern
+    assert "per_channel" in pattern  # says where to find the channel names
+    assert set(one["schema"]) == {"query", "series", "timestamps", "values"}
+
+
+@pytest.mark.unit
+async def test_archiver_read_relative_time(archiver_read_tool):
     """Archiver read with relative time strings (e.g., '1h ago')."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
-
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB"],
-            start_time="1h ago",
-            end_time="now",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="1h ago",
+        end_time="now",
+    )
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
@@ -161,26 +207,84 @@ def test_parse_time_interprets_naive_input_as_facility_local(monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("expression", "expected_delta"),
+    [
+        ("45s ago", timedelta(seconds=45)),
+        ("30m ago", timedelta(minutes=30)),
+        ("1h ago", timedelta(hours=1)),
+        ("2d ago", timedelta(days=2)),
+        ("1w ago", timedelta(weeks=1)),
+        ("0.5h ago", timedelta(minutes=30)),  # fractional amount
+        ("1e3s ago", timedelta(seconds=1000)),  # exponent notation
+        ("-3h ago", timedelta(hours=-3)),  # negative amount: forward in time
+        ("  10m   ago", timedelta(minutes=10)),  # outer and inner whitespace
+        ("1H AGO", timedelta(hours=1)),  # case-insensitive
+    ],
+)
+def test_parse_time_relative_expressions(expression, expected_delta, monkeypatch):
+    """Every supported unit suffix maps to its own timedelta keyword.
+
+    One case per entry of the unit map, plus each amount form ``float``
+    accepts, so a change to how the suffix is looked up cannot silently drop a
+    unit or route one to the wrong keyword.
+    """
+    from datetime import UTC
+
+    from osprey.mcp_server.control_system.tools import archiver_read as mod
+
+    monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
+
+    before = datetime.now(UTC)
+    parsed = mod._parse_time(expression)
+    after = datetime.now(UTC)
+
+    assert before - expected_delta <= parsed <= after - expected_delta
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "2 days ago",  # spelled-out unit — "2 day" is not a float
+        "1 hour ago",
+        "1.5.2h ago",  # recognized unit, unparseable amount
+        "abc ago",  # unrecognized suffix
+        "5 ago",  # no unit at all
+        " ago",  # empty amount — must not index off the end
+        "M ago",
+    ],
+)
+def test_parse_time_unrecognized_relative_falls_through_to_dateutil(expression, monkeypatch):
+    """A "... ago" string the unit map cannot serve still reaches the dateutil branch.
+
+    dateutil rejects all of these, so its ``ParserError`` is the observable
+    proof that the fall-through happened — rather than a ``ValueError`` escaping
+    from ``float`` or an ``IndexError`` from reading a suffix off an empty
+    amount.
+    """
+    from datetime import UTC
+
+    from dateutil.parser import ParserError
+
+    from osprey.mcp_server.control_system.tools import archiver_read as mod
+
+    monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
+
+    with pytest.raises(ParserError):
+        mod._parse_time(expression)
+
+
+@pytest.mark.unit
+async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     """Archiver read saves data to _agent_data/artifacts/ via ArtifactStore."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
-
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB"],
-            start_time="2024-01-15T10:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2024-01-15T10:00:00",
+    )
 
     data = extract_response_dict(result)
     assert "data_file" in data
@@ -208,31 +312,20 @@ async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_multiple_channels(tmp_path, monkeypatch):
+async def test_archiver_read_multiple_channels(archiver_read_tool):
     """Multi-channel archiver read returns summary for all channels."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
-
-    mock_df = _make_archiver_df(
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df(
         {
             "SR:CURRENT:RB": [500.0, 500.1],
             "SR:ENERGY:RB": [1.9, 1.9],
         }
     )
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
 
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB", "SR:ENERGY:RB"],
-            start_time="2024-01-15T10:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB", "SR:ENERGY:RB"],
+        start_time="2024-01-15T10:00:00",
+    )
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
@@ -242,27 +335,55 @@ async def test_archiver_read_multiple_channels(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_timeout(tmp_path, monkeypatch):
+async def test_archiver_read_follows_requested_channel_order(tmp_path, archiver_read_tool):
+    """Every per-channel structure follows the caller's order, not the frame's.
+
+    The long frame is sorted by channel name, so a caller who asks for Z
+    before A must still get Z before A back: the JSON object order is what a
+    reader iterating ``series`` — and the chart legend built from it — follows.
+    A channel with no rows holds its slot rather than collapsing the order
+    around it, and each channel keeps its own samples.
+    """
+    requested = ["SR:ZED:RB", "SR:VOID:RB", "SR:ALPHA:RB", "SR:MID:RB"]
+    # Frame order is alphabetical (long_frame sorts) and omits SR:VOID:RB.
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df(
+        {
+            "SR:ALPHA:RB": [1.0],
+            "SR:MID:RB": [2.0, 2.1, 2.2],
+            "SR:ZED:RB": [3.0, 3.1],
+        }
+    )
+
+    result = await fn(channels=requested, start_time="2024-01-15T10:00:00")
+
+    data = extract_response_dict(result)
+    assert list(data["summary"]["per_channel"]) == requested
+
+    file_content = json.loads((tmp_path / data["data_file"]).read_text())
+    assert file_content["query"]["channels"] == requested
+    assert list(file_content["series"]) == requested
+
+    # Each channel carries its own samples — the order is not the only thing
+    # that has to line up with the request.
+    assert file_content["series"]["SR:ZED:RB"]["values"] == [3.0, 3.1]
+    assert file_content["series"]["SR:VOID:RB"]["values"] == []
+    assert file_content["series"]["SR:ALPHA:RB"]["values"] == [1.0]
+    assert file_content["series"]["SR:MID:RB"]["values"] == [2.0, 2.1, 2.2]
+
+
+@pytest.mark.unit
+async def test_archiver_read_timeout(archiver_read_tool):
     """Archiver read timeout returns error."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
+    fn, connector = archiver_read_tool
+    connector.get_data.side_effect = TimeoutError("archiver query timed out")
 
-    mock_connector = AsyncMock()
-    mock_connector.get_data.side_effect = TimeoutError("archiver query timed out")
-
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        with assert_raises_error(error_type="timeout_error") as _exc_ctx:
-            await fn(
-                channels=["SR:CURRENT:RB"],
-                start_time="2020-01-01",
-                end_time="2024-01-01",
-            )
+    with assert_raises_error(error_type="timeout_error") as _exc_ctx:
+        await fn(
+            channels=["SR:CURRENT:RB"],
+            start_time="2020-01-01",
+            end_time="2024-01-01",
+        )
 
     data = _exc_ctx["envelope"]
     assert "error_message" in data
@@ -270,26 +391,16 @@ async def test_archiver_read_timeout(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_connection_error(tmp_path, monkeypatch):
+async def test_archiver_read_connection_error(archiver_read_tool):
     """Archiver connection error returns standard error format."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
+    fn, connector = archiver_read_tool
+    connector.get_data.side_effect = ConnectionError("archiver unreachable")
 
-    mock_connector = AsyncMock()
-    mock_connector.get_data.side_effect = ConnectionError("archiver unreachable")
-
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        with assert_raises_error(error_type="connection_error") as _exc_ctx:
-            await fn(
-                channels=["SR:CURRENT:RB"],
-                start_time="2024-01-15T10:00:00",
-            )
+    with assert_raises_error(error_type="connection_error") as _exc_ctx:
+        await fn(
+            channels=["SR:CURRENT:RB"],
+            start_time="2024-01-15T10:00:00",
+        )
 
     data = _exc_ctx["envelope"]
     assert "error_message" in data
@@ -297,7 +408,7 @@ async def test_archiver_read_connection_error(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_nan_channel_data(tmp_path, monkeypatch):
+async def test_archiver_read_nan_channel_data(archiver_read_tool):
     """A numeric channel whose samples are all NaN reports no numeric stats.
 
     ``points`` is the real sample count for the channel (the archiver still
@@ -305,29 +416,18 @@ async def test_archiver_read_nan_channel_data(tmp_path, monkeypatch):
     concepts (how many samples exist vs. whether any are numeric) are
     independent since long_frame never manufactures rows.
     """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
-
-    mock_df = _make_archiver_df(
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df(
         {
             "SR:CURRENT:RB": [500.0, 500.1],
             "SR:MISSING:RB": [float("nan"), float("nan")],
         }
     )
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
 
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB", "SR:MISSING:RB"],
-            start_time="2024-01-15T10:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB", "SR:MISSING:RB"],
+        start_time="2024-01-15T10:00:00",
+    )
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
@@ -352,7 +452,7 @@ async def test_archiver_read_nan_channel_data(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, monkeypatch):
+async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, archiver_read_tool):
     """An enum/status channel (string values) reports point count, no stats.
 
     Enum/status PVs (e.g. machine mode, interlock state) are archived as
@@ -360,29 +460,18 @@ async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, monkeypa
     one of them into NaN, so the channel must take the same "no numeric
     samples" path as an all-NaN numeric channel, without ever raising.
     """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
-
-    mock_df = _make_archiver_df(
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df(
         {
             "SR:CURRENT:RB": [500.0, 500.1],
             "MACHINE:MODE": ["Standby", "Injecting"],
         }
     )
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
 
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB", "MACHINE:MODE"],
-            start_time="2024-01-15T10:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB", "MACHINE:MODE"],
+        start_time="2024-01-15T10:00:00",
+    )
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
@@ -402,10 +491,90 @@ async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, monkeypa
 
 
 @pytest.mark.unit
-async def test_archiver_read_empty_channels(tmp_path, monkeypatch):
-    """Empty channel list returns validation error."""
-    monkeypatch.chdir(tmp_path)
+async def test_archiver_read_null_samples_become_json_null(tmp_path, archiver_read_tool):
+    """A null sample is written as JSON ``null`` — never NaN, never dropped.
 
+    NaN is not valid JSON, and dropping the sample instead would misreport the
+    channel's real cadence. So every null-ish value becomes ``None`` while
+    keeping its slot, and the real values around it come through untouched.
+    """
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df(
+        {
+            "SR:GAPPY:RB": [500.0, float("nan"), 500.2],
+            "SR:MISSING:RB": [float("nan"), float("nan")],
+        }
+    )
+
+    result = await fn(
+        channels=["SR:GAPPY:RB", "SR:MISSING:RB"],
+        start_time="2024-01-15T10:00:00",
+    )
+
+    data = extract_response_dict(result)
+    file_content = json.loads((tmp_path / data["data_file"]).read_text())
+    series = file_content["series"]
+
+    assert series["SR:GAPPY:RB"]["values"] == [500.0, None, 500.2]
+    assert series["SR:MISSING:RB"]["values"] == [None, None]
+    # The null keeps its slot: a null sample is still a real sample.
+    assert len(series["SR:GAPPY:RB"]["timestamps"]) == 3
+    # And the file is valid JSON with no NaN literal in it.
+    json.dumps(file_content, allow_nan=False)
+
+
+@pytest.mark.unit
+async def test_archiver_read_integer_channel_keeps_integer_values(tmp_path, archiver_read_tool):
+    """An integer-valued channel (bucket count, status code) stays integral.
+
+    Marshalling the value column through a float representation would rewrite
+    a real archived ``3`` as ``3.0`` — a value the archiver never recorded.
+    """
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:BUCKET:COUNT": [3, 4, 5]})
+
+    result = await fn(
+        channels=["SR:BUCKET:COUNT"],
+        start_time="2024-01-15T10:00:00",
+    )
+
+    data = extract_response_dict(result)
+    file_content = json.loads((tmp_path / data["data_file"]).read_text())
+    values = file_content["series"]["SR:BUCKET:COUNT"]["values"]
+
+    assert values == [3, 4, 5]
+    assert [type(v) for v in values] == [int, int, int]
+
+
+@pytest.mark.unit
+async def test_archiver_read_enum_channel_keeps_null_gaps_between_strings(
+    tmp_path, archiver_read_tool
+):
+    """A null inside a string-valued channel stays null — it never becomes a state.
+
+    Enum/status channels live in an object column, where the null-coercion has
+    to leave both neighbours' strings alone. Rendering the gap as any string
+    (``"nan"``, ``"None"``) would report the machine in a mode it was never in.
+    """
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df(
+        {"MACHINE:MODE": ["Standby", None, "Injecting"]}
+    )
+
+    result = await fn(
+        channels=["MACHINE:MODE"],
+        start_time="2024-01-15T10:00:00",
+    )
+
+    data = extract_response_dict(result)
+    file_content = json.loads((tmp_path / data["data_file"]).read_text())
+
+    assert file_content["series"]["MACHINE:MODE"]["values"] == ["Standby", None, "Injecting"]
+
+
+@pytest.mark.unit
+async def test_archiver_read_empty_channels(archiver_project):
+    """Empty channel list returns validation error."""
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(channels=[], start_time="2024-01-15T10:00:00")
@@ -414,42 +583,27 @@ async def test_archiver_read_empty_channels(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_passes_processing_to_connector(tmp_path, monkeypatch):
+async def test_archiver_read_passes_processing_to_connector(archiver_read_tool):
     """The advertised processing mode must reach the connector, not just the echo."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
+    await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2024-01-15T10:00:00",
+        end_time="2024-01-15T11:00:00",
+        processing="mean",
+        bin_size=60,
+    )
 
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        await fn(
-            channels=["SR:CURRENT:RB"],
-            start_time="2024-01-15T10:00:00",
-            end_time="2024-01-15T11:00:00",
-            processing="mean",
-            bin_size=60,
-        )
-
-    kwargs = mock_connector.get_data.call_args.kwargs
+    kwargs = connector.get_data.call_args.kwargs
     assert kwargs["processing"] == "mean"
     assert kwargs["precision_ms"] == 60_000
 
 
 @pytest.mark.unit
-async def test_archiver_read_rejects_unknown_processing(tmp_path, monkeypatch):
+async def test_archiver_read_rejects_unknown_processing(archiver_project):
     """An unsupported mode errors with the valid set, rather than silently downgrading."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
-
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as ctx:
         await fn(
@@ -468,12 +622,8 @@ async def test_archiver_read_rejects_unknown_processing(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_echoes_facility_local_time_range(tmp_path, monkeypatch):
+async def test_archiver_read_echoes_facility_local_time_range(archiver_read_tool, monkeypatch):
     """The tool keeps speaking facility-local; only the connector converts to UTC."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
-
     from zoneinfo import ZoneInfo
 
     monkeypatch.setattr(
@@ -481,21 +631,14 @@ async def test_archiver_read_echoes_facility_local_time_range(tmp_path, monkeypa
         lambda: ZoneInfo("America/Los_Angeles"),
     )
 
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB"],
-            start_time="2024-01-15T10:00:00",
-            end_time="2024-01-15T11:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2024-01-15T10:00:00",
+        end_time="2024-01-15T11:00:00",
+    )
 
     # January in Los Angeles is PST (-08:00).
     data = extract_response_dict(result)
@@ -503,52 +646,39 @@ async def test_archiver_read_echoes_facility_local_time_range(tmp_path, monkeypa
 
     # And the connector receives that same facility-local instant, not a
     # pre-converted one — converting is the connector's job.
-    start_arg = mock_connector.get_data.call_args.args[1]
+    start_arg = connector.get_data.call_args.args[1]
     assert start_arg.utcoffset().total_seconds() == -8 * 3600
 
 
 @pytest.mark.unit
-async def test_archiver_read_bin_size_zero_is_full_resolution(tmp_path, monkeypatch):
+async def test_archiver_read_bin_size_zero_is_full_resolution(archiver_read_tool):
     """bin_size=0 requests full-resolution data: precision_ms=0 reaches the connector.
 
     ``resolve_processing`` already treats ``precision_ms <= 0`` as full
     resolution on every backend (EPICS sends the bare PV name), so bin_size=0
     is the operator's only way to ask for undecimated raw samples.
     """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
-
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB"],
-            start_time="2024-01-15T10:00:00",
-            processing="raw",
-            bin_size=0,
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB"],
+        start_time="2024-01-15T10:00:00",
+        processing="raw",
+        bin_size=0,
+    )
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
 
-    kwargs = mock_connector.get_data.call_args.kwargs
+    kwargs = connector.get_data.call_args.kwargs
     assert kwargs["precision_ms"] == 0
     assert kwargs["processing"] == "raw"
 
 
 @pytest.mark.unit
-async def test_archiver_read_bin_size_zero_rejects_non_raw_processing(tmp_path, monkeypatch):
+async def test_archiver_read_bin_size_zero_rejects_non_raw_processing(archiver_project):
     """bin_size=0 (full resolution) has no bin — only valid with processing='raw'."""
-    monkeypatch.chdir(tmp_path)
-
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as ctx:
         await fn(
@@ -562,10 +692,8 @@ async def test_archiver_read_bin_size_zero_rejects_non_raw_processing(tmp_path, 
 
 
 @pytest.mark.unit
-async def test_archiver_read_rejects_negative_bin_size(tmp_path, monkeypatch):
+async def test_archiver_read_rejects_negative_bin_size(archiver_project):
     """A negative bin_size is nonsensical and must error, not silently misbehave."""
-    monkeypatch.chdir(tmp_path)
-
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as ctx:
         await fn(
@@ -578,7 +706,7 @@ async def test_archiver_read_rejects_negative_bin_size(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_handles_ragged_channels(tmp_path, monkeypatch):
+async def test_archiver_read_handles_ragged_channels(tmp_path, archiver_read_tool):
     """Channels with different sample counts are never forced onto a shared axis.
 
     The schema text promises channels are "NOT aligned" and have independent
@@ -587,29 +715,18 @@ async def test_archiver_read_handles_ragged_channels(tmp_path, monkeypatch):
     for: one channel with 3 samples, another with 1, neither padded or
     truncated to match the other.
     """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
-
-    mock_df = _make_archiver_df(
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df(
         {
             "SR:CURRENT:RB": [500.0, 500.1, 500.2],
             "SR:ENERGY:RB": [1.9],
         }
     )
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
 
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB", "SR:ENERGY:RB"],
-            start_time="2024-01-15T10:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB", "SR:ENERGY:RB"],
+        start_time="2024-01-15T10:00:00",
+    )
 
     data = extract_response_dict(result)
     assert data["summary"]["per_channel"]["SR:CURRENT:RB"]["points"] == 3
@@ -623,33 +740,22 @@ async def test_archiver_read_handles_ragged_channels(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_archiver_read_channel_absent_from_result_reports_zero_points(tmp_path, monkeypatch):
+async def test_archiver_read_channel_absent_from_result_reports_zero_points(archiver_read_tool):
     """A requested channel with zero rows in the result reports points=0, not a crash.
 
     The pre-fix tool silently dropped such a channel from ``per_channel``
     entirely (``if ch in df.columns`` on a long frame never matches a channel
     name). It must now appear honestly with a zero count and no numeric stats.
     """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
-
     # Only SR:CURRENT:RB has any rows; SR:VOID:RB is requested but the
     # archiver returned nothing for it (e.g. out of archival range).
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB", "SR:VOID:RB"],
-            start_time="2024-01-15T10:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB", "SR:VOID:RB"],
+        start_time="2024-01-15T10:00:00",
+    )
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
@@ -663,7 +769,9 @@ async def test_archiver_read_channel_absent_from_result_reports_zero_points(tmp_
 
 
 @pytest.mark.unit
-async def test_archiver_read_emits_empty_series_entry_for_absent_channel(tmp_path, monkeypatch):
+async def test_archiver_read_emits_empty_series_entry_for_absent_channel(
+    tmp_path, archiver_read_tool
+):
     """The data file's series entry for a zero-row channel is exactly {timestamps: [], values: []}.
 
     This is the other end of the contract consumers like ``build_data_reader``
@@ -674,24 +782,13 @@ async def test_archiver_read_emits_empty_series_entry_for_absent_channel(tmp_pat
     reader-side test that consumes it, keeps the two ends of the contract from
     drifting apart independently.
     """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
-
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB", "SR:VOID:RB"],
-            start_time="2024-01-15T10:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB", "SR:VOID:RB"],
+        start_time="2024-01-15T10:00:00",
+    )
 
     data = extract_response_dict(result)
     data_file = tmp_path / data["data_file"]
@@ -701,26 +798,15 @@ async def test_archiver_read_emits_empty_series_entry_for_absent_channel(tmp_pat
 
 
 @pytest.mark.unit
-async def test_archiver_read_dedupes_repeated_channel_name(tmp_path, monkeypatch):
+async def test_archiver_read_dedupes_repeated_channel_name(archiver_read_tool):
     """A caller-repeated channel name is queried and summarized once, not double-counted."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
+    fn, connector = archiver_read_tool
+    connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
-    mock_df = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
-    mock_connector = AsyncMock()
-    mock_connector.get_data.return_value = mock_df
-
-    with patch(
-        "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
-        new_callable=AsyncMock,
-        return_value=mock_connector,
-    ):
-        fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB", "SR:CURRENT:RB"],
-            start_time="2024-01-15T10:00:00",
-        )
+    result = await fn(
+        channels=["SR:CURRENT:RB", "SR:CURRENT:RB"],
+        start_time="2024-01-15T10:00:00",
+    )
 
     data = extract_response_dict(result)
     assert data["summary"]["channels_queried"] == 1
@@ -729,7 +815,7 @@ async def test_archiver_read_dedupes_repeated_channel_name(tmp_path, monkeypatch
 
     # The dedup happens before the connector call too — the archiver is only
     # ever asked for the channel once.
-    queried_channels = mock_connector.get_data.call_args.args[0]
+    queried_channels = connector.get_data.call_args.args[0]
     assert queried_channels == ["SR:CURRENT:RB"]
 
 
@@ -748,12 +834,8 @@ class TestArchiverReadRealMockConnector:
     """
 
     @pytest.mark.unit
-    async def test_bin_size_zero_full_resolution_succeeds(self, tmp_path, monkeypatch):
+    async def test_bin_size_zero_full_resolution_succeeds(self, archiver_project):
         """bin_size=0 (precision_ms=0) must not raise ZeroDivisionError on the real connector."""
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-        initialize_server_context()
-
         fn = _get_archiver_read()
         result = await fn(
             channels=["SR:DCCT"],
@@ -774,7 +856,7 @@ class TestArchiverReadRealMockConnector:
         assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 300
 
     @pytest.mark.unit
-    async def test_bin_size_zero_returns_more_points_than_binned(self, tmp_path, monkeypatch):
+    async def test_bin_size_zero_returns_more_points_than_binned(self, archiver_project):
         """Full resolution must strictly out-resolve a binned query on the same window.
 
         The exact-count assertion above pins the mock's own native rate; this
@@ -787,10 +869,6 @@ class TestArchiverReadRealMockConnector:
         five-minute window the binned count is 6, and a ten-point floor would
         still satisfy ``full > binned``.
         """
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-        initialize_server_context()
-
         fn = _get_archiver_read()
         window = {
             "channels": ["SR:DCCT"],
@@ -807,12 +885,8 @@ class TestArchiverReadRealMockConnector:
         assert full_points > binned_points
 
     @pytest.mark.unit
-    async def test_normal_bin_size_succeeds(self, tmp_path, monkeypatch):
+    async def test_normal_bin_size_succeeds(self, archiver_project):
         """An ordinary positive bin_size runs the real connector's binning path."""
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-        initialize_server_context()
-
         fn = _get_archiver_read()
         result = await fn(
             channels=["SR:DCCT"],
@@ -830,21 +904,56 @@ class TestArchiverReadRealMockConnector:
         assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 60
 
     @pytest.mark.unit
-    async def test_processing_mode_succeeds(self, tmp_path, monkeypatch):
-        """A non-raw processing mode runs the real connector's aggregate_series path."""
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-        initialize_server_context()
+    async def test_processing_mode_succeeds(self, tmp_path, archiver_project):
+        """A non-raw mode really aggregates: one derived value per bin, not raw in disguise.
 
+        This is the only test that drives the real connector's
+        ``aggregate_series`` path end to end through the tool (the mock-kwargs
+        test only proves the parameter *reaches* a connector), so it has to
+        assert something ``raw`` cannot produce. A five-minute window at a
+        60 s bin is chosen for that: the mock's ten-point floor puts *two*
+        real samples in each of the first four bins, so ``mean`` is a genuine
+        reduction over several samples rather than a passthrough of one.
+        ``points > 0`` cannot see that, and neither can an exact count —
+        ``raw`` returns the same six rows for this window.
+        """
         fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:DCCT"],
-            start_time="2024-01-15T10:00:00",
-            end_time="2024-01-15T11:00:00",
-            processing="mean",
-            bin_size=60,
+        window = {
+            "channels": ["SR:DCCT"],
+            "start_time": "2024-01-15T10:00:00",
+            "end_time": "2024-01-15T10:05:00",
+            "bin_size": 60,
+        }
+
+        async def channel_series(mode):
+            data = extract_response_dict(await fn(**window, processing=mode))
+            assert data["status"] == "success"
+            file_content = json.loads((tmp_path / data["data_file"]).read_text())
+            return file_content["series"]["SR:DCCT"]
+
+        raw = await channel_series("raw")
+        mean = await channel_series("mean")
+        counts = await channel_series("count")
+        lows = await channel_series("min")
+        highs = await channel_series("max")
+
+        # The bins really do hold several real samples: `count` reports how
+        # many. `raw` can never return these numbers — they are sample counts,
+        # not beam currents.
+        assert counts["values"] == [2, 2, 2, 2, 1, 1]
+
+        # Same six rows as `raw` over this window, so a row count alone cannot
+        # tell the two apart...
+        assert len(mean["values"]) == len(raw["values"]) == 6
+        # ...but every aggregated value is derived from that bin's real
+        # samples rather than being the last one in it: with two samples in a
+        # bin, their mean is exactly (min + max) / 2.
+        assert mean["values"] != raw["values"]
+        assert mean["values"] == pytest.approx(
+            [(low + high) / 2 for low, high in zip(lows["values"], highs["values"], strict=True)]
         )
 
-        data = extract_response_dict(result)
-        assert data["status"] == "success"
-        assert data["summary"]["per_channel"]["SR:DCCT"]["points"] > 0
+        # An aggregate is labelled at its bin; a raw sample keeps its own
+        # recorded timestamp, which here falls inside the bin, not on its edge.
+        assert mean["timestamps"] == [f"2024-01-15T10:0{minute}:00+00:00" for minute in range(6)]
+        assert raw["timestamps"] != mean["timestamps"]

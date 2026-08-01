@@ -210,70 +210,62 @@ class TestBuildDataReaderJSON:
         assert isinstance(data, pd.DataFrame)
         assert data["A"].dropna().tolist() == pytest.approx([1.1])
 
-    def test_series_key_collision_dict_of_dicts_without_timestamps_falls_through(
-        self, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("payload", "expected_values"),
+        [
+            # Dict of dicts, no 'timestamps' anywhere. The guard used to be
+            # "every entry is a dict", which this satisfies without being an
+            # archiver payload at all: it entered the pivot, every entry
+            # produced an empty column, and the reader handed back a useless
+            # empty two-column frame -- where the generic dict branch below
+            # builds a usable one. Pins the `'timestamps' in _v` requirement.
+            pytest.param(
+                {"series": {"a": {"x": 1}, "b": {"x": 2}}},
+                None,
+                id="dict_of_dicts_without_timestamps",
+            ),
+            # One entry carries 'timestamps', the other does not -- a real
+            # payload has them all. Pins `all(...)` against `any(...)`.
+            pytest.param(
+                {
+                    "series": {
+                        "a": {"timestamps": ["2026-07-30T12:00:00+00:00"], "values": [1.0]},
+                        "b": {"x": 2},
+                    }
+                },
+                None,
+                id="partial_timestamps",
+            ),
+            # 'series' is a list, not a dict. Before the archiver branch
+            # existed this loaded fine via the generic ``pd.DataFrame(data)``
+            # path, and the pivot must not hijack it just because the key name
+            # matches. Pins the outer `isinstance(_series, dict)`.
+            pytest.param({"series": [1, 2, 3]}, [1, 2, 3], id="list"),
+            # 'series' entries are bare lists rather than per-channel dicts.
+            # Pins the `isinstance(_v, dict)` half of the entry predicate.
+            pytest.param({"series": {"a": [1, 2]}}, None, id="bare_lists"),
+        ],
+    )
+    def test_non_archiver_series_key_falls_through_to_generic_dict(
+        self, tmp_path: Path, payload: dict, expected_values: list | None
     ):
-        """A dict-of-dicts that is not an archiver envelope must not be pivoted.
+        """A top-level ``series`` key that is not an archiver envelope must not
+        be pivoted -- it falls through to the generic dict/list branch.
 
-        The guard used to be "every entry is a dict", which
-        ``{"series": {"a": {"x": 1}, "b": {"x": 2}}}`` satisfies without being
-        an archiver payload at all. It entered the pivot, every entry produced
-        an empty column, and the reader handed back a useless empty two-column
-        frame — where the generic dict branch below builds a usable one.
+        Each payload defeats a different clause of the envelope guard; the
+        parametrize ids name which. All four are load-bearing: every one is
+        the sole test failing under at least one mutation of that guard.
         """
-        fp = tmp_path / "series_dicts_no_timestamps.json"
-        fp.write_text(json.dumps({"series": {"a": {"x": 1}, "b": {"x": 2}}}))
+        fp = tmp_path / "series_collision.json"
+        fp.write_text(json.dumps(payload))
 
         data = _exec_data_reader(str(fp))
 
         assert isinstance(data, pd.DataFrame)
         assert not data.empty
         assert list(data.columns) == ["series"]
-
-    def test_series_key_collision_partial_timestamps_falls_through(self, tmp_path: Path):
-        """One entry carrying `timestamps` is not enough — a real payload has them all."""
-        fp = tmp_path / "series_partial.json"
-        fp.write_text(
-            json.dumps(
-                {
-                    "series": {
-                        "a": {"timestamps": ["2026-07-30T12:00:00+00:00"], "values": [1.0]},
-                        "b": {"x": 2},
-                    }
-                }
-            )
-        )
-
-        data = _exec_data_reader(str(fp))
-
-        assert isinstance(data, pd.DataFrame)
-        assert list(data.columns) == ["series"]
-
-    def test_series_key_collision_list_falls_through_to_generic_dict(self, tmp_path: Path):
-        """A non-archiver file with a top-level 'series' key must still load.
-
-        Before this branch existed, ``{"series": [1, 2, 3]}`` loaded fine via
-        the generic ``pd.DataFrame(data)`` branch. The archiver-pivot branch
-        must not hijack it just because the key name matches.
-        """
-        fp = tmp_path / "series_list.json"
-        fp.write_text(json.dumps({"series": [1, 2, 3]}))
-
-        data = _exec_data_reader(str(fp))
-
-        assert isinstance(data, pd.DataFrame)
-        assert list(data.columns) == ["series"]
-        assert data["series"].tolist() == [1, 2, 3]
-
-    def test_series_key_collision_bare_lists_falls_through_to_generic_dict(self, tmp_path: Path):
-        """A 'series' dict whose entries are bare lists (not per-channel dicts) still loads."""
-        fp = tmp_path / "series_bare_lists.json"
-        fp.write_text(json.dumps({"series": {"a": [1, 2]}}))
-
-        data = _exec_data_reader(str(fp))
-
-        assert isinstance(data, pd.DataFrame)
-        assert list(data.columns) == ["series"]
+        if expected_values is not None:
+            assert data["series"].tolist() == expected_values
 
     def test_flat_split_orient_json(self, tmp_path: Path):
         """Flat split-orient: {_osprey_metadata, data: {columns, index, data}}."""

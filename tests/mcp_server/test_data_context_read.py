@@ -198,52 +198,51 @@ class TestDataRead:
         assert preview["channels"] == ["CH_A"]
         assert preview["row_count"] == 200
 
+    @pytest.mark.parametrize(
+        ("payload", "expected_keys"),
+        [
+            # Plain non-dataframe object: the baseline generic preview.
+            pytest.param(
+                {"alpha": "a" * (60 * 1024), "beta": "b" * (60 * 1024), "gamma": [1, 2, 3]},
+                {"alpha", "beta", "gamma"},
+                id="plain_json_object",
+            ),
+            # A top-level "data" key WITHOUT the `_osprey_metadata` marker is
+            # not an envelope, so it must not be unwrapped -- "data" stays a
+            # top-level key of the previewed object.
+            pytest.param(
+                {"data": {"anything": "z" * (150 * 1024)}, "other": 1},
+                {"data", "other"},
+                id="plain_data_key_not_unwrapped",
+            ),
+            # Dict-of-dicts under "series" but no 'timestamps' -- not an
+            # archiver payload, so the timeseries_series branch must not claim
+            # it just because the key name matches.
+            pytest.param(
+                {"series": {"a": {"x": 1}, "b": {"x": 2}}, "padding": "z" * (150 * 1024)},
+                {"series", "padding"},
+                id="series_key_collision",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_oversize_plain_data_key_is_not_unwrapped(self, store, read_tool):
-        """A top-level "data" key without the metadata marker is not an envelope."""
+    async def test_oversize_json_object_preview(
+        self, store, read_tool, payload: dict, expected_keys: set[str]
+    ):
+        """Objects with no recognized shape fall through to the generic preview.
+
+        Each payload defeats a different branch that could otherwise claim it
+        (envelope unwrapping, the long-format archiver ``series`` branch); the
+        parametrize ids name which.
+        """
         entry = _save_entry(store)
-        payload = {"data": {"anything": "z" * (150 * 1024)}, "other": 1}
         store.get_file_path(entry.id).write_text(json.dumps(payload))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
             await read_tool(entry_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
         assert preview["shape"] == "json_object"
-        assert set(preview["top_level_keys"]) == {"data", "other"}
-
-    @pytest.mark.asyncio
-    async def test_oversize_series_key_collision_falls_through(self, store, read_tool):
-        """A non-archiver file with a top-level 'series' key keeps the generic preview."""
-        entry = _save_entry(store)
-        payload = {
-            # Dict-of-dicts, but no 'timestamps' — not an archiver envelope.
-            "series": {"a": {"x": 1}, "b": {"x": 2}},
-            "padding": "z" * (150 * 1024),
-        }
-        store.get_file_path(entry.id).write_text(json.dumps(payload))
-
-        with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
-        preview = ctx["envelope"]["details"]["preview"]
-        assert preview["shape"] == "json_object"
-        assert set(preview["top_level_keys"]) == {"series", "padding"}
-
-    @pytest.mark.asyncio
-    async def test_oversize_json_object_preview(self, store, read_tool):
-        """Non-dataframe JSON objects expose top-level keys in the preview."""
-        entry = _save_entry(store)
-        payload = {
-            "alpha": "a" * (60 * 1024),
-            "beta": "b" * (60 * 1024),
-            "gamma": [1, 2, 3],
-        }
-        store.get_file_path(entry.id).write_text(json.dumps(payload))
-
-        with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
-        preview = ctx["envelope"]["details"]["preview"]
-        assert preview["shape"] == "json_object"
-        assert set(preview["top_level_keys"]) == {"alpha", "beta", "gamma"}
+        assert set(preview["top_level_keys"]) == expected_keys
 
     @pytest.mark.asyncio
     async def test_oversize_text_preview(self, store, read_tool):

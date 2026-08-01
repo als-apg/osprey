@@ -1,123 +1,113 @@
 """Tests for the timeseries downsampling and frame-extraction helpers.
 
-``lttb_downsample`` is the Largest-Triangle-Three-Buckets reducer shared by the
-Artifact Gallery and MCP tools. Two contracts matter most: it always keeps the
-first and last points and returns exactly ``max_points`` when it downsamples,
-and it applies the selected indices to the ORIGINAL data so ``None`` gap markers
+``lttb_downsample_channel`` is the Largest-Triangle-Three-Buckets reducer shared
+by the Artifact Gallery and MCP tools. It reduces exactly one channel: each
+channel carries its own timestamps, so there is no shared index and no
+multi-column slicing. Two contracts matter most: it always keeps the first and
+last points and returns exactly ``max_points`` when it downsamples, and it
+applies the selected indices to the ORIGINAL values so ``None`` gap markers
 (archiver disconnects / IOC reboots) survive into the output even though the
 triangle-area math runs on a zero-filled working copy.
+
+Index selection is tested directly against the private ``_lttb_select_indices``
+because that is where the triangle-area rule lives; the public function's own
+tests then pin what the caller actually observes.
 """
 
 from __future__ import annotations
 
 from osprey.utils.timeseries import (
+    _lttb_select_indices,
     extract_channel_series,
     is_numeric_channel,
-    lttb_downsample,
     lttb_downsample_channel,
 )
 
 
-class TestLttbDownsampleIdentity:
-    """Cases where no reduction happens and the inputs pass through."""
+class TestLttbSelectIndices:
+    """The triangle-area selection rule, exercised on its own.
 
-    def test_returns_input_when_n_below_max_points(self):
-        index = [0, 1, 2]
-        data = [[0.0], [1.0], [2.0]]
-        out_index, out_data = lttb_downsample(index, data, max_points=10)
-        assert out_index is index
-        assert out_data is data
+    The selector returns indices, never values -- that separation is what lets
+    the caller slice the untouched originals and keep gaps as gaps. Callers
+    only reach it with ``max_points >= 3`` and ``len(values) > max_points``.
+    """
 
-    def test_returns_input_when_n_equals_max_points(self):
-        index = [0, 1, 2, 3]
-        data = [[float(i)] for i in range(4)]
-        out_index, out_data = lttb_downsample(index, data, max_points=4)
-        assert out_index is index
-        assert out_data is data
+    def test_returns_exactly_max_points_indices(self):
+        assert len(_lttb_select_indices([float(i) for i in range(1000)], 50)) == 50
 
-    def test_returns_input_when_max_points_below_three(self):
-        """LTTB needs at least first/last plus one bucket; <3 is a no-op."""
-        index = list(range(100))
-        data = [[float(i)] for i in index]
-        out_index, out_data = lttb_downsample(index, data, max_points=2)
-        assert out_index is index
-        assert out_data is data
-
-
-class TestLttbDownsampleReduction:
-    def _ramp(self, n):
-        index = list(range(n))
-        data = [[float(i)] for i in index]
-        return index, data
-
-    def test_reduces_to_exactly_max_points(self):
-        index, data = self._ramp(1000)
-        out_index, out_data = lttb_downsample(index, data, max_points=50)
-        assert len(out_index) == 50
-        assert len(out_data) == 50
-
-    def test_first_and_last_points_always_kept(self):
-        index, data = self._ramp(1000)
-        out_index, out_data = lttb_downsample(index, data, max_points=25)
-        assert out_index[0] == index[0]
-        assert out_index[-1] == index[-1]
-        assert out_data[0] == data[0]
-        assert out_data[-1] == data[-1]
+    def test_first_and_last_indices_always_selected(self):
+        selected = _lttb_select_indices([float(i) for i in range(1000)], 25)
+        assert selected[0] == 0
+        assert selected[-1] == 999
 
     def test_min_max_points_of_three(self):
-        index, data = self._ramp(500)
-        out_index, out_data = lttb_downsample(index, data, max_points=3)
-        assert len(out_index) == 3
-        assert out_index[0] == 0
-        assert out_index[-1] == 499
+        selected = _lttb_select_indices([float(i) for i in range(500)], 3)
+        assert selected == [0, selected[1], 499]
+        assert len(selected) == 3
 
-    def test_output_index_is_ordered_subset_of_input(self):
-        index, data = self._ramp(300)
-        out_index, _ = lttb_downsample(index, data, max_points=20)
-        assert out_index == sorted(out_index)
-        assert set(out_index) <= set(index)
-
-    def test_preserves_all_columns(self):
-        n = 400
-        index = list(range(n))
-        # Three channels; first column drives selection, all are sliced together.
-        data = [[float(i), float(i) * 2, float(i) * 3] for i in index]
-        _, out_data = lttb_downsample(index, data, max_points=30)
-        assert all(len(row) == 3 for row in out_data)
-        # Every kept row is an original row (columns stay aligned on one x-axis).
-        for row in out_data:
-            assert row[1] == row[0] * 2
-            assert row[2] == row[0] * 3
+    def test_indices_are_ascending_and_within_range(self):
+        n = 300
+        selected = _lttb_select_indices([float(i) for i in range(n)], 20)
+        assert selected == sorted(selected)
+        assert all(0 <= i < n for i in selected)
 
     def test_dominant_spike_is_selected(self):
         """The whole point of LTTB: a sharp feature survives downsampling."""
-        n = 200
-        index = list(range(n))
-        data = [[0.0] for _ in index]
-        data[100] = [1000.0]  # single large spike
-        out_index, out_data = lttb_downsample(index, data, max_points=10)
-        assert 100 in out_index
-        assert [1000.0] in out_data
+        values = [0.0] * 200
+        values[100] = 1000.0  # single large spike
+        assert 100 in _lttb_select_indices(values, 10)
 
-    def test_none_gaps_preserved_in_output(self):
-        """Selected indices apply to the ORIGINAL data, so ``None`` survives.
+    def test_spike_and_valley_are_both_selected_by_triangle_area(self):
+        """Extrema of BOTH signs survive, and only via the area comparison.
 
-        The triangle-area math runs on a zero-filled working copy, but the
-        emitted rows are the untouched originals — an archiver gap marker in a
-        channel column must not be silenced to 0.0.
+        Unlike ``test_dominant_spike_is_selected`` above -- whose spike at 100
+        happens to land exactly on a bucket's first index (bucket_size 198/8 =
+        24.75, so i=5 gives b_start=100), meaning it is picked even if the
+        triangle-area comparison never fires -- neither 50 nor 150 is a bucket
+        start here (bucket_size 198/18 = 11.0, boundaries 1, 12, 23, ...). They
+        are reached only because their triangle area is the largest in their
+        bucket, so this pins the selection rule itself, not the bucket lattice.
         """
-        n = 300
-        index = list(range(n))
-        # First column is a ramp (drives selection); second column is all None.
-        data = [[float(i), None] for i in index]
-        _, out_data = lttb_downsample(index, data, max_points=20)
-        assert all(row[1] is None for row in out_data)
+        values = [0.0] * 200
+        values[50] = 100.0  # spike
+        values[150] = -100.0  # valley
+        selected = _lttb_select_indices(values, 20)
+        assert 50 in selected
+        assert 150 in selected
 
-    def test_returns_tuple(self):
-        index, data = self._ramp(50)
-        result = lttb_downsample(index, data, max_points=10)
-        assert isinstance(result, tuple)
-        assert len(result) == 2
+    def test_selected_indices_are_exactly_pinned(self):
+        """Golden characterization of the selection rule itself.
+
+        The property tests above (spike/valley survive, endpoints kept, exact
+        count) all pass under arithmetic that is merely *close* to LTTB -- they
+        pin the shape of the answer, not the triangle-area formula. This test
+        pins the formula. Verified to move at least one index under each of:
+        widening the look-ahead bucket by one, flipping the sign of the ``x``
+        difference, and perturbing either the ``avg_x`` or ``avg_y`` term.
+
+        The fixture is a pure-integer ramp so the expectation is reproducible
+        on every platform and Python version.
+        """
+        values = [float(i) for i in range(120)]  # ramp
+        values[17] = 50.0  # spike above the ramp
+        values[88] = -50.0  # valley below it
+        selected = _lttb_select_indices(values, 12)
+        assert selected == [0, 11, 17, 24, 36, 48, 60, 82, 88, 95, 107, 119]
+
+    def test_none_gaps_do_not_crash_the_area_math(self):
+        """A gap is 0.0 in the working copy only, so the arithmetic never sees
+        ``NoneType`` -- the selector still returns a full index list."""
+        values: list[float | None] = [float(i) for i in range(200)]
+        values[50:60] = [None] * 10
+        assert len(_lttb_select_indices(values, 20)) == 20
+
+    def test_all_none_channel_selects_normally(self):
+        """Every value a gap: the zero-filled copy is flat, so selection falls
+        back to bucket starts -- but still returns first and last."""
+        selected = _lttb_select_indices([None] * 200, 20)
+        assert len(selected) == 20
+        assert selected[0] == 0
+        assert selected[-1] == 199
 
 
 class TestExtractChannelSeries:
@@ -185,8 +175,8 @@ class TestExtractChannelSeries:
     def test_drops_nulls_when_transposing_wide_layout(self):
         """A None in a wide-frame cell means that channel had no sample at that
         shared timestamp -- it must be dropped (not kept as a gap marker),
-        unlike ``lttb_downsample`` which preserves None gaps in a channel's
-        own column.
+        unlike ``lttb_downsample_channel`` which preserves None gaps in a
+        channel's own values.
         """
         frame = {
             "columns": ["PV:A", "PV:B"],
@@ -239,15 +229,32 @@ class TestIsNumericChannel:
 
 
 class TestLttbDownsampleChannel:
-    """Per-channel LTTB variant: each channel has its own timestamps, so there
-    is no shared x-axis to slice multiple columns against (contrast with
-    ``lttb_downsample``, whose docstring documents that shared-axis slicing).
+    """The public reducer: one channel's own timestamps and values in, the
+    same pair reduced out. What the caller observes -- pass-through, first/last
+    retention, gap survival, and the non-numeric fallback -- is pinned here;
+    the index-selection rule itself is pinned in ``TestLttbSelectIndices``.
     """
 
     def test_returns_input_when_n_below_max_points(self):
         timestamps = ["t0", "t1", "t2"]
         values = [0.0, 1.0, 2.0]
         out_ts, out_vals = lttb_downsample_channel(timestamps, values, max_points=10)
+        assert out_ts is timestamps
+        assert out_vals is values
+
+    def test_returns_input_when_n_equals_max_points(self):
+        """The boundary: exactly ``max_points`` samples is already small enough."""
+        timestamps = [f"t{i}" for i in range(4)]
+        values = [float(i) for i in range(4)]
+        out_ts, out_vals = lttb_downsample_channel(timestamps, values, max_points=4)
+        assert out_ts is timestamps
+        assert out_vals is values
+
+    def test_returns_input_when_max_points_below_three(self):
+        """LTTB needs at least first/last plus one bucket; <3 is a no-op."""
+        timestamps = [f"t{i}" for i in range(100)]
+        values = [float(i) for i in range(100)]
+        out_ts, out_vals = lttb_downsample_channel(timestamps, values, max_points=2)
         assert out_ts is timestamps
         assert out_vals is values
 
@@ -269,7 +276,7 @@ class TestLttbDownsampleChannel:
         assert out_vals[0] == values[0]
         assert out_vals[-1] == values[-1]
 
-    def test_none_gaps_preserved_like_shared_axis_variant(self):
+    def test_none_gaps_survive_into_the_output(self):
         n = 200
         timestamps = [f"t{i}" for i in range(n)]
         values: list[float | None] = [float(i) for i in range(n)]
@@ -280,6 +287,28 @@ class TestLttbDownsampleChannel:
         for ts, val in zip(_out_ts, out_vals, strict=True):
             if ts in timestamps[50:60]:
                 assert val is None
+
+    def test_gap_on_an_always_kept_point_survives(self):
+        """The unconditional version of the test above.
+
+        Selection is data-dependent, so the sibling test only constrains gaps
+        that happen to be picked. Indices 0 and n-1 are kept by construction,
+        so putting a gap on each pins gap survival with no dependence on the
+        triangle-area outcome: a disconnect must arrive at the chart as a
+        break in the line, not as a fabricated 0.0 reading.
+        """
+        n = 300
+        timestamps = [f"t{i}" for i in range(n)]
+        values: list[float | None] = [float(i) for i in range(n)]
+        values[0] = None
+        values[-1] = None
+
+        out_ts, out_vals = lttb_downsample_channel(timestamps, values, max_points=20)
+
+        assert out_ts[0] == "t0"
+        assert out_ts[-1] == f"t{n - 1}"
+        assert out_vals[0] is None
+        assert out_vals[-1] is None
 
     def test_non_numeric_channel_passes_through_when_it_fits(self):
         """A status/enum channel under max_points is returned unchanged, not coerced."""

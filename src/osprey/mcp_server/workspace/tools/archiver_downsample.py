@@ -106,43 +106,40 @@ async def archiver_downsample(
     max_points = max(3, min(max_points, 10000))
 
     datasets = []
-    original_points = 0
-    downsampled_points = 0
-    range_start = None
-    range_end = None
-
     for channel in selected_channels:
         chan_data = series[channel]
         timestamps = chan_data.get("timestamps", [])
         values = chan_data.get("values", [])
-        n_points = len(timestamps)
-        original_points += n_points
 
         ds_timestamps, ds_values = lttb_downsample_channel(timestamps, values, max_points)
-        downsampled_points += len(ds_timestamps)
 
         datasets.append(
             {
                 "channel": channel,
                 "timestamps": ds_timestamps,
                 "values": ds_values,
-                "original_points": n_points,
+                "original_points": len(timestamps),
                 "downsampled_points": len(ds_timestamps),
                 "numeric": is_numeric_channel(values),
             }
         )
 
-        if ds_timestamps:
-            if range_start is None or ds_timestamps[0] < range_start:
-                range_start = ds_timestamps[0]
-            if range_end is None or ds_timestamps[-1] > range_end:
-                range_end = ds_timestamps[-1]
+    # A channel with no samples has no span to contribute -- but it must not
+    # erase the others', hence filtering it out here rather than letting an
+    # empty list into the min/max. `default=None` then covers the genuinely
+    # spanless payload (no channels, or every channel empty). Downsampling
+    # always keeps a channel's first and last point, so a dataset's own ends
+    # are still the channel's real ends.
+    spans = [d["timestamps"] for d in datasets if d["timestamps"]]
 
     result = {
         "datasets": datasets,
-        "original_points": original_points,
-        "downsampled_points": downsampled_points,
-        "time_range": {"start": range_start, "end": range_end},
+        "original_points": sum(d["original_points"] for d in datasets),
+        "downsampled_points": sum(d["downsampled_points"] for d in datasets),
+        "time_range": {
+            "start": min((s[0] for s in spans), default=None),
+            "end": max((s[-1] for s in spans), default=None),
+        },
     }
 
     return json.dumps(result, indent=2)

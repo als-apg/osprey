@@ -151,6 +151,152 @@ class TestArchiverDownsampleBasic:
         assert result["downsampled_points"] == 100
 
 
+class TestArchiverDownsampleAggregates:
+    """The top-level roll-ups: ``time_range`` and the two point totals.
+
+    ``time_range`` spans EVERY returned channel, so it is a min/max across
+    them, not the first channel's span -- channels have independent cadences
+    and independent coverage. A channel with no samples in the window
+    contributes nothing to the span (rather than making it ``None``), which is
+    the case the whole-payload ``default=None`` sentinel exists for.
+    """
+
+    @pytest.fixture
+    def staggered_entry(self, art_store):
+        """Three channels whose spans are deliberately out of declaration order.
+
+        Declared late/early/mid, so a roll-up that reads only the first or only
+        the last channel gets the wrong answer.
+        """
+        data = _make_new_format_series_data(
+            {
+                "PV:LATE": ([f"2026-02-19T12:{i:02d}:00Z" for i in range(10)], list(range(10))),
+                "PV:EARLY": ([f"2026-02-19T11:{i:02d}:00Z" for i in range(5)], list(range(5))),
+                "PV:MID": ([f"2026-02-19T12:{i:02d}:00Z" for i in range(30, 41)], list(range(11))),
+            }
+        )
+        return art_store.save_data(
+            tool="archiver_read",
+            data=data,
+            title="Staggered channels",
+            description="Staggered channels",
+            summary={},
+            access_details={},
+            category="archiver_data",
+        )
+
+    @pytest.mark.asyncio
+    async def test_time_range_spans_every_channel_not_just_the_first(self, staggered_entry):
+        fn = _get_archiver_downsample()
+        result = json.loads(await fn(entry_id=staggered_entry.id))
+
+        # Earliest sample belongs to the SECOND-declared channel, latest to the third.
+        assert result["time_range"]["start"] == "2026-02-19T11:00:00Z"
+        assert result["time_range"]["end"] == "2026-02-19T12:40:00Z"
+
+    @pytest.mark.asyncio
+    async def test_totals_are_summed_over_every_channel(self, staggered_entry):
+        fn = _get_archiver_downsample()
+        result = json.loads(await fn(entry_id=staggered_entry.id))
+
+        assert result["original_points"] == 26  # 10 + 5 + 11
+        assert result["downsampled_points"] == 26  # all under max_points
+        assert result["original_points"] == sum(d["original_points"] for d in result["datasets"])
+        assert result["downsampled_points"] == sum(
+            d["downsampled_points"] for d in result["datasets"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_channel_with_no_samples_does_not_erase_the_span(self, art_store):
+        """A requested-but-dead channel is declared with empty arrays.
+
+        Its emptiness is diagnostic and must be reported, but it must not drag
+        the payload-level span to ``None`` -- the populated channel still has a
+        real one.
+        """
+        data = _make_new_format_series_data(
+            {
+                "PV:DOWN": ([], []),
+                "PV:UP": (["2026-02-19T12:00:00Z", "2026-02-19T12:05:00Z"], [1.0, 2.0]),
+            }
+        )
+        entry = art_store.save_data(
+            tool="archiver_read",
+            data=data,
+            title="One dead channel",
+            description="One dead channel",
+            summary={},
+            access_details={},
+            category="archiver_data",
+        )
+
+        fn = _get_archiver_downsample()
+        result = json.loads(await fn(entry_id=entry.id))
+
+        assert result["time_range"] == {
+            "start": "2026-02-19T12:00:00Z",
+            "end": "2026-02-19T12:05:00Z",
+        }
+        assert result["original_points"] == 2
+        by_channel = {d["channel"]: d for d in result["datasets"]}
+        assert by_channel["PV:DOWN"]["timestamps"] == []
+        assert by_channel["PV:DOWN"]["original_points"] == 0
+
+    @pytest.mark.asyncio
+    async def test_all_none_channel_still_contributes_its_span(self, art_store):
+        """Gap values are not missing samples: the timestamps are real.
+
+        A channel that was disconnected for the whole window still has real
+        timestamps carrying ``None`` readings, so it counts toward the totals
+        and the span -- unlike a channel with no samples at all.
+        """
+        stamps = [f"2026-02-19T09:{i:02d}:00Z" for i in range(40)]
+        data = _make_new_format_series_data({"PV:DEAD": (stamps, [None] * 40)})
+        entry = art_store.save_data(
+            tool="archiver_read",
+            data=data,
+            title="All gaps",
+            description="All gaps",
+            summary={},
+            access_details={},
+            category="archiver_data",
+        )
+
+        fn = _get_archiver_downsample()
+        result = json.loads(await fn(entry_id=entry.id, max_points=10))
+
+        assert result["original_points"] == 40
+        assert result["downsampled_points"] == 10
+        assert result["time_range"] == {
+            "start": "2026-02-19T09:00:00Z",
+            "end": "2026-02-19T09:39:00Z",
+        }
+        # The gaps survive as gaps -- never a manufactured 0.0.
+        assert result["datasets"][0]["values"] == [None] * 10
+
+    @pytest.mark.asyncio
+    async def test_no_datasets_selected_yields_null_span(self, art_store):
+        """Zero channels at all: the span is ``None``/``None``, not an error."""
+        data = _make_new_format_series_data({})
+        entry = art_store.save_data(
+            tool="archiver_read",
+            data=data,
+            title="No channels",
+            description="No channels",
+            summary={},
+            access_details={},
+            category="archiver_data",
+        )
+
+        fn = _get_archiver_downsample()
+        result = json.loads(await fn(entry_id=entry.id))
+
+        assert result["datasets"] == []
+        assert result["original_points"] == 0
+        assert result["downsampled_points"] == 0
+        assert result["time_range"] == {"start": None, "end": None}
+
+
 class TestArchiverDownsampleChannelFilter:
     """Filtering by specific channels."""
 
