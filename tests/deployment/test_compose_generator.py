@@ -313,7 +313,7 @@ def test_worker_layout_paths_track_injected_project_name() -> None:
     assert f"OSPREY_PROJECT_DIR: {root}" in rendered
     assert f"CONFIG_FILE: {root}/config.yml" in rendered
 
-    # Staged config bind-mount (python_env_path stripped) — repointed target,
+    # Staged config bind-mount (the deploy-time config) — repointed target,
     # source unchanged (relative to build/services/).
     assert f"- ./dispatch_worker/config.yml:{root}/config.yml:ro" in rendered
 
@@ -690,17 +690,17 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 # Task 4.3 / FR11: turn-key scan-stack deploy config
 #
 # A shipped, tested deploy configuration bringing up VA + bridge + Tiled with
-# control_system.type=virtual_accelerator, execution.execution_method=
-# container (so BLUESKY_LAUNCH_TOKEN mints safely and the agent can arm --
-# see container_lifecycle.py's _local_exec_arming_unsafe), and the scan MCP
-# server enabled. tests/e2e/_orm_stack.py is the single source of this
+# control_system.type=virtual_accelerator and the scan MCP server enabled
+# (BLUESKY_LAUNCH_TOKEN is minted unconditionally for the deployed bluesky
+# service, so no execution-method override is needed to arm the agent).
+# tests/e2e/_orm_stack.py is the single source of this
 # config, reused by the real-container round-trip e2e (task 5.2) and the
 # agentic-discovery e2e (5.3/5.4) -- this gate only exercises the Docker-free
 # render path via its in-process `osprey build` helper.
 # ---------------------------------------------------------------------------
 
 
-def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
+def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """FR11's turn-key deploy config, end to end without Docker:
@@ -710,9 +710,9 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
       - the Virtual Accelerator + bluesky-bridge + co-deployed Tiled compose
         services (``control_system.type=virtual_accelerator`` +
         ``bluesky.tiled_enabled=true``),
-      - ``execution.execution_method: container`` (the arming-safe exec
-        method — a ``local`` exec method gates launch-token auto-minting
-        off, per ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``),
+      - ``execution.execution_method: subprocess`` (the one execution backend
+        OSPREY ships — the deploy config sets no override, so this is the
+        rendered default, and no code path reads it for safety semantics),
       - the ``scan`` MCP server enabled in the rendered ``.mcp.json`` (it is
         ``default_enabled=False`` in the framework registry — a project must
         opt in, and this deploy config does).
@@ -726,13 +726,13 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     runner = CliRunner()
     project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path)
 
-    # -- execution_method: container (arming-safe) --------------------------
+    # -- execution_method: subprocess (the only backend OSPREY ships) --------
     yaml = YAML()
     with open(project_dir / "config.yml") as fh:
         config = yaml.load(fh)
-    assert config["execution"]["execution_method"] == "container", (
-        "FR11 requires execution.execution_method=container so the launch "
-        "token mints safely and the agent can arm"
+    assert config["execution"]["execution_method"] == "subprocess", (
+        "the rendered config must name the backend that actually runs agent "
+        "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
 
@@ -776,100 +776,109 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
 
 
 # ---------------------------------------------------------------------------
-# Task 1.4: preserve-staged-config-python-env-path
+# Container config staging: no host interpreter can reach the container
 #
 # The M2 concern: the dispatch worker's runtime config.yml must never carry
-# the HOST build machine's ``execution.python_env_path`` (e.g.
-# ``/Users/.../.venv/bin/python``) into the container — that path does not
-# exist in-container, and Claude Code's MCP-server command generation prefers
-# it over ``sys.executable`` when present, so every MCP server would fail to
-# launch. This is already handled by two independent mechanisms:
+# the HOST build machine's interpreter (e.g. ``/Users/.../.venv/bin/python``)
+# into the container — that path does not exist in-container, and MCP-server
+# command generation used to prefer it over ``sys.executable``, so every MCP
+# server would fail to launch. Two properties now make that unreachable, with
+# no staging-time surgery:
 #
-# 1. ``setup_build_dir`` (compose_generator.py, ~L728-738) pops
-#    ``execution.python_env_path`` from the flattened config it stages for
-#    the worker's config.yml bind-mount.
-# 2. ``build_claude_code_context`` (osprey.cli.templates.claude_code, L91)
-#    resolves ``current_python_env`` as
-#    ``config.execution.python_env_path or sys.executable`` — so a config
-#    with the key stripped falls back to the container's own interpreter.
+# 1. A generated project's config records no interpreter at all — there is no
+#    ``execution.python_env_path`` for staging to carry across. (An older
+#    config that still carries the retired key stages verbatim, but
+#    ``ConfigBuilder`` drops it on load.)
+# 2. ``build_claude_code_context`` (osprey.cli.templates.claude_code) derives
+#    ``current_python_env`` from the filesystem — the project's own ``.venv``
+#    when it has one, else the generating interpreter — and consults the config
+#    not at all. A ``project_root_override`` (the container case) forces the
+#    generating interpreter, since the host's venv is not what exists in the
+#    container. So no config, of any vintage, can name the interpreter an MCP
+#    server launches with.
 #
-# These tests prove both mechanisms against the real generator entrypoints
-# rather than re-asserting the ``or`` expression in isolation. Mechanism 2's
-# companion (build-time ``osprey claude regen`` self-healing a *recorded*
-# stale python_env_path baked into an existing project) is covered by
-# tests/cli/test_claude_regen.py and is out of this file's scope.
+# ``setup_build_dir`` therefore stages the flattened config as-is; the strip it
+# used to perform removed a key nothing writes and nothing reads. These tests
+# prove the invariant against the real generator entrypoints. The full
+# role-split contract (all three runtime launch sites, driven with a config
+# that points somewhere else) lives in tests/cli/test_interpreter_role_split.py.
 # ---------------------------------------------------------------------------
 
 
-def test_setup_build_dir_strips_python_env_path_from_staged_config(
+def test_setup_build_dir_stages_a_config_naming_no_interpreter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``setup_build_dir`` must pop ``execution.python_env_path`` from the
-    flattened config it writes for the service's ``config.yml`` bind-mount.
+    """The config staged for a service's bind-mount must name no interpreter.
 
-    Drives the real staging code path: a project ``config.yml`` on disk with
-    a host-looking venv path, loaded internally via ``ConfigBuilder()``
-    (which resolves against ``os.getcwd()``), flattened, and written to
-    ``<build_dir>/<service_dir>/config.yml``. The written file must have the
-    key removed entirely, not merely emptied.
+    Drives the real staging code path against a real generated project: its
+    ``config.yml`` is loaded internally via ``ConfigBuilder()`` (which resolves
+    against ``os.getcwd()``), flattened, and written to
+    ``<build_dir>/<service_dir>/config.yml``. Neither the retired
+    ``execution.python_env_path`` key nor any interpreter path may appear —
+    and nothing strips them, because nothing writes them.
     """
+    from osprey.cli.templates.manager import TemplateManager
     from osprey.deployment.compose_generator import setup_build_dir
 
-    host_python = "/Users/someone/.venv/bin/python"
-
-    project_config_path = tmp_path / "config.yml"
-    project_config_path.write_text(
-        yaml.dump(
-            {
-                "project_name": "pep-fixture",
-                "execution": {"python_env_path": host_python},
-            }
-        )
+    project_dir = TemplateManager().create_project(
+        project_name="staged-no-interp",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
     )
 
-    service_dir = tmp_path / "services" / "worker"
+    service_dir = project_dir / "services" / "worker"
     service_dir.mkdir(parents=True)
     (service_dir / "docker-compose.yml.j2").write_text("services:\n  worker:\n    image: test\n")
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(project_dir)
 
     template_path = str(Path("services") / "worker" / "docker-compose.yml.j2")
-    config = {"project_name": "pep-fixture", "build_dir": "./build"}
+    config = {"project_name": "staged-no-interp", "build_dir": "./build"}
     container_cfg = {"copy_src": False, "render_kernel_templates": False}
 
     setup_build_dir(template_path, config, container_cfg)
 
-    staged_config_path = tmp_path / "build" / "services" / "worker" / "config.yml"
+    staged_config_path = project_dir / "build" / "services" / "worker" / "config.yml"
     assert staged_config_path.is_file(), (
         f"expected a staged config.yml at {staged_config_path} "
         "(flattening must have failed and fallen back to a verbatim copy)"
     )
-    staged_config = yaml.safe_load(staged_config_path.read_text())
-    assert "python_env_path" not in staged_config.get("execution", {}), (
-        f"host python_env_path leaked into the staged config: {staged_config.get('execution')}"
+    staged_text = staged_config_path.read_text()
+    staged_config = yaml.safe_load(staged_text)
+    assert "execution_method" in staged_config.get("execution", {}), (
+        "the staged config must carry a real, flattened execution block — "
+        "without one the interpreter assertions below would be vacuous"
+    )
+    assert "python_env_path" not in staged_config["execution"], (
+        f"an interpreter path reached the staged config: {staged_config.get('execution')}"
+    )
+    assert sys.executable not in staged_text, (
+        "the staging interpreter must not appear anywhere in the staged config"
     )
 
 
-def test_setup_build_dir_staged_config_has_no_execution_python_env_path_key_at_all(
+def test_setup_build_dir_stages_the_execution_block_verbatim(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Same as above, phrased as a positive contract on the whole ``execution``
-    block: no key named ``python_env_path`` survives staging, regardless of
-    whatever else lives under ``execution``.
+    """Staging edits no key under ``execution``.
+
+    The strip that used to run here is gone, so a legacy config carrying the
+    retired ``execution.python_env_path`` stages unchanged. That is safe rather
+    than a regression: the loader drops the key and MCP-server generation never
+    reads it (see the companion tests below), so the value is inert wherever it
+    lands. What matters is that staging does not quietly lose sibling keys.
     """
     from osprey.deployment.compose_generator import setup_build_dir
 
+    execution_block = {
+        "python_env_path": "/Users/someone/.venv/bin/python3.11",
+        "execution_method": "subprocess",
+    }
+
     project_config_path = tmp_path / "config.yml"
     project_config_path.write_text(
-        yaml.dump(
-            {
-                "project_name": "pep-fixture-2",
-                "execution": {
-                    "python_env_path": "/Users/someone/.venv/bin/python3.11",
-                    "execution_method": "local",
-                },
-            }
-        )
+        yaml.dump({"project_name": "pep-fixture-2", "execution": dict(execution_block)})
     )
 
     service_dir = tmp_path / "services" / "worker"
@@ -886,22 +895,20 @@ def test_setup_build_dir_staged_config_has_no_execution_python_env_path_key_at_a
 
     staged_config_path = tmp_path / "build" / "services" / "worker" / "config.yml"
     staged_config = yaml.safe_load(staged_config_path.read_text())
-    assert list(staged_config["execution"].keys()) == ["execution_method"], (
-        "only python_env_path should be dropped; sibling execution keys must survive"
+    assert staged_config["execution"] == execution_block, (
+        "staging must pass the execution block through untouched"
     )
 
 
 def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
-    """The real ``.mcp.json`` generation seam: with ``execution.python_env_path``
-    absent (exactly what ``setup_build_dir`` staging produces), MCP-server
-    commands must resolve to the CONTAINER's own ``sys.executable``, never a
-    host path.
+    """The real ``.mcp.json`` generation seam: with no interpreter recorded in
+    the config (exactly what staging produces today), MCP-server commands must
+    resolve to the CONTAINER's own ``sys.executable``, never a host path.
 
     Drives ``build_claude_code_context`` (the actual context-builder used by
     both ``osprey build`` and ``osprey claude regen``) followed by
-    ``resolve_servers``'s real command resolution, rather than asserting the
-    ``config.execution.python_env_path or sys.executable`` expression in
-    isolation.
+    ``resolve_servers``'s real command resolution, rather than asserting a
+    single expression in isolation.
     """
     import tempfile
 
@@ -934,11 +941,15 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
         )
 
 
-def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> None:
-    """Companion to the above: proves what the strip in ``setup_build_dir``
-    prevents. If a host-looking ``python_env_path`` survived staging (it does
-    not, per the tests above), the exact same generator would bake that host
-    path into every MCP server's ``command`` — the M2 failure mode.
+def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() -> None:
+    """Companion to the above: the M2 failure mode is now unreachable by design.
+
+    A host-looking ``python_env_path`` that survived staging used to be baked
+    into every MCP server's ``command``. The generator no longer reads the key,
+    so even a config that still carries it — exactly what an already-deployed
+    project looks like — yields the container's own interpreter. This is what
+    lets ``setup_build_dir`` stage the config untouched: nothing stands between
+    the host path and a broken container because nothing consumes the path.
     """
     import tempfile
 
@@ -964,11 +975,11 @@ def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> 
             manager.template_root, manager.jinja_env, project_dir, config
         )
 
-        assert ctx["current_python_env"] == host_python
+        assert ctx["current_python_env"] == sys.executable
 
         controls_server = next(s for s in ctx["servers"] if s["name"] == "controls")
-        assert controls_server["command"] == host_python
-        assert controls_server["command"] != sys.executable
+        assert controls_server["command"] == sys.executable
+        assert controls_server["command"] != host_python
 
 
 # ---------------------------------------------------------------------------

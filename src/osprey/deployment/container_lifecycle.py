@@ -95,32 +95,6 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "postgresql": ("ARIEL_DB_PASSWORD",),
 }
 
-# Token vars that are safe to auto-mint even when the agent's code execution is
-# unsandboxed on the host (see _local_exec_arming_unsafe below). Every *other*
-# declared token var is withheld under that config — a var nobody has triaged
-# fails CLOSED by omission.
-#
-# This is an allowlist, not a blocklist, because a security gate must fail
-# closed on the paths its author did not enumerate. Under a blocklist, a service
-# later added to _SERVICE_TOKEN_VARS with an arming token would mint it under
-# writes_enabled + local exec, warn about nothing, and break no test.
-#
-# The gate is per *variable*, not per service: one service can declare both an
-# arming token and non-arming credentials. The bar for adding a var here is that
-# it grants no write-capable route the agent itself can walk. Under local exec,
-# agent-authored code can read any minted token straight out of .env/config.yml
-# and call the route it gates directly, bypassing the in-tool writes_enabled
-# re-check. BLUESKY_LAUNCH_TOKEN is therefore absent: it gates the bridge's
-# POST /runs/{id}/launch.
-_LOCAL_EXEC_SAFE_VARS = {
-    "BLUESKY_TILED_API_KEY",  # outbound credential to the Tiled catalog; gates no bridge route
-    "EVENT_DISPATCHER_TOKEN",  # inbound webhook boundary, not a write path the agent walks
-    "DISPATCH_WORKER_TOKEN",  # worker-routing boundary, same
-    "ZO_ROOT_USER_PASSWORD",  # OpenObserve admin/ingest cred; gates an observability store, not a control-system write path
-    "ARIEL_DB_PASSWORD",  # ARIEL Postgres cred; gates the logbook store, not a control-system write path
-}
-
-
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
 # NEVER minted — distinct from _SERVICE_TOKEN_VARS (which mints an unset var
 # for a deployed service) and from a bare _VAR_VALIDATORS entry alone (which,
@@ -138,24 +112,6 @@ _LOCAL_EXEC_SAFE_VARS = {
 # fabricated when absent, never auto-minted when malformed, just rejected
 # with a named-var/no-value error.
 _VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
-
-
-def _local_exec_arming_unsafe(config: dict) -> bool:
-    """True when writes are enabled AND python-executor code runs unsandboxed on the host.
-
-    ``control_system.writes_enabled`` (default False) and
-    ``execution.execution_method`` (default "container") are read directly from
-    the raw config dict, mirroring how every other consumer of these two flags
-    resolves them (e.g. ``osprey.connectors.control_system.base``,
-    ``osprey.cli.templates.claude_code``, the ``osprey_writes_check`` hook, and
-    ``osprey.mcp_server.python_executor.executor._read_config``).
-
-    The container execution_method runs agent code fs/network-isolated from the
-    project's ``.env`` and has no equivalent exposure.
-    """
-    writes_enabled = bool(config.get("control_system", {}).get("writes_enabled", False))
-    execution_method = config.get("execution", {}).get("execution_method", "container")
-    return writes_enabled and execution_method == "local"
 
 
 def _ensure_service_tokens(
@@ -178,21 +134,14 @@ def _ensure_service_tokens(
     an exposed deploy (``--expose`` / bind 0.0.0.0) we refuse rather than bind a
     fail-open-at-bind server to all interfaces.
 
-    When ``_local_exec_arming_unsafe(config)`` — see that function's docstring —
-    the mint is restricted to the ``_LOCAL_EXEC_SAFE_VARS`` allowlist: any other
-    declared var is skipped (never minted; an existing value in .env/env is left
-    untouched but not read either). For the withheld ``BLUESKY_LAUNCH_TOKEN``
-    the bridge's own ``require_armed()`` then keeps returning 503, i.e. this
-    deploy never arms it, rather than arming it with a token any local
-    agent-code execution can trivially read back out of ``.env``.
+    Minting is unconditional for every var a deployed service declares: these
+    tokens authenticate *network callers* to a service's own HTTP boundary and
+    are not a hardware-safety layer. Whether a scan or a write is permitted is
+    decided at the connector (``writes_enabled`` plus the per-put channel
+    limits), which every write path — agent-side and bridge-side alike — must
+    still clear. No deploy-time value is read here for safety semantics.
 
-    The restriction is per var, not per service: the allowlisted vars a service
-    declares (e.g. bluesky's ``BLUESKY_TILED_API_KEY``, which grants catalog
-    access, not the ability to move the machine) still mint under the same
-    unsafe config. And because it is an allowlist, a token var added later
-    without being triaged fails closed rather than arming silently.
-
-    Independently of all of the above, every var in ``_VALIDATE_ONLY_VARS``
+    Independently of the above, every var in ``_VALIDATE_ONLY_VARS``
     (e.g. ``ARIEL_DSN``) is checked against its ``_VAR_VALIDATORS`` constraint
     when present in the effective env — but never minted, and never required:
     this runs even when no deployed service pulls in any ``_SERVICE_TOKEN_VARS``
@@ -201,35 +150,15 @@ def _ensure_service_tokens(
     """
     deployed_services = config.get("deployed_services")
     services = {str(s) for s in (deployed_services or [])}
-    unsafe_local_exec = _local_exec_arming_unsafe(config)
 
     # Iterate the map (not the deployed `services` set) so var order is
     # deterministic regardless of set iteration order or config.yml ordering.
     required_vars: list[str] = []
     seen: set[str] = set()
-    warned: set[str] = set()
     for svc_name, token_vars in _SERVICE_TOKEN_VARS.items():
         if svc_name not in services:
             continue
         for var in token_vars:
-            if unsafe_local_exec and var not in _LOCAL_EXEC_SAFE_VARS:
-                if var not in warned:
-                    warned.add(var)
-                    logger.warning(
-                        "Refusing to arm %r: control_system.writes_enabled is true but "
-                        "execution.execution_method is 'local' (agent code runs unsandboxed "
-                        "on the host, cwd=project_root). Local execution can read %s "
-                        "straight out of .env/config.yml and call the write-capable route "
-                        "it gates directly, bypassing the in-tool writes_enabled re-check. "
-                        "NOT minting %s — this deploy will not arm it (an existing value "
-                        "in .env or the environment is left in place and still arms the "
-                        "service). Set execution.execution_method: container to use this "
-                        "feature with writes_enabled: true.",
-                        svc_name,
-                        var,
-                        var,
-                    )
-                continue
             if var not in seen:
                 seen.add(var)
                 required_vars.append(var)

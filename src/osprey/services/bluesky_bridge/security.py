@@ -1,29 +1,47 @@
 """The Bluesky bridge's launch-token gate.
 
-``POST /runs/{id}/launch`` (task 1.5's ``app.py``) is the only HTTP route that
-starts a real scan; this module is its sole guard. Fail-closed by design: if
-``BLUESKY_LAUNCH_TOKEN`` isn't set in the bridge process's environment, the
-launch path is simply not armed, regardless of what header a caller sends.
-This is arming/network protection only — the authoritative safety check is the
-agent-side ``launch_run`` tool's in-tool ``writes_enabled`` re-read (task 1.8),
-which runs before this token is ever sent. Mirrors BELLA's
-``runs.require_armed`` / ``launch_intent`` token check.
+``verify_launch_token`` guards the bridge's two launch routes —
+``POST /runs/{run_id}/launch`` and ``POST /draft/run`` (both in ``app.py``),
+the only routes that reach ``runs.do_launch`` and start a real scan.
+Fail-closed by design: if ``BLUESKY_LAUNCH_TOKEN`` isn't set in the bridge
+process's environment, neither route is armed, regardless of what header a
+caller sends. Mirrors BELLA's ``runs.require_armed`` / ``launch_intent``
+token check.
 
-Threat model note (task 2.11c): arming/network protection assumes the agent's
-own code execution can't read this token back out of the deploy environment.
-That assumption holds for the python-executor's container execution_method
-(fs/network isolated from the project ``.env``), but NOT for its local
-execution_method — agent-authored code there runs unsandboxed on the host
-(cwd=project_root) and can trivially ``open(".env")`` or read
-``config.yml``'s ``bluesky.launch_token``, then call this route directly,
-bypassing ``launch_run``'s ``writes_enabled`` gate entirely. Because of this,
-``osprey.deployment.container_lifecycle`` refuses to mint
-``BLUESKY_LAUNCH_TOKEN`` (leaving this bridge permanently unarmed, i.e.
-``require_armed`` keeps 503ing) whenever ``control_system.writes_enabled`` and
-``execution.execution_method: local`` are both set — see
-``container_lifecycle._local_exec_arming_unsafe``. Container execution is
-required to use this feature with writes enabled. Full write-safety
-threat-model writeup: Phase 3 task 3.6 (how-to guide, not yet written).
+**What the token is.** Authentication for network callers on a shared
+loopback port. The bridge binds to loopback, but loopback is shared: every
+process running as the same user on that host can open the port. The token
+distinguishes the caller that was handed it (the Bluesky MCP server) from
+any other process that can reach the socket. It is not a secret the agent
+is unable to obtain — agent-authored Python runs on the host as the same
+user and can read the deploy ``.env`` or ``config.yml``'s
+``bluesky.launch_token``. Treat the token as caller authentication, never as
+the thing that stops a scan from moving hardware.
+
+**Where the security boundary is.** The control-system connector. Every
+setpoint a running plan writes goes through
+``connector.write_channel_checked`` (``devices/connector.py``), which
+re-reads ``control_system.writes_enabled`` and applies the configured limits
+on each individual put, raising on refusal. A caller that stole or forged
+the token therefore still cannot drive a device past what policy allows. A
+writable bridge additionally refuses to start at all when limits checking is
+enabled but its database is missing or unparseable
+(``validation._assert_limits_readable_if_writable``).
+
+**The approval prompt is best-effort UX defense, on both write paths.** The
+human approval prompt on ``launch_run`` and that tool's in-tool
+``writes_enabled`` re-read (``osprey/mcp_server/bluesky/tools/launch.py``)
+are worth having, but they are not a boundary: code the agent authors and
+runs through the python executor can POST these routes directly, or drive
+channels directly, without any prompt. Both paths converge on the connector,
+and only the connector is enforced.
+
+**The accepted trade.** On a bare-host, writes-enabled deploy the launch
+approval prompt is best-effort — exactly as it already is on the Python
+execution path. OSPREY accepts that rather than pretending otherwise: the
+launch token is minted for every deployed bridge unconditionally, so the two
+write paths carry the same posture and no configuration implies a
+containment the host does not provide. The connector is the boundary.
 """
 
 from __future__ import annotations
