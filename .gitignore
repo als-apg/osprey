@@ -1,3 +1,6 @@
+# Scratch notes (local idea capture)
+scratch/
+
 # NFS temporary files
 .nfs*
 
@@ -123,6 +126,10 @@ valves.json
 
 # Agent data directories
 _agent_data/*
+.agents/
+
+# Local coding-agent guidance (CLAUDE.md is the tracked source of guidance)
+AGENTS.md
 
 # Sample logbook data (large JSONL files)
 logbook_*.jsonl
@@ -180,6 +187,9 @@ src/osprey/templates/apps/control_assistant/data/benchmarks/results/
 # Node.js (dev-only JS toolchain; not part of the Python wheel)
 node_modules/
 
-# feature-scaffolding logs
+# feature-scaffolding logs (not committed)
 .claude/.logs/.state/
 .claude/.logs/*.jsonl
+
+# Process scaffolding — never committed (specs/plans live here uncommitted)
+docs/superpowers/
