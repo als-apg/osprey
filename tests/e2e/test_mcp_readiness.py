@@ -1,7 +1,7 @@
 """Unit tests for the MCP readiness barrier + instrumentation in sdk_helpers.
 
 These exercise the cold-start-race fix without any API calls or a real CLI:
-``_await_mcp_ready`` is driven by a fake client, and the ``SDKWorkflowResult``
+``await_mcp_ready`` is driven by a fake client, and the ``SDKWorkflowResult``
 accessors are pure data transforms. The integration behaviour (the barrier
 actually eliminating the controls cold-start flake) is covered by the e2e suite.
 
@@ -19,8 +19,8 @@ import pytest
 from tests.e2e.sdk_helpers import (
     SDKWorkflowResult,
     ToolTrace,
-    _await_mcp_ready,
-    _expected_mcp_servers,
+    await_mcp_ready,
+    expected_mcp_servers,
 )
 
 pytestmark = pytest.mark.unit
@@ -63,7 +63,7 @@ def test_await_returns_once_all_expected_connected() -> None:
             ],
         ]
     )
-    servers = asyncio.run(_await_mcp_ready(client, {"controls", "python"}, timeout_s=5, poll_s=0))
+    servers = asyncio.run(await_mcp_ready(client, {"controls", "python"}, timeout_s=5, poll_s=0))
     status = {s["name"]: s["status"] for s in servers}
     assert status == {"controls": "connected", "python": "connected"}
     assert client.calls == 3  # did not over-poll once ready
@@ -75,7 +75,7 @@ def test_await_tolerates_early_get_status_errors() -> None:
         [[_srv("controls", "connected", ["channel_write"])]],
         raise_first=2,
     )
-    servers = asyncio.run(_await_mcp_ready(client, {"controls"}, timeout_s=5, poll_s=0))
+    servers = asyncio.run(await_mcp_ready(client, {"controls"}, timeout_s=5, poll_s=0))
     assert {s["name"]: s["status"] for s in servers} == {"controls": "connected"}
 
 
@@ -83,7 +83,7 @@ def test_await_returns_last_snapshot_on_timeout_without_raising() -> None:
     """If a server never connects, return the last snapshot (don't raise) so the
     caller records a genuine registration failure rather than masking it."""
     client = _FakeClient([[_srv("controls", "pending"), _srv("python", "connected")]])
-    servers = asyncio.run(_await_mcp_ready(client, {"controls"}, timeout_s=0.05, poll_s=0.01))
+    servers = asyncio.run(await_mcp_ready(client, {"controls"}, timeout_s=0.05, poll_s=0.01))
     assert {s["name"]: s["status"] for s in servers} == {
         "controls": "pending",
         "python": "connected",
@@ -113,11 +113,11 @@ def test_expected_mcp_servers_reads_mcp_json(tmp_path) -> None:
         '{"mcpServers": {"controls": {}, "python": {}, "osprey_workspace": {}}}',
         encoding="utf-8",
     )
-    assert _expected_mcp_servers(tmp_path) == {"controls", "python", "osprey_workspace"}
+    assert expected_mcp_servers(tmp_path) == {"controls", "python", "osprey_workspace"}
 
 
 def test_expected_mcp_servers_empty_when_missing(tmp_path) -> None:
-    assert _expected_mcp_servers(tmp_path) == set()
+    assert expected_mcp_servers(tmp_path) == set()
 
 
 def test_redelegation_loop_detected_on_repeated_identical_agent_spawns() -> None:

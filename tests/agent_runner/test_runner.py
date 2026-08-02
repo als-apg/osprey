@@ -1,6 +1,6 @@
 """Unit tests for osprey.agent_runner.runner.run_query.
 
-All tests mock ClaudeSDKClient and _await_mcp_ready so no live model or API
+All tests mock ClaudeSDKClient and await_mcp_ready so no live model or API
 keys are required.  The fake message stream exercises the full collection
 logic: tool call → tool result (via UserMessage) → text block → ResultMessage.
 """
@@ -76,7 +76,7 @@ async def _scripted_stream() -> AsyncIterator:
 @pytest.fixture()
 def project_dir(tmp_path: Path) -> Path:
     """Minimal OSPREY project skeleton sufficient for run_query."""
-    # .mcp.json declares the "controls" server so _expected_mcp_servers parses it.
+    # .mcp.json declares the "controls" server so expected_mcp_servers parses it.
     (tmp_path / ".mcp.json").write_text(
         '{"mcpServers": {"controls": {"command": "osprey-controls-mcp"}}}'
     )
@@ -117,7 +117,7 @@ async def test_run_query_collects_tool_traces_and_text(project_dir: Path) -> Non
     with (
         patch("osprey.agent_runner.runner.ClaudeSDKClient", return_value=async_cm),
         patch(
-            "osprey.agent_runner.runner._await_mcp_ready",
+            "osprey.agent_runner.runner.await_mcp_ready",
             new=AsyncMock(return_value=FAKE_MCP_SERVERS),
         ),
         patch("osprey.agent_runner.primitives.sdk_env", return_value={"CLAUDECODE": ""}),
@@ -126,7 +126,7 @@ async def test_run_query_collects_tool_traces_and_text(project_dir: Path) -> Non
             return_value="claude-haiku-4-5-20251001",
         ),
         patch(
-            "osprey.agent_runner.runner._expected_mcp_servers",
+            "osprey.agent_runner.runner.expected_mcp_servers",
             return_value={"controls"},
         ),
     ):
@@ -170,7 +170,7 @@ async def test_run_query_passes_disallowed_tools_to_options(project_dir: Path) -
     with (
         patch("osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture_client),
         patch(
-            "osprey.agent_runner.runner._await_mcp_ready",
+            "osprey.agent_runner.runner.await_mcp_ready",
             new=AsyncMock(return_value=[]),
         ),
         patch("osprey.agent_runner.primitives.sdk_env", return_value={"CLAUDECODE": ""}),
@@ -179,7 +179,7 @@ async def test_run_query_passes_disallowed_tools_to_options(project_dir: Path) -
             return_value="claude-haiku-4-5-20251001",
         ),
         patch(
-            "osprey.agent_runner.runner._expected_mcp_servers",
+            "osprey.agent_runner.runner.expected_mcp_servers",
             return_value=set(),
         ),
     ):
@@ -207,7 +207,7 @@ async def test_run_query_uses_resolved_model_when_none(project_dir: Path) -> Non
     with (
         patch("osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture_client),
         patch(
-            "osprey.agent_runner.runner._await_mcp_ready",
+            "osprey.agent_runner.runner.await_mcp_ready",
             new=AsyncMock(return_value=[]),
         ),
         patch("osprey.agent_runner.primitives.sdk_env", return_value={"CLAUDECODE": ""}),
@@ -216,7 +216,7 @@ async def test_run_query_uses_resolved_model_when_none(project_dir: Path) -> Non
             return_value="claude-haiku-4-5-20251001",
         ),
         patch(
-            "osprey.agent_runner.runner._expected_mcp_servers",
+            "osprey.agent_runner.runner.expected_mcp_servers",
             return_value=set(),
         ),
     ):
@@ -238,7 +238,7 @@ async def test_run_query_uses_explicit_model_when_supplied(project_dir: Path) ->
     with (
         patch("osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture_client),
         patch(
-            "osprey.agent_runner.runner._await_mcp_ready",
+            "osprey.agent_runner.runner.await_mcp_ready",
             new=AsyncMock(return_value=[]),
         ),
         patch("osprey.agent_runner.primitives.sdk_env", return_value={"CLAUDECODE": ""}),
@@ -247,7 +247,7 @@ async def test_run_query_uses_explicit_model_when_supplied(project_dir: Path) ->
             return_value="claude-haiku-4-5-20251001",
         ),
         patch(
-            "osprey.agent_runner.runner._expected_mcp_servers",
+            "osprey.agent_runner.runner.expected_mcp_servers",
             return_value=set(),
         ),
     ):
@@ -258,7 +258,7 @@ async def test_run_query_uses_explicit_model_when_supplied(project_dir: Path) ->
 
 @pytest.mark.asyncio
 async def test_run_query_mcp_servers_populated(project_dir: Path) -> None:
-    """MCP server snapshot from _await_mcp_ready is stored in the result."""
+    """MCP server snapshot from await_mcp_ready is stored in the result."""
     async_cm, _ = _make_mock_client()
     fake_servers = [
         {"name": "controls", "status": "connected", "tools": []},
@@ -268,7 +268,7 @@ async def test_run_query_mcp_servers_populated(project_dir: Path) -> None:
     with (
         patch("osprey.agent_runner.runner.ClaudeSDKClient", return_value=async_cm),
         patch(
-            "osprey.agent_runner.runner._await_mcp_ready",
+            "osprey.agent_runner.runner.await_mcp_ready",
             new=AsyncMock(return_value=fake_servers),
         ),
         patch("osprey.agent_runner.primitives.sdk_env", return_value={"CLAUDECODE": ""}),
@@ -277,7 +277,7 @@ async def test_run_query_mcp_servers_populated(project_dir: Path) -> None:
             return_value="claude-haiku-4-5-20251001",
         ),
         patch(
-            "osprey.agent_runner.runner._expected_mcp_servers",
+            "osprey.agent_runner.runner.expected_mcp_servers",
             return_value={"controls", "python"},
         ),
     ):
@@ -302,7 +302,7 @@ async def test_run_query_wraps_sdk_exception(project_dir: Path) -> None:
             return_value="claude-haiku-4-5-20251001",
         ),
         patch(
-            "osprey.agent_runner.runner._expected_mcp_servers",
+            "osprey.agent_runner.runner.expected_mcp_servers",
             return_value=set(),
         ),
     ):
@@ -360,7 +360,7 @@ async def test_run_query_parses_list_content_and_is_error(project_dir: Path) -> 
     with (
         patch("osprey.agent_runner.runner.ClaudeSDKClient", return_value=async_cm),
         patch(
-            "osprey.agent_runner.runner._await_mcp_ready",
+            "osprey.agent_runner.runner.await_mcp_ready",
             new=AsyncMock(return_value=[]),
         ),
         patch("osprey.agent_runner.primitives.sdk_env", return_value={"CLAUDECODE": ""}),
@@ -368,7 +368,7 @@ async def test_run_query_parses_list_content_and_is_error(project_dir: Path) -> 
             "osprey.agent_runner.primitives.resolve_default_model",
             return_value="claude-haiku-4-5-20251001",
         ),
-        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+        patch("osprey.agent_runner.runner.expected_mcp_servers", return_value=set()),
     ):
         result = await run_query(project_dir, "q", disallowed_tools=[])
 
@@ -436,7 +436,7 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
         patch(
             "osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture(captured, async_cm)
         ),
-        patch("osprey.agent_runner.runner._await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.runner.await_mcp_ready", new=AsyncMock(return_value=[])),
         patch("osprey.agent_runner.primitives.sdk_env", return_value=proxy_env),
         patch("osprey.agent_runner.primitives.resolve_default_model", return_value="m"),
         patch(
@@ -444,7 +444,7 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
             return_value=_FakeSpec(needs_proxy=True, upstream_base_url="https://argo.example/v1"),
         ),
         patch("osprey.agent_runner.primitives.start_proxy", proxy),
-        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+        patch("osprey.agent_runner.runner.expected_mcp_servers", return_value=set()),
     ):
         await run_query(project_dir, "q", disallowed_tools=[])
 
@@ -466,7 +466,7 @@ async def test_run_query_warns_when_proxy_auth_token_missing(project_dir: Path, 
 
     with (
         patch("osprey.agent_runner.runner.ClaudeSDKClient", return_value=async_cm),
-        patch("osprey.agent_runner.runner._await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.runner.await_mcp_ready", new=AsyncMock(return_value=[])),
         patch("osprey.agent_runner.primitives.sdk_env", return_value=proxy_env),
         patch("osprey.agent_runner.primitives.resolve_default_model", return_value="m"),
         patch(
@@ -474,7 +474,7 @@ async def test_run_query_warns_when_proxy_auth_token_missing(project_dir: Path, 
             return_value=_FakeSpec(needs_proxy=True, provider="argo"),
         ),
         patch("osprey.agent_runner.primitives.start_proxy", proxy),
-        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+        patch("osprey.agent_runner.runner.expected_mcp_servers", return_value=set()),
         caplog.at_level(logging.WARNING, logger="osprey.agent_runner.primitives"),
     ):
         await run_query(project_dir, "q", disallowed_tools=[])
@@ -500,7 +500,7 @@ async def test_run_query_no_proxy_for_native_provider(project_dir: Path) -> None
         patch(
             "osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture(captured, async_cm)
         ),
-        patch("osprey.agent_runner.runner._await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.runner.await_mcp_ready", new=AsyncMock(return_value=[])),
         patch("osprey.agent_runner.primitives.sdk_env", return_value=native_env),
         patch("osprey.agent_runner.primitives.resolve_default_model", return_value="m"),
         patch(
@@ -508,7 +508,7 @@ async def test_run_query_no_proxy_for_native_provider(project_dir: Path) -> None
             return_value=_FakeSpec(needs_proxy=False),
         ),
         patch("osprey.agent_runner.primitives.start_proxy", proxy),
-        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+        patch("osprey.agent_runner.runner.expected_mcp_servers", return_value=set()),
     ):
         await run_query(project_dir, "q", disallowed_tools=[])
 
@@ -527,7 +527,7 @@ async def test_run_query_no_proxy_when_upstream_absent(project_dir: Path) -> Non
         patch(
             "osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture(captured, async_cm)
         ),
-        patch("osprey.agent_runner.runner._await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.runner.await_mcp_ready", new=AsyncMock(return_value=[])),
         patch("osprey.agent_runner.primitives.sdk_env", return_value={"CLAUDECODE": ""}),
         patch("osprey.agent_runner.primitives.resolve_default_model", return_value="m"),
         patch(
@@ -535,7 +535,7 @@ async def test_run_query_no_proxy_when_upstream_absent(project_dir: Path) -> Non
             return_value=_FakeSpec(needs_proxy=True, upstream_base_url=None),
         ),
         patch("osprey.agent_runner.primitives.start_proxy", proxy),
-        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+        patch("osprey.agent_runner.runner.expected_mcp_servers", return_value=set()),
     ):
         await run_query(project_dir, "q", disallowed_tools=[])
 

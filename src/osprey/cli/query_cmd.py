@@ -33,8 +33,8 @@ import yaml  # type: ignore[import-untyped]
 from osprey.agent_runner import (
     EXIT_USAGE,
     SDKWorkflowResult,
-    _expected_mcp_servers,
     evaluate_verdict,
+    expected_mcp_servers,
     read_only_disallowed_tools,
     run_query,
 )
@@ -129,7 +129,7 @@ def query(ctx: click.Context, prompt: str, as_json: bool, project: str | None) -
         return
 
     disallowed_tools = read_only_disallowed_tools(project_dir)
-    expected = _expected_mcp_servers(project_dir)
+    expected = expected_mcp_servers(project_dir)
 
     try:
         result = asyncio.run(run_query(project_dir, prompt, disallowed_tools=disallowed_tools))
