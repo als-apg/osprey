@@ -126,7 +126,7 @@ class TestHappyPath:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "What is 6*7?"])
         assert result.exit_code == EXIT_PASS
@@ -142,7 +142,7 @@ class TestHappyPath:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "What is 6*7?"])
         assert "The answer is 42." in result.output
@@ -166,7 +166,7 @@ class TestVerdictFailure:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "ping"])
         assert result.exit_code == EXIT_VERDICT_FAIL
@@ -198,7 +198,7 @@ class TestWriteToolSafety:
 
         with (
             patch("osprey.cli.query_cmd.run_query", side_effect=capturing_run_query),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             runner.invoke(query, ["--project", str(project_with_mcp), "safe query"])
 
@@ -236,7 +236,7 @@ class TestJsonOutput:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             result = runner.invoke(
                 query, ["--project", str(project_with_mcp), "--json", "beam current"]
@@ -260,7 +260,7 @@ class TestJsonOutput:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             result = runner.invoke(
                 query, ["--project", str(project_with_mcp), "--json", "beam current"]
@@ -283,7 +283,7 @@ class TestJsonOutput:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "--json", "q"])
 
@@ -307,7 +307,7 @@ class TestJsonOutput:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "--json", "ping"])
 
@@ -350,7 +350,7 @@ class TestJsonStdoutPurity:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value={"controls"}),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
             result = runner.invoke(
                 query, ["--project", str(project_with_mcp), "--json", "beam current"]
@@ -381,7 +381,7 @@ class TestInfraErrors:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value=set()),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
         assert result.exit_code == EXIT_USAGE
@@ -396,7 +396,7 @@ class TestInfraErrors:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value=set()),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
         assert result.exit_code == EXIT_USAGE
@@ -413,7 +413,7 @@ class TestInfraErrors:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value=set()),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
         assert result.exit_code == EXIT_USAGE
@@ -432,7 +432,7 @@ class TestInfraErrors:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value=set()),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
         assert result.exit_code == EXIT_USAGE
@@ -453,7 +453,7 @@ class TestInfraErrors:
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
             ),
-            patch("osprey.cli.query_cmd._expected_mcp_servers", return_value=set()),
+            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
             result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
         assert result.exit_code == EXIT_USAGE

@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.agent_runner.primitives import _await_mcp_ready, _expected_mcp_servers
+from osprey.agent_runner.primitives import await_mcp_ready, expected_mcp_servers
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
@@ -259,7 +259,7 @@ async def _stream_with_ready_mcp(
     connected gives every dispatch a ready toolset, matching what
     ``osprey.agent_runner.runner`` already does for interactive runs.
 
-    The barrier is bounded (see ``_await_mcp_ready``) and returns the last
+    The barrier is bounded (see ``await_mcp_ready``) and returns the last
     snapshot on timeout rather than raising, so a server that genuinely never
     registers still runs — and is logged as such — instead of failing the
     dispatch outright.
@@ -270,12 +270,12 @@ async def _stream_with_ready_mcp(
     """
     async with ClaudeSDKClient(options=options) as client:
         # No declared servers — nothing to wait for. Skipped explicitly because
-        # ``_await_mcp_ready`` polls an empty expectation to its full deadline,
+        # ``await_mcp_ready`` polls an empty expectation to its full deadline,
         # which would add that delay to every run of a project whose .mcp.json
         # declares nothing (or could not be read).
-        expected = _expected_mcp_servers(Path(project_dir))
+        expected = expected_mcp_servers(Path(project_dir))
         if expected:
-            servers = await _await_mcp_ready(client, expected)
+            servers = await await_mcp_ready(client, expected)
             connected = {s.get("name") for s in servers if s.get("status") == "connected"}
             missing = sorted(expected - connected)
             if missing:

@@ -44,10 +44,10 @@ except ImportError:
 from osprey.agent_runner.primitives import (
     SDKWorkflowResult,
     ToolTrace,
-    _await_mcp_ready,
     _drain_response,
-    _expected_mcp_servers,
+    await_mcp_ready,
     build_agent_options,
+    expected_mcp_servers,
 )
 
 
@@ -236,7 +236,7 @@ async def agent_session(
     )
 
     async with ClaudeSDKClient(options=options) as client:
-        mcp_servers = await _await_mcp_ready(client, _expected_mcp_servers(project_dir))
+        mcp_servers = await await_mcp_ready(client, expected_mcp_servers(project_dir))
         yield AgentSession(client, max_budget_usd=max_budget_usd, mcp_servers=mcp_servers)
 
 

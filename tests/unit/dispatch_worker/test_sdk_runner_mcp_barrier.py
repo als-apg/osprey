@@ -62,7 +62,7 @@ async def test_mcp_is_polled_to_connected_before_the_prompt_is_sent(monkeypatch)
     """The barrier is only worth anything if it precedes the first turn."""
     events: list[str] = []
     monkeypatch.setattr(sdk_runner, "ClaudeSDKClient", lambda options: _FakeClient(events))
-    monkeypatch.setattr(sdk_runner, "_expected_mcp_servers", lambda _p: {"controls"})
+    monkeypatch.setattr(sdk_runner, "expected_mcp_servers", lambda _p: {"controls"})
 
     messages = await _drain(sdk_runner._stream_with_ready_mcp(object(), "/proj", object()))
 
@@ -79,11 +79,11 @@ async def test_run_proceeds_and_warns_when_a_server_never_connects(monkeypatch, 
     is logged so a missing tool is diagnosable as infra, not model behaviour."""
     events: list[str] = []
     monkeypatch.setattr(sdk_runner, "ClaudeSDKClient", lambda options: _FakeClient(events))
-    monkeypatch.setattr(sdk_runner, "_expected_mcp_servers", lambda _p: {"controls", "archiver"})
+    monkeypatch.setattr(sdk_runner, "expected_mcp_servers", lambda _p: {"controls", "archiver"})
     # Barrier timed out: only one of the two expected servers came up.
     monkeypatch.setattr(
         sdk_runner,
-        "_await_mcp_ready",
+        "await_mcp_ready",
         lambda _c, _e: _ready([{"name": "controls", "status": "connected"}]),
     )
 
@@ -103,7 +103,7 @@ async def test_no_declared_servers_is_skipped_rather_than_polled_to_the_deadline
     run — the barrier is skipped outright, not merely waited out."""
     events: list[str] = []
     monkeypatch.setattr(sdk_runner, "ClaudeSDKClient", lambda options: _FakeClient(events))
-    monkeypatch.setattr(sdk_runner, "_expected_mcp_servers", lambda _p: set())
+    monkeypatch.setattr(sdk_runner, "expected_mcp_servers", lambda _p: set())
 
     started = time.monotonic()
     messages = await _drain(sdk_runner._stream_with_ready_mcp(object(), "/proj", object()))
