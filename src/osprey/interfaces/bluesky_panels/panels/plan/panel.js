@@ -910,6 +910,7 @@ initSplitter({
   storageKey: 'osprey-plan-sidebar-width',
   min: 180,
   max: 560,
-}).restoreWidth();
+  collapsedSize: 0,
+}).restoreSize();
 
 void loadPlans();

@@ -183,12 +183,14 @@ describe('keyboard resize (ARIA separator pattern)', () => {
     mockSidebarWidth(300);
     pressArrow('ArrowRight');
     expect(sidebar.style.flexBasis).toBe('316px');
-    expect(localStorage.getItem(WIDTH_KEY)).toBe('316');
+    // The shared splitter persists a {size, collapsed} record, not a bare
+    // width — a collapse has to remember what to restore to.
+    expect(JSON.parse(String(localStorage.getItem(WIDTH_KEY))).size).toBe(316);
 
     mockSidebarWidth(316);
     pressArrow('ArrowLeft');
     expect(sidebar.style.flexBasis).toBe('300px');
-    expect(localStorage.getItem(WIDTH_KEY)).toBe('300');
+    expect(JSON.parse(String(localStorage.getItem(WIDTH_KEY))).size).toBe(300);
   });
 
   test('clamps at the minimum', () => {

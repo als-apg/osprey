@@ -209,11 +209,18 @@
             </div>
           </aside>
 
-          <!-- Splitter between the cards — live in side-by-side mode
-               (browse-layout.js), hidden in the stacked band layout. -->
+          <!-- Two splitters, one per axis: browse-layout.js parks whichever
+               does not match the effective orientation rather than tearing it
+               down, and CSS hides the parked one. A splitter binds its axis at
+               construction — the geometry, the cursor and the arrow-key mapping
+               all follow from it — so a layout that flips axis needs two
+               instances, not one that mutates. -->
           <div class="resize-handle osprey-splitter" id="resize-handle"
                role="separator" aria-orientation="vertical"
                aria-label="Resize browser column" tabindex="0"></div>
+          <div class="resize-handle-y osprey-splitter" id="resize-handle-y"
+               role="separator" aria-orientation="horizontal"
+               aria-label="Resize browser band" tabindex="0"></div>
 
           <!-- Right pane — inline preview -->
           <div class="browse-preview-pane" id="browse-preview-pane">

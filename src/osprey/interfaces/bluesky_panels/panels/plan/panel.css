@@ -78,12 +78,10 @@ body.embedded .panel-chrome { display: none; }
   display: flex;
 }
 
-/* The splitter occupies the full 12px gutter (3.5px + 5px track + 3.5px)
-   while keeping the shared 5px hit area, which pointer capture makes
-   comfortable to grab. */
-.browser > .osprey-splitter {
-  margin: 0 calc((12px - 5px) / 2);
-}
+/* No gutter: the panes sit flush and the splitter is the only thing between
+   them, so the grip pill reads as attached to the browser's edge rather than
+   floating in a gap. The same arrangement as every other two-pane surface in
+   the product — see design_system/css/base.css. */
 
 /* ---- Sidebar: dense file browser ---- */
 .sidebar {

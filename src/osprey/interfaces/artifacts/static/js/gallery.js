@@ -478,6 +478,7 @@ onModeChange(() => renderSimple());
 
 initBrowseLayout({
   handle: resizeHandle,
+  handleY: document.getElementById("resize-handle-y"),
   sidebar,
   toggle: document.getElementById("orient-toggle-btn"),
 });

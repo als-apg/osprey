@@ -430,50 +430,11 @@ header .stats .stat-value {
 }
 .peek-toggle:hover { color: var(--color-accent-light); }
 
-.vhandle {
-  width: 4px;
-  flex-shrink: 0;
-  background: var(--border-accent);
-  cursor: col-resize;
-  position: relative;
-  transition: background 120ms ease;
-}
-.vhandle:hover, .vhandle.active { background: var(--accent-tint-30); }
-.vhandle::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 2px;
-  height: 28px;
-  background: var(--color-accent-light);
-  opacity: 0.5;
-  border-radius: 1px;
-  pointer-events: none;
-}
-.hhandle {
-  height: 4px;
-  flex-shrink: 0;
-  background: var(--border-accent);
-  cursor: row-resize;
-  position: relative;
-  transition: background 120ms ease;
-}
-.hhandle:hover, .hhandle.active { background: var(--accent-tint-30); }
-.hhandle::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 28px;
-  height: 2px;
-  background: var(--color-accent-light);
-  opacity: 0.5;
-  border-radius: 1px;
-  pointer-events: none;
-}
+/* The three dividers are the design system's shared `.osprey-splitter`
+   (base.css + js/splitter.js) — the same grip pill, cursor, hover treatment,
+   keyboard handling and ARIA semantics as every other resizable pane in the
+   product. base.css arrives via the <link> above, served from this server's own
+   /design-system/ route, so there is nothing to restate here. */
 
 .content-area {
   flex: 1;
@@ -1182,7 +1143,9 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
     </div>
   </div>
 
-  <div class="vhandle" id="sidebar-handle" title="Drag to resize · double-click to collapse"></div>
+  <div class="osprey-splitter" id="sidebar-handle" role="separator"
+       aria-orientation="vertical" aria-label="Resize trigger sidebar" tabindex="0"
+       title="Drag to resize · double-click to collapse"></div>
 
   <div class="content-area">
 
@@ -1208,7 +1171,9 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
       </div>
     </div>
 
-    <div class="hhandle" id="timeline-handle" title="Drag to resize"></div>
+    <div class="osprey-splitter" id="timeline-handle" role="separator"
+         aria-orientation="horizontal" aria-label="Resize timeline" tabindex="0"
+         title="Drag to resize · double-click to collapse"></div>
 
     <div class="runs-zone" id="runs-zone">
       <div class="panel-head" id="runs-head">
@@ -1248,7 +1213,9 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
       </div>
     </div>
 
-    <div class="hhandle" id="inspector-handle" title="Drag to resize"></div>
+    <div class="osprey-splitter" id="inspector-handle" role="separator"
+         aria-orientation="horizontal" aria-label="Resize run inspector" tabindex="0"
+         title="Drag to resize · double-click to collapse"></div>
 
     <div class="inspector-zone" id="inspector-zone">
       <div class="panel-head">
@@ -1327,24 +1294,54 @@ function saveLayout() {
 }
 let layout = loadLayout();
 
+/* The three shared splitters, once wireSplitters' dynamic import resolves.
+   Null until then, which is why every geometry write below has a direct-style
+   fallback: applyLayout() runs once during init() before the module lands, and
+   the first paint must still be correct. */
+let splitters = null;
+
+/* Set while applyLayout() is pushing `layout` into the splitters, so their
+   onCommit hooks do not write straight back into `layout` and flip the mode
+   pill to "custom" on what was actually a preset being applied. `layout` is the
+   single source of truth; the splitters are geometry drivers over it. */
+let applyingLayout = false;
+
 function applyLayout() {
-  const sidebar = document.getElementById('sidebar');
-  sidebar.style.width = layout.sidebar + 'px';
-  sidebar.classList.toggle('collapsed', !!layout.sidebarCollapsed);
+  applyingLayout = true;
+  try {
+    const sidebar = document.getElementById('sidebar');
+    const tz = document.getElementById('timeline-zone');
+    const rz = document.getElementById('runs-zone');
+    const iz = document.getElementById('inspector-zone');
 
-  const tz = document.getElementById('timeline-zone');
-  tz.style.height = layout.timelineHeight + 'px';
-  tz.classList.toggle('collapsed', !!layout.timelineCollapsed);
+    if (splitters) {
+      syncSplitter(splitters.sidebar, layout.sidebar, layout.sidebarCollapsed);
+      syncSplitter(splitters.timeline, layout.timelineHeight, layout.timelineCollapsed);
+      syncSplitter(splitters.inspector, layout.inspectorHeight, layout.inspectorCollapsed);
+    } else {
+      sidebar.style.width = layout.sidebar + 'px';
+      tz.style.height = layout.timelineHeight + 'px';
+      iz.style.height = layout.inspectorHeight + 'px';
+    }
 
-  const rz = document.getElementById('runs-zone');
-  rz.classList.toggle('collapsed', !!layout.runsCollapsed);
+    // The `.collapsed` classes are what hide each zone's body and pin its
+    // header height; the splitter owns the number, this owns the state.
+    sidebar.classList.toggle('collapsed', !!layout.sidebarCollapsed);
+    tz.classList.toggle('collapsed', !!layout.timelineCollapsed);
+    rz.classList.toggle('collapsed', !!layout.runsCollapsed);
+    iz.classList.toggle('collapsed', !!layout.inspectorCollapsed);
 
-  const iz = document.getElementById('inspector-zone');
-  iz.style.height = layout.inspectorHeight + 'px';
-  iz.classList.toggle('collapsed', !!layout.inspectorCollapsed);
+    document.getElementById('mode-overview').classList.toggle('on', layout.mode === 'overview');
+    document.getElementById('mode-inspect').classList.toggle('on', layout.mode === 'inspect');
+  } finally {
+    applyingLayout = false;
+  }
+}
 
-  document.getElementById('mode-overview').classList.toggle('on', layout.mode === 'overview');
-  document.getElementById('mode-inspect').classList.toggle('on', layout.mode === 'inspect');
+/** Push one zone's stored size + collapsed state into its splitter. */
+function syncSplitter(splitter, size, collapsed) {
+  if (collapsed) splitter.collapse();
+  else splitter.applySize(size);
 }
 function applyPreset(mode) {
   const preset = PRESETS[mode];
@@ -2269,72 +2266,86 @@ function wireFilters() {
   }
 }
 
-function wireResizers() {
-  const sbHandle = $('#sidebar-handle');
-  const sb = $('#sidebar');
-  let sbDragging = false;
-  sbHandle.addEventListener('mousedown', (e) => {
-    sbDragging = true; sbHandle.classList.add('active');
-    document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
-    e.preventDefault();
-  });
-  sbHandle.addEventListener('dblclick', () => {
-    layout.sidebarCollapsed = !layout.sidebarCollapsed;
-    markCustom(); saveLayout(); applyLayout();
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!sbDragging) return;
-    const rect = sb.getBoundingClientRect();
-    const newW = Math.max(60, Math.min(560, e.clientX - rect.left));
-    sb.style.width = newW + 'px';
-    sb.classList.remove('collapsed');
-    layout.sidebar = newW;
-    layout.sidebarCollapsed = newW <= 64;
-    markCustom();
-  });
-  document.addEventListener('mouseup', () => {
-    if (sbDragging) { sbDragging = false; sbHandle.classList.remove('active'); document.body.style.cursor = ''; document.body.style.userSelect = ''; saveLayout(); applyLayout(); }
-  });
-
-  wireVerticalDrag($('#timeline-handle'), $('#timeline-zone'), 'timelineHeight', 28, 520, 'top');
-  wireVerticalDrag($('#inspector-handle'), $('#inspector-zone'), 'inspectorHeight', 28, 720, 'bottom');
-
-  $('#timeline-chev').addEventListener('click', () => { layout.timelineCollapsed = !layout.timelineCollapsed; markCustom(); saveLayout(); applyLayout(); });
-  $('#runs-chev').addEventListener('click', () => { layout.runsCollapsed = !layout.runsCollapsed; markCustom(); saveLayout(); applyLayout(); });
-  $('#inspector-chev').addEventListener('click', () => { layout.inspectorCollapsed = !layout.inspectorCollapsed; markCustom(); saveLayout(); applyLayout(); });
+/* Wire the three dividers onto the design system's shared splitter.
+ *
+ * The module is imported dynamically because this is a classic <script>: a
+ * top-level `import` would need `type="module"`, which would take every
+ * top-level binding in this 1000-line block out of global scope. A dynamic
+ * import needs none of that, and the wiring is an init-time enhancement, so
+ * landing a tick late is harmless — applyLayout() has already painted the
+ * stored geometry by then.
+ *
+ * Each splitter takes `storageKey: null`. This dashboard already keeps six
+ * layout fields plus a preset system in one record; letting each splitter
+ * persist its own would create a second source of truth, and a stale splitter
+ * value would win over a freshly applied preset on the next reload.
+ */
+async function wireSplitters() {
+  $('#timeline-chev').addEventListener('click', () => toggleZone('timelineCollapsed'));
+  $('#runs-chev').addEventListener('click', () => toggleZone('runsCollapsed'));
+  $('#inspector-chev').addEventListener('click', () => toggleZone('inspectorCollapsed'));
 
   $('#sidebar-collapsed-rail').addEventListener('click', () => {
-    if (layout.sidebarCollapsed) { layout.sidebarCollapsed = false; markCustom(); saveLayout(); applyLayout(); }
+    if (layout.sidebarCollapsed) toggleZone('sidebarCollapsed');
   });
 
   $('#mode-overview').addEventListener('click', () => applyPreset('overview'));
   $('#mode-inspect').addEventListener('click',  () => applyPreset('inspect'));
+
+  const { initSplitter } = await import('/design-system/js/splitter.js');
+
+  /** Write a settled drag/nudge/collapse back into the one layout record. */
+  const commit = (sizeKey, collapsedKey) => (size, collapsed) => {
+    if (applyingLayout) return;
+    layout[sizeKey] = size;
+    layout[collapsedKey] = collapsed;
+    markCustom();
+    saveLayout();
+    applyLayout();
+  };
+
+  splitters = {
+    sidebar: initSplitter({
+      handle: $('#sidebar-handle'),
+      pane: $('#sidebar'),
+      storageKey: null,
+      axis: 'x', anchor: 'start', sizing: 'box',
+      min: 60, max: 560, collapsedSize: 32,
+      initialSize: layout.sidebar,
+      initialCollapsed: !!layout.sidebarCollapsed,
+      onCommit: commit('sidebar', 'sidebarCollapsed'),
+    }),
+    timeline: initSplitter({
+      handle: $('#timeline-handle'),
+      pane: $('#timeline-zone'),
+      storageKey: null,
+      axis: 'y', anchor: 'start', sizing: 'box',
+      min: 28, max: 520, collapsedSize: 28,
+      initialSize: layout.timelineHeight,
+      initialCollapsed: !!layout.timelineCollapsed,
+      onCommit: commit('timelineHeight', 'timelineCollapsed'),
+    }),
+    inspector: initSplitter({
+      handle: $('#inspector-handle'),
+      pane: $('#inspector-zone'),
+      storageKey: null,
+      axis: 'y', anchor: 'end', sizing: 'box',
+      min: 28, max: 720, collapsedSize: 28,
+      initialSize: layout.inspectorHeight,
+      initialCollapsed: !!layout.inspectorCollapsed,
+      onCommit: commit('inspectorHeight', 'inspectorCollapsed'),
+    }),
+  };
+
+  applyLayout();
 }
 
-function wireVerticalDrag(handle, zone, layoutKey, minH, maxH, anchor) {
-  let dragging = false, startY = 0, startH = 0;
-  handle.addEventListener('mousedown', (e) => {
-    dragging = true; startY = e.clientY;
-    startH = zone.getBoundingClientRect().height;
-    handle.classList.add('active');
-    document.body.style.cursor = 'row-resize'; document.body.style.userSelect = 'none';
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const delta = e.clientY - startY;
-    let newH = anchor === 'top' ? (startH + delta) : (startH - delta);
-    newH = Math.max(minH, Math.min(maxH, newH));
-    zone.style.height = newH + 'px';
-    zone.classList.remove('collapsed');
-    layout[layoutKey] = newH;
-    const collapseKey = layoutKey === 'timelineHeight' ? 'timelineCollapsed' : 'inspectorCollapsed';
-    layout[collapseKey] = newH <= minH + 4;
-    markCustom();
-  });
-  document.addEventListener('mouseup', () => {
-    if (dragging) { dragging = false; handle.classList.remove('active'); document.body.style.cursor = ''; document.body.style.userSelect = ''; saveLayout(); applyLayout(); }
-  });
+/** Flip one zone's collapsed flag. The chevrons' single path. */
+function toggleZone(collapsedKey) {
+  layout[collapsedKey] = !layout[collapsedKey];
+  markCustom();
+  saveLayout();
+  applyLayout();
 }
 
 function render() {
@@ -2380,7 +2391,7 @@ window.addEventListener('message', (e) => {
 function init() {
   loadFiltersFromUrl();
   applyLayout();
-  wireResizers();
+  wireSplitters();
   wireFilters();
   startPolling();
   // Seed the Simple view once so it shows a valid state even before (or

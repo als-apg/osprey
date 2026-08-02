@@ -129,6 +129,15 @@
       </div>
     </aside>
 
+    <!-- Draggable divider between the control sidebar and the figure area.
+         `.osprey-splitter` is the design system's shared grip-pill (base.css);
+         the drag, keyboard and collapse behaviour are wired in js/ui.js from
+         /design-system/js/splitter.js. The header chevron toggles the same
+         splitter, so the two controls cannot disagree about the state. -->
+    <div id="sidebar-resizer" class="osprey-splitter" role="separator"
+         aria-orientation="vertical" aria-label="Resize control sidebar"
+         tabindex="0" title="Drag to resize · double-click to collapse"></div>
+
     <!-- Figure Grid -->
     <main id="figure-area">
       <!-- Fast figures: 2x2 -->

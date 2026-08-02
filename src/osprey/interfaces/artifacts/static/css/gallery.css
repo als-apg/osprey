@@ -588,24 +588,24 @@ html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-row { display:
    - column: a compact full-width browser band on top — toolbar row plus a
      short scrollable list — detail card below.
 
-   The canvas (--bg-primary) shows through the gutters in both. */
+   The two panes sit flush, edge to edge, divided only by the splitter — the
+   OKF panel's arrangement, and now the product-wide one. There is no gutter:
+   the grip pill belongs to the browser's edge rather than floating in a gap
+   between two detached cards. */
 .browse-layout {
   display: flex;
   flex-direction: row;
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  gap: var(--art-panel-gap);
-  padding: var(--art-panel-gap);
   background: var(--bg-primary);
 }
 
-/* ---- Browser card (left column / top band) ---- */
+/* ---- Browser pane (left column / top band) ---- */
 
 .browse-sidebar {
   background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--art-panel-radius);
+  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -616,23 +616,21 @@ html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-row { display:
   max-width: 560px;
 }
 
-/* Splitter between the cards — the same grip-pill idiom as the hub's
-   dockview sashes and the OKF panel's sidebar resizer: quiet pill at rest,
-   instant accent fill on hover/drag/focus. Wired by browse-layout.js;
-   swallows the panel gap so the gutter stays visually even. */
 /* The splitter's look and drag behaviour are the design system's shared
    `.osprey-splitter` (base.css + js/splitter.js) — identical to the OKF and
-   PLAN panels and to the hub's dockview sashes. The one gallery-specific
-   thing is the gutter: this view puts an --art-panel-gap between its cards,
-   so the handle absorbs that gap into its own margin and the spacing stays
-   visually even across the divider. */
-.resize-handle {
-  margin: 0 calc((var(--art-panel-gap) - 5px) / 2);
-}
+   PLAN panels, the LATTICE sidebar, the settings drawer, the event dashboard
+   and the hub's dockview sashes. Nothing gallery-specific remains except which
+   of the two axis handles is showing. */
 
 /* ---- Stacked variant (explicit choice, or forced when the panel is too
-   narrow for a side-by-side split — same duplication note as the OKF
-   panel's stacked responsive layout) ---- */
+   narrow for a side-by-side split) ----
+
+   The two handles swap: only the one matching the effective orientation is
+   displayed, and browse-layout.js parks the other via `isEnabled`. */
+
+#resize-handle-y {
+  display: none;
+}
 
 html[data-browse-orient="column"] .browse-layout {
   flex-direction: column;
@@ -641,19 +639,32 @@ html[data-browse-orient="column"] .browse-layout {
 html[data-browse-orient="column"] .browse-sidebar {
   flex-basis: auto;
   max-width: none;
+  border-right: none;
+  border-bottom: 1px solid var(--border-default);
 }
 
-html[data-browse-orient="column"] .resize-handle {
+html[data-browse-orient="column"] #resize-handle {
   display: none;
 }
 
+html[data-browse-orient="column"] #resize-handle-y {
+  display: block;
+}
+
+/* Below 560px the split is forced onto the y axis regardless of the persisted
+   choice. browse-layout.js consults the same query through `effectiveOrient()`,
+   so the handle that is showing is also the one that is live — and the sizes
+   here stay un-`!important` so the splitter's inline height still wins. */
 @media (max-width: 560px) {
   .browse-layout { flex-direction: column; }
   .browse-sidebar {
-    flex-basis: auto !important;
-    max-width: none !important;
+    flex-basis: auto;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-default);
   }
-  .resize-handle { display: none; }
+  #resize-handle { display: none; }
+  #resize-handle-y { display: block; }
 }
 
 /* The browser card's only bar: filter input + mode pair + ⋯ menu. */
@@ -1312,8 +1323,6 @@ html[data-browse-orient="column"] .sidebar-body {
   min-width: 0;
   min-height: 0;
   background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--art-panel-radius);
   overflow: hidden;
   position: relative;
 }

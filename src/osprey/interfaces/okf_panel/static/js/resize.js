@@ -12,7 +12,7 @@
  * system's base.css.
  */
 
-import { clampWidth as clamp, initSplitter } from "/design-system/js/splitter.js";
+import { clampSize as clamp, initSplitter } from "/design-system/js/splitter.js";
 
 const STORAGE_KEY = "osprey-okf-sidebar-width";
 const MIN_WIDTH = 180;
@@ -41,5 +41,8 @@ export function initSidebarResize() {
     min: MIN_WIDTH,
     max: MAX_WIDTH,
     step: KEY_STEP,
-  }).restoreWidth();
+    // Double-click hides the sidebar outright: there is no header to keep
+    // visible, and the reader is the pane an operator wants all of.
+    collapsedSize: 0,
+  }).restoreSize();
 }

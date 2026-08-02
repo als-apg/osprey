@@ -187,9 +187,9 @@ def _drag_resize_handle(page: Page, dx: int) -> None:
     """Drag ``.drawer-resize-handle`` horizontally by ``dx`` pixels.
 
     The drawer is right-anchored, so dragging left (negative dx) grows it and
-    dragging right (positive dx) shrinks it -- matching osprey-drawer.js's
-    ``_beginResizeDrag`` (``dx = startX - moveEvent.clientX``), so a caller
-    passing a *negative* dx here should widen the drawer.
+    dragging right (positive dx) shrinks it -- which is what the shared
+    splitter's ``anchor: 'end'`` means, so a caller passing a *negative* dx
+    here should widen the drawer.
     """
     handle = page.locator(RESIZE_HANDLE_SELECTOR)
     box = handle.bounding_box()
@@ -275,8 +275,10 @@ def test_resize_persists_width_across_reload(tmp_path, monkeypatch, chromium_bro
         assert widened_width == pytest.approx(initial_width + 100, abs=2), (
             f"expected ~{initial_width + 100}px after the drag, got {widened_width}"
         )
-        persisted = page.evaluate("localStorage.getItem('osprey-drawer-width')")
-        assert persisted == str(round(widened_width)), (
+        # The shared splitter persists a {size, collapsed} record under the same
+        # legacy key -- a collapse has to remember what width to restore to.
+        persisted = page.evaluate("JSON.parse(localStorage.getItem('osprey-drawer-width')).size")
+        assert persisted == pytest.approx(round(widened_width), abs=1), (
             f"expected the drag to persist under the legacy 'osprey-drawer-width' key, "
             f"got {persisted!r}"
         )

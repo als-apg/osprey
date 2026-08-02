@@ -73,6 +73,8 @@ describe('initSidebarResize', () => {
     resizer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     const sidebar = document.getElementById('sidebar');
     expect(sidebar?.style.flexBasis).toBe('180px');
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('180');
+    // The shared splitter persists a {size, collapsed} record, not a bare
+    // width — a collapse has to remember what to restore to.
+    expect(JSON.parse(String(localStorage.getItem(STORAGE_KEY))).size).toBe(180);
   });
 });

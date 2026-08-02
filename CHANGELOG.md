@@ -70,6 +70,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   resolved config is published to child processes (including the `--reload`
   worker), and a detached server's command line always carries `--project` so
   a copied restart cannot lose the project identity.
+- Every draggable divider in the web terminal now looks and behaves the same.
+  Panes sit flush against each other with the grip attached to the pane edge
+  (previously the workspace gallery and the plan panel floated their panes in a
+  gutter), every divider can be moved with Arrow keys as well as the pointer,
+  and double-clicking one collapses that pane and restores it to the width or
+  height you had. The lattice dashboard's control sidebar, which could only be
+  collapsed, can now be resized too.
 - `osprey deploy --dev` now fails with a clear error when the local osprey wheel
   cannot be built, instead of warning and deploying the pinned PyPI release.
   Previously a missing `build` package (or a broken local checkout) produced one
@@ -161,6 +168,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Dragging the horizontal dividers in the events panel no longer lags behind the
+  pointer. The timeline pane animated the same height the drag was setting, so it
+  eased toward a target the cursor had already left and trailed by up to 85
+  pixels for the whole gesture.
 - `osprey web --project <dir>` launched from outside the project now behaves the
   same as running `osprey web` inside it. Previously the flag only set the
   terminal's working directory, so the project's `.env` was never loaded
