@@ -1,7 +1,7 @@
 /**
- * Drift alarm for the accent-token family: keeps `theme-lab.js`'s
- * `deriveAccentVars` and the design system's committed `tokens.css` from
- * silently diverging.
+ * Drift alarm for the accent-token families: keeps `theme-lab.js`'s
+ * `deriveThemeVars` (both accents) and the design system's committed
+ * `tokens.css` from silently diverging.
  *
  * This is a tripwire, not a formality. If someone adds a new accent-named
  * custom property to `tokens.css` -- or renames/removes one -- this test must
@@ -9,8 +9,8 @@
  * `EXCLUSIONS` below with a reason). It asserts two-sided set equality:
  *
  *   (a) every `--*accent*` property in tokens.css is either produced by
- *       `deriveAccentVars` or explicitly excluded, and
- *   (b) every property `deriveAccentVars` produces actually exists in
+ *       `deriveThemeVars` or explicitly excluded, and
+ *   (b) every property `deriveThemeVars` produces actually exists in
  *       tokens.css.
  *
  *   npx vitest run tests/interfaces/design_system/js/theme-lab-coverage.test.mjs
@@ -25,9 +25,12 @@ import { test, expect } from 'vitest';
 
 import {
   BORDER_ALPHA,
+  SECONDARY_TINT_LEVELS,
   SYSTEM_TINT_ALPHA,
   TINT_LEVELS,
   deriveAccentVars,
+  deriveSecondaryAccentVars,
+  deriveThemeVars,
   hexToRgb,
   rgbaCss,
 } from '/design-system/js/theme-lab.js';
@@ -38,29 +41,10 @@ import {
  * list as short as possible -- an exclusion is a claim that a name only
  * *looks* like an accent token, and each one needs a real justification.
  */
-const SECONDARY_ACCENT_REASON =
-  'second, independent accent slot picked per theme family and gated on its own ' +
-  'contrast rules, not derived from the accent the lab proposes';
-
 const EXCLUSIONS = {
   // Despite the name, this is a near-background terminal cursor color (e.g.
-  // #050a10 in dark, #fafbfd in light) -- not derived from the accent.
+  // #050a10 in dark, #fafbfd in light) -- not derived from either accent.
   '--ansi-cursor-accent': 'near-background terminal cursor color, not derived from the accent',
-
-  // The `accent-secondary` family is a role, not a shade of the accent: tan on
-  // `main`, orange on `desy`, grey on high-contrast. Each family chooses it by
-  // hand, and `accent-secondary.light` carries its own contrast gate (4.5:1
-  // against bg.primary, 7:1 for high-contrast). Deriving it from the single
-  // accent the lab takes would defeat the point of a second, independent slot.
-  '--color-accent-secondary': SECONDARY_ACCENT_REASON,
-  '--color-accent-secondary-light': SECONDARY_ACCENT_REASON,
-  '--color-accent-secondary-hover': SECONDARY_ACCENT_REASON,
-  '--accent-secondary-tint-04': SECONDARY_ACCENT_REASON,
-  '--accent-secondary-tint-06': SECONDARY_ACCENT_REASON,
-  '--accent-secondary-tint-08': SECONDARY_ACCENT_REASON,
-  '--accent-secondary-tint-12': SECONDARY_ACCENT_REASON,
-  '--accent-secondary-tint-15': SECONDARY_ACCENT_REASON,
-  '--accent-secondary-tint-25': SECONDARY_ACCENT_REASON,
 };
 
 // `import.meta.url` is not a `file:` URL under this repo's vitest setup
@@ -80,9 +64,18 @@ const STATE = {
   dark: { hue: 178, saturation: 51, lightness: 39, emphasisLightness: 60 },
   light: { hue: 178, saturation: 51, lightness: 39, emphasisLightness: 29 },
 };
+/** The same, for the second accent -- a separate family with its own controls. */
+const SECONDARY = {
+  dark: { hue: 31, saturation: 53, lightness: 64, emphasisLightness: 80 },
+  light: { hue: 31, saturation: 53, lightness: 44, emphasisLightness: 36 },
+};
 const SCOPE_COLORS = { bgPrimary: '#0a0f1a', textPrimary: '#f1f5f9' };
 
-const derivedNames = new Set(Object.keys(deriveAccentVars(STATE, 'dark', SCOPE_COLORS)));
+// Both families at once: the accent-named tokens in tokens.css span both, so
+// scoring only one would leave the other's names looking undocumented.
+const derivedNames = new Set(
+  Object.keys(deriveThemeVars(STATE, SECONDARY, 'dark', SCOPE_COLORS))
+);
 
 test('every exclusion actually matches a token in tokens.css', () => {
   // Self-check: an exclusion for a name that no longer exists would let this
@@ -100,8 +93,8 @@ test('every accent-named token in tokens.css is derived or explicitly excluded',
   );
   expect(
     undocumented,
-    `tokens.css has accent token(s) deriveAccentVars does not produce and that are not in ` +
-      `EXCLUSIONS: ${undocumented.join(', ')}. Teach deriveAccentVars about them, or add an ` +
+    `tokens.css has accent token(s) deriveThemeVars does not produce and that are not in ` +
+      `EXCLUSIONS: ${undocumented.join(', ')}. Teach deriveThemeVars about them, or add an ` +
       `exclusion with a reason.`
   ).toEqual([]);
 });
@@ -110,7 +103,7 @@ test('every token deriveAccentVars produces exists in tokens.css', () => {
   const orphaned = [...derivedNames].filter((name) => !tokensAccentNames.has(name));
   expect(
     orphaned,
-    `deriveAccentVars produces propert(y/ies) not found in tokens.css: ${orphaned.join(', ')}`
+    `deriveThemeVars produces propert(y/ies) not found in tokens.css: ${orphaned.join(', ')}`
   ).toEqual([]);
 });
 
@@ -201,6 +194,64 @@ for (const [mode, selector] of THEME_BLOCKS) {
     ).toEqual([]);
   });
 }
+
+// The same guard for the second accent. Its rule differs in exactly one way --
+// the tints come from the BASE, not the emphasis variant -- and that difference
+// is the whole reason to check it separately rather than trusting the symmetry.
+//
+// `--color-accent-secondary-light` and `-hover` are not asserted against the
+// shipped values, for the reason the accent's emphasis color is not: every
+// family hand-authors them and three shift saturation by ~50 points, which a
+// lightness-only rule cannot reproduce. See `SECONDARY_HOVER_DELTA`.
+for (const [mode, selector] of THEME_BLOCKS) {
+  test(`the shipped ${mode} theme follows the second accent's alpha rules`, () => {
+    const block = themeBlock(selector);
+    const base = hexToRgb(block['--color-accent-secondary']);
+    expect(base, `${mode}: --color-accent-secondary is not a hex color`).not.toBeNull();
+
+    /** @type {string[]} */
+    const mismatches = [];
+    for (const level of SECONDARY_TINT_LEVELS) {
+      const key = `--accent-secondary-tint-${String(level).padStart(2, '0')}`;
+      const expected = rgbaCss(
+        /** @type {{r:number,g:number,b:number}} */ (base),
+        level / 100
+      );
+      if (block[key] !== expected) {
+        mismatches.push(`${key}: tokens.css ${block[key]} but the lab derives ${expected}`);
+      }
+    }
+
+    expect(
+      mismatches,
+      `the lab's derivation rules no longer describe how this design system authors the ` +
+        `${mode} second-accent family, so the values it exports would be wrong:\n  ` +
+        mismatches.join('\n  ')
+    ).toEqual([]);
+  });
+}
+
+test('deriveSecondaryAccentVars applies those same rules to a fresh color', () => {
+  // The other direction: that the derivation USES those constants, for a color
+  // that ships nowhere -- and tints from the base rather than the emphasis.
+  const secondary = {
+    dark: { hue: 88, saturation: 60, lightness: 55, emphasisLightness: 71 },
+    light: { hue: 88, saturation: 60, lightness: 40, emphasisLightness: 32 },
+  };
+  const derived = deriveSecondaryAccentVars(secondary, 'dark');
+  const base = hexToRgb(derived['--color-accent-secondary']);
+  const emphasis = hexToRgb(derived['--color-accent-secondary-light']);
+
+  for (const level of SECONDARY_TINT_LEVELS) {
+    expect(derived[`--accent-secondary-tint-${String(level).padStart(2, '0')}`]).toBe(
+      rgbaCss(/** @type {{r:number,g:number,b:number}} */ (base), level / 100)
+    );
+  }
+  // Explicitly NOT the emphasis variant -- the difference from the accent family.
+  expect(derived['--accent-secondary-tint-25']).not.toBe(
+    rgbaCss(/** @type {{r:number,g:number,b:number}} */ (emphasis), 0.25)
+  );
+});
 
 test('deriveAccentVars applies those same rules to a fresh accent', () => {
   // Guards the direction the test above cannot: that deriveAccentVars actually

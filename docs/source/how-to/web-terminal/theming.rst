@@ -105,6 +105,14 @@ shipped theme has to pass. When you are happy, give the theme a name, copy the
 export block, and paste it into a GitHub issue. The lab doesn't create the theme
 itself; the export spells out exactly what needs to change to make it real.
 
+A theme has two accents: the main one, and a second used for highlights and
+warnings. Switch between them with the **Accent** / **Second accent** buttons
+above the color wheel — one set of controls edits whichever is selected, and
+both previews update either way. The second accent gets a contrast badge of its
+own, because the build holds it to the stricter body-text standard: it is used
+for readable text, where the main accent mostly is not. If that badge goes red,
+drag the lightness slider for the mode it failed in until it clears.
+
 .. dropdown:: Going deeper — the design system
    :icon: paintbrush
 

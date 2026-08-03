@@ -65,9 +65,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   and a key that was retired cannot come back in a template, a preset override,
   or the loader's defaults. Contributors can run it from a checkout with
   `uv run python scripts/check_config_keys.py`.
-- `osprey theme-lab` opens a browser workbench for designing a theme: pick an
-  accent color, see it previewed live in dark and light with contrast badges,
-  then copy an export block describing the theme to request it.
+- `osprey theme-lab` opens a browser workbench for designing a theme: pick its
+  two accent colors — the main one and the second used for highlights and
+  warnings — see them previewed live in dark and light with contrast badges,
+  then copy an export block describing the theme to request it. One set of
+  controls edits whichever accent is selected. The second accent carries a
+  contrast badge of its own, because the build holds it to the stricter
+  body-text standard the main accent is not held to.
 
 ### Changed
 
