@@ -65,6 +65,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   and a key that was retired cannot come back in a template, a preset override,
   or the loader's defaults. Contributors can run it from a checkout with
   `uv run python scripts/check_config_keys.py`.
+- `osprey theme-lab` opens a browser workbench for designing a theme: pick an
+  accent color, see it previewed live in dark and light with contrast badges,
+  then copy an export block describing the theme to request it.
 
 ### Changed
 
