@@ -280,6 +280,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Dispatched runs that delegate to a subagent now wait for the delegated work
+  and return the full answer. Previously the reply could stop at "the agent is
+  searching, I'll notify you when it completes" and nothing further arrived.
 - `osprey web --project <dir>` launched from outside the project now behaves the
   same as running `osprey web` inside it. Previously the flag only set the
   terminal's working directory, so the project's `.env` was never loaded

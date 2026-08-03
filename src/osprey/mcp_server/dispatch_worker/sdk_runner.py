@@ -381,6 +381,20 @@ async def run_dispatch(
 
     sdk_env = build_clean_env(project_cwd=project_dir)
 
+    # Keep subagent delegation in the foreground. Since CLI 2.1.x the Agent tool
+    # auto-backgrounds delegated subagents: it returns immediately, the turn
+    # ends, and the results arrive on a *later* turn as a task notification.
+    # ``_drain_response`` stops at the first ResultMessage, so the worker would
+    # answer "the agent is searching, I'll notify you when it completes" and
+    # silently drop the delegated work. Set explicitly rather than inherited —
+    # ``build_clean_env()`` strips every ``CLAUDE_CODE_*`` key by design.
+    #
+    # Deliberately NOT set in ``build_clean_env()`` itself: the interactive
+    # web-terminal sessions share that helper, and they converge on a later
+    # turn, so backgrounding is correct there. Only this single-drain path
+    # needs the guard. The cost is that parallel delegations run sequentially.
+    sdk_env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
+
     # Point OSPREY config resolution at the project explicitly. The worker
     # process CWD is the image WORKDIR (``/app`` in the container), not the
     # project dir, and ``osprey.utils.config`` falls back to ``CWD/config.yml``
