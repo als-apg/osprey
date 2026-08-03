@@ -1,12 +1,16 @@
 """Shared-splitter contract: one divider implementation, every resizable pane.
 
 The OKF knowledge panel, the artifact gallery's browse view, the PLAN panel,
-the LATTICE control sidebar, the settings drawer, and the event dashboard's
-layout zones all put a draggable divider between two panes. Those were once
-four hand-copied implementations, and they drifted — the grip pill was a child
-element in one and a ``::after`` in another, the hover treatment disagreed, and
-two of them never grew keyboard or ARIA support at all — because nothing failed
-when a copy stopped matching. This is that missing failure.
+the LATTICE control sidebar, and the settings drawer all put a draggable
+divider between two panes. Those were once four hand-copied implementations,
+and they drifted — the grip pill was a child element in one and a ``::after``
+in another, the hover treatment disagreed, and two of them never grew keyboard
+or ARIA support at all — because nothing failed when a copy stopped matching.
+This is that missing failure.
+
+The event dashboard was a sixth host until its layout zones were replaced by
+discrete views; it has no resizable pane left to divide, so it is no longer
+listed here.
 
 The contract is static and deliberately shallow: each host's markup must carry
 the shared ``.osprey-splitter`` class on a proper ARIA separator, each host's
@@ -92,16 +96,6 @@ SPLITTER_HOSTS = [
         js=f"{_IFACE}/design_system/static/js/components/osprey-drawer.js",
         orientations=frozenset({"vertical"}),
         styles=(f"{_IFACE}/web_terminal/static/css/drawer.css",),
-    ),
-    Host(
-        label="events",
-        # The event dashboard is a single self-contained file: markup, script
-        # and stylesheet are all the same path.
-        html="src/osprey/dispatch/dashboard.html",
-        js="src/osprey/dispatch/dashboard.html",
-        # A sidebar split (vertical) plus two stacked zone splits (horizontal).
-        orientations=frozenset({"vertical", "horizontal"}),
-        styles=(),
     ),
 ]
 

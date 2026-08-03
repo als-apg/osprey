@@ -25,10 +25,11 @@ initTheme({ role: 'follower' });
 // Fallback when the dashboard is served without server-side config injection
 // (e.g. opened as a static file). dashboard.py replaces the comment above with
 // a `window.__OSPREY_CONFIG__ = {...};` literal at request time.
-window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", pv_strip_prefix: "" };
+window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", pv_strip_prefix: "", telemetry_url: "" };
 </script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
+
 body {
   font-family: var(--font-display);
   background: var(--bg-primary);
@@ -36,635 +37,265 @@ body {
   font-size: 13px;
   line-height: 1.5;
   height: 100vh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
-header {
-  height: 48px;
+/* ============================================================
+   Shell — one title row, one status line, two tabs.
+   ============================================================ */
+
+.app-head {
+  flex-shrink: 0;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-default);
+  padding: 14px 20px 12px;
+}
+.head-row {
   display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 14px;
-  flex-shrink: 0;
-}
-header .logo {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--color-accent-light);
-  font-family: var(--font-mono);
-  letter-spacing: -0.02em;
-}
-header .subtitle {
-  font-size: 10px;
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-.mode-seg {
-  display: inline-flex;
-  background: var(--bg-primary);
-  border-radius: 4px;
-  padding: 3px;
-  gap: 0;
-  border: 1px solid var(--border-default);
-}
-.mode-seg button {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  padding: 4px 10px;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: all 120ms ease;
-  text-transform: uppercase;
-}
-.mode-seg button:hover { color: var(--text-secondary); }
-.mode-seg button.on {
-  background: var(--color-accent-light);
-  color: var(--bg-primary);
-  font-weight: 700;
-}
-header .stats {
-  margin-left: auto;
-  display: flex;
+  align-items: baseline;
   gap: 16px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-secondary);
 }
-header .stats .stat-value {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.main-layout {
-  display: flex;
-  height: calc(100vh - 48px);
-  overflow: hidden;
-}
-
-.trigger-sidebar {
-  width: 280px;
-  min-width: 60px;
-  background: var(--bg-secondary);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-.trigger-sidebar.collapsed { width: 32px; min-width: 32px; }
-.trigger-sidebar.collapsed .sidebar-body { display: none; }
-.trigger-sidebar.collapsed .sidebar-collapsed-rail {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10px 0;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-}
-.sidebar-collapsed-rail { display: none; }
-.sidebar-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.sidebar-header {
-  padding: 10px 12px;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-  font-weight: 500;
-  border-bottom: 1px solid var(--border-default);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 8px;
-}
-.sidebar-header input {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 3px 7px;
-  border-radius: 3px;
-  width: 110px;
-  outline: none;
-  transition: border-color 120ms ease;
-}
-.sidebar-header input:focus { border-color: var(--color-accent-light); }
-
-.sidebar-list { flex: 1; overflow-y: auto; padding: 4px 0; }
-
-.trigger-card {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-default);
-  transition: background 120ms ease;
-  position: relative;
-}
-.trigger-card:hover { background: var(--accent-tint-06); }
-.trigger-card.disabled { opacity: 0.55; }
-
-.trigger-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-.trigger-card .trigger-name {
-  font-family: var(--font-mono);
-  font-size: 12px;
+.app-title {
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
-  word-break: break-word;
-}
-.trigger-card .trigger-sub {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
-  margin-top: 2px;
-  word-break: break-word;
+  letter-spacing: -0.01em;
 }
 
-.toggle-switch {
-  display: inline-block;
-  width: 28px;
-  height: 14px;
-  background: var(--bg-primary);
-  border-radius: 8px;
-  position: relative;
-  cursor: pointer;
-  border: 1px solid var(--border-default);
-  flex-shrink: 0;
-  transition: all 120ms ease;
-}
-.toggle-switch::after {
-  content: '';
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 10px;
-  height: 10px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  transition: all 150ms ease;
-}
-.toggle-switch.on { border-color: var(--success-tint-40); }
-.toggle-switch.on::after {
-  left: 15px;
-  background: var(--color-success);
-  box-shadow: 0 0 4px var(--color-success);
-}
-
-.trigger-sparkline {
-  display: flex;
-  align-items: flex-end;
-  gap: 1.5px;
-  height: 18px;
-  margin-top: 8px;
-}
-.trigger-sparkline .bar {
-  flex: 1;
-  min-width: 3px;
-  background: var(--text-muted);
-  border-radius: 1px 1px 0 0;
-  transition: all 200ms ease;
-}
-.trigger-sparkline .bar.empty { background: var(--border-default); height: 15% !important; }
-.trigger-sparkline .bar.ok   { background: var(--color-success); }
-.trigger-sparkline .bar.err  { background: var(--color-error); }
-.trigger-sparkline .bar.live { background: var(--color-accent-light); box-shadow: 0 -2px 4px color-mix(in srgb, var(--color-accent-light) 50%, transparent); }
-.trigger-sparkline .bar.queued { background: var(--color-warning); }
-
-.trigger-card .badges {
-  display: flex;
-  gap: 4px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-.badge {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-family: var(--font-mono);
-  border: 1px solid transparent;
-}
-.badge-webhook { background: var(--accent-tint-08); color: var(--color-accent-light); border-color: var(--accent-tint-30); }
-.badge-epics   { background: var(--accent-secondary-tint-12); color: var(--color-accent-secondary); border-color: var(--accent-secondary-tint-25); }
-.badge-drop    { background: color-mix(in srgb, var(--color-warning) 8%, transparent); color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 30%, transparent); }
-.badge-retry   { background: var(--accent-tint-08); color: var(--color-accent-light); border-color: var(--accent-tint-30); }
-.badge-alert   { background: var(--error-tint-08); color: var(--color-error); border-color: var(--error-tint-30); }
-.badge-pending,.badge-dispatched { background: color-mix(in srgb, var(--color-warning) 8%, transparent); color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 30%, transparent); }
-.badge-completed,.badge-ok { background: var(--success-tint-08); color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 30%, transparent); }
-.badge-error,.badge-err { background: var(--error-tint-08); color: var(--color-error); border-color: var(--error-tint-30); }
-.badge-running { background: var(--accent-tint-10); color: var(--color-accent-light); border-color: color-mix(in srgb, var(--color-accent-light) 40%, transparent); }
-.badge-off     { background: var(--neutral-tint-08); color: var(--text-muted); border-color: var(--neutral-tint-20); }
-
-.fire-split {
-  display: flex;
-  margin-top: 8px;
-  gap: 1px;
-  border-radius: 3px;
-  overflow: hidden;
-}
-.fire-split button {
-  background: var(--accent-tint-08);
-  color: var(--color-accent-light);
-  border: 1px solid var(--accent-tint-30);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 4px 8px;
-  cursor: pointer;
-  letter-spacing: 0.05em;
-  transition: all 120ms ease;
-}
-.fire-split button.primary {
-  flex: 1;
-  border-right: none;
-  border-radius: 3px 0 0 3px;
-}
-.fire-split button.more {
-  border-left: 1px solid var(--accent-tint-12);
-  border-radius: 0 3px 3px 0;
-  padding: 4px 7px;
-}
-.fire-split button:hover { background: var(--accent-tint-12); border-color: var(--color-accent-light); }
-.fire-split button:active { transform: translateY(1px); }
-.fire-split.disabled button {
-  background: var(--neutral-tint-06);
-  color: var(--text-muted);
-  border-color: var(--neutral-tint-20);
-  cursor: not-allowed;
-}
-.fire-split.disabled button:hover { background: var(--neutral-tint-06); }
-
-.fire-editor {
-  margin-top: 8px;
-  padding: 8px;
-  background: var(--bg-primary);
-  border-radius: 4px;
-  border: 1px solid var(--border-accent);
-  display: none;
-  flex-direction: column;
-  gap: 6px;
-}
-.fire-editor.open { display: flex; }
-.fire-editor .editor-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.fire-editor textarea {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 6px 8px;
-  border-radius: 3px;
-  resize: vertical;
-  min-height: 70px;
-  max-height: 240px;
-  outline: none;
-  transition: border-color 120ms ease;
-}
-.fire-editor textarea:focus { border-color: var(--color-accent-light); }
-.fire-editor .editor-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.fire-editor .editor-actions .hint {
+/* Underline-indicator tabs, matching the terminal's other panels. */
+.tabs {
   margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
-}
-.fire-editor .editor-actions button {
-  background: var(--color-accent-light);
-  color: var(--bg-primary);
-  border: none;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 5px 10px;
-  border-radius: 3px;
-  cursor: pointer;
-  letter-spacing: 0.05em;
-}
-.fire-editor .editor-actions button.secondary {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border-default);
-  font-weight: 500;
-}
-.fire-editor .editor-actions button:hover { filter: brightness(1.1); }
-.fire-editor .recent-row {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-size: 9px;
+  align-self: stretch;
+}
+.tabs button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
   color: var(--text-muted);
-}
-.fire-editor .recent-row .pill {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  padding: 2px 6px;
-  border-radius: 2px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px 8px;
+  margin-bottom: -13px;
   cursor: pointer;
-  color: var(--text-secondary);
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  transition: color 120ms ease, border-color 120ms ease;
 }
-.fire-editor .recent-row .pill:hover { border-color: var(--color-accent-light); color: var(--color-accent-light); }
+.tabs button:hover { color: var(--text-secondary); }
+.tabs button.on {
+  color: var(--color-accent-light);
+  border-bottom-color: var(--color-accent-light);
+}
 
-.trigger-prompt-peek {
-  display: none;
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   margin-top: 8px;
-  padding: 6px 8px;
-  background: var(--bg-primary);
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-secondary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 120px;
-  overflow-y: auto;
-  line-height: 1.5;
-  border-left: 2px solid var(--border-accent);
 }
-.trigger-card.expanded .trigger-prompt-peek { display: block; }
-
-.peek-toggle {
-  margin-top: 4px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: inline-block;
-  padding: 2px 0;
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-success);
+  box-shadow: 0 0 5px var(--color-success);
 }
-.peek-toggle:hover { color: var(--color-accent-light); }
+.status-line.is-busy .status-dot {
+  background: var(--color-warning);
+  box-shadow: 0 0 5px var(--color-warning);
+}
+.status-line.is-error .status-dot,
+.status-line.is-degraded .status-dot {
+  background: var(--color-error);
+  box-shadow: 0 0 5px var(--color-error);
+}
+.status-line.is-degraded { color: var(--color-error); }
 
-/* The three dividers are the design system's shared `.osprey-splitter`
-   (base.css + js/splitter.js) — the same grip pill, cursor, hover treatment,
-   keyboard handling and ARIA semantics as every other resizable pane in the
-   product. base.css arrives via the <link> above, served from this server's own
-   /design-system/ route, so there is nothing to restate here. */
+/* ============================================================
+   Views — exactly one is visible at a time.
+   ============================================================ */
 
-.content-area {
+main {
   flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.view { display: none; padding: 18px 20px 28px; }
+.view.on { display: block; }
+
+.section-head {
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+.view .section-head + .section-head,
+.lane-list + .section-head,
+.run-list + .section-head,
+.detail-block + .section-head { margin-top: 26px; }
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.section-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
 }
 
-.timeline-zone {
-  flex-shrink: 0;
-  background: var(--bg-primary);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: height 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  min-height: 28px;
-}
-.timeline-zone.collapsed { height: 28px !important; }
-.timeline-zone.collapsed .timeline-body { display: none; }
-.panel-head {
-  padding: 5px 12px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-default);
-  display: flex;
+/* Back link shared by both detail views. */
+.back-link {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  height: 28px;
-}
-.panel-head .chev {
-  color: var(--color-accent-light);
-  cursor: pointer;
-  font-size: 11px;
-  user-select: none;
-  transition: transform 200ms ease;
-}
-.panel-head .spacer { flex: 1; }
-.panel-head .head-info {
-  font-family: var(--font-mono);
-  font-size: 9px;
+  gap: 6px;
+  background: transparent;
+  border: none;
   color: var(--text-muted);
-}
-.timeline-body { flex: 1; overflow-y: auto; }
-.timeline-ruler {
-  display: grid;
-  grid-template-columns: 140px 1fr 42px;
-  gap: 10px;
-  padding: 3px 12px;
-  font-family: var(--font-mono);
-  font-size: 8px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border-default);
-  position: sticky;
-  top: 0;
-  background: var(--bg-primary);
-  z-index: 1;
-}
-.timeline-ruler .ticks { display: flex; justify-content: space-between; }
-.timeline-track {
-  display: grid;
-  grid-template-columns: 140px 1fr 42px;
-  gap: 10px;
-  padding: 6px 12px;
-  align-items: center;
-  border-bottom: 1px solid var(--neutral-tint-06);
-  min-height: 32px;
-}
-.timeline-track:hover { background: var(--accent-tint-06); }
-.timeline-track.disabled { opacity: 0.5; }
-.timeline-track .tname {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-accent-light);
+  font-family: inherit;
+  font-size: 12px;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 2px 0;
+  margin-bottom: 12px;
 }
-.timeline-track .tname .count {
-  color: var(--text-muted);
-  font-size: 8px;
-  display: block;
-}
-.timeline-rail {
-  height: 20px;
-  background: var(--bg-panel);
-  border-radius: 3px;
-  position: relative;
-  border: 1px solid var(--border-default);
-  overflow: hidden;
-}
-.timeline-rail .gtick {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--neutral-tint-06);
-  pointer-events: none;
-}
-.timeline-rail .now-line {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  width: 1px;
-  background: var(--accent-tint-30);
-  pointer-events: none;
-}
-.fire-dot {
-  position: absolute;
-  top: 3px;
-  width: 3px;
-  height: 14px;
-  border-radius: 1px;
-  cursor: pointer;
-  transition: transform 120ms ease, box-shadow 120ms ease;
-  will-change: transform;
-}
-.fire-dot:hover { transform: translateX(-50%) scaleY(1.3); box-shadow: 0 0 6px currentColor; }
-.fire-dot.ok    { background: var(--color-success); }
-.fire-dot.err   { background: var(--color-error); }
-.fire-dot.retry { background: var(--color-warning); }
-.fire-dot.live  {
-  background: var(--color-accent-light);
-  box-shadow: 0 0 6px var(--color-accent-light);
-  width: 4px;
-  animation: pulse-dot 1.8s infinite;
-}
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-.tw-seg {
+.back-link:hover { color: var(--color-accent-light); }
+
+/* ============================================================
+   Timeline lanes — one thin lane per trigger.
+   ============================================================ */
+
+.seg {
   display: inline-flex;
   background: var(--bg-primary);
-  border-radius: 3px;
-  padding: 2px;
   border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 2px;
+  margin-left: auto;
 }
-.tw-seg button {
+.seg button {
   background: transparent;
   border: none;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 9px;
-  padding: 2px 7px;
-  border-radius: 2px;
+  font-size: 10px;
+  padding: 3px 9px;
+  border-radius: 3px;
   cursor: pointer;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  transition: color 120ms ease, background 120ms ease;
 }
-.tw-seg button.on {
+.seg button:hover { color: var(--text-secondary); }
+.seg button.on {
   background: var(--accent-tint-12);
   color: var(--color-accent-light);
 }
 
-.runs-zone {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.lane-list {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
   overflow: hidden;
-  min-height: 28px;
-  background: var(--bg-primary);
 }
-.runs-zone.collapsed { flex: 0 0 28px !important; height: 28px !important; min-height: 28px; }
-.runs-zone.collapsed .runs-body { display: none; }
-.runs-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.lane {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--neutral-tint-06);
+}
+.lane:last-child { border-bottom: none; }
+.lane:hover { background: var(--accent-tint-06); }
+.lane.disabled { opacity: 0.5; }
+.lane-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-accent-light);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lane-name:hover { text-decoration: underline; }
+.lane-rail {
+  height: 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+/* Position comes from `left`, NOT a percentage translateX: a percentage in
+   translateX resolves against the element's own width (3px), so it can only
+   ever nudge a mark a couple of pixels rather than place it along the rail.
+   `left` is percentage-of-parent, which is what a timeline position means;
+   transform is then free to carry the centering and the hover scale. */
+.lane-mark {
+  position: absolute;
+  top: 3px;
+  width: 3px;
+  height: 12px;
+  border-radius: 1px;
+  cursor: pointer;
+  transform: translateX(-50%);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+  will-change: transform;
+}
+.lane-mark:hover { transform: translateX(-50%) scaleY(1.3); box-shadow: 0 0 6px currentColor; }
+.lane-mark.ok    { background: var(--color-success); }
+.lane-mark.err   { background: var(--color-error); }
+.lane-mark.retry { background: var(--color-warning); }
+.lane-mark.live  {
+  background: var(--color-accent-light);
+  box-shadow: 0 0 6px var(--color-accent-light);
+  width: 4px;
+  animation: pulse-mark 1.8s infinite;
+}
+@keyframes pulse-mark {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
 
-.runs-filters {
+/* ============================================================
+   Run list — two lines per run, no table.
+   ============================================================ */
+
+.filters {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-default);
-  flex-wrap: wrap;
+  margin-left: auto;
 }
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 3px;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 .chip:hover { border-color: var(--color-accent-light); color: var(--color-accent-light); }
-.chip.active { background: var(--accent-tint-10); color: var(--color-accent-light); border-color: var(--color-accent-light); }
-.chip select {
-  background: transparent;
-  border: none;
-  color: inherit;
-  font-family: inherit;
-  font-size: inherit;
-  outline: none;
-  cursor: pointer;
+.chip.on {
+  background: var(--accent-tint-10);
+  color: var(--color-accent-light);
+  border-color: var(--color-accent-light);
 }
-.runs-filters input.search {
-  flex: 1;
-  max-width: 320px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 3px 10px 3px 26px;
-  border-radius: 3px;
-  outline: none;
-  transition: border-color 120ms ease;
-}
+.search-box { position: relative; display: inline-flex; align-items: center; }
 /* Search icon lives on the wrapper's ::before as a themed mask (a data-URI
    background-image can't reference a token, so a fixed color there never
    tracks the theme). The mask SVG's stroke is a shape-only named color;
    the visible color is the token-driven mask fill. */
-.runs-filters .search-box { position: relative; display: inline-flex; align-items: center; }
-.runs-filters .search-box::before {
+.search-box::before {
   content: "";
   position: absolute;
-  left: 7px;
+  left: 8px;
   top: 50%;
   width: 12px;
   height: 12px;
@@ -674,189 +305,307 @@ header .stats .stat-value {
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
 }
-.runs-filters input.search:focus { border-color: var(--color-accent-light); }
-.runs-filters .count-info {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
-}
-
-.runs-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
-
-table.runs-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  table-layout: fixed;
-}
-table.runs-table thead th {
-  position: sticky;
-  top: 0;
-  text-align: left;
-  padding: 5px 10px;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border-default);
-  font-weight: 500;
+input.text-input {
   background: var(--bg-primary);
-  z-index: 1;
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 120ms ease;
 }
-table.runs-table td {
-  padding: 6px 10px;
+input.text-input:focus { border-color: var(--color-accent-light); }
+.search-box input.text-input { padding-left: 26px; width: 190px; }
+
+.row-list {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.run-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 10px 13px;
   border-bottom: 1px solid var(--border-default);
-  vertical-align: middle;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.run-row:last-child { border-bottom: none; }
+.run-row:hover { background: var(--accent-tint-06); }
+.run-icon {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
+  background: var(--text-muted);
+}
+.run-row.is-ok   .run-icon { background: var(--color-success); }
+.run-row.is-err  .run-icon { background: var(--color-error); }
+.run-row.is-live .run-icon {
+  background: var(--color-warning);
+  animation: pulse-mark 1.8s infinite;
+}
+.run-main { flex: 1; min-width: 0; }
+.run-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.run-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.run-when {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.run-preview {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-table.runs-table col.col-status   { width: 74px; }
-table.runs-table col.col-trigger  { width: 140px; }
-table.runs-table col.col-id       { width: 82px; }
-table.runs-table col.col-age      { width: 62px; }
-table.runs-table col.col-dur      { width: 54px; }
-table.runs-table col.col-turns    { width: 42px; }
-table.runs-table col.col-tools    { width: 42px; }
-table.runs-table tbody tr { cursor: pointer; }
-table.runs-table tbody tr:hover { background: var(--accent-tint-06); }
-table.runs-table tbody tr.active { background: var(--accent-tint-12); }
-.t-output { color: var(--text-muted); }
-.t-trigger { color: var(--color-accent-light); }
-.t-trigger.none { color: var(--text-muted); }
+.run-preview.is-err { color: var(--color-error); }
+.run-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
 
 .empty-state {
   text-align: center;
-  padding: 48px 16px;
+  padding: 40px 18px;
   color: var(--text-muted);
   font-size: 12px;
-  font-family: var(--font-display);
+  border: 1px dashed var(--border-default);
+  border-radius: 6px;
+}
+.empty-state .empty-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
-.inspector-zone {
-  flex-shrink: 0;
-  height: 260px;
-  min-height: 28px;
-  background: var(--bg-panel);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.inspector-zone.collapsed { height: 28px !important; }
-.inspector-zone.collapsed .inspector-body { display: none; }
-.inspector-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+/* ============================================================
+   Trigger list + trigger detail
+   ============================================================ */
 
-.tab-bar {
+.trigger-row {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 10px 13px;
   border-bottom: 1px solid var(--border-default);
-  background: var(--accent-secondary-tint-06);
-  overflow-x: auto;
-  flex-shrink: 0;
-  min-height: 26px;
+  cursor: pointer;
+  transition: background 120ms ease;
 }
-.tab {
+.trigger-row:last-child { border-bottom: none; }
+.trigger-row:hover { background: var(--accent-tint-06); }
+.trigger-row.disabled .trigger-name { color: var(--text-muted); }
+.trigger-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
+  background: var(--color-success);
+}
+.trigger-row.disabled .trigger-dot {
+  background: transparent;
+  border: 1px solid var(--text-muted);
+}
+.trigger-main { flex: 1; min-width: 0; }
+.trigger-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.trigger-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.trigger-source {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.btn:hover { color: var(--color-accent-light); border-color: var(--color-accent-light); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:disabled:hover { color: var(--text-secondary); border-color: var(--border-default); }
+.btn.primary {
+  background: var(--accent-tint-08);
+  color: var(--color-accent-light);
+  border-color: var(--accent-tint-30);
+}
+.btn.danger { color: var(--color-error); border-color: var(--error-tint-30); }
+.btn.danger:hover { background: var(--error-tint-08); border-color: var(--color-error); }
+/* A .btn may be an <a> when it leaves the app (see the run's telemetry link).
+   Scoped to anchors on purpose: <button> needs none of this, and widening the
+   shared rule would restyle every existing button to fix one element. */
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+.detail-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.detail-title {
   font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-right: 1px solid var(--border-default);
-  white-space: nowrap;
-  transition: all 120ms ease;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
 }
-.tab:hover { color: var(--text-secondary); background: var(--accent-tint-06); }
-.tab.active {
-  color: var(--color-accent-light);
-  background: var(--accent-tint-10);
-  border-bottom: 2px solid var(--color-accent-light);
-  margin-bottom: -1px;
-}
-.tab .led {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  flex-shrink: 0;
-}
-.tab .led.live {
-  background: var(--color-accent-light);
-  box-shadow: 0 0 6px var(--color-accent-light);
-  animation: pulse 1.8s infinite;
-}
-.tab .led.err { background: var(--color-error); }
-.tab .led.ok  { background: var(--color-success); }
-.tab .close-btn {
+.detail-actions { margin-left: auto; display: flex; gap: 6px; }
+.detail-summary {
   font-size: 12px;
-  line-height: 1;
   color: var(--text-muted);
-  cursor: pointer;
-  padding: 0 3px;
-  border-radius: 2px;
-  transition: all 120ms ease;
-}
-.tab .close-btn:hover { color: var(--color-error); background: var(--error-tint-08); }
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  margin-bottom: 16px;
 }
 
-.tab-content {
-  flex: 1;
+.field-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 7px 18px;
+  align-items: baseline;
+  margin-bottom: 20px;
+}
+.field-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.field-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.field-value.mono { font-family: var(--font-mono); }
+.field-value .btn { margin-left: 8px; }
+
+.detail-block { margin-bottom: 20px; }
+.block-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 7px;
+}
+.prompt-body {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-left: 2px solid var(--border-accent);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
   overflow-y: auto;
-  padding: 10px 14px 14px;
+}
+
+.payload-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.payload-editor textarea {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 8px 10px;
+  border-radius: 4px;
+  resize: vertical;
+  min-height: 84px;
+  max-height: 280px;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+.payload-editor textarea:focus { border-color: var(--color-accent-light); }
+.payload-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.payload-actions .hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.recent-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.recent-row .pill {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-row .pill:hover { border-color: var(--color-accent-light); color: var(--color-accent-light); }
+
+/* ============================================================
+   Run detail — transcript
+   ============================================================ */
+
+.transcript {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-secondary);
-  display: none;
 }
-.tab-content.active { display: block; }
-
-.inspector-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  background: var(--bg-primary);
-  border-radius: 3px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-  font-size: 10px;
-}
-.inspector-meta .rid {
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: 11px;
-}
-.inspector-meta .tname { color: var(--color-accent-light); }
-.inspector-meta .muted { color: var(--text-muted); }
-.inspector-meta .actions { margin-left: auto; display: flex; gap: 6px; }
-.action-btn {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border-default);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  padding: 3px 8px;
-  border-radius: 3px;
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  transition: all 120ms ease;
-}
-.action-btn:hover { color: var(--color-accent-light); border-color: var(--color-accent-light); }
-.action-btn.danger { color: var(--color-error); border-color: var(--error-tint-30); }
-.action-btn.danger:hover { background: var(--error-tint-08); }
-.action-btn.primary { color: var(--color-accent-light); border-color: var(--accent-tint-30); background: var(--accent-tint-08); }
-
 .event {
   margin-bottom: 2px;
   word-break: break-word;
@@ -867,17 +616,17 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
 .event-done { color: var(--color-success); }
 
 .tool-call {
-  margin: 4px 0;
+  margin: 5px 0;
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: 4px;
   overflow: hidden;
 }
 .tool-call .tool-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: 7px;
+  padding: 5px 9px;
   cursor: pointer;
   user-select: none;
   color: var(--color-accent-secondary-light);
@@ -916,10 +665,7 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
 }
 .tool-call.open .tool-body { display: block; }
 .tool-section-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-size: 11px;
   color: var(--text-muted);
   margin: 6px 0 3px;
   display: flex;
@@ -928,10 +674,10 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
 }
 .tool-section-label .copy-btn {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 11px;
   cursor: pointer;
-  padding: 1px 5px;
-  border-radius: 2px;
+  padding: 1px 6px;
+  border-radius: 3px;
   border: 1px solid transparent;
 }
 .tool-section-label .copy-btn:hover { color: var(--color-accent-light); border-color: var(--border-accent); }
@@ -959,13 +705,12 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
   position: fixed;
   bottom: 16px;
   right: 16px;
-  padding: 8px 14px;
+  padding: 9px 15px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-left: 3px solid var(--color-accent-light);
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  border-radius: 4px;
+  font-size: 12px;
   color: var(--text-primary);
   z-index: 1000;
   max-width: 360px;
@@ -984,385 +729,130 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
 ::-webkit-scrollbar-thumb:hover { background: var(--neutral-tint-35); }
 
 /* ============================================================
-   Simple mode — operator-facing status summary + plain event
-   cards, shown only under html[data-ui-mode="simple"]. The full
-   expert dashboard (.main-layout) and the header's internal
-   controls (layout-preset segment + terse counters) are hidden;
-   when the attribute is absent or "expert" this block is inert,
-   so expert output is byte-identical to before.
+   Simple mode — subtraction, not substitution.
+
+   There is ONE markup tree. Everything an operator should not
+   see carries `.expert-only`, and this block is the whole of
+   the mode's structural effect. Wording differences (plain
+   outcomes, friendly ages) are chosen in JS off isSimple().
+
+   Hidden here: the Triggers tab and both of its screens (no
+   firing, no enable/disable), the timeline window control, and
+   every piece of technical metadata — run ids, durations, turn
+   and tool counts, and the tool-call transcript.
    ============================================================ */
-.simple-view { display: none; }
-:root[data-ui-mode="simple"] .main-layout { display: none; }
-:root[data-ui-mode="simple"] header .mode-seg,
-:root[data-ui-mode="simple"] header .stats { display: none; }
-:root[data-ui-mode="simple"] .simple-view {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: calc(100vh - 48px);
-  overflow-y: auto;
-  padding: 24px;
-  background: var(--bg-primary);
-}
 
-.simple-status {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 20px 22px;
-  flex-shrink: 0;
-}
-.simple-status-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  margin-top: 6px;
-  flex-shrink: 0;
-  background: var(--color-success);
-  box-shadow: 0 0 6px var(--color-success);
-}
-.simple-status.is-busy .simple-status-dot {
-  background: var(--color-warning);
-  box-shadow: 0 0 6px var(--color-warning);
-}
-.simple-status.is-error .simple-status-dot {
-  background: var(--color-error);
-  box-shadow: 0 0 6px var(--color-error);
-}
-.simple-status-headline {
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.35;
-}
-.simple-status-detail {
-  font-family: var(--font-display);
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-  line-height: 1.5;
-}
-
-.simple-events-card {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.simple-events-title {
-  padding: 14px 20px;
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border-default);
-}
-.simple-events-list { display: flex; flex-direction: column; }
-.simple-event {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border-default);
-}
-.simple-event:last-child { border-bottom: none; }
-.simple-event-icon {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--text-muted);
-}
-.simple-event-ok .simple-event-icon { background: var(--color-success); }
-.simple-event-err .simple-event-icon { background: var(--color-error); }
-.simple-event-live .simple-event-icon { background: var(--color-warning); }
-.simple-event-main { flex: 1; min-width: 0; }
-.simple-event-name {
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  word-break: break-word;
-}
-.simple-event-outcome {
-  font-family: var(--font-display);
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-.simple-event-time {
-  font-family: var(--font-display);
-  font-size: 12px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.simple-empty {
-  padding: 40px 20px;
-  text-align: center;
-  font-family: var(--font-display);
-  font-size: 13px;
-  color: var(--text-muted);
-}
+:root[data-ui-mode="simple"] .expert-only { display: none !important; }
+/* With the Triggers tab gone there is nothing left to switch between, and a
+   lone lit tab reads as decoration rather than a control. */
+:root[data-ui-mode="simple"] .tabs { display: none; }
 </style>
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 </head>
 <body>
-<header>
-  <span class="logo">event-dispatcher</span>
-  <span class="subtitle">Unified Control Plane</span>
-  <div class="mode-seg" role="tablist" aria-label="Layout preset">
-    <button id="mode-overview" title="Timeline prominent, runs compact">OVERVIEW</button>
-    <button id="mode-inspect" title="Runs + stream prominent, timeline collapsed">INSPECT</button>
+
+<header class="app-head">
+  <div class="head-row">
+    <span class="app-title">Event dispatcher</span>
+    <nav class="tabs" role="tablist" aria-label="Dispatcher views">
+      <button id="tab-activity" role="tab" class="on">Activity</button>
+      <button id="tab-triggers" role="tab" class="expert-only">Triggers</button>
+    </nav>
   </div>
-  <div class="stats">
-    <span>pool <span class="stat-value" id="stat-pool">—</span></span>
-    <span>pending <span class="stat-value" id="stat-pending">0</span></span>
-    <span>ok <span class="stat-value" id="stat-completed">0</span></span>
-    <span>err <span class="stat-value" id="stat-errors">0</span></span>
+  <div class="status-line" id="status-line">
+    <span class="status-dot"></span>
+    <span id="status-text">Checking the dispatcher…</span>
   </div>
 </header>
-<div class="main-layout">
 
-  <div class="trigger-sidebar" id="sidebar">
-    <div class="sidebar-collapsed-rail" id="sidebar-collapsed-rail">TRIGGERS</div>
-    <div class="sidebar-body">
-      <div class="sidebar-header">
-        <span>TRIGGERS · <span id="trigger-count">0</span></span>
-        <input id="trigger-filter" placeholder="filter…" spellcheck="false" autocomplete="off">
-      </div>
-      <div class="sidebar-list" id="trigger-list"></div>
-    </div>
-  </div>
+<main id="main">
 
-  <div class="osprey-splitter" id="sidebar-handle" role="separator"
-       aria-orientation="vertical" aria-label="Resize trigger sidebar" tabindex="0"
-       title="Drag to resize · double-click to collapse"></div>
-
-  <div class="content-area">
-
-    <div class="timeline-zone" id="timeline-zone">
-      <div class="panel-head" id="timeline-head">
-        <span class="chev" id="timeline-chev" title="Collapse / expand">▾</span>
-        <span>TIMELINE</span>
-        <span class="head-info" id="timeline-info"></span>
-        <span class="spacer"></span>
-        <div class="tw-seg" id="timeline-window">
-          <button data-hours="1">1h</button>
-          <button data-hours="24" class="on">24h</button>
-          <button data-hours="168">7d</button>
-        </div>
-      </div>
-      <div class="timeline-body">
-        <div class="timeline-ruler" id="timeline-ruler">
-          <div></div>
-          <div class="ticks" id="timeline-ticks"></div>
-          <div></div>
-        </div>
-        <div id="timeline-tracks"></div>
+  <!-- Activity: timeline lanes + recent runs -->
+  <section class="view on" id="view-activity" role="tabpanel">
+    <div class="section-head">
+      <span class="section-title" id="timeline-title">Last 24 hours</span>
+      <div class="seg expert-only" id="timeline-window" role="group" aria-label="Timeline window">
+        <button data-hours="1">1h</button>
+        <button data-hours="24" class="on">24h</button>
+        <button data-hours="168">7d</button>
       </div>
     </div>
+    <div class="lane-list" id="lane-list"></div>
 
-    <div class="osprey-splitter" id="timeline-handle" role="separator"
-         aria-orientation="horizontal" aria-label="Resize timeline" tabindex="0"
-         title="Drag to resize · double-click to collapse"></div>
-
-    <div class="runs-zone" id="runs-zone">
-      <div class="panel-head" id="runs-head">
-        <span class="chev" id="runs-chev" title="Collapse / expand">▾</span>
-        <span>RUNS</span>
-        <span class="head-info" id="runs-info"></span>
-      </div>
-      <div class="runs-body">
-        <div class="runs-filters">
-          <span class="chip" id="chip-trigger"><span class="label">trigger</span>: <select id="filter-trigger"><option value="">all</option></select></span>
-          <span class="chip" id="chip-status"><span class="label">status</span>: <select id="filter-status"><option value="">all</option><option value="pending">pending</option><option value="completed">completed</option><option value="error">error</option></select></span>
-          <span class="search-box"><input class="search" id="filter-search" placeholder="search run id · output · tool names…" spellcheck="false" autocomplete="off"></span>
-          <span class="count-info" id="runs-count">0 runs</span>
-        </div>
-        <div class="runs-scroll">
-          <table class="runs-table">
-            <colgroup>
-              <col class="col-status">
-              <col class="col-trigger">
-              <col class="col-id">
-              <col class="col-age">
-              <col class="col-dur">
-              <col class="col-turns">
-              <col class="col-tools">
-              <col>
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Status</th><th>Trigger</th><th>Run ID</th>
-                <th>Age</th><th>Dur</th><th>Turns</th><th>Tools</th><th>Output</th>
-              </tr>
-            </thead>
-            <tbody id="runs-tbody"></tbody>
-          </table>
-          <div class="empty-state" id="empty-state">No dispatch runs match the current filters.</div>
-        </div>
+    <div class="section-head">
+      <span class="section-title" id="runs-title">Recent runs</span>
+      <div class="filters expert-only">
+        <button class="chip on" data-status="">All</button>
+        <button class="chip" data-status="error">Failed</button>
+        <button class="chip" data-status="pending">Running</button>
+        <span class="search-box">
+          <input class="text-input" id="run-search" placeholder="Search runs…" spellcheck="false" autocomplete="off">
+        </span>
       </div>
     </div>
+    <div id="run-list"></div>
+  </section>
 
-    <div class="osprey-splitter" id="inspector-handle" role="separator"
-         aria-orientation="horizontal" aria-label="Resize run inspector" tabindex="0"
-         title="Drag to resize · double-click to collapse"></div>
-
-    <div class="inspector-zone" id="inspector-zone">
-      <div class="panel-head">
-        <span class="chev" id="inspector-chev" title="Collapse / expand">▾</span>
-        <span>RUN INSPECTOR</span>
-        <span class="head-info" id="inspector-info">click a run above</span>
-      </div>
-      <div class="inspector-body">
-        <div class="tab-bar" id="tab-bar"></div>
-        <div id="tab-contents"></div>
-      </div>
+  <!-- Triggers: the list -->
+  <section class="view expert-only" id="view-triggers" role="tabpanel">
+    <div class="section-head">
+      <span class="section-title">Triggers</span>
+      <input class="text-input" id="trigger-filter" placeholder="Filter…" spellcheck="false" autocomplete="off">
+      <span class="section-count" id="trigger-count"></span>
     </div>
-  </div>
-</div>
+    <div id="trigger-list"></div>
+  </section>
 
-<!-- Simple mode — operator-facing summary. Hidden under expert; shown and
-     populated (by renderSimple) only when data-ui-mode="simple". -->
-<div class="simple-view" id="simple-view">
-  <div class="simple-status" id="simple-status">
-    <div class="simple-status-dot"></div>
-    <div>
-      <div class="simple-status-headline" id="simple-status-headline">Checking the dispatcher…</div>
-      <div class="simple-status-detail" id="simple-status-detail"></div>
-    </div>
-  </div>
-  <div class="simple-events-card">
-    <div class="simple-events-title">Recent activity</div>
-    <div class="simple-events-list" id="simple-events-list"></div>
-  </div>
-</div>
+  <!-- Run detail -->
+  <section class="view" id="view-run" role="tabpanel">
+    <button class="back-link" id="run-back">← Back</button>
+    <div id="run-detail"></div>
+  </section>
+
+  <!-- Trigger detail -->
+  <section class="view expert-only" id="view-trigger" role="tabpanel">
+    <button class="back-link" id="trigger-back">← Back</button>
+    <div id="trigger-detail"></div>
+  </section>
+
+</main>
 
 <div class="toast" id="toast"></div>
 
 <script>
-const LS_KEY = 'dispatch-panel-layout-v1';
-
-const DEFAULT_LAYOUT = {
-  mode: 'custom',
-  sidebar: 280,
-  sidebarCollapsed: false,
-  timelineHeight: 180,
-  timelineCollapsed: false,
-  runsCollapsed: false,
-  inspectorHeight: 260,
-  inspectorCollapsed: false,
-};
-
-const PRESETS = {
-  overview: {
-    timelineHeight: 260,
-    timelineCollapsed: false,
-    runsCollapsed: false,
-    inspectorHeight: 140,
-    inspectorCollapsed: false,
-  },
-  inspect: {
-    timelineHeight: 80,
-    timelineCollapsed: true,
-    runsCollapsed: false,
-    inspectorHeight: 340,
-    inspectorCollapsed: false,
-  },
-};
-
-function loadLayout() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { ...DEFAULT_LAYOUT };
-    return { ...DEFAULT_LAYOUT, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_LAYOUT };
-  }
-}
-function saveLayout() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(layout)); } catch {}
-}
-let layout = loadLayout();
-
-/* The three shared splitters, once wireSplitters' dynamic import resolves.
-   Null until then, which is why every geometry write below has a direct-style
-   fallback: applyLayout() runs once during init() before the module lands, and
-   the first paint must still be correct. */
-let splitters = null;
-
-/* Set while applyLayout() is pushing `layout` into the splitters, so their
-   onCommit hooks do not write straight back into `layout` and flip the mode
-   pill to "custom" on what was actually a preset being applied. `layout` is the
-   single source of truth; the splitters are geometry drivers over it. */
-let applyingLayout = false;
-
-function applyLayout() {
-  applyingLayout = true;
-  try {
-    const sidebar = document.getElementById('sidebar');
-    const tz = document.getElementById('timeline-zone');
-    const rz = document.getElementById('runs-zone');
-    const iz = document.getElementById('inspector-zone');
-
-    if (splitters) {
-      syncSplitter(splitters.sidebar, layout.sidebar, layout.sidebarCollapsed);
-      syncSplitter(splitters.timeline, layout.timelineHeight, layout.timelineCollapsed);
-      syncSplitter(splitters.inspector, layout.inspectorHeight, layout.inspectorCollapsed);
-    } else {
-      sidebar.style.width = layout.sidebar + 'px';
-      tz.style.height = layout.timelineHeight + 'px';
-      iz.style.height = layout.inspectorHeight + 'px';
-    }
-
-    // The `.collapsed` classes are what hide each zone's body and pin its
-    // header height; the splitter owns the number, this owns the state.
-    sidebar.classList.toggle('collapsed', !!layout.sidebarCollapsed);
-    tz.classList.toggle('collapsed', !!layout.timelineCollapsed);
-    rz.classList.toggle('collapsed', !!layout.runsCollapsed);
-    iz.classList.toggle('collapsed', !!layout.inspectorCollapsed);
-
-    document.getElementById('mode-overview').classList.toggle('on', layout.mode === 'overview');
-    document.getElementById('mode-inspect').classList.toggle('on', layout.mode === 'inspect');
-  } finally {
-    applyingLayout = false;
-  }
-}
-
-/** Push one zone's stored size + collapsed state into its splitter. */
-function syncSplitter(splitter, size, collapsed) {
-  if (collapsed) splitter.collapse();
-  else splitter.applySize(size);
-}
-function applyPreset(mode) {
-  const preset = PRESETS[mode];
-  if (!preset) return;
-  layout = { ...layout, mode, ...preset };
-  saveLayout();
-  applyLayout();
-}
-function markCustom() {
-  if (layout.mode !== 'custom') {
-    layout.mode = 'custom';
-    document.getElementById('mode-overview').classList.remove('on');
-    document.getElementById('mode-inspect').classList.remove('on');
-  }
-}
+/* ============================================================
+   State
+   ============================================================ */
 
 let state = { pool: { running: 0, queued: 0, max: 0 }, triggers: [], runs: [], timeline: {}, server_time_iso: null };
-let filters = { trigger: '', status: '', search: '', timelineHours: 24 };
-let tabs = [];
-let activeTabId = null;
+let filters = { lane: '', status: '', search: '', timelineHours: 24 };
+
+/* The whole routing model: which of the four screens is showing, and what it
+   is showing. There is no other navigation state — no open-tab list, no
+   per-zone collapse flags, no stored geometry. */
+let view = { name: 'activity', runId: null, triggerName: null };
+
 let pollTimer = null;
+let pollMs = 3000;
+let authBlocked = false;
+let lastWorkerError = null;
+/* The single live EventSource, owned by whichever run detail is open. */
+let stream = null;
+let streamRunId = null;
+let streamParts = { text: [], toolCalls: [] };
+
+const POLL_OK_MS = 3000;
+/* On 401 the panel cannot read anything, so a 3s poll is 1200 pointless
+   requests an hour. Back off and say so instead. */
+const POLL_BLOCKED_MS = 30000;
+
+function isSimple() {
+  return document.documentElement.getAttribute('data-ui-mode') === 'simple';
+}
+
+/* ============================================================
+   Small helpers
+   ============================================================ */
 
 function $(sel) { return document.querySelector(sel); }
 function el(tag, props = {}, children = []) {
@@ -1382,23 +872,100 @@ function el(tag, props = {}, children = []) {
   return e;
 }
 function truncId(id) { return id ? id.slice(0, 8) : '—'; }
+
+// Telemetry stream/org the agent's records land in. "default" on both counts:
+// the OTLP logs exporter writes to the `default` stream, and the org is the one
+// parsed from the exporter endpoint, which is `default` for the store OSPREY
+// deploys. Kept as named constants so a facility that diverges has one place to
+// look rather than a string buried in a query.
+const TELEMETRY_STREAM = 'default';
+const TELEMETRY_ORG = 'default';
+// Session ids are UUIDs OSPREY generates. Anything else is refused rather than
+// interpolated into the SQL literal below — the value reaches the dashboard via
+// the worker, and a link is not worth a query-injection seam.
+const SESSION_ID_SAFE = /^[A-Za-z0-9._-]{1,128}$/;
+
+/**
+ * Deep link to this run's own records in the telemetry store, or null when
+ * there is nothing honest to link to.
+ *
+ * The store's logs UI takes its SQL through `query` as base64 with '=' padding
+ * rewritten to '.', NOT as plain URL-encoded text. This matters: a plain query
+ * is dropped SILENTLY, leaving a page that looks correct but shows every record
+ * in the window instead of this run's. The shape below is what the UI itself
+ * writes into its address bar, which is the only reliable statement of the
+ * contract — the store's own /config advertises `sql_base64_enabled: false`,
+ * which describes a different layer and misleads if read as the URL format.
+ *
+ * The join works because OSPREY forces a known session UUID onto the agent
+ * session (dispatch_worker/sdk_runner.py) so the emitter tags records with it,
+ * and the store flattens OTEL's `session.id` attribute to a `session_id` column.
+ */
+function telemetryUrlForRun(run) {
+  const base = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.telemetry_url) || '';
+  const sid = run && run.session_id;
+  if (!base || !sid || !SESSION_ID_SAFE.test(sid)) return null;
+
+  // Bound the search to the run's own window (with padding for clock skew and
+  // for records the harness flushes after the run returns) so the query scans a
+  // slice rather than full retention. Falls back to a day when the run carries
+  // no timestamp, which is wide but still finite.
+  const PAD_SEC = 300;
+  const created = run.created_at;
+  const fromSec = created ? created - PAD_SEC : (Date.now() / 1000) - 86400;
+  const toSec = created ? created + (run.duration_sec || 0) + PAD_SEC : Date.now() / 1000;
+
+  const sql = 'SELECT * FROM "' + TELEMETRY_STREAM + "\" WHERE session_id = '" + sid + "'";
+  const params = new URLSearchParams({
+    stream_type: 'logs',
+    stream: TELEMETRY_STREAM,
+    from: String(Math.floor(fromSec * 1e6)),
+    to: String(Math.ceil(toSec * 1e6)),
+    refresh: '0',
+    sql_mode: 'true',
+    query: btoa(sql).replace(/=/g, '.'),
+    defined_schemas: 'user_defined_schema',
+    org_identifier: TELEMETRY_ORG,
+    quick_mode: 'false',
+    show_histogram: 'true',
+  });
+  return base.replace(/\/+$/, '') + '/web/logs?' + params.toString();
+}
+
+/** Compact but readable — "14 min ago". Expert surfaces. */
 function formatAge(sec) {
-  if (sec == null) return '—';
-  if (sec < 60) return Math.round(sec) + 's';
-  if (sec < 3600) return Math.round(sec / 60) + 'm';
-  if (sec < 86400) return Math.round(sec / 3600) + 'h';
-  return Math.round(sec / 86400) + 'd';
+  if (sec == null) return '';
+  if (sec < 60) return 'just now';
+  if (sec < 3600) return Math.round(sec / 60) + ' min ago';
+  if (sec < 86400) return Math.round(sec / 3600) + ' hr ago';
+  return Math.round(sec / 86400) + ' d ago';
+}
+/** Spelled out — "14 minutes ago". Simple mode. */
+function formatAgeFriendly(sec) {
+  if (sec == null) return '';
+  if (sec < 60) return 'just now';
+  if (sec < 3600) { const m = Math.round(sec / 60); return m + (m === 1 ? ' minute ago' : ' minutes ago'); }
+  if (sec < 86400) { const h = Math.round(sec / 3600); return h + (h === 1 ? ' hour ago' : ' hours ago'); }
+  const d = Math.round(sec / 86400); return d + (d === 1 ? ' day ago' : ' days ago');
 }
 function formatDuration(sec) {
-  if (sec == null) return '—';
+  if (sec == null) return null;
   if (sec < 60) return sec.toFixed(1) + 's';
   return Math.floor(sec / 60) + 'm ' + Math.round(sec % 60) + 's';
+}
+function formatInterval(sec) {
+  if (sec == null) return '';
+  if (sec < 60) return 'every ' + Math.round(sec) + 's';
+  if (sec < 3600) return 'every ' + Math.round(sec / 60) + ' min';
+  return 'every ' + Math.round(sec / 3600) + ' hr';
 }
 function parseIsoTs(ts) {
   if (!ts) return null;
   const d = new Date(ts);
   return isNaN(d.getTime()) ? null : d.getTime();
 }
+function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
 function showToast(message, kind = '') {
   const t = $('#toast');
   t.textContent = message;
@@ -1408,6 +975,18 @@ function showToast(message, kind = '') {
 function prettyJson(obj) {
   try { return JSON.stringify(obj, null, 2); }
   catch { return String(obj); }
+}
+
+/** Outcome bucket for a run status. One place decides ok/err/live. */
+function outcomeOf(status) {
+  if (status === 'completed') return 'ok';
+  if (status === 'error') return 'err';
+  return 'live';
+}
+function outcomeWord(status) {
+  if (status === 'completed') return 'Completed successfully';
+  if (status === 'error') return 'Did not finish';
+  return 'Running now';
 }
 
 // Build a <pre> with lightweight JSON syntax highlighting. Uses matchAll() so
@@ -1438,11 +1017,15 @@ function buildJsonView(text) {
   return pre;
 }
 
+/* ============================================================
+   Transport
+   ============================================================ */
+
 async function apiGet(path) {
   // Attach the bearer token for the standalone (direct-to-dispatcher) path; in
   // the in-terminal proxy path bearer() is empty and the proxy injects it.
   const r = await fetch(path, { credentials: 'same-origin', headers: { ...bearer() } });
-  if (!r.ok) throw new Error(`GET ${path} → ${r.status}`);
+  if (!r.ok) { const e = new Error(`GET ${path} → ${r.status}`); e.status = r.status; throw e; }
   return r.json();
 }
 async function apiPost(path, body = null, headers = {}) {
@@ -1477,200 +1060,199 @@ function getDispatcherToken() {
   }
   return null;
 }
-function requireToken() {
-  let t = getDispatcherToken();
-  if (!t) {
-    t = prompt('Dispatcher bearer token? (EVENT_DISPATCHER_TOKEN)');
-    if (t) sessionStorage.setItem('dispatcher-token', t.trim());
-  }
-  return t;
-}
 function bearer() {
   const t = getDispatcherToken();
   return t ? { 'Authorization': 'Bearer ' + t } : {};
 }
 
+/* Writes are NOT gated on holding a token client-side.
+ *
+ * In the path that matters — the panel embedded in the web terminal — the
+ * terminal's proxy injects the dispatcher bearer server-side for every method,
+ * so the browser legitimately holds nothing and the request still succeeds.
+ * Demanding a token here would pop a `prompt()` on the panel's primary action,
+ * inside an iframe, where a modal blocks the whole terminal tab — and it would
+ * fire precisely when it was least necessary.
+ *
+ * So: attempt the write, and let the server be the authority. This turns a
+ * 401 into the same sentence the read path already shows, instead of a dialog.
+ */
+const UNAUTHORIZED_HINT =
+  'Not authorised — open this panel from the terminal’s EVENTS tab.';
+
+/** True when a response was rejected for auth; the caller explains rather than retries. */
+function explainIfUnauthorized(res) {
+  if (res.status !== 401 && res.status !== 403) return false;
+  showToast(UNAUTHORIZED_HINT, 'err');
+  return true;
+}
+
 async function fetchState() {
   try {
-    const hours = filters.timelineHours;
-    const data = await apiGet(`/dashboard/state?timeline_hours=${hours}`);
+    const data = await apiGet(`/dashboard/state?timeline_hours=${filters.timelineHours}`);
     state = data;
-    // Surface a degraded worker once per transition (not every 3s poll).
-    if (data.worker_error && data.worker_error !== lastWorkerError) {
-      showToast('Dispatch worker unreachable — run list may be stale', 'err');
-    }
+    if (authBlocked) { authBlocked = false; setPollInterval(POLL_OK_MS); }
     lastWorkerError = data.worker_error || null;
     render();
   } catch (e) {
+    // 401/403 means this page was opened outside the terminal proxy and has no
+    // token. That is a permanent condition until someone supplies one, so stop
+    // hammering and say what to do about it — the old panel logged a console
+    // error every 3s forever behind an empty screen.
+    if (e.status === 401 || e.status === 403) {
+      if (!authBlocked) { authBlocked = true; setPollInterval(POLL_BLOCKED_MS); }
+      render();
+      return;
+    }
     console.error('fetchState failed:', e);
   }
 }
-let lastWorkerError = null;
-function startPolling() {
+function setPollInterval(ms) {
+  pollMs = ms;
   if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(fetchState, pollMs);
+}
+function startPolling() {
   fetchState();
-  pollTimer = setInterval(fetchState, 3000);
+  setPollInterval(pollMs);
 }
 
-function renderStats() {
-  const pool = state.pool || {};
-  $('#stat-pool').textContent = `${pool.running || 0}/${pool.max || 0} q:${pool.queued || 0}`;
+/* ============================================================
+   Routing — four screens, one Back link
+   ============================================================ */
+
+const VIEW_IDS = {
+  activity: 'view-activity',
+  triggers: 'view-triggers',
+  run: 'view-run',
+  trigger: 'view-trigger',
+};
+
+function navigate(next, { push = true } = {}) {
+  // Leaving a run detail tears its stream down; nothing else owns one.
+  if (view.name === 'run' && next.name !== 'run') closeStream();
+  view = { name: 'activity', runId: null, triggerName: null, ...next };
+  for (const [name, id] of Object.entries(VIEW_IDS)) {
+    document.getElementById(id).classList.toggle('on', name === view.name);
+  }
+  // Detail screens are reached FROM a tab, so the tab they belong to stays lit.
+  const triggersSide = view.name === 'triggers' || view.name === 'trigger';
+  $('#tab-activity').classList.toggle('on', !triggersSide);
+  $('#tab-triggers').classList.toggle('on', triggersSide);
+  $('#main').scrollTop = 0;
+  if (push) saveUrl();
+  render();
+}
+
+function loadUrl() {
+  const p = new URL(window.location.href).searchParams;
+  if (p.has('lane')) filters.lane = p.get('lane') || '';
+  if (p.has('status')) filters.status = p.get('status') || '';
+  if (p.has('q')) filters.search = p.get('q') || '';
+  if (p.has('hours')) {
+    const h = parseFloat(p.get('hours'));
+    if (!isNaN(h) && h > 0) filters.timelineHours = h;
+  }
+  const v = p.get('view');
+  if (v === 'triggers') view = { name: 'triggers', runId: null, triggerName: null };
+  else if (v === 'run' && p.get('id')) view = { name: 'run', runId: p.get('id'), triggerName: null };
+  else if (v === 'trigger' && p.get('name')) view = { name: 'trigger', runId: null, triggerName: p.get('name') };
+}
+
+function saveUrl() {
+  const u = new URL(window.location.href);
+  const setOrDel = (k, v) => v ? u.searchParams.set(k, v) : u.searchParams.delete(k);
+  setOrDel('lane', filters.lane);
+  setOrDel('status', filters.status);
+  setOrDel('q', filters.search);
+  if (filters.timelineHours !== 24) u.searchParams.set('hours', String(filters.timelineHours));
+  else u.searchParams.delete('hours');
+
+  u.searchParams.delete('view');
+  u.searchParams.delete('id');
+  u.searchParams.delete('name');
+  if (view.name === 'triggers') u.searchParams.set('view', 'triggers');
+  else if (view.name === 'run') { u.searchParams.set('view', 'run'); u.searchParams.set('id', view.runId); }
+  else if (view.name === 'trigger') { u.searchParams.set('view', 'trigger'); u.searchParams.set('name', view.triggerName); }
+
+  history.replaceState({}, '', u.toString());
+}
+
+/* ============================================================
+   Status line — the four counters, in one sentence
+   ============================================================ */
+
+function renderStatus() {
+  const line = $('#status-line');
+  const text = $('#status-text');
+  line.classList.remove('is-busy', 'is-error', 'is-degraded');
+
+  if (authBlocked) {
+    line.classList.add('is-degraded');
+    text.textContent = 'Not authorised to read the dispatcher.';
+    return;
+  }
+  if (lastWorkerError) {
+    // Persistent, not a toast: a stale run list must never look fresh.
+    line.classList.add('is-degraded');
+    text.textContent = 'Cannot reach the dispatch worker — the runs below may be out of date.';
+    return;
+  }
+
   const runs = state.runs || [];
-  $('#stat-pending').textContent = runs.filter(r => r.status === 'pending').length;
-  $('#stat-completed').textContent = runs.filter(r => r.status === 'completed').length;
-  $('#stat-errors').textContent = runs.filter(r => r.status === 'error').length;
-}
-
-function computeSparkBars(triggerName, count = 10) {
-  const events = (state.timeline[triggerName] || []).slice(-count);
-  const bars = [];
-  for (let i = 0; i < count - events.length; i++) bars.push({ cls: 'empty', height: 10 });
-  for (let i = 0; i < events.length; i++) {
-    const ev = events[i];
-    if (ev.status === 'error' || (ev.status && ev.status.startsWith('error'))) bars.push({ cls: 'err', height: 90 });
-    else if (ev.status === 'queue_full') bars.push({ cls: 'queued', height: 70 });
-    else bars.push({ cls: 'ok', height: 40 + ((i * 13) % 55) });
-  }
-  const hasLive = (state.runs || []).some(r => r.status === 'pending' && r.trigger_name === triggerName);
-  if (hasLive && bars.length) bars[bars.length - 1] = { cls: 'live', height: 100 };
-  return bars;
-}
-
-function renderTriggerCard(t) {
-  const card = el('div', {
-    className: 'trigger-card' + (t.status === 'disabled' ? ' disabled' : ''),
-    dataset: { triggerName: t.name },
-  });
-
-  const head = el('div', { className: 'trigger-card-head' });
-  const left = el('div');
-  left.appendChild(el('div', { className: 'trigger-name', textContent: t.name }));
-  const sub = describeSub(t);
-  if (sub) left.appendChild(el('div', { className: 'trigger-sub', textContent: sub }));
-  head.appendChild(left);
-
-  const right = el('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' } });
-  const toggle = el('div', {
-    className: 'toggle-switch' + (t.status === 'disabled' ? '' : ' on'),
-    title: t.status === 'disabled' ? 'Enable trigger' : 'Disable trigger',
-    onclick: (e) => { e.stopPropagation(); toggleTrigger(t.name, t.status); },
-  });
-  right.appendChild(toggle);
-  head.appendChild(right);
-  card.appendChild(head);
-
-  const spark = el('div', { className: 'trigger-sparkline', title: 'Last 10 events' });
-  for (const b of computeSparkBars(t.name)) {
-    spark.appendChild(el('div', { className: 'bar ' + b.cls, style: { height: b.height + '%' } }));
-  }
-  card.appendChild(spark);
-
-  const badges = el('div', { className: 'badges' });
-  badges.appendChild(el('span', { className: 'badge badge-' + t.source, textContent: t.source }));
-  if (t.on_error) badges.appendChild(el('span', { className: 'badge badge-' + t.on_error, textContent: t.on_error }));
-  if (t.allowed_tools && t.allowed_tools.length) {
-    badges.appendChild(el('span', { className: 'badge', style: { background: 'var(--neutral-tint-08)', color: 'var(--text-muted)' }, textContent: t.allowed_tools.length + ' tools' }));
-  }
-  if (t.status === 'disabled') {
-    badges.appendChild(el('span', { className: 'badge badge-off', textContent: 'off' }));
-  }
-  card.appendChild(badges);
-
-  const fireWrap = el('div', { className: 'fire-split' + (t.status === 'disabled' ? ' disabled' : '') });
-  const primary = el('button', {
-    className: 'primary',
-    textContent: '▶ FIRE {}',
-    title: t.status === 'disabled' ? 'Trigger disabled' : 'Fire with empty payload',
-    onclick: (e) => { e.stopPropagation(); if (t.status !== 'disabled') fireTrigger(t.name, {}, null); },
-  });
-  const more = el('button', {
-    className: 'more',
-    textContent: '▾',
-    title: t.status === 'disabled' ? 'Trigger disabled' : 'Fire with payload',
-    onclick: (e) => { e.stopPropagation(); if (t.status !== 'disabled') toggleFireEditor(card, t); },
-  });
-  fireWrap.appendChild(primary);
-  fireWrap.appendChild(more);
-  card.appendChild(fireWrap);
-
-  card.appendChild(el('div', { className: 'fire-editor', dataset: { trigger: t.name } }));
-
-  if (t.prompt) {
-    const peekToggle = el('span', {
-      className: 'peek-toggle',
-      textContent: '▸ prompt',
-      onclick: (e) => {
-        e.stopPropagation();
-        card.classList.toggle('expanded');
-        peekToggle.textContent = card.classList.contains('expanded') ? '▾ prompt' : '▸ prompt';
-      },
-    });
-    card.appendChild(peekToggle);
-    card.appendChild(el('div', { className: 'trigger-prompt-peek', textContent: t.prompt }));
-  }
-
-  return card;
-}
-
-function describeSub(t) {
-  if (t.source === 'epics_ca' && t.source_config) {
-    const cfg = t.source_config;
-    const edge = cfg.edge || 'rising';
-    const sym = edge === 'rising' ? '↑>' : edge === 'falling' ? '↓<' : '↔';
-    const pvPrefix = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.pv_strip_prefix) || '';
-    const pv = cfg.pv ? String(cfg.pv).replace(new RegExp('^' + pvPrefix, 'i'), '') : '';
-    return `${pv} ${sym}${cfg.threshold ?? '?'}`;
-  }
-  if (t.last_fired) {
-    const d = new Date(t.last_fired);
-    if (!isNaN(d.getTime())) return 'last fired ' + d.toLocaleTimeString();
-  }
-  return t.source || '';
-}
-
-function renderTriggers() {
   const triggers = state.triggers || [];
-  const filterTxt = ($('#trigger-filter').value || '').toLowerCase();
-  const visible = triggers.filter(t => !filterTxt || t.name.toLowerCase().includes(filterTxt));
+  const armed = triggers.filter(t => t.status !== 'disabled').length;
+  const running = runs.filter(r => r.status === 'pending').length;
+  const failed = runs.filter(r => r.status === 'error').length;
+  const done = runs.filter(r => r.status === 'completed').length;
+  const pool = state.pool || {};
 
-  $('#trigger-count').textContent = triggers.length;
-  const list = $('#trigger-list');
-  list.textContent = '';
-  for (const t of visible) list.appendChild(renderTriggerCard(t));
+  if (failed > 0) line.classList.add('is-error');
+  else if (running > 0) line.classList.add('is-busy');
 
-  const sel = $('#filter-trigger');
-  const current = sel.value;
-  sel.textContent = '';
-  sel.appendChild(el('option', { value: '', textContent: 'all triggers' }));
-  for (const t of triggers) sel.appendChild(el('option', { value: t.name, textContent: t.name }));
-  sel.value = current;
+  if (isSimple()) {
+    let headline;
+    if (failed > 0) headline = 'Some events need a look.';
+    else if (running > 0) headline = 'Running normally, with work in progress.';
+    else headline = 'Everything is running normally.';
+    const bits = [plural(armed, 'automation') + ' armed'];
+    if (running > 0) bits.push(plural(running, 'event') + ' in progress');
+    if (failed > 0) bits.push(plural(failed, 'event') + ' needs a look');
+    else if (done > 0) bits.push(plural(done, 'event') + ' completed recently');
+    text.textContent = headline + ' ' + bits.join(', ') + '.';
+    return;
+  }
+
+  const parts = [plural(armed, 'trigger') + ' armed'];
+  parts.push(plural(runs.length, 'recent run'));
+  if (running > 0) parts.push(running + ' running');
+  if (failed > 0) parts.push(failed + ' failed');
+  // Pool detail earns its place only when it is actually constraining work.
+  if (pool.queued) parts.push(`queue full — ${plural(pool.queued, 'waiting')}`);
+  text.textContent = parts.join(' · ');
 }
 
-function renderTimeline() {
+/* ============================================================
+   Activity — timeline lanes
+   ============================================================ */
+
+function renderLanes() {
   const hours = filters.timelineHours;
   const now = Date.now();
   const windowMs = hours * 3600 * 1000;
   const start = now - windowMs;
 
-  const ticks = $('#timeline-ticks');
-  ticks.textContent = '';
-  const tickCount = hours <= 1 ? 4 : hours <= 24 ? 4 : 7;
-  for (let i = 0; i <= tickCount; i++) {
-    const pct = i / tickCount;
-    let label;
-    if (i === tickCount) label = 'now';
-    else if (hours <= 1) label = `−${Math.round((hours - hours * pct) * 60)}m`;
-    else if (hours <= 24) label = `−${Math.round(hours * (1 - pct))}h`;
-    else label = `−${Math.round(hours * (1 - pct) / 24)}d`;
-    ticks.appendChild(el('span', { textContent: label }));
-  }
+  $('#timeline-title').textContent =
+    hours <= 1 ? 'Last hour' : hours <= 24 ? 'Last 24 hours' : 'Last 7 days';
 
-  const tracks = $('#timeline-tracks');
-  tracks.textContent = '';
+  const list = $('#lane-list');
+  list.textContent = '';
   const triggers = state.triggers || [];
 
-  let totalFires = 0;
-  let totalErrors = 0;
+  if (triggers.length === 0) {
+    list.appendChild(el('div', { className: 'empty-state', textContent: 'No triggers are registered.' }));
+    return;
+  }
 
   for (const t of triggers) {
     const events = (state.timeline[t.name] || []).filter(ev => {
@@ -1678,62 +1260,35 @@ function renderTimeline() {
       return ts != null && ts >= start && ts <= now;
     });
 
-    const row = el('div', { className: 'timeline-track' + (t.status === 'disabled' ? ' disabled' : '') });
+    const lane = el('div', { className: 'lane' + (t.status === 'disabled' ? ' disabled' : '') });
+    lane.appendChild(el('div', {
+      className: 'lane-name',
+      textContent: t.name,
+      title: 'Show only this trigger\u2019s runs below',
+      onclick: () => { filters.lane = filters.lane === t.name ? '' : t.name; saveUrl(); renderRunList(); },
+    }));
 
-    const tname = el('div', { className: 'tname', onclick: () => { focusTrigger(t.name); } });
-    tname.appendChild(document.createTextNode(t.name));
-    tname.appendChild(el('span', { className: 'count', textContent: events.length + ' fires' }));
-    row.appendChild(tname);
-
-    const rail = el('div', { className: 'timeline-rail' });
-    for (let i = 1; i < tickCount; i++) {
-      rail.appendChild(el('div', { className: 'gtick', style: { left: (100 * i / tickCount) + '%' } }));
-    }
-    rail.appendChild(el('div', { className: 'now-line' }));
-
+    const rail = el('div', { className: 'lane-rail' });
     const hasPending = (state.runs || []).some(r => r.status === 'pending' && r.trigger_name === t.name);
     for (let i = 0; i < events.length; i++) {
       const ev = events[i];
       const ts = parseIsoTs(ev.timestamp);
       if (ts == null) continue;
       const pct = ((ts - start) / windowMs) * 100;
-      const isLast = i === events.length - 1;
       let kind = 'ok';
       if (ev.status === 'error' || (ev.status && ev.status.startsWith('error'))) kind = 'err';
       else if (ev.status === 'queue_full') kind = 'retry';
-      if (isLast && hasPending && ev.status === 'dispatched') kind = 'live';
+      if (i === events.length - 1 && hasPending && ev.status === 'dispatched') kind = 'live';
 
-      totalFires++;
-      if (kind === 'err') totalErrors++;
-
-      const dot = el('div', {
-        className: 'fire-dot ' + kind,
-        style: { transform: `translateX(${pct}%) translateX(-50%)` },
-        title: `${kind.toUpperCase()} — ${new Date(ts).toLocaleString()}\n${ev.status}`,
-        onclick: () => { openNearestRunForTrigger(t.name, ts); },
-      });
-      rail.appendChild(dot);
+      rail.appendChild(el('div', {
+        className: 'lane-mark ' + kind,
+        style: { left: pct + '%' },
+        title: `${new Date(ts).toLocaleString()} — ${ev.status}`,
+        onclick: () => openNearestRunForTrigger(t.name, ts),
+      }));
     }
-    row.appendChild(rail);
-
-    const actions = el('div', { style: { display: 'flex', gap: '4px', justifyContent: 'flex-end' } });
-    const fireBtn = el('button', {
-      className: 'action-btn' + (t.status === 'disabled' ? '' : ' primary'),
-      textContent: '▶',
-      title: t.status === 'disabled' ? 'Trigger disabled' : 'Fire with empty payload',
-      disabled: t.status === 'disabled',
-      onclick: (e) => { e.stopPropagation(); if (t.status !== 'disabled') fireTrigger(t.name, {}, null); },
-    });
-    actions.appendChild(fireBtn);
-    row.appendChild(actions);
-
-    tracks.appendChild(row);
-  }
-
-  $('#timeline-info').textContent = `${totalFires} fires · ${totalErrors} err · last ${hours}h`;
-
-  if (triggers.length === 0) {
-    tracks.appendChild(el('div', { className: 'empty-state', textContent: 'No triggers registered.' }));
+    lane.appendChild(rail);
+    list.appendChild(lane);
   }
 }
 
@@ -1742,22 +1297,18 @@ function openNearestRunForTrigger(triggerName, ts) {
   if (runs.length === 0) { showToast('No runs recorded yet for ' + triggerName); return; }
   let closest = runs[0], bestDelta = Infinity;
   for (const r of runs) {
-    const rts = (r.created_at || 0) * 1000;
-    const d = Math.abs(rts - ts);
+    const d = Math.abs((r.created_at || 0) * 1000 - ts);
     if (d < bestDelta) { bestDelta = d; closest = r; }
   }
-  openRunInTab(closest);
+  navigate({ name: 'run', runId: closest.run_id });
 }
 
-function focusTrigger(name) {
-  filters.trigger = name;
-  $('#filter-trigger').value = name;
-  saveFiltersToUrl();
-  renderRuns();
-}
+/* ============================================================
+   Activity — recent runs
+   ============================================================ */
 
 function matchesFilter(r) {
-  if (filters.trigger && r.trigger_name !== filters.trigger) return false;
+  if (filters.lane && r.trigger_name !== filters.lane) return false;
   if (filters.status && r.status !== filters.status) return false;
   if (filters.search) {
     const q = filters.search.toLowerCase();
@@ -1767,432 +1318,276 @@ function matchesFilter(r) {
   return true;
 }
 
-function renderRuns() {
-  const runs = (state.runs || []).filter(matchesFilter);
-  const tbody = $('#runs-tbody');
-  const empty = $('#empty-state');
+/** One run, as two lines. Shared by the Activity list and trigger detail. */
+function renderRunRow(r, { showName = true } = {}) {
+  const simple = isSimple();
+  const outcome = outcomeOf(r.status);
+  const row = el('div', {
+    className: 'run-row is-' + outcome,
+    onclick: () => navigate({ name: 'run', runId: r.run_id }),
+  });
+  row.appendChild(el('div', { className: 'run-icon' }));
 
-  $('#runs-count').textContent = `${runs.length} run${runs.length === 1 ? '' : 's'}`;
-  $('#runs-info').textContent = runs.length ? `showing ${runs.length} of ${(state.runs || []).length}` : '';
-
-  tbody.textContent = '';
-  if (runs.length === 0) { empty.style.display = 'block'; return; }
-  empty.style.display = 'none';
-
-  const openRunId = activeTabId ? (tabs.find(t => t.id === activeTabId) || {}).runId : null;
-  for (const r of runs) {
-    const tr = el('tr', { className: r.run_id === openRunId ? 'active' : '', onclick: () => openRunInTab(r) });
-    tr.appendChild(el('td', {}, el('span', { className: 'badge badge-' + r.status, textContent: r.status })));
-    tr.appendChild(el('td', { className: 't-trigger' + (r.trigger_name ? '' : ' none'), textContent: r.trigger_name || '—' }));
-    tr.appendChild(el('td', { textContent: truncId(r.run_id) }));
-    tr.appendChild(el('td', { textContent: formatAge(r.age_sec) }));
-    tr.appendChild(el('td', { textContent: formatDuration(r.duration_sec) }));
-    tr.appendChild(el('td', { textContent: r.num_turns ?? '—' }));
-    tr.appendChild(el('td', { textContent: r.tool_count || '—' }));
-    tr.appendChild(el('td', { className: 't-output', textContent: r.error || (r.text_output || '').slice(0, 200) }));
-    tbody.appendChild(tr);
-  }
-}
-
-// ---- Simple mode ----------------------------------------------------------
-// A single operator-facing summary card + a plain list of recent events. It
-// reads the same `state` the expert dashboard does, but shows only outcomes in
-// plain words — no run ids, durations, turn/tool counts, failure classes, or
-// worker internals. Safe to call anytime; a no-op if the simple DOM is absent.
-
-function formatAgeFriendly(sec) {
-  if (sec == null) return '';
-  if (sec < 60) return 'just now';
-  if (sec < 3600) { const m = Math.round(sec / 60); return m + (m === 1 ? ' minute ago' : ' minutes ago'); }
-  if (sec < 86400) { const h = Math.round(sec / 3600); return h + (h === 1 ? ' hour ago' : ' hours ago'); }
-  const d = Math.round(sec / 86400); return d + (d === 1 ? ' day ago' : ' days ago');
-}
-function simpleOutcome(status) {
-  if (status === 'completed') return { cls: 'simple-event-ok', text: 'Completed successfully' };
-  if (status === 'error') return { cls: 'simple-event-err', text: 'Did not finish' };
-  return { cls: 'simple-event-live', text: 'Running now' };
-}
-function renderSimple() {
-  const statusEl = $('#simple-status');
-  const headlineEl = $('#simple-status-headline');
-  const detailEl = $('#simple-status-detail');
-  const listEl = $('#simple-events-list');
-  if (!statusEl || !listEl) return;
-
-  const runs = state.runs || [];
-  const pending = runs.filter(r => r.status === 'pending').length;
-  const errors = runs.filter(r => r.status === 'error').length;
-  const completed = runs.filter(r => r.status === 'completed').length;
-  const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
-
-  statusEl.classList.remove('is-busy', 'is-error');
-  if (state.worker_error) {
-    statusEl.classList.add('is-error');
-    headlineEl.textContent = 'The dispatcher cannot reach its worker right now.';
-    detailEl.textContent = 'The recent activity below may be out of date until the connection recovers.';
-  } else if (errors > 0) {
-    statusEl.classList.add('is-error');
-    headlineEl.textContent = 'The dispatcher is running, but ' + plural(errors, 'event') + (errors === 1 ? ' needs' : ' need') + ' a look.';
-    detailEl.textContent = completed > 0
-      ? plural(completed, 'other event') + ' completed successfully.'
-      : 'See the list below for what happened.';
-  } else if (pending > 0) {
-    statusEl.classList.add('is-busy');
-    headlineEl.textContent = 'The dispatcher is running, with ' + plural(pending, 'event') + ' in progress.';
-    detailEl.textContent = completed > 0
-      ? plural(completed, 'event') + ' completed recently.'
-      : 'Everything is proceeding normally.';
-  } else if (completed > 0) {
-    headlineEl.textContent = 'The dispatcher is healthy — every recent event completed.';
-    detailEl.textContent = plural(completed, 'event') + ' completed in the recent history.';
+  const main = el('div', { className: 'run-main' });
+  const headline = el('div', { className: 'run-headline' });
+  if (simple) {
+    headline.appendChild(el('span', { className: 'run-name', textContent: outcomeWord(r.status) }));
+    if (showName && r.trigger_name) {
+      headline.appendChild(el('span', { className: 'run-when', textContent: r.trigger_name }));
+    }
+    headline.appendChild(el('span', { className: 'run-when', textContent: formatAgeFriendly(r.age_sec) }));
   } else {
-    headlineEl.textContent = 'The dispatcher is running normally.';
-    detailEl.textContent = 'No events have been dispatched recently.';
+    if (showName) {
+      headline.appendChild(el('span', { className: 'run-name', textContent: r.trigger_name || 'Manual run' }));
+    }
+    const when = [formatAge(r.age_sec), formatDuration(r.duration_sec)].filter(Boolean).join(' · ');
+    headline.appendChild(el('span', { className: 'run-when', textContent: when }));
+  }
+  main.appendChild(headline);
+
+  const preview = r.error || (r.text_output || '').replace(/\s+/g, ' ').trim();
+  if (preview && !simple) {
+    main.appendChild(el('div', {
+      className: 'run-preview' + (r.error ? ' is-err' : ''),
+      textContent: preview.slice(0, 200),
+    }));
+  }
+  row.appendChild(main);
+
+  row.appendChild(el('div', { className: 'run-id expert-only', textContent: truncId(r.run_id) }));
+  return row;
+}
+
+function renderRunList() {
+  const host = $('#run-list');
+  host.textContent = '';
+
+  $('#runs-title').textContent = isSimple() ? 'Recent activity' : 'Recent runs';
+
+  for (const chip of document.querySelectorAll('.filters .chip')) {
+    chip.classList.toggle('on', (chip.dataset.status || '') === filters.status);
   }
 
-  listEl.textContent = '';
-  if (runs.length === 0) {
-    listEl.appendChild(el('div', { className: 'simple-empty', textContent: 'No events have run yet. They will appear here as they happen.' }));
+  if (authBlocked) {
+    host.appendChild(el('div', { className: 'empty-state' }, [
+      el('span', { textContent: 'This panel needs a token when opened directly.' }),
+      el('span', { className: 'empty-hint', textContent: 'Open it from the terminal\u2019s EVENTS tab, which supplies one for you.' }),
+    ]));
     return;
   }
-  for (const r of runs.slice(0, 12)) {
-    const outcome = simpleOutcome(r.status);
-    const card = el('div', { className: 'simple-event ' + outcome.cls });
-    card.appendChild(el('div', { className: 'simple-event-icon' }));
-    const main = el('div', { className: 'simple-event-main' });
-    main.appendChild(el('div', { className: 'simple-event-name', textContent: r.trigger_name || 'Manual run' }));
-    main.appendChild(el('div', { className: 'simple-event-outcome', textContent: outcome.text }));
-    card.appendChild(main);
-    card.appendChild(el('div', { className: 'simple-event-time', textContent: formatAgeFriendly(r.age_sec) }));
-    listEl.appendChild(card);
+
+  const runs = (state.runs || []).filter(matchesFilter);
+  if (runs.length === 0) {
+    const bare = !filters.lane && !filters.status && !filters.search;
+    host.appendChild(el('div', { className: 'empty-state' }, [
+      el('span', {
+        textContent: bare
+          ? (isSimple() ? 'Nothing has run yet.' : 'No runs recorded yet.')
+          : 'No runs match the current filters.',
+      }),
+      bare
+        ? el('span', { className: 'empty-hint', textContent: 'Events will appear here as they happen.' })
+        : null,
+    ]));
+    return;
+  }
+
+  const list = el('div', { className: 'row-list' });
+  for (const r of runs) list.appendChild(renderRunRow(r));
+  host.appendChild(list);
+
+  if (filters.lane) {
+    host.appendChild(el('button', {
+      className: 'back-link expert-only',
+      textContent: '× Clear ' + filters.lane + ' filter',
+      style: { marginTop: '10px' },
+      onclick: () => { filters.lane = ''; saveUrl(); renderRunList(); },
+    }));
   }
 }
 
-function openRunInTab(run) {
-  if (!run || !run.run_id) return;
-  const existing = tabs.find(t => t.runId === run.run_id);
-  if (existing) { selectTab(existing.id); return; }
+/* ============================================================
+   Triggers list
+   ============================================================ */
 
-  const tabId = 't' + Date.now();
-  const type = (run.has_stream && run.status === 'pending') ? 'stream' : 'view';
-  const container = el('div', { className: 'tab-content' });
-  container.id = tabId + '-content';
-  $('#tab-contents').appendChild(container);
+/** Human summary of where a trigger's events come from. */
+function describeSource(t) {
+  const cfg = t.source_config || {};
+  if (t.source === 'epics_ca') {
+    const edge = cfg.edge || 'rising';
+    const sym = edge === 'rising' ? '↑>' : edge === 'falling' ? '↓<' : '↔';
+    const pvPrefix = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.pv_strip_prefix) || '';
+    const pv = cfg.pv ? String(cfg.pv).replace(new RegExp('^' + pvPrefix, 'i'), '') : '';
+    return `${pv} ${sym}${cfg.threshold ?? '?'}`;
+  }
+  if (t.source === 'cron') return formatInterval(cfg.interval_sec);
+  return t.source || '';
+}
 
-  const tab = {
-    id: tabId, runId: run.run_id, run, type, container,
-    eventSource: null, textParts: [], toolCalls: [], meta: null,
-    ledKind: run.status === 'error' ? 'err' : run.status === 'completed' ? 'ok' : 'live',
+function renderTriggerList() {
+  const triggers = state.triggers || [];
+  const q = ($('#trigger-filter').value || '').toLowerCase();
+  const visible = triggers.filter(t => !q || t.name.toLowerCase().includes(q));
+
+  $('#trigger-count').textContent = plural(triggers.length, 'trigger');
+
+  const host = $('#trigger-list');
+  host.textContent = '';
+
+  if (visible.length === 0) {
+    host.appendChild(el('div', {
+      className: 'empty-state',
+      textContent: triggers.length === 0 ? 'No triggers are registered.' : 'No triggers match that filter.',
+    }));
+    return;
+  }
+
+  const list = el('div', { className: 'row-list' });
+  for (const t of visible) {
+    const disabled = t.status === 'disabled';
+    const row = el('div', {
+      className: 'trigger-row' + (disabled ? ' disabled' : ''),
+      onclick: () => navigate({ name: 'trigger', triggerName: t.name }),
+    });
+    row.appendChild(el('div', { className: 'trigger-dot' }));
+
+    const main = el('div', { className: 'trigger-main' });
+    const nameRow = el('div');
+    nameRow.appendChild(el('span', { className: 'trigger-name', textContent: t.name }));
+    nameRow.appendChild(el('span', { className: 'trigger-source', textContent: describeSource(t) }));
+    main.appendChild(nameRow);
+
+    const lastFired = t.last_fired ? parseIsoTs(t.last_fired) : null;
+    main.appendChild(el('div', {
+      className: 'trigger-sub',
+      textContent: disabled
+        ? 'Disabled'
+        : lastFired ? 'Fired ' + formatAge((Date.now() - lastFired) / 1000) : 'Never fired',
+    }));
+    row.appendChild(main);
+
+    row.appendChild(el('button', {
+      className: 'btn',
+      textContent: 'Fire',
+      disabled,
+      title: disabled ? 'Trigger is disabled' : 'Fire with an empty payload',
+      onclick: (e) => { e.stopPropagation(); fireTrigger(t.name, {}); },
+    }));
+    list.appendChild(row);
+  }
+  host.appendChild(list);
+}
+
+/* ============================================================
+   Trigger detail
+   ============================================================ */
+
+function renderTriggerDetail() {
+  const host = $('#trigger-detail');
+  host.textContent = '';
+  const t = (state.triggers || []).find(x => x.name === view.triggerName);
+  if (!t) {
+    host.appendChild(el('div', { className: 'empty-state', textContent: 'That trigger is no longer registered.' }));
+    return;
+  }
+  const disabled = t.status === 'disabled';
+
+  const head = el('div', { className: 'detail-head' });
+  head.appendChild(el('span', { className: 'detail-title', textContent: t.name }));
+  host.appendChild(head);
+
+  const grid = el('div', { className: 'field-grid' });
+  const field = (label, value, mono = false) => {
+    grid.appendChild(el('div', { className: 'field-label', textContent: label }));
+    grid.appendChild(el('div', { className: 'field-value' + (mono ? ' mono' : ''), textContent: value }));
   };
-  tabs.push(tab);
+  field('Source', describeSource(t) || t.source || '—', true);
 
-  renderTabStatic(tab);
-  if (type === 'stream') startStream(tab);
-  renderTabBar();
-  selectTab(tabId);
-}
+  grid.appendChild(el('div', { className: 'field-label', textContent: 'Status' }));
+  const statusCell = el('div', { className: 'field-value' }, [
+    el('span', { textContent: disabled ? 'Disabled' : 'Armed' }),
+  ]);
+  statusCell.appendChild(el('button', {
+    className: 'btn' + (disabled ? '' : ' danger'),
+    textContent: disabled ? 'Enable' : 'Disable',
+    onclick: () => toggleTrigger(t.name, t.status),
+  }));
+  grid.appendChild(statusCell);
 
-function closeTab(tabId) {
-  const idx = tabs.findIndex(t => t.id === tabId);
-  if (idx === -1) return;
-  const tab = tabs[idx];
-  if (tab.eventSource) tab.eventSource.close();
-  tab.container.remove();
-  tabs.splice(idx, 1);
-  if (activeTabId === tabId) {
-    const next = tabs[Math.min(idx, tabs.length - 1)];
-    activeTabId = next ? next.id : null;
+  field('On error', t.on_error || 'drop');
+  field('Tools', (t.allowed_tools && t.allowed_tools.length) ? t.allowed_tools.join(', ') : 'all allowed', true);
+  host.appendChild(grid);
+
+  if (t.prompt) {
+    const block = el('div', { className: 'detail-block' });
+    block.appendChild(el('div', { className: 'block-title', textContent: 'Prompt' }));
+    block.appendChild(el('div', { className: 'prompt-body', textContent: t.prompt }));
+    host.appendChild(block);
   }
-  renderTabBar();
-  updateTabVisibility();
-  updateInspectorInfo();
-  renderRuns();
-}
 
-function selectTab(tabId) {
-  activeTabId = tabId;
-  renderTabBar();
-  updateTabVisibility();
-  updateInspectorInfo();
-}
+  host.appendChild(buildPayloadEditor(t));
 
-function updateInspectorInfo() {
-  const tab = tabs.find(t => t.id === activeTabId);
-  $('#inspector-info').textContent = tab ? `${tab.run.trigger_name || '—'} · ${truncId(tab.runId)}` : 'click a run above';
-}
-
-function renderTabBar() {
-  const bar = $('#tab-bar');
-  bar.textContent = '';
-  for (const tab of tabs) {
-    const t_ = el('div', { className: 'tab' + (tab.id === activeTabId ? ' active' : ''), onclick: () => selectTab(tab.id) });
-    t_.appendChild(el('span', { className: 'led ' + tab.ledKind }));
-    t_.appendChild(el('span', { textContent: truncId(tab.runId) }));
-    t_.appendChild(el('span', { className: 'close-btn', textContent: '×', onclick: (e) => { e.stopPropagation(); closeTab(tab.id); } }));
-    bar.appendChild(t_);
-  }
-}
-
-function updateTabVisibility() {
-  for (const tab of tabs) tab.container.classList.toggle('active', tab.id === activeTabId);
-}
-
-function renderTabStatic(tab) {
-  const { run, container } = tab;
-  container.textContent = '';
-  container.appendChild(renderInspectorMeta(tab));
-  if (run.error) container.appendChild(el('div', { className: 'event event-error', textContent: '✘ ' + run.error }));
-  for (const c of (run.tool_calls || [])) container.appendChild(renderToolCall(c));
-  if (run.text_output) container.appendChild(el('div', { className: 'event event-text', textContent: run.text_output }));
-}
-
-function renderInspectorMeta(tab) {
-  const { run } = tab;
-  const meta = el('div', { className: 'inspector-meta' });
-  meta.appendChild(el('span', { className: 'badge badge-' + run.status, textContent: run.status }));
-  if (run.trigger_name) meta.appendChild(el('span', { className: 'tname', textContent: run.trigger_name }));
-  meta.appendChild(el('span', { className: 'rid', textContent: run.run_id }));
-
-  const summaryParts = [];
-  if (run.duration_sec != null) summaryParts.push(formatDuration(run.duration_sec));
-  if (run.num_turns != null) summaryParts.push(run.num_turns + ' turns');
-  if (run.tool_count) summaryParts.push(run.tool_count + ' tools');
-  if (summaryParts.length) meta.appendChild(el('span', { className: 'muted', textContent: '· ' + summaryParts.join(' · ') }));
-
-  const actions = el('div', { className: 'actions' });
-  if (run.status === 'pending') {
-    actions.appendChild(el('button', {
-      className: 'action-btn danger',
-      textContent: '✕ cancel',
-      title: 'Cancel is usually <1s; may take a few seconds if a tool call is in flight.',
-      onclick: () => cancelRun(run.run_id),
-    }));
-  }
-  if (run.trigger_name && run.status !== 'pending') {
-    actions.appendChild(el('button', {
-      className: 'action-btn',
-      textContent: '↻ re-fire',
-      title: 'Dispatch this trigger again with an empty payload.',
-      onclick: () => fireTrigger(run.trigger_name, {}, run.run_id),
-    }));
-  }
-  meta.appendChild(actions);
-  return meta;
-}
-
-function renderToolCall(c) {
-  const inputStr = prettyJson(c.input);
-  const headArgs = inputStr.split('\n')[0].slice(0, 80);
-
-  const wrap = el('div', { className: 'tool-call' });
-  const head = el('div', { className: 'tool-head', onclick: () => { wrap.classList.toggle('open'); } });
-  head.appendChild(el('span', { className: 'chev', textContent: '▸' }));
-  head.appendChild(el('span', { className: 'tool-name', textContent: c.name || '<tool>' }));
-  head.appendChild(el('span', { className: 'tool-args', textContent: headArgs }));
-  wrap.appendChild(head);
-
-  const body = el('div', { className: 'tool-body' });
-  body.appendChild(renderJsonSection('Input', inputStr));
-  if (c.result != null) {
-    const resultStr = typeof c.result === 'string' ? c.result : prettyJson(c.result);
-    body.appendChild(renderJsonSection('Result', resultStr));
+  const runs = (state.runs || []).filter(r => r.trigger_name === t.name);
+  const runsBlock = el('div', { className: 'detail-block' });
+  runsBlock.appendChild(el('div', { className: 'block-title', textContent: 'Recent runs from this trigger' }));
+  if (runs.length === 0) {
+    runsBlock.appendChild(el('div', { className: 'empty-state', textContent: 'This trigger has not run yet.' }));
   } else {
-    body.appendChild(el('div', { className: 'muted', textContent: 'no result yet' }));
+    const list = el('div', { className: 'row-list' });
+    for (const r of runs) list.appendChild(renderRunRow(r, { showName: false }));
+    runsBlock.appendChild(list);
   }
-  wrap.appendChild(body);
-  return wrap;
+  host.appendChild(runsBlock);
 }
 
-function renderJsonSection(label, text) {
-  const section = el('div', {});
-  const lab = el('div', { className: 'tool-section-label' });
-  lab.appendChild(el('span', { textContent: label }));
-  const copy = el('span', {
-    className: 'copy-btn',
-    textContent: 'copy',
+function buildPayloadEditor(trigger) {
+  const block = el('div', { className: 'detail-block' });
+  block.appendChild(el('div', { className: 'block-title', textContent: 'Fire with payload' }));
+
+  const wrap = el('div', { className: 'payload-editor' });
+  const recent = getRecentPayloads(trigger.name);
+  const ta = el('textarea', { spellcheck: false, autocomplete: 'off', value: recent[0] || '{\n  \n}' });
+  wrap.appendChild(ta);
+
+  const actions = el('div', { className: 'payload-actions' });
+  const fireBtn = el('button', {
+    className: 'btn primary',
+    textContent: 'Fire',
+    disabled: trigger.status === 'disabled',
     onclick: async () => {
-      try { await navigator.clipboard.writeText(text); showToast('copied', 'ok'); }
-      catch { showToast('copy failed', 'err'); }
+      let payload;
+      try { payload = JSON.parse(ta.value); }
+      catch (err) { showToast('Invalid JSON: ' + err.message, 'err'); return; }
+      if (typeof payload !== 'object' || payload == null || Array.isArray(payload)) {
+        showToast('Payload must be a JSON object', 'err'); return;
+      }
+      savePayloadToRecent(trigger.name, ta.value);
+      await fireTrigger(trigger.name, payload);
     },
   });
-  lab.appendChild(copy);
-  section.appendChild(lab);
-  section.appendChild(buildJsonView(text));
-  return section;
-}
-
-function startStream(tab) {
-  // EventSource cannot set an Authorization header. In the in-terminal EVENTS
-  // tab the web-terminal proxy injects the bearer server-side so the stream is
-  // authorized. A direct standalone browser cannot authenticate the stream (we
-  // intentionally do NOT pass the token in the URL); onerror closes it and the
-  // run is still visible via the polled state. No token is ever placed in the URL.
-  tab.eventSource = new EventSource('/dashboard/stream/' + tab.runId);
-  tab.eventSource.onmessage = (e) => {
-    try {
-      const event = JSON.parse(e.data);
-      handleStreamEvent(tab, event);
-    } catch {}
-  };
-  tab.eventSource.onerror = () => {
-    // Run streams are one-shot; closing prevents EventSource's auto-reconnect
-    // from pounding the sidecar with 410s once the run has finished.
-    tab.ledKind = 'err'; renderTabBar();
-    if (tab.eventSource) { tab.eventSource.close(); tab.eventSource = null; }
-  };
-}
-
-function handleStreamEvent(tab, event) {
-  const { container } = tab;
-  if (event.type === 'text') {
-    tab.textParts.push(event.content);
-    appendOrReplaceText(container, tab.textParts.join(''));
-  } else if (event.type === 'tool_start') {
-    const call = { name: event.name, input: event.input, result: null };
-    tab.toolCalls.push(call);
-    container.appendChild(renderToolCall(call));
-  } else if (event.type === 'tool_result') {
-    const last = tab.toolCalls[tab.toolCalls.length - 1];
-    if (last) last.result = event.result;
-    const calls = container.querySelectorAll('.tool-call');
-    const wrap = calls[calls.length - 1];
-    if (wrap) {
-      const newWrap = renderToolCall(last);
-      newWrap.classList.toggle('open', wrap.classList.contains('open'));
-      wrap.replaceWith(newWrap);
-    }
-  } else if (event.type === 'result') {
-    tab.meta = event;
-  } else if (event.type === 'error') {
-    container.appendChild(el('div', { className: 'event event-error', textContent: '✘ ' + event.message }));
-    tab.ledKind = 'err'; renderTabBar();
-    if (tab.eventSource) { tab.eventSource.close(); tab.eventSource = null; }
-  } else if (event.type === 'done') {
-    container.appendChild(el('div', { className: 'event event-done', textContent: '✔ done' }));
-    tab.ledKind = 'ok'; renderTabBar();
-    if (tab.eventSource) { tab.eventSource.close(); tab.eventSource = null; }
-  }
-  if (tab.id === activeTabId) container.scrollTop = container.scrollHeight;
-}
-
-function appendOrReplaceText(container, text) {
-  let tx = container.querySelector('.event-text.live-text');
-  if (!tx) { tx = el('div', { className: 'event event-text live-text' }); container.appendChild(tx); }
-  tx.textContent = text;
-}
-
-async function fireTrigger(name, payload, fromRunId = null) {
-  if (!requireToken()) { showToast('Bearer token required to fire triggers', 'err'); return; }
-  try {
-    const body = { payload: payload || {} };
-    if (fromRunId) body.dispatch_id = fromRunId;
-    const res = await apiPost(`/retry/${encodeURIComponent(name)}`, body, bearer());
-    if (res.ok) {
-      showToast(`fired ${name}${fromRunId ? ' (re-fire)' : ''} — dispatch ${truncId(res.data?.dispatch_id || '')}`, 'ok');
-      setTimeout(fetchState, 300);
-    } else {
-      showToast(`fire failed: ${res.data?.detail || res.status}`, 'err');
-    }
-  } catch (e) {
-    showToast('fire error: ' + e.message, 'err');
-  }
-}
-
-async function cancelRun(runId) {
-  if (!requireToken()) { showToast('Bearer token required', 'err'); return; }
-  try {
-    const res = await apiPost(`/dashboard/cancel/${encodeURIComponent(runId)}`, null, bearer());
-    if (res.ok) {
-      showToast(res.data?.cancelled ? `cancel requested for ${truncId(runId)}` : `already finished`, res.data?.cancelled ? 'ok' : '');
-      setTimeout(fetchState, 500);
-    } else {
-      showToast(`cancel failed: ${res.data?.detail || res.status}`, 'err');
-    }
-  } catch (e) {
-    showToast('cancel error: ' + e.message, 'err');
-  }
-}
-
-async function toggleTrigger(name, currentStatus) {
-  if (!requireToken()) { showToast('Bearer token required', 'err'); return; }
-  const next = currentStatus === 'disabled' ? 'active' : 'disabled';
-  try {
-    const res = await apiPut(`/trigger/${encodeURIComponent(name)}/status`, { status: next }, bearer());
-    if (res.ok) { showToast(`${name} → ${next}`, 'ok'); fetchState(); }
-    else { showToast(`toggle failed: ${res.data?.detail || res.status}`, 'err'); }
-  } catch (e) { showToast('toggle error: ' + e.message, 'err'); }
-}
-
-function toggleFireEditor(card, trigger) {
-  const editor = card.querySelector('.fire-editor');
-  if (!editor) return;
-  if (editor.classList.contains('open')) {
-    editor.classList.remove('open');
-    editor.textContent = '';
-    return;
-  }
-  buildFireEditor(editor, trigger);
-  editor.classList.add('open');
-  const ta = editor.querySelector('textarea');
-  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
-}
-
-function buildFireEditor(container, trigger) {
-  container.textContent = '';
-  const recent = getRecentPayloads(trigger.name);
-
-  container.appendChild(el('div', { className: 'editor-label' }, [
-    el('span', { textContent: 'PAYLOAD (JSON)' }),
-    el('span', { textContent: `${recent.length} recent`, style: { color: 'var(--text-muted)' } }),
-  ]));
-
-  const ta = el('textarea', { spellcheck: false, autocomplete: 'off', value: recent[0] || '{\n  \n}' });
-  container.appendChild(ta);
+  actions.appendChild(fireBtn);
+  actions.appendChild(el('span', { className: 'hint', textContent: '⌘↵ to fire' }));
+  wrap.appendChild(actions);
 
   if (recent.length > 0) {
-    const row = el('div', { className: 'recent-row' }, [el('span', { textContent: 'recent:' })]);
+    const row = el('div', { className: 'recent-row' }, [el('span', { textContent: 'Recent:' })]);
     for (let i = 0; i < Math.min(5, recent.length); i++) {
-      const pill = el('span', {
+      row.appendChild(el('span', {
         className: 'pill',
         textContent: recent[i].replace(/\s+/g, ' ').slice(0, 40),
         title: recent[i],
         onclick: () => { ta.value = recent[i]; ta.focus(); },
-      });
-      row.appendChild(pill);
+      }));
     }
-    container.appendChild(row);
+    wrap.appendChild(row);
   }
-
-  const actions = el('div', { className: 'editor-actions' });
-  const fireBtn = el('button', {
-    textContent: '▶ FIRE',
-    onclick: async () => {
-      let payload;
-      try { payload = JSON.parse(ta.value); }
-      catch (err) { showToast('invalid JSON: ' + err.message, 'err'); return; }
-      if (typeof payload !== 'object' || payload == null || Array.isArray(payload)) {
-        showToast('payload must be a JSON object', 'err'); return;
-      }
-      savePayloadToRecent(trigger.name, ta.value);
-      await fireTrigger(trigger.name, payload, null);
-      container.classList.remove('open');
-      container.textContent = '';
-    },
-  });
-  const cancelBtn = el('button', {
-    className: 'secondary',
-    textContent: 'cancel',
-    onclick: () => { container.classList.remove('open'); container.textContent = ''; },
-  });
-  actions.appendChild(fireBtn);
-  actions.appendChild(cancelBtn);
-  actions.appendChild(el('span', { className: 'hint', textContent: '⌘↵' }));
-  container.appendChild(actions);
 
   ta.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); fireBtn.click(); }
-    else if (e.key === 'Escape') { e.preventDefault(); cancelBtn.click(); }
   });
+
+  block.appendChild(wrap);
+  return block;
 }
 
 function recentPayloadsKey(triggerName) { return 'dispatch-panel-recent-payloads:' + triggerName; }
@@ -2211,198 +1606,400 @@ function savePayloadToRecent(triggerName, text) {
   try { localStorage.setItem(key, JSON.stringify(existing.slice(0, 10))); } catch {}
 }
 
-function loadFiltersFromUrl() {
-  const p = new URL(window.location.href).searchParams;
-  if (p.has('trigger')) filters.trigger = p.get('trigger') || '';
-  if (p.has('status'))  filters.status  = p.get('status') || '';
-  if (p.has('search'))  filters.search  = p.get('search') || '';
-  if (p.has('hours')) {
-    const h = parseFloat(p.get('hours'));
-    if (!isNaN(h) && h > 0) filters.timelineHours = h;
+/* ============================================================
+   Run detail — the whole panel, one run
+   ============================================================ */
+
+/* What a repaint of the transcript would actually change. The panel polls every
+   3s and re-renders the open view; without this, an expanded tool call would
+   snap shut every three seconds and any text selection would be lost. */
+function runSignature(run) {
+  return [
+    run.run_id, run.status,
+    (run.tool_calls || []).length,
+    (run.text_output || '').length,
+    run.error || '',
+  ].join('|');
+}
+let paintedRunSig = null;
+
+function renderRunDetail() {
+  const host = $('#run-detail');
+  const run = (state.runs || []).find(r => r.run_id === view.runId);
+  if (!run) {
+    host.textContent = '';
+    paintedRunSig = null;
+    host.appendChild(el('div', { className: 'empty-state', textContent: 'That run is no longer in the recent history.' }));
+    return;
+  }
+
+  const simple = isSimple();
+  const existing = document.getElementById('run-transcript');
+  // The stream owns the transcript while it is open: repainting from the
+  // polled snapshot mid-stream would duplicate text the stream has already
+  // appended. Otherwise repaint only when the content really changed.
+  const keepTranscript = existing && (
+    streamRunId === run.run_id || runSignature(run) === paintedRunSig
+  );
+  const preserved = keepTranscript ? existing : null;
+  if (preserved) preserved.remove();
+
+  host.textContent = '';
+
+  const head = el('div', { className: 'detail-head' });
+  head.appendChild(el('span', {
+    className: 'detail-title',
+    textContent: simple
+      ? outcomeWord(run.status)
+      : (run.trigger_name || 'Manual run') + ' · ' + truncId(run.run_id),
+  }));
+
+  const actions = el('div', { className: 'detail-actions expert-only' });
+  if (run.status === 'pending') {
+    actions.appendChild(el('button', {
+      className: 'btn danger',
+      textContent: '✕ Cancel',
+      title: 'Cancel is usually <1s; may take a few seconds if a tool call is in flight.',
+      onclick: () => cancelRun(run.run_id),
+    }));
+  } else if (run.trigger_name) {
+    actions.appendChild(el('button', {
+      className: 'btn',
+      textContent: '↻ Re-fire',
+      title: 'Dispatch this trigger again with an empty payload.',
+      onclick: () => fireTrigger(run.trigger_name, {}, run.run_id),
+    }));
+  }
+
+  // Cross-links out of the run. Each renders only when its destination is real,
+  // so a link never leads somewhere empty:
+  //   * the trigger must still be registered — `trigger_name` is reverse-mapped
+  //     from the dispatcher's in-memory pool, so it is absent for runs that
+  //     outlived a dispatcher restart, and the trigger itself may since have
+  //     been removed from triggers.yml;
+  //   * the telemetry link needs both a deployed store (config) and this run's
+  //     session id (worker).
+  const linkedTrigger = run.trigger_name
+    && (state.triggers || []).some(t => t.name === run.trigger_name);
+  if (linkedTrigger) {
+    actions.appendChild(el('button', {
+      className: 'btn',
+      textContent: '⌁ View trigger',
+      title: 'Open the trigger that started this run.',
+      onclick: () => navigate({ name: 'trigger', triggerName: run.trigger_name }),
+    }));
+  }
+  const telemetryUrl = telemetryUrlForRun(run);
+  if (telemetryUrl) {
+    // A real anchor, not a scripted button: middle-click and "open in new tab"
+    // should work, and the dashboard is embedded in an iframe in the web
+    // terminal — navigating in place would strand the operator inside it.
+    actions.appendChild(el('a', {
+      className: 'btn',
+      href: telemetryUrl,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      textContent: '⎋ Logs',
+      title: "Open this run's telemetry records in the observability store.",
+    }));
+  }
+
+  head.appendChild(actions);
+  host.appendChild(head);
+
+  if (simple) {
+    host.appendChild(el('div', {
+      className: 'detail-summary',
+      textContent: (run.trigger_name ? run.trigger_name + ' · ' : '') + formatAgeFriendly(run.age_sec),
+    }));
+  } else {
+    const bits = [];
+    const dur = formatDuration(run.duration_sec);
+    if (dur) bits.push((run.status === 'error' ? 'Failed after ' : run.status === 'pending' ? 'Running for ' : 'Finished in ') + dur);
+    if (run.num_turns != null) bits.push(plural(run.num_turns, 'turn'));
+    if (run.tool_count) bits.push(plural(run.tool_count, 'tool'));
+    bits.push(formatAge(run.age_sec));
+    host.appendChild(el('div', { className: 'detail-summary expert-only', textContent: bits.filter(Boolean).join(' · ') }));
+  }
+
+  const transcript = preserved || el('div', { className: 'transcript', id: 'run-transcript' });
+  host.appendChild(transcript);
+  if (!preserved) {
+    paintTranscript(transcript, run);
+    paintedRunSig = runSignature(run);
+  }
+
+  // A live run streams into the view that is showing it, and only that view.
+  if (run.status === 'pending' && run.has_stream && streamRunId !== run.run_id) {
+    openStream(run.run_id, transcript);
   }
 }
-function saveFiltersToUrl() {
-  const u = new URL(window.location.href);
-  const setOrDel = (k, v) => v ? u.searchParams.set(k, v) : u.searchParams.delete(k);
-  setOrDel('trigger', filters.trigger);
-  setOrDel('status',  filters.status);
-  setOrDel('search',  filters.search);
-  if (filters.timelineHours !== 24) u.searchParams.set('hours', String(filters.timelineHours));
-  else u.searchParams.delete('hours');
-  history.replaceState({}, '', u.toString());
+
+/** Paint the stored (polled) content of a run. Live deltas append on top. */
+function paintTranscript(container, run) {
+  container.textContent = '';
+  if (run.error) container.appendChild(el('div', { className: 'event event-error', textContent: '✘ ' + run.error }));
+  if (!isSimple()) {
+    for (const c of (run.tool_calls || [])) container.appendChild(renderToolCall(c));
+  }
+  if (run.text_output) container.appendChild(el('div', { className: 'event event-text', textContent: run.text_output }));
+  if (!run.error && !run.text_output && !(run.tool_calls || []).length) {
+    container.appendChild(el('div', {
+      className: 'empty-state',
+      textContent: run.status === 'pending' ? 'Waiting for the first output…' : 'This run produced no output.',
+    }));
+  }
 }
 
-function wireFilters() {
-  const trg = $('#filter-trigger');
-  const stat = $('#filter-status');
-  const srch = $('#filter-search');
-  const trgFilterInput = $('#trigger-filter');
+function renderToolCall(c) {
+  const inputStr = prettyJson(c.input);
+  // The collapsed header needs a one-line gist of the arguments. Taking the
+  // first line of the pretty-printed form yields a bare "{" for every object,
+  // so compact the JSON instead — "{"file_path":"/data/orbit.csv"}" tells you
+  // what the call did without expanding it.
+  const headArgs = (() => {
+    try { return JSON.stringify(c.input) ?? ''; }
+    catch { return inputStr.replace(/\s+/g, ' '); }
+  })().slice(0, 90);
 
-  trg.value = filters.trigger;
-  stat.value = filters.status;
-  srch.value = filters.search;
+  const wrap = el('div', { className: 'tool-call expert-only' });
+  const head = el('div', { className: 'tool-head', onclick: () => { wrap.classList.toggle('open'); } });
+  head.appendChild(el('span', { className: 'chev', textContent: '▸' }));
+  head.appendChild(el('span', { className: 'tool-name', textContent: c.name || '<tool>' }));
+  head.appendChild(el('span', { className: 'tool-args', textContent: headArgs }));
+  wrap.appendChild(head);
 
-  trg.addEventListener('change', () => { filters.trigger = trg.value; saveFiltersToUrl(); renderRuns(); });
-  stat.addEventListener('change', () => { filters.status = stat.value; saveFiltersToUrl(); renderRuns(); });
+  const body = el('div', { className: 'tool-body' });
+  body.appendChild(renderJsonSection('Input', inputStr));
+  if (c.result != null) {
+    const resultStr = typeof c.result === 'string' ? c.result : prettyJson(c.result);
+    body.appendChild(renderJsonSection('Result', resultStr));
+  } else {
+    body.appendChild(el('div', { className: 'run-when', textContent: 'No result yet' }));
+  }
+  wrap.appendChild(body);
+  return wrap;
+}
 
-  let srchTimer = null;
-  srch.addEventListener('input', () => {
-    clearTimeout(srchTimer);
-    srchTimer = setTimeout(() => { filters.search = srch.value; saveFiltersToUrl(); renderRuns(); }, 180);
-  });
+function renderJsonSection(label, text) {
+  const section = el('div', {});
+  const lab = el('div', { className: 'tool-section-label' });
+  lab.appendChild(el('span', { textContent: label }));
+  lab.appendChild(el('span', {
+    className: 'copy-btn',
+    textContent: 'Copy',
+    onclick: async () => {
+      try { await navigator.clipboard.writeText(text); showToast('Copied', 'ok'); }
+      catch { showToast('Copy failed', 'err'); }
+    },
+  }));
+  section.appendChild(lab);
+  section.appendChild(buildJsonView(text));
+  return section;
+}
 
-  trgFilterInput.addEventListener('input', () => renderTriggers());
+/* ============================================================
+   Streaming — exactly one, owned by the open run detail
+   ============================================================ */
+
+function openStream(runId, container) {
+  closeStream();
+  streamRunId = runId;
+  streamParts = { text: [], toolCalls: [] };
+  // EventSource cannot set an Authorization header. In the in-terminal EVENTS
+  // tab the web-terminal proxy injects the bearer server-side so the stream is
+  // authorized. A direct standalone browser cannot authenticate the stream (we
+  // intentionally do NOT pass the token in the URL); onerror closes it and the
+  // run is still visible via the polled state. No token is ever placed in the URL.
+  stream = new EventSource('/dashboard/stream/' + runId);
+  stream.onmessage = (e) => {
+    try { handleStreamEvent(container, JSON.parse(e.data)); } catch {}
+  };
+  // Run streams are one-shot; closing prevents EventSource's auto-reconnect
+  // from pounding the sidecar with 410s once the run has finished.
+  stream.onerror = () => closeStream();
+}
+
+function closeStream() {
+  if (stream) { stream.close(); stream = null; }
+  streamRunId = null;
+}
+
+/** Within a hair of the bottom — i.e. the reader is following the stream. */
+function isPinnedToBottom(scroller) {
+  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+}
+
+function handleStreamEvent(container, event) {
+  // A stream whose detail view has been navigated away from is stale.
+  if (view.name !== 'run' || view.runId !== streamRunId) { closeStream(); return; }
+  // Decide BEFORE mutating: appending changes scrollHeight, so a check made
+  // afterwards would read as "not at the bottom" for a reader who was.
+  const scroller = $('#main');
+  const follow = isPinnedToBottom(scroller);
+  const empty = container.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  if (event.type === 'text') {
+    streamParts.text.push(event.content);
+    let tx = container.querySelector('.event-text.live-text');
+    if (!tx) { tx = el('div', { className: 'event event-text live-text' }); container.appendChild(tx); }
+    tx.textContent = streamParts.text.join('');
+  } else if (event.type === 'tool_start') {
+    const call = { name: event.name, input: event.input, result: null };
+    streamParts.toolCalls.push(call);
+    if (!isSimple()) container.appendChild(renderToolCall(call));
+  } else if (event.type === 'tool_result') {
+    const last = streamParts.toolCalls[streamParts.toolCalls.length - 1];
+    if (last) last.result = event.result;
+    const calls = container.querySelectorAll('.tool-call');
+    const wrap = calls[calls.length - 1];
+    if (wrap && last) {
+      const fresh = renderToolCall(last);
+      fresh.classList.toggle('open', wrap.classList.contains('open'));
+      wrap.replaceWith(fresh);
+    }
+  } else if (event.type === 'error') {
+    container.appendChild(el('div', { className: 'event event-error', textContent: '✘ ' + event.message }));
+    closeStream();
+  } else if (event.type === 'done') {
+    container.appendChild(el('div', { className: 'event event-done', textContent: '✔ Done' }));
+    closeStream();
+  }
+  // Only chase the tail for a reader who was already following it; yanking a
+  // scrolled-back reader forward on every token makes the run unreadable.
+  if (follow) scroller.scrollTop = scroller.scrollHeight;
+}
+
+/* ============================================================
+   Actions
+   ============================================================ */
+
+async function fireTrigger(name, payload, fromRunId = null) {
+  try {
+    const body = { payload: payload || {} };
+    if (fromRunId) body.dispatch_id = fromRunId;
+    const res = await apiPost(`/retry/${encodeURIComponent(name)}`, body, bearer());
+    if (res.ok) {
+      showToast(`Fired ${name}${fromRunId ? ' (re-fire)' : ''}`, 'ok');
+      setTimeout(fetchState, 300);
+    } else if (!explainIfUnauthorized(res)) {
+      showToast(`Fire failed: ${res.data?.detail || res.status}`, 'err');
+    }
+  } catch (e) {
+    showToast('Fire error: ' + e.message, 'err');
+  }
+}
+
+async function cancelRun(runId) {
+  try {
+    const res = await apiPost(`/dashboard/cancel/${encodeURIComponent(runId)}`, null, bearer());
+    if (res.ok) {
+      showToast(res.data?.cancelled ? `Cancel requested for ${truncId(runId)}` : 'Already finished', res.data?.cancelled ? 'ok' : '');
+      setTimeout(fetchState, 500);
+    } else if (!explainIfUnauthorized(res)) {
+      showToast(`Cancel failed: ${res.data?.detail || res.status}`, 'err');
+    }
+  } catch (e) {
+    showToast('Cancel error: ' + e.message, 'err');
+  }
+}
+
+async function toggleTrigger(name, currentStatus) {
+  const next = currentStatus === 'disabled' ? 'active' : 'disabled';
+  try {
+    const res = await apiPut(`/trigger/${encodeURIComponent(name)}/status`, { status: next }, bearer());
+    if (res.ok) {
+      showToast(`${name} ${next === 'disabled' ? 'disabled' : 'enabled'}`, 'ok');
+      fetchState();
+    } else if (!explainIfUnauthorized(res)) {
+      showToast(`Status change failed: ${res.data?.detail || res.status}`, 'err');
+    }
+  } catch (e) {
+    showToast('Status error: ' + e.message, 'err');
+  }
+}
+
+/* ============================================================
+   Render + wiring
+   ============================================================ */
+
+function render() {
+  renderStatus();
+  if (view.name === 'activity') { renderLanes(); renderRunList(); }
+  else if (view.name === 'triggers') renderTriggerList();
+  else if (view.name === 'trigger') renderTriggerDetail();
+  else if (view.name === 'run') renderRunDetail();
+}
+
+function wire() {
+  $('#tab-activity').addEventListener('click', () => navigate({ name: 'activity' }));
+  $('#tab-triggers').addEventListener('click', () => navigate({ name: 'triggers' }));
+  $('#run-back').addEventListener('click', () => navigate({ name: 'activity' }));
+  $('#trigger-back').addEventListener('click', () => navigate({ name: 'triggers' }));
 
   for (const btn of document.querySelectorAll('#timeline-window button')) {
+    btn.classList.toggle('on', parseFloat(btn.dataset.hours) === filters.timelineHours);
     btn.addEventListener('click', () => {
       filters.timelineHours = parseFloat(btn.dataset.hours);
       for (const b of document.querySelectorAll('#timeline-window button')) b.classList.remove('on');
       btn.classList.add('on');
-      saveFiltersToUrl();
+      saveUrl();
       fetchState();
     });
-    if (parseFloat(btn.dataset.hours) === filters.timelineHours) btn.classList.add('on');
-    else btn.classList.remove('on');
   }
-}
 
-/* Wire the three dividers onto the design system's shared splitter.
- *
- * The module is imported dynamically because this is a classic <script>: a
- * top-level `import` would need `type="module"`, which would take every
- * top-level binding in this 1000-line block out of global scope. A dynamic
- * import needs none of that, and the wiring is an init-time enhancement, so
- * landing a tick late is harmless — applyLayout() has already painted the
- * stored geometry by then.
- *
- * Each splitter takes `storageKey: null`. This dashboard already keeps six
- * layout fields plus a preset system in one record; letting each splitter
- * persist its own would create a second source of truth, and a stale splitter
- * value would win over a freshly applied preset on the next reload.
- */
-async function wireSplitters() {
-  $('#timeline-chev').addEventListener('click', () => toggleZone('timelineCollapsed'));
-  $('#runs-chev').addEventListener('click', () => toggleZone('runsCollapsed'));
-  $('#inspector-chev').addEventListener('click', () => toggleZone('inspectorCollapsed'));
+  for (const chip of document.querySelectorAll('.filters .chip')) {
+    chip.addEventListener('click', () => {
+      filters.status = chip.dataset.status || '';
+      saveUrl();
+      renderRunList();
+    });
+  }
 
-  $('#sidebar-collapsed-rail').addEventListener('click', () => {
-    if (layout.sidebarCollapsed) toggleZone('sidebarCollapsed');
+  const search = $('#run-search');
+  search.value = filters.search;
+  let searchTimer = null;
+  search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { filters.search = search.value; saveUrl(); renderRunList(); }, 180);
   });
 
-  $('#mode-overview').addEventListener('click', () => applyPreset('overview'));
-  $('#mode-inspect').addEventListener('click',  () => applyPreset('inspect'));
+  $('#trigger-filter').addEventListener('input', () => renderTriggerList());
 
-  const { initSplitter } = await import('/design-system/js/splitter.js');
-
-  /** Write a settled drag/nudge/collapse back into the one layout record. */
-  const commit = (sizeKey, collapsedKey) => (size, collapsed) => {
-    if (applyingLayout) return;
-    layout[sizeKey] = size;
-    layout[collapsedKey] = collapsed;
-    markCustom();
-    saveLayout();
-    applyLayout();
-  };
-
-  splitters = {
-    sidebar: initSplitter({
-      handle: $('#sidebar-handle'),
-      pane: $('#sidebar'),
-      storageKey: null,
-      axis: 'x', anchor: 'start', sizing: 'box',
-      min: 60, max: 560, collapsedSize: 32,
-      initialSize: layout.sidebar,
-      initialCollapsed: !!layout.sidebarCollapsed,
-      onCommit: commit('sidebar', 'sidebarCollapsed'),
-    }),
-    timeline: initSplitter({
-      handle: $('#timeline-handle'),
-      pane: $('#timeline-zone'),
-      storageKey: null,
-      axis: 'y', anchor: 'start', sizing: 'box',
-      min: 28, max: 520, collapsedSize: 28,
-      initialSize: layout.timelineHeight,
-      initialCollapsed: !!layout.timelineCollapsed,
-      onCommit: commit('timelineHeight', 'timelineCollapsed'),
-    }),
-    inspector: initSplitter({
-      handle: $('#inspector-handle'),
-      pane: $('#inspector-zone'),
-      storageKey: null,
-      axis: 'y', anchor: 'end', sizing: 'box',
-      min: 28, max: 720, collapsedSize: 28,
-      initialSize: layout.inspectorHeight,
-      initialCollapsed: !!layout.inspectorCollapsed,
-      onCommit: commit('inspectorHeight', 'inspectorCollapsed'),
-    }),
-  };
-
-  applyLayout();
-}
-
-/** Flip one zone's collapsed flag. The chevrons' single path. */
-function toggleZone(collapsedKey) {
-  layout[collapsedKey] = !layout[collapsedKey];
-  markCustom();
-  saveLayout();
-  applyLayout();
-}
-
-function render() {
-  renderStats();
-  renderTriggers();
-  renderTimeline();
-  renderRuns();
-  renderSimple();
-
-  const pending = (state.runs || []).find(r => r.status === 'pending' && r.has_stream);
-  if (pending && !tabs.find(t => t.runId === pending.run_id)) openRunInTab(pending);
-
-  for (const tab of tabs) {
-    const freshRun = (state.runs || []).find(r => r.run_id === tab.runId);
-    if (!freshRun) continue;
-    const oldStatus = tab.run.status;
-    tab.run = freshRun;
-    if (tab.type === 'view') {
-      renderTabStatic(tab);
-    } else if (oldStatus !== freshRun.status) {
-      tab.ledKind = freshRun.status === 'error' ? 'err' : freshRun.status === 'completed' ? 'ok' : 'live';
-      renderTabBar();
-      const existingMeta = tab.container.querySelector('.inspector-meta');
-      if (existingMeta) existingMeta.replaceWith(renderInspectorMeta(tab));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+      e.preventDefault();
+      navigate({ name: 'activity' });
+      search.focus();
     }
-  }
-  updateInspectorInfo();
+  });
 }
 
 // Live Expert<->Simple switch broadcast by the hub (panel-manager postMessage).
 // The pre-paint rung (mode-boot.js) set the initial data-ui-mode; this is the
-// runtime flip. Coerce anything but "simple" to "expert", stamp <html>, and
-// re-render Simple so its content is fresh on arrival. Mirrors gallery.js.
+// runtime flip. Coerce anything but "simple" to "expert", stamp <html>, then
+// re-render: wording is chosen off isSimple(), so it must be recomputed.
 window.addEventListener('message', (e) => {
   if (e.origin !== window.location.origin) return;
   if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
     const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
     document.documentElement.setAttribute('data-ui-mode', mode);
-    renderSimple();
+    // Simple mode has no Triggers side; bounce back to Activity rather than
+    // leaving the operator on a screen the stylesheet has just hidden.
+    if (mode === 'simple' && (view.name === 'triggers' || view.name === 'trigger')) {
+      navigate({ name: 'activity' });
+    } else {
+      render();
+    }
   }
 });
 
 function init() {
-  loadFiltersFromUrl();
-  applyLayout();
-  wireSplitters();
-  wireFilters();
+  loadUrl();
+  wire();
+  navigate(view, { push: false });
   startPolling();
-  // Seed the Simple view once so it shows a valid state even before (or
-  // without) a reachable backend — fetchState only calls render() on success.
-  renderSimple();
-  document.addEventListener('keydown', (e) => {
-    if (e.key === '/' && document.activeElement && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
-      e.preventDefault();
-      $('#filter-search').focus();
-    }
-  });
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

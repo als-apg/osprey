@@ -1,4 +1,4 @@
-"""Browser suite: the shared splitter driven live on the event dashboard.
+"""Browser suite: the shared splitter driven live on the artifacts gallery.
 
 ``splitter.test.mjs`` proves the module's contract under happy-dom, and
 ``tests/interfaces/test_shared_splitter_contract.py`` proves every host wires
@@ -6,27 +6,39 @@ it. Neither can prove a *real* drag: happy-dom has no layout, and a static
 contract cannot see pointer capture, ``requestAnimationFrame`` coalescing, or
 whether the geometry a drag writes actually moves anything on screen.
 
-Scope: the event dashboard (``src/osprey/dispatch/dashboard.html``), which is
-the only splitter host with no browser harness of its own. The other five are
-already driven live by suites that predate this one — notably
-``tests/interfaces/web_terminal/test_osprey_drawer.py``, which covers the
-right-anchored ``anchor: 'end'`` geometry and the 320px/90vw clamp, and
-``tests/interfaces/artifacts/test_gallery_interactions.py``.
+Scope: the artifacts gallery's browse layout
+(``interfaces/artifacts/static/js/browse-layout.js``), specifically its
+**y-axis** handle ``#resize-handle-y``. The gallery ships two splitters, one
+per axis, and parks whichever the current orientation does not use — so the
+stacked ("column") layout must be selected before the y handle is live.
 
-The dashboard earns its own coverage for three reasons the others do not have:
+Why this host:
 
-- it carries the defect this whole feature exists to fix — a ``transition:
-  height`` on the pane a drag drives, which made the divider trail the cursor;
-- it is the only host with *both* y-axis geometries (``anchor: 'start'`` for
-  the timeline above its handle, ``anchor: 'end'`` for the inspector below);
-- it is the only host whose splitters do not persist their own state. It keeps
-  one layout record plus a preset system, so its splitters take
-  ``storageKey: null`` and report through ``onCommit`` — a bridge that a static
-  test cannot exercise at all.
+- It is the only remaining splitter host with no live browser coverage of its
+  own. ``test_gallery_interactions.py`` drives the gallery hard but never
+  touches either handle, and ``test_osprey_drawer.py`` covers only the
+  drawer's x-axis ``anchor: 'end'`` geometry and its 320px/90vw clamp.
+- It is therefore the only place left where a y-axis drag — a different
+  delta sign and a different clamp path than the x-axis — is exercised live.
 
-It is also, as ``eslint.config.js`` and ``tsconfig.json`` both glob only
-``src/osprey/interfaces/**`` JS, the one file in this feature that no linter or
-typechecker reads. This suite is the compensating control.
+This suite previously drove the event dashboard, which carried three splitters
+across two axes. That panel was rebuilt around discrete views and has no
+resizable pane left, so the coverage moved here rather than being dropped.
+
+Two assertions from the dashboard era are deliberately NOT ported:
+
+- **Preset / ``storageKey: null`` / ``onCommit`` interplay.** The dashboard was
+  the only host that kept one layout record with a preset system and fed the
+  splitters through ``onCommit``. No host does that now, so there is nothing
+  left to assert; the gallery's handles persist themselves under their own
+  storage keys, which ``splitter.test.mjs`` already covers.
+- **The computed ``transition-duration`` half of the drag-suppression check.**
+  ``base.css`` suppresses transitions via ``[data-splitter-dragging]``, but the
+  assertion is only meaningful on a pane that declares a transition on the
+  dragged dimension. The dashboard's ``.timeline-zone`` did; ``.browse-sidebar``
+  does not, so asserting ``0s`` here would pass no matter what the rule did.
+  The attribute half — applied for the drag, dropped on release — IS ported,
+  because that is the mechanism itself and it is non-vacuous on any host.
 
 Placement rationale: ``design_system`` already owns the pattern of
 browser-proving a design-system module against a live consumer app (see
@@ -41,11 +53,9 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 import pytest
-from playwright.sync_api import expect
 
 from tests.interfaces.conftest import _run_app_server
 
@@ -54,66 +64,73 @@ if TYPE_CHECKING:
 
     from playwright.sync_api import Browser, Page
 
+pytestmark = [pytest.mark.browser, pytest.mark.slow]
+
 VIEWPORT = {"width": 1280, "height": 900}
 
-#: How long to wait for the dynamic `import()` in wireSplitters() to land.
+#: How long to wait for browse-layout.js's `initSplitter` call to land.
 WIRE_TIMEOUT_MS = 10_000
 
-#: `.timeline-zone` keeps a `transition: height 200ms` for *discrete* state
-#: changes — a chevron click, a double-click collapse, a preset. Those must be
-#: read after the animation settles.
-#:
-#: Drags are the opposite case and are read immediately on purpose: the
-#: splitter stamps `data-splitter-dragging`, which suppresses that transition
-#: for the duration of the gesture. A drag assertion that needed this wait
-#: would mean the suppression had stopped working, which is the entire defect
-#: this feature exists to prevent.
-TRANSITION_SETTLE_MS = 400
+#: browse-layout.js's ORIENT_KEY. Seeding it before the module runs is what
+#: puts the layout in stacked mode, which is the orientation that enables the
+#: y-axis handle (`isEnabled: () => effectiveOrient() === 'column'`).
+ORIENT_KEY = "osprey-artifacts-browse-orient"
 
+#: browse-layout.js's HEIGHT_KEY. Seeding a size does two jobs: it pins a
+#: deterministic starting height (between browse-layout.js's 120/480 bounds),
+#: and it makes the splitter's restore() path call applySize — which is what
+#: stamps `aria-valuenow`. Without a stored size restore() returns early and
+#: never stamps, so there would be no signal that the module had wired up.
+HEIGHT_KEY = "osprey-artifacts-browse-sidebar-height"
+SEEDED_HEIGHT = 240
 
-@pytest.fixture(autouse=True)
-def _reset_mcp_routes() -> Iterator[None]:
-    """Reset the shared FastMCP singleton's routes around each test.
+#: browse-layout.js's KEY_STEP — one arrow press.
+KEY_STEP = 16
 
-    Mirrors ``tests/dispatch/test_design_system_route.py``: ``create_server()``
-    mutates a module-level FastMCP singleton and appends dashboard routes to it
-    on every call, so each test must start from a clean slate.
-    """
-    from osprey.dispatch import server
-
-    baseline = list(server.mcp._additional_http_routes)
-    yield
-    server.mcp._additional_http_routes = baseline
+Y_HANDLE = "#resize-handle-y"
+PANE = "#browse-sidebar"
 
 
 @pytest.fixture
-def dashboard_url(tmp_path, monkeypatch) -> Iterator[str]:
-    """Serve the dispatcher, which exposes /dashboard and /design-system/* together.
+def gallery_url(tmp_path, monkeypatch) -> Iterator[str]:
+    """Serve the artifacts gallery, which mounts /design-system/* alongside itself.
 
-    Both from one origin matters: the dashboard imports the splitter with a
-    root-relative specifier, so it resolves against the dispatcher itself
-    rather than through the web terminal's panel proxy.
+    Both from one origin matters: the gallery imports the splitter with a
+    root-relative specifier, so it must resolve against the gallery itself.
+
+    No fixture artifacts are seeded — the browse layout and both handles exist
+    whether or not the tree has content, and this suite asserts geometry only.
     """
-    from osprey.dispatch import server
+    monkeypatch.chdir(tmp_path)
+    from osprey.interfaces.artifacts.app import create_app
 
-    # No triggers configured — the splitters need none of that machinery, and
-    # create_server() starts with an empty trigger list when the file is absent.
-    monkeypatch.setenv("TRIGGERS_YML", str(tmp_path / "does-not-exist.yml"))
-    app = server.create_server().http_app()
+    app = create_app(workspace_root=tmp_path)
     with _run_app_server(app) as base_url:
         yield base_url
 
 
-def _open_dashboard(page: Page, base_url: str) -> None:
-    """Navigate to the dashboard and wait for the splitters to be wired.
+def _open_stacked(page: Page, base_url: str) -> None:
+    """Load the gallery in stacked mode with the y-axis splitter wired.
 
-    ``aria-valuenow`` is the signal: the splitter writes it on every geometry
-    application, so its presence means the dynamic import resolved AND the
-    stored layout has been pushed through.
+    Both keys must be in localStorage *before* browse-layout.js runs, so this
+    loads once to obtain the origin, seeds them, then reloads.
+
+    ``aria-valuenow`` is the signal to wait on: the splitter writes it on every
+    geometry application, so its presence means the module resolved AND the
+    seeded size has been pushed through.
     """
-    page.goto(f"{base_url}/dashboard", wait_until="domcontentloaded")
+    page.goto(base_url, wait_until="domcontentloaded")
+    page.evaluate(
+        "([orientKey, heightKey, height]) => {"
+        "  localStorage.setItem(orientKey, 'column');"
+        "  localStorage.setItem(heightKey, String(height));"
+        "}",
+        [ORIENT_KEY, HEIGHT_KEY, SEEDED_HEIGHT],
+    )
+    page.reload(wait_until="domcontentloaded")
     page.wait_for_function(
-        "() => document.querySelector('#timeline-handle')?.hasAttribute('aria-valuenow')",
+        "sel => document.querySelector(sel)?.hasAttribute('aria-valuenow')",
+        arg=Y_HANDLE,
         timeout=WIRE_TIMEOUT_MS,
     )
 
@@ -122,12 +139,6 @@ def _height(page: Page, selector: str) -> float:
     box = page.locator(selector).bounding_box()
     assert box is not None, f"{selector} has no bounding box -- is it rendered?"
     return box["height"]
-
-
-def _width(page: Page, selector: str) -> float:
-    box = page.locator(selector).bounding_box()
-    assert box is not None, f"{selector} has no bounding box -- is it rendered?"
-    return box["width"]
 
 
 def _drag(page: Page, handle: str, dx: int = 0, dy: int = 0) -> None:
@@ -150,89 +161,52 @@ def _drag(page: Page, handle: str, dx: int = 0, dy: int = 0) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The three dividers drag, on the right axis, in the right direction
+# The divider drags, on the right axis, in the right direction
 # ---------------------------------------------------------------------------
 
 
-def test_timeline_divider_drags_down_to_grow(chromium_browser: Browser, dashboard_url: str) -> None:
+def test_y_divider_drags_down_to_grow(chromium_browser: Browser, gallery_url: str) -> None:
     """`axis: 'y'`, `anchor: 'start'` — the pane is above, so down grows it."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_dashboard(page, dashboard_url)
+    _open_stacked(page, gallery_url)
 
-    before = _height(page, "#timeline-zone")
-    _drag(page, "#timeline-handle", dy=80)
-    after = _height(page, "#timeline-zone")
+    before = _height(page, PANE)
+    _drag(page, Y_HANDLE, dy=80)
+    after = _height(page, PANE)
 
     assert after == pytest.approx(before + 80, abs=6), (
-        f"expected the timeline zone to grow by ~80px, got {before} -> {after}"
+        f"expected the browse sidebar to grow by ~80px, got {before} -> {after}"
     )
     page.close()
 
 
-def test_inspector_divider_drags_up_to_grow(chromium_browser: Browser, dashboard_url: str) -> None:
-    """`axis: 'y'`, `anchor: 'end'` — the pane is below, so up grows it.
-
-    This is the inverted-delta case; getting the sign wrong makes the divider
-    move away from the pointer, which no static check would catch.
-    """
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_dashboard(page, dashboard_url)
-
-    before = _height(page, "#inspector-zone")
-    _drag(page, "#inspector-handle", dy=-70)
-    after = _height(page, "#inspector-zone")
-
-    assert after == pytest.approx(before + 70, abs=6), (
-        f"expected the inspector zone to grow by ~70px dragging up, got {before} -> {after}"
-    )
-    page.close()
-
-
-def test_sidebar_divider_drags_right_to_grow(chromium_browser: Browser, dashboard_url: str) -> None:
-    """`axis: 'x'`, `anchor: 'start'`, `sizing: 'box'`."""
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_dashboard(page, dashboard_url)
-
-    before = _width(page, "#sidebar")
-    _drag(page, "#sidebar-handle", dx=60)
-    after = _width(page, "#sidebar")
-
-    assert after == pytest.approx(before + 60, abs=6), (
-        f"expected the sidebar to grow by ~60px, got {before} -> {after}"
-    )
-    page.close()
-
-
-def test_a_drag_suppresses_the_panes_height_transition(
-    chromium_browser: Browser, dashboard_url: str
+def test_a_drag_stamps_and_clears_the_dragging_attribute(
+    chromium_browser: Browser, gallery_url: str
 ) -> None:
-    """The defect this feature exists to fix, asserted directly.
+    """The mechanism the drag-transition fix rests on, asserted directly.
 
-    `.timeline-zone` transitions its height. Driving that same property from a
-    pointer without suppressing the transition makes the pane ease toward a
-    target the cursor has already left, so it trails by the transition duration
-    for the whole gesture. The splitter stamps `data-splitter-dragging` for
-    exactly as long as the drag lasts, and base.css keys the suppression off it.
+    ``base.css`` keys ``transition: none`` off ``[data-splitter-dragging]``. The
+    rule is only as good as the attribute: if it is never stamped, a pane that
+    transitions its dragged dimension eases toward a target the cursor has
+    already left and trails for the whole gesture; if it is never cleared,
+    discrete collapses stop animating everywhere.
     """
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_dashboard(page, dashboard_url)
+    _open_stacked(page, gallery_url)
 
-    box = page.locator("#timeline-handle").bounding_box()
+    box = page.locator(Y_HANDLE).bounding_box()
     assert box is not None
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     page.mouse.down()
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 + 50)
 
-    zone = page.locator("#timeline-zone")
-    assert zone.get_attribute("data-splitter-dragging") is not None, (
+    pane = page.locator(PANE)
+    assert pane.get_attribute("data-splitter-dragging") is not None, (
         "the pane must carry data-splitter-dragging while a drag is in flight"
     )
-    assert page.evaluate(
-        "getComputedStyle(document.querySelector('#timeline-zone')).transitionDuration"
-    ) in ("0s", "0s, 0s"), "the height transition must be suppressed mid-drag"
 
     page.mouse.up()
-    assert zone.get_attribute("data-splitter-dragging") is None, (
+    assert pane.get_attribute("data-splitter-dragging") is None, (
         "the attribute must be dropped on release, or discrete collapses stop animating"
     )
     page.close()
@@ -244,103 +218,45 @@ def test_a_drag_suppresses_the_panes_height_transition(
 
 
 def test_double_click_collapses_and_restores_the_prior_height(
-    chromium_browser: Browser, dashboard_url: str
+    chromium_browser: Browser, gallery_url: str
 ) -> None:
     """The gesture is only useful if it restores where you left it."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_dashboard(page, dashboard_url)
+    _open_stacked(page, gallery_url)
 
-    _drag(page, "#timeline-handle", dy=60)
-    chosen = _height(page, "#timeline-zone")
+    _drag(page, Y_HANDLE, dy=60)
+    chosen = _height(page, PANE)
 
-    page.locator("#timeline-handle").dblclick()
-    page.wait_for_timeout(TRANSITION_SETTLE_MS)
-    collapsed = _height(page, "#timeline-zone")
-    assert collapsed == pytest.approx(28, abs=2), (
-        f"expected the timeline to collapse to its 28px header, got {collapsed}"
+    page.locator(Y_HANDLE).dblclick()
+    collapsed = _height(page, PANE)
+    assert collapsed < chosen / 2, (
+        f"expected the sidebar to collapse well below its {chosen}px height, got {collapsed}"
     )
 
-    page.locator("#timeline-handle").dblclick()
-    page.wait_for_timeout(TRANSITION_SETTLE_MS)
-    restored = _height(page, "#timeline-zone")
+    page.locator(Y_HANDLE).dblclick()
+    restored = _height(page, PANE)
     assert restored == pytest.approx(chosen, abs=4), (
         f"expected the pre-collapse height ~{chosen}px back, got {restored}"
     )
     page.close()
 
 
-def test_arrow_keys_nudge_on_the_vertical_axis(
-    chromium_browser: Browser, dashboard_url: str
-) -> None:
+def test_arrow_keys_nudge_on_the_vertical_axis(chromium_browser: Browser, gallery_url: str) -> None:
     """A divider only reachable by pointer is unusable by keyboard."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_dashboard(page, dashboard_url)
+    _open_stacked(page, gallery_url)
 
-    page.locator("#timeline-handle").focus()
-    before = _height(page, "#timeline-zone")
+    page.locator(Y_HANDLE).focus()
+    before = _height(page, PANE)
     page.keyboard.press("ArrowDown")
-    page.wait_for_timeout(TRANSITION_SETTLE_MS)
-    after = _height(page, "#timeline-zone")
+    after = _height(page, PANE)
 
-    assert after > before, f"ArrowDown should grow the timeline zone, got {before} -> {after}"
+    assert after == pytest.approx(before + KEY_STEP, abs=4), (
+        f"ArrowDown should grow the sidebar by one {KEY_STEP}px step, got {before} -> {after}"
+    )
     # aria-valuenow is the splitter's own record of what it applied; it must
     # agree with what the box actually measures.
-    assert float(page.locator("#timeline-handle").get_attribute("aria-valuenow")) == pytest.approx(
+    assert float(page.locator(Y_HANDLE).get_attribute("aria-valuenow")) == pytest.approx(
         after, abs=2
     )
-    page.close()
-
-
-# ---------------------------------------------------------------------------
-# The host owns the state: presets still win, and a drag still marks custom
-# ---------------------------------------------------------------------------
-
-
-def test_presets_survive_a_reload_and_keep_the_mode_pill_lit(
-    chromium_browser: Browser, dashboard_url: str
-) -> None:
-    """The reason these splitters take `storageKey: null`.
-
-    If each splitter persisted its own record, a stale value would beat a
-    freshly applied preset on the next load and the mode pill would read
-    "custom" for a layout the operator never customised.
-    """
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_dashboard(page, dashboard_url)
-
-    page.locator("#mode-inspect").click()
-    page.wait_for_timeout(TRANSITION_SETTLE_MS)
-    inspect_timeline = _height(page, "#timeline-zone")
-
-    page.reload(wait_until="domcontentloaded")
-    page.wait_for_function(
-        "() => document.querySelector('#timeline-handle')?.hasAttribute('aria-valuenow')",
-        timeout=WIRE_TIMEOUT_MS,
-    )
-    page.wait_for_timeout(TRANSITION_SETTLE_MS)
-
-    assert _height(page, "#timeline-zone") == pytest.approx(inspect_timeline, abs=4), (
-        "the Inspect preset's zone sizes did not survive a reload -- a splitter-owned "
-        "record is probably overriding the layout record"
-    )
-    expect(page.locator("#mode-inspect")).to_have_class(re.compile(r"\bon\b"))
-    page.close()
-
-
-def test_a_drag_marks_the_layout_custom(chromium_browser: Browser, dashboard_url: str) -> None:
-    """`onCommit` is the only path back into the layout record; prove it fires."""
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_dashboard(page, dashboard_url)
-
-    page.locator("#mode-overview").click()
-    expect(page.locator("#mode-overview")).to_have_class("on")
-    # The preset click animates the zones into place (200ms height transition)
-    # and records mode='overview' when it settles. Dragging before that write
-    # lands would let it clobber the drag's own mode='custom' record.
-    page.wait_for_timeout(TRANSITION_SETTLE_MS)
-
-    _drag(page, "#timeline-handle", dy=40)
-
-    mode = page.evaluate("JSON.parse(localStorage.getItem('dispatch-panel-layout-v1')).mode")
-    assert mode == "custom", f"a drag must mark the layout custom, got mode={mode!r}"
     page.close()
