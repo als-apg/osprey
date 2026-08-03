@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OSPREY Theme Lab</title>
+
+<!-- No theme-boot.js / theme-manager.js here, deliberately. The page renders
+     BOTH modes side by side in scoped [data-theme] containers, so the document
+     theme is pinned to "dark" on <html> above and a visitor's persisted theme
+     preference must never leak in and re-skin the chrome under them. -->
+
+<!-- Design system tokens + reset. Relative so the page resolves correctly at
+     /design-system/theme-lab.html and under any panel proxy prefix; the shared
+     web fonts are mounted separately at the server root, hence absolute. -->
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="css/theme-lab.css">
+
+<!-- The DOM layer. It imports the pure half (js/theme-lab.js) and the
+     generated theme registry (js/tokens.js) as ES modules. -->
+<script type="module" src="js/theme-lab-ui.js"></script>
+</head>
+<body>
+
+<div class="lab-page">
+
+  <header class="lab-masthead">
+    <div>
+      <h1 class="lab-masthead-title">Theme lab</h1>
+      <p class="lab-masthead-kicker">Pick an accent — both modes re-skin live</p>
+    </div>
+    <a class="lab-masthead-link" href="reference.html">Token reference &rsaquo;</a>
+  </header>
+
+  <div class="lab">
+
+    <!-- ============================ CONTROLS ============================ -->
+    <aside class="lab-controls">
+
+      <section class="lab-section">
+        <h2 class="lab-section-title">Accent</h2>
+
+        <canvas class="lab-wheel" id="hue-wheel" width="240" height="240"
+                aria-label="Hue and saturation picker"></canvas>
+
+        <div class="lab-field">
+          <label class="lab-field-label" for="hex-input">Hex</label>
+          <div class="lab-field-row">
+            <span class="lab-hex-swatch" id="hex-swatch" aria-hidden="true"></span>
+            <input class="lab-text-input" id="hex-input" type="text" spellcheck="false"
+                   autocomplete="off" autocapitalize="off" placeholder="six-digit hex">
+          </div>
+        </div>
+
+        <div class="lab-field">
+          <span class="lab-field-label">Presets</span>
+          <!-- Populated by theme-lab.js: one .lab-preset button per preset. -->
+          <div class="lab-preset-row" id="preset-row"></div>
+        </div>
+      </section>
+
+      <section class="lab-section">
+        <h2 class="lab-section-title">Lightness</h2>
+
+        <div class="lab-field">
+          <label class="lab-field-label" for="lightness-dark">
+            Dark mode <output class="lab-range-value" id="lightness-dark-value"></output>
+          </label>
+          <input class="lab-range" id="lightness-dark" type="range"
+                 min="0" max="100" step="1" value="50">
+        </div>
+
+        <div class="lab-field">
+          <label class="lab-field-label" for="lightness-light">
+            Light mode <output class="lab-range-value" id="lightness-light-value"></output>
+          </label>
+          <input class="lab-range" id="lightness-light" type="range"
+                 min="0" max="100" step="1" value="50">
+        </div>
+      </section>
+
+      <section class="lab-section">
+        <h2 class="lab-section-title">Name</h2>
+
+        <div class="lab-field">
+          <label class="lab-field-label" for="theme-name">Theme name</label>
+          <input class="lab-text-input" id="theme-name" type="text" spellcheck="false"
+                 autocomplete="off" placeholder="Harbour dusk">
+          <!-- Slug preview / collision warning. Empty = collapsed (CSS :empty). -->
+          <p class="lab-warning" id="slug-warning" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="lab-section lab-export">
+        <div class="lab-export-head">
+          <h2 class="lab-section-title lab-export-title">Export</h2>
+          <button class="lab-btn" id="copy-export" type="button">Copy</button>
+        </div>
+        <pre class="lab-export-text" id="export-text" tabindex="0"></pre>
+      </section>
+
+    </aside>
+
+    <!-- ============================ PREVIEWS ============================ -->
+    <main class="lab-previews">
+
+      <!-- Scoped theme containers. tokens.css declares its theme blocks as bare
+           attribute selectors (`:root, [data-theme="dark"]` / `[data-theme="light"]`),
+           so each container below inherits that mode's FULL token set with no
+           JavaScript at all. This is the load-bearing trick of the page. -->
+      <section class="lab-panel" data-theme="dark">
+        <div class="lab-panel-label">Dark<span class="lab-panel-hint">data-theme="dark"</span></div>
+        <div class="lab-mount" id="preview-dark"></div>
+        <div class="lab-readout">
+          <h3 class="lab-readout-title">Contrast</h3>
+          <div class="lab-gates" id="gates-dark"></div>
+          <h3 class="lab-readout-title">Derived tokens</h3>
+          <div class="lab-tokens" id="tokens-dark"></div>
+        </div>
+      </section>
+
+      <section class="lab-panel" data-theme="light">
+        <div class="lab-panel-label">Light<span class="lab-panel-hint">data-theme="light"</span></div>
+        <div class="lab-mount" id="preview-light"></div>
+        <div class="lab-readout">
+          <h3 class="lab-readout-title">Contrast</h3>
+          <div class="lab-gates" id="gates-light"></div>
+          <h3 class="lab-readout-title">Derived tokens</h3>
+          <div class="lab-tokens" id="tokens-light"></div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+</div>
+
+<!-- ======================= MINI SHELL TEMPLATE =========================
+     One schematic mock of the web terminal, instantiated by theme-lab.js into
+     BOTH #preview-dark and #preview-light. Deliberately NOT a copy of
+     web_terminal/static/index.html — it is a caricature whose only job is to
+     put every accent-consuming pattern on screen at once: primary button,
+     ghost button, inline link, active/inactive tab, accent-tinted rail item,
+     focus ring, selected text, system-tint row, accent status item. Drift
+     against the real shell is cosmetic and expected.
+     ==================================================================== -->
+<template id="mini-shell">
+  <div class="ms-shell">
+
+    <div class="ms-header">
+      <span class="ms-logo">OSPREY</span>
+      <span class="ms-title">Web Terminal</span>
+      <span class="ms-spacer"></span>
+      <button class="ms-icon-btn" type="button" tabindex="-1" aria-hidden="true">&#9881;</button>
+      <button class="ms-icon-btn" type="button" tabindex="-1" aria-hidden="true">&#9776;</button>
+    </div>
+
+    <div class="ms-tabs">
+      <button class="ms-tab is-active" type="button" tabindex="-1">Session</button>
+      <button class="ms-tab" type="button" tabindex="-1">Files</button>
+      <button class="ms-tab" type="button" tabindex="-1">Orbit</button>
+    </div>
+
+    <div class="ms-body">
+
+      <nav class="ms-rail" aria-hidden="true">
+        <span class="ms-rail-item is-active">&#9724;</span>
+        <span class="ms-rail-item">&#9723;</span>
+        <span class="ms-rail-item">&#9679;</span>
+        <span class="ms-rail-item">&#9650;</span>
+      </nav>
+
+      <div class="ms-main">
+
+        <div class="ms-terminal">
+          <p class="ms-term-line"><span class="ms-term-prompt">osprey &rsaquo;</span> read_channel SR:BPM:14:X</p>
+          <p class="ms-term-line ms-term-out">SR:BPM:14:X = <span class="ms-selection">-0.184 mm</span></p>
+          <p class="ms-term-line ms-term-out">4 correctors armed, 172 BPMs nominal</p>
+          <p class="ms-term-line"><span class="ms-term-prompt">osprey &rsaquo;</span> <span class="ms-term-cursor"></span></p>
+        </div>
+
+        <div class="ms-system-row">
+          <span class="ms-system-tag">system</span>
+          <span>Connector armed &mdash; see <a class="ms-link" href="#" tabindex="-1">write policy</a></span>
+        </div>
+
+        <div class="ms-entry">
+          <div class="ms-entry-field ms-focus-ring">Ask the operator agent&hellip;</div>
+          <button class="ms-btn ms-btn-ghost" type="button" tabindex="-1">Attach</button>
+          <button class="ms-btn ms-btn-primary" type="button" tabindex="-1">Send</button>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="ms-status">
+      <span class="ms-status-item is-accent"><span class="ms-status-dot"></span>connected</span>
+      <span class="ms-status-item">80&times;24</span>
+      <span class="ms-spacer"></span>
+      <span class="ms-status-item">12:04:31</span>
+    </div>
+
+  </div>
+</template>
+
+</body>
+</html>

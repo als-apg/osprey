@@ -69,6 +69,22 @@ across reloads.
    ``web.theme`` (the browser interfaces) is separate from ``cli.theme`` (the
    colors of OSPREY's plain terminal output). They never affect each other.
 
+Propose a theme
+---------------
+
+Have a color of your own in mind? Run:
+
+.. code-block:: bash
+
+   osprey theme-lab
+
+That opens the Theme Lab in your browser. Pick an accent color and the dark and
+light mock-ups of the terminal re-skin as you go, while the contrast badges tell
+you at a glance whether text stays readable against it — the same check every
+shipped theme has to pass. When you are happy, give the theme a name, copy the
+export block, and paste it into a GitHub issue. The lab doesn't create the theme
+itself; the export spells out exactly what needs to change to make it real.
+
 .. dropdown:: Going deeper — the design system
    :icon: paintbrush
 
