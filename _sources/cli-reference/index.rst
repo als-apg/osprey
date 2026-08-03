@@ -26,6 +26,7 @@ without arguments launches an interactive TUI menu.
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
+   osprey theme-lab          # Design and preview a theme in the browser
    osprey scaffold           # Build artifact overrides
    osprey audit              # Audit project or profile safety
    osprey skills             # Manage bundled Osprey skills
@@ -363,6 +364,31 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    osprey web --port 9000 --host 0.0.0.0
    osprey web --detach
    osprey web stop
+
+osprey theme-lab
+================
+
+Design a theme in the browser. Starts a local server for OSPREY's design
+system and opens the Theme Lab, where you pick an accent color and see it
+previewed live on dark and light mock-ups of the web terminal, with contrast
+badges that update as you go. Copying the export block gives you a
+ready-to-paste description of the theme to request; the lab itself does not
+write theme files. See :doc:`/how-to/web-terminal/theming`.
+
+``osprey theme-lab [OPTIONS]``
+   Serve the Theme Lab and open it. The URL is printed as well, so the page can
+   be opened by hand if no browser appears.
+
+   ``-p, --port INTEGER`` — Port to serve on (default: an unused port chosen
+   automatically).
+
+   ``--no-browser`` — Do not open a browser window; print the URL only.
+
+.. code-block:: bash
+
+   osprey theme-lab
+   osprey theme-lab --port 9000
+   osprey theme-lab --no-browser
 
 osprey audit
 ============

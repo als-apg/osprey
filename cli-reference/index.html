@@ -496,6 +496,7 @@ osprey<span class="w"> </span>eject<span class="w">              </span><span cl
 osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
 osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
 osprey<span class="w"> </span>web<span class="w">                </span><span class="c1"># Launch web terminal</span>
+osprey<span class="w"> </span>theme-lab<span class="w">          </span><span class="c1"># Design and preview a theme in the browser</span>
 osprey<span class="w"> </span>scaffold<span class="w">           </span><span class="c1"># Build artifact overrides</span>
 osprey<span class="w"> </span>audit<span class="w">              </span><span class="c1"># Audit project or profile safety</span>
 osprey<span class="w"> </span>skills<span class="w">             </span><span class="c1"># Manage bundled Osprey skills</span>
@@ -761,6 +762,28 @@ osprey<span class="w"> </span>web<span class="w"> </span>stop
 </pre></div>
 </div>
 </section>
+<section id="osprey-theme-lab">
+<h2>osprey theme-lab<a class="headerlink" href="#osprey-theme-lab" title="Link to this heading">#</a></h2>
+<p>Design a theme in the browser. Starts a local server for OSPREY’s design
+system and opens the Theme Lab, where you pick an accent color and see it
+previewed live on dark and light mock-ups of the web terminal, with contrast
+badges that update as you go. Copying the export block gives you a
+ready-to-paste description of the theme to request; the lab itself does not
+write theme files. See <a class="reference internal" href="../how-to/web-terminal/theming.html"><span class="doc">Theming</span></a>.</p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">theme-lab</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Serve the Theme Lab and open it. The URL is printed as well, so the page can
+be opened by hand if no browser appears.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port to serve on (default: an unused port chosen
+automatically).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--no-browser</span></code> — Do not open a browser window; print the URL only.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>theme-lab
+osprey<span class="w"> </span>theme-lab<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span>
+osprey<span class="w"> </span>theme-lab<span class="w"> </span>--no-browser
+</pre></div>
+</div>
+</section>
 <section id="osprey-audit">
 <h2>osprey audit<a class="headerlink" href="#osprey-audit" title="Link to this heading">#</a></h2>
 <p>Audit a build profile or project directory for safety risks. Uses an AI
@@ -967,6 +990,7 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-ariel">osprey ariel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-artifacts">osprey artifacts</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-web">osprey web</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-theme-lab">osprey theme-lab</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-audit">osprey audit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-scaffold">osprey scaffold</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-skills">osprey skills</a></li>
