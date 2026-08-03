@@ -334,6 +334,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   pointer. The timeline pane animated the same height the drag was setting, so it
   eased toward a target the cursor had already left and trailed by up to 85
   pixels for the whole gesture.
+- `osprey build` no longer aborts partway through creating a project's virtual
+  environment on a slow connection. Installing osprey's dependencies was capped
+  at five minutes, which a first-time download can exceed, and the build stopped
+  with an unexplained "Unexpected error". The limit is now generous enough for a
+  full download, and if it is ever reached the message names the install as the
+  step that ran long and suggests what to try.
 - Dispatched runs that delegate to a subagent now wait for the delegated work
   and return the full answer. Previously the reply could stop at "the agent is
   searching, I'll notify you when it completes" and nothing further arrived.

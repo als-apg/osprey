@@ -733,6 +733,17 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
     return pinned
 
 
+# Ceiling on the project-venv dependency install.
+#
+# This install pulls osprey's whole transitive tree into a fresh venv — around
+# 1.4 GB installed, from ~2.2 GB of wheels, on a cold cache. How long that takes
+# is a property of the network, not of the project, so the cap has to bound an
+# installer that is *stuck* rather than one that is merely slow. A tight cap
+# turns an ordinary cold-cache download into an abort that fires intermittently
+# and reads as flakiness rather than as a limit set too low.
+_VENV_INSTALL_TIMEOUT_S = 1800
+
+
 def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     """Create the project venv and install osprey + profile deps.
 
@@ -846,7 +857,24 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
 
     spinner = Spinner("dots", text=f"  Installing osprey ({osprey_label}) + {dep_count} deps...")
     with Live(spinner, transient=True):
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=_VENV_INSTALL_TIMEOUT_S
+            )
+        except subprocess.TimeoutExpired as e:
+            # A bare TimeoutExpired escapes to build_cmd's catch-all and prints
+            # "Unexpected error", naming neither the step nor a way forward.
+            raise BuildProfileError(
+                f"installing osprey + {dep_count} deps into the project venv did not "
+                f"finish within {_VENV_INSTALL_TIMEOUT_S // 60} minutes.\n"
+                "        This install downloads osprey's full dependency tree (over a "
+                "gigabyte on a cold cache), so a slow or interrupted connection is the "
+                "usual cause.\n"
+                "        Re-running the build resumes from what already downloaded — "
+                "completed packages are served from the local cache.\n"
+                "        On a slow or restricted link, point the build at a closer "
+                "package mirror (UV_INDEX_URL, or PIP_INDEX_URL without uv)."
+            ) from e
 
     if result.returncode == 0:
         logger.info("  ✓ Installed osprey + %d profile deps into project venv", dep_count)
