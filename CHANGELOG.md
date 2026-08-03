@@ -68,6 +68,17 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- The event dispatcher panel is rebuilt around two tabs — Activity and
+  Triggers — instead of five surfaces competing for the same screen. There is
+  one place to fire a trigger, one trigger list, and one operator (Simple)
+  view. Three long-standing faults go with it: timeline marks now sit at their
+  actual times (every mark previously rendered at the left edge, so a quiet
+  trigger looked the same as a busy one), an open transcript survives the
+  three-second refresh instead of collapsing what you had expanded, and write
+  actions no longer pop a token prompt inside the embedded panel. A run now
+  also links to the trigger that started it and, where a telemetry store is
+  deployed, to that run's own records — each link appearing only when there is
+  something real to open.
 - `osprey web` now resolves the project it serves once, up front (`--project`,
   then `OSPREY_CONFIG`, then the current directory) and refuses to launch when
   no `config.yml` is resolvable, instead of silently serving a terminal with
