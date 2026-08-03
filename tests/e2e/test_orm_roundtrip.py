@@ -115,8 +115,8 @@ def _minted_token(project_dir: Path) -> str:
     env = parse_dotenv_file(env_path)
     token = env.get("BLUESKY_LAUNCH_TOKEN")
     assert token, (
-        "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env — the arming-safe "
-        "execution.execution_method: container config (FR11) should auto-mint it"
+        "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env — `deploy up` "
+        "mints it for every deployed service that declares it"
     )
     return token
 

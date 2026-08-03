@@ -63,7 +63,7 @@ services:
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
       # subprocess resolve config from the mounted project (via env inheritance),
       # independent of CWD. It points at the STAGED config.yml bind-mounted below
-      # (python_env_path stripped), not the copy baked into the image.
+      # (the deploy-time config), not the copy baked into the image.
       CONFIG_FILE: /app/{{ osprey_labels.project_name }}/config.yml
       TZ: {{ system.timezone }}
       # OpenObserve telemetry (opt-in): the worker and its CLI subprocess run on
@@ -75,8 +75,8 @@ services:
     # Bind-mount source is relative to the compose project directory
     # (build/services/), not this service's subdir — hence the dispatch_worker/ prefix.
     volumes:
-      # Staged runtime config (python_env_path stripped) overlays the config.yml
-      # baked into the image, so the worker reads the deploy-time config.
+      # The staged runtime config overlays the config.yml baked into the image,
+      # so the worker reads the deploy-time config.
       - ./dispatch_worker/config.yml:/app/{{ osprey_labels.project_name }}/config.yml:ro
       # The image creates /app/<project>/_agent_data (and its subdirs) and
       # `chown -R osprey:osprey /app/<project>` before switching to USER osprey,

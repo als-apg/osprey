@@ -57,7 +57,9 @@ def test_copy_service_templates_copies_root_when_no_services(tmp_path: Path) -> 
     )
 
 
-def test_prepare_compose_files_no_services_renders_nothing(tmp_path: Path) -> None:
+def test_prepare_compose_files_no_services_renders_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With empty deployed_services, prepare_compose_files renders no files at all.
 
     An attached project (``deploy_services: false``) scaffolds no ``services/``
@@ -67,18 +69,10 @@ def test_prepare_compose_files_no_services_renders_nothing(tmp_path: Path) -> No
     """
     config_path = _write_config(tmp_path, deployed_services=[])
 
-    monkey_cwd = Path.cwd()
-    try:
-        # render_template resolves SERVICES_DIR relative to cwd; deliberately
-        # no _copy_service_templates — the attached case has no services/ dir.
-        import os
-
-        os.chdir(tmp_path)
-        config, compose_files = prepare_compose_files(str(config_path))
-    finally:
-        import os
-
-        os.chdir(monkey_cwd)
+    # render_template resolves SERVICES_DIR relative to cwd; deliberately
+    # no _copy_service_templates — the attached case has no services/ dir.
+    monkeypatch.chdir(tmp_path)
+    config, compose_files = prepare_compose_files(str(config_path))
 
     assert compose_files == [], (
         f"empty deployed_services must render no compose files, got {compose_files}"
@@ -319,7 +313,7 @@ def test_worker_layout_paths_track_injected_project_name() -> None:
     assert f"OSPREY_PROJECT_DIR: {root}" in rendered
     assert f"CONFIG_FILE: {root}/config.yml" in rendered
 
-    # Staged config bind-mount (python_env_path stripped) — repointed target,
+    # Staged config bind-mount (the deploy-time config) — repointed target,
     # source unchanged (relative to build/services/).
     assert f"- ./dispatch_worker/config.yml:{root}/config.yml:ro" in rendered
 
@@ -427,7 +421,7 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
         # Return non-zero so the function bails before trying to copy a wheel.
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="stop here")
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
     # A failed build now aborts the deploy rather than falling back to the
     # released package; the interpreter assertion below is what this test is for.
     with pytest.raises(DevModeUnavailableError):
@@ -696,18 +690,18 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 # Task 4.3 / FR11: turn-key scan-stack deploy config
 #
 # A shipped, tested deploy configuration bringing up VA + bridge + Tiled with
-# control_system.type=virtual_accelerator, execution.execution_method=
-# container (so BLUESKY_LAUNCH_TOKEN mints safely and the agent can arm --
-# see container_lifecycle.py's _local_exec_arming_unsafe), and the scan MCP
-# server enabled. tests/e2e/_orm_stack.py is the single source of this
+# control_system.type=virtual_accelerator and the scan MCP server enabled
+# (BLUESKY_LAUNCH_TOKEN is minted unconditionally for the deployed bluesky
+# service, so no execution-method override is needed to arm the agent).
+# tests/e2e/_orm_stack.py is the single source of this
 # config, reused by the real-container round-trip e2e (task 5.2) and the
 # agentic-discovery e2e (5.3/5.4) -- this gate only exercises the Docker-free
 # render path via its in-process `osprey build` helper.
 # ---------------------------------------------------------------------------
 
 
-def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
-    tmp_path: Path,
+def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """FR11's turn-key deploy config, end to end without Docker:
     ``osprey build`` (in-process, via ``tests/e2e/_orm_stack``) followed by a
@@ -716,15 +710,14 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
       - the Virtual Accelerator + bluesky-bridge + co-deployed Tiled compose
         services (``control_system.type=virtual_accelerator`` +
         ``bluesky.tiled_enabled=true``),
-      - ``execution.execution_method: container`` (the arming-safe exec
-        method — a ``local`` exec method gates launch-token auto-minting
-        off, per ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``),
+      - ``execution.execution_method: subprocess`` (the one execution backend
+        OSPREY ships — the deploy config sets no override, so this is the
+        rendered default, and no code path reads it for safety semantics),
       - the ``scan`` MCP server enabled in the rendered ``.mcp.json`` (it is
         ``default_enabled=False`` in the framework registry — a project must
         opt in, and this deploy config does).
     """
     import json
-    import os
 
     from click.testing import CliRunner
 
@@ -733,13 +726,13 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     runner = CliRunner()
     project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path)
 
-    # -- execution_method: container (arming-safe) --------------------------
+    # -- execution_method: subprocess (the only backend OSPREY ships) --------
     yaml = YAML()
     with open(project_dir / "config.yml") as fh:
         config = yaml.load(fh)
-    assert config["execution"]["execution_method"] == "container", (
-        "FR11 requires execution.execution_method=container so the launch "
-        "token mints safely and the agent can arm"
+    assert config["execution"]["execution_method"] == "subprocess", (
+        "the rendered config must name the backend that actually runs agent "
+        "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
 
@@ -751,15 +744,11 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     )
 
     # -- VA + bridge + Tiled compose services --------------------------------
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(project_dir)
-        _, compose_files = prepare_compose_files(str(project_dir / "config.yml"))
-        # Read while still inside project_dir — prepare_compose_files returns
-        # paths relative to it (SERVICES_DIR resolves relative to cwd).
-        rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(project_dir)
+    _, compose_files = prepare_compose_files(str(project_dir / "config.yml"))
+    # Read while still inside project_dir — prepare_compose_files returns
+    # paths relative to it (SERVICES_DIR resolves relative to cwd).
+    rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
 
     assert "\n  virtual-accelerator:\n" in rendered, "VA service must be deployed"
     assert "\n  bluesky-bridge:\n" in rendered, "bridge service must be deployed"
@@ -787,100 +776,109 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
 
 
 # ---------------------------------------------------------------------------
-# Task 1.4: preserve-staged-config-python-env-path
+# Container config staging: no host interpreter can reach the container
 #
 # The M2 concern: the dispatch worker's runtime config.yml must never carry
-# the HOST build machine's ``execution.python_env_path`` (e.g.
-# ``/Users/.../.venv/bin/python``) into the container — that path does not
-# exist in-container, and Claude Code's MCP-server command generation prefers
-# it over ``sys.executable`` when present, so every MCP server would fail to
-# launch. This is already handled by two independent mechanisms:
+# the HOST build machine's interpreter (e.g. ``/Users/.../.venv/bin/python``)
+# into the container — that path does not exist in-container, and MCP-server
+# command generation used to prefer it over ``sys.executable``, so every MCP
+# server would fail to launch. Two properties now make that unreachable, with
+# no staging-time surgery:
 #
-# 1. ``setup_build_dir`` (compose_generator.py, ~L728-738) pops
-#    ``execution.python_env_path`` from the flattened config it stages for
-#    the worker's config.yml bind-mount.
-# 2. ``build_claude_code_context`` (osprey.cli.templates.claude_code, L91)
-#    resolves ``current_python_env`` as
-#    ``config.execution.python_env_path or sys.executable`` — so a config
-#    with the key stripped falls back to the container's own interpreter.
+# 1. A generated project's config records no interpreter at all — there is no
+#    ``execution.python_env_path`` for staging to carry across. (An older
+#    config that still carries the retired key stages verbatim, but
+#    ``ConfigBuilder`` drops it on load.)
+# 2. ``build_claude_code_context`` (osprey.cli.templates.claude_code) derives
+#    ``current_python_env`` from the filesystem — the project's own ``.venv``
+#    when it has one, else the generating interpreter — and consults the config
+#    not at all. A ``project_root_override`` (the container case) forces the
+#    generating interpreter, since the host's venv is not what exists in the
+#    container. So no config, of any vintage, can name the interpreter an MCP
+#    server launches with.
 #
-# These tests prove both mechanisms against the real generator entrypoints
-# rather than re-asserting the ``or`` expression in isolation. Mechanism 2's
-# companion (build-time ``osprey claude regen`` self-healing a *recorded*
-# stale python_env_path baked into an existing project) is covered by
-# tests/cli/test_claude_regen.py and is out of this file's scope.
+# ``setup_build_dir`` therefore stages the flattened config as-is; the strip it
+# used to perform removed a key nothing writes and nothing reads. These tests
+# prove the invariant against the real generator entrypoints. The full
+# role-split contract (all three runtime launch sites, driven with a config
+# that points somewhere else) lives in tests/cli/test_interpreter_role_split.py.
 # ---------------------------------------------------------------------------
 
 
-def test_setup_build_dir_strips_python_env_path_from_staged_config(
+def test_setup_build_dir_stages_a_config_naming_no_interpreter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``setup_build_dir`` must pop ``execution.python_env_path`` from the
-    flattened config it writes for the service's ``config.yml`` bind-mount.
+    """The config staged for a service's bind-mount must name no interpreter.
 
-    Drives the real staging code path: a project ``config.yml`` on disk with
-    a host-looking venv path, loaded internally via ``ConfigBuilder()``
-    (which resolves against ``os.getcwd()``), flattened, and written to
-    ``<build_dir>/<service_dir>/config.yml``. The written file must have the
-    key removed entirely, not merely emptied.
+    Drives the real staging code path against a real generated project: its
+    ``config.yml`` is loaded internally via ``ConfigBuilder()`` (which resolves
+    against ``os.getcwd()``), flattened, and written to
+    ``<build_dir>/<service_dir>/config.yml``. Neither the retired
+    ``execution.python_env_path`` key nor any interpreter path may appear —
+    and nothing strips them, because nothing writes them.
     """
+    from osprey.cli.templates.manager import TemplateManager
     from osprey.deployment.compose_generator import setup_build_dir
 
-    host_python = "/Users/someone/.venv/bin/python"
-
-    project_config_path = tmp_path / "config.yml"
-    project_config_path.write_text(
-        yaml.dump(
-            {
-                "project_name": "pep-fixture",
-                "execution": {"python_env_path": host_python},
-            }
-        )
+    project_dir = TemplateManager().create_project(
+        project_name="staged-no-interp",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
     )
 
-    service_dir = tmp_path / "services" / "worker"
+    service_dir = project_dir / "services" / "worker"
     service_dir.mkdir(parents=True)
     (service_dir / "docker-compose.yml.j2").write_text("services:\n  worker:\n    image: test\n")
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(project_dir)
 
     template_path = str(Path("services") / "worker" / "docker-compose.yml.j2")
-    config = {"project_name": "pep-fixture", "build_dir": "./build"}
+    config = {"project_name": "staged-no-interp", "build_dir": "./build"}
     container_cfg = {"copy_src": False, "render_kernel_templates": False}
 
     setup_build_dir(template_path, config, container_cfg)
 
-    staged_config_path = tmp_path / "build" / "services" / "worker" / "config.yml"
+    staged_config_path = project_dir / "build" / "services" / "worker" / "config.yml"
     assert staged_config_path.is_file(), (
         f"expected a staged config.yml at {staged_config_path} "
         "(flattening must have failed and fallen back to a verbatim copy)"
     )
-    staged_config = yaml.safe_load(staged_config_path.read_text())
-    assert "python_env_path" not in staged_config.get("execution", {}), (
-        f"host python_env_path leaked into the staged config: {staged_config.get('execution')}"
+    staged_text = staged_config_path.read_text()
+    staged_config = yaml.safe_load(staged_text)
+    assert "execution_method" in staged_config.get("execution", {}), (
+        "the staged config must carry a real, flattened execution block — "
+        "without one the interpreter assertions below would be vacuous"
+    )
+    assert "python_env_path" not in staged_config["execution"], (
+        f"an interpreter path reached the staged config: {staged_config.get('execution')}"
+    )
+    assert sys.executable not in staged_text, (
+        "the staging interpreter must not appear anywhere in the staged config"
     )
 
 
-def test_setup_build_dir_staged_config_has_no_execution_python_env_path_key_at_all(
+def test_setup_build_dir_stages_the_execution_block_verbatim(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Same as above, phrased as a positive contract on the whole ``execution``
-    block: no key named ``python_env_path`` survives staging, regardless of
-    whatever else lives under ``execution``.
+    """Staging edits no key under ``execution``.
+
+    The strip that used to run here is gone, so a legacy config carrying the
+    retired ``execution.python_env_path`` stages unchanged. That is safe rather
+    than a regression: the loader drops the key and MCP-server generation never
+    reads it (see the companion tests below), so the value is inert wherever it
+    lands. What matters is that staging does not quietly lose sibling keys.
     """
     from osprey.deployment.compose_generator import setup_build_dir
 
+    execution_block = {
+        "python_env_path": "/Users/someone/.venv/bin/python3.11",
+        "execution_method": "subprocess",
+    }
+
     project_config_path = tmp_path / "config.yml"
     project_config_path.write_text(
-        yaml.dump(
-            {
-                "project_name": "pep-fixture-2",
-                "execution": {
-                    "python_env_path": "/Users/someone/.venv/bin/python3.11",
-                    "execution_method": "local",
-                },
-            }
-        )
+        yaml.dump({"project_name": "pep-fixture-2", "execution": dict(execution_block)})
     )
 
     service_dir = tmp_path / "services" / "worker"
@@ -897,22 +895,20 @@ def test_setup_build_dir_staged_config_has_no_execution_python_env_path_key_at_a
 
     staged_config_path = tmp_path / "build" / "services" / "worker" / "config.yml"
     staged_config = yaml.safe_load(staged_config_path.read_text())
-    assert list(staged_config["execution"].keys()) == ["execution_method"], (
-        "only python_env_path should be dropped; sibling execution keys must survive"
+    assert staged_config["execution"] == execution_block, (
+        "staging must pass the execution block through untouched"
     )
 
 
 def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
-    """The real ``.mcp.json`` generation seam: with ``execution.python_env_path``
-    absent (exactly what ``setup_build_dir`` staging produces), MCP-server
-    commands must resolve to the CONTAINER's own ``sys.executable``, never a
-    host path.
+    """The real ``.mcp.json`` generation seam: with no interpreter recorded in
+    the config (exactly what staging produces today), MCP-server commands must
+    resolve to the CONTAINER's own ``sys.executable``, never a host path.
 
     Drives ``build_claude_code_context`` (the actual context-builder used by
     both ``osprey build`` and ``osprey claude regen``) followed by
-    ``resolve_servers``'s real command resolution, rather than asserting the
-    ``config.execution.python_env_path or sys.executable`` expression in
-    isolation.
+    ``resolve_servers``'s real command resolution, rather than asserting a
+    single expression in isolation.
     """
     import tempfile
 
@@ -945,11 +941,15 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
         )
 
 
-def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> None:
-    """Companion to the above: proves what the strip in ``setup_build_dir``
-    prevents. If a host-looking ``python_env_path`` survived staging (it does
-    not, per the tests above), the exact same generator would bake that host
-    path into every MCP server's ``command`` — the M2 failure mode.
+def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() -> None:
+    """Companion to the above: the M2 failure mode is now unreachable by design.
+
+    A host-looking ``python_env_path`` that survived staging used to be baked
+    into every MCP server's ``command``. The generator no longer reads the key,
+    so even a config that still carries it — exactly what an already-deployed
+    project looks like — yields the container's own interpreter. This is what
+    lets ``setup_build_dir`` stage the config untouched: nothing stands between
+    the host path and a broken container because nothing consumes the path.
     """
     import tempfile
 
@@ -975,11 +975,11 @@ def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> 
             manager.template_root, manager.jinja_env, project_dir, config
         )
 
-        assert ctx["current_python_env"] == host_python
+        assert ctx["current_python_env"] == sys.executable
 
         controls_server = next(s for s in ctx["servers"] if s["name"] == "controls")
-        assert controls_server["command"] == host_python
-        assert controls_server["command"] != sys.executable
+        assert controls_server["command"] == sys.executable
+        assert controls_server["command"] != host_python
 
 
 # ---------------------------------------------------------------------------
@@ -1094,27 +1094,24 @@ def _write_openobserve_config(
     return config_path
 
 
-def _render_project_compose(config_path: Path, project_path: Path) -> str:
+def _render_project_compose(
+    config_path: Path, project_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> str:
     """Copy service templates, render via ``prepare_compose_files``, return the text.
 
     Runs the real CLI gating path from inside the project dir (SERVICES_DIR and
     the service ``path`` both resolve relative to cwd), then joins every rendered
-    compose file so callers can assert on the aggregate text.
+    compose file so callers can assert on the aggregate text. The caller's
+    ``monkeypatch`` owns the cwd change, so it is undone at test teardown.
     """
-    import os
-
     _copy_service_templates(project_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(project_path)
-        _, compose_files = prepare_compose_files(str(config_path))
-        return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(project_path)
+    _, compose_files = prepare_compose_files(str(config_path))
+    return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
 
 
-def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
+def test_openobserve_renders_when_deployed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """With ``openobserve`` in deployed_services the compose renders (exit 0) with
     the expected image reference, port, named volume, and root-cred env vars.
 
@@ -1123,7 +1120,7 @@ def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
     agent's OTLP push against the local store.
     """
     config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
 
     # The service block and its in-network DNS host name.
     assert "\n  openobserve:\n" in rendered
@@ -1143,19 +1140,23 @@ def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
     assert "osprey-openobserve" not in rendered
 
 
-def test_openobserve_retention_env_default_rendered(tmp_path: Path) -> None:
+def test_openobserve_retention_env_default_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Omitting retention_days renders the 14-day growth bound (the compose default)."""
     config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
     assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "14"' in rendered
 
 
-def test_openobserve_retention_env_custom_rendered(tmp_path: Path) -> None:
+def test_openobserve_retention_env_custom_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A configured retention_days flows into ZO_COMPACT_DATA_RETENTION_DAYS."""
     config_path = _write_openobserve_config(
         tmp_path, deployed_services=["openobserve"], retention_days=30
     )
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
     assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "30"' in rendered
 
     # Named data volume for persistence (both the mount and the top-level decl).
@@ -1168,13 +1169,15 @@ def test_openobserve_retention_env_custom_rendered(tmp_path: Path) -> None:
     assert "ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-" in rendered
 
 
-def test_openobserve_absent_when_not_deployed(tmp_path: Path) -> None:
+def test_openobserve_absent_when_not_deployed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With ``openobserve`` declared but NOT in deployed_services it must not
     render — the opt-in posture. Only the root compose is produced, with no
     openobserve service, image, or volume anywhere in the output.
     """
     config_path = _write_openobserve_config(tmp_path, deployed_services=[])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
 
     assert "openobserve" not in rendered, (
         f"openobserve must stay off when absent from deployed_services (opt-in):\n{rendered}"
@@ -1817,6 +1820,8 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
     """
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
+
     calls: list = []
     real_run = subprocess_module.run
 
@@ -1828,12 +1833,12 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
     return calls
 
 
 def test_dev_wheel_builds_once_across_service_and_project_staging(
-    tmp_path: Path, spy_wheel_build: list
+    tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """One process, many staging targets, exactly ONE ``python -m build``.
 
@@ -1844,8 +1849,6 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     invoke against their own contexts. Every context must still receive its
     own wheel copy (the memo caches the BUILD, not the copy).
     """
-    import os
-
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
@@ -1856,14 +1859,10 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     project_image_ctx.mkdir()
     persona_ctx.mkdir()
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-        assert _copy_local_framework_for_override(str(project_image_ctx)) is True
-        assert _copy_local_framework_for_override(str(persona_ctx)) is True
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
+    assert _copy_local_framework_for_override(str(project_image_ctx)) is True
+    assert _copy_local_framework_for_override(str(persona_ctx)) is True
 
     assert len(spy_wheel_build) == 1, (
         f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
@@ -1877,22 +1876,16 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
 
 
 def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
-    tmp_path: Path, spy_wheel_build: list
+    tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``rebuild_deployment`` runs ``prepare_compose_files`` twice (its own call
     plus the delegated ``deploy_up``'s) — the wheel build must still run once."""
-    import os
-
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-        prepare_compose_files(str(config_path), dev_mode=True)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
+    prepare_compose_files(str(config_path), dev_mode=True)
 
     assert len(spy_wheel_build) == 1, (
         f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
@@ -1922,12 +1915,8 @@ def test_dev_wheel_staged_only_into_dockerfile_build_contexts(
     )
     _copy_service_templates(tmp_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
 
     assert len(staged) == 1, f"expected staging into exactly one context, got {staged}"
     assert staged[0].endswith(os.path.join("services", "event_dispatcher")), staged[0]
@@ -2002,6 +1991,7 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
     the deploy must abort, and no wheel may be left in the build context."""
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
 
     real_run = subprocess_module.run
@@ -2013,7 +2003,7 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
             )
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _failing_build)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _failing_build)
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
@@ -2174,6 +2164,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
     still lacks the local wheel's added deps (half-staged)."""
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
     from osprey.deployment.errors import DevModeUnavailableError
 
@@ -2186,7 +2177,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()

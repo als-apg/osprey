@@ -32,10 +32,11 @@ def run_cf_main(server_module: str) -> None:
             ``"osprey.mcp_server.channel_finder_hierarchical.server"``).
     """
     from osprey.mcp_env import load_dotenv_from_project
-    from osprey.mcp_server.startup import redirect_logging_to_stderr
+    from osprey.utils.logger import configure_logging
 
     load_dotenv_from_project()
-    redirect_logging_to_stderr()
+    # stdout carries the JSON-RPC stream; configure_logging() routes records to stderr.
+    configure_logging()
 
     server = importlib.import_module(server_module).create_server()
     server.run()

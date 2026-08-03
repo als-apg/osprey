@@ -178,13 +178,17 @@ def load_machine_state_candidate_addresses() -> list[str]:
     """Extract every candidate channel key referenced by the machine-state template.
 
     ``machine_state_channels.json.j2`` is not valid JSON -- it branches on
-    ``default_pipeline`` via Jinja ``{% if %}``/``{% elif %}``/``{% else %}`` --
-    and all three of its branches are known to reference addresses that don't
-    match the real ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` namespace
-    (tracked by the ``machine-state-canonical`` follow-up task). Rather than
-    rendering a single branch, this pulls every candidate key across *all*
-    branches so the reconciliation report in the manifest covers the whole
-    file regardless of which pipeline mode is active.
+    ``default_pipeline`` via Jinja ``{% if %}``/``{% elif %}``/``{% else %}``.
+    Rather than rendering a single branch, this pulls every candidate key
+    across *all* branches so the reconciliation covers the whole file
+    regardless of which pipeline mode is active.
+
+    The caller (``manifest/build.py``) checks each candidate against the
+    addresses the VA actually serves and publishes the split under
+    ``_metadata.machine_state_reconciliation`` as ``candidates_checked`` /
+    ``valid`` / ``invalid``, so a template address that drifts out of the
+    ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` namespace shows up in the
+    manifest instead of failing silently.
     """
     text = paths.MACHINE_STATE_TEMPLATE.read_text()
     return _MACHINE_STATE_KEY_RE.findall(text)

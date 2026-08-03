@@ -610,7 +610,7 @@ def test_auto_render_forwards_explicit_overrides_from_parent_manifest(monkeypatc
     assert len(calls) == 1
     cmd = calls[0]
     assert cmd[-4:] == ["--set", "provider=als-apg", "--set", "model=anthropic/claude-opus"]
-    assert "channel_finder_mode=hierarchical" not in " ".join(cmd)
+    assert not any(arg.startswith("channel_finder_mode=") for arg in cmd)
 
 
 def test_auto_render_without_project_root_forwards_nothing(monkeypatch, tmp_path):
@@ -678,4 +678,4 @@ def test_auto_render_forwards_only_keys_with_recorded_values(monkeypatch, tmp_pa
 
     cmd = calls[0]
     assert cmd[-2:] == ["--set", "provider=als-apg"]
-    assert "model" not in " ".join(cmd)
+    assert not any(arg.startswith("model=") for arg in cmd)

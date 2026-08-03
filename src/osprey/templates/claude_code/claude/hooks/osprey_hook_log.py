@@ -36,9 +36,10 @@ def load_hook_config():
 def get_hook_input():
     """Read and return hook input JSON from stdin. Returns {} on failure."""
     try:
-        return json.load(sys.stdin)
+        parsed = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def get_project_dir(hook_input):
@@ -109,10 +110,15 @@ def _is_debug_enabled(hook_input):
 
 
 def log_hook(hook_name, hook_input, status="ok", detail=""):
-    """Log one debug line to stderr AND a JSONL file if OSPREY_HOOK_DEBUG is set.
+    """Log one debug line to stderr AND a JSONL file when hook debug is enabled.
+
+    Enabled by the ``OSPREY_HOOK_DEBUG`` env var or, failing that, ``hooks.debug``
+    in the project's ``config.yml`` (see ``_is_debug_enabled``).
 
     Dual output makes debugging possible even when stderr is swallowed by
-    the PTY layer.  The JSONL file lands at ``<project>/.claude/hooks/hook_debug.jsonl``.
+    the PTY layer.  The JSONL file lands at ``<project>/.claude/hooks/hook_debug.jsonl``
+    and is append-only — nothing rotates or truncates it — and it also backs the
+    web terminal's Safety-panel hook-activity feed.
     """
     if not _is_debug_enabled(hook_input):
         return

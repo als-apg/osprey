@@ -4,7 +4,7 @@ Validates that each OSPREY hook template has a properly structured docstring
 with YAML front matter (name, description, event) and an ASCII flow diagram.
 """
 
-import importlib.util
+import ast
 import re
 from pathlib import Path
 
@@ -23,21 +23,36 @@ HOOK_FILES = [
     "osprey_notebook_update.py",
     "osprey_memory_guard.py",
     "osprey_config_drift.py",
+    "osprey_focus_validate.py",
+    "osprey_panels_context.py",
+    "osprey_cf_feedback_capture.py",
 ]
 
 # Required fields for all hooks
 REQUIRED_FIELDS = {"name", "description", "event"}
 
 
+def test_hook_files_cover_every_hook():
+    """HOOK_FILES must track every hook payload so new hooks can't be silently omitted.
+
+    osprey_hook_log.py is excluded: it's the frontmatter-less shared logging
+    library imported by the hooks above, not a hook itself.
+    """
+    on_disk = {p.name for p in HOOKS_DIR.glob("osprey_*.py")} - {"osprey_hook_log.py"}
+    assert set(HOOK_FILES) == on_disk
+
+
 def _load_docstring(hook_filename: str) -> str:
-    """Import a hook module and return its __doc__ string."""
+    """Return a hook's module docstring without importing it.
+
+    Read from the AST rather than from ``__doc__`` because importing is
+    destructive here. ``osprey_cf_feedback_capture.py`` runs its whole body at
+    module scope and ends in ``sys.exit``, which would tear the test run down
+    with it, and most of the others prepend their own directory to ``sys.path``
+    at import time. This helper covers every hook, so it takes neither risk.
+    """
     path = HOOKS_DIR / hook_filename
     assert path.exists(), f"Hook file not found: {path}"
-
-    importlib.util.spec_from_file_location(hook_filename.removesuffix(".py"), path)
-    # Don't actually execute the module (it calls sys.exit) — just compile it
-    # and extract the docstring from the AST
-    import ast
 
     tree = ast.parse(path.read_text())
     docstring = ast.get_docstring(tree)
@@ -97,9 +112,10 @@ class TestHookFrontMatter:
 
         # Look for a fenced code block containing arrow characters
         assert "```" in body, "Body should contain a fenced code block with a flow diagram"
-        # Check for arrow-like characters that indicate a flow diagram
-        assert re.search(r"[─►▼▲◄┼┌┐└┘│├┤]", body), (
-            "Body should contain ASCII box-drawing characters for the flow diagram"
+        # Check for arrow-like characters that indicate a flow diagram — either
+        # box-drawing characters or plain-ASCII "-->" arrows.
+        assert re.search(r"-->|[─►▼▲◄┼┌┐└┘│├┤]", body), (
+            "Body should contain a flow diagram (box-drawing chars or ASCII arrows)"
         )
 
     def test_yaml_is_valid(self, hook_file):

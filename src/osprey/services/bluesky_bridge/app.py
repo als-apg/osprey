@@ -288,6 +288,15 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     (including writes disabled entirely) starts normally.
     """
     global _connector
+
+    from osprey.utils.logger import configure_logging
+
+    # The bridge is launched as `uvicorn ...:app`, so it passes through no
+    # Osprey entry point. Configuring here — on serve, never on import — keeps
+    # the startup breadcrumbs below visible in `docker logs` without turning
+    # importing this module into a logging side effect.
+    configure_logging()
+
     epics_substrate_enabled = _is_epics_substrate_enabled()
     demo_runner_enabled = _is_demo_runner_enabled()
     if epics_substrate_enabled and demo_runner_enabled:
@@ -568,10 +577,9 @@ _PLAN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
 _MAX_PLAN_NAME_LENGTH = 100
 
 # Neither `/plans/session` nor `/plans/validate` is gated on
-# `BLUESKY_LAUNCH_TOKEN` (`security.py`) — that token is deliberately
-# unminted whenever writes are unsafe to arm (see
-# `container_lifecycle._local_exec_arming_unsafe`), and both these routes
-# MUST keep working with writes disabled: authoring and validating a plan
+# `BLUESKY_LAUNCH_TOKEN` (`security.py`) — that token authenticates network
+# callers to the two launch routes only, and both these routes MUST keep
+# working with writes disabled: authoring and validating a plan
 # body never touches a device (the validator's stage-3 dry run drives mock
 # devices only, in a subprocess with `EPICS_CA_*` neutralized — see
 # `plan_validation.py`). Their protection is the bridge's loopback-only bind

@@ -1,4 +1,5 @@
-"""Tests for the ``bluesky_panels:`` block of the build-profile schema.
+"""Tests for the ``bluesky_panels:`` and ``environment:`` blocks of the
+build-profile schema.
 
 Covers the :class:`BlueskyPanelsConfig` dataclass, the ``BuildProfile.validate``
 exemption that lets the non-builtin scan-panel web_panels ids
@@ -23,7 +24,9 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import (
     BlueskyPanelsConfig,
     BuildProfile,
+    EnvironmentConfig,
     _parse_profile,
+    load_profile,
 )
 from osprey.errors import BuildProfileError
 
@@ -267,7 +270,7 @@ class TestControlAssistantTurnkeyScanPanels:
 
 
 class TestControlAssistantTurnkeyScanControlSystem:
-    """The preset's config overrides land: mock-by-default + container execution.
+    """The preset's config overrides land: mock-by-default + subprocess execution.
 
     The VA soft-IOC ships and is deployed as part of the turn-key scan stack,
     but control_system.type stays "mock" so a fresh tutorial project remains
@@ -279,10 +282,12 @@ class TestControlAssistantTurnkeyScanControlSystem:
     def test_control_assistant_control_system_type_is_mock(self, turnkey_scan_config: dict) -> None:
         assert turnkey_scan_config["control_system"]["type"] == "mock"
 
-    def test_control_assistant_execution_method_is_container(
+    def test_control_assistant_execution_method_is_subprocess(
         self, turnkey_scan_config: dict
     ) -> None:
-        assert turnkey_scan_config["execution"]["execution_method"] == "container"
+        """Agent Python runs as a host subprocess — the preset pins nothing, so
+        this is the template default the built project inherits."""
+        assert turnkey_scan_config["execution"]["execution_method"] == "subprocess"
 
     def test_control_assistant_scan_mcp_server_enabled(self, turnkey_scan_config: dict) -> None:
         assert turnkey_scan_config["claude_code"]["servers"]["bluesky"]["enabled"] is True
@@ -296,3 +301,304 @@ def test_control_assistant_turnkey_scan_preset_validates(turnkey_scan_project: P
     raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
     profile = _parse_profile(raw)
     profile.validate(presets_dir)  # raises BuildProfileError on any issue
+
+
+# ── Task 3.1: the ``environment:`` block ─────────────────────────────────────
+#
+# ``environment:`` declares the Python environment agent-authored code executes
+# in: a base interpreter (bare or a venv's), extra packages, and — only for a
+# venv base — distributions to leave out of the freeze. There is no mode flag:
+# venv-ness is detected from a ``pyvenv.cfg`` beside the interpreter's dir.
+
+
+@pytest.fixture
+def bare_interpreter(tmp_path: Path) -> Path:
+    """An existing, executable interpreter with no venv marker around it."""
+    python = tmp_path / "opt" / "python3.11" / "bin" / "python3"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\n", encoding="utf-8")
+    python.chmod(0o755)
+    return python
+
+
+@pytest.fixture
+def venv_interpreter(tmp_path: Path) -> Path:
+    """An executable interpreter inside a directory marked as a venv."""
+    venv = tmp_path / "facility-venv"
+    python = venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\n", encoding="utf-8")
+    python.chmod(0o755)
+    (venv / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+    return python
+
+
+class TestEnvironmentSchema:
+    """Field presence/absence and the parse-time shape contract."""
+
+    def test_environment_absent_is_all_defaults(self, tmp_path: Path) -> None:
+        """A profile with no environment block still exposes a usable config —
+        consumers never need a None check."""
+        profile = _parse_profile({"name": "x"})
+        assert profile.environment.python is None
+        assert profile.environment.packages == []
+        assert profile.environment.inherit_exclude == []
+        profile.validate(tmp_path)  # must not raise
+
+    def test_environment_is_known_key(self) -> None:
+        """'environment' is a recognized top-level profile key."""
+        assert "environment" in bp._KNOWN_PROFILE_KEYS
+
+    def test_environment_parse_round_trip(self, venv_interpreter: Path) -> None:
+        """All three fields round-trip through the raw-profile loader."""
+        raw = {
+            "name": "x",
+            "environment": {
+                "python": str(venv_interpreter),
+                "packages": ["numpy>=1.26", "at"],
+                "inherit_exclude": ["osprey-framework"],
+            },
+        }
+        profile = _parse_profile(raw)
+        assert profile.environment.python == str(venv_interpreter)
+        assert profile.environment.packages == ["numpy>=1.26", "at"]
+        assert profile.environment.inherit_exclude == ["osprey-framework"]
+
+    def test_environment_null_block_parses_to_defaults(self) -> None:
+        """`environment:` with no value (YAML null) is the same as omitting it."""
+        profile = _parse_profile({"name": "x", "environment": None})
+        assert profile.environment == EnvironmentConfig()
+
+    def test_environment_empty_mapping_parses_to_defaults(self) -> None:
+        profile = _parse_profile({"name": "x", "environment": {}})
+        assert profile.environment == EnvironmentConfig()
+
+    def test_environment_not_a_mapping_raises(self) -> None:
+        with pytest.raises(BuildProfileError, match="'environment' must be a mapping"):
+            _parse_profile({"name": "x", "environment": "not-a-mapping"})
+
+    def test_environment_unknown_key_raises(self) -> None:
+        """A typo inside the block is rejected outright rather than dropped —
+        a silently ignored 'package:' would leave the environment incomplete."""
+        with pytest.raises(BuildProfileError, match="Unknown environment key"):
+            _parse_profile({"name": "x", "environment": {"package": ["numpy"]}})
+
+    def test_environment_python_non_string_raises(self) -> None:
+        with pytest.raises(BuildProfileError, match="environment.python must be a string"):
+            _parse_profile({"name": "x", "environment": {"python": 3.11}})
+
+    @pytest.mark.parametrize("key", ["packages", "inherit_exclude"])
+    def test_environment_list_field_non_list_raises(self, key: str) -> None:
+        with pytest.raises(BuildProfileError, match=f"environment.{key} must be a list"):
+            _parse_profile({"name": "x", "environment": {key: "numpy"}})
+
+    def test_environment_coexists_with_dependencies(self, bare_interpreter: Path) -> None:
+        """environment.packages does not replace or disturb `dependencies`."""
+        profile = _parse_profile(
+            {
+                "name": "x",
+                "dependencies": ["pandas"],
+                "environment": {"python": str(bare_interpreter), "packages": ["numpy"]},
+            }
+        )
+        assert profile.dependencies == ["pandas"]
+        assert profile.environment.packages == ["numpy"]
+
+    def test_environment_loads_from_yaml_file(self, tmp_path: Path, venv_interpreter: Path) -> None:
+        """Full round trip through load_profile (YAML → parse → validate)."""
+        profile_path = tmp_path / "facility.yml"
+        profile_path.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "facility",
+                    "environment": {
+                        "python": str(venv_interpreter),
+                        "packages": ["numpy"],
+                        "inherit_exclude": ["pip"],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        profile = load_profile(profile_path)
+        assert profile.environment.python == str(venv_interpreter)
+        assert profile.environment.packages == ["numpy"]
+        assert profile.environment.inherit_exclude == ["pip"]
+
+    def test_environment_merges_through_extends(
+        self, tmp_path: Path, venv_interpreter: Path
+    ) -> None:
+        """A child profile inherits the base's environment block and adds to it."""
+        base = tmp_path / "base.yml"
+        base.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "base",
+                    "environment": {"python": str(venv_interpreter), "packages": ["numpy"]},
+                }
+            ),
+            encoding="utf-8",
+        )
+        child = tmp_path / "child.yml"
+        child.write_text(
+            yaml.safe_dump(
+                {"name": "child", "extends": "base.yml", "environment": {"packages": ["at"]}}
+            ),
+            encoding="utf-8",
+        )
+        profile = load_profile(child)
+        assert profile.environment.python == str(venv_interpreter)
+        assert profile.environment.packages == ["numpy", "at"]
+
+
+class TestEnvironmentAccessors:
+    """resolved_python() / venv_base() — the shape downstream consumers use."""
+
+    def test_resolved_python_none_when_unset(self) -> None:
+        assert EnvironmentConfig().resolved_python() is None
+
+    def test_resolved_python_expands_user(self) -> None:
+        resolved = EnvironmentConfig(python="~/venvs/als/bin/python").resolved_python()
+        assert resolved is not None
+        assert "~" not in str(resolved)
+        assert resolved.is_absolute()
+
+    def test_venv_base_none_when_unset(self) -> None:
+        assert EnvironmentConfig().venv_base() is None
+
+    def test_venv_base_none_for_bare_interpreter(self, bare_interpreter: Path) -> None:
+        assert EnvironmentConfig(python=str(bare_interpreter)).venv_base() is None
+
+    def test_venv_base_returns_venv_root(self, venv_interpreter: Path) -> None:
+        """`<venv>/bin/python` resolves to `<venv>` — the root task 3.3 freezes."""
+        cfg = EnvironmentConfig(python=str(venv_interpreter))
+        assert cfg.venv_base() == venv_interpreter.parent.parent
+
+    def test_venv_base_detects_interpreter_in_venv_root(self, tmp_path: Path) -> None:
+        """An interpreter sitting directly in the venv root is still detected."""
+        venv = tmp_path / "flat-venv"
+        venv.mkdir()
+        (venv / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+        python = venv / "python"
+        python.write_text("#!/bin/sh\n", encoding="utf-8")
+        python.chmod(0o755)
+        assert EnvironmentConfig(python=str(python)).venv_base() == venv
+
+
+class TestEnvironmentValidation:
+    """The rules BuildProfile.validate enforces on the block."""
+
+    def test_bare_interpreter_base_validates(self, tmp_path: Path, bare_interpreter: Path) -> None:
+        profile = BuildProfile(
+            name="x",
+            environment=EnvironmentConfig(python=str(bare_interpreter), packages=["numpy"]),
+        )
+        profile.validate(tmp_path)  # must not raise
+
+    def test_venv_base_validates(self, tmp_path: Path, venv_interpreter: Path) -> None:
+        profile = BuildProfile(
+            name="x", environment=EnvironmentConfig(python=str(venv_interpreter))
+        )
+        profile.validate(tmp_path)  # must not raise
+
+    def test_missing_python_raises(self, tmp_path: Path) -> None:
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(python="/nope/bin/python"))
+        with pytest.raises(BuildProfileError, match="environment.python not found"):
+            profile.validate(tmp_path)
+
+    def test_non_executable_python_raises(self, tmp_path: Path) -> None:
+        python = tmp_path / "python"
+        python.write_text("#!/bin/sh\n", encoding="utf-8")
+        python.chmod(0o644)
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(python=str(python)))
+        with pytest.raises(BuildProfileError, match="is not an executable file"):
+            profile.validate(tmp_path)
+
+    def test_directory_python_raises(self, tmp_path: Path) -> None:
+        """A directory is traversable-executable but is not an interpreter."""
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(python=str(tmp_path)))
+        with pytest.raises(BuildProfileError, match="is not an executable file"):
+            profile.validate(tmp_path)
+
+    def test_relative_python_raises(self, tmp_path: Path) -> None:
+        """environment.python names a host interpreter, not a profile-relative
+        asset — consumers hold only the profile, so it must be absolute."""
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(python="venv/bin/python"))
+        with pytest.raises(BuildProfileError, match="must be an absolute path"):
+            profile.validate(tmp_path)
+
+    def test_empty_python_string_raises(self, tmp_path: Path) -> None:
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(python="   "))
+        with pytest.raises(BuildProfileError, match="environment.python must be a non-empty"):
+            profile.validate(tmp_path)
+
+    @pytest.mark.parametrize("bad", ["", "   "])
+    def test_empty_package_entry_raises(self, tmp_path: Path, bad: str) -> None:
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(packages=["numpy", bad]))
+        with pytest.raises(BuildProfileError, match="environment.packages entries must be"):
+            profile.validate(tmp_path)
+
+    def test_non_string_package_entry_raises(self, tmp_path: Path) -> None:
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(packages=[3]))  # type: ignore[list-item]
+        with pytest.raises(BuildProfileError, match="environment.packages entries must be"):
+            profile.validate(tmp_path)
+
+    def test_empty_inherit_exclude_entry_raises(
+        self, tmp_path: Path, venv_interpreter: Path
+    ) -> None:
+        profile = BuildProfile(
+            name="x",
+            environment=EnvironmentConfig(python=str(venv_interpreter), inherit_exclude=[""]),
+        )
+        with pytest.raises(BuildProfileError, match="environment.inherit_exclude entries must be"):
+            profile.validate(tmp_path)
+
+    def test_non_list_packages_reported_not_crashed(self, tmp_path: Path) -> None:
+        """A directly-constructed profile that bypasses the parser still gets a
+        legible error rather than iterating a string character by character."""
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(packages="numpy"))  # type: ignore[arg-type]
+        with pytest.raises(BuildProfileError, match="environment.packages must be a list"):
+            profile.validate(tmp_path)
+
+    def test_inherit_exclude_without_any_base_raises(self, tmp_path: Path) -> None:
+        """No environment.python at all: nothing to exclude from."""
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(inherit_exclude=["pip"]))
+        with pytest.raises(BuildProfileError, match="inherit_exclude requires environment.python"):
+            profile.validate(tmp_path)
+
+    def test_inherit_exclude_with_bare_interpreter_raises(
+        self, tmp_path: Path, bare_interpreter: Path
+    ) -> None:
+        """A bare interpreter carries no installed set to freeze, so an
+        inherit_exclude would be a silent no-op."""
+        profile = BuildProfile(
+            name="x",
+            environment=EnvironmentConfig(python=str(bare_interpreter), inherit_exclude=["pip"]),
+        )
+        with pytest.raises(BuildProfileError, match="inherit_exclude requires a venv base"):
+            profile.validate(tmp_path)
+
+    def test_inherit_exclude_with_venv_base_validates(
+        self, tmp_path: Path, venv_interpreter: Path
+    ) -> None:
+        profile = BuildProfile(
+            name="x",
+            environment=EnvironmentConfig(
+                python=str(venv_interpreter),
+                packages=["numpy"],
+                inherit_exclude=["osprey-framework", "pip"],
+            ),
+        )
+        profile.validate(tmp_path)  # must not raise
+
+    def test_inherit_exclude_quiet_when_python_already_bad(self, tmp_path: Path) -> None:
+        """One root cause, one error: a missing interpreter is not also reported
+        as a missing venv base."""
+        profile = BuildProfile(
+            name="x",
+            environment=EnvironmentConfig(python="/nope/bin/python", inherit_exclude=["pip"]),
+        )
+        with pytest.raises(BuildProfileError) as excinfo:
+            profile.validate(tmp_path)
+        assert "environment.python not found" in str(excinfo.value)
+        assert "inherit_exclude" not in str(excinfo.value)

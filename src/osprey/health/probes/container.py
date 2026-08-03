@@ -1,7 +1,9 @@
 """The ``container`` health probe — deployed-container state and healthcheck.
 
 Checks a single deployed container by name. It builds the runtime's ``ps``
-command via :mod:`osprey.deployment.runtime_helper`, runs it off the event loop
+command via :mod:`osprey.deployment.runtime_helper` — passing ``ctx.config`` so
+the ``container_runtime`` the project configured is the one queried, rather than
+whatever auto-detection finds first — runs it off the event loop
 with :func:`asyncio.create_subprocess_exec`, and maps the matched container's
 state — and its healthcheck status, when the runtime reports one — to a
 :class:`~osprey.health.models.CheckResult`:
@@ -49,15 +51,14 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
 
     Args:
         spec: Parsed check parameters (see the module docstring for keys).
-        ctx: Shared per-run handles; unused — the container probe never needs
-            the control-system connector.
+        ctx: Shared per-run handles. Only ``ctx.config`` is read — it selects the
+            container runtime to query; the control-system connector is never
+            needed here.
 
     Returns:
         A :class:`CheckResult` per the state/healthcheck mapping documented at
         the module level; a ``skip`` row when no container runtime is available.
     """
-    del ctx  # container probe does not use the control-system connector
-
     category = str(spec.get("category", _DEFAULT_CATEGORY))
     target = spec.get("container") or spec.get("service")
     if not target:
@@ -75,7 +76,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     start = time.perf_counter()
 
     try:
-        ps_cmd = get_ps_command(all_containers=True)
+        ps_cmd = get_ps_command(ctx.config, all_containers=True)
     except (RuntimeError, FileNotFoundError) as exc:
         return CheckResult(
             name=name,

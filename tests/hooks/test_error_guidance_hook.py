@@ -560,3 +560,265 @@ def test_custom_server_prefix_triggers_guidance(hook_runner, make_config):
     ctx = result["hookSpecificOutput"]["additionalContext"]
     assert "Connection" in ctx
     assert "error-handling" in ctx.lower()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "stdin",
+    ["", "{nope", "[]", "[1,2,3]"],
+    ids=["empty", "invalid-json", "wrong-shape", "wrong-shape-truthy"],
+)
+def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
+    """Unusable stdin injects nothing instead of crashing the tool call.
+
+    A closed pipe, a truncated write and a non-object payload — falsy (``[]``)
+    or truthy (``[1,2,3]``) — carry no tool response to inspect. A PostToolUse
+    hook that exited non-zero here would surface as a failure on a tool call
+    that already succeeded. The truthy payload is the one an emptiness check
+    lets through, so it has to be rejected on shape.
+    """
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_error_guidance.py",
+        tool_name=None,
+        tool_input=None,
+        cwd=tmp_path,
+        stdin_override=stdin,
+    )
+
+    assert returncode == 0
+    assert stdout.strip() == ""
+    assert "Traceback" not in stderr
+
+
+# ============================================================================
+# _detect_error / ERROR_CLASS_MAP — direct in-process tests
+#
+# The tests above drive the hook end to end through a subprocess, which can
+# only observe the injected guidance text. These call the classifier directly
+# to pin the parts that text cannot show: the exact return tuple, which
+# response shapes are rejected outright, and the contents of the class table.
+# ============================================================================
+
+
+@pytest.fixture
+def error_guidance(hook_module):
+    """The hook module, imported in-process through the conftest seam.
+
+    Called here rather than at module scope: importing a hook mutates
+    ``sys.path`` and touches ``osprey_hook_log``'s config caches, and the audit
+    in ``tests/infrastructure/test_import_time_audit.py`` forbids doing that
+    while a test module is being collected.
+    """
+    return hook_module("osprey_error_guidance")
+
+
+#: The error_type -> class table the hook is expected to ship with, restated
+#: so a change to the hook's own map has to be made deliberately in both
+#: places; ``test_error_class_map_matches_expected_table`` asserts they agree.
+EXPECTED_ERROR_CLASSES = {
+    "connection_error": "Connection",
+    "timeout_error": "Connection",
+    "service_unavailable": "Connection",
+    "validation_error": "Validation",
+    "limits_violation": "Validation",
+    "not_found": "Data",
+    "no_results": "Data",
+    "file_not_found": "Data",
+    "execution_error": "Execution",
+    "lattice_error": "Execution",
+    "safety_error": "Safety",
+    "internal_error": "Internal",
+    "platform_error": "Internal",
+}
+
+#: The taxonomy documented in ``.claude/rules/error-handling.md``. Every class
+#: the hook can name has to have a row there, because the guidance it injects
+#: tells Claude to go read that file for the class it just reported.
+DOCUMENTED_ERROR_CLASSES = frozenset(
+    {"Connection", "Validation", "Data", "Execution", "Safety", "Internal"}
+)
+
+
+@pytest.mark.unit
+def test_error_class_map_matches_expected_table(error_guidance):
+    """The shipped map is exactly the table above — no silent additions."""
+    assert error_guidance.ERROR_CLASS_MAP == EXPECTED_ERROR_CLASSES
+
+
+@pytest.mark.unit
+def test_error_class_map_values_are_documented_classes(error_guidance):
+    """Every class the map can produce is one the protocol doc explains.
+
+    A class with no row in error-handling.md would send Claude to the protocol
+    for advice that is not written there.
+    """
+    assert set(error_guidance.ERROR_CLASS_MAP.values()) <= DOCUMENTED_ERROR_CLASSES
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("error_type", "expected_class"),
+    sorted(EXPECTED_ERROR_CLASSES.items()),
+)
+def test_detect_error_classifies_each_mapped_type(error_guidance, error_type, expected_class):
+    """Each mapped error_type resolves to its class, with the envelope message."""
+    response = _make_error_response(error_type, "the failure message")
+
+    assert error_guidance._detect_error(response) == (expected_class, "the failure message")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "error_type",
+    ["some_new_error_type", "permission_error", ""],
+    ids=["novel", "unmapped-but-plausible", "empty-string"],
+)
+def test_detect_error_unmapped_type_falls_back_to_internal(error_guidance, error_type):
+    """An error_type outside the table is still reported, as Internal."""
+    response = _make_error_response(error_type, "unrecognised failure")
+
+    assert error_guidance._detect_error(response) == ("Internal", "unrecognised failure")
+
+
+@pytest.mark.unit
+def test_detect_error_missing_error_type_falls_back_to_internal(error_guidance):
+    """An envelope with no error_type at all classifies as Internal."""
+    response = {
+        "isError": True,
+        "content": [{"type": "text", "text": json.dumps({"error": True, "error_message": "boom"})}],
+    }
+
+    assert error_guidance._detect_error(response) == ("Internal", "boom")
+
+
+@pytest.mark.unit
+def test_detect_error_without_message_reports_the_whole_envelope(error_guidance):
+    """With no error_message field, the raw envelope stands in as the message.
+
+    Better to hand Claude the whole dict than an empty string: the guidance
+    line is the only place the failure is described.
+    """
+    envelope = {"error": True, "error_type": "connection_error"}
+    response = {"isError": True, "content": [{"type": "text", "text": json.dumps(envelope)}]}
+
+    error_class, message = error_guidance._detect_error(response)
+
+    assert error_class == "Connection"
+    assert "connection_error" in message
+
+
+@pytest.mark.unit
+def test_detect_error_scans_past_blocks_that_are_not_the_envelope(error_guidance):
+    """The envelope is found wherever it sits in the content list.
+
+    Blocks that are the wrong type, are not dicts, do not parse as JSON, or
+    parse to something other than an error envelope are skipped rather than
+    ending the search.
+    """
+    response = {
+        "isError": True,
+        "content": [
+            {"type": "image", "data": "..."},
+            "a bare string, not a block",
+            {"type": "text", "text": "not JSON at all"},
+            {"type": "text", "text": json.dumps([1, 2, 3])},
+            {"type": "text", "text": json.dumps({"error": False, "note": "fine"})},
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {"error": True, "error_type": "no_results", "error_message": "nothing matched"}
+                ),
+            },
+        ],
+    }
+
+    assert error_guidance._detect_error(response) == ("Data", "nothing matched")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "content",
+    [
+        [],
+        None,
+        [{"type": "text", "text": "plain prose, no envelope"}],
+        [{"type": "text", "text": "{truncated"}],
+        [{"type": "image", "data": "..."}],
+        [{"type": "text", "text": json.dumps({"error": False})}],
+    ],
+    ids=["empty", "null", "prose", "truncated-json", "non-text-block", "error-false"],
+)
+def test_detect_error_without_envelope_still_reports_internal(error_guidance, content):
+    """isError=True with no readable envelope still fires, classed Internal.
+
+    The guidance is worth more than the classification here: something failed,
+    and staying silent would leave Claude free to work around it.
+    """
+    response = {"isError": True, "content": content}
+
+    assert error_guidance._detect_error(response) == ("Internal", "Tool returned an error")
+
+
+@pytest.mark.unit
+def test_detect_error_without_content_key_reports_internal(error_guidance):
+    """A missing content list is the same case as an empty one."""
+    assert error_guidance._detect_error({"isError": True}) == ("Internal", "Tool returned an error")
+
+
+@pytest.mark.unit
+def test_detect_error_ignores_a_serialised_envelope(error_guidance):
+    """A JSON string carrying the envelope is not an error to this helper.
+
+    OSPREY tools return ``CallToolResult(isError=True, ...)``, so the hook
+    input always arrives as a dict. Sniffing strings for ``"error": true``
+    would misread a successful response that merely quotes one — a channel
+    listing, an archiver row, a log excerpt.
+    """
+    serialised = json.dumps(
+        {"error": True, "error_type": "connection_error", "error_message": "IOC offline"}
+    )
+
+    assert error_guidance._detect_error(serialised) == (None, None)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "tool_response",
+    [
+        None,
+        "",
+        "Channel read successful: SR:CURRENT:RB = 500.1",
+        [],
+        [{"type": "text", "text": "not a CallToolResult"}],
+        {},
+        {"content": [{"type": "text", "text": '{"error": true}'}]},
+        {"isError": False, "content": [{"type": "text", "text": '{"error": true}'}]},
+        {"isError": None},
+        {"isError": "true"},
+        {"isError": 1},
+        123,
+    ],
+    ids=[
+        "none",
+        "empty-string",
+        "success-string",
+        "empty-list",
+        "list-of-blocks",
+        "empty-dict",
+        "no-isError-key",
+        "isError-false",
+        "isError-null",
+        "isError-string",
+        "isError-truthy-int",
+        "number",
+    ],
+)
+def test_detect_error_ignores_non_error_responses(error_guidance, tool_response):
+    """Anything that is not a dict flagged ``isError: True`` is a non-error.
+
+    The check is identity against ``True``, so truthy stand-ins are rejected
+    too: a tool that reports ``isError: 1`` or ``"true"`` is not speaking the
+    CallToolResult protocol, and guessing at its intent would inject error
+    guidance into calls that succeeded.
+    """
+    assert error_guidance._detect_error(tool_response) == (None, None)

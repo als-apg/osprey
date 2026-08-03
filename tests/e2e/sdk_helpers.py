@@ -60,8 +60,8 @@ except ImportError:
 from osprey.agent_runner import (
     SDKWorkflowResult,
     ToolTrace,
-    _await_mcp_ready,
-    _expected_mcp_servers,
+    await_mcp_ready,
+    expected_mcp_servers,
     resolve_default_model,
     sdk_env,
 )
@@ -688,12 +688,10 @@ async def run_sdk_query(
     try:
         # ClaudeSDKClient (streaming) rather than the one-shot ``query()`` so we can
         # poll ``get_mcp_status()`` and wait out async MCP registration before the
-        # first turn — eliminating the controls cold-start race (see _await_mcp_ready).
+        # first turn — eliminating the controls cold-start race (see await_mcp_ready).
         # Message handling is identical to the query() iterator.
         async with ClaudeSDKClient(options=options) as client:
-            workflow.mcp_servers = await _await_mcp_ready(
-                client, _expected_mcp_servers(project_dir)
-            )
+            workflow.mcp_servers = await await_mcp_ready(client, expected_mcp_servers(project_dir))
             await client.query(prompt)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
@@ -851,9 +849,7 @@ async def run_sdk_query_with_hooks(
             # Wait out async MCP registration (controls cold-starts ~1.5s) so the
             # agent never races a half-built toolset. Snapshot is the authoritative
             # infra-vs-model record.
-            workflow.mcp_servers = await _await_mcp_ready(
-                client, _expected_mcp_servers(project_dir)
-            )
+            workflow.mcp_servers = await await_mcp_ready(client, expected_mcp_servers(project_dir))
             await client.query(prompt)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):

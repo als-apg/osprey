@@ -811,27 +811,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         html = _build_markdown_page(md_source, entry.title or entry.filename or "Markdown")
         return HTMLResponse(content=html)
 
-    @app.get("/api/notebooks/{artifact_id}/interactive")
-    async def interactive_notebook(artifact_id: str):
-        """Return JupyterLab URL for interactive notebook viewing."""
-        entry = store.get_entry(artifact_id)
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        if entry.artifact_type != "notebook":
-            raise HTTPException(status_code=400, detail="Artifact is not a notebook")
-
-        filepath = store.get_file_path(artifact_id)
-        if not filepath or not filepath.exists():
-            raise HTTPException(status_code=404, detail="Notebook file not found")
-
-        jupyter_path = f"artifacts/{entry.filename}"
-        jupyter_url = f"http://127.0.0.1:8088/doc/tree/{jupyter_path}"
-
-        return {
-            "jupyter_url": jupyter_url,
-            "artifact_id": artifact_id,
-        }
-
     # Logbook entry composer
     from osprey.interfaces.artifacts.logbook import logbook_router
 

@@ -43,7 +43,7 @@ async def get_ariel_search_service() -> ARIELSearchService:
                 config_key="ariel",
             )
 
-        ariel_config = ARIELConfig.from_dict(config)
+        ariel_config = ARIELConfig.from_dict(config, get_config_value("services.postgresql", {}))
         _ariel_service_instance = await create_ariel_service(ariel_config)
 
     return _ariel_service_instance

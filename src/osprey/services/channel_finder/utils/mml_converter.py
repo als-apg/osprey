@@ -177,6 +177,11 @@ def main() -> None:
     """
     import argparse
 
+    from osprey.utils.logger import configure_logging
+
+    # This script reports progress and failures entirely through logging.
+    configure_logging()
+
     parser = argparse.ArgumentParser(
         description="Convert MATLAB Middle Layer exports to Channel Finder JSON format"
     )

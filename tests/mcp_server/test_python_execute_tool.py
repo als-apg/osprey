@@ -10,6 +10,9 @@ or containers are available.
 """
 
 import json
+import re
+import subprocess
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -33,7 +36,7 @@ def _mock_execute_code(
     stdout="",
     stderr="",
     figures=None,
-    execution_method_used="local",
+    execution_method_used="subprocess",
 ):
     """Build an AsyncMock for execute_code returning a configured ExecutionResult."""
     result = ExecutionResult(
@@ -399,7 +402,7 @@ async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
     mock_exec = _mock_execute_code(
         success=True,
         stdout="output line 1\noutput line 2\n",
-        execution_method_used="container",
+        execution_method_used="subprocess",
     )
 
     with (
@@ -576,7 +579,7 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
     mock_exec = _mock_execute_code(
         success=True,
         stdout="context test\n",
-        execution_method_used="local",
+        execution_method_used="subprocess",
     )
 
     with (
@@ -608,7 +611,7 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
     assert data_file.exists()
     # ArtifactStore writes raw JSON (no envelope)
     saved_data = json.loads(data_file.read_text())
-    assert saved_data["execution_method"] == "local"
+    assert saved_data["execution_method"] == "subprocess"
     assert saved_data["stdout"] == "context test\n"
 
 
@@ -629,7 +632,7 @@ def test_save_artifact_injection_generates_code():
 
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(execution_mode="local")
+    wrapper = ExecutionWrapper()
     code = wrapper._get_save_artifact_injection()
 
     assert "def save_artifact(" in code
@@ -643,7 +646,7 @@ def test_save_artifact_in_full_wrapper():
     """create_wrapper() includes save_artifact() in the output."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-    wrapper = ExecutionWrapper(execution_mode="local")
+    wrapper = ExecutionWrapper()
     full_code = wrapper.create_wrapper("x = 1")
 
     assert "def save_artifact(" in full_code
@@ -1052,3 +1055,229 @@ async def test_subprocess_outputs_still_written_to_execution_folder(tmp_path):
 
     # Artifacts must still be in execution_folder/artifacts/
     assert len(result.artifacts) == 1, "Artifact not collected after cwd change"
+
+
+# ============================================================================
+# Tool description — live package inventory
+#
+# The description used to name a fixed set of packages (numpy, pandas, scipy,
+# at, matplotlib, plotly) whatever the deployment had installed.  It is now
+# generated from the environment that actually runs agent code, and degrades to
+# a sentence that names nothing rather than to a stale list.
+# ============================================================================
+
+
+#: Names the old hardcoded description asserted were available.
+_FORMERLY_HARDCODED = ("numpy", "pandas", "scipy", "at", "matplotlib", "plotly")
+
+
+def assert_names_no_packages(text: str) -> None:
+    """Assert ``text`` mentions none of the formerly hardcoded package names."""
+    for name in _FORMERLY_HARDCODED:
+        assert not re.search(rf"\b{re.escape(name)}\b", text), (
+            f"description must not name packages, found {name!r}"
+        )
+
+
+@pytest.fixture
+def clean_package_cache():
+    """Drop the per-process package-inventory cache around a test."""
+    from osprey.mcp_server.python_executor.tools import _package_inventory
+
+    _package_inventory.describe_available_packages.cache_clear()
+    yield _package_inventory
+    _package_inventory.describe_available_packages.cache_clear()
+
+
+def _fake_enumeration(names, monkeypatch, module):
+    """Make the enumeration subprocess return ``names`` as JSON."""
+    import subprocess as _subprocess
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return _subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(names), stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    return calls
+
+
+@pytest.mark.unit
+def test_package_line_prioritises_scientific_stack():
+    """Scientific-stack names lead the rendered line, in priority order."""
+    from osprey.mcp_server.python_executor.tools._package_inventory import render_package_line
+
+    line = render_package_line(["aiohttp", "pandas", "zstandard", "numpy", "click", "scipy"])
+
+    assert line.startswith("Packages importable in the execution environment include: ")
+    listed = line.split(": ", 1)[1].rstrip(".").split(", ")
+    assert listed[:3] == ["numpy", "scipy", "pandas"]
+    assert set(listed) == {"aiohttp", "pandas", "zstandard", "numpy", "click", "scipy"}
+
+
+@pytest.mark.unit
+def test_package_line_caps_names_and_reports_remainder():
+    """At most MAX_LISTED_PACKAGES names are shown; the rest become '+N more'."""
+    from osprey.mcp_server.python_executor.tools._package_inventory import (
+        MAX_LISTED_PACKAGES,
+        render_package_line,
+    )
+
+    names = ["numpy", "scipy"] + [f"pkg{i:03d}" for i in range(40)]
+
+    line = render_package_line(names)
+
+    listed = line.split(": ", 1)[1].rstrip(".").split(", ")
+    assert listed[-1] == f"+{len(names) - MAX_LISTED_PACKAGES} more"
+    assert len(listed) == MAX_LISTED_PACKAGES + 1  # names + the "+N more" tail
+    assert listed[:2] == ["numpy", "scipy"]
+
+
+@pytest.mark.unit
+def test_package_line_omits_remainder_when_everything_fits():
+    """A small environment is listed in full, with no '+N more' tail."""
+    from osprey.mcp_server.python_executor.tools._package_inventory import render_package_line
+
+    line = render_package_line(["numpy", "click"])
+
+    assert line == "Packages importable in the execution environment include: numpy, click."
+    assert "more" not in line
+
+
+@pytest.mark.unit
+def test_describe_available_packages_enumerates_agent_interpreter(clean_package_cache, monkeypatch):
+    """Enumeration runs against resolve_agent_interpreter(), not sys.executable."""
+    module = clean_package_cache
+    monkeypatch.setattr(
+        module, "resolve_agent_interpreter", lambda: Path("/project/.venv/bin/python")
+    )
+    calls = _fake_enumeration(["numpy", "scipy", "click"], monkeypatch, module)
+
+    description = module.describe_available_packages()
+
+    assert calls, "enumeration never spawned the interpreter"
+    cmd = calls[0][0]
+    assert cmd[0] == "/project/.venv/bin/python"
+    assert description == (
+        "Packages importable in the execution environment include: numpy, scipy, click."
+    )
+
+
+@pytest.mark.unit
+def test_describe_available_packages_is_generated_once(clean_package_cache, monkeypatch):
+    """The subprocess runs once per process — the description is static."""
+    module = clean_package_cache
+    monkeypatch.setattr(module, "resolve_agent_interpreter", lambda: Path("/usr/bin/python3"))
+    calls = _fake_enumeration(["numpy"], monkeypatch, module)
+
+    first = module.describe_available_packages()
+    second = module.describe_available_packages()
+
+    assert first == second
+    assert len(calls) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(OSError("no such interpreter"), id="interpreter_missing"),
+        pytest.param(
+            subprocess.TimeoutExpired(cmd="python", timeout=20.0), id="enumeration_timeout"
+        ),
+        pytest.param(subprocess.CalledProcessError(returncode=1, cmd="python"), id="nonzero_exit"),
+    ],
+)
+def test_describe_available_packages_falls_back_on_failure(
+    clean_package_cache, monkeypatch, failure
+):
+    """Enumeration failure yields the generic sentence, never a stale list."""
+    module = clean_package_cache
+    monkeypatch.setattr(module, "resolve_agent_interpreter", lambda: Path("/usr/bin/python3"))
+
+    def fail(cmd, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(module.subprocess, "run", fail)
+
+    description = module.describe_available_packages()
+
+    assert description == module.FALLBACK_DESCRIPTION
+    assert_names_no_packages(description)
+
+
+@pytest.mark.unit
+def test_describe_available_packages_falls_back_on_garbage_output(clean_package_cache, monkeypatch):
+    """Unparseable enumeration output is a failure, not a package list."""
+    module = clean_package_cache
+    monkeypatch.setattr(module, "resolve_agent_interpreter", lambda: Path("/usr/bin/python3"))
+
+    def garbage(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout="not json at all", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", garbage)
+
+    assert module.describe_available_packages() == module.FALLBACK_DESCRIPTION
+
+
+@pytest.mark.unit
+def test_empty_environment_falls_back(clean_package_cache):
+    """An empty inventory tells us nothing usable — fall back rather than claim it."""
+    assert clean_package_cache.render_package_line([]) == clean_package_cache.FALLBACK_DESCRIPTION
+
+
+@pytest.mark.unit
+def test_fallback_sentence_names_no_packages():
+    """The fallback must be vague-but-true: it may not name any package."""
+    from osprey.mcp_server.python_executor.tools._package_inventory import FALLBACK_DESCRIPTION
+
+    assert_names_no_packages(FALLBACK_DESCRIPTION)
+
+
+@pytest.mark.unit
+def test_with_live_packages_substitutes_placeholder(clean_package_cache, monkeypatch):
+    """The decorator rewrites the placeholder in place, before FastMCP reads it."""
+    module = clean_package_cache
+    monkeypatch.setattr(module, "resolve_agent_interpreter", lambda: Path("/usr/bin/python3"))
+    _fake_enumeration(["numpy"], monkeypatch, module)
+
+    @module.with_live_packages
+    def sample():
+        """Summary.
+
+        <<AVAILABLE_PACKAGES>>
+        """
+
+    assert module.PACKAGES_PLACEHOLDER not in sample.__doc__
+    assert "numpy" in sample.__doc__
+
+
+@pytest.mark.unit
+async def test_execute_tool_description_has_no_hardcoded_list():
+    """The registered tool description is generated, not the old literal list."""
+    from osprey.mcp_server.python_executor.server import mcp
+    from osprey.mcp_server.python_executor.tools import python_execute  # noqa: F401
+
+    description = (await mcp.get_tool("execute")).description
+
+    assert "(e.g. numpy, pandas, scipy, at, matplotlib, plotly)" not in description
+    assert "<<AVAILABLE_PACKAGES>>" not in description
+    assert (
+        "Packages importable in the execution environment include:" in description
+        or "The set of installed packages could not be determined" in description
+    )
+
+
+@pytest.mark.integration
+def test_enumeration_probe_works_against_a_real_interpreter():
+    """The enumeration snippet actually runs and reports names on a live interpreter."""
+    from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
+    from osprey.mcp_server.python_executor.tools._package_inventory import (
+        _enumerate_top_level_packages,
+    )
+
+    names = _enumerate_top_level_packages(resolve_agent_interpreter())
+
+    assert names, "live interpreter reported no importable top-level packages"
+    assert all(name.isidentifier() and not name.startswith("_") for name in names)

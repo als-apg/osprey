@@ -353,9 +353,8 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
     # deploy config (see module docstring).
     correctors = _orm_stack.select_correctors(limits, count=None)
     bpms = _orm_stack.select_bpms(limits, count=None)
-    # No launch_token kwarg: control-assistant's default writes_enabled=true
-    # + this override's execution.execution_method=container is exactly the
-    # arming-safe combination, so `deploy up` auto-mints BLUESKY_LAUNCH_TOKEN.
+    # No launch_token kwarg: `deploy up` mints BLUESKY_LAUNCH_TOKEN for the
+    # deployed bluesky service unconditionally.
     _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
 
     # FR5's deploy-time hook -- MUST run before `deploy up`: a physics fault

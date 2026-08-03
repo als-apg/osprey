@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
@@ -35,11 +34,7 @@ from pathlib import Path
 
 import pytest
 
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
+from osprey.interfaces._serving import free_port
 
 
 # Every root the no-lattice path must stay clear of. ``at`` is the original
@@ -288,8 +283,8 @@ class TestFileBackedBootWithoutPyat:
             # VA_LATTICE deliberately unset: file-backed default must be "none".
             EPICS_CA_ADDR_LIST="127.0.0.1",
             EPICS_CA_AUTO_ADDR_LIST="NO",
-            EPICS_CA_SERVER_PORT=str(_free_port()),
-            EPICS_CA_REPEATER_PORT=str(_free_port()),
+            EPICS_CA_SERVER_PORT=str(free_port()),
+            EPICS_CA_REPEATER_PORT=str(free_port()),
         )
 
         proc = subprocess.Popen(

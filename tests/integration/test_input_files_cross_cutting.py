@@ -176,7 +176,7 @@ async def test_input_files_content_b64_absent_from_worker_record_and_logs(
     # then return a normal completion.
     captured: dict = {}
 
-    async def fake_query(prompt, options):  # noqa: A002 - matches SDK signature
+    async def fake_query(options, project_dir, prompt):  # noqa: A002 - matches SDK signature
         messages = []
         async for m in prompt:
             messages.append(m)
@@ -192,7 +192,7 @@ async def test_input_files_content_b64_absent_from_worker_record_and_logs(
         rm.api_error_status = None
         yield rm
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
 
     req = DispatchRequest(
         prompt="describe this",

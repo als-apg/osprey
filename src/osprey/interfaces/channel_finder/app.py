@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.utils.facility import resolve_facility_name
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -43,7 +44,7 @@ def _create_lifespan(project_cwd: str | None = None):
         pipeline_type = config.get("channel_finder", {}).get("pipeline_mode", "in_context")
         app.state.pipeline_type = pipeline_type
         app.state.project_cwd = project_cwd or str(Path.cwd())
-        app.state.facility_name = config.get("facility_name", "")
+        app.state.facility_name = resolve_facility_name(config, "")
 
         # Initialize all available pipeline registries so the UI can switch
         available: list[str] = []

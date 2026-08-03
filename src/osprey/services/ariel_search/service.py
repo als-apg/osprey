@@ -177,7 +177,7 @@ class ARIELSearchService:
 
         Args:
             query: Natural language query
-            max_results: Maximum results (default from config)
+            max_results: Maximum results (default: ``ARIELSearchRequest``'s)
             time_range: Optional (start, end) datetime tuple
             mode: Optional search mode (default: KEYWORD)
             advanced_params: Mode-specific advanced parameters from the frontend
@@ -188,7 +188,9 @@ class ARIELSearchService:
         # Build the search request
         request = ARIELSearchRequest(
             query=query,
-            max_results=max_results or self.config.default_max_results,
+            max_results=(
+                max_results if max_results is not None else ARIELSearchRequest.max_results
+            ),
             time_range=time_range,
             modes=[mode] if mode else [SearchMode.KEYWORD],
             advanced_params=advanced_params or {},

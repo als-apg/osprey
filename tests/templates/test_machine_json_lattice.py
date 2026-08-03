@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -208,6 +210,217 @@ class TestQfaShfShdCarryGenuineAnchors:
         for c in setpoints:
             entry = machine_channels[c["address"]]
             assert entry["value"] != 0.0, c["address"]
+
+
+@dataclass(frozen=True)
+class _Subfamily:
+    """One calibrated subfamily of machine.json entries.
+
+    Attributes:
+        prefix: Address prefix every member shares.
+        suffix: Address suffix every member shares.
+        count: Exact number of member addresses expected.
+        entry: The full expected entry. ``description`` is a template whose
+            ``{index}`` placeholder is filled with the member's device index --
+            that index is the *only* thing allowed to vary across members.
+    """
+
+    prefix: str
+    suffix: str
+    count: int
+    entry: dict[str, Any]
+
+
+# The 288 SR channels below used to synthesize dead-flat zeros: their noise was
+# relative and their baseline is 0.0, so `value * noise` was identically 0. They
+# now carry absolute noise plus a wander texture. These dicts are the calibrated
+# contract, pinned verbatim so a later hand-edit of machine.json cannot quietly
+# desynchronize one device from its subfamily or drift the whole subfamily back
+# towards flatness.
+#
+# The two texture periods differ ON PURPOSE and must not be "harmonised":
+#   * BPM (43200 s) needs per-channel DISTINCTNESS -- adjacent BPMs must sit in
+#     visibly separate lanes across a 3-hour window, which needs the slow
+#     component to dominate within-window motion.
+#   * Corrector RB (21600 s) needs visible mA-scale ripple tracking a setpoint of
+#     ~0, where distinctness is meaningless and a longer period would only
+#     flatten the ripple.
+# One shared value would serve one job and break the other.
+#
+# `noise_abs` and `texture.amplitude` are absolute, in the channel's declared
+# units, so the BPM magnitudes read small: those channels are labelled in meters
+# (the bridge serves closed orbit in meters), making them 1 um noise on a 30 um
+# wander. The corrector readbacks are in amperes and unrelated in scale.
+_SUBFAMILIES: dict[str, _Subfamily] = {
+    "SR BPM POSITION:X": _Subfamily(
+        prefix="SR:DIAG:BPM:",
+        suffix=":POSITION:X",
+        count=72,
+        entry={
+            "value": 0.0,
+            "noise_abs": 1e-06,
+            "texture": {"kind": "wander", "amplitude": 3e-05, "period_s": 43200.0},
+            "units": "m",
+            "description": (
+                "Storage-ring BPM {index} horizontal position readback (pyat-coupled -- "
+                "recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
+            ),
+        },
+    ),
+    "SR BPM POSITION:Y": _Subfamily(
+        prefix="SR:DIAG:BPM:",
+        suffix=":POSITION:Y",
+        count=72,
+        entry={
+            "value": 0.0,
+            "noise_abs": 1e-06,
+            "texture": {"kind": "wander", "amplitude": 3e-05, "period_s": 43200.0},
+            "units": "m",
+            "description": (
+                "Storage-ring BPM {index} vertical position readback (pyat-coupled -- "
+                "recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
+            ),
+        },
+    ),
+    "SR HCM CURRENT:RB": _Subfamily(
+        prefix="SR:MAG:HCM:",
+        suffix=":CURRENT:RB",
+        count=72,
+        entry={
+            "value": 0.0,
+            "noise_abs": 0.001,
+            "texture": {"kind": "wander", "amplitude": 0.005, "period_s": 21600.0},
+            "units": "A",
+            "description": (
+                "Storage-ring horizontal corrector {index} current readback (nominal ~0.0 A; "
+                "pyat-coupled -- backed by the AT lattice model)"
+            ),
+            "min": -12.0,
+            "max": 12.0,
+        },
+    ),
+    "SR VCM CURRENT:RB": _Subfamily(
+        prefix="SR:MAG:VCM:",
+        suffix=":CURRENT:RB",
+        count=72,
+        entry={
+            "value": 0.0,
+            "noise_abs": 0.001,
+            "texture": {"kind": "wander", "amplitude": 0.005, "period_s": 21600.0},
+            "units": "A",
+            "description": (
+                "Storage-ring vertical corrector {index} current readback (nominal ~0.0 A; "
+                "pyat-coupled -- backed by the AT lattice model)"
+            ),
+            "min": -12.0,
+            "max": 12.0,
+        },
+    ),
+    "SR HCM CURRENT:SP": _Subfamily(
+        prefix="SR:MAG:HCM:",
+        suffix=":CURRENT:SP",
+        count=72,
+        entry={
+            "value": 0.0,
+            "noise": 0,
+            "units": "A",
+            "description": "Storage-ring horizontal corrector {index} current setpoint",
+            "min": -12.0,
+            "max": 12.0,
+        },
+    ),
+    "SR VCM CURRENT:SP": _Subfamily(
+        prefix="SR:MAG:VCM:",
+        suffix=":CURRENT:SP",
+        count=72,
+        entry={
+            "value": 0.0,
+            "noise": 0,
+            "units": "A",
+            "description": "Storage-ring vertical corrector {index} current setpoint",
+            "min": -12.0,
+            "max": 12.0,
+        },
+    ),
+}
+
+# BTS corrector setpoints are deliberately NOT part of the uniform-entry sweep
+# above: they were excluded from the zero-baseline calibration because each one
+# carries a genuine per-device baseline (0.984 .. 1.235 A). Only their bounds,
+# noise and units are subfamily-uniform, so only those are pinned.
+_BTS_CORRECTOR_SP_PREFIXES = ("BTS:MAG:HCM:", "BTS:MAG:VCM:")
+_BTS_CORRECTOR_SP_COUNT = 12
+_BTS_CORRECTOR_SP_BOUNDS: dict[str, Any] = {"min": 0.0, "max": 5.0, "noise": 0, "units": "A"}
+_BTS_CORRECTOR_SP_KEYS = {"value", "noise", "units", "description", "min", "max"}
+
+
+def _members(machine_channels: dict, sub: _Subfamily) -> list[str]:
+    """Return the sorted addresses belonging to ``sub``."""
+    return sorted(
+        addr
+        for addr in machine_channels
+        if addr.startswith(sub.prefix) and addr.endswith(sub.suffix)
+    )
+
+
+def _device_index(address: str) -> str:
+    """Return the device-index field of a ``RING:GROUP:FAMILY:NN:...`` address."""
+    return address.split(":")[3]
+
+
+class TestCalibratedSubfamiliesAreUniform:
+    """Every member of a calibrated subfamily must be byte-identical to its
+    subfamily spec once the device index is substituted in.
+
+    This is a drift guard over the 288 SR channels that were calibrated out of
+    dead-flat zeros (absolute noise + wander texture) plus the corrector current
+    band. Equality is over the WHOLE entry, so it also catches a stray extra key
+    or a silently dropped one."""
+
+    @pytest.mark.parametrize("subfamily_name", sorted(_SUBFAMILIES))
+    def test_subfamily_member_count(self, subfamily_name, machine_channels):
+        sub = _SUBFAMILIES[subfamily_name]
+        assert len(_members(machine_channels, sub)) == sub.count
+
+    @pytest.mark.parametrize("subfamily_name", sorted(_SUBFAMILIES))
+    def test_every_member_matches_the_subfamily_spec(self, subfamily_name, machine_channels):
+        sub = _SUBFAMILIES[subfamily_name]
+        members = _members(machine_channels, sub)
+        assert members, subfamily_name
+        for address in members:
+            expected = dict(sub.entry)
+            expected["description"] = expected["description"].format(index=_device_index(address))
+            assert machine_channels[address] == expected, address
+
+    def test_bpm_and_corrector_rb_periods_stay_distinct(self):
+        """The two wander periods are a deliberate asymmetry, not an oversight."""
+        bpm_period = _SUBFAMILIES["SR BPM POSITION:X"].entry["texture"]["period_s"]
+        rb_period = _SUBFAMILIES["SR HCM CURRENT:RB"].entry["texture"]["period_s"]
+        assert bpm_period == 43200.0
+        assert rb_period == 21600.0
+        assert bpm_period != rb_period
+
+
+class TestBtsCorrectorSetpointBoundsAreUniform:
+    """BTS corrector setpoints share bounds, noise and units -- but NOT ``value``.
+
+    Each of the 12 carries its own non-zero operational baseline, which is why
+    they were excluded from the zero-baseline calibration; pinning ``value``
+    here would be wrong."""
+
+    def test_bts_corrector_setpoints_share_bounds_but_not_values(self, machine_channels):
+        addresses = sorted(
+            addr
+            for addr in machine_channels
+            if addr.startswith(_BTS_CORRECTOR_SP_PREFIXES) and addr.endswith(":CURRENT:SP")
+        )
+        assert len(addresses) == _BTS_CORRECTOR_SP_COUNT
+        for address in addresses:
+            entry = machine_channels[address]
+            assert set(entry) == _BTS_CORRECTOR_SP_KEYS, address
+            for field, value in _BTS_CORRECTOR_SP_BOUNDS.items():
+                assert entry[field] == value, f"{address}.{field}"
+            assert entry["value"] != 0.0, address
 
 
 class TestMachineJsonParsesAsValidMachineDescription:

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 import osprey.templates.claude_code.claude.hooks.osprey_panels_context as panels
 
 
@@ -160,3 +162,34 @@ def test_main_uses_configured_web_port(monkeypatch):
     monkeypatch.setattr(panels.urllib.request, "urlopen", _fake)
     panels.main()
     assert "127.0.0.1:9123/api/panels" in seen["url"]
+
+
+# ---------------------------------------------------------------------------
+# Fail-open on malformed stdin (subprocess)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("stdin", ["", "{nope", "[]"], ids=["empty", "invalid-json", "wrong-shape"])
+def test_malformed_stdin_fails_open(hook_runner_raw, monkeypatch, stdin):
+    """Stdin the hook cannot use still leaves the session start unblocked.
+
+    SessionStart hands the hook a JSON payload it never reads. Run as a real
+    subprocess, a closed pipe, a truncated write and a payload of the wrong
+    JSON type must each exit 0 with nothing on stdout. ``OSPREY_WEB_PORT``
+    points at a port nobody is listening on so the result does not depend on
+    whether a web terminal happens to be running on the developer's machine.
+    """
+    from osprey.interfaces._serving import free_port
+
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
+
+    returncode, stdout, stderr = hook_runner_raw(
+        "osprey_panels_context.py",
+        tool_name=None,
+        tool_input=None,
+        stdin_override=stdin,
+    )
+
+    assert returncode == 0
+    assert stdout.strip() == ""
+    assert "Traceback" not in stderr

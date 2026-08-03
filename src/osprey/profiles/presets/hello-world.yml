@@ -11,7 +11,7 @@ name: Hello World
 data_bundle: hello_world
 
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # ── Artifact selection ───────────────────────────────────────────────────────
 
@@ -23,6 +23,8 @@ hooks:
   - approval       # Gate hardware-write tool calls on human approval prompt
   - limits         # Enforce per-channel min/max limits before writes
   - config-drift   # Warn at session start when config.yml drifted from generated artifacts
+  - focus-validate # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context # Inject the web terminal panel inventory into agent context
 
 rules:
   - safety          # Core safety rules: never write without approval

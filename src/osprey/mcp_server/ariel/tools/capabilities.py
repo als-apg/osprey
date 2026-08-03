@@ -16,8 +16,7 @@ logger = logging.getLogger("osprey.mcp_server.ariel.tools.capabilities")
 async def capabilities() -> str:
     """Report available ARIEL search capabilities.
 
-    Returns enabled search modules, search modes,
-    default settings, and reasoning configuration.
+    Returns enabled search modules, search modes, and the embedding provider.
 
     Does NOT require database connectivity, so this is *not* a health check: a
     successful response says nothing about whether the database is reachable.
@@ -35,13 +34,6 @@ async def capabilities() -> str:
             {
                 "search_modes": [m.value for m in SearchMode],
                 "enabled_search_modules": config.get_enabled_search_modules(),
-                "default_max_results": config.default_max_results,
-                "reasoning": {
-                    "provider": config.reasoning.provider,
-                    "model_id": config.reasoning.model_id,
-                    "max_iterations": config.reasoning.max_iterations,
-                    "temperature": config.reasoning.temperature,
-                },
                 "embedding": {
                     "provider": config.embedding.provider,
                 },

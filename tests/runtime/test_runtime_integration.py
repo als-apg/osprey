@@ -15,10 +15,8 @@ from osprey.runtime import (
 
 # Custom test config with writes enabled
 @pytest.fixture(autouse=True)
-def setup_registry(tmp_path):
+def setup_registry(tmp_path, monkeypatch):
     """Initialize registry with test config for integration tests."""
-    import os
-
     import yaml
 
     from osprey.registry import initialize_registry as init_reg
@@ -54,7 +52,7 @@ class TestRegistryProvider(RegistryConfigProvider):
 
     # Reset and initialize with test config
     reset_registry()
-    os.environ["CONFIG_FILE"] = str(config_file)
+    monkeypatch.setenv("CONFIG_FILE", str(config_file))
     init_reg(auto_export=False, config_path=config_file)
     yield
 

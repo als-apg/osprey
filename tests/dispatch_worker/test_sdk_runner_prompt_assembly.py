@@ -65,7 +65,7 @@ async def _capture_user_message(monkeypatch, prompt: str, seam: list[dict], run_
     monkeypatch.setattr(dispatch_api, "_run_input_seam", {run_id: seam})
     captured: dict = {}
 
-    async def fake_query(prompt, options):  # noqa: A002 - matches SDK signature
+    async def fake_query(options, project_dir, prompt):  # noqa: A002 - matches SDK signature
         messages = []
         async for m in prompt:
             messages.append(m)
@@ -73,7 +73,7 @@ async def _capture_user_message(monkeypatch, prompt: str, seam: list[dict], run_
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message()
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     await sdk_runner.run_dispatch(prompt, ["Read"], event_queue=asyncio.Queue(), run_id=run_id)
     return captured["messages"][0]
 
@@ -286,12 +286,12 @@ def test_prompt_stream_no_run_id_leaves_content_plain(monkeypatch):
     """A run without a run_id has no seam — content is the untouched prompt."""
     captured: dict = {}
 
-    async def fake_query(prompt, options):  # noqa: A002
+    async def fake_query(options, project_dir, prompt):  # noqa: A002
         async for m in prompt:
             captured.setdefault("messages", []).append(m)
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message()
 
-    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     asyncio.run(sdk_runner.run_dispatch("plain prompt", ["Read"], event_queue=asyncio.Queue()))
     assert captured["messages"][0]["message"]["content"] == "plain prompt"

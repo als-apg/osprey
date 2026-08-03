@@ -9,7 +9,6 @@ from osprey.services.ariel_search.config import (
     EnhancementModuleConfig,
     IngestionConfig,
     ModelConfig,
-    ReasoningConfig,
     SearchModuleConfig,
     WatchConfig,
 )
@@ -236,30 +235,6 @@ class TestEmbeddingConfig:
         assert config.provider == "openai"
 
 
-class TestReasoningConfig:
-    """Tests for ReasoningConfig."""
-
-    def test_defaults(self) -> None:
-        """Test ReasoningConfig defaults."""
-        config = ReasoningConfig()
-        assert config.max_iterations == 5
-        assert config.temperature == 0.1
-        assert config.tool_timeout_seconds == 30
-        assert config.total_timeout_seconds == 120
-
-    def test_from_dict(self) -> None:
-        """Test ReasoningConfig.from_dict()."""
-        data = {
-            "max_iterations": 10,
-            "temperature": 0.2,
-            "total_timeout_seconds": 180,
-        }
-        config = ReasoningConfig.from_dict(data)
-        assert config.max_iterations == 10
-        assert config.temperature == 0.2
-        assert config.total_timeout_seconds == 180
-
-
 class TestARIELConfig:
     """Tests for ARIELConfig."""
 
@@ -287,10 +262,7 @@ class TestARIELConfig:
                 "semantic_processor": {"enabled": True},
             },
             "ingestion": {"adapter": "als_logbook"},
-            "reasoning": {"max_iterations": 10},
             "embedding": {"provider": "ollama"},
-            "default_max_results": 20,
-            "cache_embeddings": False,
         }
 
     def test_from_dict_minimal(self, minimal_config_dict: dict) -> None:
@@ -300,7 +272,6 @@ class TestARIELConfig:
         assert config.search_modules == {}
         assert config.enhancement_modules == {}
         assert config.ingestion is None
-        assert config.default_max_results == 10
 
     def test_from_dict_full(self, full_config_dict: dict) -> None:
         """Test ARIELConfig.from_dict() with full config."""
@@ -310,9 +281,7 @@ class TestARIELConfig:
         assert len(config.enhancement_modules) == 2
         assert config.ingestion is not None
         assert config.ingestion.adapter == "als_logbook"
-        assert config.reasoning.max_iterations == 10
-        assert config.default_max_results == 20
-        assert config.cache_embeddings is False
+        assert config.embedding.provider == "ollama"
 
     def test_from_dict_raises_on_legacy_pipelines_key(self) -> None:
         """ARIELConfig.from_dict() rejects the deprecated pipelines section."""
@@ -386,13 +355,6 @@ class TestARIELConfig:
         config = ARIELConfig.from_dict(minimal_config_dict)
         errors = config.validate()
         assert any("text_embedding.models" in e for e in errors)
-
-    def test_validate_invalid_reasoning(self, minimal_config_dict: dict) -> None:
-        """Test validate() catches invalid reasoning config."""
-        minimal_config_dict["reasoning"] = {"max_iterations": 0}
-        config = ARIELConfig.from_dict(minimal_config_dict)
-        errors = config.validate()
-        assert any("max_iterations" in e for e in errors)
 
     def test_get_search_model(self, full_config_dict: dict) -> None:
         """Test get_search_model()."""

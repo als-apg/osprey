@@ -147,6 +147,196 @@ def test_wait_for_server_early_crash():
     assert _wait_for_server("127.0.0.1", 8087, proc, timeout=5.0) is False
 
 
+# -- project/config resolution ---------------------------------------------
+#
+# `osprey web` resolves THE project it serves exactly once, up front, in
+# _resolve_project_config(): --project > OSPREY_CONFIG > cwd. These tests pin
+# that single mechanism — the loud failure without a config, the banner, the
+# OSPREY_CONFIG publication for children, and the always-explicit --project in
+# the detached child's argv. (TestProjectFlagIsAuthoritative below pins the
+# other half of the contract: what --project must override.)
+
+
+class TestProjectResolution:
+    """`osprey web` must resolve a real project config or refuse to start.
+
+    The web terminal's panel set, companion servers, and provider wiring all
+    come from config.yml. A launch from a directory without one used to
+    silently degrade to universal panels only — these tests pin the loud
+    failure and the explicit project forwarding that prevent that.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        # web() writes OSPREY_WEB_PORT and OSPREY_CONFIG directly into
+        # os.environ for its child processes. setenv-then-delenv forces
+        # monkeypatch to record an undo entry even when the key started
+        # absent, so those in-test writes are always rolled back instead of
+        # leaking into later tests (same trick as test_web_bind.py's
+        # _isolate_bind_and_port_env).
+        for key in ("OSPREY_CONFIG", "OSPREY_WEB_PORT"):
+            monkeypatch.setenv(key, "__unset_by_test_fixture__")
+            monkeypatch.delenv(key)
+
+    def test_no_config_anywhere_refuses_to_start(self, runner, tmp_path):
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(web, [])
+
+        assert result.exit_code == 1
+        assert "config.yml" in result.output
+        assert "--project" in result.output
+
+    def test_project_flag_without_config_refuses(self, runner, tmp_path):
+        """--project at a directory without config.yml is a launch error
+        naming that directory — not a silent fallback to cwd or env."""
+        empty = tmp_path / "empty"
+        empty.mkdir()
+
+        result = runner.invoke(web, ["--project", str(empty)])
+
+        assert result.exit_code == 1
+        assert "config.yml" in result.output
+        assert str(empty.resolve()) in result.output
+
+    def test_osprey_config_pointing_at_missing_file_refuses(self, runner, tmp_path, monkeypatch):
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "nope" / "config.yml"))
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(web, [])
+
+        assert result.exit_code == 1
+        assert "OSPREY_CONFIG" in result.output
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+    @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
+    @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+    @patch("osprey.cli.web_cmd.subprocess.Popen")
+    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    def test_project_flag_resolves_config_from_elsewhere(
+        self, mock_config, mock_popen, mock_wait, mock_preflight, mock_resolve, tmp_path, runner
+    ):
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_popen.return_value = mock_proc
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "config.yml").write_text("web: {}\n")
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(web, ["--detach", "--project", str(project)])
+
+        assert result.exit_code == 0
+        child_argv = mock_popen.call_args.args[0]
+        assert "--project" in child_argv
+        assert str(project.resolve()) in child_argv
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+    @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
+    @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+    @patch("osprey.cli.web_cmd.subprocess.Popen")
+    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    def test_detach_child_argv_always_carries_project(
+        self, mock_config, mock_popen, mock_wait, mock_preflight, mock_resolve, tmp_path, runner
+    ):
+        """Even without --project, the child command must name the project dir.
+
+        The detached child's argv is what `ps` shows — and what humans and
+        agents copy to restart the server. Without --project the project
+        identity rides only in the inherited cwd and a restart from another
+        directory silently loses every domain panel.
+        """
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_popen.return_value = mock_proc
+
+        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            Path("config.yml").write_text("web: {}\n")
+            result = runner.invoke(web, ["--detach"])
+            cwd = Path(td).resolve()
+
+        assert result.exit_code == 0
+        child_argv = mock_popen.call_args.args[0]
+        assert "--project" in child_argv
+        assert str(cwd) in child_argv
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+    @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
+    @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+    @patch("osprey.cli.web_cmd.subprocess.Popen")
+    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    def test_banner_names_the_project(
+        self, mock_config, mock_popen, mock_wait, mock_preflight, mock_resolve, tmp_path, runner
+    ):
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_popen.return_value = mock_proc
+
+        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            Path("config.yml").write_text("web: {}\n")
+            result = runner.invoke(web, ["--detach"])
+            cwd = Path(td).resolve()
+
+        assert result.exit_code == 0
+        assert f"Project: {cwd}" in result.output
+
+    def test_osprey_config_env_resolved_without_chdir(self, runner, tmp_path, monkeypatch):
+        """An OSPREY_CONFIG export is honored where it points, with NO chdir.
+
+        The export pins the config alone — unlike --project, which means
+        `cd <project> && osprey web` — so cwd-relative state stays in the
+        invoking directory while config resolution follows the export.
+        """
+        config_file = tmp_path / "elsewhere" / "config.yml"
+        config_file.parent.mkdir()
+        config_file.write_text("web: {}\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+
+        captured = {}
+
+        def _capture_run_web(**kw):
+            captured["kwargs"] = kw
+            captured["cwd"] = os.getcwd()
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _capture_run_web)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+
+        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            result = runner.invoke(
+                web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False
+            )
+            launch_dir = Path(td).resolve()
+
+        assert result.exit_code == 0
+        assert Path(captured["kwargs"]["config_path"]).resolve() == config_file.resolve()
+        assert Path(captured["cwd"]).resolve() == launch_dir
+
+    def test_bare_launch_publishes_osprey_config_for_children(self, runner, tmp_path, monkeypatch):
+        """Even a plain `osprey web` inside a project must publish OSPREY_CONFIG.
+
+        The --reload worker re-imports create_app() with no arguments, and
+        child PTY shells / MCP servers resolve the project through the
+        environment — without the publication they all fall back to their own
+        cwd, which the operator may have changed by then.
+        """
+        observed = {}
+
+        def _capture_run_web(**_kw):
+            observed["osprey_config"] = os.environ.get("OSPREY_CONFIG")
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _capture_run_web)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+
+        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            Path("config.yml").write_text("web: {}\n")
+            result = runner.invoke(
+                web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False
+            )
+            proj = Path(td).resolve()
+
+        assert result.exit_code == 0
+        assert Path(observed["osprey_config"]).resolve() == proj / "config.yml"
+
+
 # -- detach -----------------------------------------------------------------
 
 
@@ -163,6 +353,7 @@ def test_detach_spawns_subprocess(
     mock_popen.return_value = mock_proc
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("config.yml").write_text("web: {}\n")
         result = runner.invoke(web, ["--detach"])
 
     assert result.exit_code == 0
@@ -184,6 +375,7 @@ def test_detach_writes_pid_file(
     mock_popen.return_value = mock_proc
 
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        Path("config.yml").write_text("web: {}\n")
         result = runner.invoke(web, ["--detach"])
         pid_content = (Path(td) / PID_FILE).read_text()
 
@@ -199,6 +391,7 @@ def test_detach_idempotent_when_running(
     mock_config, mock_read_pid, mock_preflight, mock_resolve, runner, tmp_path
 ):
     with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("config.yml").write_text("web: {}\n")
         result = runner.invoke(web, ["--detach"])
 
     assert result.exit_code == 0
@@ -218,6 +411,7 @@ def test_detach_cleans_stale_pid(
     mock_popen.return_value = mock_proc
 
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        Path("config.yml").write_text("web: {}\n")
         # Write a stale PID file
         (Path(td) / PID_FILE).write_text("999999999")
 
@@ -243,6 +437,7 @@ def test_detach_shows_url_and_pid(
     mock_popen.return_value = mock_proc
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
+        Path("config.yml").write_text("web: {}\n")
         result = runner.invoke(web, ["--detach"])
 
     assert "PID 12345" in result.output
@@ -293,7 +488,7 @@ def test_stop_stale_pid(tmp_path, runner):
 # Probe 1 is the companion port-collision guard: before binding its own port,
 # `osprey web` TCP-connect-probes every companion panel port the lifespan
 # will actually launch (see `_load_panel_config` / `_make_auto_launch_checker`
-# / `_make_config_reader`). A listener already on one of those ports is
+# / `resolve_web_server_address`). A listener already on one of those ports is
 # foreign — at best it steals a panel's tab, at worst it silently proxies
 # another project's data into this UI.
 
@@ -327,42 +522,39 @@ def _patch_config(monkeypatch, config: dict) -> None:
 
 
 def _spy_config_readers(monkeypatch) -> list[str]:
-    """Wrap server_launcher._make_config_reader to record which config_key gets probed.
+    """Wrap resolve_web_server_address to record which server keys get probed.
 
     Used to prove an excluded panel's port is never even resolved (as opposed
     to resolved-but-not-held) — avoids depending on the framework's default
     companion ports (8085/8086/8092/...) actually being free on the test host,
     which they may not be if a real `osprey web` happens to be running there.
     """
-    from osprey.infrastructure import server_launcher
+    from osprey.registry import web as registry_web
 
     probed_keys: list[str] = []
-    original_make_reader = server_launcher._make_config_reader
+    original_resolve = registry_web.resolve_web_server_address
 
-    def _wrapping_make_reader(defn):
-        reader = original_make_reader(defn)
+    def _spying_resolve(key, config=None):
+        probed_keys.append(key)
+        return original_resolve(key, config)
 
-        def _wrapped():
-            probed_keys.append(defn.config_key)
-            return reader()
-
-        return _wrapped
-
-    monkeypatch.setattr(server_launcher, "_make_config_reader", _wrapping_make_reader)
+    monkeypatch.setattr(registry_web, "resolve_web_server_address", _spying_resolve)
     return probed_keys
 
 
 class TestPreflightCompanionPortCollision:
     """Probe 1: held companion ports are reported; free/excluded ports are not."""
 
-    def test_held_artifact_port_reported(self, monkeypatch):
+    def test_held_artifact_port_reported(self, monkeypatch, tmp_path):
         """A companion port the lifespan WILL launch, already held, is a finding."""
         port = _free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
 
         held = _hold_port(port)
         try:
-            failures, warnings = _preflight({}, None, "127.0.0.1", 8087)
+            failures, warnings = _preflight(
+                {}, tmp_path, tmp_path / "config.yml", "127.0.0.1", 8087
+            )
         finally:
             held.close()
 
@@ -372,14 +564,14 @@ class TestPreflightCompanionPortCollision:
         assert f"lsof -i :{port}" in failures[0]
         assert warnings == []
 
-    def test_free_ports_clean_pass(self, monkeypatch):
+    def test_free_ports_clean_pass(self, monkeypatch, tmp_path):
         """With no companion ports held, _preflight returns no findings."""
         port = _free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
 
-        assert _preflight({}, None, "127.0.0.1", 8087) == ([], [])
+        assert _preflight({}, tmp_path, tmp_path / "config.yml", "127.0.0.1", 8087) == ([], [])
 
-    def test_require_section_unmet_panel_excluded(self, monkeypatch):
+    def test_require_section_unmet_panel_excluded(self, monkeypatch, tmp_path):
         """Enabled-but-not-launched panel (require_section unmet) is not probed."""
         # "channel-finder" is enabled in web.panels, but the channel_finder
         # top-level section (which gates auto_launch/require_section) is
@@ -395,13 +587,13 @@ class TestPreflightCompanionPortCollision:
         )
         probed_keys = _spy_config_readers(monkeypatch)
 
-        failures, warnings = _preflight({}, None, "127.0.0.1", 8087)
+        failures, warnings = _preflight({}, tmp_path, tmp_path / "config.yml", "127.0.0.1", 8087)
 
         assert failures == []
         assert warnings == []
         assert "channel_finder" not in probed_keys
 
-    def test_disabled_panel_excluded(self, monkeypatch):
+    def test_disabled_panel_excluded(self, monkeypatch, tmp_path):
         """A panel absent from web.panels is not probed even if its port is held."""
         artifact_port = _free_port()
         _patch_config(
@@ -409,13 +601,13 @@ class TestPreflightCompanionPortCollision:
         )  # ariel not enabled
         probed_keys = _spy_config_readers(monkeypatch)
 
-        failures, warnings = _preflight({}, None, "127.0.0.1", 8087)
+        failures, warnings = _preflight({}, tmp_path, tmp_path / "config.yml", "127.0.0.1", 8087)
 
         assert failures == []
         assert warnings == []
         assert "ariel" not in probed_keys
 
-    def test_no_network_or_registry_calls(self, monkeypatch):
+    def test_no_network_or_registry_calls(self, monkeypatch, tmp_path):
         """Probe 1 never starts a companion server or hits its /health endpoint."""
         port = _free_port()
         _patch_config(monkeypatch, {"artifact_server": {"port": port}})
@@ -429,7 +621,7 @@ class TestPreflightCompanionPortCollision:
         monkeypatch.setattr(ServerLauncher, "_is_running", _boom)
         monkeypatch.setattr("urllib.request.urlopen", _boom)
 
-        assert _preflight({}, None, "127.0.0.1", 8087) == ([], [])
+        assert _preflight({}, tmp_path, tmp_path / "config.yml", "127.0.0.1", 8087) == ([], [])
 
     def test_panel_id_mapping_covers_every_registry_server(self):
         """Every FRAMEWORK_WEB_SERVERS entry except `artifact` (always launched,
@@ -459,9 +651,11 @@ class TestWebCommandPreflightWiring:
 
         held = _hold_port(artifact_port)
         try:
-            result = runner.invoke(
-                web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
-            )
+            with runner.isolated_filesystem():
+                Path("config.yml").write_text("web: {}\n")
+                result = runner.invoke(
+                    web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
+                )
         finally:
             held.close()
 
@@ -476,9 +670,11 @@ class TestWebCommandPreflightWiring:
         self._stub_launch(monkeypatch)
         own_port = _free_port()
 
-        result = runner.invoke(
-            web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
-        )
+        with runner.isolated_filesystem():
+            Path("config.yml").write_text("web: {}\n")
+            result = runner.invoke(
+                web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
+            )
 
         assert result.exit_code == 0
 
@@ -490,11 +686,13 @@ class TestWebCommandPreflightWiring:
 
         held = _hold_port(artifact_port)
         try:
-            result = runner.invoke(
-                web,
-                ["--port", str(own_port), "--shell", "true", "--skip-preflight"],
-                catch_exceptions=False,
-            )
+            with runner.isolated_filesystem():
+                Path("config.yml").write_text("web: {}\n")
+                result = runner.invoke(
+                    web,
+                    ["--port", str(own_port), "--shell", "true", "--skip-preflight"],
+                    catch_exceptions=False,
+                )
         finally:
             held.close()
 
@@ -547,6 +745,7 @@ class TestPreflightAuthSecret:
         own_port = _free_port()
 
         with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path("config.yml").write_text("web: {}\n")
             result = runner.invoke(
                 web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
             )
@@ -571,6 +770,7 @@ class TestPreflightAuthSecret:
         own_port = _free_port()
 
         with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path("config.yml").write_text("web: {}\n")
             result = runner.invoke(
                 web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
             )
@@ -594,6 +794,7 @@ class TestPreflightAuthSecret:
         own_port = _free_port()
 
         with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            Path("config.yml").write_text("web: {}\n")
             (Path(td) / ".env").write_text("ALS_APG_API_KEY=secret-from-dotenv\n")
             result = runner.invoke(
                 web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
@@ -618,6 +819,7 @@ class TestPreflightAuthSecret:
         own_port = _free_port()
 
         with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path("config.yml").write_text("web: {}\n")
             result = runner.invoke(
                 web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
             )
@@ -635,6 +837,7 @@ class TestPreflightAuthSecret:
         own_port = _free_port()
 
         with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path("config.yml").write_text("web: {}\n")
             result = runner.invoke(
                 web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
             )
@@ -658,6 +861,7 @@ class TestPreflightAuthSecret:
         own_port = _free_port()
 
         with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path("config.yml").write_text("web: {}\n")
             result = runner.invoke(
                 web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
             )
@@ -686,6 +890,7 @@ class TestPreflightConfigValidity:
         own_port = _free_port()
 
         with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            Path("config.yml").write_text("web: {}\n")
             settings_path = Path(td) / ".claude" / "settings.json"
             settings_path.parent.mkdir(parents=True)
             settings_path.write_text("{not valid json")
@@ -703,6 +908,7 @@ class TestPreflightConfigValidity:
         own_port = _free_port()
 
         with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path("config.yml").write_text("web: {}\n")
             result = runner.invoke(
                 web, ["--port", str(own_port), "--shell", "true"], catch_exceptions=False
             )
@@ -731,21 +937,21 @@ class TestDetachSkipsPreflightInChild:
 
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch("osprey.cli.web_cmd.subprocess.Popen")
-    def test_child_argv_gets_skip_preflight(self, mock_popen, mock_wait, tmp_path):
+    def test_child_argv_gets_skip_preflight(self, mock_popen, mock_wait, tmp_path, monkeypatch):
         mock_proc = MagicMock()
         mock_proc.pid = 4242
         mock_popen.return_value = mock_proc
 
-        cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            _start_detached("127.0.0.1", 8087, None, None)
-        finally:
-            os.chdir(cwd)
+        monkeypatch.chdir(tmp_path)
+        _start_detached("127.0.0.1", 8087, None, str(tmp_path))
 
         cmd = mock_popen.call_args.args[0]
         assert "--skip-preflight" in cmd
         assert "--detach" not in cmd
+        # The resolved project always rides in the child argv (see
+        # TestProjectResolution.test_detach_child_argv_always_carries_project
+        # for the CLI-level pin).
+        assert "--project" in cmd
 
 
 # -- --project makes the project directory authoritative --------------------

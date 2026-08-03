@@ -12,25 +12,20 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import sys
 
+from osprey.interfaces._serving import free_port
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-# See test_record_factory.py for why these must be set before any epics/
-# softioc import, and why setdefault (not overwrite) is correct when both
-# test modules run in the same pytest session.
+# import-time required because libca latches EPICS_CA_* at C-library init.
+# See test_record_factory.py for the full account of why these must be set
+# before any epics/softioc import, and why setdefault (not overwrite) is
+# correct when both test modules run in the same pytest session.
 os.environ.setdefault("EPICS_CA_ADDR_LIST", "127.0.0.1")
 os.environ.setdefault("EPICS_CA_AUTO_ADDR_LIST", "NO")
 if "EPICS_CA_SERVER_PORT" not in os.environ:
-    os.environ["EPICS_CA_SERVER_PORT"] = str(_free_port())
+    os.environ["EPICS_CA_SERVER_PORT"] = str(free_port())
 if "EPICS_CA_REPEATER_PORT" not in os.environ:
-    os.environ["EPICS_CA_REPEATER_PORT"] = str(_free_port())
+    os.environ["EPICS_CA_REPEATER_PORT"] = str(free_port())
 
 
 def _run_ca_client_subprocess(argv: list[str]) -> None:

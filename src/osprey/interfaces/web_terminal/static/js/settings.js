@@ -48,7 +48,7 @@ let warningGatePending = false;
 /** @type {Record<string, string[]>} */
 const ENUM_FIELDS = {
   'claude_code.effort': ['low', 'medium', 'high', 'max'],
-  'control_system.write_verification': ['none', 'callback', 'readback'],
+  'control_system.write_verification.default_level': ['none', 'callback', 'readback'],
   'approval.default_policy': ['always', 'selective', 'skip'],
   'approval.tools.channel_write': ['always', 'selective', 'skip'],
   'approval.tools.channel_read': ['always', 'selective', 'skip'],

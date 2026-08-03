@@ -5,12 +5,10 @@ and generates the env block for settings.json. ``ClaudeCodeModelResolver`` does
 no file or network I/O; the ``load_provider_spec`` and ``inject_provider_env``
 helpers in this module do read ``config.yml`` / ``.env`` from disk.
 
-Design: model IDs are owned by the provider and live in ``api.providers``
-in config.yml.  ``CLAUDE_CODE_PROVIDERS`` defines only the auth pattern,
-base URL, and default tier — never model IDs.  The resolver reads model IDs
-from ``api.providers[name].models`` at runtime, falling back to built-in
-defaults only for backward-compatibility with configs that pre-date this
-design.
+Design: model IDs and endpoints are owned by the provider and live in
+``api.providers`` in config.yml.  ``CLAUDE_CODE_PROVIDERS`` defines the auth
+pattern and default tier, plus fallback model IDs and base URLs for configs
+that name none — config always wins over the built-in table.
 """
 
 from __future__ import annotations
@@ -21,6 +19,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from osprey.build.claude_code_telemetry import (
@@ -489,6 +488,8 @@ class ClaudeCodeModelSpec:
         tier_to_model: Maps canonical tiers to concrete model IDs.
         agent_overrides: Per-agent tier overrides from config.
         default_model_tier: Default model tier for settings.json ``model`` key.
+            Always a canonical tier, even when ``claude_code.default_model``
+            named a concrete model ID — see :func:`_resolve_default_tier`.
         shell_exports: Shell export lines the user must add to their profile
             (e.g. ``export ANTHROPIC_AUTH_TOKEN="$CBORG_API_KEY"``).
     """
@@ -540,6 +541,55 @@ class ClaudeCodeModelSpec:
         return conflicts
 
 
+def _resolve_default_tier(
+    configured: str | None,
+    provider_name: str,
+    provider_default_tier: str,
+    tier_to_model: dict[str, str],
+) -> str:
+    """Resolve ``claude_code.default_model`` to a canonical tier — or refuse.
+
+    Three branches, no silent fallback:
+
+    1. Unset → the provider's own default tier.
+    2. A canonical tier name (``haiku``/``sonnet``/``opus``) → that tier.
+    3. An explicit model ID that the effective provider map actually serves →
+       the tier carrying it, so ``ANTHROPIC_MODEL`` ends up as exactly the ID
+       the operator wrote.
+
+    Anything else raises. The prior behaviour quietly substituted the
+    provider's default tier, so a config naming Opus could run Haiku with no
+    log line — the wrong failure mode for a framework driving control systems.
+
+    Returning a tier (rather than the raw ID) keeps
+    :attr:`ClaudeCodeModelSpec.default_model_tier` a valid key into
+    ``tier_to_model`` for every consumer that indexes it.
+
+    Raises:
+        ValueError: The value is neither a tier nor a model ID the provider
+            serves. The message names the key, the tiers, and the IDs.
+    """
+    if configured is None:
+        return provider_default_tier
+    if configured in VALID_TIERS:
+        return configured
+    # Iterate the canonical tier order so a provider that maps two tiers to the
+    # same model ID still resolves deterministically.
+    for tier in TIER_MODEL_ENV_VARS:
+        if tier_to_model.get(tier) == configured:
+            return tier
+
+    served = ", ".join(f"{tier}={tier_to_model[tier]}" for tier in TIER_MODEL_ENV_VARS)
+    raise ValueError(
+        f"claude_code.default_model: '{configured}' is neither a model tier nor a "
+        f"model ID served by provider '{provider_name}'. "
+        f"Valid tiers: {', '.join(TIER_MODEL_ENV_VARS)}. "
+        f"Model IDs for '{provider_name}': {served}. "
+        f"Set claude_code.default_model to one of those, or add the model ID to "
+        f"api.providers.{provider_name}.models in config.yml."
+    )
+
+
 class ClaudeCodeModelResolver:
     """Resolves Claude Code model configuration from project config."""
 
@@ -561,6 +611,19 @@ class ClaudeCodeModelResolver:
         ``api.providers`` and the framework picks them up automatically.
         No model IDs need to be hardcoded in Python.
 
+        ``base_url`` follows the same rule: ``api.providers[name].base_url``
+        overrides the built-in URL, so a facility can front a built-in provider
+        with its own gateway and have the agent use the endpoint ``osprey
+        health`` probes. The trailing ``/v1`` is stripped for
+        ``ANTHROPIC_BASE_URL`` either way (see below).
+
+        A provider that leaves a tier unmapped by all three sources is refused
+        — the framework will not substitute another provider's model IDs.
+
+        ``claude_code.default_model`` accepts a canonical tier or a model ID
+        the resolved provider actually serves; anything else is refused rather
+        than silently downgraded (see :func:`_resolve_default_tier`).
+
         Args:
             claude_code_config: The ``claude_code`` section of config.yml.
             api_providers: The ``api.providers`` section (optional).
@@ -570,7 +633,9 @@ class ClaudeCodeModelResolver:
 
         Raises:
             ValueError: If the provider name is not in CLAUDE_CODE_PROVIDERS
-                and not in api_providers.
+                and not in api_providers, if the provider leaves any tier
+                unmapped, or if ``default_model`` names neither a tier nor one
+                of the provider's model IDs.
         """
         provider_name = claude_code_config.get("provider")
         if not provider_name:
@@ -587,16 +652,26 @@ class ClaudeCodeModelResolver:
                     f"Built-in providers: {supported}. "
                     f"To use a custom provider, add it to api.providers in config.yml."
                 )
-            provider_entry = api_providers[provider_name]
-            provider_def = {
+            provider_def: dict[str, Any] = {
                 "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
                 "auth_secret_env": provider_auth_secret_env(provider_name, api_providers),
-                "base_url": provider_entry.get("base_url"),
                 "default_model_tier": "opus",
                 "models": {},
             }
         else:
             provider_def = CLAUDE_CODE_PROVIDERS[provider_name]
+
+        # ── Base URL ─────────────────────────────────────────────
+        # Same precedence rule as the model map: a base_url under api.providers
+        # wins over the built-in CLAUDE_CODE_PROVIDERS entry. A facility that
+        # fronts a built-in provider with its own gateway therefore points the
+        # agent at the endpoint `osprey health` already probes, instead of
+        # having the built-in URL silently win. The built-in URL is the
+        # fallback for configs that name none; a custom provider has no
+        # built-in entry, so its api.providers value is the only source.
+        base_url = api_providers.get(provider_name, {}).get("base_url") or provider_def.get(
+            "base_url"
+        )
 
         # ── Build tier → model mapping ───────────────────────────
         # Priority: built-in fallback < api.providers models < claude_code.models
@@ -617,11 +692,32 @@ class ClaudeCodeModelResolver:
             if tier in VALID_TIERS:
                 tier_to_model[tier] = model_id
 
-        # Ensure all three tiers are present — use Anthropic direct IDs (the
-        # built-in "anthropic" provider's own models, not a re-typed copy) as
-        # last resort so env block generation never crashes.
-        for tier, fallback_id in CLAUDE_CODE_PROVIDERS["anthropic"]["models"].items():
-            tier_to_model.setdefault(tier, fallback_id)
+        # Every tier must resolve to a model ID the *configured* provider
+        # actually serves. Missing tiers used to be filled with Anthropic's own
+        # direct IDs, so a proxy that ships no map launched the agent asking it
+        # for "claude-opus-4-6" — a 404 if the proxy is strict, and silently the
+        # wrong model if it is not. Refuse instead, before the env block or the
+        # default tier are built from the map.
+        missing = [tier for tier in TIER_MODEL_ENV_VARS if tier not in tier_to_model]
+        if missing:
+            problem = (
+                "defines no models mapping"
+                if len(missing) == len(TIER_MODEL_ENV_VARS)
+                else f"defines no model for tier(s): {', '.join(missing)}"
+            )
+            raise ValueError(
+                f"Provider '{provider_name}' {problem}. Claude Code needs one model "
+                f"ID per tier ({', '.join(TIER_MODEL_ENV_VARS)}). "
+                f"Add them under api.providers.{provider_name}.models in config.yml:\n"
+                f"  api:\n"
+                f"    providers:\n"
+                f"      {provider_name}:\n"
+                f"        models:\n"
+                f"          haiku: <fast model ID as this provider names it>\n"
+                f"          sonnet: <balanced model ID>\n"
+                f"          opus: <most capable model ID>\n"
+                f"Individual tiers can also be set under claude_code.models."
+            )
 
         # ── Build env block (literals only — no ${VAR} refs) ────
         # Claude Code's settings.json env block does NOT expand
@@ -635,18 +731,17 @@ class ClaudeCodeModelResolver:
         # configured with such a URL doesn't resolve to "…/v1/v1/messages"
         # (issue #312). The proxy upstream keeps the original /v1 (see
         # upstream_base_url below); for proxy providers this value is overwritten
-        # with the loopback URL at launch. Skipped for direct Anthropic (no base_url).
-        if provider_def.get("base_url"):
-            env_block["ANTHROPIC_BASE_URL"] = (
-                provider_def["base_url"].rstrip("/").removesuffix("/v1")
-            )
+        # with the loopback URL at launch. Skipped when neither config nor the
+        # built-in table names a URL (direct Anthropic with no api.providers entry).
+        if base_url:
+            env_block["ANTHROPIC_BASE_URL"] = base_url.rstrip("/").removesuffix("/v1")
 
         # Tier model env vars (all providers) — derived from the single
         # TIER_MODEL_ENV_VARS declaration so this key set can never drift from
-        # the e2e-force and scrub-agreement paths (#357). tier_to_model always
-        # carries all three tiers (the last-resort setdefault loop above), and the
-        # map's insertion order is haiku→sonnet→opus, so both the key set and
-        # the insertion order are byte-identical to the prior literal block.
+        # the e2e-force and scrub-agreement paths (#357). tier_to_model is known
+        # to carry all three tiers (the completeness check above), and the map's
+        # insertion order is haiku→sonnet→opus, so both the key set and the
+        # insertion order are byte-identical to the prior literal block.
         for tier, env_var in TIER_MODEL_ENV_VARS.items():
             env_block[env_var] = tier_to_model[tier]
 
@@ -661,9 +756,12 @@ class ClaudeCodeModelResolver:
             shell_exports = (f'export {auth_env_var}="${auth_secret_env}"',)
 
         # ── Default model tier ───────────────────────────────────
-        default_tier = claude_code_config.get("default_model", provider_def["default_model_tier"])
-        if default_tier not in VALID_TIERS:
-            default_tier = provider_def["default_model_tier"]
+        default_tier = _resolve_default_tier(
+            claude_code_config.get("default_model"),
+            provider_name,
+            provider_def["default_model_tier"],
+            tier_to_model,
+        )
 
         # ANTHROPIC_MODEL: override any shell-level value so the
         # project's chosen tier is authoritative.
@@ -677,10 +775,10 @@ class ClaudeCodeModelResolver:
 
         _needs_proxy = is_proxy_needed(provider_name, api_providers)
         # The proxy forwards to upstream + "/chat/completions", so the upstream
-        # must keep its /v1. Use the raw configured base_url, NOT the /v1-stripped
+        # must keep its /v1. Use the raw resolved base_url, NOT the /v1-stripped
         # ANTHROPIC_BASE_URL above. Every launch path starts the proxy from this
         # field (never from the env var) — see runner.py / dispatch_api.py.
-        _upstream_url = provider_def.get("base_url") if _needs_proxy else None
+        _upstream_url = base_url if _needs_proxy else None
 
         # ── Telemetry (absent block == disabled → helper returns {}) ──
         # Container context is the ONE place fs/env is consulted; the helper

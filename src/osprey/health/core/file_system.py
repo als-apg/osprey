@@ -16,8 +16,9 @@ Rows emitted:
   the exception path (broad guard around project-path resolution).
 * ``project_root_path`` — ok when the resolved project root exists, warning
   otherwise.
-* ``agent_data_dir`` — ok when the agent-data directory is writable or can be
-  created; warning when it is not writable or cannot be created.
+* ``agent_data_dir`` — ok when the agent-data directory (``agent_data.base_dir``,
+  resolved under the project root) is writable or can be created; warning when it
+  is not writable or cannot be created.
 * ``env_file`` — ok when a ``.env`` file is present in the working directory,
   warning otherwise.
 * ``registry_file`` — emitted only when ``config.yml`` declares
@@ -43,6 +44,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.health.models import CheckResult, Status
+from osprey.utils.workspace import agent_data_base_dir
 
 _CATEGORY = "file_system"
 
@@ -205,9 +207,7 @@ def _check_project_paths(config: dict[str, Any], cwd: Path) -> list[CheckResult]
             # Don't return - we can still check if it could be created.
 
         # Check agent data directory.
-        file_paths = config.get("file_paths", {})
-        agent_data_dir = file_paths.get("agent_data_dir", "_agent_data")
-        agent_data_path = project_root_path / agent_data_dir
+        agent_data_path = project_root_path / agent_data_base_dir(config)
 
         if agent_data_path.exists():
             # Check if it's writable.

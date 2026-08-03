@@ -9,6 +9,17 @@
 # Project identity
 project_name: "{{ project_name }}"
 
+# Facility identity — one block, two keys:
+#   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
+#            and the web-terminal landing page. Falls back to the older
+#            top-level `facility_name`, then to the project name.
+#   prefix — short abbreviation the deployed web stack uses for container
+#            names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
+#            non-empty valid Docker name start ([a-zA-Z0-9]).
+# facility:
+#   name: "Example Research Facility"
+#   prefix: ex
+
 build_dir: ./build
 
 # Root directory (absolute path)
@@ -18,6 +29,24 @@ project_root: {{ project_root }}
 # API CONFIGURATION
 # ============================================================
 # API keys and endpoints for LLM providers
+#
+# Each entry takes `api_key`, `base_url`, and a `models` tier map (haiku /
+# sonnet / opus -> the model IDs that provider serves).
+#
+# `base_url` is the endpoint the agent itself uses. For the built-in
+# claude_code.provider names (anthropic, cborg, als-apg) a value set here
+# overrides the URL the framework ships; omit it to keep the built-in one. A
+# trailing `/v1` is stripped for the agent (it appends `/v1/messages`) but kept
+# for the OpenAI translation proxy, so leave it on gateways that need it.
+#
+# A fourth key is read but shipped by no template:
+#
+#   api.providers.<name>.default_model_id: <a model ID that provider serves>
+#
+# It is consulted only when framework code calls the completion API with
+# neither a model config nor an explicit model_id; without it, such a call
+# fails with "Model ID required". It does not pick the agent's model (that is
+# claude_code.default_model) and it never overrides the tier map above.
 
 api:
   providers:
@@ -38,9 +67,17 @@ api:
     stanford:
       api_key: ${STANFORD_API_KEY}
       base_url: https://aiapi-prod.stanford.edu/v1
+      models:                        # Gateway serves no Opus-class model; o3-mini is the strongest
+        haiku: gpt-4o-mini
+        sonnet: gpt-4o
+        opus: o3-mini
     openai:
       api_key: ${OPENAI_API_KEY}
       base_url: https://api.openai.com/v1
+      models:                        # GPT-5 sizes mapped onto the standard tiers
+        haiku: gpt-5-nano
+        sonnet: gpt-5-mini
+        opus: gpt-5
     anthropic:
       api_key: ${ANTHROPIC_API_KEY}
       base_url: https://api.anthropic.com
@@ -51,14 +88,24 @@ api:
     google:
       api_key: ${GOOGLE_API_KEY}
       base_url: https://generativelanguage.googleapis.com/v1beta
+      models:                        # Gemini 2.5 sizes mapped onto the standard tiers
+        haiku: gemini-2.5-flash-lite
+        sonnet: gemini-2.5-flash
+        opus: gemini-2.5-pro
     ollama:
       api_key: ollama
       base_url: ${OLLAMA_HOST:-http://localhost:11434}
-      host: localhost
-      port: 11434
+      models:                        # Local models — `ollama pull` each one before use
+        haiku: mistral:7b
+        sonnet: gpt-oss:20b
+        opus: gpt-oss:120b
     argo:
       api_key: ${ARGO_API_KEY}
       base_url: https://argo-bridge.cels.anl.gov
+      models:                        # Argo spells its model IDs without punctuation
+        haiku: claudehaiku45
+        sonnet: claudesonnet45
+        opus: claudeopus41
     als-apg:
       api_key: ${ALS_APG_API_KEY}
       base_url: https://llm.gianlucamartino.com/v1
@@ -92,7 +139,6 @@ api:
 #   OPENAI_API_KEY=sk-...
 #   ANTHROPIC_API_KEY=sk-ant-...
 #   GOOGLE_API_KEY=...
-#   TZ=UTC
 #
 # Optional (for advanced use cases):
 #   PROJECT_ROOT=/path/to/override  # Override project_root from config
@@ -121,7 +167,9 @@ container_runtime: auto
 # ============================================================
 # SERVICE CONFIGURATION
 # ============================================================
-# Only PostgreSQL is needed for ARIEL logbook search
+# PostgreSQL backs ARIEL logbook search; OpenObserve is the local telemetry
+# store. Declare a service here and add its name to `deployed_services:` to
+# launch it with `osprey deploy up`.
 
 {% if deploy_services | default(true) %}
 services:
@@ -131,8 +179,9 @@ services:
     username: ariel
     # No password key: the Postgres password lives in the project .env as
     # ARIEL_DB_PASSWORD (minted by `osprey deploy up`), read by both the
-    # container and the ariel DSN below — single source of truth, mirroring
-    # the openobserve credentials convention.
+    # container and the agent's ARIEL DSN — which is derived from the keys in
+    # this block rather than written out, so this is the single source of
+    # truth for both. Mirrors the openobserve credentials convention.
     port_host: 5432
 
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
@@ -169,22 +218,35 @@ deployed_services: []
 # ============================================================
 
 # Approval workflow for sensitive operations
-# Policies: always (prompt every time), selective (content-aware), skip (no approval)
+# Policies: always (prompt every time), selective (content-aware for `execute`
+#   only — under `selective` every other tool is treated as `always`), skip (no
+#   approval).
+# Scope: these policies are applied by the osprey_approval PreToolUse hook, so
+# they reach only tools whose matcher runs that hook. A tool with no approval
+# hook — the health check, channel-finder queries, most workspace tools — never
+# consults this block; what gates those is the rendered settings.json
+# permissions.
 approval:
   enabled: true
-  default_policy: "always"        # Fail-closed: unknown tools require approval
+  default_policy: "always"        # Fail-closed for hook-wired tools not listed below
   tools:
     channel_write: always          # Always prompt for hardware writes
     channel_read: skip             # Read-only, no approval needed
-    channel_limits: skip           # Read-only safety metadata, no approval needed
     archiver_read: skip            # Historical data, no approval needed
     execute: selective             # Content-aware: checks write patterns + exec mode
     setup_patch: always            # Config mutation needs approval
     entry_create: always           # ARIEL logbook write
 
 # ── Hook observability ──────────────────────────────────────────────
-# Set debug: true to enable hook activity logging to stderr.
-# Visible in the terminal where Claude Code runs.
+# Shipped ON. This drives three things, not just a debug print:
+#   1. one line per hook call to stderr, visible in the terminal that launched
+#      the agent;
+#   2. an append-only <project>/.claude/hooks/hook_debug.jsonl — never rotated
+#      and never size-capped, so prune it yourself on a long-lived deployment;
+#   3. the web terminal's Safety-panel hook-activity feed, which reads that
+#      file and shows nothing new for as long as this is false (it keeps
+#      displaying whatever was already logged).
+# The OSPREY_HOOK_DEBUG environment variable forces it on regardless of this key.
 hooks:
   debug: true
 
@@ -213,9 +275,18 @@ control_system:
 
   # Write Access Control - Master safety switch for hardware control
   # This is OPERATOR-LEVEL authorization (always hard-stops if false)
-  writes_enabled: true  # Tutorial default: enabled for mock connector
+  writes_enabled: true  # Presets and personas pin this value when they are applied,
+                        # and this comment is preserved verbatim when they do — so
+                        # trust the value on this line, never the comment beside it.
                         # For production: carefully review hardware implications before enabling
                         # If disabled, ALL writes are blocked (non-configurable hard error)
+
+  # Additional tools blocked by the writes kill switch. Framework servers'
+  # write-gated tools are added automatically; list custom server tools here so
+  # `writes_enabled: false` refuses them too (the same list also drives the
+  # headless read-only disallow set).
+  # write_tools:
+  #   - "mcp__my_server__dangerous_write"
 
   # Runtime Channel Limits Checking
   limits_checking:
@@ -224,18 +295,27 @@ control_system:
     allow_unlisted_channels: true  # Permissive mode for tutorial
 
   # Write Verification Configuration
-  # Configures how channel writes are verified for accuracy
+  # How the connector confirms a write took effect. The level below applies only when
+  # the caller does not name one: osprey.runtime.write_channel scripts and direct
+  # connector calls. The channel_write MCP tool, multi-channel writes, and Bluesky
+  # device writes pass an explicit level ("callback"); for those, only a per-channel
+  # "verification" entry in channel_limits.json changes the level, and only on
+  # single-channel tool writes.
+  # A failed verification is not a hard stop. The channel_write MCP tool reports it in
+  # its result (verification.verified: false); osprey.runtime.write_channel discards it
+  # (a readback mismatch is logged at debug level only); only write_channel_checked
+  # raises (scan plans, which write through the Bluesky bridge's connector-backed
+  # devices). A write the CA layer could not deliver at all - for example a PV that
+  # never connects - is different: it sets success: false, which does raise from
+  # osprey.runtime.write_channel and shows up as a failed write in the MCP tool.
   write_verification:
-    enabled: true  # Enable verification by default
     default_level: callback  # Options: none, callback, readback
-                            # - none: Fast write, no verification
+                            # - none: Fast write, no verification (off, on the paths above)
                             # - callback: Control system confirms processing (e.g., EPICS IOC callback)
                             # - readback: Full verification with readback comparison
     default_tolerance_percent: 0.1  # Default tolerance: 0.1% (one per mil)
                                     # Only used for "readback" verification level
                                     # Can be overridden per-channel in channel_limits.json
-    timeout: 5.0  # Timeout for verification operations
-    fail_on_mismatch: false  # false: log warning, true: raise error on verification failure
 
   # Pattern Detection (Layer 1 - Security)
   # Purpose: Detect ALL control system operations in generated code for approval workflows
@@ -250,8 +330,20 @@ control_system:
   # by directly importing control system libraries.
   #
   # Advanced: Extend patterns for custom control system libraries (rarely needed)
+  #
+  # `mode` decides what your lists do to the framework set above:
+  #   extend (default) — your patterns are merged on top of the framework's.
+  #   override         — the framework list is REPLACED by exactly what you
+  #                      list here. That drops the circumvention detection
+  #                      (epics.caput, tango.DeviceProxy, .put(), ...), so the
+  #                      guarantee promised above no longer holds: direct
+  #                      library calls in generated code stop being flagged for
+  #                      approval. Only use it if your lists reproduce that
+  #                      coverage themselves.
+  #
   # Uncomment and add to customize:
   # patterns:
+  #   mode: extend    # extend (default) | override
   #   write:
   #     - 'my_custom_cs_lib\.write\('
   #   read:
@@ -262,8 +354,6 @@ control_system:
   #          and osprey.runtime API (read_channel, write_channel)
   # Purpose: Actual I/O operations to control systems with built-in safety features
   connector:
-    timeout: 5.0  # Default timeout in seconds
-
     # Mock connector (development mode) — driven by the data-driven simulation
     # machine model below. Switch scenarios with `osprey sim apply NAME...`
     # (composes self-contained scenario bundles under data/simulation/scenarios/
@@ -284,23 +374,30 @@ control_system:
     # above, so `osprey sim apply NAME...` stays type-aware and consistent
     # whether you're running mock or virtual_accelerator.
     #
-    # Gateway config is CA name-server/TCP mode against localhost:5064 — the
-    # one host<->container CA configuration confirmed to work across
-    # container runtimes (broadcast discovery does not reliably cross the
+    # Gateway config is CA name-server/TCP mode against localhost — the one
+    # host<->container CA configuration confirmed to work across container
+    # runtimes (broadcast discovery does not reliably cross the
     # macOS<->container VM boundary). See
     # src/osprey/services/virtual_accelerator/probe/README.md for the
     # empirical finding.
+    #
+    # The gateway port is deliberately not written out: with it unset the
+    # connector follows services.virtual_accelerator.port, so moving the
+    # deployed soft-IOC's port is a one-place edit. Set `port:` on a gateway
+    # only to reach a VA this project does not deploy — one on another host,
+    # or a container published on a host port different from the one it
+    # serves on.
     virtual_accelerator:
       timeout: 5.0
       simulation_file: data/simulation/machine.json
       gateways:
         read_only:
           address: localhost
-          port: 5064
+          # port: 5074
           use_name_server: true
         write_access:
           address: localhost
-          port: 5064
+          # port: 5074
           use_name_server: true
 
     # EPICS connector (production mode) — untouched ALS production values.
@@ -325,32 +422,82 @@ archiver:
   # Options:
   #   - mock_archiver: Development mode (generates synthetic data)
   #   - epics_archiver: EPICS Archiver Appliance
+  #   - mongodb_archiver: MongoDB time-series collection. Needs the
+  #     archiver-mongodb extra AND a mongodb_archiver block (see below) —
+  #     the connector has no defaults for the required keys.
   type: mock_archiver  # <-- Change to 'epics_archiver' for production
 
   # Mock archiver (development mode) — synthesizes history from the same
-  # simulation machine model as the mock control-system connector, so live
-  # reads and archiver data stay consistent. Switch scenarios with
-  # `osprey sim apply NAME...` (see the sim-scenarios skill). Advanced users
-  # can also configure: sample_rate_hz, noise_level
-  mock_archiver:
-    simulation_file: data/simulation/machine.json
+  # simulation machine model as the control-system connector above, so live
+  # reads and archiver data stay consistent. The machine file is derived from
+  # `control_system.connector.<type>.simulation_file` rather than repeated
+  # here. Switch scenarios with `osprey sim apply NAME...` (see the
+  # sim-scenarios skill).
+  #
+  # Uncomment to override: an explicit `simulation_file` wins, and the
+  # divergence from the control-system model is logged. Advanced users can
+  # also set sample_rate_hz here. `noise_level` is accepted but applies only
+  # to channels absent from the simulation machine model — every channel the
+  # model serves carries its own per-channel noise, so under the shipped
+  # machine.json it changes nothing.
+  # mock_archiver:
+  #   simulation_file: data/simulation/machine.json
 
   # EPICS Archiver Appliance (production mode)
   epics_archiver:
     url: https://archiver.als.lbl.gov:8443
     timeout: 60              # Timeout for archiver requests in seconds
 
+  # MongoDB archiver — install the extra first:
+  #   pip install 'osprey-framework[archiver-mongodb]'
+  # Every key below except port and timeout is required; the connector raises
+  # on the first one missing. The password itself is never stored here — it is
+  # read at connect time from the environment variable named by password_env.
+  # mongodb_archiver:
+  #   host: mongodb.example.org
+  #   port: 27017             # Optional, defaults to 27017
+  #   name: my-archiver-database
+  #   collection: my-archiver-collection
+  #   auth: database-auth     # Authentication database
+  #   username: my-username
+  #   password_env: MONGODB_READONLY_PASSWORD
+  #   timeout: 60             # Optional, defaults to 60 seconds
+
+# ============================================================
+# SCAN PLANS (BLUESKY BRIDGE)
+# ============================================================
+# `bluesky.plan_dirs` adds directories to the scan-plan catalog the Bluesky
+# bridge discovers plans from. Read this before using it — the trust it grants
+# is not obvious from the key name:
+#
+#   Plans found through it load at the `preset` trust tier. The three
+#   operator-supplied tiers — shipped, preset, facility — are exec'd on
+#   discovery unconditionally: no validation gate, no review record. Only the
+#   agent-authored `session` tier is hash-checked against a passing validation
+#   record before its files are exec'd. A directory listed here is code you are
+#   choosing to run, not data you are choosing to read.
+#
+# Trust order, ascending: shipped < preset < facility < session < unreviewed.
+# On a same-name collision a strictly higher tier overrides and a strictly
+# lower one is refused; equal tiers let the later-scanned file win.
+# BLUESKY_PLAN_DIRS (env, set per bridge instance) is the higher `facility`
+# tier, so it outranks this key.
+#
+# Paths are resolved by the process running the plan loader. The deployed
+# bridge is a container with this config.yml mounted at
+# /app/project/config.yml, so entries here must be IN-CONTAINER paths. To
+# publish a directory from the host instead, use the build profile's
+# `bluesky.plan_dir` — the build mounts it read-only and exports
+# BLUESKY_PLAN_DIRS for you (at the `facility` tier).
+# bluesky:
+#   plan_dirs:
+#     - /app/project/extra_plans
+
 # Migration from tutorial to production:
 # 1. Change control_system.type from 'mock' to 'epics'
 # 2. Change archiver.type from 'mock_archiver' to 'epics_archiver'
-# 3. Test with: osprey run
+# 3. Test with: osprey health
 # Your code doesn't need to change!
-
-# ============================================================
-# MACHINE STATE CONFIGURATION
-# ============================================================
-machine_state:
-  channels_file: "data/machine_state_channels.json"
 
 # ============================================================
 # CHANNEL FINDER CONFIGURATION
@@ -360,19 +507,32 @@ machine_state:
 
 channel_finder:
   # Active pipeline mode
-  pipeline_mode: {{ default_pipeline }}  # "in_context" or "hierarchical"
+  pipeline_mode: {{ default_pipeline }}  # "in_context", "hierarchical", or "middle_layer"
 
-  # Explicit channel address validation mode
-  # Controls how explicit PV addresses in queries are validated against the channel finder database
-  # Options:
-  #   - lenient (DEFAULT): Accept all explicit addresses, warn if not in database
-  #                       Best for production - trusts user-provided addresses while providing feedback
-  #                       Use case: Database has 200 curated PVs, but users may reference any of 5000+ actual PVs
-  #   - strict: Only accept channels that exist in database
-  #            Best for testing - ensures all channels are documented
-  #   - skip: No validation, accept all addresses immediately (fastest)
-  #          Best for performance - when you fully trust user inputs
-  explicit_validation_mode: lenient
+  # osprey:panel-port channel_finder
+  # CHANNELS tab: the channel-finder UI is a web server of its own, configured
+  # under this section. It launches when `channel-finder` is in the panel list
+  # under `web:` below AND this `channel_finder:` section exists — it does, so
+  # 8092 is bound by default. Uncomment to move or disable it. (See the
+  # COMPANION WEB SERVERS map further down for the resolution order.)
+  # web:
+  #   host: "127.0.0.1"
+  #   port: 8092
+  #   auto_launch: true
+
+  # Descriptive names for channels that belong to no device family, generated
+  # offline by `osprey channel-finder build-database --use-llm`. That flag
+  # hard-fails unless `provider` below is set — it has no fallback to
+  # claude_code.provider or any other provider key — so uncomment this block
+  # before using it. `model_id` is a tier (haiku | sonnet | opus) resolved
+  # through api.providers[provider].models; a non-tier value is passed to the
+  # provider unchanged. Build-time only: nothing reads it at run time.
+  # channel_name_generation:
+  #   llm_model:
+  #     provider: {{ default_provider }}
+  #     model_id: haiku
+  #     max_tokens: 1000
+  #   llm_batch_size: 10
 
   # Pipeline-specific configurations
   pipelines:
@@ -383,16 +543,12 @@ channel_finder:
       database:
         type: template                # Database type: "template" (with device family expansion) or "flat" (simple list)
         path: data/channel_databases/in_context.json
-        presentation_mode: template    # How to present device families to LLM:
+        presentation_mode: template    # Preview rendering only — how `osprey channel-finder
+                                      # preview` displays device families. The MCP server and the
+                                      # web UI build their own prompt text and never consult it, so
+                                      # changing it does not change what the model sees.
                                       # "explicit" - list all expanded channel names (StorageRing_BPM_01_Position_X, StorageRing_BPM_02_Position_X, ...)
                                       # "template" - use pattern notation (StorageRing_BPM_{01-10}_Position_{X,Y})
-
-      processing:
-        chunk_dictionary: false       # Whether to chunk the database for large channel lists
-                                      # false - send entire database in one LLM call (faster, recommended for <200 channels)
-                                      # true - split database into chunks and search each independently
-        chunk_size: 50                # Number of channels per chunk when chunk_dictionary=true
-        max_correction_iterations: 2  # Maximum LLM correction attempts when invalid channels are found (0-3 recommended)
 
       # Inner LLM model for the query_channels subagent tool (set per benchmark cell at runtime)
       subagent_model: null
@@ -405,13 +561,6 @@ channel_finder:
         type: hierarchical            # Always "hierarchical" for this pipeline mode
         path: data/channel_databases/hierarchical.json
                                       # Database must follow nested structure: system → family → device → field → subfield
-
-      # Tree preview: compact database overview injected into LLM prompts
-      # Helps the model reason about where channels live before navigating
-      tree_preview:
-        enabled: true
-        max_depth: 3                  # How deep to render the tree (0 = root only)
-        max_children: 5               # Max children per node before truncating
 
       # Feedback loop: records successful navigation paths for identical future queries
       # Injects prior paths as hints so the LLM can resolve repeated queries faster
@@ -428,6 +577,15 @@ channel_finder:
         path: data/channel_databases/middle_layer.json
                                       # Database must follow MML structure: System → Family → Field → ChannelNames
                                       # Supports optional _description fields and device/sector filtering via DeviceList
+        # duckdb_path gates the `query_channels` SQL/FTS tool: with it unset
+        # that one tool returns `not_configured` and the other middle-layer
+        # tools carry on working. Nothing in build, scaffold or deploy creates
+        # the file — build it from the JSON above yourself:
+        #   python -m osprey.services.channel_finder.databases.duckdb_import \
+        #     --json data/channel_databases/middle_layer.json \
+        #     --output data/channel_databases/middle_layer.duckdb
+        # A relative path resolves against this config file's directory.
+        # duckdb_path: data/channel_databases/middle_layer.duckdb
 {% endif %}
 
   # Benchmarking configuration
@@ -439,33 +597,28 @@ channel_finder:
     # Single source of truth — all paradigms read the same query set.
     dataset_path: data/benchmarks/queries.json
 
-    # Execution settings
-    execution:
-      runs_per_query: 1                 # Number of times to run each query
-      delay_between_runs: 0             # Delay in seconds between runs
-      continue_on_error: true           # Continue even if some queries fail
-      max_concurrent_queries: 5         # Maximum parallel queries
-      query_selection: all              # "all" or [0,1,2] or range notation
-
-    # Output settings
-    output:
-      results_dir: data/benchmarks/results
-      save_incremental: true            # Save results after each query
-      include_detailed_metrics: true    # Include detailed timing/cost metrics
-
-    # Evaluation thresholds
-    evaluation:
-      exact_match_weight: 1.0
-      partial_match_weight: 0.5
-
 # ============================================================
 # EXECUTION INFRASTRUCTURE
 # ============================================================
 
 # Python execution configuration
 execution:
-  execution_method: "local"              # Options: local | container
-  python_env_path: {{ current_python_env }}  # Path to Python with dependencies
+  execution_method: "subprocess"         # Agent Python runs as a host subprocess
+
+  # The environment declaration this project was built from, recorded so the
+  # build can be reproduced. Nothing reads it at run time, and editing it here
+  # changes nothing — rebuild the project to change the environment.
+  #   python           base interpreter the build profile declared. null means
+  #                    the build used its own interpreter; its installed
+  #                    packages are deliberately not carried over.
+  #   packages         extra requirements installed on top of the base.
+  #   inherit_exclude  distributions left out when a declared venv base is frozen.
+  # No interpreter path is recorded: agent Python runs in this project's own
+  # .venv when it has one, resolved at run time.
+  environment:
+    python: {{ environment_python | default(none) | tojson }}
+    packages: {{ environment_packages | default([]) | tojson }}
+    inherit_exclude: {{ environment_inherit_exclude | default([]) | tojson }}
 
 
 # ============================================================
@@ -474,7 +627,7 @@ execution:
 # Customize the command-line interface appearance
 
 cli:
-  # Theme selection - Options: default | vulcan | custom
+  # Theme selection - Options: default | custom
   theme: "default"
 
   # Custom theme colors (only used when theme: custom)
@@ -493,8 +646,6 @@ cli:
   #   Your custom ASCII art here
 
 
-# Note: Theme system logging uses the existing 'base' logger color
-# No additional logging configuration needed
 # ============================================================
 # SYSTEM CONFIGURATION
 # ============================================================
@@ -507,12 +658,10 @@ system:
   # host $TZ makes archiver queries and simulated events non-deterministic.
   timezone: UTC
 
-# File paths - Data storage organization
+# Subdirectory names within the agent data directory (see `agent_data:` below).
 file_paths:
-  agent_data_dir: _agent_data
-  executed_python_scripts_dir: executed_scripts
-  user_memory_dir: user_memory
   api_calls_dir: api_calls
+  registry_exports_dir: registry_exports
 
 # ============================================================
 # ARIEL - Electronic Logbook Search
@@ -524,17 +673,22 @@ file_paths:
 # ARIEL references providers by name (e.g., "ollama", "cborg").
 
 ariel:
-  database:
-    # Password reads ARIEL_DB_PASSWORD from the project .env — the SAME value
-    # the postgresql compose service reads as POSTGRES_PASSWORD, so container
-    # and agent auth stay in sync (single source of truth). `osprey deploy up`
-    # mints a strong ARIEL_DB_PASSWORD into .env; the `${VAR:-ariel}` fallback
-    # keeps the agent launchable before the first deploy. NOTE: an existing
-    # Postgres data volume keeps the password it was initialized with — see
-    # the postgresql compose template.
-    uri: postgresql://ariel:${ARIEL_DB_PASSWORD:-ariel}@localhost:5432/ariel
-
-  default_max_results: 10
+  # No `database.uri`: the DSN is derived from the `services.postgresql` block
+  # above (username, database_name, port_host), so moving the database port or
+  # renaming the database stays a one-place edit. Password reads
+  # ARIEL_DB_PASSWORD from the project .env — the SAME value the postgresql
+  # compose service reads as POSTGRES_PASSWORD, so container and agent auth
+  # stay in sync (single source of truth). `osprey deploy up` mints a strong
+  # ARIEL_DB_PASSWORD into .env; the fallback password `ariel` keeps the agent
+  # launchable before the first deploy. NOTE: an existing Postgres data volume
+  # keeps the password it was initialized with — see the postgresql compose
+  # template.
+  #
+  # To point ARIEL at a database this project does not run (an existing
+  # facility Postgres, say), set the DSN explicitly — an explicit uri wins over
+  # the derived one:
+  # database:
+  #   uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
 
   # No `ingestion` block: this preset seeds the logbook from its simulation
   # scenario bundles via `osprey sim apply NAME...`, which composes the active
@@ -542,10 +696,30 @@ ariel:
   # sim-scenarios skill). For production, add an `ingestion` block pointing at
   # your logbook system (adapter + source_url) and use `osprey ariel ingest`.
 
+  # osprey:panel-port ariel
+  # ARIEL tab: the search UI is a web server of its own, configured under this
+  # section rather than a top-level one. It launches when `ariel` is in the
+  # panel list under `web:` below — this section existing is not required, so
+  # 8085 is bound by default. Uncomment to move or disable it. (See the
+  # COMPANION WEB SERVERS map further down for the resolution order.)
+  # web:
+  #   host: "127.0.0.1"
+  #   port: 8085
+  #   auto_launch: true
+
   # Search modules (leaf-level search functions)
   # provider: references api.providers for credentials (api_key, base_url)
   # Both keyword and semantic are enabled by default.
   # If Ollama/pgvector are unavailable, ARIEL degrades gracefully to keyword-only.
+  # NOTE: entries seeded by `osprey sim apply` are keyword-only. Seeding skips
+  # the enhancement passes AND drops the embedding tables outright, so
+  # recovering semantic search takes two steps: `osprey ariel migrate` to
+  # recreate the tables, then `osprey ariel enhance` to fill them. (`osprey
+  # ariel sync` is not a shortcut here: it migrates, but then polls an
+  # ingestion adapter this preset has none of, and fails before it enhances.)
+  # Until then a semantic query disables itself at runtime and returns a notice
+  # telling you to use keyword search — it does not silently return zero hits,
+  # and it does not run the keyword search for you.
   search_modules:
     keyword:
       enabled: true
@@ -561,9 +735,8 @@ ariel:
     # Enables better keyword search quality
     semantic_processor:
       enabled: false  # Requires LLM API calls. Enable for better search quality.
-      provider: {{ default_provider }}  # References api.providers
+      provider: {{ default_provider }}  # References api.providers; required (no default)
       model:
-        provider: {{ default_provider }}
         model_id: {{ default_model }}
         max_tokens: 256
 
@@ -576,7 +749,9 @@ ariel:
         - name: nomic-embed-text
           dimension: 768
 
-  # Default embedding provider (fallback for modules without explicit provider)
+  # Default provider for EMBEDDING modules that name none of their own. It is
+  # not a general fallback: the semantic_processor LLM module above requires
+  # its own explicit `provider`.
   embedding:
     provider: ollama
 
@@ -584,15 +759,18 @@ ariel:
 # LOGBOOK COMPOSITION
 # ============================================================
 # LLM settings for the logbook compose panel in the artifact gallery.
-# provider: references api.providers for credentials (api_key, base_url)
-# default_tier: which model tier to use when operator doesn't choose one
-# The operator can override the tier (haiku/sonnet/opus) from the UI;
-# the tier is mapped to a model_id via api.providers[provider].models.
+# provider: references api.providers for credentials (api_key, base_url).
+#   Omit it and composition uses claude_code.provider; with neither set the
+#   compose panel reports that logbook.composition.provider is unconfigured.
+# default_tier: which model tier to use when the operator doesn't choose one.
+# The operator can override the tier (haiku/sonnet/opus) from the UI; the tier
+# is mapped to a model ID via api.providers[provider].models — there is no
+# model_id key here. Add one only for a provider whose models mapping has no
+# entry for the tier you use; otherwise composition fails naming the gap.
 
 logbook:
   composition:
     provider: {{ default_provider }}
-    model_id: {{ default_model | default("haiku") }}
     default_tier: haiku   # Options: haiku | sonnet | opus
 
 # ============================================================
@@ -607,6 +785,18 @@ logbook:
 facility_knowledge:
   bundle_path: data/facility_knowledge
 
+  # osprey:panel-port okf
+  # KNOWLEDGE tab. This section has two jobs: `bundle_path` above feeds the
+  # facility-knowledge MCP server, `osprey knowledge`, and the OKF panel server
+  # itself (the launcher passes the resolved path into the panel app), while
+  # the three keys below configure that panel's web server. It launches when
+  # `okf` is in the panel list under `web:` below and this section exists —
+  # which it does, so this project binds 8093 by default. Uncomment to move or
+  # disable it.
+  # host: "127.0.0.1"
+  # port: 8093
+  # auto_launch: true
+
 # ============================================================
 # AGENT DATA & ARTIFACT GALLERY
 # ============================================================
@@ -616,11 +806,70 @@ facility_knowledge:
 agent_data:
   base_dir: "./_agent_data"
 
-# Artifact gallery web server (auto-launches on first artifact save)
+# ============================================================
+# COMPANION WEB SERVERS (PANEL PORTS)
+# ============================================================
+# Every panel tab in `osprey web` is served by its own small web server, and
+# each one takes host/port/auto_launch from its own config section. These six
+# are the complete set — five of them have never appeared in a template
+# (artifact_server is the only one that ever shipped), so this is the map:
+#
+#   tab        keys live under        default port   port env var
+#   WORKSPACE  artifact_server        8086           OSPREY_ARTIFACT_SERVER_PORT
+#   ARIEL      ariel.web              8085           OSPREY_ARIEL_PORT
+#   CHANNELS   channel_finder.web     8092           OSPREY_CHANNEL_FINDER_PORT
+#   LATTICE    lattice_dashboard      8097           OSPREY_LATTICE_DASHBOARD_PORT
+#   KNOWLEDGE  facility_knowledge     8093           OSPREY_FACILITY_KNOWLEDGE_PORT
+#   SYSTEM     health.web             8094           OSPREY_HEALTH_PORT
+#
+# The stanza for each lives in the section named above; all six carry a
+# machine-readable marker comment so they can be found by name.
+#
+# Resolution order in every case: the env var above wins, then this config's
+# `port`, then the built-in default. Multi-user deployments export the env var
+# per user (the per-user containers share one network namespace), which is why
+# config alone is never the last word. `host` has no env override and defaults
+# to 127.0.0.1. The launcher resolves host/port through one shared function;
+# for WORKSPACE the web terminal uses that same function, but for the other
+# five it computes the panel's URL separately and the two are kept in step by
+# hand — so an env override must be set consistently.
+#
+# What actually starts a server: `auto_launch` (default true) AND — for every
+# panel except WORKSPACE — the panel being listed under `web:` at the bottom of
+# this file. CHANNELS, LATTICE and KNOWLEDGE additionally need their top-level
+# section to exist at all — with no section they never launch, whatever the
+# panel list says.
+
+# osprey:panel-port artifact
+# WORKSPACE tab. Universal: under `osprey web` it is launched at startup
+# regardless of the panel list (headless runs instead start it on the first
+# artifact save), so `auto_launch: false` is the only thing that stops it — and
+# when it does, the tab is reported unavailable rather than serving a dead
+# iframe.
 artifact_server:
   host: "127.0.0.1"
   port: 8086
   auto_launch: true
+
+# osprey:panel-port lattice_dashboard
+# LATTICE tab. No `lattice_dashboard:` section ships here, so the dashboard
+# never auto-launches in this project. Uncomment to turn it on, and add
+# `lattice` to the panel list under `web:` below.
+# lattice_dashboard:
+#   host: "127.0.0.1"
+#   port: 8097
+#   auto_launch: true
+
+# osprey:panel-port system_health
+# SYSTEM tab. Unlike LATTICE and KNOWLEDGE it needs no section of its own — the
+# health framework has usable defaults — so with `system-health` in the panel
+# list it binds 8094 without appearing anywhere in this file. Uncomment only to
+# move it or to switch it off.
+# health:
+#   web:
+#     host: "127.0.0.1"
+#     port: 8094
+#     auto_launch: true
 
 # ============================================================
 # CLAUDE CODE INTEGRATION
@@ -655,6 +904,12 @@ claude_code:
   # Built-in: anthropic (direct), cborg (LBNL proxy), als-apg (ALS AWS proxy)
   # Custom proxy: any name defined under api.providers below
   #   (must have base_url set; uses ANTHROPIC_AUTH_TOKEN + provider model IDs)
+  #   Only the three built-ins above are recognised as Anthropic-native by
+  #   name. Every other provider is assumed to speak OpenAI protocol and is
+  #   routed through the translation proxy to /chat/completions. If yours is
+  #   Anthropic-native, add `api_protocol: anthropic` to its api.providers
+  #   entry to skip that hop:
+  #     api.providers.my-proxy.api_protocol: anthropic
   # When set, `osprey claude regen` injects env vars into .claude/settings.json.
   # permissions:              # Override Claude Code permission policies
   #   allow: []               # Additional tools to auto-allow
@@ -687,7 +942,7 @@ claude_code:
   telemetry:
     enabled: true                        # Master switch (on for this reference facility)
     backend: openobserve                 # openobserve | generic
-    protocol: http/protobuf              # http/protobuf | grpc
+    protocol: http/protobuf              # http/protobuf | grpc — grpc requires an explicit `endpoint:` below; it is refused against the auto-derived openobserve endpoint (HTTP only)
     # backend: openobserve auto-derives the endpoint per network context —
     # http://localhost:5080/api/<org> on the host, http://openobserve:5080/api/<org>
     # inside the deploy network — so `endpoint` is intentionally OMITTED here.
@@ -713,13 +968,46 @@ claude_code:
     log_raw_api_bodies: true             # Raw provider request/response bodies
 
 # ============================================================
+# WEB TERMINAL
+# ============================================================
+# The terminal process itself (`osprey web`) — a different section from `web:`
+# below, which configures the panel tabs it renders. Both are read; neither has
+# ever shipped in a template, so every key here is at its default.
+# web_terminal:
+#   host: "127.0.0.1"    # Bind address. A deployment that DECLARES
+#                        # OSPREY_TERMINAL_BIND_HOST — the multi-user compose
+#                        # sets it on every per-user container so nginx is the
+#                        # only off-host path — overrides both this key and
+#                        # --host, so this cannot punch through that chokepoint.
+#   port: 8087           # Likewise outranked by OSPREY_TERMINAL_WEB_PORT.
+#   shell: /path/to/claude
+#                        # argv spawned in every PTY. Setting it REPLACES the
+#                        # launcher, so it also defeats the
+#                        # claude_code.cli_version pin above.
+#   max_background_sessions: 5
+#   watch_dir: ./_agent_data
+#                        # Directory the Workspace file watcher follows. Unset,
+#                        # it falls back to ./_agent_data relative to the
+#                        # launch directory — it does NOT read
+#                        # agent_data.base_dir, so if you moved that, set this
+#                        # to match.
+
+# ============================================================
 # WEB PANEL CONFIGURATION
 # ============================================================
-# Controls which panel tabs appear in the web terminal (osprey web).
-# Universal panels (Workspace, Activity, Session Analytics) are always shown.
-# Domain-specific panels are listed here — remove or disable as needed.
+# Controls the web terminal UI (osprey web): its theme and which panel tabs
+# appear. The Workspace panel is always shown; the Activity log is a separate
+# page, not a tab. Domain-specific panels are listed here — remove or disable
+# as needed.
 
 web:
+  # Default web UI theme: a theme FAMILY (e.g. "osprey", "high-contrast") or a
+  # concrete theme id (e.g. "high-contrast-light") to pin a specific mode. A
+  # user's in-browser choice (switcher selection, ?theme=, localStorage) always
+  # overrides this default; an unknown value falls back to "osprey", which is
+  # also what applies while this stays commented. Independent of `cli.theme`
+  # above (console-only) — the two never share a value.
+  # theme: osprey
 {%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if default_panel is defined and default_panel %}
@@ -739,13 +1027,26 @@ web:
     #   web.panels.my-grafana.health_endpoint: "/api/health"
     #   web.panels.my-grafana.path: "/"
     #   web.panels.my-grafana.hidden: true   # launch the panel but keep its tab hidden until the agent shows it
+    #   web.panels.my-grafana.rewrite_json_paths: ["/config.json"]
+    #     Panels are served through the terminal's reverse proxy, which
+    #     rewrites root-absolute paths in HTML/JS/CSS but passes JSON through
+    #     untouched (rewriting arbitrary API payloads would corrupt data). Some
+    #     backends bootstrap their UI from a JSON config endpoint carrying an
+    #     API base path — proxied, that UI then calls the browser's origin and
+    #     silently breaks. List those endpoints' path suffixes here to opt them
+    #     into the same rewrite.
     #
-    # Runtime panel control by the agent (optional; OFF by default):
-    #   web.allow_runtime_panels: true                       # let the agent register ad-hoc URL panels at runtime
-    #   web.runtime_panel_allowlist: ["grafana.local:3000"]  # restrict registration targets to these host[:port]
+    # (The dotted keys above are build-profile `config:` override syntax, which
+    # is expanded into nested YAML at build time. Inside this file use the
+    # nested form — config.yml is never flattened; a dotted key written here
+    # is stored verbatim and read by nothing.)
 {%- else %}
   panels: {}  # No builtin panels enabled; custom panels (if any) added via config overrides
 {%- endif %}
+  # Runtime panel control by the agent (optional; OFF by default). These sit at
+  # the `web:` level, NOT under `panels:`:
+  # allow_runtime_panels: true                       # let the agent register ad-hoc URL panels at runtime
+  # runtime_panel_allowlist: ["grafana.local:3000"]  # restrict registration targets to these host[:port]
 {%- if panel_presets is defined and panel_presets %}
   # Panel layouts ("Layouts"): named sets of panels a human applies in one click
   # from the web terminal "+" popover. The key is the menu label; the value is
@@ -774,3 +1075,29 @@ web:
 # scaffold:
 #   user_owned:
 #     - rules/facility    # Auto-claimed on init — edit .claude/rules/facility.md
+
+# ──────────────────────────────────────────────────────────────────────
+# Multi-user web terminals (optional)
+# ──────────────────────────────────────────────────────────────────────
+# Set by the multi-user presets, not by hand — documented here so the values
+# `osprey build` appends land in a named section instead of a bare tail.
+#
+#   facility.name / facility.prefix
+#       Display name, and the container-name prefix for the web stack
+#       (`<prefix>-nginx`, `<prefix>-web-<user>`). The only rule enforced is
+#       non-emptiness — an empty prefix renders `-nginx`, which Docker
+#       rejects, so `osprey build` lints for it. Beyond that the value must be
+#       a valid Docker name start ([a-zA-Z0-9]); the shipped presets follow a
+#       short lowercase convention (`ca`, `mu`). Also documented at the top of
+#       this file.
+#   deploy.fqdn
+#       Browser-reachable origin for the landing page. The render REFUSES to
+#       build the landing URL without it once any user is configured.
+#   modules.web_terminals
+#       The per-user terminal stack: enabled, image_source, nginx_port, the
+#       per-user port families, and the user list. Per-user containers share
+#       the host network namespace, so each companion panel needs its own port
+#       family; families left unset fall back to the registry defaults.
+#
+# See the deploy skill's facility-config reference and
+# docs/how-to/web-terminal/multi-user.rst for the full schema.

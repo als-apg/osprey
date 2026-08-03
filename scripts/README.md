@@ -9,6 +9,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `quick_check.sh` | Fast pre-commit validation | < 30s | Before every commit |
 | `ci_check.sh` | Full CI replication | 2-3 min | Before pushing |
 | `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
+| `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 
 ## Scripts
 
@@ -100,6 +101,54 @@ This directory contains testing and validation scripts for the Osprey Framework 
 - **CRITICAL**: Should fix (missing CHANGELOG, missing type hints)
 - **HIGH**: Address before merge (unlinked TODOs)
 - **MEDIUM**: Good to fix (formatting issues)
+
+---
+
+### check_config_keys.py
+
+**Purpose**: Stop deleted config keys from coming back, and stop live keys from
+quietly losing their reader.
+
+**What it does**: Renders the shipped `config.yml.j2` templates, collects every
+dotted key they produce, and checks each one against
+`scripts/config_key_manifest.yml` — which records either the code fragment that
+reads the key or the structural reason it has none. It also re-checks the keys
+that were deliberately deleted (they must not reappear in a rendered template,
+a preset `config:` override, or the loader's synthesized defaults), the code
+sites that went with them, cross-template parity, and the manifest's own
+internal consistency. The script's module docstring is the authoritative list
+of failure modes.
+
+**Usage**:
+```bash
+# Plain run (~2.4s) — works anywhere, including a shallow clone
+uv run python scripts/check_config_keys.py
+
+# What CI runs (~4.6s). Same checks, plus the back-test: every orphan-site
+# regex must match at the recorded baseline commit AND not match on this
+# branch, which is what proves it can actually fail. Extracts the baseline
+# tree with `git archive`, so it needs full history — in a shallow clone it
+# errors out rather than skipping.
+uv run python scripts/check_config_keys.py --back-test
+
+# Same, against a specific baseline instead of the manifest's recorded one
+uv run python scripts/check_config_keys.py --back-test <commit>
+```
+
+**When to use**: After editing any `config.yml.j2`, any preset under
+`src/osprey/profiles/presets/`, or code that reads configuration. Use the plain
+form for a quick local check; use `--back-test` to reproduce CI exactly. The
+`config-key-guard` CI job runs the `--back-test` form with `fetch-depth: 0`.
+`tests/scripts/test_config_key_guard.py` exercises the guard from the unit-test
+lane as well, back-test included — but those cases skip themselves when the
+baseline is unreachable, so that coverage is revocable by a checkout-depth or
+marker change. The dedicated job is what pins it down.
+
+**Exit codes**:
+- `0`: No findings
+- `1`: One or more failure records (each is printed with its key and location),
+  or a hard error — notably an unreachable `--back-test` baseline, which raises
+  a traceback rather than skipping
 
 ---
 

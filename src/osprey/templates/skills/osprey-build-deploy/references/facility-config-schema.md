@@ -34,7 +34,7 @@ facility:
   name: "Advanced Light Source"          # full human-readable name
   prefix: "als"                           # short slug; used in profile filenames (als-prod.yml, als-client.yml)
                                           # and container names (als-mcp-matlab, als-web-thellert)
-  timezone: "America/Los_Angeles"         # facility timezone — drives container TZ and the agent's system.timezone
+  timezone: "America/Los_Angeles"         # facility timezone — drives container TZ only; mirror it manually into the profile's system.timezone
 ```
 
 | Field | Type | Required | Notes |

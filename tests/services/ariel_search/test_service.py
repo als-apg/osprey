@@ -3,6 +3,7 @@
 Tests for service routing and formatting functionality.
 """
 
+import logging
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -372,6 +373,82 @@ class TestServiceRouting:
         assert result.diagnostics
         assert all(d.level is DiagnosticLevel.INFO for d in result.diagnostics)
 
+    @pytest.mark.asyncio
+    async def test_unroutable_mode_raises_configuration_error(self):
+        """A mode with no routing arm raises ConfigurationError naming the mode.
+
+        SearchMode carries SQL, which ainvoke's match statement does not route,
+        so it falls through to the catch-all arm. ConfigurationError is an
+        ARIELException, so it propagates rather than being wrapped.
+        """
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            await service.search("test query", mode=SearchMode.SQL)
+
+        assert "sql_query" in str(exc_info.value)
+        assert exc_info.value.config_key == "modes"
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_wrapped_in_search_execution_error(self):
+        """A non-ARIEL exception is wrapped with the mode and query that failed."""
+        from osprey.services.ariel_search.exceptions import SearchExecutionError
+
+        service = self._create_mock_service(
+            search_modules={
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "test-model"},
+            }
+        )
+        # Fails inside the try block, before routing picks an arm.
+        service.repository.validate_search_model_table = AsyncMock(
+            side_effect=RuntimeError("pool exhausted")
+        )
+
+        with pytest.raises(SearchExecutionError) as exc_info:
+            await service.search("beam current", mode=SearchMode.KEYWORD)
+
+        error = exc_info.value
+        assert error.search_mode == "keyword"
+        assert error.query == "beam current"
+        assert "pool exhausted" in str(error)
+        assert isinstance(error.__cause__, RuntimeError)
+
+    @pytest.mark.asyncio
+    async def test_semantic_results_projected_to_entries_and_sources(self, fake_embedding_provider):
+        """Semantic hits become entries carrying _score, plus an entry_id source tuple."""
+        from unittest.mock import patch
+
+        service = self._create_mock_service(
+            search_modules={"semantic": {"enabled": True, "model": "test-model"}}
+        )
+        # Pre-set so _get_embedder() never reaches the provider registry.
+        service._embedder = fake_embedding_provider
+
+        seen_embedders = []
+
+        async def fake_semantic_search(query, repository, config, embedder, **kwargs):
+            seen_embedders.append(embedder)
+            return [
+                ({"entry_id": "entry-sem-001", "raw_text": "RF cavity trip"}, 0.91),
+                ({"entry_id": "entry-sem-002", "raw_text": "Beam dump at 08:12"}, 0.77),
+            ]
+
+        with patch(
+            "osprey.services.ariel_search.search.semantic.semantic_search",
+            side_effect=fake_semantic_search,
+        ):
+            result = await service.search("cavity", mode=SearchMode.SEMANTIC)
+
+        assert seen_embedders == [fake_embedding_provider]
+        assert result.search_modes_used == (SearchMode.SEMANTIC,)
+        assert result.reasoning == "Semantic search: 2 results"
+        assert result.sources == ("entry-sem-001", "entry-sem-002")
+        assert [entry["_score"] for entry in result.entries] == [0.91, 0.77]
+        assert result.entries[0]["raw_text"] == "RF cavity trip"
+
 
 class TestCreateArielService:
     """Tests for create_ariel_service factory function."""
@@ -505,6 +582,47 @@ class TestServiceValidateSearchModel:
         await service._validate_search_model()
         mock_repository.validate_search_model_table.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_validate_search_model_disables_semantic_when_table_missing(self, caplog):
+        """A missing embedding table disables semantic search instead of raising.
+
+        The config is built inside the test because this branch mutates
+        ``search_modules["semantic"].enabled`` -- a shared config would leak the
+        disabled flag into every test that ran afterwards.
+        """
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "search_modules": {"semantic": {"enabled": True, "model": "test-model"}},
+            }
+        )
+        mock_repository = MagicMock()
+        mock_repository.validate_search_model_table = AsyncMock(
+            side_effect=ConfigurationError(
+                "embedding table embeddings_test_model not found",
+                config_key="search_modules.semantic.model",
+            )
+        )
+
+        service = ARIELSearchService(
+            config=config,
+            pool=MagicMock(),
+            repository=mock_repository,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await service._validate_search_model()
+
+        assert config.search_modules["semantic"].enabled is False
+        assert config.is_search_module_enabled("semantic") is False
+        assert "Semantic search disabled" in caplog.text
+        assert "embeddings_test_model" in caplog.text
+        assert "quickstart" in caplog.text
+        # Still marked validated, so the failure is not retried on every search.
+        assert service._validated_search_model is True
+
 
 class TestServiceGetStatus:
     """Tests for ARIELSearchService.get_status() method."""
@@ -588,6 +706,32 @@ class TestServiceGetStatus:
         assert result.enabled_enhancement_modules == ["text_embedding"]
         assert isinstance(result.errors, list)
 
+    @pytest.mark.asyncio
+    async def test_get_status_reports_unreachable_database(self, minimal_config, fake_pool_factory):
+        """A pool that cannot hand out a connection becomes an error entry, not a raise."""
+        failing_pool = fake_pool_factory(error=RuntimeError("connection refused"))
+
+        mock_repository = MagicMock()
+        mock_repository.get_embedding_tables = AsyncMock(return_value=[])
+
+        service = ARIELSearchService(
+            config=minimal_config,
+            pool=failing_pool,
+            repository=mock_repository,
+        )
+
+        result = await service.get_status()
+
+        assert result.errors == ["Database error: connection refused"]
+        assert result.healthy is False
+        assert result.database_connected is False
+        assert result.entry_count is None
+        assert result.embedding_tables == []
+        assert result.last_ingestion is None
+        # Config-derived fields still populate despite the database being down.
+        assert "***" in result.database_uri
+        assert result.enabled_search_modules == ["keyword", "semantic"]
+
 
 class TestARIELSearchResultModel:
     """Tests for ARIELSearchResult model."""
@@ -620,59 +764,6 @@ class TestARIELSearchResultModel:
         assert result.sources == ()
         assert result.search_modes_used == ()
         assert result.reasoning == ""
-
-
-class TestLLMConfiguration:
-    """Tests for LLM configuration."""
-
-    def test_model_id_default(self):
-        """Default model_id is gpt-4o-mini."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-            }
-        )
-        assert config.reasoning.model_id == "gpt-4o-mini"
-
-    def test_provider_default(self):
-        """Default provider is openai."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-            }
-        )
-        assert config.reasoning.provider == "openai"
-
-    def test_model_id_configurable(self):
-        """model_id can be configured."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "reasoning": {"model_id": "gpt-4-turbo"},
-            }
-        )
-        assert config.reasoning.model_id == "gpt-4-turbo"
-
-    def test_provider_configurable(self):
-        """provider can be configured."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "reasoning": {"provider": "anthropic"},
-            }
-        )
-        assert config.reasoning.provider == "anthropic"
-
-    def test_reasoning_config_fields(self):
-        """Reasoning config fields are properly parsed."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "reasoning": {"provider": "anthropic", "model_id": "claude-haiku"},
-            }
-        )
-        assert config.reasoning.provider == "anthropic"
-        assert config.reasoning.model_id == "claude-haiku"
 
 
 class TestAdvancedParamsWiring:

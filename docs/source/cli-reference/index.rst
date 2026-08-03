@@ -198,10 +198,9 @@ status.
    ``--dry-run`` — Show what would change without writing files.
 
    ``--runtime-root PATH`` — Rewrite ``project_root`` in ``config.yml`` to
-   PATH (comment-preserving) and re-render artifacts against it. A recorded
-   ``execution.python_env_path`` that does not exist on the current
-   filesystem is replaced with the current interpreter. Use after copying a
-   built project into a container image; see :doc:`/how-to/containerize-project`.
+   PATH (comment-preserving) and re-render artifacts against it. Use after
+   copying a built project into a container image; see
+   :doc:`/how-to/containerize-project`.
 
 ``osprey claude status [OPTIONS]``
    Display provider configuration, model tier mappings, per-agent model

@@ -4,13 +4,18 @@ Pins the three defects behind the dispatch-allowlist-parity fix and proves
 the fix end-to-end against a real built project, a real dispatch worker
 subprocess, and the bundled Claude CLI:
 
-* **Repro A (settings-allow bypass):** ``mcp__osprey_workspace__data_list``
-  is in the provisioned ``settings.json`` ``permissions.allow``; per SDK
-  semantics such calls never reach ``can_use_tool``, so pre-fix they executed
-  even when the trigger's ``allowed_tools`` excluded them (observed on a
-  deployed worker as ``Agent`` / ``mcp__controls__archiver_read`` running
-  un-triggered). Post-fix the PreToolUse hook — which fires for every call —
-  denies them.
+* **Repro A (settings-allow bypass):** the probe tool is in the provisioned
+  ``settings.json`` ``permissions.allow``; per SDK semantics such calls never
+  reach ``can_use_tool``, so pre-fix they executed even when the trigger's
+  ``allowed_tools`` excluded them (observed on a deployed worker as ``Agent``
+  / ``mcp__controls__archiver_read`` running un-triggered). Post-fix the
+  PreToolUse hook — which fires for every call — denies them. The probe must
+  be a tool NO declared subagent lists (asserted by
+  ``test_probe_tool_is_discriminating``): a surface-declared tool such as
+  ``data_list`` is legitimately allowed inside a delegated subagent (that is
+  Repro B's feature), so with such a probe the assertion would hinge on
+  whether the model happens to delegate — the exact nondeterminism that made
+  this test flaky.
 
 * **Repro B (subagent starvation):** with the settings allow-rules stripped
   (so success cannot come from settings), a channel-finder delegation must
@@ -66,6 +71,13 @@ HOOK_DENY_MARKERS = (
     "is not in subagent",
     "dispatch server denylist",
 )
+
+# Repro A's probe: settings-allowed, but in NO subagent's declared tools:
+# surface — so it is denied on every path (main thread by the trigger list,
+# subagent context by the surface check) and the assertion cannot depend on
+# whether the model delegates. test_probe_tool_is_discriminating enforces
+# both properties against the real built project.
+PROBE_TOOL = "mcp__osprey_workspace__session_log"
 
 
 def _denied_by_policy(result_text: str | None) -> bool:
@@ -225,19 +237,56 @@ def _calls(run: dict, prefix: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def test_probe_tool_is_discriminating(built_project):
+    """The probe stays valid only while (a) settings.json allows it — else it
+    stops pinning the settings-allow bypass — and (b) no declared subagent
+    lists it — else a delegated call is legitimately allowed (Repro B's
+    feature) and the deny assertion becomes a bet on the model not delegating.
+    If (b) ever trips, pick a new probe from the settings allow-list that no
+    agent declares; do NOT weaken the deny assertion."""
+    from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
+
+    settings = json.loads((built_project / ".claude" / "settings.json").read_text())
+    allow = settings.get("permissions", {}).get("allow", [])
+    assert PROBE_TOOL in allow, (
+        f"probe {PROBE_TOOL} is no longer settings-allowed — Repro A would no "
+        f"longer exercise the settings-allow bypass; pick a settings-allowed probe"
+    )
+
+    # Repro C's probe needs the same no-surface property for the same reason.
+    for probe in (PROBE_TOOL, "mcp__controls__archiver_read"):
+        offenders = {
+            name: sorted(surface)
+            for name, surface in parse_project_agents(built_project).items()
+            if surface is not None and probe in surface
+        }
+        assert not offenders, (
+            f"probe {probe} is now declared by subagent(s) {sorted(offenders)} — "
+            f"a delegated call would legitimately execute and its deny assertion "
+            f"goes flaky; pick a probe that no agent declares"
+        )
+
+
 @pytest.mark.parametrize("worker", ["built_project"], indirect=True)
 def test_settings_allowed_tool_is_denied_when_trigger_excludes_it(worker):
-    """Pre-fix (red): data_list executed because settings.json allow-rules are
+    """Pre-fix (red): the probe executed because settings.json allow-rules are
     evaluated before can_use_tool (SDK never consults the callback for them).
-    Post-fix: the PreToolUse hook denies it — trigger list is the authority."""
+    Post-fix: the PreToolUse hook denies it — trigger list is the authority.
+
+    Fully specified, no-delegation prompt for the same reason as Repro C's:
+    the deny this test observes requires the model to actually attempt the
+    call. Delegated attempts are fine — the probe is in no agent's surface,
+    so the subagent-context deny fires and its marker matches too."""
     run = dispatch_and_wait(
         worker,
-        "Use the data_list tool to list the available data files, then summarize.",
+        "Call the session_log tool NOW, yourself — do not delegate to a "
+        "subagent and do not ask any clarifying questions. Attempt the tool "
+        "call immediately and report its result.",
         allowed_tools=["mcp__controls__channel_read"],
     )
 
-    attempts = _calls(run, "mcp__osprey_workspace__data_list")
-    assert attempts, f"agent never attempted data_list; text={run.get('text_output')!r}"
+    attempts = _calls(run, PROBE_TOOL)
+    assert attempts, f"agent never attempted session_log; text={run.get('text_output')!r}"
     for tc in attempts:
         assert _denied_by_policy(tc["result"]), (
             f"settings-allowed tool executed despite trigger exclusion: {tc}"

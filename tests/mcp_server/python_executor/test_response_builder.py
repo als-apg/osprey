@@ -34,7 +34,7 @@ def _ok_result(stdout="hello\n", stderr="", **kw) -> ExecutionResult:
         success=True,
         stdout=stdout,
         stderr=stderr,
-        execution_method_used="local",
+        execution_method_used="subprocess",
         **kw,
     )
 
@@ -44,7 +44,7 @@ def _err_result(stderr="Traceback: boom") -> ExecutionResult:
         success=False,
         stdout="partial\n",
         stderr=stderr,
-        execution_method_used="local",
+        execution_method_used="subprocess",
     )
 
 
@@ -71,6 +71,7 @@ async def test_inline_success_returns_summary():
     data = extract_response_dict(result)
     assert data["description"] == "demo run"
     assert data["execution_mode"] == "readonly"
+    assert data["execution_method"] == "subprocess"
     assert data["stdout"] == "hello\n"
     assert data["has_errors"] is False
 
@@ -96,6 +97,23 @@ async def test_persisted_success_returns_tool_response_with_notebook():
     # A notebook artifact is auto-saved for every execution and surfaced.
     assert "notebook_artifact_id" in data
     assert data["notebook_artifact_id"] in data.get("artifact_ids", [])
+
+
+@pytest.mark.unit
+async def test_execution_method_is_surfaced_honestly():
+    """The response builder passes ``execution_method_used`` through verbatim —
+    it is not the vocabulary choke point (that's ``resolve_execution_method``),
+    so whatever the executor resolved is what callers see, in both response
+    shapes. The persisted path surfaces it in the compact ``access_details``
+    (alongside ``execution_mode``), not just buried in the full stored artifact.
+    """
+    result = await _build(_ok_result(), save_output=True)
+    data = extract_response_dict(result)
+    assert data["access_details"]["execution_method"] == "subprocess"
+
+    result = await _build(_ok_result(), save_output=False)
+    data = extract_response_dict(result)
+    assert data["execution_method"] == "subprocess"
 
 
 @pytest.mark.unit

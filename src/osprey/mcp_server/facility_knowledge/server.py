@@ -76,11 +76,11 @@ def _get_bundle() -> OKFBundle:
 
 
 def _resolve_bundle_path(config: dict, config_dir: Path) -> Path:
-    """Resolve the bundle path from loaded config.
+    """Look up ``facility_knowledge.bundle_path`` in *config* and resolve it.
 
-    Looks up ``facility_knowledge.bundle_path`` in *config*.  A relative
-    value is resolved against *config_dir* (the directory that contains
-    config.yml).
+    Resolution itself is delegated to the shared
+    :func:`osprey.services.facility_knowledge.bundle_path.resolve_bundle_path`
+    so this server, the CLI and the OKF panel open the same directory.
 
     Args:
         config: Parsed OSPREY config dict.
@@ -92,9 +92,9 @@ def _resolve_bundle_path(config: dict, config_dir: Path) -> Path:
     Raises:
         KeyError: If ``facility_knowledge.bundle_path`` is absent from config.
     """
-    raw = config["facility_knowledge"]["bundle_path"]
-    p = Path(raw)
-    return p if p.is_absolute() else (config_dir / p).resolve()
+    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
+
+    return resolve_bundle_path(config["facility_knowledge"]["bundle_path"], config_dir)
 
 
 # ---------------------------------------------------------------------------

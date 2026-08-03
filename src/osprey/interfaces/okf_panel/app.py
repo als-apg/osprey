@@ -46,36 +46,6 @@ _NOT_CONFIGURED = {"error": "facility_knowledge.bundle_path not configured"}
 _NOT_CONFIGURED_STATUS = 503
 
 
-def _normalize_bundle_path(raw) -> Path:
-    """Normalise a configured ``bundle_path`` so the panel opens the same bundle
-    the other consumers of this SHARED config key do.
-
-    ``facility_knowledge.bundle_path`` is read by three places, and the two
-    existing ones do NOT normalise identically: the MCP server
-    (``mcp_server/facility_knowledge/server.py::_resolve_bundle_path``) resolves
-    a relative value against the ``config.yml`` directory but does not expand
-    ``~``; the CLI (``cli/knowledge_cmd.py``) expands ``~`` and resolves relative
-    to the CWD. This panel does both (expand ``~``, then resolve a relative value
-    against the ``config.yml`` directory), which matches the MCP server EXACTLY
-    for the documented/shipped relative form (e.g. ``data/facility_knowledge``).
-    The point is to not regress that case: without config-dir resolution a valid
-    relative ``bundle_path`` would silently drop the panel into guarded (empty-
-    tab) mode whenever the web terminal isn't launched from the config directory.
-
-    Absolute paths pass through unchanged. This never raises (the caller runs in
-    a swallowed daemon-thread launcher).
-    """
-    p = Path(raw).expanduser()
-    if p.is_absolute():
-        return p
-    try:
-        from osprey.utils.workspace import resolve_config_path
-
-        return (resolve_config_path().parent / p).resolve()
-    except Exception:  # noqa: BLE001 — fall back to CWD-relative; never raise.
-        return p.resolve()
-
-
 def _load_bundle(bundle_path):
     """Open the OKF bundle, or return ``None`` (never raise) if it cannot be opened.
 
@@ -96,10 +66,11 @@ def _load_bundle(bundle_path):
         return None
 
     # Imported lazily so the guarded path never touches the OKF engine.
+    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
     from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 
     try:
-        bundle = OKFBundle(_normalize_bundle_path(bundle_path))
+        bundle = OKFBundle(resolve_bundle_path(bundle_path))
     except Exception:  # noqa: BLE001 — a bad path must degrade, not kill the thread.
         logger.warning(
             "okf panel: could not open bundle at %s; serving guarded app.",

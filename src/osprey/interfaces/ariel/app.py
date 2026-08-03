@@ -61,14 +61,26 @@ def load_ariel_config(config_path: str | Path | None = None) -> dict[str, Any]:
             logger.info(f"Loading config from {path}")
             with open(path) as f:
                 # resolve_env_vars matches the framework's ConfigBuilder
-                # behavior (load_osprey_config): the shipped ariel DSN carries
-                # a ${ARIEL_DB_PASSWORD:-ariel} placeholder that must expand
-                # here too, or the web interface would hand psycopg a literal
-                # `${…}` password.
+                # behavior (load_osprey_config): a DSN written out in config.yml
+                # may carry a ${ARIEL_DB_PASSWORD:-ariel} placeholder that must
+                # expand here too, or the web interface would hand psycopg a
+                # literal `${…}` password.
                 from osprey.utils.config import resolve_env_vars
 
                 config = resolve_env_vars(yaml.safe_load(f))
                 ariel_config = config.get("ariel", {})
+                services = config.get("services") or {}
+
+            if ariel_config:
+                # Resolve the DSN before the host override below rewrites it:
+                # with `ariel.database.uri` unset the DSN is derived from
+                # `services.postgresql`, and the derived host is `localhost` —
+                # exactly what the container override has to replace.
+                from osprey.services.ariel_search.config import resolve_ariel_dsn
+
+                database = ariel_config.get("database") or {}
+                database["uri"] = resolve_ariel_dsn(ariel_config, services.get("postgresql") or {})
+                ariel_config["database"] = database
 
             # Apply environment variable overrides for Docker networking
             db_host_override = os.environ.get("ARIEL_DATABASE_HOST")
@@ -129,6 +141,9 @@ def _create_lifespan(config_path: str | Path | None = None):
         try:
             from osprey.services.ariel_search import ARIELConfig, create_ariel_service
 
+            # load_ariel_config has already resolved the DSN (and applied the
+            # container host override to it), so the section carries an
+            # explicit `database.uri` by the time it is parsed here.
             config_dict = load_ariel_config(config_path)
             config = ARIELConfig.from_dict(config_dict)
 

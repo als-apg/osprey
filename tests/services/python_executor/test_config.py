@@ -1,7 +1,7 @@
 """Unit tests for :mod:`osprey.services.python_executor.config`.
 
 The Python executor is part of the sandboxed-execution safety surface, so the
-resource-limit defaults (retry caps, execution timeout) and the config-override
+resource-limit default (execution timeout) and the config-override
 path are asserted strictly. The ``limits_validator`` property's lazy-load and
 caching behaviour is covered with the underlying validator monkeypatched.
 """
@@ -14,8 +14,6 @@ from osprey.services.python_executor.config import PythonExecutorConfig
 class TestDefaults:
     def test_defaults_when_no_config(self):
         cfg = PythonExecutorConfig()
-        assert cfg.max_generation_retries == 3
-        assert cfg.max_execution_retries == 3
         # 10-minute execution ceiling for the sandbox.
         assert cfg.execution_timeout_seconds == 600
 
@@ -25,30 +23,13 @@ class TestDefaults:
 
     def test_empty_python_executor_block_uses_defaults(self):
         cfg = PythonExecutorConfig({"unrelated": {"foo": 1}})
-        assert cfg.max_generation_retries == 3
         assert cfg.execution_timeout_seconds == 600
 
 
 class TestOverrides:
-    def test_overrides_all_fields(self):
-        cfg = PythonExecutorConfig(
-            {
-                "python_executor": {
-                    "max_generation_retries": 5,
-                    "max_execution_retries": 7,
-                    "execution_timeout_seconds": 30,
-                }
-            }
-        )
-        assert cfg.max_generation_retries == 5
-        assert cfg.max_execution_retries == 7
+    def test_override_replaces_default(self):
+        cfg = PythonExecutorConfig({"python_executor": {"execution_timeout_seconds": 30}})
         assert cfg.execution_timeout_seconds == 30
-
-    def test_partial_override_keeps_other_defaults(self):
-        cfg = PythonExecutorConfig({"python_executor": {"execution_timeout_seconds": 42}})
-        assert cfg.execution_timeout_seconds == 42
-        assert cfg.max_generation_retries == 3
-        assert cfg.max_execution_retries == 3
 
 
 class TestLimitsValidator:

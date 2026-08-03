@@ -113,23 +113,31 @@ def extract_response_dict(result) -> dict:
 
 @pytest.fixture(autouse=True)
 def _reset_singletons(monkeypatch):
-    """Reset the MCP registry and ArtifactStore singletons between tests."""
-    # Reset config caches BEFORE each test to prevent cross-contamination
-    reset_config_cache()
+    """Reset the MCP registry, ArtifactStore, screen-capture backend and config caches.
+
+    Leak guarded: the server context, artifact store, screen-capture backend and
+    the ``osprey.utils.config`` caches are all process-wide singletons. Every one
+    of them is reset both before and after the test, so a directory that ran
+    earlier in the same worker cannot hand its state to the first test here, and
+    this directory cannot hand its state to whatever runs next.
+    """
     import osprey.utils.config as _cfg
+
+    def _reset_all():
+        reset_server_context()
+        reset_artifact_store()
+        reset_backend()
+        reset_config_cache()
+        _cfg._config_cache.clear()
 
     monkeypatch.setattr(_cfg, "_default_config", None)
     monkeypatch.setattr(_cfg, "_default_configurable", None)
     saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
+    _reset_all()
 
     yield
 
-    reset_server_context()
-    reset_artifact_store()
-    reset_backend()
-    reset_config_cache()
-    _cfg._config_cache.clear()
+    _reset_all()
     _cfg._config_cache.update(saved_cache)
 
 
@@ -204,55 +212,6 @@ def mock_config_writes_disabled(tmp_path):
 
 
 @pytest.fixture
-def mock_config_with_execution(tmp_path):
-    """Config including execution infrastructure settings for adapter tests."""
-    config = tmp_path / "config.yml"
-    config.write_text(
-        yaml.dump(
-            {
-                "control_system": {
-                    "type": "mock",
-                    "writes_enabled": True,
-                    "write_verification": {
-                        "default_level": "callback",
-                        "default_tolerance": 0.1,
-                    },
-                    "limits_checking": {"enabled": False},
-                },
-                "archiver": {"type": "mock"},
-                "execution": {
-                    "execution_method": "container",
-                    "modes": {
-                        "read_only": {"kernel_name": "python3-epics-readonly"},
-                        "write_access": {"kernel_name": "python3-epics-write"},
-                    },
-                },
-                "services": {
-                    "jupyter": {
-                        "containers": {
-                            "read": {
-                                "hostname": "localhost",
-                                "port_host": 8088,
-                                "execution_modes": ["read_only"],
-                            },
-                            "write": {
-                                "hostname": "localhost",
-                                "port_host": 8089,
-                                "execution_modes": ["write_access"],
-                            },
-                        }
-                    }
-                },
-                "python_executor": {
-                    "execution_timeout_seconds": 300,
-                },
-            }
-        )
-    )
-    return config
-
-
-@pytest.fixture
 def mock_config_with_limits(tmp_path):
     """Config with limits_checking enabled and a channel_limits.json database."""
     limits_db = tmp_path / "channel_limits.json"
@@ -286,11 +245,7 @@ def mock_config_with_limits(tmp_path):
                 },
                 "archiver": {"type": "mock"},
                 "execution": {
-                    "execution_method": "local",
-                    "modes": {
-                        "read_only": {"kernel_name": "python3"},
-                        "write_access": {"kernel_name": "python3"},
-                    },
+                    "execution_method": "subprocess",
                 },
                 "python_executor": {
                     "execution_timeout_seconds": 60,
