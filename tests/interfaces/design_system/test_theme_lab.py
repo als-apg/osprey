@@ -139,6 +139,11 @@ def test_mini_shell_is_instantiated_into_both_scopes(lab_page: Page) -> None:
 def test_accent_change_reskins_both_scopes_without_rebuilding(lab_page: Page) -> None:
     """A color change is a custom-property write, not a DOM rebuild."""
     before_dark = _scope_var(lab_page, "dark", "--color-accent")
+    # Captured too, and asserted below. Checking only "light is non-empty and
+    # differs from dark" would NOT catch a light scope that never gets written
+    # at all: it would still read the theme's own shipped accent out of
+    # tokens.css, which is non-empty and differs from whatever was typed.
+    before_light = _scope_var(lab_page, "light", "--color-accent")
 
     # Tag the existing node; if the mock were re-created the tag would vanish.
     lab_page.evaluate("document.querySelector('#preview-dark .ms-shell').dataset.sentinel = 'kept'")
@@ -149,7 +154,7 @@ def test_accent_change_reskins_both_scopes_without_rebuilding(lab_page: Page) ->
     after_light = _scope_var(lab_page, "light", "--color-accent")
 
     assert after_dark != before_dark, "the dark preview did not re-skin"
-    assert after_light != "", "the light preview has no accent"
+    assert after_light != before_light, "the light preview did not re-skin"
     assert after_dark != after_light, (
         "both modes derived the same accent; the per-mode lightness offset is not being applied"
     )
