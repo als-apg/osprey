@@ -227,6 +227,33 @@ async def test_config_file_env_points_at_project(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_subagent_delegation_runs_in_the_foreground(monkeypatch):
+    """The dispatched agent's env disables background tasks.
+
+    Since Claude Code CLI 2.1.x the Agent tool auto-backgrounds delegated
+    subagents: the turn ends immediately and the subagent's results arrive on a
+    *later* turn as a task notification. ``_drain_response`` stops at the first
+    ResultMessage, so the worker would answer "the agent is searching, I'll
+    notify you when it completes" and never deliver the delegated work.
+
+    ``build_clean_env()`` strips every ``CLAUDE_CODE_*`` key, so this guard
+    cannot be inherited — the worker has to set it explicitly. Regression guard
+    for that silent under-run.
+    """
+    captured: dict = {}
+
+    async def fake_query(options, project_dir, prompt):
+        captured["options"] = options
+        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    assert captured["options"].env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
+
+
+@pytest.mark.asyncio
 async def test_sdk_missing(monkeypatch):
     monkeypatch.setattr(sdk_runner, "HAS_SDK", False)
 
