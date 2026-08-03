@@ -1,5 +1,5 @@
 Theming
-=======
+========
 
 Every OSPREY browser interface — the terminal and all of its panels — draws its
 colors and fonts from one shared design system. Pick a theme once and everything
@@ -88,6 +88,22 @@ familiar appearance with two settings in ``config.yml``:
 
 Each user can still override both from the interface: the theme from the
 theme switcher in the header, and the rail position from the panel "+" menu.
+
+Propose a theme
+---------------
+
+Have a color of your own in mind? Run:
+
+.. code-block:: bash
+
+   osprey theme-lab
+
+That opens the Theme Lab in your browser. Pick an accent color and the dark and
+light mock-ups of the terminal re-skin as you go, while the contrast badges tell
+you at a glance whether text stays readable against it — the same check every
+shipped theme has to pass. When you are happy, give the theme a name, copy the
+export block, and paste it into a GitHub issue. The lab doesn't create the theme
+itself; the export spells out exactly what needs to change to make it real.
 
 .. dropdown:: Going deeper — the design system
    :icon: paintbrush

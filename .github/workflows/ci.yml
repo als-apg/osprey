@@ -358,6 +358,7 @@ jobs:
       if: steps.changes.outputs.theming == 'true'
       run: |
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
+          tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
           tests/interfaces/web_terminal/test_agent_activity_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \

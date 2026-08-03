@@ -65,6 +65,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   and a key that was retired cannot come back in a template, a preset override,
   or the loader's defaults. Contributors can run it from a checkout with
   `uv run python scripts/check_config_keys.py`.
+- `osprey theme-lab` opens a browser workbench for designing a theme: pick an
+  accent color, see it previewed live in dark and light with contrast badges,
+  then copy an export block describing the theme to request it.
 
 ### Changed
 
@@ -327,6 +330,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   pointer. The timeline pane animated the same height the drag was setting, so it
   eased toward a target the cursor had already left and trailed by up to 85
   pixels for the whole gesture.
+- Dispatched runs that delegate to a subagent now wait for the delegated work
+  and return the full answer. Previously the reply could stop at "the agent is
+  searching, I'll notify you when it completes" and nothing further arrived.
 - `osprey web --project <dir>` launched from outside the project now behaves the
   same as running `osprey web` inside it. Previously the flag only set the
   terminal's working directory, so the project's `.env` was never loaded
