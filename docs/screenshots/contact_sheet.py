@@ -707,9 +707,28 @@ _THEME_BORDER_ALPHA: dict[str, float] = {"dark": 0.15, "light": 0.25}
 _ACCENT_TINT_SUFFIXES = ("04", "06", "08", "10", "12", "20", "25", "30")
 _ACCENT_SYSTEM_TINT_SUFFIXES = ("04",)
 
+#: Alpha steps of the ``--accent-secondary-tint-NN`` ladder (its own steps, which
+#: do not match the primary ladder above).
+_ACCENT_SECONDARY_TINT_SUFFIXES = ("04", "06", "08", "12", "15", "25")
+
 #: ``/accent/``-namespaced vars deliberately NOT overridden. ``--ansi-cursor-accent``
 #: is a background-derived terminal cursor colour, not part of the accent family.
-ACCENT_EXCLUSIONS = frozenset({"--ansi-cursor-accent"})
+#:
+#: The whole ``accent-secondary`` family is excluded for a different reason: it is a
+#: separate hue role (the amber family that also carries status.warning, and DESY's
+#: brand orange), not a shade of the primary accent this sheet A/B-swaps. Recolouring
+#: it to the candidate would collapse two deliberately distinct roles into one hue and
+#: drag the warning colour along with it. Listing the members explicitly keeps the
+#: guard strict — a *new* secondary step still trips it and forces a fresh decision.
+ACCENT_EXCLUSIONS = frozenset(
+    {"--ansi-cursor-accent"}
+    | {
+        "--color-accent-secondary",
+        "--color-accent-secondary-hover",
+        "--color-accent-secondary-light",
+    }
+    | {f"--accent-secondary-tint-{s}" for s in _ACCENT_SECONDARY_TINT_SUFFIXES}
+)
 
 _ACCENT_VAR_RE = re.compile(r"--[a-z0-9-]*accent[a-z0-9-]*")
 
