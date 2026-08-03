@@ -24,15 +24,33 @@
  *                              above the base lightness, in light mode below
  *                              it. The direction is never assumed -- it comes
  *                              from that mode's own emphasis-lightness input.
+ *                              NOTE this is a deliberate simplification: the
+ *                              lab moves lightness only, so it cannot
+ *                              reproduce a hand-authored emphasis color that
+ *                              also shifts hue or saturation. The shipped
+ *                              osprey dark pair does exactly that -- its base
+ *                              sits near hue 179 at 51% saturation while its
+ *                              emphasis sits near hue 175 at 59% -- so the lab
+ *                              cannot round-trip it. A lab proposal is
+ *                              internally consistent, not a re-derivation of
+ *                              an existing theme; the export carries the
+ *                              explicit values either way.
  *   --border-accent            emphasis variant at alpha 0.15 (dark) / 0.25 (light)
  *   --accent-tint-NN           emphasis variant at alpha NN/100, for the eight
  *                              levels 04 06 08 10 12 20 25 30
  *   --wt-accent-system-tint-04 accent BASE at alpha 0.04 (not the emphasis
  *                              variant -- the one member of the family that
  *                              tints from the base)
- *   --color-on-accent          whichever of the target scope's own bg.primary /
- *                              text.primary has the higher WCAG contrast
- *                              against the chosen accent
+ *   --color-on-accent          the LAB'S OWN rule, not one read off tokens.css:
+ *                              whichever of the scope's bg.primary /
+ *                              text.primary / black / white has the highest
+ *                              WCAG contrast against the chosen accent. Every
+ *                              shipped theme hand-picks this value (only `dark`
+ *                              happens to use its own bg.primary), so there is
+ *                              no convention to mirror -- what the lab
+ *                              guarantees is that it clears the gate whenever
+ *                              any candidate can, and that the value it scores
+ *                              is the value it exports.
  *
  * `--ansi-cursor-accent` is deliberately NOT derived here: despite the name it
  * is a near-background color, not a member of the accent family.
@@ -75,14 +93,20 @@
 /** @typedef {{name: string, ratio: number, threshold: number, pass: boolean}} GateResult */
 /** @typedef {{collides: boolean, reason: string | null}} CollisionResult */
 
-/** Alpha levels, as hundredths, of the `--accent-tint-NN` scale. */
-const TINT_LEVELS = [4, 6, 8, 10, 12, 20, 25, 30];
+/**
+ * Alpha levels, as hundredths, of the `--accent-tint-NN` scale.
+ *
+ * Exported so the coverage spec can hold these constants against the committed
+ * `tokens.css` rather than re-deriving them with the same helpers (which would
+ * make the assertion tautological).
+ */
+export const TINT_LEVELS = [4, 6, 8, 10, 12, 20, 25, 30];
 
 /** `--border-accent` alpha, per mode. */
-const BORDER_ALPHA = { dark: 0.15, light: 0.25 };
+export const BORDER_ALPHA = { dark: 0.15, light: 0.25 };
 
 /** `--wt-accent-system-tint-04` alpha. */
-const SYSTEM_TINT_ALPHA = 0.04;
+export const SYSTEM_TINT_ALPHA = 0.04;
 
 const HEX_PATTERN = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const LEGACY_RGB_PATTERN =
@@ -287,24 +311,63 @@ export function rgbaCss(rgb, alpha) {
 /* hygiene-allow-color-end */
 
 /**
- * Pick `--color-on-accent`: whichever of the target scope's own background or
- * primary text reads best on the accent fill.
+ * Pure black and white, always available as `--color-on-accent` candidates.
  *
- * Returns the scope's string verbatim rather than a re-serialization, so a
- * value read off a live computed style survives untouched.
+ * Nothing in the design system requires `accent.on` to be one of the scope's
+ * own colors, and the shipped themes prove it: of the six, only `dark` uses
+ * its own `bg.primary`. `light` and both `apex` themes reuse dark's near-black
+ * ink, `high-contrast-dark` ships pure black and `high-contrast-light` pure
+ * white -- none of which is that scope's own background or primary text.
+ * Offering only the two scope colors would make the lab reject accents that
+ * ship fine: a mid grey reaches 4.22:1 against both of dark's primaries (a
+ * FAIL) but 4.62:1 against black (a PASS).
+ *
+ * Built from numeric channels rather than written as hex literals, so this
+ * file keeps its single hygiene exemption (the two serializers above).
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const NEUTRAL_ON_ACCENT_CANDIDATES = [
+  rgbToHex({ r: 0, g: 0, b: 0 }),
+  rgbToHex({ r: 255, g: 255, b: 255 }),
+];
+
+/**
+ * Pick `--color-on-accent`: whichever candidate reads best on the accent fill.
+ *
+ * This is the LAB'S OWN selection rule, not a rule read off `tokens.css` --
+ * every shipped theme hand-picks this value. What the lab guarantees is only
+ * that its choice clears the gate whenever any of its candidates can, and that
+ * the value it scores is the value it exports.
+ *
+ * Scope colors are returned verbatim rather than re-serialized, so a value read
+ * off a live computed style survives untouched.
  *
  * @param {Rgb} accent
  * @param {ScopeColors} scopeColors
  * @returns {string}
  */
 function pickOnAccent(accent, scopeColors) {
-  const background = parseColor(scopeColors.bgPrimary);
-  const text = parseColor(scopeColors.textPrimary);
-  if (background === null) return scopeColors.textPrimary;
-  if (text === null) return scopeColors.bgPrimary;
-  return contrastRatio(accent, background) >= contrastRatio(accent, text)
-    ? scopeColors.bgPrimary
-    : scopeColors.textPrimary;
+  /** @type {string[]} */
+  const candidates = [scopeColors.bgPrimary, scopeColors.textPrimary].filter(
+    (value) => parseColor(value) !== null
+  );
+  candidates.push(...NEUTRAL_ON_ACCENT_CANDIDATES);
+
+  let best = candidates[0];
+  let bestRatio = -1;
+  for (const candidate of candidates) {
+    const rgb = parseColor(candidate);
+    if (rgb === null) continue;
+    const ratio = contrastRatio(accent, rgb);
+    // Strictly greater, so an earlier candidate wins a tie -- the scope's own
+    // colors are listed first and are the more idiomatic choice.
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      best = candidate;
+    }
+  }
+  return best;
 }
 
 /**
@@ -613,9 +676,17 @@ export function buildExportMarkdown(input) {
   lines.push(
     `2. **\`tokens/themes/${slug}-dark.json\`** and **\`tokens/themes/${slug}-light.json\`** —`
   );
-  lines.push('   copy the same-mode sibling (`themes/dark.json` / `themes/light.json`) and');
-  lines.push('   replace `accent.base`, `accent.light`, `accent.on`, `border.accent` and');
-  lines.push('   the eight `tint.accent.*` entries with the values tabled above. Set');
+  lines.push('   copy the same-mode sibling (`themes/dark.json` / `themes/light.json`), then');
+  lines.push('   mind the two different authoring styles it uses:');
+  lines.push('');
+  lines.push('   - `accent.base`, `accent.light` and `accent.on` are **references** into');
+  lines.push('     `core.json` (`{color.teal.300}`), not literals. Point them at the ramp');
+  lines.push('     steps added in step 1 — do not paste the hex from the table here, or the');
+  lines.push('     step-1 additions are left dead and the one-hop convention is broken.');
+  lines.push('   - `border.accent` and the eight `tint.accent.*` entries are **literal**');
+  lines.push('     alpha-composite colors. Paste those from the table exactly as tabled.');
+  lines.push('');
+  lines.push('   Then set');
   lines.push(
     `   \`$extensions\` to \`{"mode": "dark"|"light", "id": "${slug}-dark"|"${slug}-light",`
   );
@@ -632,7 +703,8 @@ export function buildExportMarkdown(input) {
   lines.push(`   "${slug}-light": "light"`);
   lines.push('   ```');
   lines.push('');
-  lines.push('   This is what `apex` and `high-contrast` already do. Note the');
+  lines.push('   This is what `apex` already does in all five, and `high-contrast` in');
+  lines.push('   four of them (`ariel.json` authors its own high-contrast groups). Note the');
   lines.push('   consequence: `wt-accent-system-tint-04` is authored in');
   lines.push('   `web_terminal.json`, so inheriting keeps the default value rather than');
   lines.push('   the accent-matched one below. Author a full `web_terminal.json` group');

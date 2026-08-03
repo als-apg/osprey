@@ -252,40 +252,68 @@ describe('deriveAccentVars', () => {
   });
 });
 
-describe('--color-on-accent follows the scope, not the accent', () => {
+describe('--color-on-accent picks the most readable candidate', () => {
   /** One accent, evaluated against both scopes. */
   const state = stateFrom(['#319795', '#4fd1c5'], ['#319795', '#4fd1c5']);
 
-  test('picks the background in a dark scope', () => {
+  /** @param {string} accentHex @param {{bgPrimary: string, textPrimary: string}} scope */
+  const bestOf = (accentHex, scope) => {
+    const accent = /** @type {any} */ (hexToRgb(accentHex));
+    const candidates = [scope.bgPrimary, scope.textPrimary, '#000000', '#ffffff'];
+    let best = candidates[0];
+    let bestRatio = -1;
+    for (const candidate of candidates) {
+      const ratio = contrastRatio(accent, /** @type {any} */ (hexToRgb(candidate)));
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+        best = candidate;
+      }
+    }
+    return { best, bestRatio };
+  };
+
+  test('yields the highest-contrast candidate in a dark scope', () => {
     const derived = deriveAccentVars(state, 'dark', DARK_SCOPE);
-    expect(derived['--color-on-accent']).toBe(DARK_SCOPE.bgPrimary);
+    expect(derived['--color-on-accent']).toBe(bestOf(derived['--color-accent'], DARK_SCOPE).best);
   });
 
-  test('picks the text color in a light scope', () => {
+  test('yields the highest-contrast candidate in a light scope', () => {
     const derived = deriveAccentVars(state, 'light', LIGHT_SCOPE);
-    expect(derived['--color-on-accent']).toBe(LIGHT_SCOPE.textPrimary);
+    expect(derived['--color-on-accent']).toBe(bestOf(derived['--color-accent'], LIGHT_SCOPE).best);
   });
 
   test('the pick flips when the scope background flips', () => {
     const flipped = { bgPrimary: LIGHT_SCOPE.bgPrimary, textPrimary: DARK_SCOPE.textPrimary };
-    // Both candidates are now near-white, so the near-white background wins on
-    // its own merits only if it genuinely reads better -- assert the winner is
-    // whichever candidate actually has the higher ratio, computed here.
-    const accent = /** @type {any} */ (hexToRgb('#319795'));
-    const better =
-      contrastRatio(accent, /** @type {any} */ (hexToRgb(flipped.bgPrimary))) >=
-      contrastRatio(accent, /** @type {any} */ (hexToRgb(flipped.textPrimary)))
-        ? flipped.bgPrimary
-        : flipped.textPrimary;
-    expect(deriveAccentVars(state, 'dark', flipped)['--color-on-accent']).toBe(better);
+    const derived = deriveAccentVars(state, 'dark', flipped);
+    expect(derived['--color-on-accent']).toBe(bestOf(derived['--color-accent'], flipped).best);
   });
 
-  test('always yields the better of the two candidates', () => {
+  test('never returns a candidate a rival beats', () => {
     const derived = deriveAccentVars(state, 'dark', DARK_SCOPE);
     const accent = /** @type {any} */ (hexToRgb(derived['--color-accent']));
     const chosen = contrastRatio(accent, /** @type {any} */ (hexToRgb(derived['--color-on-accent'])));
-    const rejected = contrastRatio(accent, /** @type {any} */ (hexToRgb(DARK_SCOPE.textPrimary)));
-    expect(chosen).toBeGreaterThanOrEqual(rejected);
+    for (const rival of [DARK_SCOPE.bgPrimary, DARK_SCOPE.textPrimary, '#000000', '#ffffff']) {
+      expect(chosen).toBeGreaterThanOrEqual(
+        contrastRatio(accent, /** @type {any} */ (hexToRgb(rival)))
+      );
+    }
+  });
+
+  test('considers black and white, not only the scope primaries', () => {
+    // Regression: restricting the candidates to the scope's own two colors made
+    // the lab reject accents that ship fine. A mid grey reaches only 4.22:1
+    // against dark's background and 4.15:1 against its text -- both under the
+    // 4.5 gate -- but 4.62:1 against black, which is exactly what
+    // high-contrast-dark ships. Without black in the set the lab tells a
+    // colleague this accent cannot ship, and it can.
+    const grey = stateFrom(['#767676', '#767676'], ['#767676', '#767676']);
+    const derived = deriveAccentVars(grey, 'dark', DARK_SCOPE);
+
+    expect(derived['--color-on-accent']).toBe('#000000');
+    const onAccentGate = evaluateGates(derived, DARK_SCOPE)[1];
+    expect(onAccentGate.name).toBe('accent.on vs accent.base');
+    expect(onAccentGate.pass).toBe(true);
+    expect(onAccentGate.ratio).toBeGreaterThan(4.5);
   });
 });
 
