@@ -10,12 +10,13 @@ are *preserved* rather than rejected, so a future discovery pass can add
 fields (a discovery source, an approval state, ...) without breaking any
 manifest already on disk.
 
-The validator mirrors the token validator's fail-closed idiom
-(``generator/validate.py``): a :class:`StrEnum` of machine-readable rule
-ids, a frozen :class:`ManifestError` carrying ``rule``/``message``/
-``source``, a :class:`PanelManifestError` that bundles *every* failure,
-and a :func:`validate_manifest` that runs every check without short-
-circuiting so a caller sees the complete set in one pass.
+The validator follows the design system's shared fail-closed idiom
+(``design_system/errors.py``, also used by ``generator/validate.py``): a
+:class:`StrEnum` of machine-readable rule ids, a frozen
+:class:`ManifestError` carrying ``rule``/``message``/``source``, a
+:class:`PanelManifestError` that bundles *every* failure, and a
+:func:`validate_manifest` that runs every check without short-circuiting
+so a caller sees the complete set in one pass.
 :func:`assert_valid`, :func:`parse_manifest`, :func:`load_manifest`, and
 :func:`load_manifest_file` are the fail-closed doors: they raise
 :class:`PanelManifestError` if the manifest carries any error.
@@ -29,11 +30,12 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+from osprey.interfaces.design_system.errors import BundledValidationError, SourcedError
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
@@ -79,7 +81,7 @@ class ManifestRule(StrEnum):
 
 
 @dataclass(frozen=True)
-class ManifestError:
+class ManifestError(SourcedError):
     """A single, located manifest validation failure.
 
     Attributes:
@@ -90,23 +92,14 @@ class ManifestError:
     """
 
     rule: ManifestRule
-    message: str
-    source: str
-
-    def __str__(self) -> str:
-        return f"{self.source}: {self.message}"
 
 
-class PanelManifestError(ValueError):
+class PanelManifestError(BundledValidationError[ManifestError]):
     """Raised by the fail-closed doors, bundling every :class:`ManifestError`.
 
     Attributes:
         errors: Every manifest failure, in the order they were found.
     """
-
-    def __init__(self, errors: Sequence[ManifestError]) -> None:
-        self.errors = list(errors)
-        super().__init__("\n".join(str(error) for error in self.errors))
 
 
 @dataclass(frozen=True)

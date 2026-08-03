@@ -50,6 +50,10 @@ ACCENT_HEX = "#8b5cf6"
 #: the 3:1 accent-vs-background gate, so it must raise a FAIL badge.
 LOW_CONTRAST_HEX = "#0b1220"
 
+#: A warm amber for the second accent, far from both the shipped tan and the
+#: violet above, so a change to either family is unambiguous.
+SECOND_ACCENT_HEX = "#c2410c"
+
 #: Every file the exported change set has to name for it to be actionable.
 CHANGE_SET_FILES = (
     "core.json",
@@ -215,13 +219,75 @@ def test_low_contrast_accent_fails_a_gate_and_warns_in_the_export(lab_page: Page
     assert "below the required" in export
 
 
+def test_second_accent_is_edited_independently_of_the_accent(lab_page: Page) -> None:
+    """The target toggle repoints the shared controls, and nothing else moves."""
+    before_accent = _scope_var(lab_page, "dark", "--color-accent")
+
+    lab_page.click('[data-target="secondary"]')
+    _set_accent(lab_page, SECOND_ACCENT_HEX)
+
+    # The whole point of a second role: moving it leaves the accent alone.
+    assert _scope_var(lab_page, "dark", "--color-accent") == before_accent, (
+        "editing the second accent moved the accent"
+    )
+    assert _hex_channels(_scope_var(lab_page, "dark", "--color-accent-secondary")) == _hex_channels(
+        SECOND_ACCENT_HEX
+    )
+
+    # Its tint ladder is derived from the base, not from the emphasis variant.
+    red, green, blue = _hex_channels(SECOND_ACCENT_HEX)
+    assert (
+        _scope_var(lab_page, "dark", "--accent-secondary-tint-25")
+        == f"rgba({red}, {green}, {blue}, 0.25)"
+    )
+
+
+def test_second_accent_carries_its_own_contrast_gate(lab_page: Page) -> None:
+    """The build gates the second accent, so the lab has to score it too."""
+    badges = lab_page.locator("#gates-dark").inner_text()
+    assert "accent-secondary.light vs bg.primary" in badges, (
+        f"the second accent's gate is not shown: {badges!r}"
+    )
+
+    # A second accent that cannot carry body text must fail its own gate while
+    # the accent's gates stay clear -- the two are scored separately.
+    lab_page.click('[data-target="secondary"]')
+    _set_accent(lab_page, LOW_CONTRAST_HEX)
+
+    dark_badges = lab_page.locator("#gates-dark").inner_text()
+    assert "FAIL" in dark_badges, f"a near-background second accent passed: {dark_badges!r}"
+    assert "accent-secondary.light vs bg.primary" in dark_badges
+
+    export = lab_page.locator("#export-text").inner_text()
+    assert "accent-secondary" in export, "the export omits the second accent entirely"
+
+
+def _default_theme_family() -> str:
+    """The default family's name, read from the generated theme registry."""
+    import re
+    from pathlib import Path
+
+    import osprey.interfaces.design_system as design_system_pkg
+
+    source = (Path(design_system_pkg.__file__).parent / "static" / "js" / "tokens.js").read_text()
+    match = re.search(r'DEFAULT_FAMILY\s*=\s*"([^"]+)"', source)
+    assert match is not None, "tokens.js declares no DEFAULT_FAMILY"
+    return match.group(1)
+
+
 def test_colliding_theme_name_is_flagged(lab_page: Page) -> None:
     """A name that would shadow a shipped family is called out."""
-    lab_page.fill("#theme-name", "apex")
+    # Read the family out of the generated registry rather than naming one here.
+    # A hardcoded family silently stops testing anything the moment the shipped
+    # set changes: the name becomes free, the lab correctly reports it as
+    # available, and the assertion fails for a reason that has nothing to do
+    # with collision detection.
+    family = _default_theme_family()
+    lab_page.fill("#theme-name", family)
     lab_page.wait_for_timeout(100)
 
     warning = lab_page.locator("#slug-warning").inner_text()
-    assert "apex" in warning
+    assert family in warning
     assert "already" in warning.lower(), f"collision not reported: {warning!r}"
 
     export = lab_page.locator("#export-text").inner_text()

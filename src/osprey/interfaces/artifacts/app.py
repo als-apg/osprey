@@ -266,69 +266,19 @@ body {{
 <body>
 <script type="application/json" id="md-source">{md_json}</script>
 <div class="osprey-md-rendered" id="md-rendered"></div>
-<script>
-// Renders markdown from the embedded JSON source using marked + hljs + KaTeX.
-// Content originates from trusted local artifact files; marked.parse() and
-// katex.renderToString() both produce sanitized HTML output.
-(function() {{
-  var esc = function(s) {{
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
-            .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }};
-  var renderer = {{
-    code: function(args) {{
-      var src = args.text || '';
-      var lang = args.lang || '';
-      var highlighted = esc(src);
-      if (typeof hljs !== 'undefined' && src) {{
-        try {{
-          if (lang && hljs.getLanguage(lang)) {{
-            highlighted = hljs.highlight(src, {{ language: lang }}).value;
-          }} else {{
-            highlighted = hljs.highlightAuto(src).value;
-          }}
-        }} catch(e) {{}}
-      }}
-      return '<pre><code class="hljs' + (lang ? ' language-' + lang : '') +
-             '">' + highlighted + '</code></pre>';
-    }}
-  }};
-  marked.use({{ gfm: true, breaks: false, renderer: renderer }});
+<script type="module">
+// Renders markdown from the embedded JSON source through the gallery's
+// shared marked + hljs + KaTeX pipeline (md-render.js) — one algorithm for
+// the preview pane and this standalone page. Module scripts defer, so the
+// classic vendor <script> tags above have populated the marked/hljs/katex
+// globals by the time this runs.
+import {{ configureMarked, renderMathInMarkdown }} from '/static/js/md-render.js';
 
-  function renderMath(text) {{
-    if (typeof katex === 'undefined') return marked.parse(text);
-    var placeholders = [], idx = 0;
-    function ph(html) {{
-      var key = '\\x00MATH' + (idx++) + '\\x00';
-      placeholders.push({{ key: key, html: html }});
-      return key;
-    }}
-    function rk(expr, dm) {{
-      try {{
-        return katex.renderToString(expr.trim(), {{
-          displayMode: dm, throwOnError: false, strict: false
-        }});
-      }} catch(e) {{
-        return '<span class="katex-error">' + esc(expr) + '</span>';
-      }}
-    }}
-    text = text.replace(/\\$\\$([\\s\\S]+?)\\$\\$/g, function(_, e) {{ return ph(rk(e, true)); }});
-    text = text.replace(/(?<!\\$)(?<!\\d)\\$(?!\\$)(.+?)(?<!\\$)\\$(?!\\d)/g,
-      function(_, e) {{ return ph(rk(e, false)); }});
-    var html;
-    try {{ html = marked.parse(text); }}
-    catch(e) {{ html = '<p>' + esc(text) + '</p>'; }}
-    for (var i = 0; i < placeholders.length; i++) {{
-      html = html.replace(placeholders[i].key, placeholders[i].html);
-    }}
-    return html;
-  }}
-
-  var src = JSON.parse(document.getElementById('md-source').textContent);
-  // Safe: marked.parse() and katex.renderToString() produce sanitized HTML
-  // from trusted local artifact content (not user input from the web).
-  document.getElementById('md-rendered').innerHTML = renderMath(src);  // trusted content
-}})();
+configureMarked();
+const src = JSON.parse(document.getElementById('md-source').textContent);
+// Safe: marked.parse() and katex.renderToString() produce sanitized HTML
+// from trusted local artifact content (not user input from the web).
+document.getElementById('md-rendered').innerHTML = renderMathInMarkdown(src);  // trusted content
 </script>
 </body>
 </html>"""

@@ -32,7 +32,7 @@ import { test, expect, describe } from 'vitest';
 
 import {
   buildExportMarkdown,
-  deriveAccentVars,
+  deriveThemeVars,
   evaluateGates,
 } from '/design-system/js/theme-lab.js';
 
@@ -51,6 +51,13 @@ const LIGHT_SCOPE = { bgPrimary: '#f7f9fc', textPrimary: '#0c1322' };
 const PASSING_STATE = {
   dark: { hue: 190, saturation: 70, lightness: 60, emphasisLightness: 72 },
   light: { hue: 190, saturation: 65, lightness: 34, emphasisLightness: 26 },
+};
+
+/** A second accent that clears its own gate in both modes. */
+/** @type {LabState} */
+const PASSING_SECONDARY = {
+  dark: { hue: 31, saturation: 53, lightness: 64, emphasisLightness: 80 },
+  light: { hue: 31, saturation: 53, lightness: 44, emphasisLightness: 36 },
 };
 
 /** Same accent in light mode, but a near-background navy in dark mode. */
@@ -78,35 +85,47 @@ const TOKEN_PATHS = [
   'tint.accent.20',
   'tint.accent.25',
   'tint.accent.30',
+  'accent-secondary.base',
+  'accent-secondary.light',
+  'accent-secondary.hover',
+  'tint.accent-secondary.04',
+  'tint.accent-secondary.06',
+  'tint.accent-secondary.08',
+  'tint.accent-secondary.12',
+  'tint.accent-secondary.15',
+  'tint.accent-secondary.25',
 ];
 
 /**
  * Derive one mode the way the UI layer does, and score it.
  *
  * @param {LabState} state
+ * @param {LabState} secondary
  * @param {ThemeMode} mode
  * @param {ScopeColors} scope
  * @returns {ModeExport}
  */
-function modeExport(state, mode, scope) {
-  const derived = deriveAccentVars(state, mode, scope);
+function modeExport(state, secondary, mode, scope) {
+  const derived = deriveThemeVars(state, secondary, mode, scope);
   return { derived, gates: evaluateGates(derived, scope) };
 }
 
 /**
  * Assemble the full export input for a state, exactly as the UI layer would.
  *
- * @param {{state?: LabState, label?: string, slug?: string, collision?: CollisionResult}} [overrides]
+ * @param {{state?: LabState, secondary?: LabState, label?: string, slug?: string,
+ *   collision?: CollisionResult}} [overrides]
  * @returns {import('/design-system/js/theme-lab.js').ExportInput}
  */
 function exportInput(overrides = {}) {
   const state = overrides.state ?? PASSING_STATE;
+  const secondary = overrides.secondary ?? PASSING_SECONDARY;
   return {
     label: overrides.label ?? 'Harbor Teal',
     slug: overrides.slug ?? 'harbor-teal',
     collision: overrides.collision ?? NO_COLLISION,
-    dark: modeExport(state, 'dark', DARK_SCOPE),
-    light: modeExport(state, 'light', LIGHT_SCOPE),
+    dark: modeExport(state, secondary, 'dark', DARK_SCOPE),
+    light: modeExport(state, secondary, 'light', LIGHT_SCOPE),
   };
 }
 

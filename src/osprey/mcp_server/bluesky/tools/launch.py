@@ -23,6 +23,7 @@ current, never-launched draft.
 
 from __future__ import annotations
 
+import functools
 import json
 
 import anyio
@@ -35,6 +36,7 @@ from osprey.mcp_server.bluesky.server_context import (
     get_server_context,
 )
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity
 
 
 def _writes_enabled() -> bool:
@@ -146,6 +148,19 @@ async def launch_run(draft_revision: int) -> str:
         )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+
+    # Agent-activity highlight, only after a confirmed 200 launch (every refusal
+    # and bridge-error path above returns first). notify_agent_activity never
+    # raises; the blocking call runs off the event loop.
+    run_id = body.get("id") if isinstance(body, dict) else None
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_agent_activity,
+            "launch_run",
+            "run",
+            detail=str(run_id) if run_id is not None else None,
+        )
+    )
     return json.dumps(body)
 
 

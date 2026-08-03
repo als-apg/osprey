@@ -205,6 +205,58 @@ body {
   gap: var(--space-2);
 }
 
+/* Which accent the shared picker edits. Two segments rather than a select:
+   each one carries a live swatch of the color it stands for, so the choice
+   reads as "this color" instead of as a label. */
+.lab-target {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.lab-target-btn {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+}
+
+.lab-target-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+}
+
+.lab-target-btn[aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--accent-tint-10);
+  border-color: var(--color-accent);
+}
+
+.lab-target-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  background: var(--bg-panel);
+}
+
+.lab-hint {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
 .lab-preset {
   display: inline-flex;
   align-items: center;
@@ -410,7 +462,7 @@ body {
 
 .lab-gate-badge.is-warn {
   color: var(--color-warning);
-  background: var(--amber-tint-08);
+  background: var(--accent-secondary-tint-08);
   border-color: var(--color-warning);
 }
 

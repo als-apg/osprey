@@ -8,8 +8,8 @@
  * `document`, no module-level mutable state. It answers three questions the
  * lab's UI asks continuously:
  *
- *   1. What are the accent-family custom properties for a given accent choice?
- *      (`deriveAccentVars`)
+ *   1. What are the custom properties for a given pair of accent choices?
+ *      (`deriveAccentVars`, `deriveSecondaryAccentVars`, `deriveThemeVars`)
  *   2. Do those choices clear the design system's WCAG gates?
  *      (`relativeLuminance`, `contrastRatio`, `evaluateGates`)
  *   3. Is the name the author typed usable, or does it collide with a shipped
@@ -52,12 +52,19 @@
  *                              any candidate can, and that the value it scores
  *                              is the value it exports.
  *
+ * THE SECOND ACCENT (`--color-accent-secondary` and its family) is derived
+ * separately, from its own controls, by `deriveSecondaryAccentVars`. It is a
+ * distinct role rather than a shade of the accent -- every shipped family picks
+ * it by hand, and the build gates its `light` slot on its own -- so the lab
+ * lets it be chosen rather than inferring it. See that function for the two
+ * places its rules diverge from the accent's.
+ *
  * `--ansi-cursor-accent` is deliberately NOT derived here: despite the name it
- * is a near-background color, not a member of the accent family.
+ * is a near-background color, not a member of either accent family.
  *
  * The WCAG luminance and contrast math mirrors
  * `generator/validate.py`'s `relative_luminance`/`contrast_ratio` bit for bit,
- * and `GATES` mirrors the two accent entries of its `WCAG_GATES` (the AA tuple
+ * and `GATES` mirrors every accent entry of its `WCAG_GATES` (the AA tuple
  * applied to the default family), so the lab's badges and the build-time
  * validator can never disagree.
  */
@@ -107,6 +114,30 @@ export const BORDER_ALPHA = { dark: 0.15, light: 0.25 };
 
 /** `--wt-accent-system-tint-04` alpha. */
 export const SYSTEM_TINT_ALPHA = 0.04;
+
+/**
+ * Alpha levels, as hundredths, of the `--accent-secondary-tint-NN` scale.
+ *
+ * A different ladder from {@link TINT_LEVELS}: the second accent ships six
+ * levels where the accent ships eight. Exported for the same reason -- the
+ * coverage spec holds these against the committed `tokens.css` rather than
+ * re-deriving them with the same helpers.
+ */
+export const SECONDARY_TINT_LEVELS = [4, 6, 8, 12, 15, 25];
+
+/**
+ * Lightness points between the second accent's base and its hover variant.
+ *
+ * THE LAB'S OWN RULE, in the same sense as `--color-on-accent`: the shipped
+ * families hand-author this slot and do not agree on a derivation. Most darken
+ * the base (`main` -20, `high-contrast` -15 dark / -20 light, `light` -6) while
+ * `desy` simply swaps its two brand oranges (+4). Three of them also jump some
+ * +50 saturation, which a lightness-only rule cannot reproduce at all -- the
+ * same limitation `--color-accent-light` carries above. Darkening by a fixed
+ * step follows the majority and keeps a proposal internally consistent, which
+ * is what the lab promises; it is not a re-derivation of a shipped theme.
+ */
+export const SECONDARY_HOVER_DELTA = -14;
 
 const HEX_PATTERN = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const LEGACY_RGB_PATTERN =
@@ -402,16 +433,78 @@ export function deriveAccentVars(state, mode, scopeColors) {
 }
 
 /**
- * The accent contrast gates, mirroring the two accent entries of
+ * Derive the second accent family for one mode.
+ *
+ * The second accent is a role of its own, not a shade of the accent: every
+ * family picks it by hand, and the build holds `accent-secondary.light` to its
+ * own contrast gate. So it takes its own controls and derives from them with
+ * the same lightness-only rules the accent uses.
+ *
+ * Two ways it differs from {@link deriveAccentVars}, both read off the
+ * committed `tokens.css`: its tints come from the BASE rather than the emphasis
+ * variant, and it carries a third opaque slot (`hover`, see
+ * {@link SECONDARY_HOVER_DELTA}) where the accent carries `on`.
+ *
+ * @param {LabState} secondary per-mode controls for the second accent.
+ * @param {ThemeMode} mode which mode to derive.
+ * @returns {Record<string, string>} CSS custom-property name to value.
+ */
+export function deriveSecondaryAccentVars(secondary, mode) {
+  const choice = secondary[mode];
+  const hs = { h: choice.hue, s: choice.saturation };
+  const base = hslToRgb({ ...hs, l: choice.lightness });
+  const emphasis = hslToRgb({ ...hs, l: choice.emphasisLightness });
+  const hover = hslToRgb({ ...hs, l: clamp(choice.lightness + SECONDARY_HOVER_DELTA, 0, 100) });
+
+  /** @type {Record<string, string>} */
+  const vars = {
+    '--color-accent-secondary': rgbToHex(base),
+    '--color-accent-secondary-light': rgbToHex(emphasis),
+    '--color-accent-secondary-hover': rgbToHex(hover),
+  };
+  for (const level of SECONDARY_TINT_LEVELS) {
+    vars[`--accent-secondary-tint-${String(level).padStart(2, '0')}`] = rgbaCss(base, level / 100);
+  }
+  return vars;
+}
+
+/**
+ * Derive every custom property a proposal sets: both accent families at once.
+ *
+ * This is what the UI writes and what {@link evaluateGates} must be handed. The
+ * third gate scores a second-accent token, so scoring an accent-only map would
+ * fail closed on a value that was never derived rather than on a real shortfall.
+ *
+ * @param {LabState} state accent controls.
+ * @param {LabState} secondary second-accent controls.
+ * @param {ThemeMode} mode which mode to derive.
+ * @param {ScopeColors} scopeColors passed through to the accent derivation.
+ * @returns {Record<string, string>} CSS custom-property name to value.
+ */
+export function deriveThemeVars(state, secondary, mode, scopeColors) {
+  return {
+    ...deriveAccentVars(state, mode, scopeColors),
+    ...deriveSecondaryAccentVars(secondary, mode),
+  };
+}
+
+/**
+ * The accent contrast gates, mirroring every accent entry of
  * `generator/validate.py::WCAG_GATES` (the AA tuple the default family is held
  * to). `accent.on` is gated against `accent.base` rather than the background,
- * because it is text on an accent fill.
+ * because it is text on an accent fill; `accent-secondary.light` is the second
+ * accent's text-safe slot and is gated against the background like body text.
+ *
+ * A test holds this list against `WCAG_GATES` itself, so a gate added to the
+ * build shows up here or CI fails -- a colleague must never be told their theme
+ * passes a check the build does not run, or fails one it does not enforce.
  *
  * @type {ReadonlyArray<{name: string, threshold: number}>}
  */
 const GATES = [
   { name: 'accent.base vs bg.primary', threshold: 3.0 },
   { name: 'accent.on vs accent.base', threshold: 4.5 },
+  { name: 'accent-secondary.light vs bg.primary', threshold: 4.5 },
 ];
 
 /**
@@ -420,18 +513,21 @@ const GATES = [
  * Fails closed: if a color cannot be parsed, the gate reports the worst
  * possible ratio (1) and does not pass, rather than being skipped.
  *
- * @param {Record<string, string>} derived output of {@link deriveAccentVars}.
+ * @param {Record<string, string>} derived output of {@link deriveThemeVars} --
+ *   both families, since the third gate scores a second-accent token.
  * @param {ScopeColors} scopeColors the same scope colors used to derive it.
  * @returns {GateResult[]} one entry per gate, in {@link GATES} order.
  */
 export function evaluateGates(derived, scopeColors) {
   const accent = parseColor(derived['--color-accent']);
   const onAccent = parseColor(derived['--color-on-accent']);
+  const secondaryLight = parseColor(derived['--color-accent-secondary-light']);
   const background = parseColor(scopeColors.bgPrimary);
   /** @type {Array<[Rgb | null, Rgb | null]>} */
   const pairs = [
     [accent, background],
     [onAccent, accent],
+    [secondaryLight, background],
   ];
   return GATES.map((gate, index) => {
     const [foreground, against] = pairs[index];
@@ -517,6 +613,15 @@ const TOKEN_DISPLAY_ORDER = [
   '--accent-tint-06',
   '--accent-tint-04',
   '--wt-accent-system-tint-04',
+  '--color-accent-secondary',
+  '--color-accent-secondary-light',
+  '--color-accent-secondary-hover',
+  '--accent-secondary-tint-25',
+  '--accent-secondary-tint-15',
+  '--accent-secondary-tint-12',
+  '--accent-secondary-tint-08',
+  '--accent-secondary-tint-06',
+  '--accent-secondary-tint-04',
 ];
 
 /**
@@ -542,6 +647,15 @@ const TOKEN_PATHS = {
   '--accent-tint-20': 'tint.accent.20',
   '--accent-tint-25': 'tint.accent.25',
   '--accent-tint-30': 'tint.accent.30',
+  '--color-accent-secondary': 'accent-secondary.base',
+  '--color-accent-secondary-light': 'accent-secondary.light',
+  '--color-accent-secondary-hover': 'accent-secondary.hover',
+  '--accent-secondary-tint-04': 'tint.accent-secondary.04',
+  '--accent-secondary-tint-06': 'tint.accent-secondary.06',
+  '--accent-secondary-tint-08': 'tint.accent-secondary.08',
+  '--accent-secondary-tint-12': 'tint.accent-secondary.12',
+  '--accent-secondary-tint-15': 'tint.accent-secondary.15',
+  '--accent-secondary-tint-25': 'tint.accent-secondary.25',
 };
 
 /**

@@ -41,6 +41,8 @@
 
 import { renderSchemaForm } from './schema-form.js';
 import { panelApiPrefix } from '/design-system/js/dom.js';
+import { onModeChange } from '/design-system/js/frame-params.js';
+import { initSplitter } from '/design-system/js/splitter.js';
 import {
   createDraftClient,
   resolvePinnedRevision,
@@ -48,6 +50,7 @@ import {
   buildLaunchRequestBody,
   classifyLaunchResponse,
   buildLaunchBanner,
+  buildAgentDraftBanner,
   resultsPanelUrl,
 } from './draft-client.js';
 
@@ -266,6 +269,17 @@ const launchBannerEl = h('div', {
   hidden: true,
 });
 launchOutcomeBannerEl.insertAdjacentElement('afterend', launchBannerEl);
+// The agent-draft banner ("agent drafted <plan> — View draft") likewise has
+// no static markup: it is rendered purely from draft-client's declarative
+// banner decision (onAgentDraftBanner below) and sits in the draft-status
+// row, taking the passive affordance's place while active (draft-client
+// suppresses the affordance whenever the banner shows).
+const agentDraftBannerEl = h('div', {
+  id: 'agent-draft-banner',
+  class: 'agent-draft-banner',
+  hidden: true,
+});
+draftAffordanceEl.insertAdjacentElement('afterend', agentDraftBannerEl);
 
 // ---- status presentation ----
 
@@ -776,6 +790,23 @@ const draftClient = createDraftClient({
       planName === null ? '' : `Draft is now on ${planName} — click to view`
     );
   },
+  onAgentDraftBanner(planName) {
+    // Declarative: rebuilt (or removed) from the predicate decision alone —
+    // no imperative show/hide state here. Clicking View runs selectPlan on
+    // the drafted plan, which binds and clears formDirty, so the predicate
+    // goes false and the next recompute removes the banner itself.
+    if (planName === null) {
+      agentDraftBannerEl.hidden = true;
+      agentDraftBannerEl.replaceChildren();
+      return;
+    }
+    agentDraftBannerEl.replaceChildren(
+      buildAgentDraftBanner(document, planName, (name) => {
+        void selectPlan(name);
+      })
+    );
+    agentDraftBannerEl.hidden = false;
+  },
   onUnknownPlanBanner(planName) {
     setNote(
       draftUnknownBannerEl,
@@ -856,6 +887,30 @@ draftAffordanceEl.addEventListener('click', () => {
   void draftClient.onAffordanceClick();
 });
 
+// Live Expert<->Simple flip broadcast by the hub. mode-boot.js set the initial
+// data-ui-mode pre-paint; this is the runtime flip. Every layout delta is CSS
+// (Simple hides the Source tab, draft chrome, and trust internals, and promotes
+// Launch); the one behavioral concern is that Simple hides the Source tab —
+// force the Parameters view so a flip made while Source was active doesn't leave
+// the operator on a now-hidden pane.
+onModeChange((mode) => {
+  if (mode === 'simple') setActiveTab('params');
+});
+
 // ---- boot ----
+
+// Browser/detail split. Plan names are long and deeply namespaced, so the
+// browser needs to be widenable at the cost of the parameter form — the same
+// affordance (and the same shared implementation) as the OKF panel's
+// sidebar/reader split and the artifact gallery's browse view. The chosen
+// width is persisted per origin; the bounds match OKF's.
+initSplitter({
+  handle: document.getElementById('browser-splitter'),
+  pane: document.getElementById('plan-sidebar'),
+  storageKey: 'osprey-plan-sidebar-width',
+  min: 180,
+  max: 560,
+  collapsedSize: 0,
+}).restoreSize();
 
 void loadPlans();

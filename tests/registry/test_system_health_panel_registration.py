@@ -223,12 +223,13 @@ async def test_system_health_server_config_endpoint_returns_proxy_path():
 
 
 def test_frontend_panel_manager_registers_system_health_tab():
+    """The PANELS array lives in panel-catalog.js; panel-manager.js imports it."""
     import os
 
-    pm_path = os.path.join(
-        os.path.dirname(inspect.getfile(web_terminal_app)), "static", "js", "panel-manager.js"
+    catalog_path = os.path.join(
+        os.path.dirname(inspect.getfile(web_terminal_app)), "static", "js", "panel-catalog.js"
     )
-    with open(pm_path, encoding="utf-8") as fh:
+    with open(catalog_path, encoding="utf-8") as fh:
         js = fh.read()
     assert "id: 'system-health'" in js
     assert "/api/system-health-server" in js

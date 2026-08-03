@@ -122,9 +122,9 @@ body.embedded .panel-chrome { display: none; }
   border-color: var(--color-success);
 }
 .badge.warn {
-  color: var(--color-amber);
-  background: var(--amber-tint-08);
-  border-color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border-color: var(--color-accent-secondary);
 }
 .badge.err {
   color: var(--color-error);
@@ -147,9 +147,9 @@ body.embedded .panel-chrome { display: none; }
   font-family: var(--font-mono);
 }
 .banner.warn {
-  color: var(--color-amber);
-  background: var(--amber-tint-08);
-  border: 1px solid var(--color-amber);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border: 1px solid var(--color-accent-secondary);
 }
 
 /* ---- Empty state ---- */
@@ -259,4 +259,20 @@ body.embedded .panel-chrome { display: none; }
   width: 10px;
   height: 10px;
   border-radius: 2px;
+}
+
+/* ---- UI-mode axis: Simple (operator-facing) deltas ----
+ *
+ * Expert stays pixel-identical: every rule below is gated on
+ * html[data-ui-mode="simple"]. Simple keeps the latest-run essentials — the
+ * run picker, the outcome badge, and the trace plot — and drops the dense
+ * internals: the raw data table, the mono run-meta line (uid / completion /
+ * launched-by), and the plot's technical caption. panel.js auto-selects the
+ * newest run in this mode so the result is front and center. Token-only, so
+ * both themes stay correct. */
+html[data-ui-mode="simple"] .lead,
+html[data-ui-mode="simple"] #run-meta,
+html[data-ui-mode="simple"] #table-card,
+html[data-ui-mode="simple"] .chart-caption {
+  display: none;
 }

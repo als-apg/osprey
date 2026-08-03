@@ -2,29 +2,41 @@
 """
 ---
 name: Panels Context
-description: Injects the panel inventory into the agent context at session start
-summary: Agent learns what panels exist and their state without a list_panels round-trip
+description: Injects the web surface (simple/expert) and panel inventory into the agent context at session start
+summary: Agent learns which web UX it serves and what panels exist without a list_panels round-trip
 event: SessionStart
 ---
 
 ## Flow
 
 ```
-SessionStart ──► GET /api/panels (web terminal)
+SessionStart ──► read OSPREY_WEB_UX (set by the web terminal per surface)
                      │
                      ▼
-   build inventory string from enabled + custom panels
+                 GET /api/panels (web terminal)
                      │
                      ▼
-   emit additionalContext JSON ──────────────────────► exit 0
-   (web terminal down / parse failure) ─► silent ────► exit 0
+   build [ux line?] + [inventory?] from env + enabled/custom panels
+                     │
+                     ▼
+   emit additionalContext JSON (any part present) ───► exit 0
+   (no env var AND web terminal down/empty) ─► silent ► exit 0
 ```
 
 ## Details
 
-Fetches the panel inventory from the web terminal at session start and injects
-it as ``additionalContext`` so the agent knows which panels exist, their labels,
-visibility state, and the active tab — without a ``list_panels`` tool round-trip.
+Injects two independent pieces of session context as ``additionalContext``:
+
+1. **Web surface** — ``OSPREY_WEB_UX`` (``simple`` | ``expert``) marks which web
+   UI surface launched this session (the operator chat sets ``simple``, the PTY
+   terminal ``expert`` — see the web terminal's session launchers). In the
+   simple UX the workspace starts hidden until an artifact exists, so the
+   simple line instructs the agent to ``show_panel("artifacts")`` whenever it
+   produces something the operator should see. Emitted even when the panel
+   inventory is unavailable — the surface is known from the env alone.
+2. **Panel inventory** — fetched from the web terminal so the agent knows which
+   panels exist, their labels, visibility state, and the active tab — without a
+   ``list_panels`` tool round-trip.
 
 stdlib-only — must NOT import osprey, yaml, requests, or any third-party lib.
 Uses only ``json``, ``os``, ``sys``, ``urllib.request``, ``urllib.error``.
@@ -40,6 +52,26 @@ import os
 import sys
 import urllib.error
 import urllib.request
+
+
+def _build_ux_context(ux):
+    """Describe the web surface this session serves, from OSPREY_WEB_UX.
+
+    Returns None for absent/unknown values (fail-open: sessions launched
+    outside the web terminal carry no marker and get no surface line).
+    """
+    if ux == "simple":
+        return (
+            "This session serves the web UI's SIMPLE surface: the operator sees "
+            "only the chat, and the WORKSPACE panel stays hidden until there is "
+            "something in it. Whenever you produce an artifact the operator "
+            "should see (a plot, report, page, or other file), call "
+            'show_panel("artifacts") to bring up the WORKSPACE panel so it '
+            "appears next to the chat."
+        )
+    if ux == "expert":
+        return "This session serves the web UI's EXPERT surface (full terminal + workspace layout)."
+    return None
 
 
 def _build_inventory(data):
@@ -80,19 +112,23 @@ def _build_inventory(data):
 
 def main():
     try:
+        ux_context = _build_ux_context(os.environ.get("OSPREY_WEB_UX"))
+
         port = os.environ.get("OSPREY_WEB_PORT", "8087")
         host = "127.0.0.1"
         base = f"http://{host}:{port}"
 
+        inventory = None
         try:
             req = urllib.request.urlopen(f"{base}/api/panels", timeout=2)
-            data = json.loads(req.read())
+            inventory = _build_inventory(json.loads(req.read()))
         except Exception:
-            # Web terminal down or unreachable — fail open, no output.
-            return 0
+            # Web terminal down or unreachable — the surface line (env-only)
+            # still applies; only the inventory is dropped.
+            pass
 
-        inventory = _build_inventory(data)
-        if not inventory:
+        parts = [p for p in (ux_context, inventory) if p]
+        if not parts:
             return 0
 
         sys.stdout.write(
@@ -100,7 +136,7 @@ def main():
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "SessionStart",
-                        "additionalContext": inventory,
+                        "additionalContext": " ".join(parts),
                     }
                 }
             )

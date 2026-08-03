@@ -1,26 +1,49 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
+import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
 import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
-import { initPanelManager } from './panel-manager.js';
+import { initPanelManager, broadcastMode, handleUiModeFlip } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
-import { initTheme } from '/design-system/js/theme-manager.js';
+import { initCommandPalette } from './palette-boot.js';
+import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
+import { initChat } from './chat.js';
+import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
+import { initDisplayMenu } from './display-menu.js';
+import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
   initTerminal('terminal-container');
+  // Simple-mode operator chat. Guarded so a chat init failure can't break the
+  // rest of the boot (the expert terminal is already up at this point).
+  try {
+    initChat('operator-container');
+  } catch (err) {
+    console.error('Failed to init operator chat:', err);
+  }
   initPanelManager('right-panel');
   initSessionSelector('session-selector');
   initStatusBar();
-  initResizeHandle();
+  // Dock the terminal + workspace panels into the dockview shell (replaces the
+  // old fixed resize-handle split). Guarded so a dock init failure can't break
+  // the rest of boot — the source subtrees stay in the page if it no-ops.
+  try {
+    initDockWorkspace();
+  } catch (err) {
+    console.error('Failed to init dock workspace:', err);
+  }
   initKeyboardShortcuts();
+  initCommandPalette();
   initNewSessionButton();
   initLogoutButton();
+  initModeToggle();
+  initDisplayMenu();
+  initRailPosition();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
@@ -102,6 +125,69 @@ export function initLogoutButton() {
   });
 }
 
+/* ---- UI Mode Toggle (Expert / Simple) ---- */
+
+/**
+ * Wire the Expert/Simple toggle (the View row inside the header display-menu
+ * popover — see display-menu.js). The active segment is styled
+ * purely off html[data-ui-mode] (see terminal.css), and mode-boot.js already
+ * resolved the initial mode pre-paint; this only handles the runtime flip:
+ * swap the attribute, persist the explicit choice, drop a leftover one-shot
+ * ?mode= (mirrors theme-manager's _stripQueryTheme), and broadcast to panels.
+ */
+function initModeToggle() {
+  const STORAGE_KEY = 'osprey-ui-mode';
+  const toggle = document.getElementById('mode-toggle');
+  if (!toggle) return;
+
+  toggle.addEventListener('click', (e) => {
+    const target = e.target instanceof Element ? e.target.closest('.mode-segment') : null;
+    if (!(target instanceof HTMLElement)) return;
+    const mode = target.dataset.mode;
+    if (mode !== 'expert' && mode !== 'simple') return;
+
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    try {
+      localStorage.setItem(STORAGE_KEY, mode);
+    } catch { /* storage blocked — mode still applies for this session */ }
+    stripQueryMode();
+    // Panels read the current mode off <html>, so broadcast only after the swap.
+    broadcastMode();
+    // Dock half of the flip: stash+lock into the simple layout, or reconcile+
+    // restore the expert layout. Runs after the CSS/attribute swap so the dock
+    // reads the target mode; no-ops until the workspace shell exists.
+    applyDockMode(mode);
+    // Panel half: a flip to expert ends the simple-UX chat-only suppression
+    // and lets the default panel claim a still-empty workspace slot. Runs
+    // after applyDockMode so the activation docks into the target layout.
+    handleUiModeFlip(mode);
+  });
+}
+
+/**
+ * Adopt a one-shot `?rail=` as an explicit choice. rail-boot.js already
+ * stamped the attribute pre-paint; re-setting it through setRailPosition
+ * persists it and strips the param, so a reload (or a stale bookmark of the
+ * bare URL) keeps the arrangement the link put the operator in. No `?rail=`
+ * means nothing to adopt — the boot-resolved position already IS the stored
+ * or configured one.
+ */
+function initRailPosition() {
+  // Follow the theme family for as long as neither the operator nor the
+  // deployment has pinned a rail of their own: picking Retro hands back the
+  // pre-redesign look, and the horizontal tab strip is part of that look.
+  // followThemeFamily() decides whether the move is allowed; this only tells
+  // it which family is now active, on every apply (init included).
+  subscribeTheme(() => followThemeFamily(getFamily()));
+
+  try {
+    if (!new URLSearchParams(window.location.search).has('rail')) return;
+  } catch {
+    return;
+  }
+  setRailPosition(getRailPosition());
+}
+
 /**
  * `landing_url` comes from operator config, not user input, but it's still a
  * live navigation sink — reject anything that isn't a same-origin relative
@@ -121,6 +207,23 @@ function isSafeLandingUrl(/** @type {string} */ url) {
   }
 }
 
+/**
+ * Strip a one-shot `mode` param from the URL's query string, if present,
+ * without adding a history entry — the mode-axis twin of theme-manager's
+ * _stripQueryTheme(). Once the user makes an explicit choice, a leftover
+ * `?mode=` must not out-rank it (or localStorage) on the next reload.
+ */
+function stripQueryMode() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('mode')) return;
+    params.delete('mode');
+    const query = params.toString();
+    const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    window.history.replaceState(window.history.state, '', url);
+  } catch { /* non-browser environment or a blocked history API — non-fatal */ }
+}
+
 /* ---- Drawer Trigger Highlight ---- */
 
 /**
@@ -130,7 +233,8 @@ function isSafeLandingUrl(/** @type {string} */ url) {
  * this via the `drawer:open`/`drawer:close` events the component dispatches
  * (bubbling) on the host, matching any trigger for that drawer id — either
  * the component's own `[data-drawer]` marker, or `[data-drawer-trigger]`,
- * web_terminal's convention for a trigger (like the settings gear) that
+ * web_terminal's convention for a trigger (like the display menu's System
+ * Settings row) that
  * needs its own gating logic before opening and so must never match the
  * component's delegated `[data-drawer]` handler. Either way the highlight
  * stays in sync.
@@ -175,96 +279,6 @@ function initStatusBar() {
     }, 1000);
   }
 }
-
-/* ---- Resize Handle ---- */
-
-function initResizeHandle() {
-  const handle = document.getElementById('resize-handle');
-  const terminalPanel = /** @type {HTMLElement} */ (document.querySelector('.terminal-panel'));
-  const rightPanel = /** @type {HTMLElement} */ (document.querySelector('.files-panel'));
-  const container = /** @type {HTMLElement} */ (document.querySelector('.main-container'));
-  const headerLeft = /** @type {HTMLElement} */ (document.querySelector('.header-left'));
-  const headerRight = /** @type {HTMLElement} */ (document.querySelector('.header-right'));
-
-  if (!handle || !terminalPanel || !rightPanel || !container) return;
-
-  const handleWidth = 5;
-  let isDragging = false;
-  let startX = 0;
-  let startTermWidth = 0;
-
-  // Track the terminal's share of total width so the split scales with
-  // the browser window.  null = CSS default (no user drag yet).
-  /** @type {number | null} */
-  let terminalRatio = null;
-
-  function applyRatio() {
-    if (terminalRatio === null) return;
-    const totalWidth = container.getBoundingClientRect().width - handleWidth;
-    const termWidth = Math.max(280, Math.min(totalWidth * 0.85, totalWidth * terminalRatio));
-    terminalPanel.style.flex = 'none';
-    terminalPanel.style.width = termWidth + 'px';
-    rightPanel.style.flex = 'none';
-    rightPanel.style.width = (totalWidth - termWidth) + 'px';
-
-    // Sync header split to match the panel split
-    if (headerLeft) {
-      headerLeft.style.flex = 'none';
-      headerLeft.style.width = termWidth + 'px';
-    }
-    if (headerRight) {
-      headerRight.style.flex = 'none';
-      headerRight.style.width = (totalWidth - termWidth) + 'px';
-    }
-  }
-
-  handle.addEventListener('mousedown', (e) => {
-    isDragging = true;
-    startX = e.clientX;
-    startTermWidth = terminalPanel.getBoundingClientRect().width;
-
-    document.body.classList.add('resizing');
-    handle.classList.add('dragging');
-
-    e.preventDefault();
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-
-    const dx = e.clientX - startX;
-    const totalWidth = container.getBoundingClientRect().width - handleWidth;
-
-    let newTermWidth = startTermWidth + dx;
-    const minTerm = 280;
-    const maxTerm = totalWidth * 0.85;
-
-    newTermWidth = Math.max(minTerm, Math.min(maxTerm, newTermWidth));
-
-    // Store as a ratio so it scales with window resize.
-    terminalRatio = newTermWidth / totalWidth;
-    applyRatio();
-
-    fitTerminal();
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (!isDragging) return;
-    isDragging = false;
-    document.body.classList.remove('resizing');
-    handle.classList.remove('dragging');
-    fitTerminal();
-  });
-
-  // Recalculate the split when the browser window resizes.
-  window.addEventListener('resize', () => {
-    applyRatio();
-    fitTerminal();
-  });
-}
-
-/* ---- Docs Link ---- */
-// Documentation link is static — no backend call needed.
 
 /* ---- Iframe Paste Bridge ---- */
 

@@ -35,6 +35,7 @@ from osprey.interfaces.design_system.generator.validate import (
     assert_valid,
     check_alias_resolution,
     check_color_syntax,
+    check_default_flag,
     check_interface_mode_completeness,
     check_namespace_collisions,
     check_promoted_primitive_collisions,
@@ -367,9 +368,7 @@ def test_check_theme_metadata_flags_missing_fields() -> None:
 def test_check_theme_metadata_flags_invalid_mode_value() -> None:
     tree = _tree(
         themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={
-            "dark": {"mode": "sepia", "id": "dark", "label": "Dark", "family": "osprey"}
-        },
+        theme_metadata={"dark": {"mode": "sepia", "id": "dark", "label": "Dark", "family": "main"}},
     )
 
     errors = check_theme_metadata(tree)
@@ -381,9 +380,7 @@ def test_check_theme_metadata_flags_invalid_mode_value() -> None:
 def test_check_theme_metadata_accepts_well_formed_metadata() -> None:
     tree = _tree(
         themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
-        theme_metadata={
-            "dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "osprey"}
-        },
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
     )
 
     assert check_theme_metadata(tree) == []
@@ -438,6 +435,83 @@ def test_check_theme_metadata_accepts_well_formed_family() -> None:
     )
 
     assert check_theme_metadata(tree) == []
+
+
+# --- check_default_flag -----------------------------------------------------------
+
+
+def _flag_metadata(mode: str, default: object) -> dict[str, object]:
+    return {"mode": mode, "id": "x", "label": "X", "family": "main", "default": default}
+
+
+def test_check_default_flag_accepts_single_dark_default() -> None:
+    tree = _tree(
+        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={"dark": _flag_metadata("dark", True)},
+    )
+
+    assert check_default_flag(tree) == []
+
+
+def test_check_default_flag_accepts_explicit_false_and_absent_flags() -> None:
+    tree = _tree(
+        themes={
+            "dark": {"bg.primary": _token("bg.primary", "#000")},
+            "light": {"bg.primary": _token("bg.primary", "#fff")},
+        },
+        theme_metadata={
+            "dark": _flag_metadata("dark", False),
+            "light": {"mode": "light", "id": "l", "label": "L", "family": "main"},
+        },
+    )
+
+    assert check_default_flag(tree) == []
+
+
+def test_check_default_flag_rejects_non_boolean_value() -> None:
+    tree = _tree(
+        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={"dark": _flag_metadata("dark", "yes")},
+    )
+
+    errors = check_default_flag(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
+    assert "boolean" in errors[0].message
+
+
+def test_check_default_flag_rejects_light_theme_default() -> None:
+    tree = _tree(
+        themes={"light": {"bg.primary": _token("bg.primary", "#fff")}},
+        theme_metadata={"light": _flag_metadata("light", True)},
+    )
+
+    errors = check_default_flag(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
+    assert "dark theme" in errors[0].message
+
+
+def test_check_default_flag_rejects_duplicate_defaults() -> None:
+    tree = _tree(
+        themes={
+            "dark": {"bg.primary": _token("bg.primary", "#000")},
+            "aurora-dark": {"bg.primary": _token("bg.primary", "#111")},
+        },
+        theme_metadata={
+            "dark": _flag_metadata("dark", True),
+            "aurora-dark": _flag_metadata("dark", True),
+        },
+    )
+
+    errors = check_default_flag(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule is ValidationRule.INVALID_DEFAULT_FLAG
+    assert "at most one" in errors[0].message
+    assert "aurora-dark" in errors[0].message and "dark" in errors[0].message
 
 
 # --- check_interface_mode_completeness --------------------------------------------
@@ -722,13 +796,17 @@ def test_wcag_gates_constant_matches_proposal_pairs_and_thresholds() -> None:
         ("accent.base", "bg.primary", 3.0),
         # accent.on is gated against accent.base (its fill), not bg.primary.
         ("accent.on", "accent.base", 4.5),
+        # accent-secondary.light is the secondary accent's text-safe slot and
+        # carries body text fleet-wide, so it is gated at the body-text floor
+        # rather than accent.base's non-text-UI 3.0.
+        ("accent-secondary.light", "bg.primary", 4.5),
     }
 
 
 def test_wcag_gates_aaa_constant_matches_high_contrast_thresholds() -> None:
-    # AAA body text (text.primary/secondary) requires 7:1; AAA large-scale
-    # text and non-text UI (text.muted/accent.base) requires 4.5:1 -- see
-    # WCAG_GATES_AAA's docstring/comment for the citation.
+    # AAA body text (text.primary/secondary, accent-secondary.light) requires
+    # 7:1; AAA large-scale text and non-text UI (text.muted/accent.base)
+    # requires 4.5:1 -- see WCAG_GATES_AAA's docstring/comment for the citation.
     pairs = {(gate.foreground, gate.background, gate.minimum) for gate in WCAG_GATES_AAA}
     assert pairs == {
         ("text.primary", "bg.primary", 7.0),
@@ -736,6 +814,9 @@ def test_wcag_gates_aaa_constant_matches_high_contrast_thresholds() -> None:
         ("text.muted", "bg.primary", 4.5),
         ("accent.base", "bg.primary", 4.5),
         ("accent.on", "accent.base", 7.0),
+        # Body text, so the 7:1 tier -- not the 4.5:1 large-text tier its
+        # accent.base sibling sits in.
+        ("accent-secondary.light", "bg.primary", 7.0),
     }
 
 
@@ -775,13 +856,11 @@ def test_check_wcag_gates_applies_aaa_minimums_for_high_contrast_family() -> Non
     assert all(error.rule == ValidationRule.WCAG_CONTRAST for error in errors)
 
 
-def test_check_wcag_gates_applies_aa_minimums_for_osprey_family() -> None:
+def test_check_wcag_gates_applies_aa_minimums_for_main_family() -> None:
     # Same ~4.54:1 pair clears every AA gate.
     tree = _tree(
         themes={"dark": _wcag_theme(text_primary="#767676", bg_primary="#ffffff")},
-        theme_metadata={
-            "dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "osprey"}
-        },
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
     )
 
     assert check_wcag_gates(tree) == []
@@ -877,14 +956,14 @@ def test_full_pipeline_clean_tree_validates_with_zero_errors(tmp_path: Path) -> 
     )
 
     dark = {
-        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
+        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
         "bg": {"primary": {"$value": "{color.slate.900}", "$type": "color"}},
         "text": {"primary": {"$value": "#ffffff", "$type": "color"}},
         "accent": {"base": {"$value": "{color.teal.500}", "$type": "color"}},
         "terminal": {"cursor": {"$value": "{color.teal.500}", "$type": "color"}},
     }
     light = {
-        "$extensions": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+        "$extensions": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
         "bg": {"primary": {"$value": "{color.slate.50}", "$type": "color"}},
         "text": {"primary": {"$value": "#000000", "$type": "color"}},
         # A darker teal step than dark's accent.base — the light theme

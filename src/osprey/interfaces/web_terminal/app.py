@@ -6,8 +6,9 @@ via PTY) on the left and a live workspace file viewer on the right.
 
 from __future__ import annotations
 
+import asyncio
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -263,10 +264,10 @@ def resolve_web_theme_id(
     - A concrete theme id (e.g. ``"high-contrast-light"``) — used as-is.
       This is how an operator pins a specific mode instead of the
       family's dark default.
-    - A theme *family* name (e.g. ``"osprey"``, ``"high-contrast"``) —
+    - A theme *family* name (e.g. ``"main"``, ``"high-contrast"``) —
       resolved to that family's **dark** id, the canonical SSR default.
     - Anything else (unknown/misspelled) — logged as a warning and
-      resolved to the ``osprey`` family's dark id.
+      resolved to the ``main`` family's dark id.
 
     Mirrors the warn+fallback shape of
     :func:`osprey.cli.styles.load_theme_from_config`: never raises.
@@ -292,15 +293,15 @@ def resolve_web_theme_id(
 
     logger.warning(
         "Unknown web.theme %r (not a theme id or family); falling back to "
-        "osprey's dark theme. Valid ids: %s; valid families: %s",
+        "the main family's dark theme. Valid ids: %s; valid families: %s",
         configured,
         sorted(valid_ids),
         sorted(defaults),
     )
-    osprey_dark = defaults.get("osprey", {}).get("dark")
-    if osprey_dark is not None:
-        return osprey_dark
-    # Degenerate case (no built-in ``osprey`` family): still return a real
+    main_dark = defaults.get("main", {}).get("dark")
+    if main_dark is not None:
+        return main_dark
+    # Degenerate case (no built-in ``main`` family): still return a real
     # baked dark id — ``build_theme_defaults`` guarantees each family has a
     # dark member — rather than an unverified literal, so Task 1.8's boot
     # rung honors it instead of silently dropping to auto (FOUC).
@@ -308,6 +309,116 @@ def resolve_web_theme_id(
         if "dark" in family_modes:
             return family_modes["dark"]
     return next(iter(sorted(valid_ids)), "dark")
+
+
+#: The two supported web UI modes. ``expert`` is the full split-pane terminal
+#: workspace; ``simple`` is the pared-down operator layout. ``expert`` is the
+#: default so an absent/misconfigured ``web.ui_mode`` never strands a deployment
+#: in the reduced surface.
+UI_MODES = ("expert", "simple")
+DEFAULT_UI_MODE = "expert"
+
+
+def resolve_ui_mode(configured: str) -> str:
+    """Resolve the ``web.ui_mode`` config value into a concrete UI mode.
+
+    ``configured`` must be one of :data:`UI_MODES` (``"expert"`` or
+    ``"simple"``). Anything else — a typo, ``None``, an empty string — is
+    logged as a warning and resolved to :data:`DEFAULT_UI_MODE`.
+
+    Mirrors the warn+fallback shape of :func:`resolve_web_theme_id`: it never
+    raises, so a bad value degrades to the safe default instead of blocking
+    server startup.
+
+    Args:
+        configured: The raw ``web.ui_mode`` config value.
+
+    Returns:
+        A concrete mode string in :data:`UI_MODES` — the value stamped onto
+        ``<html data-ui-mode>`` for the pre-paint mode-boot rung, which only
+        honors a real mode.
+    """
+    if configured in UI_MODES:
+        return configured
+
+    logger.warning(
+        "Unknown web.ui_mode %r (expected one of %s); falling back to %r.",
+        configured,
+        list(UI_MODES),
+        DEFAULT_UI_MODE,
+    )
+    return DEFAULT_UI_MODE
+
+
+#: The two supported rail positions. ``left`` is the redesign's icon-rail
+#: column; ``top`` renders the same rail as a horizontal strip under the
+#: header — the arrangement operators know from the pre-redesign tab bar.
+RAIL_POSITIONS = ("left", "top")
+DEFAULT_RAIL_POSITION = "left"
+
+#: Per-theme-family rail defaults, applied only when ``web.rail_position``
+#: is absent from config. The ``retro`` family restores the pre-redesign
+#: look, and the horizontal tab strip under the header is part of that look
+#: — picking Retro without also moving the rail would hand back the old
+#: colors inside the new layout. Any family not listed here defaults to
+#: :data:`DEFAULT_RAIL_POSITION`.
+#:
+#: This map is the single source of truth for the coupling: ``GET
+#: /api/panels`` echoes it to the browser so ``rail-position.js`` can follow
+#: a live family switch without carrying its own copy.
+FAMILY_RAIL_DEFAULTS: dict[str, str] = {"retro": "top"}
+
+
+def family_rail_default(family: str | None) -> str:
+    """The rail position a theme family implies, absent explicit config.
+
+    Args:
+        family: A theme ``$extensions.family`` value, or ``None`` when the
+            family could not be resolved.
+
+    Returns:
+        The family's entry in :data:`FAMILY_RAIL_DEFAULTS`, else
+        :data:`DEFAULT_RAIL_POSITION`.
+    """
+    return FAMILY_RAIL_DEFAULTS.get(family or "", DEFAULT_RAIL_POSITION)
+
+
+def resolve_rail_position(configured: str | None, theme_family: str | None = None) -> str:
+    """Resolve the ``web.rail_position`` config value into a concrete position.
+
+    An explicit ``configured`` in :data:`RAIL_POSITIONS` (``"left"`` or
+    ``"top"``) always wins — a deployment that states a rail position keeps
+    it in every theme. ``None`` means the key is absent from config, in
+    which case the position comes from the active theme family via
+    :func:`family_rail_default`. Anything else — a typo, an empty string —
+    is logged as a warning and treated as absent.
+
+    Mirrors the warn+fallback shape of :func:`resolve_ui_mode`: it never
+    raises, so a bad value degrades to the safe default instead of blocking
+    server startup.
+
+    Args:
+        configured: The raw ``web.rail_position`` config value, or ``None``
+            when the key is absent.
+        theme_family: The resolved theme's ``$extensions.family``, used only
+            when ``configured`` gives no answer.
+
+    Returns:
+        A concrete position string in :data:`RAIL_POSITIONS` — the value
+        stamped onto ``<html data-rail-position>`` for the pre-paint
+        rail-boot rung, which only honors a real position.
+    """
+    if configured in RAIL_POSITIONS:
+        return configured
+
+    if configured is not None:
+        logger.warning(
+            "Unknown web.rail_position %r (expected one of %s); falling back to "
+            "the position the active theme family implies.",
+            configured,
+            list(RAIL_POSITIONS),
+        )
+    return family_rail_default(theme_family)
 
 
 def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
@@ -327,6 +438,18 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
         config = load_osprey_config()
     except Exception:
         return set(UNIVERSAL_PANELS), [], None
+
+    if not config:
+        # The CLI refuses to launch without a resolvable config, but this app
+        # can also be created directly (tests, uvicorn factory) — never let
+        # that degrade silently into a rail with most of its panels missing.
+        logger.warning(
+            "No OSPREY config resolved (OSPREY_CONFIG=%s, cwd=%s) — "
+            "serving universal panels only: %s",
+            os.environ.get("OSPREY_CONFIG", "<unset>"),
+            Path.cwd(),
+            sorted(UNIVERSAL_PANELS),
+        )
 
     web_config = config.get("web", {})
     panels_config = web_config.get("panels", {})
@@ -548,7 +671,34 @@ def _create_lifespan(
             )
         max_bg = int(config.get("max_background_sessions", 5))
         app.state.pty_registry = PtyRegistry(max_background=max_bg)
-        app.state.operator_registry = OperatorRegistry()
+
+        # ── Simple-mode chat pool bounds (Task 1.7) ──
+        # Three knobs bound the operator-chat pool; each fails open to its
+        # default so a missing/broken config never blocks startup. Read from
+        # the top-level `web` section (same section as web.theme/web.ui_mode).
+        # The route handlers re-read the two timeouts off app.state via getattr
+        # with these same defaults, so the attribute names are load-bearing.
+        try:
+            from osprey.utils.config import get_config_value
+
+            chat_turn_timeout_s = float(get_config_value("web.chat_turn_timeout_s", 600))
+            chat_idle_timeout_s = float(get_config_value("web.chat_idle_timeout_s", 1800))
+            chat_max_sessions = int(get_config_value("web.chat_max_sessions", 5))
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not resolve web.chat_* config keys; using defaults "
+                "(turn=600s, idle=1800s, max=5)",
+                exc_info=True,
+            )
+            chat_turn_timeout_s, chat_idle_timeout_s, chat_max_sessions = 600.0, 1800.0, 5
+        app.state.chat_turn_timeout_s = chat_turn_timeout_s
+        app.state.chat_idle_timeout_s = chat_idle_timeout_s
+        app.state.chat_max_sessions = chat_max_sessions
+
+        app.state.operator_registry = OperatorRegistry(
+            chat_max_sessions=chat_max_sessions,
+            chat_idle_seconds=chat_idle_timeout_s,
+        )
         app.state.project_cwd = str(
             Path(project_dir).resolve() if project_dir else Path.cwd().resolve()
         )
@@ -604,10 +754,17 @@ def _create_lifespan(
         try:
             from osprey.utils.config import get_config_value
 
-            configured_web_theme = get_config_value("web.theme", "osprey")
+            configured_web_theme = get_config_value("web.theme", "main")
             theme_entries, theme_defaults = _load_theme_registry()
             app.state.web_theme_id = resolve_web_theme_id(
                 configured_web_theme, theme_entries, theme_defaults
+            )
+            # The resolved theme's family, kept for the rail-position block
+            # below (an unconfigured rail follows the family — see
+            # FAMILY_RAIL_DEFAULTS).
+            app.state.web_theme_family = next(
+                (entry.family for entry in theme_entries if entry.id == app.state.web_theme_id),
+                None,
             )
         except Exception:  # noqa: BLE001 — never let config/theme-registry load block startup
             logger.warning(
@@ -616,6 +773,57 @@ def _create_lifespan(
                 exc_info=True,
             )
             app.state.web_theme_id = "dark"
+            app.state.web_theme_family = None
+
+        # ── Web UI mode (SSR no-flash attribute, Task 5.1) ──
+        # Resolved once at startup and server-rendered onto <html data-ui-mode>
+        # so the pre-paint mode-boot script (Task 5.2) first-paints in the right
+        # mode. GET /api/panels also carries ui_mode, but first paint must never
+        # depend on that API field — this server-rendered attribute is the
+        # authoritative first-paint rung. Read via load_osprey_config (the same
+        # top-level `web` section the panel loaders in this file use). Fails open
+        # to the default mode on any config-read error.
+        try:
+            from osprey.utils.workspace import load_osprey_config
+
+            configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
+            app.state.web_ui_mode = resolve_ui_mode(configured_ui_mode)
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not resolve web.ui_mode (config load failed); "
+                "server-rendering fallback mode %r",
+                DEFAULT_UI_MODE,
+                exc_info=True,
+            )
+            app.state.web_ui_mode = DEFAULT_UI_MODE
+
+        # ── Rail position (SSR no-flash attribute) ──
+        # Same shape as web.ui_mode above: resolved once at startup and
+        # server-rendered onto <html data-rail-position> so the pre-paint
+        # rail-boot script first-paints the right rail orientation. GET
+        # /api/panels also carries rail_position, but first paint must never
+        # depend on that API field — this attribute is the authoritative rung.
+        # Fails open to the default position on any config-read error.
+        try:
+            from osprey.utils.workspace import load_osprey_config
+
+            configured_rail = load_osprey_config().get("web", {}).get("rail_position")
+            app.state.web_rail_position = resolve_rail_position(
+                configured_rail, getattr(app.state, "web_theme_family", None)
+            )
+            # Whether the deployment stated a position of its own. The browser
+            # needs this to know if a live theme-family switch may move the
+            # rail: an explicit config value outranks the family default.
+            app.state.web_rail_position_configured = configured_rail in RAIL_POSITIONS
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not resolve web.rail_position (config load failed); "
+                "server-rendering fallback position %r",
+                DEFAULT_RAIL_POSITION,
+                exc_info=True,
+            )
+            app.state.web_rail_position = DEFAULT_RAIL_POSITION
+            app.state.web_rail_position_configured = False
 
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the
@@ -753,7 +961,35 @@ def _create_lifespan(
             trust_env=False,
         )
 
+        # ── Idle chat-session reaper (Task 1.7) ──
+        # Periodically evicts idle chat sessions (per the registry's idle
+        # predicate, which also collects zombie-busy sessions) so an abandoned
+        # Simple-mode tab does not pin a pool slot indefinitely. Fail-open at
+        # every level: a per-cycle exception is swallowed+logged, and the whole
+        # task is wrapped so a reaper crash can never take the app down. Interval
+        # is idle_timeout/4, clamped to [30s, 300s].
+        reap_interval = max(30.0, min(chat_idle_timeout_s / 4.0, 300.0))
+        registry = app.state.operator_registry
+
+        async def _reap_idle_chats() -> None:
+            while True:
+                await asyncio.sleep(reap_interval)
+                try:
+                    reaped = await registry.reap_idle_chat_sessions()
+                    if reaped:
+                        logger.info("Idle chat reaper evicted %d session(s)", reaped)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 — one bad cycle must not kill the reaper
+                    logger.warning("Idle chat reaper cycle failed", exc_info=True)
+
+        reaper_task = asyncio.create_task(_reap_idle_chats())
+
         yield
+
+        reaper_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await reaper_task
 
         await app.state.proxy_client.aclose()
 
@@ -814,6 +1050,8 @@ def create_app(
     async def root(request: Request):
         app_name = getattr(request.app.state, "app_name", "")
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
+        web_ui_mode = getattr(request.app.state, "web_ui_mode", DEFAULT_UI_MODE)
+        web_rail_position = getattr(request.app.state, "web_rail_position", DEFAULT_RAIL_POSITION)
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
         return templates.TemplateResponse(
@@ -822,6 +1060,8 @@ def create_app(
             {
                 "app_name": app_name,
                 "web_theme_id": web_theme_id,
+                "web_ui_mode": web_ui_mode,
+                "web_rail_position": web_rail_position,
                 "terminal_user": terminal_user,
                 "landing_url": landing_url,
                 "url_prefix": url_prefix,

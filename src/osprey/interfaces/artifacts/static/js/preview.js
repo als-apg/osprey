@@ -7,13 +7,15 @@
  * fullscreen enter/exit (+ the "N new" badge while fullscreen), and
  * agent-focus (`setAsFocus`).
  *
- * The markdown+KaTeX render pipeline and the JSON viewer live in the sibling
- * preview-content.js module — kept separate purely to hold both files under
- * the 450-line cap. That module is stateless aside from its own
- * one-time marked-config flag, so the split is a clean seam: `renderPreview`
- * below just calls `renderMarkdownView`/`renderJsonView` with a container and
- * an artifact, the same way it already calls `escapeHtml`/`typeBadge` from
- * types.js.
+ * What this pane owns is the *chrome*: the header, the action buttons, the
+ * meta strip, fullscreen. The viewport inside it — which markup an artifact of
+ * a given type renders as, and what has to be mounted into it afterwards —
+ * belongs to artifact-viewport.js, shared verbatim with Simple mode's result
+ * card (gallery.js's `renderSimple`). The two surfaces differ in chrome and
+ * never in the viewport, so there is exactly one dispatch and this module
+ * calls it: `artifactViewportHtml(a)` for the markup, then
+ * `mountArtifactViewport(...)` once it is live. That dispatch in turn owns the
+ * calls into preview-content.js's markdown+KaTeX pipeline and JSON viewer.
  *
  * `createPreviewRenderer(callbacks)` follows render.js's
  * `createSidebarRenderer(callbacks)` precedent: the fullscreen flag and the
@@ -37,7 +39,6 @@ import {
   setSelectedArtifact,
   getFocusedArtifact,
   setFocusedArtifact,
-  fileUrl,
 } from "./state.js";
 import {
   typeBadge,
@@ -45,10 +46,9 @@ import {
   formatSize,
   formatFullTime,
   openUrl,
-  hasTimeseriesData,
   requestColorPass,
 } from "./types.js";
-import { renderMarkdownView, renderJsonView } from "./preview-content.js";
+import { artifactViewportHtml, mountArtifactViewport } from "./artifact-viewport.js";
 import { injectLogbookButtons } from "./logbook.js";
 import { injectPrintButton } from "./print.js";
 
@@ -68,7 +68,7 @@ function resizePreviewMedia() {
     // eslint-disable-next-line no-empty -- intentional empty catch: dispatching resize into a cross-origin frame is best-effort
     try { iframe.contentWindow.dispatchEvent(new Event("resize")); } catch {}
   }
-  const tsChart = document.getElementById("ts-viewport");
+  const tsChart = previewContent?.querySelector(".ts-viewport-container");
   if (tsChart && typeof Plotly !== "undefined") {
     // eslint-disable-next-line no-empty -- intentional empty catch: Plotly resize is best-effort when chart not yet ready
     try { Plotly.Plots.resize(tsChart); } catch {}
@@ -82,7 +82,7 @@ function resizePreviewMedia() {
  * @property {() => void} onArtifactDeleted - fired after a successful DELETE (local artifact/selection/focus state is already updated by this module); caller updates the header count and re-renders the sidebar
  * @property {() => void} onPinToggled - fired after a successful pin/unpin; caller re-renders the sidebar
  * @property {() => void} onFullscreenExit - fired on exiting fullscreen, before the resize/scroll-into-view pass; caller re-renders the sidebar
- * @property {(container: HTMLElement, artifact: any) => void} onTimeseriesNeeded - fired once the `#ts-viewport` container exists for a timeseries artifact; caller (gallery.js, via timeseries.js's renderTimeseriesView) renders the chart/table into it
+ * @property {(container: HTMLElement, artifact: any) => void} onTimeseriesNeeded - forwarded to artifact-viewport.js's `mountArtifactViewport`; fired with the mounted `.ts-viewport-container` for a timeseries artifact, which the caller (gallery.js, via timeseries.js's renderTimeseriesView) renders the chart/table into
  */
 
 /**
@@ -114,52 +114,11 @@ export function createPreviewRenderer(callbacks) {
     previewContent.classList.remove("hidden");
 
     const a = getSelectedArtifact();
-    const url = fileUrl(a);
 
-    let viewportHtml = "";
-
-    // Check for timeseries data
-    if (hasTimeseriesData(a)) {
-      viewportHtml = `<div id="ts-viewport" class="ts-viewport-container"></div>`;
-    } else {
-      switch (a.artifact_type) {
-        case "plot_html":
-        case "table_html":
-        case "dashboard_html":
-        case "html":
-          viewportHtml = `<iframe src="${url}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
-          break;
-        case "notebook":
-          viewportHtml = `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
-          break;
-        case "plot_png":
-        case "image":
-          viewportHtml = `<img src="${url}" alt="${escapeHtml(a.title)}" />`;
-          break;
-        case "markdown":
-          viewportHtml = `<div id="md-viewport" class="md-preview-container"></div>`;
-          break;
-        case "json":
-          viewportHtml = `<div id="json-viewport" class="json-viewer"></div>`;
-          break;
-        case "text":
-          viewportHtml = `<iframe src="${url}" class="preview-iframe-dark"></iframe>`;
-          break;
-        default:
-          if (a.mime_type === "application/pdf") {
-            viewportHtml = `<iframe src="${url}" class="preview-iframe-light"></iframe>`;
-          } else {
-            viewportHtml = `<div class="preview-download">
-              <a href="${url}" target="_blank" class="btn btn-secondary">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-                </svg>
-                Download ${escapeHtml(a.filename)}
-              </a>
-            </div>`;
-          }
-      }
-    }
+    // The viewport itself is the shared dispatch (artifact-viewport.js) — the
+    // same one Simple's result card renders through. Only the chrome below is
+    // this pane's own.
+    const viewportHtml = artifactViewportHtml(a);
 
     previewContent.innerHTML = `
       <div class="preview-header">
@@ -263,23 +222,11 @@ export function createPreviewRenderer(callbacks) {
     // Update badge if in fullscreen
     if (isFullscreen) updateNewArtifactBadge();
 
-    // Render timeseries if applicable
-    if (hasTimeseriesData(a)) {
-      const tsEl = document.getElementById("ts-viewport");
-      if (tsEl) callbacks.onTimeseriesNeeded(tsEl, a);
-    }
-
-    // Render markdown inline
-    if (a.artifact_type === "markdown") {
-      const mdEl = document.getElementById("md-viewport");
-      if (mdEl) renderMarkdownView(mdEl, a);
-    }
-
-    // Render JSON inline
-    if (a.artifact_type === "json") {
-      const jsonEl = document.getElementById("json-viewport");
-      if (jsonEl) renderJsonView(jsonEl, a);
-    }
+    // Post-mount step for the types whose content is fetched (timeseries,
+    // markdown, JSON), scoped to this pane's own content element.
+    mountArtifactViewport(previewContent, a, {
+      onTimeseriesNeeded: callbacks.onTimeseriesNeeded,
+    });
 
     requestColorPass();
     injectLogbookButtons();

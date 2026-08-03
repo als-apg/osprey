@@ -40,7 +40,21 @@
     <aside class="lab-controls">
 
       <section class="lab-section">
-        <h2 class="lab-section-title">Accent</h2>
+        <h2 class="lab-section-title">Color</h2>
+
+        <!-- A theme has two accents: the main one, and a second used for
+             highlights and warnings. One set of controls edits whichever is
+             selected here; both are previewed and both are exported. -->
+        <div class="lab-target" id="target-row" role="group" aria-label="Which color to edit">
+          <button class="lab-target-btn" type="button" data-target="accent" aria-pressed="true">
+            <span class="lab-target-swatch" data-target-swatch="accent" aria-hidden="true"></span>
+            Accent
+          </button>
+          <button class="lab-target-btn" type="button" data-target="secondary" aria-pressed="false">
+            <span class="lab-target-swatch" data-target-swatch="secondary" aria-hidden="true"></span>
+            Second accent
+          </button>
+        </div>
 
         <canvas class="lab-wheel" id="hue-wheel" width="240" height="240"
                 aria-label="Hue and saturation picker"></canvas>
@@ -63,6 +77,8 @@
 
       <section class="lab-section">
         <h2 class="lab-section-title">Lightness</h2>
+        <p class="lab-hint" id="lightness-hint">How light or dark the selected
+          color sits in each mode.</p>
 
         <div class="lab-field">
           <label class="lab-field-label" for="lightness-dark">

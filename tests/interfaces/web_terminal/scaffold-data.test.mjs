@@ -27,8 +27,9 @@ import {
   registerUntrackedFile,
   deleteUntrackedFile,
   createScaffoldDataActions,
-  withPrefix,
+  apiRequest,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
+import { apiRequest as apiRequestFromApi } from '../../../src/osprey/interfaces/web_terminal/static/js/api.js';
 
 /**
  * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js').ArtifactFilterState} ArtifactFilterState
@@ -245,28 +246,18 @@ describe('loadArtifacts', () => {
   });
 });
 
-describe('withPrefix (multi-user URL prefix contract)', () => {
-  test('prepends window.__OSPREY_PREFIX__ to a root-absolute path', () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    expect(withPrefix('/api/scaffold')).toBe('/u/alice/api/scaffold');
-  });
-
-  test('is byte-identical to the unprefixed path when the prefix is empty/absent', () => {
-    window.__OSPREY_PREFIX__ = '';
-    expect(withPrefix('/api/scaffold')).toBe('/api/scaffold');
-    delete window.__OSPREY_PREFIX__;
-    expect(withPrefix('/api/scaffold')).toBe('/api/scaffold');
-  });
-
-  test('does not double-prefix a path that already carries the prefix', () => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    expect(withPrefix('/u/alice/api/scaffold')).toBe('/u/alice/api/scaffold');
+describe('apiRequest re-export (shared write-helper seam)', () => {
+  test('is api.js\'s one copy, not a local reimplementation', () => {
+    // The full apiRequest/withPrefix contract is pinned in api.test.mjs; here
+    // only the sharing seam matters: sibling write-action modules importing
+    // from data.js get the identical function object.
+    expect(apiRequest).toBe(apiRequestFromApi);
   });
 });
 
 describe('registerUntrackedFile', () => {
   test('resolves without throwing on a 200 response, POSTing the canonical name', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(registerUntrackedFile('my-hook')).resolves.toBeUndefined();
@@ -279,7 +270,7 @@ describe('registerUntrackedFile', () => {
 
   test('prepends window.__OSPREY_PREFIX__ to the register POST (multi-user deployments)', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal('fetch', fetchMock);
 
     await registerUntrackedFile('my-hook');
@@ -323,7 +314,7 @@ describe('deleteUntrackedFile', () => {
 
   test('deletes and resolves true when confirmed and the response is OK', async () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(deleteUntrackedFile('my file')).resolves.toBe(true);
@@ -347,7 +338,7 @@ describe('deleteUntrackedFile', () => {
   test('prepends window.__OSPREY_PREFIX__ to the delete request (multi-user deployments)', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
     vi.stubGlobal('confirm', vi.fn(() => true));
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal('fetch', fetchMock);
 
     await deleteUntrackedFile('my file');
@@ -428,7 +419,7 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
 
   test('registerUntracked() registers, reloads, and fires onLoaded on success', async () => {
     stubFetchRoutes({
-      '/api/scaffold/untracked/register': { ok: true },
+      '/api/scaffold/untracked/register': { ok: true, json: () => Promise.resolve({}) },
       '/api/scaffold': { ok: true, json: () => Promise.resolve({ artifacts: [] }) },
       '/api/scaffold/untracked': { ok: true, json: () => Promise.resolve({ untracked: [] }) },
     });
@@ -478,7 +469,7 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
   test('deleteUntracked() deletes, reloads, and fires onLoaded when confirmed and the response is OK', async () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
     stubFetchRoutes({
-      [`/api/scaffold/untracked/${encodeURIComponent('my file')}`]: { ok: true },
+      [`/api/scaffold/untracked/${encodeURIComponent('my file')}`]: { ok: true, json: () => Promise.resolve({}) },
       '/api/scaffold': { ok: true, json: () => Promise.resolve({ artifacts: [] }) },
       '/api/scaffold/untracked': { ok: true, json: () => Promise.resolve({ untracked: [] }) },
     });

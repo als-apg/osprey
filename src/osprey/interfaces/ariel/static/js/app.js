@@ -8,7 +8,7 @@
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { capabilitiesApi } from './api.js';
-import { initSearch, performSearch, clearSearch } from './search.js';
+import { initSearch, performSearch, clearSearch, onUiModeChange } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
@@ -20,6 +20,21 @@ import { initSettings } from './settings.js';
 // and follow live changes. theme-boot.js already applied data-theme
 // pre-paint; this call attaches the follower's postMessage listener.
 initTheme({ role: 'follower' });
+
+// Live Expert<->Simple switch broadcast by the hub's header toggle. The
+// pre-paint rung (mode-boot.js) already set the initial data-ui-mode; this is
+// the runtime flip. Coerce anything non-"simple" to "expert", re-stamp the
+// attribute (CSS deltas key off it), then repaint the current results so plain
+// cards <-> scored cards swap without re-running the query. Mirrors the
+// artifacts panel's gallery.js listener.
+window.addEventListener('message', (e) => {
+  if (e.origin !== window.location.origin) return;
+  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
+    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    onUiModeChange();
+  }
+});
 
 // Current view
 let currentView = 'search';

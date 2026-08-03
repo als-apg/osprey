@@ -13,12 +13,15 @@ Both tools report gallery outcomes honestly instead of fire-and-forget:
   gallery was actually notified via ``gallery_notified``.
 """
 
+import functools
 import json
 import logging
 import urllib.error
 
+import anyio
+
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import _post_json_with_response, gallery_url
+from osprey.mcp_server.http import _post_json_with_response, gallery_url, notify_agent_activity
 from osprey.mcp_server.workspace.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.focus")
@@ -83,6 +86,18 @@ async def artifact_focus(artifact_id: str, fullscreen: bool = False) -> str:
             ["Verify the gallery serves the same artifact store this session saved to."],
         )
 
+    # Agent-activity highlight for the host activity strip. The gallery itself
+    # is unchanged — it already self-signals via its own focus SSE above.
+    # notify_agent_activity never raises; the blocking call runs off the loop.
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_agent_activity,
+            "artifact_focus",
+            "artifact",
+            detail=entry.title or artifact_id,
+        )
+    )
+
     return json.dumps(
         {
             "status": "success",
@@ -134,6 +149,16 @@ async def artifact_pin(artifact_id: str, pinned: bool = True) -> str:
         gallery_notified = 200 <= status < 300
     except (urllib.error.URLError, OSError) as exc:
         logger.warning("Gallery pin notification failed (non-fatal): %s", exc)
+
+    # Agent-activity highlight (same contract as artifact_focus above).
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_agent_activity,
+            "artifact_pin",
+            "artifact",
+            detail=entry.title or artifact_id,
+        )
+    )
 
     return json.dumps(
         {

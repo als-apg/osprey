@@ -18,7 +18,7 @@ import {
   buildExportMarkdown,
   checkCollision,
   clamp,
-  deriveAccentVars,
+  deriveThemeVars,
   evaluateGates,
   hslCss,
   hslToRgb,
@@ -78,6 +78,21 @@ const EMPHASIS_DELTA = { dark: 16, light: -8 };
  */
 const LIGHT_MODE_DELTA = -10;
 
+/**
+ * What the second accent opens on: the shipped default family's own
+ * `accent-secondary`, so the lab starts from a pair that already clears every
+ * gate and the author changes only what they mean to change.
+ *
+ * Each mode's lightness is given outright rather than deriving light mode from
+ * dark through {@link LIGHT_MODE_DELTA}. That delta is tuned for the accent,
+ * which is held to the 3:1 non-text tier; `accent-secondary.light` is body text
+ * at 4.5:1, and -10 does not clear it on a pale background (it lands at
+ * 3.43:1). The shipped families hand-author both modes for the same reason.
+ *
+ * @type {{hue: number, saturation: number, lightness: Record<ThemeMode, number>}}
+ */
+const SECONDARY_SEED = { hue: 31, saturation: 53, lightness: { dark: 64, light: 44 } };
+
 /** Lightness the hue/saturation disc is painted at -- a fixed reference. */
 const WHEEL_LIGHTNESS = 50;
 
@@ -118,35 +133,73 @@ const state = {
 };
 
 /**
- * Set one mode's base lightness, re-deriving its emphasis variant.
+ * The second accent's controls, in the same shape as {@link state}.
+ *
+ * A separate family rather than a shade of the accent -- see
+ * `deriveSecondaryAccentVars` -- so it gets its own state and its own turn at
+ * the shared picker.
+ */
+const secondary = {
+  dark: { hue: 0, saturation: 0, lightness: 0, emphasisLightness: 0 },
+  light: { hue: 0, saturation: 0, lightness: 0, emphasisLightness: 0 },
+};
+
+/** @typedef {'accent' | 'secondary'} Target */
+
+/**
+ * Which family the wheel, hex field, presets and lightness sliders edit.
+ *
+ * One set of controls serves both: a second wheel would double the page for a
+ * control used a fraction as often, and the previews already show both colors
+ * at once, so nothing is hidden by editing them in turn.
+ *
+ * @type {Target}
+ */
+let target = 'accent';
+
+/** The state object the controls currently write into. */
+function active() {
+  return target === 'accent' ? state : secondary;
+}
+
+/**
+ * Set one mode's base lightness on the active family, re-deriving its emphasis
+ * variant.
  *
  * @param {ThemeMode} mode
  * @param {number} lightness
  */
 function setModeLightness(mode, lightness) {
+  const family = active();
   const base = clamp(lightness, 0, 100);
-  state[mode] = {
-    ...state[mode],
+  family[mode] = {
+    ...family[mode],
     lightness: base,
     emphasisLightness: clamp(base + EMPHASIS_DELTA[mode], 0, 100),
   };
 }
 
 /**
- * Set the hue and saturation both modes share, leaving each mode's lightness
- * alone -- dragging the wheel must not undo a slider the author has tuned.
+ * Set the hue and saturation both modes of the active family share, leaving
+ * each mode's lightness alone -- dragging the wheel must not undo a slider the
+ * author has tuned.
  *
  * @param {number} hue
  * @param {number} saturation
  */
 function setHueSaturation(hue, saturation) {
+  const family = active();
   for (const mode of MODES) {
-    state[mode] = { ...state[mode], hue: (hue + 360) % 360, saturation: clamp(saturation, 0, 100) };
+    family[mode] = {
+      ...family[mode],
+      hue: (hue + 360) % 360,
+      saturation: clamp(saturation, 0, 100),
+    };
   }
 }
 
 /**
- * Set the whole accent from one color choice: shared hue/saturation, dark
+ * Set the active family from one color choice: shared hue/saturation, dark
  * mode at `lightness`, light mode {@link LIGHT_MODE_DELTA} below it.
  *
  * @param {number} hue
@@ -160,8 +213,9 @@ function setAccent(hue, saturation, lightness) {
 }
 
 /** The current accent as a hex color -- dark mode's, the mode this page runs in. */
-function accentHex() {
-  return rgbToHex(hslToRgb({ h: state.dark.hue, s: state.dark.saturation, l: state.dark.lightness }));
+function accentHex(family = active()) {
+  const dark = family.dark;
+  return rgbToHex(hslToRgb({ h: dark.hue, s: dark.saturation, l: dark.lightness }));
 }
 
 /* --- DOM helpers --------------------------------------------------------- */
@@ -421,8 +475,22 @@ function initLab(wheel, context) {
   const exportText = requireElement('export-text', HTMLElement);
   const copyButton = requireElement('copy-export', HTMLButtonElement);
 
+  const targetRow = requireElement('target-row', HTMLElement);
+  const targetButtons = /** @type {HTMLElement[]} */ ([...targetRow.querySelectorAll('[data-target]')]);
+  /** @type {Array<[HTMLElement, LabState]>} */
+  const targetSwatches = [...targetRow.querySelectorAll('[data-target-swatch]')].map((node) => [
+    /** @type {HTMLElement} */ (node),
+    /** @type {HTMLElement} */ (node).dataset.targetSwatch === 'accent' ? state : secondary,
+  ]);
+
   const first = PRESETS[0];
   setAccent(first.hsl[0], first.hsl[1], first.hsl[2]);
+  // Seed the second accent through the same setters the controls use, with
+  // `target` pointed at it, rather than by writing its state object directly.
+  target = 'secondary';
+  setHueSaturation(SECONDARY_SEED.hue, SECONDARY_SEED.saturation);
+  for (const mode of MODES) setModeLightness(mode, SECONDARY_SEED.lightness[mode]);
+  target = 'accent';
 
   /** @type {Scope[]} */
   const scopes = MODES.map((mode) => {
@@ -433,7 +501,7 @@ function initLab(wheel, context) {
     }
     mount.append(template.content.cloneNode(true));
     const colors = readScopeColors(mount);
-    const vars = deriveAccentVars(state, mode, colors);
+    const vars = deriveThemeVars(state, secondary, mode, colors);
     return {
       mode,
       panel,
@@ -473,7 +541,7 @@ function initLab(wheel, context) {
     const perMode = {};
 
     for (const scope of scopes) {
-      const vars = deriveAccentVars(state, scope.mode, scope.colors);
+      const vars = deriveThemeVars(state, secondary, scope.mode, scope.colors);
       for (const [name, value] of Object.entries(vars)) {
         scope.panel.style.setProperty(name, value);
         // Dark is also the document's own theme, so the lab's chrome (buttons,
@@ -484,7 +552,7 @@ function initLab(wheel, context) {
       perMode[scope.mode] = { derived: vars, gates };
       updateGates(scope.badges, gates);
       updateTokens(scope.tokens, vars);
-      const lightness = Math.round(state[scope.mode].lightness);
+      const lightness = Math.round(active()[scope.mode].lightness);
       scope.slider.value = String(lightness);
       scope.sliderValue.textContent = `${lightness}%`;
     }
@@ -495,14 +563,25 @@ function initLab(wheel, context) {
       hexInput.value = hex;
       hexInput.classList.remove('is-invalid');
     }
+    // Presets, the disc marker and the hex field all describe the family the
+    // controls are pointed at, so they read from `active()` rather than the
+    // accent -- otherwise selecting the second accent would leave the picker
+    // showing, and editing, the wrong color.
+    const editing = active();
     for (const [node, preset] of presetByNode) {
       const matches =
-        Math.round(state.dark.hue) === preset.hsl[0] &&
-        Math.round(state.dark.saturation) === preset.hsl[1] &&
-        Math.round(state.dark.lightness) === preset.hsl[2];
+        Math.round(editing.dark.hue) === preset.hsl[0] &&
+        Math.round(editing.dark.saturation) === preset.hsl[1] &&
+        Math.round(editing.dark.lightness) === preset.hsl[2];
       node.classList.toggle('is-active', matches);
     }
-    drawWheel(context, wheelImage, state.dark.hue, state.dark.saturation);
+    drawWheel(context, wheelImage, editing.dark.hue, editing.dark.saturation);
+    for (const [node, family] of targetSwatches) {
+      node.style.background = accentHex(family);
+    }
+    for (const node of targetButtons) {
+      node.setAttribute('aria-pressed', String(node.dataset.target === target));
+    }
 
     // The name field feeds two readouts -- the inline warning and the export
     // heading -- so it is resolved here rather than in its own listener, and
@@ -566,7 +645,8 @@ function initLab(wheel, context) {
     const move = moves[event.key];
     if (move === undefined) return;
     event.preventDefault();
-    setHueSaturation(state.dark.hue + move[0], state.dark.saturation + move[1]);
+    const editing = active();
+    setHueSaturation(editing.dark.hue + move[0], editing.dark.saturation + move[1]);
     render();
   });
 
@@ -598,6 +678,17 @@ function initLab(wheel, context) {
     const preset = node === null ? undefined : presetByNode.get(node);
     if (preset === undefined) return;
     setAccent(preset.hsl[0], preset.hsl[1], preset.hsl[2]);
+    render();
+  });
+
+  targetRow.addEventListener('click', (event) => {
+    const node = event.target instanceof Element ? event.target.closest('[data-target]') : null;
+    const picked = node instanceof HTMLElement ? node.dataset.target : undefined;
+    if (picked !== 'accent' && picked !== 'secondary') return;
+    target = picked;
+    // Nothing is derived differently: the same two families are previewed and
+    // exported either way. Only which one the controls point at changes, so a
+    // plain re-render is the whole update.
     render();
   });
 

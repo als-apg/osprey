@@ -30,6 +30,7 @@ swallows an agent edit.
 from __future__ import annotations
 
 import json
+import logging
 
 import anyio
 
@@ -41,8 +42,54 @@ from osprey.mcp_server.bluesky.server_context import (
     bridge_error_message,
 )
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity
+
+logger = logging.getLogger("osprey.mcp_server.bluesky.tools.draft")
 
 _CLIENT_ID = "mcp-agent"
+
+# Canonical id the build registers the plan panel under (web.panels.plan) and
+# the sidecar path segment it is always mounted at (panels/plan -> /plan).
+_DEFAULT_PLANS_PANEL_ID = "plan"
+_PLAN_PANEL_PATH_SEGMENT = "plan"
+
+
+def _plans_panel_id() -> str:
+    """Resolve the web-terminal panel id of the human's plan panel.
+
+    A successful draft edit is highlighted on the plan panel's rail entry, so
+    the emit must carry the id the web terminal actually knows the panel by:
+    the ``web.panels.<id>`` mapping key. The build registers the panel with
+    the canonical id ``plan`` mounted at the sidecar path ``/plan/``; a
+    facility that registered it under a different id is found by that fixed
+    mount path. Same config fallback chain as the bridge URL resolution
+    (``osprey.bluesky_bridge_connection.resolve_bridge_url``): config.yml via
+    ``load_osprey_config`` (lazily imported), canonical default when the
+    workspace has no matching ``web.panels`` entry — never a bare hardcode.
+    """
+    from osprey.utils.workspace import load_osprey_config
+
+    panels = load_osprey_config().get("web", {}).get("panels", {})
+    if isinstance(panels, dict):
+        for panel_id, spec in panels.items():
+            if not isinstance(spec, dict):
+                continue
+            if str(spec.get("path", "")).strip("/").split("/")[0] == _PLAN_PANEL_PATH_SEGMENT:
+                return str(panel_id)
+    return _DEFAULT_PLANS_PANEL_ID
+
+
+def _notify_draft_activity(tool: str, detail: str | None) -> None:
+    """Sync body of the fire-and-forget activity emit (worker thread only).
+
+    Reports a successful draft edit to the Web Terminal so the UI can
+    highlight the plan panel (``notify_agent_activity`` is blocking, hence
+    dispatched via ``anyio.to_thread.run_sync``; it swallows all exceptions
+    itself — a missing web terminal never affects the tool result). Resolving
+    the panel id here keeps the config read off the event loop alongside the
+    blocking POST.
+    """
+    notify_agent_activity(tool=tool, kind="panel", panel=_plans_panel_id(), detail=detail)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +194,14 @@ async def set_draft(
         )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+
+    # Success only (a rejected PATCH must not light up the panel): best-effort
+    # activity highlight; must never alter the tool result.
+    try:
+        detail = body.get("plan_name") if isinstance(body, dict) else None
+        await anyio.to_thread.run_sync(_notify_draft_activity, "set_draft", detail)
+    except Exception as exc:
+        logger.debug("agent-activity emit failed (non-fatal): %s", exc)
     return json.dumps(body)
 
 
@@ -175,4 +230,11 @@ async def clear_draft() -> str:
     )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+
+    # Success only: best-effort activity highlight; must never alter the
+    # tool result.
+    try:
+        await anyio.to_thread.run_sync(_notify_draft_activity, "clear_draft", "cleared")
+    except Exception as exc:
+        logger.debug("agent-activity emit failed (non-fatal): %s", exc)
     return json.dumps(body)
