@@ -38,10 +38,29 @@ import {
  * list as short as possible -- an exclusion is a claim that a name only
  * *looks* like an accent token, and each one needs a real justification.
  */
+const SECONDARY_ACCENT_REASON =
+  'second, independent accent slot picked per theme family and gated on its own ' +
+  'contrast rules, not derived from the accent the lab proposes';
+
 const EXCLUSIONS = {
   // Despite the name, this is a near-background terminal cursor color (e.g.
   // #050a10 in dark, #fafbfd in light) -- not derived from the accent.
   '--ansi-cursor-accent': 'near-background terminal cursor color, not derived from the accent',
+
+  // The `accent-secondary` family is a role, not a shade of the accent: tan on
+  // `main`, orange on `desy`, grey on high-contrast. Each family chooses it by
+  // hand, and `accent-secondary.light` carries its own contrast gate (4.5:1
+  // against bg.primary, 7:1 for high-contrast). Deriving it from the single
+  // accent the lab takes would defeat the point of a second, independent slot.
+  '--color-accent-secondary': SECONDARY_ACCENT_REASON,
+  '--color-accent-secondary-light': SECONDARY_ACCENT_REASON,
+  '--color-accent-secondary-hover': SECONDARY_ACCENT_REASON,
+  '--accent-secondary-tint-04': SECONDARY_ACCENT_REASON,
+  '--accent-secondary-tint-06': SECONDARY_ACCENT_REASON,
+  '--accent-secondary-tint-08': SECONDARY_ACCENT_REASON,
+  '--accent-secondary-tint-12': SECONDARY_ACCENT_REASON,
+  '--accent-secondary-tint-15': SECONDARY_ACCENT_REASON,
+  '--accent-secondary-tint-25': SECONDARY_ACCENT_REASON,
 };
 
 // `import.meta.url` is not a `file:` URL under this repo's vitest setup
