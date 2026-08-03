@@ -25,6 +25,7 @@ from osprey.deployment.web_terminals.ports import (
     allocate_ports,
     base_ports_from_config,
 )
+from osprey.utils.facility import resolve_facility_name
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -161,7 +162,7 @@ def render_web_terminals(config: Any) -> dict[str, str]:
         **auth_tls_ctx,
     }
     landing_ctx = {
-        "facility_name": facility.get("name") or "",
+        "facility_name": resolve_facility_name(root, ""),
         "groups": _build_groups(as_dict(web_terminals.get("landing")), resolved_users),
     }
 

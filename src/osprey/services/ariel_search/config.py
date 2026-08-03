@@ -5,11 +5,100 @@ Configuration is loaded from the `ariel:` section of config.yml.
 
 """
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any
 
 from .exceptions import ConfigurationError
+
+logger = logging.getLogger("osprey.services.ariel_search.config")
+
+#: Enhancement modules that drive a chat/completion endpoint rather than an
+#: embedding one.  ``ariel.embedding.provider`` is never substituted for these.
+LLM_ENHANCEMENT_MODULES = frozenset({"semantic_processor"})
+
+#: Defaults for the derived DSN, matching what the postgresql compose service
+#: is rendered with when ``services.postgresql`` leaves a field unset.
+_DEFAULT_DB_USERNAME = "ariel"
+_DEFAULT_DB_NAME = "ariel"
+_DEFAULT_DB_PORT = 5432
+#: Matches the ``${ARIEL_DB_PASSWORD:-ariel}`` fallback the compose service
+#: uses, so the agent stays launchable before the first `osprey deploy up`
+#: mints a real password into the project ``.env``.
+_DEFAULT_DB_PASSWORD = "ariel"
+
+#: Tripped the first time a config is parsed that still carries the retired
+#: MCP-only ``ariel.database.connection_string`` alias.  Warning once per
+#: process keeps a CLI that parses the config repeatedly from repeating itself.
+_connection_string_warned = False
+
+
+def resolve_ariel_dsn(
+    ariel_section: dict[str, Any],
+    services: dict[str, Any] | None = None,
+) -> str:
+    """Resolve the effective ARIEL database DSN.
+
+    ``ariel.database.uri`` is optional: with it unset, the DSN is derived from
+    the ``services.postgresql`` block that defines the Postgres the agent talks
+    to, so a project that moves its database port or renames its database stays
+    connectable without editing a second, duplicated copy of the same facts.
+
+    Precedence:
+      1. An explicit ``uri`` wins, verbatim — including a DSN pointing at an
+         external database that has no ``services.postgresql`` counterpart.
+      2. A legacy ``connection_string`` (the retired MCP-only alias) is honored
+         as the effective ``uri``, with a once-per-process warning naming the
+         key that replaced it.  It is never discarded in favor of the derived
+         DSN — a project pointed at a real database keeps reaching it.
+      3. Otherwise: ``postgresql://{username}:{password}@localhost:{port_host}/
+         {database_name}``, where password reads ``ARIEL_DB_PASSWORD`` from the
+         environment (the same value the compose service reads as
+         ``POSTGRES_PASSWORD``) and falls back to ``ariel``.
+
+    Args:
+        ariel_section: The ``ariel`` section from config.yml.
+        services: The ``services.postgresql`` mapping from config.yml, or None
+            when the caller has no services block — the derived DSN then falls
+            back to the shipped Postgres defaults.
+
+    Returns:
+        The DSN to connect with.
+    """
+    database = ariel_section.get("database") or {}
+
+    uri = database.get("uri")
+    if uri is not None:
+        return str(uri)
+
+    legacy_uri = database.get("connection_string")
+    if legacy_uri is not None:
+        _warn_once_connection_string_retired()
+        return str(legacy_uri)
+
+    postgresql = services or {}
+    username = postgresql.get("username", _DEFAULT_DB_USERNAME)
+    database_name = postgresql.get("database_name", _DEFAULT_DB_NAME)
+    port = postgresql.get("port_host", _DEFAULT_DB_PORT)
+    password = os.environ.get("ARIEL_DB_PASSWORD", _DEFAULT_DB_PASSWORD)
+
+    return f"postgresql://{username}:{password}@localhost:{port}/{database_name}"
+
+
+def _warn_once_connection_string_retired() -> None:
+    """Warn once per process that ``connection_string`` is a retired alias."""
+    global _connection_string_warned
+    if _connection_string_warned:
+        return
+
+    _connection_string_warned = True
+    logger.warning(
+        "config.yml sets ariel.database.connection_string, a retired alias. Its "
+        "value is still being honored as the ARIEL DSN, but rename the key to "
+        "ariel.database.uri — or delete it entirely and let the DSN derive from "
+        "services.postgresql (username, database_name, port_host)."
+    )
 
 
 @dataclass
@@ -227,9 +316,17 @@ class DatabaseConfig:
     uri: str
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DatabaseConfig":
-        """Create DatabaseConfig from dictionary."""
-        return cls(uri=data["uri"])
+    def from_dict(
+        cls, data: dict[str, Any], services: dict[str, Any] | None = None
+    ) -> "DatabaseConfig":
+        """Create DatabaseConfig from the ``ariel.database`` mapping.
+
+        Args:
+            data: The ``ariel.database`` mapping from config.yml.
+            services: The ``services.postgresql`` mapping, used to derive the
+                DSN when ``uri`` is unset. See :func:`resolve_ariel_dsn`.
+        """
+        return cls(uri=resolve_ariel_dsn({"database": data}, services))
 
 
 @dataclass
@@ -249,46 +346,6 @@ class EmbeddingConfig:
 
 
 @dataclass
-class ReasoningConfig:
-    """Configuration for agentic reasoning behavior.
-
-    Uses Osprey's provider configuration system for credentials.
-    The `provider` field references api.providers for api_key and base_url.
-
-    Attributes:
-        provider: Provider name (references api.providers section)
-        model_id: LLM model identifier (default: "gpt-4o-mini")
-        max_iterations: Maximum ReAct cycles (default: 5)
-        temperature: LLM temperature (default: 0.1)
-        tool_timeout_seconds: Per-tool call timeout (default: 30)
-        total_timeout_seconds: Total agent execution timeout (default: 120)
-    """
-
-    provider: str = "openai"
-    model_id: str = "gpt-4o-mini"
-    max_iterations: int = 5
-    temperature: float = 0.1
-    tool_timeout_seconds: int = 30
-    total_timeout_seconds: int = 120
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ReasoningConfig":
-        """Create ReasoningConfig from dictionary."""
-        from osprey.models.tiers import resolve_model_id
-
-        provider = data.get("provider", "openai")
-        model_id = resolve_model_id(provider, data.get("model_id", "gpt-4o-mini"))
-        return cls(
-            provider=provider,
-            model_id=model_id,
-            max_iterations=data.get("max_iterations", 5),
-            temperature=data.get("temperature", 0.1),
-            tool_timeout_seconds=data.get("tool_timeout_seconds", 30),
-            total_timeout_seconds=data.get("total_timeout_seconds", 120),
-        )
-
-
-@dataclass
 class ARIELConfig:
     """Root configuration for ARIEL service.
 
@@ -297,10 +354,7 @@ class ARIELConfig:
         search_modules: Search module configurations by name
         enhancement_modules: Enhancement module configurations by name
         ingestion: Ingestion configuration
-        reasoning: Agentic reasoning configuration
         embedding: Embedding provider configuration
-        default_max_results: Default maximum results to return
-        cache_embeddings: Whether to cache embeddings
 
     Documented top-level config keys read at runtime (not dataclass fields):
         entry_url_template: Optional ``str`` template for the canonical logbook
@@ -317,17 +371,19 @@ class ARIELConfig:
     search_modules: dict[str, SearchModuleConfig] = field(default_factory=dict)
     enhancement_modules: dict[str, EnhancementModuleConfig] = field(default_factory=dict)
     ingestion: IngestionConfig | None = None
-    reasoning: ReasoningConfig = field(default_factory=ReasoningConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
-    default_max_results: int = 10
-    cache_embeddings: bool = True
 
     @classmethod
-    def from_dict(cls, config_dict: dict[str, Any]) -> "ARIELConfig":
+    def from_dict(
+        cls, config_dict: dict[str, Any], services: dict[str, Any] | None = None
+    ) -> "ARIELConfig":
         """Create ARIELConfig from config.yml dictionary.
 
         Args:
             config_dict: The 'ariel' section from config.yml
+            services: The ``services.postgresql`` mapping from config.yml. With
+                ``ariel.database.uri`` unset, the DSN is derived from it — see
+                :func:`resolve_ariel_dsn`.
 
         Returns:
             ARIELConfig instance
@@ -344,7 +400,7 @@ class ARIELConfig:
                 config_key="pipelines",
             )
 
-        database = DatabaseConfig.from_dict(config_dict["database"])
+        database = DatabaseConfig.from_dict(config_dict.get("database") or {}, services)
 
         search_modules: dict[str, SearchModuleConfig] = {}
         for name, data in config_dict.get("search_modules", {}).items():
@@ -358,10 +414,6 @@ class ARIELConfig:
         if "ingestion" in config_dict:
             ingestion = IngestionConfig.from_dict(config_dict["ingestion"])
 
-        reasoning = ReasoningConfig()
-        if "reasoning" in config_dict:
-            reasoning = ReasoningConfig.from_dict(config_dict["reasoning"])
-
         embedding = EmbeddingConfig()
         if "embedding" in config_dict:
             embedding = EmbeddingConfig.from_dict(config_dict["embedding"])
@@ -371,10 +423,7 @@ class ARIELConfig:
             search_modules=search_modules,
             enhancement_modules=enhancement_modules,
             ingestion=ingestion,
-            reasoning=reasoning,
             embedding=embedding,
-            default_max_results=config_dict.get("default_max_results", 10),
-            cache_embeddings=config_dict.get("cache_embeddings", True),
         )
 
     def is_search_module_enabled(self, name: str) -> bool:
@@ -446,12 +495,6 @@ class ARIELConfig:
                     "when text_embedding enhancement is enabled"
                 )
 
-        # Validate reasoning config
-        if self.reasoning.max_iterations < 1:
-            errors.append("reasoning.max_iterations must be >= 1")
-        if self.reasoning.total_timeout_seconds < 1:
-            errors.append("reasoning.total_timeout_seconds must be >= 1")
-
         return errors
 
     def get_search_model(self) -> str | None:
@@ -486,8 +529,12 @@ class ARIELConfig:
         # Convert back to dict for configure() method
         config: dict[str, Any] = {"enabled": module_config.enabled}
 
-        # Include provider (falls back to embedding.provider if not set)
-        provider = module_config.provider or self.embedding.provider
+        # `embedding.provider` is the default *embedding* endpoint; substituting it
+        # for a module that calls an LLM would silently pick the wrong service, so
+        # those modules carry their own provider or fail in configure().
+        provider = module_config.provider
+        if provider is None and name not in LLM_ENHANCEMENT_MODULES:
+            provider = self.embedding.provider
         config["provider"] = provider
 
         if module_config.models:

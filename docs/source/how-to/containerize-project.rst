@@ -147,7 +147,7 @@ Two kinds of state are worth persisting across container restarts:
      -v my-project-home:/home/osprey \
      my-project
 
-- ``_agent_data/`` — executed scripts, user memory, API call logs.
+- ``_agent_data/`` — API call logs and generated data artifacts.
 - ``/home/osprey`` — the agent CLI's per-user state (sessions, credentials);
   set ``CLAUDE_CONFIG_DIR`` if you want it somewhere more explicit.
 

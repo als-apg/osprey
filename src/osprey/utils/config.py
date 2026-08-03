@@ -434,14 +434,6 @@ class ConfigBuilder:
 
         return {"execution_method": EXECUTION_METHOD_SUBPROCESS}
 
-    def _get_writes_enabled_with_fallback(self) -> bool:
-        """Get control system writes_enabled setting.
-
-        Returns:
-            bool: Whether control system writes are enabled
-        """
-        return self.get("control_system.writes_enabled", False)
-
     def _get_python_executor_config(self) -> dict[str, Any]:
         """Get python executor configuration with sensible defaults.
 
@@ -466,12 +458,6 @@ class ConfigBuilder:
     def _build_configurable(self) -> dict[str, Any]:
         """Build the configurable dictionary with pre-computed nested structures."""
         configurable = {
-            "user_id": None,
-            "chat_id": None,
-            "session_id": None,
-            "thread_id": None,
-            "session_url": None,
-            "agent_control_defaults": self._build_agent_control_defaults(),
             "model_configs": self._build_model_configs(),
             "provider_configs": self._build_provider_configs(),
             "service_configs": self._build_service_configs(),
@@ -480,8 +466,6 @@ class ConfigBuilder:
             "logging": self.get("logging", {}),
             "development": self.get("development", {}),
             "project_root": self.get("project_root"),
-            "applications": self.get("applications", []),
-            "current_application": self._get_current_application(),
             "registry_path": self.get("registry_path"),
             "facility_timezone": self.get("system.timezone", "UTC"),
         }
@@ -499,23 +483,6 @@ class ConfigBuilder:
     def _build_service_configs(self) -> dict[str, Any]:
         """Get service configs from flat structure."""
         return self.get("services", {})
-
-    def _build_agent_control_defaults(self) -> dict[str, Any]:
-        """Build agent control defaults with explicit configuration control."""
-
-        return {
-            # Control system writes control
-            "control_system_writes_enabled": self._get_writes_enabled_with_fallback(),
-        }
-
-    def _get_current_application(self) -> str | None:
-        """Get the current/primary application name."""
-        applications = self.get("applications", [])
-        if isinstance(applications, dict) and applications:
-            return list(applications.keys())[0]
-        elif isinstance(applications, list) and applications:
-            return applications[0]
-        return None
 
     def get(self, path: str, default: Any = None) -> Any:
         """Get configuration value using dot notation path."""
@@ -696,43 +663,33 @@ def get_framework_service_config(
     return service_configs.get(service_name, {})
 
 
-def get_current_application() -> str | None:
-    """Get current application with automatic context detection."""
-    configurable = _get_configurable()
-    return configurable.get("current_application")
-
-
 def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     """
     Get the target directory path within the agent data directory using absolute paths.
 
+    The root comes from ``agent_data.base_dir`` — the single key naming this
+    directory — while ``file_paths`` supplies the subdirectory names. A
+    subdirectory key absent from ``file_paths`` falls back to its own name.
+
     Args:
-        sub_dir: Subdirectory name (e.g., 'user_memory_dir', 'execution_plans_dir')
+        sub_dir: Subdirectory name (e.g., 'api_calls_dir', 'registry_exports_dir')
         host_path: If True, force return of host filesystem path even when running in container
 
     Returns:
         Absolute path to the target directory
     """
+    from osprey.utils.workspace import agent_data_base_dir
+
     config = _get_config()
 
     project_root = config.get("project_root")
     main_file_paths = config.get("file_paths", {})
-    agent_data_dir = main_file_paths.get("agent_data_dir", "_agent_data")
-
-    current_app = get_current_application()
-    sub_dir_path = None
+    agent_data_root = agent_data_base_dir(config.raw_config)
 
     if sub_dir in main_file_paths:
         sub_dir_path = main_file_paths[sub_dir]
-        logger.debug(f"Found {sub_dir} in main file_paths: {sub_dir_path}")
-
-    if current_app:
-        app_file_paths = config.get(f"applications.{current_app}.file_paths", {})
-        if sub_dir in app_file_paths:
-            sub_dir_path = app_file_paths[sub_dir]
-            logger.debug(f"Found {sub_dir} in {current_app} file_paths: {sub_dir_path}")
-
-    if sub_dir_path is None:
+        logger.debug(f"Found {sub_dir} in file_paths: {sub_dir_path}")
+    else:
         sub_dir_path = sub_dir
         logger.debug(f"Using fallback path for {sub_dir}: {sub_dir_path}")
 
@@ -741,7 +698,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
 
         if host_path:
             logger.debug(f"Forcing host path resolution for: {sub_dir}")
-            path = project_root_path / agent_data_dir / sub_dir_path
+            path = project_root_path / agent_data_root / sub_dir_path
         else:
             if not project_root_path.exists():
                 container_project_roots = ["/app", "/pipelines", "/jupyter"]
@@ -749,7 +706,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
 
                 for container_root in container_project_roots:
                     container_path = Path(container_root)
-                    if container_path.exists() and (container_path / agent_data_dir).exists():
+                    if container_path.exists() and (container_path / agent_data_root).exists():
                         detected_container_root = container_path
                         break
 
@@ -757,17 +714,17 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
                     logger.debug(
                         f"Container environment detected: using {detected_container_root} instead of {project_root}"
                     )
-                    path = detected_container_root / agent_data_dir / sub_dir_path
+                    path = detected_container_root / agent_data_root / sub_dir_path
                 else:
                     logger.warning(f"Configured project root does not exist: {project_root}")
                     logger.warning("Falling back to relative path resolution")
-                    path = Path(agent_data_dir) / sub_dir_path
+                    path = Path(agent_data_root) / sub_dir_path
                     path = path.resolve()
             else:
-                path = project_root_path / agent_data_dir / sub_dir_path
+                path = project_root_path / agent_data_root / sub_dir_path
     else:
         logger.warning("No project root configured, using relative path for agent data directory")
-        path = Path(agent_data_dir) / sub_dir_path
+        path = Path(agent_data_root) / sub_dir_path
         path = path.resolve()
 
     return str(path)
@@ -920,7 +877,7 @@ def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
     Examples:
         >>> # Default configuration (backward compatible)
         >>> config = get_full_configuration()
-        >>> user_id = config.get("user_id")
+        >>> project_root = config.get("project_root")
         >>> models = config.get("model_configs", {})
 
         >>> # Explicit configuration path (also becomes default)

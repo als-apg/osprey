@@ -15,19 +15,44 @@ Examples:
 import os
 import shutil
 import subprocess
+from collections.abc import Mapping
+from typing import Any
 
-# Module-level cache for runtime command
-_cached_runtime_cmd: list[str] | None = None
+#: Memoized detections, keyed on the runtimes a call would probe — which folds in
+#: both ``CONTAINER_RUNTIME`` and the config's ``container_runtime``. Keying on
+#: those inputs rather than memoizing a single answer per process keeps a
+#: config-less call from pinning the runtime for a later call that names one.
+_runtime_cmd_cache: dict[tuple[str, ...], list[str]] = {}
 
 
-def get_runtime_command(config: dict | None = None) -> list[str]:
+def _runtimes_to_try(config: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Ordered runtimes to probe, from the ``CONTAINER_RUNTIME`` env var then config.
+
+    An explicit ``docker``/``podman`` from either source (env wins) pins the list
+    to that one runtime; anything else — including ``auto``, an absent key, and a
+    config-less call — falls back to trying docker then podman.
+    """
+    selected = config.get("container_runtime", "auto") if config else None
+
+    env_runtime = os.getenv("CONTAINER_RUNTIME")
+    if env_runtime:
+        selected = env_runtime
+
+    if selected and selected.lower() in ("docker", "podman"):
+        return (selected.lower(),)
+    return ("docker", "podman")
+
+
+def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
     """Get container compose command.
 
     Checks CONTAINER_RUNTIME env var, then config.container_runtime,
-    auto-detects if 'auto' or not set. Result is cached after first detection.
+    auto-detects if 'auto' or not set. The detection is memoized per resolved
+    runtime preference, so callers passing different configs (or none) each get
+    the runtime their own inputs select.
 
     Args:
-        config: Optional configuration dictionary
+        config: Optional configuration mapping
 
     Returns:
         Command list: ['docker', 'compose'] or ['podman', 'compose']
@@ -35,30 +60,14 @@ def get_runtime_command(config: dict | None = None) -> list[str]:
     Raises:
         RuntimeError: If no container runtime with compose support found
     """
-    global _cached_runtime_cmd
+    candidates = _runtimes_to_try(config)
 
-    if _cached_runtime_cmd is not None:
-        return _cached_runtime_cmd.copy()
-
-    # Determine which runtime to try (priority: env var > config > auto)
-    config_runtime = None
-    if config:
-        config_runtime = config.get("container_runtime", "auto")
-
-    # Environment variable override
-    env_runtime = os.getenv("CONTAINER_RUNTIME")
-    if env_runtime:
-        config_runtime = env_runtime
-
-    # Build list of runtimes to try
-    if config_runtime and config_runtime.lower() in ["docker", "podman"]:
-        runtimes_to_try = [config_runtime.lower()]
-    else:
-        # Auto-detect: Docker first, then Podman
-        runtimes_to_try = ["docker", "podman"]
+    cached = _runtime_cmd_cache.get(candidates)
+    if cached is not None:
+        return cached.copy()
 
     # Try each runtime
-    for runtime in runtimes_to_try:
+    for runtime in candidates:
         if not shutil.which(runtime):
             continue
 
@@ -74,8 +83,9 @@ def get_runtime_command(config: dict | None = None) -> list[str]:
             ps_result = subprocess.run([runtime, "ps"], capture_output=True, timeout=5)
 
             if ps_result.returncode == 0:
-                _cached_runtime_cmd = [runtime, "compose"]
-                return _cached_runtime_cmd.copy()
+                cmd = [runtime, "compose"]
+                _runtime_cmd_cache[candidates] = cmd
+                return cmd.copy()
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
             continue
@@ -102,13 +112,12 @@ def get_runtime_command(config: dict | None = None) -> list[str]:
 
 
 def reset_runtime_cache() -> None:
-    """Clear the memoized runtime command so the next call re-detects.
+    """Clear every memoized runtime command so the next call re-detects.
 
     Primarily used for test isolation: a test that fakes the docker/podman
     probe pins the detected runtime for the rest of the process otherwise.
     """
-    global _cached_runtime_cmd
-    _cached_runtime_cmd = None
+    _runtime_cmd_cache.clear()
 
 
 def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -141,11 +150,11 @@ def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> 
     return env
 
 
-def verify_runtime_is_running(config: dict | None = None) -> tuple[bool, str]:
+def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[bool, str]:
     """Verify that the detected container runtime is actually running.
 
     Args:
-        config: Optional configuration dictionary
+        config: Optional configuration mapping
 
     Returns:
         Tuple of (is_running: bool, error_message: str)
@@ -255,11 +264,13 @@ def _get_podman_not_running_message() -> str:
         )
 
 
-def get_ps_command(config: dict | None = None, all_containers: bool = False) -> list[str]:
+def get_ps_command(
+    config: Mapping[str, Any] | None = None, all_containers: bool = False
+) -> list[str]:
     """Get container ps command.
 
     Args:
-        config: Optional configuration dictionary
+        config: Optional configuration mapping
         all_containers: Include stopped containers (-a flag)
 
     Returns:

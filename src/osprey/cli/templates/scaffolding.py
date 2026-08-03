@@ -29,38 +29,6 @@ logger = logging.getLogger("osprey.cli.templates")
 _DEFAULT_CLAUDE_CLI_VERSION = "2.1.146"
 
 
-def _detect_system_timezone() -> str | None:
-    """Detect the system IANA timezone name (e.g., 'America/New_York').
-
-    Uses /etc/localtime symlink (macOS/Linux) or /etc/timezone (Linux).
-    Returns None if detection fails.
-    """
-    import pathlib
-
-    # macOS / Linux: /etc/localtime is usually a symlink into zoneinfo
-    localtime = pathlib.Path("/etc/localtime")
-    if localtime.is_symlink():
-        target = str(localtime.resolve())
-        if "zoneinfo/" in target:
-            tz_name = target.split("zoneinfo/", 1)[1]
-            try:
-                from zoneinfo import ZoneInfo
-
-                ZoneInfo(tz_name)
-                return tz_name
-            except (KeyError, Exception):
-                pass
-
-    # Linux: /etc/timezone contains the IANA name directly
-    etc_tz = pathlib.Path("/etc/timezone")
-    if etc_tz.exists():
-        tz_name = etc_tz.read_text().strip()
-        if "/" in tz_name:
-            return tz_name
-
-    return None
-
-
 def provider_api_key_entries() -> list[dict[str, str]]:
     """Provider API-key env vars for env-file templates, in registry order.
 
@@ -107,7 +75,6 @@ def detect_environment_variables() -> dict[str, str]:
         "PROJECT_ROOT",
         "LOCAL_PYTHON_VENV",
         "CONFLUENCE_ACCESS_TOKEN",
-        "TZ",
     ]
 
     # Load .env file from current directory if it exists (project root values
@@ -131,12 +98,6 @@ def detect_environment_variables() -> dict[str, str]:
         env_file_value = dotenv_values.get(var)
         if env_file_value:
             detected[var] = env_file_value
-
-    # If TZ not in environment, try to detect system timezone
-    if "TZ" not in detected:
-        detected_tz = _detect_system_timezone()
-        if detected_tz:
-            detected["TZ"] = detected_tz
 
     return detected
 
@@ -628,7 +589,6 @@ def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dic
 
     # Create standard subdirectories
     subdirs = [
-        "user_memory",
         "api_calls",
     ]
 
@@ -645,7 +605,6 @@ def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dic
 
 This directory contains runtime data for the Claude Code project:
 
-- `user_memory/`: User memory data
 - `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
 """
 

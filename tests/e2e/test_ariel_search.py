@@ -158,13 +158,6 @@ def e2e_ariel_config(e2e_database_url: str) -> ARIELConfig:
                 "adapter": "als_logbook",
                 "source_url": str(TEST_DATA_PATH),
             },
-            # LLM config for RAG answer generation
-            # provider references api.providers for credentials
-            "reasoning": {
-                "provider": "als-apg",
-                "model_id": "claude-haiku-4-5-20251001",
-                "temperature": 0.1,
-            },
         }
     )
 

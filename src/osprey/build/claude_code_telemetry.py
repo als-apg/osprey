@@ -153,15 +153,30 @@ def _resolve_telemetry_endpoint(
     Any other enabled-but-unaddressed config is a misconfiguration and raises.
 
     Raises:
-        ValueError: If no endpoint can be resolved, or if the resolved endpoint
-            still carries a literal ``${VAR}`` — an unresolved placeholder whose
-            referenced env var was unset. An unresolved var keeps the literal
-            ``${VAR}`` (it does not become empty), so shipping it would point the
-            exporter at a nonsense URL; refuse instead.
+        ValueError: If no endpoint can be resolved; if ``protocol`` is ``grpc``
+            while the endpoint would be derived from the OpenObserve backend
+            (which serves HTTP only); or if the resolved endpoint still carries a
+            literal ``${VAR}`` — an unresolved placeholder whose referenced env
+            var was unset. An unresolved var keeps the literal ``${VAR}`` (it does
+            not become empty), so shipping it would point the exporter at a
+            nonsense URL; refuse instead.
     """
     endpoint = telemetry_cfg.get("endpoint")
     if not endpoint:
         if telemetry_cfg.get("backend") == "openobserve":
+            # The derived URL below is the OpenObserve HTTP ingest API — the only
+            # port that service publishes. A gRPC exporter aimed there connects to
+            # nothing and drops every metric and log without an error, so refuse
+            # the combination rather than emit a silently-dead exporter.
+            if str(telemetry_cfg.get("protocol", "http/protobuf")).strip().lower() == "grpc":
+                raise TelemetryConfigError(
+                    "claude_code.telemetry.protocol is 'grpc' but the OTLP endpoint "
+                    "is auto-derived from backend: openobserve, which serves HTTP "
+                    "only (port 5080) — a gRPC exporter aimed there would drop every "
+                    "metric and log silently. Use protocol: http/protobuf, or set an "
+                    "explicit claude_code.telemetry.endpoint pointing at a collector "
+                    "that speaks gRPC."
+                )
             # An explicit host from the deploy env wins (the compose author knows
             # the network topology); otherwise derive from container context.
             host = openobserve_host or ("openobserve" if in_container else "localhost")
@@ -254,8 +269,9 @@ def _build_telemetry_env(
         are a subset of :data:`TELEMETRY_ENV_VARS`.
 
     Raises:
-        ValueError: On an unresolvable endpoint, a leaked ``${VAR}`` in the
-            endpoint, or an ``openobserve`` backend with missing/blank creds.
+        ValueError: On an unresolvable endpoint, ``protocol: grpc`` against an
+            auto-derived (HTTP-only) OpenObserve endpoint, a leaked ``${VAR}`` in
+            the endpoint, or an ``openobserve`` backend with missing/blank creds.
     """
     if not telemetry_cfg or not telemetry_cfg.get("enabled"):
         return {}

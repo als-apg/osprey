@@ -60,11 +60,11 @@ control_system:
     allow_unlisted_channels: true
     on_violation: "skip"
   write_verification:
-    enabled: false
     default_level: "callback"
     default_tolerance_percent: 0.1
-    timeout: 5.0
-    fail_on_mismatch: false
+  connector:
+    epics:
+      timeout: 5.0
 
 # ============================================================
 # ARTIFACT SERVER
@@ -169,12 +169,12 @@ class TestBooleanUpdates:
             config_file,
             {
                 "control_system.limits_checking.enabled": True,
-                "control_system.write_verification.fail_on_mismatch": True,
+                "control_system.limits_checking.allow_unlisted_channels": False,
             },
         )
         data = config_read(config_file)
         assert data["control_system"]["limits_checking"]["enabled"] is True
-        assert data["control_system"]["write_verification"]["fail_on_mismatch"] is True
+        assert data["control_system"]["limits_checking"]["allow_unlisted_channels"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -192,11 +192,11 @@ class TestNumericUpdates:
         config_update_fields(
             config_file,
             {
-                "control_system.write_verification.timeout": 10.0,
+                "control_system.connector.epics.timeout": 10.0,
             },
         )
         data = config_read(config_file)
-        assert data["control_system"]["write_verification"]["timeout"] == 10.0
+        assert data["control_system"]["connector"]["epics"]["timeout"] == 10.0
 
     def test_float_tolerance(self, config_file):
         config_update_fields(
@@ -303,7 +303,7 @@ class TestBatchUpdates:
                 "control_system.type": "epics",
                 "artifact_server.port": 7777,
                 "approval.enabled": False,
-                "control_system.write_verification.timeout": 15.0,
+                "control_system.connector.epics.timeout": 15.0,
             },
         )
         data = config_read(config_file)
@@ -311,7 +311,7 @@ class TestBatchUpdates:
         assert data["control_system"]["type"] == "epics"
         assert data["artifact_server"]["port"] == 7777
         assert data["approval"]["enabled"] is False
-        assert data["control_system"]["write_verification"]["timeout"] == 15.0
+        assert data["control_system"]["connector"]["epics"]["timeout"] == 15.0
 
     def test_batch_preserves_comments(self, config_file):
         text_before = config_file.read_text()

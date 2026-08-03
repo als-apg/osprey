@@ -123,7 +123,7 @@ Expected subdirectories in `_agent_data/`:
 
 | Change | Type | Effect |
 |--------|------|--------|
-| `control_system.writes_enabled` | Hot | Hooks re-read on each call |
+| `control_system.writes_enabled` | Cold | Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey claude regen` + restart |
 | `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
 | `control_system.limits_checking.allow_unlisted_channels` | Hot | Hooks re-read on each call |
 | `approval.mode` | Hot | Hooks re-read on each call |
@@ -145,7 +145,7 @@ Expected subdirectories in `_agent_data/`:
 ### 2. Writes Blocked
 **Symptoms**: `channel_write` rejected.
 **Check**: `setup_inspect` → `config.control_system.writes_enabled`.
-**Fix**: `setup_patch config.yml control_system.writes_enabled true` (hot change).
+**Fix**: `setup_patch config.yml control_system.writes_enabled true`, then `osprey claude regen` and restart the agent. The patch alone only un-gates the hook — the connector and the enforced `permissions.deny` list still refuse writes until the regen and restart (cold change).
 
 ### 3. Missing Safety Hooks
 **Symptoms**: Writes proceed without approval prompts.

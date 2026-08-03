@@ -6,13 +6,6 @@ Provides `osprey artifacts web` to launch the gallery server manually.
 import click
 
 
-def get_config_value(key: str, default=None):
-    """Read a top-level config value from config.yml."""
-    from osprey.utils.workspace import load_osprey_config
-
-    return load_osprey_config().get(key, default)
-
-
 @click.group("artifacts")
 def artifacts():
     """Artifact Gallery commands.
@@ -25,7 +18,11 @@ def artifacts():
 
 @artifacts.command("web")
 @click.option(
-    "--port", "-p", type=int, default=None, help="Port to run on (default: from config or 8086)"
+    "--port",
+    "-p",
+    type=int,
+    default=None,
+    help="Port to run on (default: OSPREY_ARTIFACT_SERVER_PORT, then config, then 8086)",
 )
 @click.option(
     "--host", "-h", default=None, help="Host to bind to (default: from config or 127.0.0.1)"
@@ -46,9 +43,13 @@ def web(port: int | None, host: str | None, reload: bool) -> None:
         osprey artifacts web --host 0.0.0.0     # Bind to all interfaces
         osprey artifacts web --reload           # Development mode
     """
-    art_config = get_config_value("artifact_server", {})
-    host = host or art_config.get("host", "127.0.0.1")
-    port = port or art_config.get("port", 8086)
+    from osprey.registry.web import resolve_web_server_address
+
+    # Explicit flags win; otherwise the framework's shared derivation, which
+    # applies the OSPREY_ARTIFACT_SERVER_PORT override the deployment may set.
+    default_host, default_port = resolve_web_server_address("artifact")
+    host = host or default_host
+    port = port or default_port
 
     click.echo(f"Starting OSPREY Artifact Gallery on http://{host}:{port}")
     click.echo("Press Ctrl+C to stop\n")

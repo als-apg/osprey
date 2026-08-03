@@ -211,6 +211,39 @@ class TestConfigReading:
         runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, queries_override=override)
         assert runner._resolve_queries_path() == override
 
+    def test_no_benchmark_block_names_both_ways_out(self, tmp_path: Path):
+        """The channel-finder-only app templates ship no `benchmark:` block.
+
+        Reaching the config read without one used to surface a bare KeyError on
+        the subscript. It now names the two remedies: the CLI flag, and the
+        config block to add.
+        """
+        project_dir = _make_project_dir(tmp_path)
+        config_path = project_dir / "config.yml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        del config["channel_finder"]["benchmark"]
+        config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
+        with pytest.raises(ValueError) as excinfo:
+            runner._resolve_queries_path()
+
+        message = str(excinfo.value)
+        assert "channel_finder.benchmark.dataset_path" in message
+        assert "--queries-path" in message
+
+    def test_override_still_wins_with_no_benchmark_block(self, tmp_path: Path):
+        """`--queries-path` bypasses the config read, so the app stays usable."""
+        project_dir = _make_project_dir(tmp_path)
+        config_path = project_dir / "config.yml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        del config["channel_finder"]["benchmark"]
+        config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+        override = tmp_path / "custom_queries.json"
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, queries_override=override)
+        assert runner._resolve_queries_path() == override
+
     def test_load_queries(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path)
         runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)

@@ -67,7 +67,7 @@ class TestEnhancementFactory:
             {
                 "database": {"uri": "postgresql://localhost:5432/test"},
                 "enhancement_modules": {
-                    "semantic_processor": {"enabled": True},
+                    "semantic_processor": {"enabled": True, "provider": "ollama"},
                     "text_embedding": {
                         "enabled": True,
                         "models": [{"name": "nomic-embed-text", "dimension": 768}],
@@ -141,6 +141,7 @@ class TestSemanticProcessorModule:
         module = SemanticProcessorModule()
         module.configure(
             {
+                "provider": "ollama",
                 "prompt_template": "Custom prompt: {text}",
             }
         )
@@ -275,7 +276,7 @@ class TestSemanticProcessorPromptGeneration:
     def test_custom_prompt_template(self):
         """Configure can set custom prompt template."""
         module = SemanticProcessorModule()
-        module.configure({"prompt_template": "Custom: {text}"})
+        module.configure({"provider": "ollama", "prompt_template": "Custom: {text}"})
         assert module._prompt_template == "Custom: {text}"
 
     def test_prompt_template_format(self):
@@ -328,15 +329,15 @@ class TestSemanticProcessorModuleConfig:
     """Tests for SemanticProcessorModule configure method."""
 
     def test_configure_empty_dict(self):
-        """Configure with empty dict uses defaults."""
+        """Configure with empty dict names the provider key it needs."""
         module = SemanticProcessorModule()
-        module.configure({})
-        # Should not raise, uses defaults
+        with pytest.raises(ValueError, match="semantic_processor.provider"):
+            module.configure({})
 
     def test_configure_with_model_config(self):
         """Configure sets model_config for LLM calls."""
         module = SemanticProcessorModule()
-        module.configure({"model": {"provider": "ollama", "name": "llama3"}})
+        module.configure({"provider": "ollama", "model": {"name": "llama3"}})
         assert module._model_config == {"provider": "ollama", "name": "llama3"}
 
 
@@ -675,6 +676,7 @@ class TestSemanticProcessorEnhanceWithLLM:
         m = SemanticProcessorModule()
         m.configure(
             {
+                "provider": "ollama",
                 "model": {"model_id": "llama3"},
             }
         )
@@ -747,12 +749,13 @@ class TestSemanticProcessorConfigureModelResolution:
 
         assert calls == [("ollama", "fast")]
         assert module._model_config == {
+            "provider": "ollama",
             "model_id": "ollama/fast-resolved",
             "temperature": 0.1,
         }
 
-    def test_configure_without_provider_leaves_model_id_verbatim(self, monkeypatch):
-        """No provider means no resolution — the configured id is used as-is."""
+    def test_configure_without_provider_raises_before_resolution(self, monkeypatch):
+        """No provider is an error, not a silent fall-through to a default."""
 
         def boom(provider, model_id):
             raise AssertionError("resolve_model_id must not run without a provider")
@@ -760,9 +763,8 @@ class TestSemanticProcessorConfigureModelResolution:
         monkeypatch.setattr("osprey.models.tiers.resolve_model_id", boom)
 
         module = SemanticProcessorModule()
-        module.configure({"model": {"model_id": "llama3"}})
-
-        assert module._model_config == {"model_id": "llama3"}
+        with pytest.raises(ValueError, match="semantic_processor.provider"):
+            module.configure({"model": {"model_id": "llama3"}})
 
     def test_configure_with_provider_but_no_model_id_skips_resolution(self, monkeypatch):
         """A provider alone is not enough — resolution needs a model_id too."""
@@ -775,7 +777,7 @@ class TestSemanticProcessorConfigureModelResolution:
         module = SemanticProcessorModule()
         module.configure({"provider": "ollama", "model": {"temperature": 0.2}})
 
-        assert module._model_config == {"temperature": 0.2}
+        assert module._model_config == {"provider": "ollama", "temperature": 0.2}
 
 
 class TestSemanticProcessorProcessText:
@@ -785,7 +787,7 @@ class TestSemanticProcessorProcessText:
     def module(self):
         """Module configured with a model config (no tier resolution)."""
         m = SemanticProcessorModule()
-        m.configure({"model": {"model_id": "llama3"}})
+        m.configure({"provider": "ollama", "model": {"model_id": "llama3"}})
         return m
 
     @pytest.mark.asyncio
@@ -807,7 +809,7 @@ class TestSemanticProcessorProcessText:
         assert result is not None
         assert result.keywords == ["vacuum", "pump"]
         assert result.summary == "Pump replaced."
-        assert calls[0]["model_config"] == {"model_id": "llama3"}
+        assert calls[0]["model_config"] == {"provider": "ollama", "model_id": "llama3"}
         assert "Replaced vacuum pump VP-103." in calls[0]["message"]
 
     @pytest.mark.asyncio
@@ -899,7 +901,7 @@ class TestSemanticProcessorEnhanceBranches:
     def module(self):
         """Module configured with a model config."""
         m = SemanticProcessorModule()
-        m.configure({"model": {"model_id": "llama3"}})
+        m.configure({"provider": "ollama", "model": {"model_id": "llama3"}})
         return m
 
     @pytest.fixture
