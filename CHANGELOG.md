@@ -79,6 +79,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   also links to the trigger that started it and, where a telemetry store is
   deployed, to that run's own records — each link appearing only when there is
   something real to open.
+- Raised minimum versions for `aiofiles`, `click`, `fastapi`, `httpx`,
+  `matplotlib`, `mss`, `playwright`, `requests`, and `typing_extensions`, and
+  regenerated `uv.lock` to match.
 - `osprey web` now resolves the project it serves once, up front (`--project`,
   then `OSPREY_CONFIG`, then the current directory) and refuses to launch when
   no `config.yml` is resolvable, instead of silently serving a terminal with
