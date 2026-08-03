@@ -68,9 +68,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
-- Raised minimum versions for `aiofiles`, `claude-agent-sdk`, `click`, `fastapi`,
-  `httpx`, `matplotlib`, `mss`, `playwright`, `requests`, and `typing_extensions`,
-  and regenerated `uv.lock` to match.
+- Raised minimum versions for `aiofiles`, `click`, `fastapi`, `httpx`,
+  `matplotlib`, `mss`, `playwright`, `requests`, and `typing_extensions`, and
+  regenerated `uv.lock` to match.
 - `osprey web` now resolves the project it serves once, up front (`--project`,
   then `OSPREY_CONFIG`, then the current directory) and refuses to launch when
   no `config.yml` is resolvable, instead of silently serving a terminal with
