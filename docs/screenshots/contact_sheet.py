@@ -1029,7 +1029,7 @@ def _boot_dispatch_dashboard(workspace: Path):
 
 def _boot_bluesky_panels(workspace: Path):
     from osprey.interfaces._serving import run_app_server
-    from osprey.services.bluesky_panels.app import app as bluesky_panels_app
+    from osprey.interfaces.bluesky_panels.app import app as bluesky_panels_app
 
     return run_app_server(bluesky_panels_app)
 
