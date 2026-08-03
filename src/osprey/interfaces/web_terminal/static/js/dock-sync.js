@@ -212,6 +212,10 @@ export function dockPanelBesideActive(serviceId, title = serviceId) {
  */
 export function initDockSync() {
   if (wired) return;
+  // No document means no shell will ever arrive — the page is gone, or a test
+  // environment was disposed while a retry was still queued. Drop the poll
+  // instead of dereferencing a global that no longer exists.
+  if (typeof document === 'undefined') return;
   const api = getDockApi();
   const root = document.getElementById('dock-root');
   if (api && root) {
