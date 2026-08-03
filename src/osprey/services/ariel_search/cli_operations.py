@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from osprey.services.ariel_search import ARIELConfig
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 
@@ -87,15 +88,46 @@ class SyncResult:
 _ProgressCb = Callable[[str], None] | None
 
 
+def _postgresql_services() -> dict:
+    """Return the ``services.postgresql`` mapping from the loaded config.
+
+    The CLI hands these functions the ``ariel`` section alone, but a config
+    that leaves ``ariel.database.uri`` unset derives its DSN from the Postgres
+    the project actually runs — so the block is read here rather than threaded
+    through every command signature.
+
+    A caller that supplies its own ``ariel`` section without a project on disk
+    (tests, an embedding host) gets an empty block and the shipped Postgres
+    defaults, rather than a crash about a missing config.yml.
+    """
+    from osprey.utils.config import get_config_value
+
+    try:
+        return get_config_value("services.postgresql", {}) or {}
+    except FileNotFoundError:
+        return {}
+
+
+def _ariel_config(config_dict: dict) -> ARIELConfig:
+    """Build an :class:`ARIELConfig` from a CLI-supplied ``ariel`` section.
+
+    Every operation below needs the Postgres block alongside the section it was
+    handed, so the pairing lives here rather than at each call site.
+    """
+    from osprey.services.ariel_search import ARIELConfig
+
+    return ARIELConfig.from_dict(config_dict, _postgresql_services())
+
+
 async def get_status(config_dict: dict) -> dict:
     """Return ARIEL service status as a plain dict."""
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
 
     if not config_dict:
         return {"status": "error", "message": "ARIEL not configured"}
 
     try:
-        config = ARIELConfig.from_dict(config_dict)
+        config = _ariel_config(config_dict)
         service = await create_ariel_service(config)
         async with service:
             healthy, message = await service.health_check()
@@ -151,11 +183,10 @@ async def run_migrate(
     progress: _ProgressCb = None,
 ) -> None:
     """Run database migrations."""
-    from osprey.services.ariel_search import ARIELConfig
     from osprey.services.ariel_search.database.connection import create_connection_pool
     from osprey.services.ariel_search.database.migrations import run_migrations
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
 
     if progress:
         progress(f"Connecting to database: {config.database.uri.split('@')[-1]}")
@@ -189,12 +220,12 @@ async def run_sync(
     """
     import copy
 
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.connection import create_connection_pool
     from osprey.services.ariel_search.database.migrations import run_migrations
     from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
 
     # Step 1: Migrate
     if progress:
@@ -216,7 +247,7 @@ async def run_sync(
     # (the scheduler default skips when no prior run exists)
     sync_dict = copy.deepcopy(config_dict)
     sync_dict.setdefault("ingestion", {}).setdefault("watch", {})["require_initial_ingest"] = False
-    sync_config = ARIELConfig.from_dict(sync_dict)
+    sync_config = _ariel_config(sync_dict)
 
     service = await create_ariel_service(sync_config)
     async with service:
@@ -261,7 +292,7 @@ async def run_ingest(
     progress: _ProgressCb = None,
 ) -> IngestResult:
     """Ingest logbook entries from a source."""
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
 
@@ -270,7 +301,7 @@ async def run_ingest(
     config_dict["ingestion"]["source_url"] = source
     config_dict["ingestion"]["adapter"] = adapter
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
     adapter_instance = get_adapter(config)
 
     if progress:
@@ -370,7 +401,7 @@ async def run_watch(
     import asyncio
     import signal
 
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
 
     if source or adapter:
@@ -386,7 +417,7 @@ async def run_watch(
             config_dict["ingestion"] = {}
         config_dict["ingestion"]["poll_interval_seconds"] = interval
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
 
     if not config.ingestion or not config.ingestion.source_url:
         raise ValueError(
@@ -438,10 +469,10 @@ async def run_enhance(
     progress: _ProgressCb = None,
 ) -> EnhanceResult:
     """Run enhancement modules on entries."""
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
     enhancers = create_enhancers_from_config(config)
     if module:
         enhancers = [e for e in enhancers if e.name == module]
@@ -505,9 +536,9 @@ async def run_enhance(
 
 async def list_models(config_dict: dict) -> list[dict]:
     """Return embedding model info as a list of dicts."""
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
     service = await create_ariel_service(config)
     async with service:
         tables = await service.repository.get_embedding_tables()
@@ -542,12 +573,12 @@ def _entry_summary(entry: dict) -> dict:
 
 async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> dict:
     """Execute a search query and return the result as a dict."""
-    from osprey.services.ariel_search import ARIELConfig, SearchMode, create_ariel_service
+    from osprey.services.ariel_search import SearchMode, create_ariel_service
 
     if not config_dict:
         return {"error": "ARIEL not configured"}
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
 
     search_mode = SearchMode[mode.upper()]
 
@@ -594,11 +625,11 @@ async def run_reembed(
     progress: _ProgressCb = None,
 ) -> ReembedResult:
     """Re-embed entries with a new or existing model."""
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.migrations import model_to_table_name
     from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingMigration
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
     table_name = model_to_table_name(model)
 
     if dry_run:
@@ -749,7 +780,7 @@ async def run_quickstart(
     progress: _ProgressCb = None,
 ) -> QuickstartResult:
     """Run the complete ARIEL quickstart sequence."""
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.connection import create_connection_pool
     from osprey.services.ariel_search.database.migrations import run_migrations
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
@@ -764,7 +795,7 @@ async def run_quickstart(
         config_dict["ingestion"]["source_url"] = source
         config_dict["ingestion"]["adapter"] = "generic_json"
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
 
     if progress:
         progress("Checking database connection...")
@@ -859,10 +890,9 @@ async def run_quickstart(
 
 async def get_purge_info(config_dict: dict) -> PurgeInfo:
     """Get current counts for purge confirmation display."""
-    from osprey.services.ariel_search import ARIELConfig
     from osprey.services.ariel_search.database.connection import create_connection_pool
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
     pool = await create_connection_pool(config.database)
 
     try:
@@ -904,10 +934,9 @@ async def _unrecord_embedding_migration(cur) -> None:
 
 async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _ProgressCb = None):
     """Execute the actual purge operation."""
-    from osprey.services.ariel_search import ARIELConfig
     from osprey.services.ariel_search.database.connection import create_connection_pool
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
     pool = await create_connection_pool(config.database)
 
     try:
@@ -965,9 +994,9 @@ async def seed_logbook_entries(
     Returns:
         The number of entries seeded.
     """
-    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+    from osprey.services.ariel_search import create_ariel_service
 
-    config = ARIELConfig.from_dict(config_dict)
+    config = _ariel_config(config_dict)
     service = await create_ariel_service(config)
     count = 0
     async with service:

@@ -1,0 +1,224 @@
+# Legacy-tolerance fixture — DELIBERATELY carries retired configuration keys.
+#
+# Every key marked below with `# RETIRED` is a dotted path that the config
+# honesty cleanup removes from the shipped templates and from the code that
+# read it.  This file exists so that deleting those keys can never turn into a
+# breaking change for a project that was rendered before the cleanup: an
+# operator's on-disk config.yml still carries them, and the loader must keep
+# accepting it in silence — no error, no warning, no deprecation chatter.
+#
+# Do NOT "clean up" this file when a deletion task removes a key from the
+# templates.  Removing a key from here removes the coverage that proves the
+# deletion is backwards compatible.  The retired keys carry their most
+# misleading values (the ones that would imply a behavior the code no longer
+# has, e.g. `fail_on_mismatch: true`) so that any code path that starts
+# honoring them again is loud rather than subtle.
+#
+# The non-retired keys form a happy-path live config core, so a load failure
+# here means the loader broke, not that the fixture is unrealistic.
+
+project_name: legacy-tolerance-project
+project_root: /tmp/osprey-legacy-tolerance
+registry_path: null
+
+facility:
+  name: Legacy Test Facility
+
+system:
+  timezone: UTC
+  facility_name: Legacy Test Facility  # RETIRED (P3 #22) — superseded by facility.name
+
+# RETIRED (P2 #79) — LangGraph-era multi-application scoping.  The loader used
+# to derive `current_application` from the first entry and let it override
+# file_paths; nothing defines the key any more.
+applications:
+  legacy_app:
+    file_paths:
+      agent_data_dir: _legacy_app_data
+
+agent_data:
+  base_dir: _agent_data
+
+file_paths:
+  api_calls_dir: api_calls
+  agent_data_dir: _agent_data       # RETIRED (P3 #72) — superseded by agent_data.base_dir
+  user_memory_dir: user_memory      # RETIRED (P2 #13)
+  execution_plans_dir: execution_plans  # RETIRED (P2, same sweep)
+  prompts_dir: prompts              # RETIRED (P2, same sweep)
+
+# RETIRED (P2 #16) — hello_world-only block, no reader.
+workspace:
+  base_dir: ./osprey-workspace
+
+control_system:
+  type: mock
+  writes_enabled: false
+
+  limits_checking:
+    enabled: false
+    database_path: null
+    allow_unlisted_channels: true
+
+  write_verification:
+    default_level: none
+    default_tolerance_percent: 0.1
+    enabled: true            # RETIRED (P1 #5) — most misleading: implies verification is on
+    fail_on_mismatch: true   # RETIRED (P1 #1) — most misleading: implies writes abort on mismatch
+    timeout: 5.0             # RETIRED (P1, unverified sibling)
+
+  connector:
+    timeout: 5.0             # RETIRED (P2 #18)
+    mock:
+      simulate_delays: true  # RETIRED (P2 #19) — superseded by response_delay_ms / noise_level
+      simulation_file: data/simulation/machine.json
+    epics:
+      timeout: 5.0
+      gateways:
+        read_only:
+          address: gateway.example.com
+          port: 5064          # RETIRED (P4 #56) — hardcoded VA gateway port, now derived
+          use_name_server: false
+        write_access:
+          address: gateway.example.com
+          port: 5084
+          use_name_server: false
+
+archiver:
+  type: mock_archiver
+  mock_archiver:
+    simulation_file: data/simulation/machine.json  # RETIRED (P4 #71) — third copy, now derived
+
+approval:
+  default_policy: always
+  tools:
+    read_channel: skip
+    channel_limits: skip  # RETIRED (P1 #33) — no such hook-wired tool
+
+# RETIRED (P2 #12) — whole block; the reader had zero consumers.
+machine_state:
+  channels_file: data/machine_state_channels.json
+
+channel_finder:
+  pipeline_mode: in_context
+  explicit_validation_mode: strict  # RETIRED (P2 #9) — most misleading: implies channels are rejected
+
+  pipelines:
+    in_context:
+      database:
+        type: template
+        path: data/channel_databases/in_context.json
+        presentation_mode: template
+      # RETIRED (P2 #7) — whole `processing` block
+      processing:
+        chunk_dictionary: true
+        chunk_size: 50
+        max_correction_iterations: 3
+      subagent_model: null
+
+    hierarchical:
+      database:
+        type: hierarchical
+        path: data/channel_databases/hierarchical.json
+      # RETIRED (P2 #10) — whole `tree_preview` block
+      tree_preview:
+        enabled: true
+        max_depth: 3
+        max_children: 5
+      feedback:
+        enabled: true
+        store_path: data/feedback/hierarchical_feedback.json
+
+  benchmark:
+    dataset_path: data/benchmarks/queries.json
+    # RETIRED (P2 #11) — `execution` and `output`
+    execution:
+      runs_per_query: 3
+      delay_between_runs: 0
+      continue_on_error: false
+      max_concurrent_queries: 5
+      query_selection: all
+    output:
+      results_dir: data/benchmarks/results
+      save_incremental: true
+      include_detailed_metrics: true
+    # RETIRED (P2 #15) — `evaluation`
+    evaluation:
+      exact_match_weight: 1.0
+      partial_match_weight: 0.5
+
+api:
+  providers:
+    anthropic:
+      api_key: test-key
+      base_url: https://api.anthropic.com
+      models:
+        haiku: claude-haiku-4-5-20251001
+    ollama:
+      api_key: ollama
+      base_url: http://localhost:11434
+      host: localhost   # RETIRED (P2 #29)
+      port: 11434       # RETIRED (P2 #29)
+
+models:
+  response:
+    provider: anthropic
+    model_id: claude-haiku-4-5-20251001
+
+ariel:
+  database:
+    uri: postgresql://ariel:ariel@localhost:5432/ariel
+    # RETIRED (P4 #24+35) — MCP-only alias shim; kept here at the same DSN so
+    # the legacy value stays honored regardless of which key wins.
+    connection_string: postgresql://ariel:ariel@localhost:5432/ariel
+
+  default_max_results: 10   # RETIRED (P2 #59)
+  cache_embeddings: true    # RETIRED (P2 #60)
+
+  # RETIRED (P2 #57) — whole `reasoning` block (ReasoningConfig)
+  reasoning:
+    provider: anthropic
+    model_id: claude-haiku-4-5-20251001
+    max_iterations: 5
+    temperature: 0.1
+
+  search_modules:
+    keyword:
+      enabled: true
+    semantic:
+      enabled: true
+      provider: ollama
+      model: nomic-embed-text
+
+  enhancement_modules:
+    semantic_processor:
+      enabled: false
+      provider: anthropic   # SURVIVOR (P3 #74) — the one key driving tier + completion
+      model:
+        provider: anthropic   # RETIRED (P3 #74) — the duplicate of the module-level provider
+        model_id: claude-haiku-4-5-20251001
+        max_tokens: 256
+    text_embedding:
+      enabled: true
+      provider: ollama
+      models:
+        - name: nomic-embed-text
+          dimension: 768
+
+  embedding:
+    provider: ollama
+
+logbook:
+  composition:
+    provider: anthropic
+    model_id: claude-haiku-4-5-20251001  # RETIRED (P5 #17) — dropped from templates
+    default_tier: haiku
+
+artifact_server:
+  host: 127.0.0.1
+  port: 8086
+
+services:
+  postgresql:
+    port_host: 5432
+    username: ariel
+    database_name: ariel

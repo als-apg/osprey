@@ -488,7 +488,7 @@ def test_stop_stale_pid(tmp_path, runner):
 # Probe 1 is the companion port-collision guard: before binding its own port,
 # `osprey web` TCP-connect-probes every companion panel port the lifespan
 # will actually launch (see `_load_panel_config` / `_make_auto_launch_checker`
-# / `_make_config_reader`). A listener already on one of those ports is
+# / `resolve_web_server_address`). A listener already on one of those ports is
 # foreign — at best it steals a panel's tab, at worst it silently proxies
 # another project's data into this UI.
 
@@ -522,28 +522,23 @@ def _patch_config(monkeypatch, config: dict) -> None:
 
 
 def _spy_config_readers(monkeypatch) -> list[str]:
-    """Wrap server_launcher._make_config_reader to record which config_key gets probed.
+    """Wrap resolve_web_server_address to record which server keys get probed.
 
     Used to prove an excluded panel's port is never even resolved (as opposed
     to resolved-but-not-held) — avoids depending on the framework's default
     companion ports (8085/8086/8092/...) actually being free on the test host,
     which they may not be if a real `osprey web` happens to be running there.
     """
-    from osprey.infrastructure import server_launcher
+    from osprey.registry import web as registry_web
 
     probed_keys: list[str] = []
-    original_make_reader = server_launcher._make_config_reader
+    original_resolve = registry_web.resolve_web_server_address
 
-    def _wrapping_make_reader(defn):
-        reader = original_make_reader(defn)
+    def _spying_resolve(key, config=None):
+        probed_keys.append(key)
+        return original_resolve(key, config)
 
-        def _wrapped():
-            probed_keys.append(defn.config_key)
-            return reader()
-
-        return _wrapped
-
-    monkeypatch.setattr(server_launcher, "_make_config_reader", _wrapping_make_reader)
+    monkeypatch.setattr(registry_web, "resolve_web_server_address", _spying_resolve)
     return probed_keys
 
 

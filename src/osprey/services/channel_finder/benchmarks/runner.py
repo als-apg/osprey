@@ -207,7 +207,21 @@ class BenchmarkRunner:
             return Path(self.queries_override)
 
         config = self._read_config()
-        dataset_path = config["channel_finder"]["benchmark"]["dataset_path"]
+        benchmark = (config.get("channel_finder") or {}).get("benchmark") or {}
+        dataset_path = benchmark.get("dataset_path")
+        if not dataset_path:
+            # Only the control_assistant bundle ships a benchmark query corpus,
+            # so the app templates built around channel finding alone reach here
+            # with no `benchmark:` block at all. Name both ways out rather than
+            # surfacing a bare KeyError on the config subscript.
+            raise ValueError(
+                "No benchmark query set configured: config.yml has no "
+                "channel_finder.benchmark.dataset_path. Pass --queries-path "
+                "to point at your own query file, or add the block:\n"
+                "  channel_finder:\n"
+                "    benchmark:\n"
+                "      dataset_path: data/benchmarks/queries.json"
+            )
 
         path = Path(dataset_path)
         if not path.is_absolute():

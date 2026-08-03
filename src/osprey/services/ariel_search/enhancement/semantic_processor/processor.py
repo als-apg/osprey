@@ -82,15 +82,30 @@ class SemanticProcessorModule(BaseEnhancementModule):
     def configure(self, config: dict[str, Any]) -> None:
         """Configure the module with settings from config.yml.
 
+        The module-level ``provider`` selects the LLM: it resolves any model tier
+        alias and sources the credentials for the completion call.  It has no
+        default — ``ariel.embedding.provider`` names an embedding endpoint and is
+        not a stand-in for it.
+
         Args:
             config: The enhancement_modules.semantic_processor config dict
+
+        Raises:
+            ValueError: If no provider is configured for the module.
         """
-        model = config.get("model", {})
         provider = config.get("provider")
-        if provider and model.get("model_id"):
+        if not provider:
+            raise ValueError(
+                "ariel.enhancement_modules.semantic_processor.provider is required "
+                "when the semantic_processor enhancement is enabled. Set it to a "
+                "provider declared under api.providers."
+            )
+
+        model = {**config.get("model", {}), "provider": provider}
+        if model.get("model_id"):
             from osprey.models.tiers import resolve_model_id
 
-            model = {**model, "model_id": resolve_model_id(provider, model["model_id"])}
+            model["model_id"] = resolve_model_id(provider, model["model_id"])
         self._model_config = model
         if config.get("prompt_template"):
             self._prompt_template = config["prompt_template"]

@@ -206,7 +206,16 @@ class TestAuthFieldPassthrough:
         """Custom providers derive auth_secret_env from provider name."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "my-lab"},
-            api_providers={"my-lab": {"base_url": "https://proxy.example.com"}},
+            api_providers={
+                "my-lab": {
+                    "base_url": "https://proxy.example.com",
+                    "models": {
+                        "haiku": "lab-haiku",
+                        "sonnet": "lab-sonnet",
+                        "opus": "lab-opus",
+                    },
+                }
+            },
         )
         assert spec.auth_env_var == "ANTHROPIC_AUTH_TOKEN"
         assert spec.auth_secret_env == "MY_LAB_API_KEY"
@@ -595,14 +604,23 @@ class TestResolveEnvBlockRegression:
         stripped for the Claude-Code-facing var, issue #312)."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "my-lab"},
-            {"my-lab": {"base_url": "https://proxy.example.com/v1"}},
+            {
+                "my-lab": {
+                    "base_url": "https://proxy.example.com/v1",
+                    "models": {
+                        "haiku": "lab-haiku",
+                        "sonnet": "lab-sonnet",
+                        "opus": "lab-opus",
+                    },
+                }
+            },
         )
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": "https://proxy.example.com",
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5-20250929",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
-            "ANTHROPIC_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "lab-haiku",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "lab-sonnet",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "lab-opus",
+            "ANTHROPIC_MODEL": "lab-opus",
         }
 
     def test_env_block_regression_key_order_is_map_order(self):

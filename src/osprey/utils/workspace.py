@@ -6,9 +6,35 @@ Living in ``utils/`` eliminates layering violations.
 """
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("osprey.utils.workspace")
+
+#: Agent-data root used when a config declares no ``agent_data.base_dir``.
+DEFAULT_AGENT_DATA_BASE_DIR = "./_agent_data"
+
+
+def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
+    """Read the agent-data root out of an already-loaded config mapping.
+
+    ``agent_data.base_dir`` is the only key that names this directory. Callers
+    holding a config dict (and their own anchor for relative paths — the health
+    checks and the compose generator anchor on ``project_root``) read it through
+    here; callers with no config in hand use :func:`resolve_agent_data_root`,
+    which anchors on the config file's own directory.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+
+    Returns:
+        The configured base directory, possibly relative to the caller's anchor.
+    """
+    section = (config or {}).get("agent_data") or {}
+    if not isinstance(section, Mapping):
+        return DEFAULT_AGENT_DATA_BASE_DIR
+    return str(section.get("base_dir") or DEFAULT_AGENT_DATA_BASE_DIR)
 
 
 def resolve_config_path() -> Path:
@@ -62,8 +88,7 @@ def resolve_agent_data_root() -> Path:
     config file's parent directory (the project root).  Falls back to
     ``./_agent_data`` relative to cwd if no config is found.
     """
-    config = load_osprey_config()
-    base_dir = config.get("agent_data", {}).get("base_dir", "./_agent_data")
+    base_dir = agent_data_base_dir(load_osprey_config())
 
     config_path = resolve_config_path()
     if config_path.exists():
@@ -91,8 +116,7 @@ def resolve_shared_data_root() -> Path:
     session isolation is handled at the index level via entry metadata
     (e.g. ``ArtifactEntry.session_id``).
     """
-    config = load_osprey_config()
-    base_dir = config.get("agent_data", {}).get("base_dir", "./_agent_data")
+    base_dir = agent_data_base_dir(load_osprey_config())
     config_path = resolve_config_path()
     project_root = config_path.parent if config_path.exists() else Path.cwd()
     resolved = (project_root / base_dir).resolve()

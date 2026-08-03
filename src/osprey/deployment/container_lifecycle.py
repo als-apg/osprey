@@ -81,8 +81,10 @@ logger = get_logger("deployment.lifecycle")
 # insecure ``${ARIEL_DB_PASSWORD:-ariel}`` default, so left alone the ARIEL
 # store comes up on a shared, publicly-known password. Minting a per-deploy
 # ``ARIEL_DB_PASSWORD`` replaces it with a strong secret that the container
-# (POSTGRES_PASSWORD) and the agent's DSN (``ariel.database.uri`` references
-# the same ``${ARIEL_DB_PASSWORD:-ariel}``) read from the same ``.env`` value.
+# (POSTGRES_PASSWORD) and the agent's DSN (derived from the ``services.postgresql``
+# block by ``resolve_ariel_dsn``, which substitutes the same
+# ``${ARIEL_DB_PASSWORD:-ariel}``) read from the same ``.env`` value. An explicit
+# ``ariel.database.uri`` still wins when a project sets one.
 # NOTE: Postgres only reads POSTGRES_PASSWORD when *initializing* a fresh data
 # volume — a pre-existing volume keeps its original password (same
 # stale-volume caveat as openobserve; recreate the volume to adopt the minted

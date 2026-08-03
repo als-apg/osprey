@@ -76,7 +76,9 @@ class ConnectorFactory:
 
         Args:
             config: Control system configuration dict with keys:
-                - type: Connector type (e.g., 'epics', 'mock')
+                - type: Connector type (e.g., 'epics', 'mock'). Defaults to
+                  'mock' with a warning when unset, so an under-specified
+                  config never reaches live hardware.
                 - connector: Dict with connector-specific configs
                 If None, loads from global config
 
@@ -109,7 +111,17 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type", types.EPICS)
+        connector_type = config.get("type")
+        if not connector_type:
+            # Fail closed: an under-specified config must never bring up a live
+            # control system. A blank value is treated as absent for the same
+            # reason.
+            logger.warning(
+                f"control_system.type is not set; defaulting to '{types.MOCK}'. "
+                f"Set control_system.type explicitly to select a connector."
+            )
+            connector_type = types.MOCK
+
         connector_class = cls._control_system_connectors.get(connector_type)
 
         if not connector_class:
@@ -153,7 +165,9 @@ class ConnectorFactory:
 
         Args:
             config: Archiver configuration dict with keys:
-                - type: Connector type (e.g., 'epics_archiver', 'mock_archiver')
+                - type: Connector type (e.g., 'epics_archiver', 'mock_archiver').
+                  Defaults to 'mock_archiver' with a warning when unset, so a
+                  config that omits the archiver section stays serviceable.
                 - [type]: Dict with type-specific configs
                 If None, loads from global config
 
@@ -184,7 +198,17 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type", types.EPICS_ARCHIVER)
+        connector_type = config.get("type")
+        if not connector_type:
+            # Fail closed: a config with no `archiver:` section is under-specified,
+            # not a declaration that a facility archiver exists. A blank value is
+            # treated as absent for the same reason.
+            logger.warning(
+                f"archiver.type is not set; defaulting to '{types.MOCK_ARCHIVER}'. "
+                f"Set archiver.type explicitly to select a connector."
+            )
+            connector_type = types.MOCK_ARCHIVER
+
         connector_class = cls._archiver_connectors.get(connector_type)
 
         if not connector_class:

@@ -2,10 +2,11 @@
 
 The ownership state machine (port-free / held-then-freed / held-throughout) is
 covered in ``tests/interfaces/channel_finder/test_server_launcher.py``. This
-module targets the parts not exercised there: the data-driven callback builders
-(``_make_config_reader`` env override, ``_resolve_dotted``, ``_make_app_factory``
-import/kwargs/error branches), the ``ensure_web_server`` dispatch table, and the
-two ``ensure_running`` short-circuits (auto-launch disabled, already launched).
+module targets the parts not exercised there: the launcher table's wiring to the
+shared address resolver, the data-driven callback builders (``_resolve_dotted``,
+``_make_app_factory`` import/kwargs/error branches), the ``ensure_web_server``
+dispatch table, and the two ``ensure_running`` short-circuits (auto-launch
+disabled, already launched).
 """
 
 from __future__ import annotations
@@ -21,11 +22,10 @@ from osprey.infrastructure import server_launcher
 from osprey.infrastructure.server_launcher import (
     ServerLauncher,
     _make_app_factory,
-    _make_config_reader,
     _resolve_dotted,
     ensure_web_server,
 )
-from osprey.registry.web import WebServerDefinition
+from osprey.registry.web import FRAMEWORK_WEB_SERVERS, WebServerDefinition
 
 
 def _free_port() -> int:
@@ -47,36 +47,34 @@ def _defn(**overrides) -> WebServerDefinition:
 
 
 # ---------------------------------------------------------------------------
-# _make_config_reader — env override on top of config
+# Address resolution — one shared derivation, wired into every launcher
 # ---------------------------------------------------------------------------
 
 
-class TestConfigReaderEnvOverride:
-    def test_env_var_overrides_configured_port(self, monkeypatch):
-        defn = _defn(port_default=8080)
-        reader = _make_config_reader(defn)
-        monkeypatch.setattr(
-            server_launcher,
-            "load_osprey_config",
-            lambda: {"test_server": {"host": "10.0.0.1", "port": 9000}},
-        )
-        monkeypatch.setenv(defn.port_env_var, "9191")
-
-        host, port = reader()
-        assert host == "10.0.0.1"
-        assert port == 9191  # env wins over the configured 9000
-
-    def test_empty_env_var_is_ignored(self, monkeypatch):
-        defn = _defn(port_default=8080)
-        reader = _make_config_reader(defn)
-        monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: {})
-        monkeypatch.setenv(defn.port_env_var, "")  # exported-but-empty
-
-        _host, port = reader()
-        assert port == 8080  # falls back to the default, not int("")
+class TestLauncherAddressResolution:
+    """Config/default/env resolution itself is covered by the resolver's own tests
+    (``tests/mcp_server/test_artifact_port_resolution.py``). What matters here is
+    that the launcher table is actually wired to it, per key."""
 
     def test_env_var_name_derives_from_config_key(self):
         assert _defn(config_key="artifact_server").port_env_var == "OSPREY_ARTIFACT_SERVER_PORT"
+
+    def test_launcher_reader_is_the_shared_resolver_bound_to_its_key(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.utils.workspace.load_osprey_config",
+            lambda: {"artifact_server": {"host": "10.0.0.1", "port": 9000}},
+        )
+        monkeypatch.setenv("OSPREY_ARTIFACT_SERVER_PORT", "9191")
+
+        host, port = server_launcher._launchers["artifact"]._config_reader()
+        assert (host, port) == ("10.0.0.1", 9191)  # env wins over the configured 9000
+
+    def test_every_launcher_resolves_its_own_key(self, monkeypatch):
+        monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: {})
+        for key, defn in FRAMEWORK_WEB_SERVERS.items():
+            monkeypatch.delenv(defn.port_env_var, raising=False)
+            _host, port = server_launcher._launchers[key]._config_reader()
+            assert port == defn.port_default, f"{key} resolved another server's port"
 
 
 # ---------------------------------------------------------------------------

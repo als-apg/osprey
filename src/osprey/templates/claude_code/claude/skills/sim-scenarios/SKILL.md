@@ -22,8 +22,9 @@ optionally, its logbook narrative (`logbook.json`). Several scenarios can be
 
 Read the project `config.yml` and find the simulation file path:
 
-- `control_system.connector.mock.simulation_file` (and usually the same path
-  under `archiver.mock_archiver.simulation_file`)
+- `control_system.connector.<type>.simulation_file`, where `<type>` is
+  `control_system.type` (usually `mock`). The mock archiver derives the same
+  path from this key, so it is normally declared here only.
 
 The path is relative to the project root (typically
 `data/simulation/machine.json`); scenario bundles live in the sibling

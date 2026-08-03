@@ -11,7 +11,7 @@ name: Hello World
 data_bundle: hello_world
 
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # ── Artifact selection ───────────────────────────────────────────────────────
 

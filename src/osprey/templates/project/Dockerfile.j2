@@ -105,8 +105,7 @@ ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}
 # Project (build context = project root; .dockerignore excludes
 # .venv/.env/.git/_agent_data)
 COPY . /app/{{ project_name }}/
-RUN mkdir -p /app/{{ project_name }}/_agent_data/user_memory \
-             /app/{{ project_name }}/_agent_data/api_calls
+RUN mkdir -p /app/{{ project_name }}/_agent_data/api_calls
 
 # Rewrite the recorded project_root for the container layout and re-render the
 # Claude Code artifacts (.mcp.json, CLAUDE.md, .claude/) against it

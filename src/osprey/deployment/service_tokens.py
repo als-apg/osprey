@@ -82,7 +82,8 @@ _VAR_GENERATORS: dict[str, Callable[[], str]] = {
     # OpenObserve rejects a root password that misses any of its four required
     # character classes and crash-loops — see _generate_openobserve_password.
     "ZO_ROOT_USER_PASSWORD": _generate_openobserve_password,
-    # The ARIEL Postgres password is substituted into a DSN URI
+    # The ARIEL Postgres password is substituted into the DSN URI that
+    # ``resolve_ariel_dsn`` derives from ``services.postgresql``
     # (``postgresql://ariel:${ARIEL_DB_PASSWORD:-ariel}@…``) as well as the
     # container's POSTGRES_PASSWORD, so it must stay free of URI-reserved
     # characters — ``token_urlsafe``'s ``-``/``_`` would be fine, but hex is

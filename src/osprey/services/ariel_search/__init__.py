@@ -21,9 +21,9 @@ from osprey.services.ariel_search.config import (
     EnhancementModuleConfig,
     IngestionConfig,
     ModelConfig,
-    ReasoningConfig,
     SearchModuleConfig,
     WatchConfig,
+    resolve_ariel_dsn,
 )
 from osprey.services.ariel_search.exceptions import (
     AdapterNotFoundError,
@@ -76,9 +76,9 @@ __all__ = [
     "EnhancementModuleConfig",
     "IngestionConfig",
     "ModelConfig",
-    "ReasoningConfig",
     "SearchModuleConfig",
     "WatchConfig",
+    "resolve_ariel_dsn",
     # Ingestion scheduler
     "IngestionPollResult",
     "IngestionScheduler",

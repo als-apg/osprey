@@ -60,6 +60,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   reproduce — ones installed from no package index, and ones whose version
   conflicts with osprey's own requirements. `inherit_exclude` is how you drop
   them.
+- A CI-enforced guard keeps `config.yml` honest: every key the shipped templates
+  render must have a reader in the framework, or a recorded reason it has none,
+  and a key that was retired cannot come back in a template, a preset override,
+  or the loader's defaults. Contributors can run it from a checkout with
+  `uv run python scripts/check_config_keys.py`.
 
 ### Changed
 
@@ -134,6 +139,141 @@ Compatibility is documented in release notes, not encoded in the version string.
   test must declare its lane (gated per matrix cell and in CI); 19 non-LLM e2e
   files moved to the matrix exclusion list. The `e2e_benchmark` marker was
   renamed to `channel_finder_benchmark` to say what it actually covers.
+- A config that does not say which control system it talks to now gets the mock
+  connector instead of EPICS, with a warning naming `control_system.type`. The
+  same rule applies to the archiver: a missing or blank `archiver.type` resolves
+  to the mock archiver — previously a missing one selected the EPICS archiver and
+  a blank one crashed. The `hello_world` and `project` templates now ship a
+  minimal `archiver:` block so the choice is visible. Configs that name their
+  connector and archiver are unaffected.
+- `claude_code.default_model` is resolved in three ways and never silently
+  substituted: unset uses the provider's default tier, a tier name
+  (`haiku`/`sonnet`/`opus`) selects that tier, and a model ID the provider's
+  tier map declares is used verbatim. Anything else is now an error that
+  names the valid tiers and the provider's model IDs. Previously an unrecognized
+  value — a stale model ID, or one belonging to a different provider — was
+  quietly replaced by the provider's default tier, so a project asking for Opus
+  could run Haiku with nothing in the log. *Migration:* if a build now fails on
+  this key, set it to a tier name (which stays valid when the provider changes)
+  or to one of the model IDs the error lists. The shipped presets now set the
+  tier `haiku`.
+- A provider that maps no model for a tier is refused at build time, with the
+  `api.providers.<name>.models` block to fill in. Unmapped tiers were previously
+  filled with Anthropic's own model IDs, so a proxy or gateway shipping no map
+  launched the agent asking for a model it does not serve.
+- `api.providers.<name>.base_url` now overrides the built-in endpoint for
+  built-in providers too, matching how the model map already worked — a facility
+  fronting a shipped provider with its own gateway gets the agent pointed at the
+  endpoint `osprey health` probes.
+- `ariel.database.uri` is optional. With it unset, the DSN is derived from the
+  project's `services.postgresql` block (username, database name, host port, and
+  the `ARIEL_DB_PASSWORD` the deploy mints), so moving the database port no
+  longer means editing a second copy of the same facts; the templates no longer
+  render a hardcoded `uri:`. An explicit `uri` still wins verbatim, as does the
+  older `connection_string` spelling (honored, with a warning naming its
+  replacement), and `osprey health` now cross-checks an explicit loopback DSN
+  against `services.postgresql.port_host`.
+- Virtual Accelerator gateways that declare no `port` now follow
+  `services.virtual_accelerator.port` instead of a hardcoded `5064`, so moving
+  the deployed soft-IOC's port moves the connector with it. An explicit gateway
+  port still wins; the templates no longer render `port: 5064`.
+- The mock archiver derives `simulation_file` from the control system's own
+  simulation file when its own key is unset, so archived history and live reads
+  come from one machine model. An explicit archiver-side value still wins, and a
+  disagreement between the two is warned about.
+- `osprey health` reports configuration more honestly: an empty
+  `deployed_services` list is a skip rather than a warning (attached and
+  service-free projects ship it empty), the timezone remediation names
+  `system.timezone` in `config.yml` instead of a `TZ` variable that no longer
+  clears it, the container checks query the runtime `container_runtime` selects
+  rather than whatever auto-detection finds first, and the agent-data check reads
+  `agent_data.base_dir`.
+- `facility.name` is the canonical facility identity, read the same way by the
+  build path and by every interface that labels its UI; presets now set it in
+  the `facility:` block. A top-level `facility_name` still works as a fallback.
+- `agent_data.base_dir` is the single key naming the agent-data directory. The
+  runtime, the health check, and the compose mounts all resolve the same
+  directory from it, and generated configs declare it explicitly.
+- Logbook composition uses the project's configured provider —
+  `logbook.composition.provider`, falling back to `claude_code.provider` — and
+  fails with a clear error when none is configured, instead of always calling
+  Anthropic. The model ID comes from that provider's tier map;
+  `logbook.composition.model_id` is no longer written into generated configs but
+  is still honored to pin a literal ID.
+- `ariel.enhancement_modules.semantic_processor.provider` is required when that
+  enhancement is enabled, and an unset one is an actionable error rather than a
+  silent fall-through to `ariel.embedding.provider` (which defaults to `ollama`,
+  an embedding endpoint, not a completion one). The duplicate nested
+  `model.provider` key is gone; the module-level `provider` is the only one.
+- `claude_code.telemetry.protocol: grpc` combined with an auto-derived
+  OpenObserve endpoint now fails the build. OpenObserve serves HTTP only, so
+  that pairing produced an exporter that dropped every metric and log silently.
+- The artifact gallery tab appears only when its server is actually running:
+  with `artifact_server.auto_launch: false`, or after a failed launch, the
+  WORKSPACE tab is unavailable instead of an enabled tab whose iframe returned a
+  bare 502. Every companion panel's host and port now come from one resolver, so
+  the URL published to the terminal and the port the server binds cannot
+  disagree, and the `OSPREY_*_PORT` overrides apply on both sides.
+- `facility_knowledge.bundle_path` resolves identically for its three readers
+  (the MCP server, `osprey knowledge`, and the KNOWLEDGE panel): `~` is expanded,
+  and a relative path is resolved against the directory holding `config.yml`.
+- The control-system wizard disables the MongoDB archiver choice when the
+  `archiver-mongodb` extra is not installed, naming the install command, instead
+  of writing an `archiver.type` the environment cannot construct.
+- The agent's setup-mode config patcher reports `control_system.writes_enabled`
+  as a cold change requiring `osprey claude regen` and a restart. It was
+  advertised as taking effect immediately, so an operator who flipped it
+  in-session was told writes were live while the connector and the enforced deny
+  list still blocked them.
+- A project that still sets
+  `control_system.write_verification.fail_on_mismatch: true` gets a one-time
+  warning at its first write. Nothing ever read that key: a failed verification
+  does not block or roll back a write. `write_channel_checked()` is the path
+  that enforces verification, and scan plans write through it.
+- The web terminal's settings drawer edits the write-verification level
+  (`control_system.write_verification.default_level`) as a dropdown of `none` /
+  `callback` / `readback`. Its enum was attached to a key shape that does not
+  exist, so the live setting was previously edited as free text.
+- Generated configs now document keys that were previously discoverable only in
+  the source: the panel-port block for every web panel a project ships, the
+  `web_terminal:` and `hooks:` blocks, `bluesky.plan_dirs` trust tiers, the three
+  channel-finder pipeline modes, `development.api_calls`, and `web.theme`.
+  Comments that described behavior the code does not have were corrected —
+  including the safety surface: how far `approval.default_policy` actually
+  reaches (only tools whose matcher runs the approval hook; everything else is
+  gated by the rendered `settings.json` permissions), all three effects of
+  `hooks.debug` and its unrotated JSONL, the warning that
+  `control_system.patterns` overrides rather than extends the built-in patterns,
+  and what `control_system.write_tools` covers.
+
+### Removed
+
+- Configuration keys that nothing read are retired — from the shipped templates
+  and presets, and from the framework's own config classes and loader:
+  `control_system.write_verification.{enabled,fail_on_mismatch,timeout}`,
+  `approval.tools.channel_limits`, `control_system.connector.timeout`,
+  `connector.mock.simulate_delays` (the mock's real knobs are `response_delay_ms`
+  and `noise_level`), the `machine_state:` block and its unused reader,
+  `channel_finder.explicit_validation_mode`, the channel-finder `benchmark`,
+  `processing` and `tree_preview` sub-blocks,
+  `file_paths.{agent_data_dir,user_memory_dir,execution_plans_dir,prompts_dir}`,
+  `workspace.base_dir`, `api.providers.ollama.{host,port}`,
+  `ariel.{reasoning,default_max_results,cache_embeddings}`, the `applications:`
+  block, and `system.facility_name`. An existing `config.yml` that still carries
+  any of them keeps loading, silently and unchanged — retired keys are tolerated,
+  not fatal; they simply have no effect. Two exceptions:
+  `write_verification.fail_on_mismatch: true` warns once at the first write, and
+  `file_paths.agent_data_dir` is no longer read at all, so a non-default value
+  there now resolves under `./_agent_data` — move it to `agent_data.base_dir`.
+- The configuration the loader hands to the runtime no longer fabricates
+  OpenWebUI-era identity fields (`user_id`, `chat_id`, `session_id`,
+  `thread_id`, `session_url`) or the `applications` / `current_application`
+  scoping that went with them. Nothing read the identity fields; the
+  `applications` scoping was read only to resolve per-application `file_paths`
+  overrides, which no shipped template ever declared.
+- Scaffolded projects no longer create `_agent_data/user_memory/`, and `.env`
+  no longer carries a `TZ` line detected from the host — the facility timezone
+  is `system.timezone` in `config.yml`.
 
 ### Fixed
 

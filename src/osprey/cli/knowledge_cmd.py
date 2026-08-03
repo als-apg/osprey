@@ -24,8 +24,10 @@ def _resolve_bundle(bundle: Path | None) -> Path:
     """Return *bundle*, or fall back to ``facility_knowledge.bundle_path`` from config.
 
     Commands accept an optional BUNDLE argument; when omitted, the bundle root is
-    read from the ``facility_knowledge.bundle_path`` config key and expanded to an
-    absolute path.  This is the single source of that fallback rule and its error.
+    read from the ``facility_knowledge.bundle_path`` config key and resolved by the
+    shared rule (``~`` expanded, then relative values taken against the config.yml
+    directory) so the CLI opens the same bundle as the MCP server and the OKF panel.
+    This is the single source of that fallback rule and its error.
 
     Raises:
         click.UsageError: When *bundle* is None and the config key is unset.
@@ -33,6 +35,7 @@ def _resolve_bundle(bundle: Path | None) -> Path:
     if bundle is not None:
         return bundle
 
+    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
     from osprey.utils.config import get_config_value
 
     raw = get_config_value("facility_knowledge.bundle_path", None)
@@ -40,7 +43,7 @@ def _resolve_bundle(bundle: Path | None) -> Path:
         raise click.UsageError(
             "No bundle path given and facility_knowledge.bundle_path is not set in config."
         )
-    return Path(raw).expanduser().resolve()
+    return resolve_bundle_path(raw)
 
 
 @knowledge.command("regen-index")

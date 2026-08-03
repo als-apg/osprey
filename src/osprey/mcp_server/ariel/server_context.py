@@ -55,15 +55,10 @@ class ARIELContext:
             self._initialized = True
             return
 
-        # Handle config key mismatch: config.yml uses connection_string,
-        # but DatabaseConfig.from_dict() expects "uri"
-        db_section = ariel_section.get("database", {})
-        if "connection_string" in db_section and "uri" not in db_section:
-            db_section["uri"] = db_section["connection_string"]
-
         from osprey.services.ariel_search.config import ARIELConfig
 
-        self._ariel_config = ARIELConfig.from_dict(ariel_section)
+        services = self._raw_config.get("services") or {}
+        self._ariel_config = ARIELConfig.from_dict(ariel_section, services.get("postgresql") or {})
 
         self._initialized = True
         logger.info("ARIELContext: initialized")

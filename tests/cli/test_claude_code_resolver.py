@@ -70,11 +70,19 @@ class TestCBORGProvider:
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
         assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
 
-    def test_base_url_ignores_providers_section(self):
-        """Base URL always uses provider literal, never user config (which has /v1)."""
+    def test_base_url_from_providers_section_overrides_builtin(self):
+        """A config base_url wins over the built-in literal; the /v1 is still stripped."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "cborg"},
             api_providers={"cborg": {"base_url": "https://cborg.lbl.gov/v1"}},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://cborg.lbl.gov"
+
+    def test_base_url_falls_back_to_builtin_when_config_names_none(self):
+        """An api.providers entry without base_url leaves the built-in URL in place."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "cborg"},
+            api_providers={"cborg": {"models": {"haiku": "h", "sonnet": "s", "opus": "o"}}},
         )
         assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
 
@@ -138,7 +146,16 @@ class TestUnsupportedProvider:
     def test_known_in_api_providers_does_not_raise(self):
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "my-proxy"},
-            api_providers={"my-proxy": {"base_url": "https://my-proxy.example.com"}},
+            api_providers={
+                "my-proxy": {
+                    "base_url": "https://my-proxy.example.com",
+                    "models": {
+                        "haiku": "proxy-haiku",
+                        "sonnet": "proxy-sonnet",
+                        "opus": "proxy-opus",
+                    },
+                }
+            },
         )
         assert spec is not None
 
@@ -147,8 +164,8 @@ class TestCustomProxyProvider:
     """Custom Anthropic-compatible proxy via api.providers.
 
     With the redesign, custom proxies own their model IDs via
-    api.providers[name].models.  If not specified, the last-resort
-    Anthropic direct IDs are used so env block generation never crashes.
+    api.providers[name].models.  A proxy that specifies none is refused —
+    the framework never substitutes another provider's model IDs.
     """
 
     _API_PROVIDERS = {
@@ -216,15 +233,16 @@ class TestCustomProxyProvider:
         assert spec.tier_to_model["sonnet"] == "claude-sonnet-special"
         assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"  # from api.providers
 
-    def test_no_models_in_api_providers_falls_back_to_last_resort(self):
-        """Without api.providers.models, Anthropic direct IDs are used as last resort."""
-        spec = ClaudeCodeModelResolver.resolve(
-            {"provider": "lbl-aws"},
-            api_providers={"lbl-aws": {"base_url": "https://llm.example.com"}},
-        )
-        # Falls back to last-resort Anthropic direct IDs
-        assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
-        assert spec.tier_to_model["opus"] == "claude-opus-4-6"
+    def test_no_models_in_api_providers_is_refused(self):
+        """A proxy that maps no models is an error, not an Anthropic-ID fill.
+
+        Full coverage of the refusal lives in test_provider_models_required.py.
+        """
+        with pytest.raises(ValueError, match="defines no models mapping"):
+            ClaudeCodeModelResolver.resolve(
+                {"provider": "lbl-aws"},
+                api_providers={"lbl-aws": {"base_url": "https://llm.example.com"}},
+            )
 
     def test_hyphenated_name_generates_valid_secret_env(self):
         """Provider name 'lbl-aws' → secret env var 'LBL_AWS_API_KEY'."""
@@ -459,9 +477,13 @@ class TestDefaultModelTier:
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "haiku"})
         assert spec.default_model_tier == "haiku"
 
-    def test_invalid_tier_falls_back_to_provider_default(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
-        assert spec.default_model_tier == "haiku"
+    def test_unservable_value_raises(self):
+        """Was: silently fell back to the provider default tier.
+
+        Full three-branch coverage lives in test_default_model_three_branch.py.
+        """
+        with pytest.raises(ValueError, match="claude_code.default_model"):
+            ClaudeCodeModelResolver.resolve({"provider": "cborg", "default_model": "gpt-4"})
 
     def test_field_present_on_spec(self):
         spec = ClaudeCodeModelSpec(provider="test")
@@ -591,6 +613,10 @@ api:
   providers:
     argo:
       base_url: ${ARGO_PROD_URL}
+      models:
+        haiku: claudehaiku45
+        sonnet: claudesonnet45
+        opus: claudeopus41
 claude_code:
   provider: argo
 """
@@ -701,7 +727,14 @@ class TestBaseUrlV1Normalization:
     """
 
     def _resolve(self, base_url, *, native):
-        entry = {"base_url": base_url}
+        entry = {
+            "base_url": base_url,
+            "models": {
+                "haiku": "claudehaiku45",
+                "sonnet": "claudesonnet45",
+                "opus": "claudeopus41",
+            },
+        }
         if native:
             entry["api_protocol"] = "anthropic"
         return ClaudeCodeModelResolver.resolve({"provider": "argo"}, {"argo": entry})

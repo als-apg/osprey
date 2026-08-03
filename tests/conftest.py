@@ -470,18 +470,6 @@ class TestRegistryProvider(RegistryConfigProvider):
         },
         "execution": {
             "execution_method": "subprocess",
-            "modes": {
-                "read_only": {
-                    "kernel_name": "python3",
-                    "allows_writes": False,
-                    "requires_approval": False,
-                },
-                "write_access": {
-                    "kernel_name": "python3",
-                    "allows_writes": True,
-                    "requires_approval": True,
-                },
-            },
             "limits": {"max_retries": 3, "max_execution_time_seconds": 30},
         },
         "models": {
@@ -538,18 +526,6 @@ class TestRegistryProvider(RegistryConfigProvider):
         },
         "execution": {
             "execution_method": "subprocess",
-            "modes": {
-                "read_only": {
-                    "kernel_name": "python3",
-                    "allows_writes": False,
-                    "requires_approval": False,
-                },
-                "write_access": {
-                    "kernel_name": "python3",
-                    "allows_writes": True,
-                    "requires_approval": True,
-                },
-            },
             "limits": {"max_retries": 3, "max_execution_time_seconds": 30},
         },
         "models": {
