@@ -499,15 +499,17 @@ and <code class="docutils literal notranslate"><span class="pre">.osprey-web.log
 <h2>What you get<a class="headerlink" href="#what-you-get" title="Link to this heading">#</a></h2>
 <p>The window has three working areas plus a header:</p>
 <ul class="simple">
-<li><p><strong>Terminal</strong> (left) — a real terminal running the Osprey agent. It survives
+<li><p><strong>Terminal</strong> (right) — a real terminal running the Osprey agent. It survives
 reconnects, and you can keep a few background conversations alive and hop
 between them.</p></li>
-<li><p><strong>Workspace</strong> (right) — a live view of your project files. New artifacts,
+<li><p><strong>Workspace</strong> (left) — a live view of your project files. New artifacts,
 plots, and data files appear as the agent creates them, with no refresh.</p></li>
 <li><p><strong>Side panels</strong> — your control-system tools (Channel Finder, ARIEL, the
-lattice dashboard, and so on) as tabs beside the chat. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p></li>
-<li><p><strong>Header</strong> — the theme switcher (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), a settings drawer, and an
-optional name badge to tell one deployment from another.</p></li>
+lattice dashboard, and so on), opened from the icon rail and arranged as
+dockable tiles. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p></li>
+<li><p><strong>Header</strong> — the display menu (a small dot holding the light/dark,
+Expert/Simple, and theme controls — see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), a settings drawer,
+and an optional name badge to tell one deployment from another.</p></li>
 </ul>
 <p>The settings drawer lets you read and edit the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — and
 the agent’s own setup and memory files — from the browser, so you rarely need
@@ -526,6 +528,13 @@ many background conversations to keep alive — and command-line flags
 override them for a single run. Give a deployment a name badge in the
 header with <code class="docutils literal notranslate"><span class="pre">web.app_name</span></code> (or the <code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_APP_NAME</span></code> environment
 variable, handy when several containers share one config image).</p>
+<p class="sd-card-text">Three <code class="docutils literal notranslate"><span class="pre">web</span></code> keys bound the Simple-mode operator-chat pool:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">chat_turn_timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">600</span><span class="w">    </span><span class="c1"># max seconds for one chat turn</span>
+<span class="w">  </span><span class="nt">chat_idle_timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1800</span><span class="w">   </span><span class="c1"># idle sessions reaped after this</span>
+<span class="w">  </span><span class="nt">chat_max_sessions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">        </span><span class="c1"># concurrent chat sessions cap</span>
+</pre></div>
+</div>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">

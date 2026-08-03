@@ -516,8 +516,8 @@ logbook for past events.</p></td>
 turns it into interactive and publication-quality plots.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Operator skills</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">/diagnose</span></code>, <code class="docutils literal notranslate"><span class="pre">/session-report</span></code>, <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>, and <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code>
-support common control-room workflows.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">/diagnose</span></code>, <code class="docutils literal notranslate"><span class="pre">/session-report</span></code>, <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">demo-ui</span></code> support common control-room workflows.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Web terminal</strong></p></td>
 <td><p>A browser split-pane UI with logbook and channel-finder panels
@@ -647,8 +647,11 @@ HTML report to the artifact gallery.</p>
 connection errors, configuration drift) and produces a structured root-cause
 report — it is for diagnosing the <em>assistant</em>, not the accelerator.</p>
 <p><strong>Other skills:</strong> <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code> generates a showcase of plot and report
-artifacts to explore the gallery’s capabilities, and <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code> inspects and
-repairs the project’s configuration when something looks misconfigured.</p>
+artifacts to explore the gallery’s capabilities, <code class="docutils literal notranslate"><span class="pre">demo-ui</span></code> runs a short
+scripted demonstration of the agent driving the web workspace — switching
+panel tabs, focusing artifacts, composing layouts — and <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>
+inspects and repairs the project’s configuration when something looks
+misconfigured.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>This project also ships a browser-based <strong>web terminal</strong> with logbook

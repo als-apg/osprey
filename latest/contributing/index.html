@@ -864,6 +864,42 @@ live in the front-end <strong>Visual</strong> tests above (regenerated with
 <code class="docutils literal notranslate"><span class="pre">--regen-baselines</span></code>), and continue to run in CI unchanged.</p>
 </section>
 <hr class="docutils" />
+<section id="reviewing-a-web-interface-redesign-contact-sheet">
+<h2>Reviewing a web-interface redesign (contact sheet)<a class="headerlink" href="#reviewing-a-web-interface-redesign-contact-sheet" title="Link to this heading">#</a></h2>
+<p>When a web interface is being restyled, the <strong>contact-sheet renderer</strong> boots the
+<em>real</em> interface in every theme/mode variant and folds the shots into one
+self-contained page, so a whole redesign can be reviewed as a single artifact –
+no live agent, provider, hardware, or network. It lives beside the screenshot
+framework in <code class="docutils literal notranslate"><span class="pre">docs/screenshots/</span></code> but is a review tool, not a committed doc
+image: nothing it produces is checked in or CI-gated.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>docs.screenshots.contact_sheet<span class="w"> </span>--out<span class="w"> </span>/tmp/sheet
+</pre></div>
+</div>
+<p>That captures the Web Terminal’s four shells – the <strong>dark</strong> and <strong>light</strong> themes
+crossed with the <strong>expert</strong> and <strong>simple</strong> UI modes – writes one PNG per cell
+into the output directory, composes them into <code class="docutils literal notranslate"><span class="pre">contact-sheet.html</span></code> there, and
+prints its path. Open that one file to review every variant side by side.</p>
+<p><strong>Comparing accent candidates.</strong> Add <code class="docutils literal notranslate"><span class="pre">--accents</span></code> to render each of the four
+variants twice, once under each accent candidate (blue vs teal), so a pending
+accent decision can be made from real output rather than a mockup:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>docs.screenshots.contact_sheet<span class="w"> </span>--out<span class="w"> </span>/tmp/sheet<span class="w"> </span>--accents
+</pre></div>
+</div>
+<p>To keep every cell looking like a working session with no live backend, the
+renderer points the workspace panel at a pre-seeded demo store and replays a
+canned terminal transcript. That transcript is width-guarded against the narrow
+terminal card – the run fails fast if a line would overflow, before any browser
+launches. Where no browser runtime is available the run skips with a one-line
+notice instead of erroring.</p>
+<p><strong>Extending it to another target.</strong> The variant grid is the <code class="docutils literal notranslate"><span class="pre">VARIANTS</span></code> list of
+<code class="docutils literal notranslate"><span class="pre">(theme,</span> <span class="pre">mode)</span></code> tuples near the top of <code class="docutils literal notranslate"><span class="pre">contact_sheet.py</span></code>, and the
+completeness invariant <code class="docutils literal notranslate"><span class="pre">_FULL_MATRIX</span></code> mirrors it – add a cell to <em>both</em> to
+capture a new theme/mode combination. To cover a new panel, seed its backing
+store the way <code class="docutils literal notranslate"><span class="pre">seed_demo_workspace</span></code> seeds the workspace artifacts and wire it
+into <code class="docutils literal notranslate"><span class="pre">hermetic_hub</span></code> so the panel renders populated; the capture loop and the
+composed sheet then pick it up unchanged.</p>
+</section>
+<hr class="docutils" />
 <section id="community-guidelines">
 <h2>Community Guidelines<a class="headerlink" href="#community-guidelines" title="Link to this heading">#</a></h2>
 <p><strong>Code of Conduct</strong>: We are committed to a welcoming and inclusive environment. Be respectful, welcome newcomers, accept constructive criticism, and show empathy. Harassment, personal attacks, trolling, or publishing private information are unacceptable. Report issues to the maintainers; all reports are handled confidentially.</p>
@@ -945,6 +981,7 @@ live in the front-end <strong>Visual</strong> tests above (regenerated with
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refreshing-documentation-screenshots">Refreshing documentation screenshots</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reviewing-a-web-interface-redesign-contact-sheet">Reviewing a web-interface redesign (contact sheet)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-guidelines">Community Guidelines</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#getting-help">Getting Help</a></li>
 </ul>
