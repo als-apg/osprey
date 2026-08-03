@@ -211,16 +211,20 @@ async def test_okf_server_config_endpoint_returns_proxy_path():
 
 
 def test_frontend_panel_manager_registers_okf_tab():
-    """panel-manager.js PANELS must include okf so the KNOWLEDGE tab renders."""
+    """The shipped panel catalog must include okf so the KNOWLEDGE tab renders.
+
+    The PANELS array lives in panel-catalog.js; panel-manager.js imports it
+    from there and filters it against /api/panels at init.
+    """
     import os
 
-    pm_path = os.path.join(
+    catalog_path = os.path.join(
         os.path.dirname(inspect.getfile(web_terminal_app)),
         "static",
         "js",
-        "panel-manager.js",
+        "panel-catalog.js",
     )
-    with open(pm_path, encoding="utf-8") as fh:
+    with open(catalog_path, encoding="utf-8") as fh:
         js = fh.read()
     assert "id: 'okf'" in js
     assert "/api/okf-server" in js
