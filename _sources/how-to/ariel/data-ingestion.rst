@@ -155,7 +155,6 @@ The built-in enhancement modules:
                enabled: true
                provider: cborg
                model:
-                 provider: cborg
                  model_id: anthropic/claude-haiku
                  max_tokens: 256
 

@@ -79,8 +79,9 @@ Keys:
      - OTLP base endpoint. Use the ``${VAR}`` form so the value comes from your
        ``.env`` rather than being committed to ``config.yml``.
    * - ``protocol``
-     - OTLP transport. Defaults to ``http/protobuf``; set ``grpc`` if your
-       collector prefers it.
+     - OTLP transport. Defaults to ``http/protobuf``. ``grpc`` requires an
+       explicit ``endpoint``: it is refused against the auto-derived
+       ``openobserve`` endpoint, which is HTTP-only.
    * - ``headers``
      - Extra OTLP headers (for example, routing or auth headers your backend
        requires).

@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 02, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 03, 2026"/>
   </head>
   
   
@@ -520,7 +520,6 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/postgresql</span>
 <span class="w">    </span><span class="nt">database_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
 <span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
-<span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
 <span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5432</span>
 
 <span class="nt">deployed_services</span><span class="p">:</span>
@@ -586,7 +585,7 @@ preferred, otherwise Podman is used. Force a specific runtime with the
 <li><p>If <code class="docutils literal notranslate"><span class="pre">copy_src:</span> <span class="pre">true</span></code>, copy <code class="docutils literal notranslate"><span class="pre">src/</span></code> into the build as <code class="docutils literal notranslate"><span class="pre">repo_src/</span></code>, plus <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> and <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> (renamed <code class="docutils literal notranslate"><span class="pre">pyproject_user.toml</span></code>).</p></li>
 <li><p>With <code class="docutils literal notranslate"><span class="pre">--dev</span></code>, build a wheel from the local Osprey checkout and drop it into the build dir.</p></li>
 <li><p>Copy any <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code> into the build.</p></li>
-<li><p>Auto-create <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> subdirectories declared under <code class="docutils literal notranslate"><span class="pre">file_paths</span></code>.</p></li>
+<li><p>Auto-create the <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> subdirectories the deploy step sweeps (currently <code class="docutils literal notranslate"><span class="pre">registry_exports_dir</span></code>). Others declared under <code class="docutils literal notranslate"><span class="pre">file_paths</span></code> — <code class="docutils literal notranslate"><span class="pre">api_calls_dir</span></code> — are created on demand by the code that writes to them.</p></li>
 <li><p>Write a flattened <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> per service. <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).</p></li>
 <li><p>Shell out to <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span></code> / <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span></code>.</p></li>
 </ol>
@@ -767,7 +766,8 @@ version control.</p>
 <p>Postgres reads <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code> (as <code class="docutils literal notranslate"><span class="pre">POSTGRES_PASSWORD</span></code>) only when
 initializing a <strong>fresh</strong> data volume. A volume created before the password
 was minted keeps its original password; the <code class="docutils literal notranslate"><span class="pre">${ARIEL_DB_PASSWORD:-ariel}</span></code>
-fallback in the shipped configs keeps such deployments working. To adopt
+fallback — applied by the compose template and by the DSN the agent derives
+from <code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code> — keeps such deployments working. To adopt
 the minted password, remove the <code class="docutils literal notranslate"><span class="pre">ariel_postgres_data</span></code> volume and redeploy
 (this deletes the stored logbook data — re-ingest afterwards).</p>
 </div>

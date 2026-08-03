@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 02, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 03, 2026"/>
   </head>
   
   
@@ -558,8 +558,9 @@ for the Phase 2 add-on.</p></td>
 <code class="docutils literal notranslate"><span class="pre">.env</span></code> rather than being committed to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">protocol</span></code></p></td>
-<td><p>OTLP transport. Defaults to <code class="docutils literal notranslate"><span class="pre">http/protobuf</span></code>; set <code class="docutils literal notranslate"><span class="pre">grpc</span></code> if your
-collector prefers it.</p></td>
+<td><p>OTLP transport. Defaults to <code class="docutils literal notranslate"><span class="pre">http/protobuf</span></code>. <code class="docutils literal notranslate"><span class="pre">grpc</span></code> requires an
+explicit <code class="docutils literal notranslate"><span class="pre">endpoint</span></code>: it is refused against the auto-derived
+<code class="docutils literal notranslate"><span class="pre">openobserve</span></code> endpoint, which is HTTP-only.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">headers</span></code></p></td>
 <td><p>Extra OTLP headers (for example, routing or auth headers your backend
