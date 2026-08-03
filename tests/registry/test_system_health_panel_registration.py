@@ -154,12 +154,15 @@ def _launch_side_port(monkeypatch, fake_config, env_value):
 
 def _launcher_side_port(monkeypatch, fake_config, env_value):
     """Port that ServerLauncher's config reader resolves (the port uvicorn binds)."""
-    monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: fake_config)
+    import osprey.utils.workspace as workspace
+
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: fake_config)
     if env_value is None:
         monkeypatch.delenv("OSPREY_HEALTH_PORT", raising=False)
     else:
         monkeypatch.setenv("OSPREY_HEALTH_PORT", env_value)
-    _host, port = server_launcher._make_config_reader(FRAMEWORK_WEB_SERVERS[REGISTRY_KEY])()
+    # The wired launcher's own reader, so this compares what uvicorn actually binds.
+    _host, port = server_launcher._launchers[REGISTRY_KEY]._config_reader()
     return port
 
 

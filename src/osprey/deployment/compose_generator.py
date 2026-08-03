@@ -428,26 +428,26 @@ def _ensure_agent_data_structure(config):
 
     This function creates the agent data directory structure based on the configuration
     to prevent Docker/Podman mount failures when containers try to mount non-existent
-    directories. It creates both the main agent_data_dir and all configured subdirectories.
+    directories. The root comes from ``agent_data.base_dir``; each subdirectory below
+    is created only when ``file_paths`` declares its name, so the created structure
+    matches what :func:`osprey.utils.config.get_agent_dir` resolves at runtime.
 
-    :param config: Configuration dictionary containing file_paths settings
+    :param config: Configuration dictionary containing agent_data and file_paths settings
     :type config: dict
     """
+    from osprey.utils.workspace import agent_data_base_dir
+
     # Get file paths configuration
     file_paths = config.get("file_paths", {})
     project_root = config.get("project_root", ".")
-    agent_data_dir = file_paths.get("agent_data_dir", "_agent_data")
 
     # Create main agent data directory
-    agent_data_path = Path(project_root) / agent_data_dir
+    agent_data_path = Path(project_root) / agent_data_base_dir(config)
     agent_data_path.mkdir(parents=True, exist_ok=True)
 
     # Create all configured subdirectories
     subdirs = [
-        "execution_plans_dir",
-        "user_memory_dir",
         "registry_exports_dir",
-        "prompts_dir",
     ]
 
     for subdir_key in subdirs:

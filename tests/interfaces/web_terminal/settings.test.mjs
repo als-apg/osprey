@@ -41,6 +41,7 @@ function mountFixture() {
       <button class="settings-cancel-btn"></button>
       <div class="settings-status"></div>
     </div>
+    <div id="settings-form"></div>
     <textarea id="settings-raw-editor">model: anthropic/claude-sonnet</textarea>
   `;
 }
@@ -166,5 +167,44 @@ describe('openDrawerTab: gated tab activation', () => {
     // Fixture tab has no component handler, so the click adds no `.active`.
     expect(tab.classList.contains('active')).toBe(false);
     expect(result).toBe(false);
+  });
+});
+
+describe('form mode: enum fields', () => {
+  /** @param {Record<string, any>} sections */
+  function stubConfig(sections) {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ sections, raw: '' }),
+    })));
+  }
+
+  // ENUM_FIELDS is keyed by the full dotted path of a LEAF field, so a key naming
+  // a nested block never matches anything and its enum silently falls through to
+  // a free-text input -- the exact way the write-verification level shipped
+  // unenforced. Pin the rendered control to a <select>.
+  test('the write-verification level renders as a select over the connector levels', async () => {
+    stubConfig({
+      control_system: {
+        write_verification: { default_level: 'callback', default_tolerance_percent: 0.1 },
+      },
+    });
+
+    /** @type {HTMLElement} */ (
+      document.getElementById('tab-config')
+    ).dispatchEvent(new Event('drawer:tab-activate'));
+
+    const selector = 'select[data-key="control_system.write_verification.default_level"]';
+    await vi.waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
+    const select = /** @type {HTMLSelectElement} */ (document.querySelector(selector));
+
+    expect([...select.options].map((o) => o.value)).toEqual(['none', 'callback', 'readback']);
+    expect(select.value).toBe('callback');
+    // The sibling numeric leaf is not an enum, and the block itself is not a field.
+    expect(
+      document.querySelector('[data-key="control_system.write_verification.default_tolerance_percent"]')
+        ?.tagName,
+    ).toBe('INPUT');
   });
 });

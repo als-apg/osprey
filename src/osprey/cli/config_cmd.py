@@ -261,7 +261,7 @@ def export(output: str, format: str):
             project_root="/path/to/example_project",
             hostname="localhost",
             default_provider="anthropic",
-            default_model="anthropic/claude-haiku",
+            default_model="haiku",
         )
 
         # Parse the rendered config as YAML

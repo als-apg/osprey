@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
+from osprey.utils.facility import resolve_facility_name
 
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
@@ -76,8 +77,7 @@ class ChannelFinderMLContext:
             self._duckdb_path = resolve_cf_path(duckdb_path)
             logger.info("ChannelFinderMLContext: DuckDB path configured at %s", self._duckdb_path)
 
-        facility = self._raw_config.get("facility", {})
-        self._facility_name = facility.get("name", "control system")
+        self._facility_name = resolve_facility_name(self._raw_config, "control system")
 
         self._initialized = True
         logger.info("ChannelFinderMLContext: initialized")

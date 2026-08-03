@@ -24,13 +24,6 @@ def _setup_registry(tmp_path, monkeypatch):
                     "keyword": {"enabled": True},
                     "semantic": {"enabled": True, "model": "nomic-embed-text"},
                 },
-                "reasoning": {
-                    "provider": "openai",
-                    "model_id": "gpt-4o-mini",
-                    "max_iterations": 5,
-                    "temperature": 0.1,
-                },
-                "default_max_results": 15,
             }
         }
     )
@@ -50,7 +43,6 @@ async def test_capabilities_returns_modules(tmp_path, monkeypatch):
     assert not data.get("error", False)
     assert "keyword" in data["enabled_search_modules"]
     assert "semantic" in data["enabled_search_modules"]
-    assert data["default_max_results"] == 15
 
 
 @pytest.mark.unit
@@ -64,19 +56,6 @@ async def test_capabilities_includes_search_modes(tmp_path, monkeypatch):
     data = json.loads(result)
     assert "keyword" in data["search_modes"]
     assert "semantic" in data["search_modes"]
-
-
-@pytest.mark.unit
-async def test_capabilities_includes_reasoning(tmp_path, monkeypatch):
-    """Capabilities includes reasoning configuration."""
-    _setup_registry(tmp_path, monkeypatch)
-
-    fn = _get_capabilities()
-    result = await fn()
-
-    data = json.loads(result)
-    assert data["reasoning"]["provider"] == "openai"
-    assert data["reasoning"]["model_id"] == "gpt-4o-mini"
 
 
 @pytest.mark.unit

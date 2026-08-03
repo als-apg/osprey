@@ -53,11 +53,3 @@ ariel:
   # Default embedding provider
   embedding:
     provider: ollama
-
-  # LLM config for RAG answer generation and agent reasoning
-  # provider references api.providers for credentials
-  reasoning:
-    provider: als-apg  # References api.providers.als-apg
-    model_id: claude-haiku-4-5-20251001
-    max_iterations: 5
-    temperature: 0.1

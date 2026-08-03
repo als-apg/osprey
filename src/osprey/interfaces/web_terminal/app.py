@@ -62,24 +62,38 @@ logger = __import__("logging").getLogger(__name__)
 
 
 def _launch_artifact_server(app: FastAPI) -> None:
-    """Auto-launch the artifact gallery server if configured."""
+    """Auto-launch the artifact gallery server if configured.
+
+    The URL published here is the *only* input to panel availability
+    (``/api/artifact-server``), so it must never outrun the server itself.
+    ``artifact_server.auto_launch: false`` makes ``ensure_artifact_server()`` a
+    no-op; publishing a URL anyway left the operator an enabled WORKSPACE tab
+    whose iframe returned a bare 502. Leaving it unset disables the tab instead,
+    which is what a suppressed server should look like.
+    """
     try:
-        import os
+        from osprey.infrastructure.server_launcher import (
+            ensure_artifact_server,
+            is_auto_launch_enabled,
+        )
+        from osprey.registry.web import resolve_web_server_base_url
 
-        from osprey.infrastructure.server_launcher import ensure_artifact_server
-        from osprey.utils.workspace import load_osprey_config
+        if not is_auto_launch_enabled("artifact"):
+            logger.info("Artifact server auto-launch is disabled; WORKSPACE tab unavailable")
+            return
 
-        config = load_osprey_config()
-        art_config = config.get("artifact_server", {})
-        host = art_config.get("host", "127.0.0.1")
-        port = int(os.environ.get("OSPREY_ARTIFACT_SERVER_PORT", art_config.get("port", 8086)))
-
-        app.state.artifact_server_url = f"http://{host}:{port}"
+        # Same resolver the launcher itself uses, so the URL published here and
+        # the port uvicorn binds cannot drift — including the set-but-empty env
+        # override (compose `OSPREY_ARTIFACT_SERVER_PORT=`), which the previous
+        # inline int() turned into a ValueError and a dead tab.
+        app.state.artifact_server_url = resolve_web_server_base_url("artifact")
         ensure_artifact_server()
         logger.info("Artifact server available at %s", app.state.artifact_server_url)
     except Exception:
         logger.warning("Could not auto-launch artifact server", exc_info=True)
-        app.state.artifact_server_url = "http://127.0.0.1:8086"
+        # No fallback URL: a launch we could not complete must not be advertised
+        # as an available panel. Retract any URL assigned before the failure.
+        app.state.artifact_server_url = None
 
 
 def _launch_ariel_server(app: FastAPI) -> None:
@@ -164,7 +178,7 @@ def _launch_okf_server(app: FastAPI) -> None:
         host = fk.get("host", "127.0.0.1")
         # Guard a set-but-empty env override (e.g. compose `OSPREY_FACILITY_KNOWLEDGE_PORT=`):
         # int("") would raise and kill this launch (silent dead tab). This mirrors
-        # server_launcher._make_config_reader's `if env_val:` guard so both sides
+        # registry.web.resolve_web_server_address's empty-value guard so both sides
         # resolve the SAME port — the launcher would otherwise bind 8093 while we'd die.
         env_port = os.environ.get("OSPREY_FACILITY_KNOWLEDGE_PORT")
         port = int(env_port) if env_port else int(fk.get("port", 8093))
@@ -196,7 +210,7 @@ def _launch_system_health_server(app: FastAPI) -> None:
         host = health_web.get("host", "127.0.0.1")
         # Guard a set-but-empty env override (e.g. compose `OSPREY_HEALTH_PORT=`):
         # int("") would raise and kill this launch (silent dead tab). This mirrors
-        # server_launcher._make_config_reader's `if env_val:` guard so both sides
+        # registry.web.resolve_web_server_address's empty-value guard so both sides
         # resolve the SAME port — the launcher would otherwise bind 8094 while we'd die.
         env_port = os.environ.get("OSPREY_HEALTH_PORT")
         port = int(env_port) if env_port else int(health_web.get("port", 8094))

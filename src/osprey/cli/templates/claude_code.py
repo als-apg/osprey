@@ -15,6 +15,7 @@ from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.utils.config import resolve_env_vars
+from osprey.utils.facility import resolve_facility_name
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -137,7 +138,7 @@ def build_claude_code_context(
         "template_name": template_name,
         "data_bundle": data_bundle,
         "claude_md_template": claude_md_template,
-        "facility_name": config.get("facility_name", project_name),
+        "facility_name": resolve_facility_name(config, project_name),
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),
         "selected_hooks": selected_hooks,
     }

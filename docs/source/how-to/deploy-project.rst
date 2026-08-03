@@ -50,7 +50,6 @@ the ``control-assistant`` preset ships with):
        path: ./services/postgresql
        database_name: ariel
        username: ariel
-       password: ariel
        port_host: 5432
 
    deployed_services:
@@ -121,7 +120,7 @@ When ``osprey deploy up`` runs:
 5. If ``copy_src: true``, copy ``src/`` into the build as ``repo_src/``, plus ``requirements.txt`` and ``pyproject.toml`` (renamed ``pyproject_user.toml``).
 6. With ``--dev``, build a wheel from the local Osprey checkout and drop it into the build dir.
 7. Copy any ``additional_dirs`` into the build.
-8. Auto-create ``_agent_data/`` subdirectories declared under ``file_paths``.
+8. Auto-create the ``_agent_data/`` subdirectories the deploy step sweeps (currently ``registry_exports_dir``). Others declared under ``file_paths`` — ``api_calls_dir`` — are created on demand by the code that writes to them.
 9. Write a flattened ``config.yml`` per service. ``${VAR}`` placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).
 10. Shell out to ``docker compose`` / ``podman compose``.
 
@@ -308,7 +307,8 @@ version control.
    Postgres reads ``ARIEL_DB_PASSWORD`` (as ``POSTGRES_PASSWORD``) only when
    initializing a **fresh** data volume. A volume created before the password
    was minted keeps its original password; the ``${ARIEL_DB_PASSWORD:-ariel}``
-   fallback in the shipped configs keeps such deployments working. To adopt
+   fallback — applied by the compose template and by the DSN the agent derives
+   from ``services.postgresql`` — keeps such deployments working. To adopt
    the minted password, remove the ``ariel_postgres_data`` volume and redeploy
    (this deletes the stored logbook data — re-ingest afterwards).
 

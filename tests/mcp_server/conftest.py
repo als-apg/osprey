@@ -246,10 +246,6 @@ def mock_config_with_limits(tmp_path):
                 "archiver": {"type": "mock"},
                 "execution": {
                     "execution_method": "subprocess",
-                    "modes": {
-                        "read_only": {"kernel_name": "python3"},
-                        "write_access": {"kernel_name": "python3"},
-                    },
                 },
                 "python_executor": {
                     "execution_timeout_seconds": 60,

@@ -7,7 +7,12 @@ call time — no direct imports from interfaces/ or services/.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,10 +69,11 @@ class WebServerDefinition:
     def port_env_var(self) -> str:
         """The env var that overrides this server's listen port.
 
-        Single derivation shared by the launcher's config reader
-        (``server_launcher._make_config_reader``) and the multi-user compose
-        render (``deployment/web_terminals``) — the two ends of the same
-        contract, so they can never drift.
+        Single derivation shared by :func:`resolve_web_server_address` — which
+        every launcher entry is partial-bound to, and which every caller that
+        builds a panel URL goes through — and the multi-user compose render
+        (``deployment/web_terminals``), the two ends of the same contract, so
+        they can never drift.
         """
         return f"OSPREY_{self.config_key.upper()}_PORT"
 
@@ -138,3 +144,79 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         multi_user_base_port=9791,
     ),
 }
+
+
+def resolve_web_server_address(
+    key: str,
+    config: Mapping[str, Any] | None = None,
+) -> tuple[str, int]:
+    """Resolve the ``(host, port)`` a companion web server listens on.
+
+    The single derivation every producer and consumer of a companion server's
+    address shares: the server's config section (honouring
+    ``config_web_subkey``), falling back to the definition's defaults, with
+    ``WebServerDefinition.port_env_var`` overriding the port.
+
+    The env override is not optional detail. Multi-user compose renders export
+    ``OSPREY_<CONFIG_KEY>_PORT`` per user because the per-user containers share
+    the host network namespace, so a consumer that reads the config port alone
+    builds a URL pointing at a port nothing listens on.
+
+    A ``port_env_var`` that is set but not an integer is logged and ignored
+    rather than raised: the callers are URL builders on hot paths (MCP tool
+    responses, the approval hook), and failing one deployment's typo closed at
+    the config port beats failing the tool call.
+
+    Args:
+        key: Key into :data:`FRAMEWORK_WEB_SERVERS`, e.g. ``"artifact"``.
+        config: Already-loaded ``config.yml`` mapping. Loaded on demand when
+            omitted — pass it when the caller has one in hand.
+
+    Returns:
+        The resolved ``(host, port)`` pair.
+
+    Raises:
+        KeyError: *key* is not a known companion web server.
+    """
+    import os
+
+    definition = FRAMEWORK_WEB_SERVERS[key]
+
+    if config is None:
+        from osprey.utils.workspace import load_osprey_config
+
+        config = load_osprey_config()
+
+    section: Mapping[str, Any] = config.get(definition.config_key) or {}
+    if definition.config_web_subkey:
+        section = section.get(definition.config_web_subkey) or {}
+
+    host = section.get("host") or definition.host_default
+    port = int(section.get("port") or definition.port_default)
+
+    env_value = os.environ.get(definition.port_env_var)
+    if env_value:
+        try:
+            port = int(env_value)
+        except ValueError:
+            logger.warning(
+                "Ignoring %s=%r: not an integer port; using %d",
+                definition.port_env_var,
+                env_value,
+                port,
+            )
+
+    return host, port
+
+
+def resolve_web_server_base_url(
+    key: str,
+    config: Mapping[str, Any] | None = None,
+) -> str:
+    """Return the ``http://host:port`` base URL for a companion web server.
+
+    Thin wrapper over :func:`resolve_web_server_address` for the callers that
+    only ever build a URL. See that function for the resolution order.
+    """
+    host, port = resolve_web_server_address(key, config)
+    return f"http://{host}:{port}"

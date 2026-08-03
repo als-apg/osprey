@@ -264,10 +264,9 @@ def _probe_companion_ports() -> list[str]:
     from osprey.infrastructure.server_launcher import (
         _launchers,
         _make_auto_launch_checker,
-        _make_config_reader,
     )
     from osprey.interfaces.web_terminal.app import _load_panel_config
-    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+    from osprey.registry.web import FRAMEWORK_WEB_SERVERS, resolve_web_server_address
 
     enabled_panels, _custom_panels, _default_panel = _load_panel_config()
 
@@ -277,7 +276,7 @@ def _probe_companion_ports() -> list[str]:
             continue  # panel disabled in web.panels — the lifespan never calls its launcher
         if not _make_auto_launch_checker(defn)():
             continue  # auto_launch off, or require_section unmet
-        host, port = _make_config_reader(defn)()
+        host, port = resolve_web_server_address(key)
         if _launchers[key]._port_has_listener(host, port):
             failures.append(
                 f"Companion panel '{key}' ({defn.name}) port {port} is already in use "

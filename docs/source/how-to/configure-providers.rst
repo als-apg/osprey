@@ -139,13 +139,24 @@ Providers are configured in two sections of ``config.yml``:
          api_key: ${STANFORD_API_KEY}
          base_url: https://aiapi-prod.stanford.edu/v1
          models:
-           haiku: claude-3-7-sonnet
-           sonnet: claude-3-7-sonnet
-           opus: claude-3-7-sonnet
+           # A gateway need not serve Claude models at all — map its own IDs
+           # onto the tiers by capability and cost.
+           haiku: gpt-4o-mini
+           sonnet: gpt-4o
+           opus: o3-mini
 
 Each provider entry needs ``api_key``, ``base_url``, and a ``models`` mapping
 that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
-``opus``).
+``opus``). The ``models`` mapping is required: selecting a provider that leaves
+a tier unmapped is an error, not a silent fallback to some other provider's
+model IDs.
+
+``base_url`` is the endpoint the agent itself talks to. ``cborg`` and
+``als-apg`` ship a built-in URL that a value here overrides; omit it to keep
+the built-in one. ``anthropic`` ships none, so omitting it sends requests to
+Anthropic's own API. Keep the trailing
+``/v1`` on OpenAI-compatible gateways — the translation proxy needs it, and the
+agent's own requests have it stripped automatically.
 
 **Select the active provider** under ``claude_code``:
 
@@ -156,9 +167,13 @@ that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
      default_model: sonnet
 
 ``provider`` picks one of the entries in ``api.providers``.
-``default_model`` selects the tier for the main conversation. If omitted, it
-falls back to the provider's own default tier — ``sonnet`` for ``anthropic``,
-``haiku`` for ``cborg`` and ``als-apg``, and ``opus`` for custom providers.
+``default_model`` selects the model for the main conversation. Give it a tier
+name, or a concrete model ID that the selected provider's ``models`` block
+actually serves. If omitted, it falls back to the provider's own default tier
+— ``sonnet`` for ``anthropic``, ``haiku`` for ``cborg`` and ``als-apg``, and
+``opus`` for custom providers. Any other value is rejected at launch with an
+error listing the tiers and the provider's model IDs; it is never silently
+downgraded.
 
 Model Tier Mapping
 ------------------
@@ -171,7 +186,12 @@ The resolver applies model IDs in this priority order:
 
 1. ``claude_code.models`` — explicit per-tier overrides (highest priority).
 2. ``api.providers.<name>.models`` — the provider's own model naming.
-3. Built-in defaults — the provider's bundled fallback model IDs (Anthropic direct IDs only as a last resort).
+3. Built-in defaults — the bundled fallback model IDs the framework ships for
+   ``anthropic``, ``cborg``, and ``als-apg``.
+
+A provider that no source maps is refused: selecting it raises an error naming
+``api.providers.<name>.models`` and the tiers it must cover. No provider ever
+inherits another provider's model IDs.
 
 For example, to override the opus tier for a specific project:
 

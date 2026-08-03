@@ -23,6 +23,7 @@ from typing import Any
 from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
 from osprey.services.channel_finder.core.base_database import BaseDatabase
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
+from osprey.utils.facility import resolve_facility_name
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.server_context")
 
@@ -95,8 +96,7 @@ class ChannelFinderICContext:
                 "channel finder tools will fail until config is provided"
             )
 
-        facility = self._raw_config.get("facility", {})
-        self._facility_name = facility.get("name", "control system")
+        self._facility_name = resolve_facility_name(self._raw_config, "control system")
 
         # Resolve subagent model and provider.
         #

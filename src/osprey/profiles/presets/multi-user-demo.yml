@@ -27,7 +27,7 @@ name: Multi-User Demo
 data_bundle: control_assistant
 
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
 channel_finder_mode: hierarchical

@@ -7,6 +7,7 @@ Ideal for R&D and development without archiver access.
 """
 
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -22,6 +23,72 @@ if TYPE_CHECKING:
     from osprey.simulation import SimulationEngine
 
 logger = get_logger("mock_archiver_connector")
+
+ARCHIVER_KEY = "archiver.mock_archiver.simulation_file"
+
+
+def _anchor(path: Path, project_root: Path | None) -> Path:
+    """Anchor a relative path at the project root, mirroring the engine loader."""
+    if path.is_absolute() or project_root is None:
+        return path
+    return project_root / path
+
+
+def _control_system_simulation_file() -> tuple[Path | None, Path | None]:
+    """Resolve the control-system-side simulation file for the active connector.
+
+    Returns ``(machine_path, project_root)``; both are None when no project
+    config is reachable (a bare connector constructed in tests, for instance).
+    """
+    from osprey.simulation.apply import resolve_simulation_file
+    from osprey.utils.config import get_config_value, load_config
+
+    try:
+        config = load_config()
+        project_root = get_config_value("project_root", None)
+    except (FileNotFoundError, IsADirectoryError, KeyError, RuntimeError, ValueError) as e:
+        logger.debug(f"No project config available to derive a simulation file: {e}")
+        return None, None
+
+    root = Path(project_root) if project_root else None
+    machine_path, _active_type, _type_key, _mock_key = resolve_simulation_file(
+        config, root or Path()
+    )
+    return machine_path, root
+
+
+def _with_derived_simulation_file(config: dict[str, Any]) -> dict[str, Any]:
+    """Fill in ``simulation_file`` from the control-system side when unset.
+
+    The mock archiver has no machine model of its own — it synthesizes history
+    from the same file the live connector serves, so a project that declares the
+    path under both sections is one edit away from archived history that
+    contradicts live reads. When the archiver block omits ``simulation_file`` it
+    is derived from ``control_system.connector.<type>.simulation_file`` through
+    the resolver the ``sim`` CLI already shares. An explicit archiver-side value
+    still wins; when the two disagree, the divergence is reported.
+
+    Returns the connector config, with ``simulation_file`` filled in when it was
+    derived. The input dict is never mutated.
+    """
+    own = config.get("simulation_file")
+    derived, project_root = _control_system_simulation_file()
+
+    if derived is None:
+        return config
+
+    if not own:
+        logger.debug(f"Derived {ARCHIVER_KEY} from the control-system config: {derived}")
+        return {**config, "simulation_file": str(derived)}
+
+    own_path = _anchor(Path(str(own)).expanduser(), project_root)
+    if own_path != derived:
+        logger.warning(
+            f"{ARCHIVER_KEY} ({own_path}) differs from the control-system simulation "
+            f"file ({derived}); the archiver value wins, so archived history will not "
+            f"match live reads. Remove {ARCHIVER_KEY} to derive it."
+        )
+    return config
 
 
 class MockArchiverConnector(ArchiverConnector):
@@ -67,15 +134,18 @@ class MockArchiverConnector(ArchiverConnector):
                   data-driven simulation engine (relative paths resolve against
                   the project root). Engine-known channels are synthesized from
                   the machine model; without it, every channel uses the generic
-                  PV-type procedural synthesizer.
+                  PV-type procedural synthesizer. Unset, it is derived from the
+                  control system's own ``simulation_file`` so live reads and
+                  archived history come from one machine model.
         """
         self._sample_rate_hz = config.get("sample_rate_hz", 1.0)
         self._noise_level = config.get("noise_level", 0.1)
 
-        # Optional data-driven simulation engine (machine file)
+        # Optional data-driven simulation engine (machine file), derived from
+        # the control-system config when this section does not name one.
         from osprey.simulation import engine_from_connector_config
 
-        self._sim_engine = engine_from_connector_config(config)
+        self._sim_engine = engine_from_connector_config(_with_derived_simulation_file(config))
 
         self._connected = True
         logger.debug("Mock archiver connector initialized")

@@ -697,7 +697,7 @@ class TestEnhancementFactory:
             {
                 "database": {"uri": "postgresql://localhost/test"},
                 "enhancement_modules": {
-                    "semantic_processor": {"enabled": True},
+                    "semantic_processor": {"enabled": True, "provider": "ollama"},
                 },
             }
         )

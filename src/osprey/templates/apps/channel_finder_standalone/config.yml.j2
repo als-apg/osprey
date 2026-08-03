@@ -10,9 +10,20 @@
 # Project identity
 project_name: "{{ project_name }}"
 
-# Facility identity — substituted into agent prompts (CLAUDE.md, subagents).
-# Keep this in sync with .claude/rules/facility.md.
-facility_name: "Example Research Facility"
+# Facility identity — one block, two keys:
+#   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
+#            and the web-terminal landing page. Keep it in sync with
+#            .claude/rules/facility.md. The older top-level `facility_name`
+#            is still honored as a fallback, but this is the canonical
+#            spelling and wins over it.
+#   prefix — short abbreviation the deployed web stack uses for container
+#            names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
+#            non-empty valid Docker name start ([a-zA-Z0-9]). Only the
+#            multi-user web-terminal stack reads it, so it stays commented
+#            here.
+facility:
+  name: "Example Research Facility"
+  # prefix: ex
 
 build_dir: ./build
 
@@ -38,6 +49,10 @@ api:
     openai:
       api_key: ${OPENAI_API_KEY}
       base_url: https://api.openai.com/v1
+      models:                        # GPT-5 sizes mapped onto the standard tiers
+        haiku: gpt-5-nano
+        sonnet: gpt-5-mini
+        opus: gpt-5
     anthropic:
       api_key: ${ANTHROPIC_API_KEY}
       base_url: https://api.anthropic.com
@@ -48,11 +63,17 @@ api:
     google:
       api_key: ${GOOGLE_API_KEY}
       base_url: https://generativelanguage.googleapis.com/v1beta
+      models:                        # Gemini 2.5 sizes mapped onto the standard tiers
+        haiku: gemini-2.5-flash-lite
+        sonnet: gemini-2.5-flash
+        opus: gemini-2.5-pro
     ollama:
       api_key: ollama
       base_url: ${OLLAMA_HOST:-http://localhost:11434}
-      host: localhost
-      port: 11434
+      models:                        # Local models — `ollama pull` each one before use
+        haiku: mistral:7b
+        sonnet: gpt-oss:20b
+        opus: gpt-oss:120b
     als-apg:
       api_key: ${ALS_APG_API_KEY}
       base_url: https://llm.gianlucamartino.com/v1
@@ -67,7 +88,6 @@ api:
 # Set these in your .env file:
 #
 #   ANTHROPIC_API_KEY=sk-ant-...    # or CBORG_API_KEY for the LBL proxy
-#   TZ=UTC
 #
 
 # ============================================================
@@ -97,14 +117,23 @@ deployed_services: []
 # SAFETY CONTROLS
 # ============================================================
 # Approval workflow. The channel finder is read-only (it returns addresses,
-# never writes), so no write tools are gated here — the default policy applies
-# to any tool not explicitly classified.
+# never writes), so no write tools are gated here.
+# Scope: these policies are applied by the osprey_approval PreToolUse hook and
+# reach only tools whose matcher runs it. The channel-finder server wires no
+# such matcher, so NO channel-finder query ever consults this block — in this
+# app the only tool it governs is the workspace setup_patch tool. Everything
+# else is gated by the rendered settings.json permissions.
 approval:
   enabled: true
-  default_policy: "always"        # Fail-closed: unknown tools require approval
+  default_policy: "always"        # Fail-closed for hook-wired tools not listed below
 
 # ── Hook observability ──────────────────────────────────────────────
-# Set debug: true to enable hook activity logging to stderr.
+# Shipped ON. This drives three things, not just a debug print: one line per
+# hook call to stderr; an append-only <project>/.claude/hooks/hook_debug.jsonl
+# that is never rotated or size-capped (prune it yourself on a long-lived
+# deployment); and the web terminal's Safety-panel hook-activity feed, which
+# reads that file and shows nothing new while this is false. The OSPREY_HOOK_DEBUG
+# environment variable forces it on regardless of this key.
 hooks:
   debug: true
 
@@ -119,11 +148,34 @@ channel_finder:
   # Active pipeline mode
   pipeline_mode: {{ default_pipeline }}
 
-  # Explicit channel address validation mode.
-  #   - lenient (DEFAULT): accept all explicit addresses, warn if not in database
-  #   - strict: only accept channels that exist in database
-  #   - skip: no validation, accept all addresses immediately
-  explicit_validation_mode: lenient
+  # osprey:panel-port channel_finder
+  # CHANNELS tab: the channel-finder UI is a web server of its own, configured
+  # under this section. It launches when `channel-finder` is in the panel list
+  # under `web:` below AND this `channel_finder:` section exists — it does, so
+  # 8092 is bound by default. Resolution order: OSPREY_CHANNEL_FINDER_PORT wins
+  # (multi-user deployments export it per user), then `port` here, then the
+  # built-in 8092; `host` has no env override. The launcher resolves host/port
+  # through one shared function; the web terminal computes this panel's URL
+  # separately and is kept in step by hand, so an env override must be set
+  # consistently. Uncomment to move or disable it.
+  # web:
+  #   host: "127.0.0.1"
+  #   port: 8092
+  #   auto_launch: true
+
+  # Descriptive names for channels that belong to no device family, generated
+  # offline by `osprey channel-finder build-database --use-llm`. That flag
+  # hard-fails unless `provider` below is set — it has no fallback to
+  # claude_code.provider or any other provider key — so uncomment this block
+  # before using it. `model_id` is a tier (haiku | sonnet | opus) resolved
+  # through api.providers[provider].models; a non-tier value is passed to the
+  # provider unchanged. Build-time only: nothing reads it at run time.
+  # channel_name_generation:
+  #   llm_model:
+  #     provider: {{ default_provider }}
+  #     model_id: haiku
+  #     max_tokens: 1000
+  #   llm_batch_size: 10
 
   # Pipeline-specific configurations
   pipelines:
@@ -133,11 +185,10 @@ channel_finder:
       database:
         type: template                # "template" (device-family expansion) or "flat"
         path: data/channel_databases/in_context.json
-        presentation_mode: template   # "explicit" (list all names) or "template" (pattern notation)
-      processing:
-        chunk_dictionary: false       # false = send whole database in one LLM call (<200 channels)
-        chunk_size: 50
-        max_correction_iterations: 2
+        presentation_mode: template   # "explicit" (list all names) or "template" (pattern notation).
+                                      # Preview rendering only — `osprey channel-finder preview`
+                                      # honours it; the MCP server and the web UI build their own
+                                      # prompt text and never consult it.
       subagent_model: null
 {% endif %}
 {% if enable_hierarchical %}
@@ -148,11 +199,6 @@ channel_finder:
         type: hierarchical            # Always "hierarchical" for this pipeline mode
         path: data/channel_databases/hierarchical.json
                                       # Nested: system -> family -> device -> field -> subfield
-      # Tree preview: compact database overview injected into LLM prompts.
-      tree_preview:
-        enabled: true
-        max_depth: 3
-        max_children: 5
       # Feedback loop: records successful navigation paths for identical queries.
       feedback:
         enabled: true
@@ -166,7 +212,24 @@ channel_finder:
         type: middle_layer            # Always "middle_layer" for this pipeline mode
         path: data/channel_databases/middle_layer.json
                                       # MML structure: System -> Family -> Field -> ChannelNames
+        # duckdb_path gates the `query_channels` SQL/FTS tool: with it unset
+        # that one tool returns `not_configured` and the other middle-layer
+        # tools carry on working. Nothing in build, scaffold or deploy creates
+        # the file — build it from the JSON above yourself:
+        #   python -m osprey.services.channel_finder.databases.duckdb_import \
+        #     --json data/channel_databases/middle_layer.json \
+        #     --output data/channel_databases/middle_layer.duckdb
+        # A relative path resolves against this config file's directory.
+        # duckdb_path: data/channel_databases/middle_layer.duckdb
 {% endif %}
+
+  # No `benchmark:` block: the scored query corpus ships with the
+  # control-assistant bundle only, so there is no query file here for a
+  # dataset_path to point at. `osprey channel-finder benchmark` still runs in
+  # this project — bring your own query set with `--queries-path FILE`. To make
+  # it the default instead, add the file and name it here:
+  # benchmark:
+  #   dataset_path: data/benchmarks/queries.json
 
 # ============================================================
 # AGENT DATA & ARTIFACT GALLERY
@@ -174,6 +237,22 @@ channel_finder:
 agent_data:
   base_dir: "./_agent_data"
 
+# Subdirectory names within the agent data directory above. A subdirectory key
+# absent from this block falls back to the key's own name, so without it the
+# registry export lands in `_agent_data/registry_exports_dir/`.
+file_paths:
+  api_calls_dir: api_calls
+  registry_exports_dir: registry_exports
+
+# osprey:panel-port artifact
+# WORKSPACE tab. Universal: under `osprey web` it is launched at startup
+# whatever panels are listed under `web:` below (headless runs instead start it
+# on the first artifact save), so `auto_launch: false` is the only thing that
+# stops it — and when it does, the tab is reported unavailable rather than
+# serving a dead iframe. Port resolution is the one shared function every launcher and URL
+# builder uses: OSPREY_ARTIFACT_SERVER_PORT wins (multi-user deployments export
+# it per user), then `port` here, then the built-in 8086. `host` has no env
+# override.
 artifact_server:
   host: "127.0.0.1"
   port: 8086
@@ -213,7 +292,8 @@ claude_code:
 # WEB PANEL CONFIGURATION
 # ============================================================
 # Controls which panel tabs appear in the web terminal (osprey web).
-# Universal panels (Workspace, Activity, Session Analytics) are always shown.
+# The Workspace panel is always shown; the Activity log is a separate page,
+# not a tab.
 
 web:
 {%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
@@ -231,3 +311,15 @@ web:
 {%- else %}
   panels: {}
 {%- endif %}
+  # Optional panel controls (off by default; uncomment to use). These are
+  # nested keys under `web:` — config.yml is never flattened, so a dotted
+  # key like `web.allow_runtime_panels` written here is stored verbatim and
+  # read by nothing. The dotted spelling belongs only in a build profile's
+  # `config:` block, which is expanded into nested YAML at build time.
+  # panels:
+  #   <id>:
+  #     hidden: true                          # launch the panel but keep its tab hidden until shown
+  # allow_runtime_panels: true                # let the agent register ad-hoc URL panels at runtime
+  # runtime_panel_allowlist: ["dashboard.local:3000"]  # restrict registration targets to these host[:port]
+  # presets:                                  # named "Layouts" a human applies from the "+" popover
+  #   "Channel work": [channel-finder, artifacts]

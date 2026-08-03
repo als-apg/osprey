@@ -204,7 +204,7 @@ class TestStructure:
 
     def test_no_deployed_services(self):
         results = _by_name(_run(_loaded_state({})))
-        assert results["deployed_services"].status == Status.WARNING
+        assert results["deployed_services"].status == Status.SKIP
 
     def test_deployed_services_present(self):
         config = {"deployed_services": ["svc"], "services": {"svc": {}}}

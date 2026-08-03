@@ -766,59 +766,6 @@ class TestARIELSearchResultModel:
         assert result.reasoning == ""
 
 
-class TestLLMConfiguration:
-    """Tests for LLM configuration."""
-
-    def test_model_id_default(self):
-        """Default model_id is gpt-4o-mini."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-            }
-        )
-        assert config.reasoning.model_id == "gpt-4o-mini"
-
-    def test_provider_default(self):
-        """Default provider is openai."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-            }
-        )
-        assert config.reasoning.provider == "openai"
-
-    def test_model_id_configurable(self):
-        """model_id can be configured."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "reasoning": {"model_id": "gpt-4-turbo"},
-            }
-        )
-        assert config.reasoning.model_id == "gpt-4-turbo"
-
-    def test_provider_configurable(self):
-        """provider can be configured."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "reasoning": {"provider": "anthropic"},
-            }
-        )
-        assert config.reasoning.provider == "anthropic"
-
-    def test_reasoning_config_fields(self):
-        """Reasoning config fields are properly parsed."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "reasoning": {"provider": "anthropic", "model_id": "claude-haiku"},
-            }
-        )
-        assert config.reasoning.provider == "anthropic"
-        assert config.reasoning.model_id == "claude-haiku"
-
-
 class TestAdvancedParamsWiring:
     """Tests for advanced_params flowing through service.search()."""
 

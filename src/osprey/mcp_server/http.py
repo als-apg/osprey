@@ -6,14 +6,15 @@ logger = logging.getLogger("osprey.mcp_server.http")
 
 
 def gallery_url() -> str:
-    """Build the gallery base URL from config."""
-    from osprey.utils.workspace import load_osprey_config
+    """Build the gallery base URL from config.
 
-    config = load_osprey_config()
-    art_config = config.get("artifact_server", {})
-    host = art_config.get("host", "127.0.0.1")
-    port = art_config.get("port", 8086)
-    return f"http://{host}:{port}"
+    Resolved through the framework's shared host/port derivation, so the port
+    follows ``OSPREY_ARTIFACT_SERVER_PORT`` when the deployment sets it (the
+    multi-user compose render exports one per user).
+    """
+    from osprey.registry.web import resolve_web_server_base_url
+
+    return resolve_web_server_base_url("artifact")
 
 
 def web_terminal_url() -> str:

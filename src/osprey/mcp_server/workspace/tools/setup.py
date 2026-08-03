@@ -27,9 +27,22 @@ _PATCHABLE_FILES = {"config.yml", ".mcp.json"}
 # Changes that take effect without restarting the MCP server
 _HOT_CHANGE_PATHS = {
     "config.yml": {
-        "control_system.writes_enabled",
         "control_system.limits_checking.enabled",
         "control_system.limits_checking.allow_unlisted_channels",
+    },
+}
+
+# Cold keys whose generic "restart the MCP server" note would understate what is
+# actually required. `writes_enabled` is enforced at three layers and only the
+# hook layer re-reads config per call, so a patch alone leaves writes denied.
+_COLD_CHANGE_NOTES = {
+    "config.yml": {
+        "control_system.writes_enabled": (
+            "cold — the PreToolUse hook re-reads this immediately, but the connector "
+            "caches it at launch and the enforced `permissions.deny` list is not "
+            "regenerated. Run `osprey claude regen` and restart the agent, or writes "
+            "stay blocked."
+        ),
     },
 }
 
@@ -182,6 +195,9 @@ def _classify_change(file: str, key_path: str) -> str:
     hot_paths = _HOT_CHANGE_PATHS.get(file, set())
     if key_path in hot_paths:
         return "hot — takes effect immediately (hooks re-read config on each call)"
+    specific_note = _COLD_CHANGE_NOTES.get(file, {}).get(key_path)
+    if specific_note:
+        return specific_note
     return "cold — requires MCP server restart (`osprey claude restart` or new session)"
 
 

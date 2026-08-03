@@ -5,9 +5,8 @@ This file deliberately does NOT re-test ``ConfigBuilder`` construction,
 ``tests/config/test_config_builder.py`` and ``tests/utils/test_resolve_env_vars.py``.
 It targets the public functions those files leave untested: the
 ``get_config_builder`` / ``load_config`` / ``get_full_configuration`` caching and
-set-as-default semantics, ``get_agent_dir`` path resolution, the
-service/application accessors, and the built-in ``execution`` /
-``python_executor`` defaults.
+set-as-default semantics, ``get_agent_dir`` path resolution, the service
+accessor, and the built-in ``execution`` / ``python_executor`` defaults.
 
 The autouse ``reset_state_between_tests`` fixture clears the config singleton and
 ``CONFIG_FILE`` around every test, so these serial tests leak no global state.
@@ -22,7 +21,6 @@ from osprey.utils.config import (
     get_agent_dir,
     get_config_builder,
     get_config_value,
-    get_current_application,
     get_framework_service_config,
     get_full_configuration,
     load_config,
@@ -132,54 +130,41 @@ class TestGetFrameworkServiceConfig:
         assert get_framework_service_config("missing") == {}
 
 
-class TestGetCurrentApplication:
-    def test_list_returns_first_entry(self, tmp_path, monkeypatch):
-        cfg = _write_config(tmp_path, "applications:\n  - app_one\n  - app_two\n")
-        monkeypatch.setenv("CONFIG_FILE", str(cfg))
-        assert get_current_application() == "app_one"
-
-    def test_dict_returns_first_key(self, tmp_path, monkeypatch):
-        cfg = _write_config(
-            tmp_path,
-            "applications:\n  primary:\n    x: 1\n  secondary:\n    y: 2\n",
-        )
-        monkeypatch.setenv("CONFIG_FILE", str(cfg))
-        assert get_current_application() == "primary"
-
-    def test_absent_returns_none(self, tmp_path, monkeypatch):
-        cfg = _write_config(tmp_path, "project_root: /x\n")
-        monkeypatch.setenv("CONFIG_FILE", str(cfg))
-        assert get_current_application() is None
-
-
 class TestGetAgentDir:
     def test_resolves_under_project_root_and_agent_data_dir(self, tmp_path, monkeypatch):
         cfg = _write_config(
             tmp_path,
             f"project_root: {tmp_path}\n"
+            "agent_data:\n"
+            "  base_dir: _agent_data\n"
             "file_paths:\n"
-            "  agent_data_dir: _agent_data\n"
-            "  user_memory_dir: memory/user\n",
+            "  api_calls_dir: logs/api\n",
         )
         monkeypatch.setenv("CONFIG_FILE", str(cfg))
-        result = Path(get_agent_dir("user_memory_dir"))
-        assert result == tmp_path / "_agent_data" / "memory" / "user"
+        result = Path(get_agent_dir("api_calls_dir"))
+        assert result == tmp_path / "_agent_data" / "logs" / "api"
 
     def test_unknown_sub_dir_falls_back_to_its_name(self, tmp_path, monkeypatch):
         cfg = _write_config(
             tmp_path,
-            f"project_root: {tmp_path}\nfile_paths:\n  agent_data_dir: _agent_data\n",
+            f"project_root: {tmp_path}\nagent_data:\n  base_dir: _agent_data\n",
         )
         monkeypatch.setenv("CONFIG_FILE", str(cfg))
-        result = Path(get_agent_dir("execution_plans_dir"))
-        assert result == tmp_path / "_agent_data" / "execution_plans_dir"
+        result = Path(get_agent_dir("registry_exports_dir"))
+        assert result == tmp_path / "_agent_data" / "registry_exports_dir"
 
-    def test_application_file_paths_override_main(self, tmp_path, monkeypatch):
+    def test_stale_applications_block_does_not_override_file_paths(self, tmp_path, monkeypatch):
+        """``applications:`` is retired — only the top-level ``file_paths`` wins.
+
+        Projects that still carry a legacy ``applications:`` block keep loading,
+        but its nested ``file_paths`` no longer scope directory resolution.
+        """
         cfg = _write_config(
             tmp_path,
             f"project_root: {tmp_path}\n"
+            "agent_data:\n"
+            "  base_dir: _agent_data\n"
             "file_paths:\n"
-            "  agent_data_dir: _agent_data\n"
             "  plans_dir: default_plans\n"
             "applications:\n"
             "  app1:\n"
@@ -188,12 +173,12 @@ class TestGetAgentDir:
         )
         monkeypatch.setenv("CONFIG_FILE", str(cfg))
         result = Path(get_agent_dir("plans_dir"))
-        assert result == tmp_path / "_agent_data" / "app_plans"
+        assert result == tmp_path / "_agent_data" / "default_plans"
 
     def test_missing_project_root_falls_back_to_relative(self, tmp_path, monkeypatch):
         cfg = _write_config(
             tmp_path,
-            "project_root: /nonexistent/project/root\nfile_paths:\n  agent_data_dir: _agent_data\n",
+            "project_root: /nonexistent/project/root\nagent_data:\n  base_dir: _agent_data\n",
         )
         monkeypatch.setenv("CONFIG_FILE", str(cfg))
         result = Path(get_agent_dir("memory_dir"))

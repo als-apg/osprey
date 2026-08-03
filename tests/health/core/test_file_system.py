@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from osprey.health.core import CORE_CATEGORIES, get_core_category_factory
+from osprey.health.core import file_system as file_system_module
 from osprey.health.core.file_system import file_system
 from osprey.health.models import CheckResult, Status
 
@@ -119,7 +120,7 @@ class TestProjectPaths:
 
     def test_custom_agent_data_dir_from_config(self, tmp_path: Path) -> None:
         (tmp_path / "custom").mkdir()
-        config = {"project_root": str(tmp_path), "file_paths": {"agent_data_dir": "custom"}}
+        config = {"project_root": str(tmp_path), "agent_data": {"base_dir": "custom"}}
         by_name = _by_name(_run(config, tmp_path))
         assert by_name["agent_data_dir"].status is Status.OK
         assert str(tmp_path / "custom") in by_name["agent_data_dir"].message
@@ -145,11 +146,14 @@ class TestProjectPaths:
         finally:
             data_dir.chmod(0o700)  # restore so tmp cleanup can remove it
 
-    def test_exception_path_yields_project_paths_error(self, tmp_path: Path) -> None:
-        # file_paths is a str, so file_paths.get(...) raises AttributeError, which
-        # the broad guard reports as a single project_paths error row.
-        config = {"project_root": str(tmp_path), "file_paths": "not-a-mapping"}
-        by_name = _by_name(_run(config, tmp_path))
+    def test_exception_path_yields_project_paths_error(self, monkeypatch, tmp_path: Path) -> None:
+        # Any failure while resolving the project paths — the agent-data root
+        # here — is reported as a single project_paths error row.
+        def _boom(config: dict[str, Any] | None) -> str:
+            raise RuntimeError("agent-data root unresolvable")
+
+        monkeypatch.setattr(file_system_module, "agent_data_base_dir", _boom)
+        by_name = _by_name(_run({"project_root": str(tmp_path)}, tmp_path))
         assert by_name["project_paths"].status is Status.ERROR
         assert "Error checking project paths" in by_name["project_paths"].message
 

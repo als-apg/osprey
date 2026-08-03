@@ -28,47 +28,37 @@ def _make_launcher(host: str, port: int):
     )
 
 
-class TestMakeConfigReader:
-    """Tests for _make_config_reader using catalog entries."""
+class TestLauncherConfigReader:
+    """Each launcher's config reader resolves its own catalog entry's address."""
+
+    @staticmethod
+    def _reader(key: str, config: dict):
+        from osprey.infrastructure import server_launcher
+
+        reader = server_launcher._launchers[key]._config_reader
+        with patch("osprey.utils.workspace.load_osprey_config", return_value=config):
+            return reader()
 
     def test_defaults_when_section_empty(self):
         """Config reader returns default host/port when config section is empty."""
-        from osprey.infrastructure.server_launcher import _make_config_reader
-
-        reader = _make_config_reader(FRAMEWORK_WEB_SERVERS["channel_finder"])
-        with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={},
-        ):
-            host, port = reader()
+        host, port = self._reader("channel_finder", {})
         assert host == "127.0.0.1"
         assert port == 8092
 
     def test_custom_values_with_web_subkey(self):
         """Config reader navigates config_web_subkey correctly."""
-        from osprey.infrastructure.server_launcher import _make_config_reader
-
-        reader = _make_config_reader(FRAMEWORK_WEB_SERVERS["channel_finder"])
-        with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={
-                "channel_finder": {"web": {"host": "0.0.0.0", "port": 9999}},
-            },
-        ):
-            host, port = reader()
+        host, port = self._reader(
+            "channel_finder",
+            {"channel_finder": {"web": {"host": "0.0.0.0", "port": 9999}}},
+        )
         assert host == "0.0.0.0"
         assert port == 9999
 
     def test_flat_config_key(self):
         """Config reader works for servers without config_web_subkey."""
-        from osprey.infrastructure.server_launcher import _make_config_reader
-
-        reader = _make_config_reader(FRAMEWORK_WEB_SERVERS["artifact"])
-        with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={"artifact_server": {"host": "10.0.0.1", "port": 7777}},
-        ):
-            host, port = reader()
+        host, port = self._reader(
+            "artifact", {"artifact_server": {"host": "10.0.0.1", "port": 7777}}
+        )
         assert host == "10.0.0.1"
         assert port == 7777
 

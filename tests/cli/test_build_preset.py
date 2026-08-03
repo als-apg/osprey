@@ -76,7 +76,7 @@ def test_preset_hello_world_creates_project(runner: CliRunner, tmp_path: Path) -
 
 def test_preset_with_override_file(runner: CliRunner, tmp_path: Path) -> None:
     override = tmp_path / "over.yml"
-    override.write_text("model: claude-opus-4-5\n")
+    override.write_text("model: opus\n")
     result = runner.invoke(
         build,
         [
@@ -93,7 +93,7 @@ def test_preset_with_override_file(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
-    assert config["claude_code"]["default_model"] == "claude-opus-4-5"
+    assert config["claude_code"]["default_model"] == "opus"
 
 
 def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
@@ -104,7 +104,7 @@ def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
             "--preset",
             "hello-world",
             "--set",
-            "model=claude-sonnet-4-6",
+            "model=sonnet",
             "--skip-deps",
             "--skip-lifecycle",
             "--output-dir",
@@ -113,7 +113,7 @@ def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
-    assert config["claude_code"]["default_model"] == "claude-sonnet-4-6"
+    assert config["claude_code"]["default_model"] == "sonnet"
 
 
 def test_set_with_list_value_extends(runner: CliRunner, tmp_path: Path) -> None:
@@ -229,7 +229,7 @@ def test_positional_profile_still_works(runner: CliRunner, tmp_path: Path) -> No
     """Backward-compat: existing osprey build PROJECT PROFILE.yml flow."""
     profile = tmp_path / "p.yml"
     profile.write_text(
-        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: claude-haiku-4-5\n"
+        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: haiku\n"
     )
     result = runner.invoke(
         build,
@@ -469,7 +469,7 @@ def test_reproducible_command_emits_positional_form_for_profile_build(
     """C12: positional-profile builds reproduce as 'osprey build NAME PROFILE.yml'."""
     profile = tmp_path / "p.yml"
     profile.write_text(
-        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: claude-haiku-4-5\n"
+        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: haiku\n"
     )
     result = runner.invoke(
         build,
@@ -548,9 +548,9 @@ def test_override_unions_string_list(runner: CliRunner, tmp_path: Path) -> None:
 def test_multiple_override_files_apply_in_order(runner: CliRunner, tmp_path: Path) -> None:
     """T2: -O is multiple=True; later files win at the same key."""
     a = tmp_path / "a.yml"
-    a.write_text("model: claude-sonnet-4-6\n")
+    a.write_text("model: sonnet\n")
     b = tmp_path / "b.yml"
-    b.write_text("model: claude-opus-4-5\n")
+    b.write_text("model: opus\n")
     result = runner.invoke(
         build,
         [
@@ -569,7 +569,7 @@ def test_multiple_override_files_apply_in_order(runner: CliRunner, tmp_path: Pat
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
-    assert config["claude_code"]["default_model"] == "claude-opus-4-5"
+    assert config["claude_code"]["default_model"] == "opus"
 
 
 def test_override_missing_file_aborts(
@@ -728,7 +728,7 @@ def test_set_yaml_typed_values(runner: CliRunner, tmp_path: Path) -> None:
 def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
     """T3: --set wins over -O at the same key (per docstring precedence)."""
     over = tmp_path / "o.yml"
-    over.write_text("model: claude-sonnet-4-6\n")
+    over.write_text("model: sonnet\n")
     result = runner.invoke(
         build,
         [
@@ -738,7 +738,7 @@ def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
             "-O",
             str(over),
             "--set",
-            "model=claude-opus-4-5",
+            "model=opus",
             "--skip-deps",
             "--skip-lifecycle",
             "--output-dir",
@@ -747,7 +747,7 @@ def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     cfg = _config_yaml(tmp_path / "smoke")
-    assert cfg["claude_code"]["default_model"] == "claude-opus-4-5"
+    assert cfg["claude_code"]["default_model"] == "opus"
 
 
 def test_set_path_through_scalar_aborts(
@@ -763,7 +763,7 @@ def test_set_path_through_scalar_aborts(
                 "--preset",
                 "hello-world",
                 "--set",
-                "model=claude-haiku-4-5",
+                "model=haiku",
                 "--set",
                 "model.flavor=fast",
                 "--skip-deps",
@@ -1017,10 +1017,11 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
 
     Pins the wiring: the data bundle ships ``data/simulation/machine.json``
     (shared channels) plus a ``scenarios/`` tree of self-contained bundles and
-    the ``active_scenarios`` state file, and the rendered ``config.yml`` points
-    both mock connectors at the machine file via the exact key paths the
-    connector factory scopes (``control_system.connector.mock`` and
-    ``archiver.mock_archiver``).
+    the ``active_scenarios`` state file, and the rendered ``config.yml`` names
+    the machine file exactly once, under the key path the connector factory
+    scopes (``control_system.connector.mock``). The mock archiver derives its
+    own copy from there, so a second declaration would be a divergence waiting
+    to happen.
     """
     import json
 
@@ -1063,7 +1064,9 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
         config["control_system"]["connector"]["mock"]["simulation_file"]
         == "data/simulation/machine.json"
     )
-    assert config["archiver"]["mock_archiver"]["simulation_file"] == "data/simulation/machine.json"
+    assert "simulation_file" not in config["archiver"].get("mock_archiver", {}), (
+        "the archiver repeats the machine path; it derives it now"
+    )
 
 
 def test_preset_yaml_must_be_mapping(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -1169,7 +1172,7 @@ class TestOverlayLogbookSeedNotMutated:
             "name: SeedVerbatim\n"
             "data_bundle: hello_world\n"
             "provider: anthropic\n"
-            "model: claude-haiku-4-5\n"
+            "model: haiku\n"
             "overlay:\n"
             "  logbook/demo_logbook.json: data/logbook_seed/demo_logbook.json\n"
         )
@@ -1213,7 +1216,7 @@ class TestDeployServicesKnob:
         "name: Attachment Test\n"
         "data_bundle: control_assistant\n"
         "provider: anthropic\n"
-        "model: claude-haiku-4-5\n"
+        "model: haiku\n"
         "channel_finder_mode: hierarchical\n"
         "bluesky:\n"
         "  port: 8090\n"

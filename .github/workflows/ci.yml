@@ -252,6 +252,54 @@ jobs:
     - name: Run Tier 0 static checks
       run: uv run pytest tests/integration/test_preset_static.py -v --tb=short
 
+  config-key-guard:
+    name: Tier 0 — Config-key resurrection guard (manifest ↔ rendered templates)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        # LOAD-BEARING for the `--back-test` run below, which extracts the
+        # baseline tree with `git archive <commit>`: a shallow clone cannot
+        # reach the baseline. It fails loudly there (RuntimeError -> exit 1)
+        # rather than skipping, so dropping this can only red the lane, never
+        # quietly hollow it out — but the fix is to restore the depth, not to
+        # drop the flag.
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      # The guard renders the shipped config.yml.j2 templates through Jinja and
+      # parses scripts/config_key_manifest.yml, so it needs the project deps
+      # like every other lane.
+      run: uv sync --extra dev
+
+    - name: Run config-key resurrection guard (with back-test)
+      # ~4.6s. Exit 0 clean, 1 on any failure record — an unmapped rendered
+      # key, a dead `evidence` regex, a deleted key resurrected in a template
+      # or preset override, an `orphan_sites` regex matching again, template
+      # parity drift, and the manifest's own consistency checks. The script's
+      # module docstring is the authoritative list.
+      #
+      # `--back-test` (one command, guard + back-test) is what makes the orphan
+      # regexes falsifiable: each must match at the recorded baseline and NOT on
+      # the branch, so a regex wired to nothing is caught instead of reporting
+      # green. tests/scripts/test_config_key_guard.py covers the same ground in
+      # the unit-test lane today — but revocably: its back-test cases skip
+      # themselves when the baseline is unreachable, so a checkout-depth or
+      # marker-deselection change over there would drop the proof with no red
+      # signal to say so. Pinning it to this lane, whose full history is its
+      # stated purpose, is what makes the coverage non-revocable.
+      run: uv run python scripts/check_config_keys.py --back-test
+
   visual-theming:
     name: Behavioral + Visual Theming (Playwright, design system)
     runs-on: ubuntu-latest
@@ -1551,7 +1599,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
     runs-on: ubuntu-latest
     if: always()
 
@@ -1588,6 +1636,10 @@ jobs:
         fi
         if [[ "${{ needs.static-checks.result }}" != "success" ]]; then
           echo "❌ Tier 0 static checks failed"
+          exit 1
+        fi
+        if [[ "${{ needs.config-key-guard.result }}" != "success" ]]; then
+          echo "❌ Config-key resurrection guard failed"
           exit 1
         fi
         if [[ "${{ needs.visual-theming.result }}" != "success" ]]; then

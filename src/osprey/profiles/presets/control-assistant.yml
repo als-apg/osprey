@@ -16,7 +16,7 @@ data_bundle: control_assistant
 # --set provider=... / --set model=... flags; explicit --set overrides are
 # also forwarded to the persona projects auto-rendered at deploy time.
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
 channel_finder_mode: hierarchical
@@ -97,10 +97,9 @@ bluesky:
   # the real VA soft-IOC over BLUESKY_EPICS_SUBSTRATE, not the mock demo runner.
 
 virtual_accelerator:
-  # MUST stay 5064 — config.yml.j2 hardcodes the VA gateway port at 5064
-  # (control_system.connector.virtual_accelerator.gateways.*.port is not
-  # templated from services.virtual_accelerator.port); changing this here
-  # would desync the connector from the deployed container.
+  # Channel Access port the soft-IOC serves on. The connector's gateway port
+  # follows this value, so changing it here moves both the container and the
+  # connector that talks to it.
   port: 5064
 
 bluesky_panels:
@@ -129,7 +128,11 @@ config:
   # run read-only framework/stack health checks out of the box.
   claude_code.servers.health.enabled: true
   # system.timezone: America/Los_Angeles
-  # system.facility_name: My Facility
+  # Facility display name, woven into the agent prompts (CLAUDE.md, the
+  # channel-finder/logbook agents) and the web-terminal landing page. Defaults
+  # to the project name when unset. Sits in the same `facility:` block as
+  # `facility.prefix` below.
+  # facility.name: My Facility
   # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
   # URL defaults to the host-run dispatcher (127.0.0.1:8020); override
   # EVENT_DISPATCHER_URL for containerized/remote web terminals.

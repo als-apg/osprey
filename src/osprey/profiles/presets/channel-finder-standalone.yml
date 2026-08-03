@@ -14,7 +14,7 @@ name: Channel Finder Standalone
 data_bundle: channel_finder_standalone
 
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # Channel-finder pipeline. The bundle ships a demo hierarchical database, so
 # hierarchical is the out-of-the-box default. Override for your data via
