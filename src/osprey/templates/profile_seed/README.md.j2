@@ -1,12 +1,14 @@
 # {{ profile_name }}
 
-OSPREY build profile extending the bundled `{{ preset_name }}` preset.
+OSPREY build profile emitted from the bundled `{{ preset_name }}` preset —
+fully explicit and standalone: everything the preset configures is written
+out in `profile.yml`, and nothing is inherited at build time.
 
 ## Layout
 
 ```
 {{ profile_dirname }}/
-  profile.yml          # extends `{{ preset_name }}`; override sections commented
+  profile.yml          # the full configuration — edit freely
   overlays/
     rules/             # drop facility-specific rule .md files here
     skills/            # drop custom skill directories here (each with SKILL.md)
@@ -34,8 +36,18 @@ rebuild.
 3. If the artifact's canonical name needs to appear in the artifact list,
    also add it under `skills:`, `rules:`, or `agents:`.
 
-## Inheritance model
+## Relationship to the preset
 
-- **Preset** (`{{ preset_name }}`): bundled upstream, edited by PR'ing OSPREY.
+- **Preset** (`{{ preset_name }}`): the bundled snapshot this profile was
+  emitted from. Later OSPREY releases may improve it — those changes do
+  **not** flow into this profile automatically.
 - **Profile** (this directory): your facility's source of truth.
 - **Project** (output of `osprey build`): derived, regenerable.
+
+To pick up upstream preset improvements, emit a fresh profile into a scratch
+directory and diff it against this one:
+
+```
+osprey build --emit-profile /tmp/fresh-profile --preset {{ preset_name }}
+diff -u /tmp/fresh-profile/profile.yml {{ profile_dirname }}/profile.yml
+```

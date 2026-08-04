@@ -80,8 +80,12 @@ You can drive ``osprey build`` in three modes:
      - Trying a preset; no customizations needed.
    * - Scaffold profile
      - ``osprey build --emit-profile my-profile --preset X``
-     - Starting facility-specific customization. Writes an editable
-       profile directory and exits — no project rendered yet.
+     - Starting facility-specific customization. Writes an editable,
+       **standalone** profile directory and exits — no project rendered
+       yet. The preset's full configuration is materialized into
+       ``profile.yml`` (comments preserved, no ``extends:``), and any
+       ``--set`` / ``-O`` values are applied in place, so a validated
+       build one-liner carries straight into the profile.
    * - Build from profile
      - ``osprey build my-project my-profile/profile.yml``
      - Rendering a project from your profile (the everyday command after
@@ -92,16 +96,20 @@ The scaffold mode writes:
 .. code-block:: text
 
    my-profile/
-     profile.yml          # extends: <preset>, with override sections (commented)
+     profile.yml          # the preset's full configuration, materialized — edit freely
      overlays/
        rules/   .gitkeep  # drop facility-specific rule .md files here
        skills/  .gitkeep  # drop custom skill directories here
        agents/  .gitkeep  # drop custom subagent .md files here
      README.md            # explains the layout
 
-The seed ``profile.yml`` lists every supported override section in commented
-form (``skills:``, ``rules:``, ``agents:``, ``config:``, ``env:``,
-``overlay:``) — uncomment what you need.
+The emitted ``profile.yml`` is fully self-sufficient: every section the preset
+configures (artifact lists, ``config:`` overrides, service blocks like
+``bluesky:`` / ``virtual_accelerator:`` / ``dispatch:``, ``env:`` wiring) is
+written out explicitly with the preset's own comments, and nothing is
+inherited at build time. Upstream preset improvements in later OSPREY releases
+do **not** flow in automatically — emit a fresh profile into a scratch
+directory and diff to pick them up.
 
 Inheriting from a preset
 ------------------------
@@ -831,9 +839,11 @@ CLI Reference
        finder paradigm (``in_context`` → tier 1, ``hierarchical`` /
        ``middle_layer`` → tier 3). Tier 1 is ``in_context``-only.
    * - ``--emit-profile DIR``
-     - Scaffold an editable profile directory at ``DIR`` that extends
-       ``--preset``, then exit without rendering a project. Build from it
-       with ``osprey build <PROJECT_NAME> DIR/profile.yml``.
+     - Scaffold an editable, standalone profile directory at ``DIR``
+       materializing ``--preset``'s full configuration (comments
+       preserved, no ``extends:``), then exit without rendering a
+       project. ``--set`` / ``-O`` values are applied in place. Build
+       from it with ``osprey build <PROJECT_NAME> DIR/profile.yml``.
    * - ``-s, --stream``
      - Stream lifecycle step output in real time.
    * - ``--skip-lifecycle``
@@ -864,6 +874,10 @@ declaration order → ``--set`` pairs.
    osprey build als-test --preset control-assistant \
        -O als-overrides.yml \
        --set model=claude-sonnet-4-6
+
+   # Scaffold a facility profile with those same overrides baked in
+   osprey build --emit-profile als-profile --preset control-assistant \
+       --set provider=als-apg --set model=opus
 
 
 Build Pipeline

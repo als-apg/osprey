@@ -78,6 +78,37 @@ def explicit_model_override_keys(set_pairs: tuple[str, ...]) -> list[str]:
     return [key for key in MODEL_SELECTION_OVERRIDE_KEYS if key in parsed]
 
 
+def merge_cli_overrides(
+    base: dict[str, Any],
+    overrides: tuple[Path, ...],
+    set_pairs: tuple[str, ...],
+) -> dict[str, Any]:
+    """Layer ``-O`` override files and ``--set`` pairs over ``base``.
+
+    The shared CLI layering step: override files deep-merge in declaration
+    order, then ``--set`` values merge on top. Used by the project-render path
+    (:func:`resolve_build_profile`) and by ``--emit-profile``, which bakes the
+    merged result into the scaffolded ``profile.yml``.
+    """
+    raw = base
+    for override_path in overrides:
+        if not override_path.exists():
+            raise BuildProfileError(f"Override not found: {override_path}")
+        try:
+            override_raw = yaml.safe_load(override_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as e:
+            raise BuildProfileError(f"Invalid YAML in {override_path}: {e}") from e
+        if override_raw is None:
+            continue
+        if not isinstance(override_raw, dict):
+            raise BuildProfileError(f"Override must be a YAML mapping: {override_path}")
+        raw = _deep_merge(raw, override_raw)
+
+    if set_pairs:
+        raw = _deep_merge(raw, _parse_set_pairs(set_pairs))
+    return raw
+
+
 def resolve_build_profile(
     profile_path: Path | None,
     preset: str | None,
@@ -123,21 +154,7 @@ def resolve_build_profile(
         base_anchor = profile_path.resolve()
         profile_dir = profile_path.parent
 
-    for override_path in overrides:
-        if not override_path.exists():
-            raise BuildProfileError(f"Override not found: {override_path}")
-        try:
-            override_raw = yaml.safe_load(override_path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as e:
-            raise BuildProfileError(f"Invalid YAML in {override_path}: {e}") from e
-        if override_raw is None:
-            continue
-        if not isinstance(override_raw, dict):
-            raise BuildProfileError(f"Override must be a YAML mapping: {override_path}")
-        raw = _deep_merge(raw, override_raw)
-
-    if set_pairs:
-        raw = _deep_merge(raw, _parse_set_pairs(set_pairs))
+    raw = merge_cli_overrides(raw, overrides, set_pairs)
 
     raw = _resolve_extends(raw, base_anchor)
 

@@ -46,7 +46,11 @@ from .build_profile_presets import (
     _triggers_dir,
     list_presets,
 )
-from .build_profile_resolve import explicit_model_override_keys, resolve_build_profile
+from .build_profile_resolve import (
+    explicit_model_override_keys,
+    merge_cli_overrides,
+    resolve_build_profile,
+)
 from .build_profile_schema import (
     BlueskyConfig,
     BlueskyPanelsConfig,
@@ -90,5 +94,6 @@ __all__ = [
     "explicit_model_override_keys",
     "list_presets",
     "load_profile",
+    "merge_cli_overrides",
     "resolve_build_profile",
 ]

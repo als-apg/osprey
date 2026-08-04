@@ -11,6 +11,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Changed
+
+- `osprey build --emit-profile` now writes a fully explicit, standalone
+  `profile.yml`: the preset's resolved configuration (including any `extends`
+  chain) is materialized with its comments preserved, instead of a sparse
+  profile referencing the preset via `extends:`. It also accepts `--set` and
+  `-O/--override`, applying the values in place — a validated build one-liner
+  carries straight into an editable facility profile.
+
 ### Fixed
 
 - `osprey build` now fails with an actionable error when
