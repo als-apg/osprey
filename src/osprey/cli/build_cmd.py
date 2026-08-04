@@ -665,6 +665,18 @@ def build(
                 "Agent tool/permission drift detected:\n  " + "\n  ".join(validation_errors)
             )
 
+        # 16d. Validate the model selection against the rendered provider map.
+        # The web terminal runs the same resolver strict at startup, so a value
+        # that only warns here would deploy per-user terminals that crash-loop
+        # behind the reverse proxy. Failing the build stops the
+        # `build && deploy` chain at the checkpoint the operator watches.
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        try:
+            load_provider_spec(project_path)
+        except ValueError as e:
+            raise BuildProfileError(str(e)) from e
+
         # 17. Git init + commit
         _git_init_and_commit(project_path)
 
