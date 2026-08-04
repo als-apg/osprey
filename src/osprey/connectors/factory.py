@@ -331,8 +331,8 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[ConnectorR
         restore_connector_registries(snapshot)
 
 
-_BUILTIN_CONTROL_SYSTEMS = (types.MOCK, types.EPICS, types.VIRTUAL_ACCELERATOR)
-_BUILTIN_ARCHIVERS = (types.MOCK_ARCHIVER, types.EPICS_ARCHIVER)
+_BUILTIN_CONTROL_SYSTEMS = (types.MOCK, types.EPICS, types.VIRTUAL_ACCELERATOR, types.DOOCS)
+_BUILTIN_ARCHIVERS = (types.MOCK_ARCHIVER, types.EPICS_ARCHIVER, types.DOOCS_ARCHIVER)
 
 
 def register_builtin_connectors() -> None:
@@ -357,8 +357,14 @@ def register_builtin_connectors() -> None:
         # built-ins, so a missing pymongo isn't re-imported on every call.
         return
 
+    # The DOOCS connectors import doocs4py inside connect(), not at module
+    # scope, so they register unconditionally like any other built-in. A
+    # machine with no DOOCS environment only finds out when it tries to
+    # connect — which is the point at which it would have failed anyway.
+    from osprey.connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
     from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
     from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+    from osprey.connectors.control_system.doocs_connector import DOOCSConnector
     from osprey.connectors.control_system.epics_connector import EPICSConnector
     from osprey.connectors.control_system.mock_connector import MockConnector
     from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
@@ -367,10 +373,12 @@ def register_builtin_connectors() -> None:
         (types.MOCK, MockConnector),
         (types.EPICS, EPICSConnector),
         (types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector),
+        (types.DOOCS, DOOCSConnector),
     ]
     archivers: list[tuple[str, type[ArchiverConnector]]] = [
         (types.MOCK_ARCHIVER, MockArchiverConnector),
         (types.EPICS_ARCHIVER, EPICSArchiverConnector),
+        (types.DOOCS_ARCHIVER, DOOCSArchiverConnector),
     ]
 
     try:

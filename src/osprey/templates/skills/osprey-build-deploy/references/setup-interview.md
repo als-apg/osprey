@@ -57,11 +57,11 @@ Validate: lowercase, alphanumeric + hyphens only, 2–6 chars. If invalid, expla
 **Q1.3 Control system type:**
 - EPICS (most US/Asian accelerators — APS, ALS, SLAC, NSLS-II, J-PARC, KEK, etc.)
 - Mock / simulated (for development without real hardware) (Recommended for first deploy)
-- DOOCS (DESY, European XFEL) — ROADMAP, no connector yet
+- DOOCS (DESY, European XFEL) — requires `doocs4py` from the DOOCS environment
 - TANGO (ESRF, MAX IV, Soleil, Elettra) — ROADMAP, no connector yet
 - Custom (you write your own connector) — no built-in support
 
-> "Which control system do you connect to? OSPREY ships built-in support for **EPICS** and **Mock** today. DOOCS and TANGO are roadmap values — picking one writes the config but there is no working connector yet, so live control-system access won't work. If your site runs DOOCS/TANGO/Custom, pick `mock` for now so you can exercise the rest of the deploy pipeline; switch to the real value once a connector lands."
+> "Which control system do you connect to? OSPREY ships built-in support for **EPICS**, **DOOCS**, and **Mock** today. DOOCS also needs the `doocs4py` library, which your DOOCS environment provides — it is not installed from PyPI. TANGO is a roadmap value: picking it writes the config but there is no working connector yet, so live control-system access won't work. If your site runs TANGO or a custom stack, pick `mock` for now so you can exercise the rest of the deploy pipeline; switch to the real value once a connector lands."
 
 **Q1.4 Timezone** (in a follow-up question or the same group if room):
 > "What timezone is your facility in? Drives container clocks and the assistant's time handling (how it reads operator times and stamps output). Default: `UTC`. ALS uses `America/Los_Angeles`."
