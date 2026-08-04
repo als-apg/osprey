@@ -1282,6 +1282,37 @@ class TestDeployServicesKnob:
         assert not (tmp_path / "op" / "services").exists()
 
 
+def test_set_unservable_model_fails_build(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A model the selected provider cannot serve must fail the build itself.
+
+    The web-terminal container runs the same resolver strict at startup, so a
+    build that merely warns here ships a deploy whose per-user terminals
+    crash-loop behind the reverse proxy (502). The build is the checkpoint the
+    operator actually watches — it must stop the `build && deploy` chain.
+    """
+    with caplog.at_level(logging.ERROR):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "provider=als-apg",
+                "--set",
+                "model=anthropic/claude-opus",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+    assert result.exit_code != 0, result.output
+    _assert_build_error_logged(caplog, "neither a model tier nor a model id")
+
+
 def test_set_value_invalid_yaml_raises() -> None:
     """A --set value that isn't valid YAML raises BuildProfileError, not a YAMLError."""
     with pytest.raises(BuildProfileError, match="is not valid YAML"):

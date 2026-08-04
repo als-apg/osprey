@@ -11,6 +11,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- `osprey build` now fails with an actionable error when
+  `claude_code.default_model` (e.g. `--set model=...`) names a model the
+  selected provider does not serve. Previously the build only warned and the
+  deployed web terminals crash-looped behind the reverse proxy (502).
+
 ### Added
 
 - New `osprey.bridges.core` package: a channel-agnostic engine for connecting a
