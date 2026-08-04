@@ -13,6 +13,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Custom artifact-gallery categories moved from the top-level `categories`
+  key into the `artifact_server:` block (`artifact_server.categories`), in
+  both build profiles and rendered config.yml — the bare name was ambiguous
+  next to unrelated notions like `health.categories`. No alias: the old key
+  is no longer read. The profile-side block also accepts `host`/`port`/
+  `auto_launch` overrides for the gallery server. Emitted profiles now
+  include commented guidance for adding facility `mcp_servers:` and
+  `artifact_server.categories`.
 - `osprey build --emit-profile` now writes a fully explicit, standalone
   `profile.yml`: the preset's resolved configuration (including any `extends`
   chain) is materialized with its comments preserved, instead of a sparse

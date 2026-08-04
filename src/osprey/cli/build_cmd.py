@@ -59,7 +59,7 @@ from .build_persistence import (
     _clear_rendered_project_dir,
     _copy_overlay_files,
     _git_init_and_commit,
-    _persist_categories,
+    _persist_artifact_server,
     _persist_mcp_servers,
     _register_overlay_artifacts,
 )
@@ -85,7 +85,7 @@ __all__ = [
     "_inject_profile_services",
     "_inject_va",
     "_locate_pkg_services",
-    "_persist_categories",
+    "_persist_artifact_server",
     "_persist_mcp_servers",
     "_register_overlay_artifacts",
     "_resolve_osprey_spec",
@@ -585,12 +585,13 @@ def build(
                 "  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers)
             )
 
-        # 12b. Persist custom artifact categories to config.yml
-        if build_profile.categories:
-            _persist_categories(project_path, build_profile.categories)
+        # 12b. Merge artifact_server overrides (gallery settings + custom
+        # artifact categories) into config.yml
+        if build_profile.artifact_server:
+            _persist_artifact_server(project_path, build_profile.artifact_server)
             logger.info(
-                "  ✓ Persisted %d custom category/ies to config.yml",
-                len(build_profile.categories),
+                "  ✓ Merged artifact_server overrides into config.yml (%d category/ies)",
+                len(build_profile.artifact_server.get("categories", {})),
             )
 
         # 13. Copy profile .env file (if provided)

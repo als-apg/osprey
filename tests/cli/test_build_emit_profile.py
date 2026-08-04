@@ -189,6 +189,51 @@ def test_emit_profile_preserves_preset_comments(runner: CliRunner, tmp_path: Pat
     assert "provider: anthropic" not in text
 
 
+def test_emit_profile_appends_facility_extension_guidance(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Sections no bundled preset carries — facility MCP servers and custom
+    artifact categories — are appended as commented guidance, and the guidance
+    is suppressed for a section the emitted profile actually defines."""
+    target = tmp_path / "my-profile"
+    result = runner.invoke(build, ["--emit-profile", str(target), "--preset", "control-assistant"])
+    assert result.exit_code == 0, result.output
+    text = (target / "profile.yml").read_text()
+    assert "# mcp_servers:" in text
+    assert "#   lattice:" in text
+    assert "# artifact_server:" in text
+    assert '#       color: "#4C9AFF"' in text
+
+    # A profile that defines mcp_servers itself gets the real key, not the hint.
+    override = tmp_path / "o.yml"
+    override.write_text(
+        "mcp_servers:\n"
+        "  facility_tools:\n"
+        "    command: /usr/bin/facility-mcp\n"
+        "    permissions:\n"
+        "      allow: [ping]\n"
+    )
+    with_servers = tmp_path / "with-servers"
+    result = runner.invoke(
+        build,
+        [
+            "--emit-profile",
+            str(with_servers),
+            "--preset",
+            "control-assistant",
+            "-O",
+            str(override),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    text = (with_servers / "profile.yml").read_text()
+    assert "# mcp_servers:" not in text
+    assert "Facility MCP servers" not in text
+    assert "facility_tools:" in text
+    # The category guidance is independent — still appended.
+    assert "# artifact_server:" in text
+
+
 def test_emit_profile_extending_preset_materializes_chain(
     runner: CliRunner, tmp_path: Path
 ) -> None:

@@ -121,7 +121,13 @@ class BuildProfile:
     preset-author primitive — facility profiles override CLAUDE.md via
     overlay, not via this key.
     """
-    categories: dict[str, dict[str, str]] = field(default_factory=dict)
+    artifact_server: dict[str, Any] = field(default_factory=dict)
+    """Overrides merged into config.yml's ``artifact_server`` block (the
+    artifacts-gallery server). Supported subkeys: ``host``, ``port``,
+    ``auto_launch``, and ``categories`` — custom gallery categories as
+    ``{key: {label, color}}`` that facility MCP tools save artifacts under via
+    ``category="<key>"``.
+    """
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
@@ -396,18 +402,36 @@ class BuildProfile:
                         f"'web.panels.{member}.url' config override"
                     )
 
-        # Validate custom category definitions
+        # Validate the artifact_server override block (gallery server settings
+        # + custom category definitions)
         import re
 
         _hex_re = re.compile(r"^#[0-9a-fA-F]{6}$")
-        for cat_key, cat_spec in self.categories.items():
-            if not isinstance(cat_spec, dict):
-                errors.append(f"Category '{cat_key}' must be a mapping with label and color")
-                continue
-            if "label" not in cat_spec or not isinstance(cat_spec.get("label"), str):
-                errors.append(f"Category '{cat_key}' missing or invalid 'label'")
-            if "color" not in cat_spec or not _hex_re.match(str(cat_spec.get("color", ""))):
-                errors.append(f"Category '{cat_key}' missing or invalid 'color' (must be #RRGGBB)")
+        if not isinstance(self.artifact_server, dict):
+            errors.append(
+                f"artifact_server must be a mapping (got {type(self.artifact_server).__name__})"
+            )
+        else:
+            _allowed = {"host", "port", "auto_launch", "categories"}
+            for unknown in sorted(set(self.artifact_server) - _allowed):
+                errors.append(
+                    f"artifact_server.{unknown} is not a supported key "
+                    f"(must be one of {sorted(_allowed)})"
+                )
+            raw_categories = self.artifact_server.get("categories", {})
+            if not isinstance(raw_categories, dict):
+                errors.append("artifact_server.categories must be a mapping of category ids")
+                raw_categories = {}
+            for cat_key, cat_spec in raw_categories.items():
+                if not isinstance(cat_spec, dict):
+                    errors.append(f"Category '{cat_key}' must be a mapping with label and color")
+                    continue
+                if "label" not in cat_spec or not isinstance(cat_spec.get("label"), str):
+                    errors.append(f"Category '{cat_key}' missing or invalid 'label'")
+                if "color" not in cat_spec or not _hex_re.match(str(cat_spec.get("color", ""))):
+                    errors.append(
+                        f"Category '{cat_key}' missing or invalid 'color' (must be #RRGGBB)"
+                    )
 
         # Validate dispatch configuration
         if self.dispatch is not None:

@@ -58,6 +58,48 @@ _OVERLAY_APPENDIX = """
 #   overlays/skills/my-custom-skill: .claude/skills/my-custom-skill
 """
 
+# Appended when the resolved profile has no ``mcp_servers:`` section — the
+# facility's own tool servers, which bundled presets never carry.
+_MCP_SERVERS_APPENDIX = """
+# --- Facility MCP servers ----------------------------------------------------
+# Your own MCP servers, injected into the project's .mcp.json next to the
+# framework ones. An entry is either stdio (command/args/env) or remote (url,
+# or just port to derive http://localhost:<port>/mcp). transport defaults to
+# "http"; "sse" is the legacy event-stream wire and needs an explicit url.
+# Tool names under permissions are bare — `allow` runs them unprompted, `ask`
+# prompts the operator on every call.
+#
+# mcp_servers:
+#   matlab:
+#     command: /opt/matlab/bin/mcp-matlab
+#     args: [--workspace, /opt/matlab/scripts]
+#     env:
+#       MATLAB_LICENSE: "${MATLAB_LICENSE}"
+#     permissions:
+#       allow: [run_script]
+#   lattice:
+#     url: http://lattice.example.org:8400/mcp
+#     port: 8400
+#     transport: http
+#     permissions:
+#       allow: [get_twiss]
+"""
+
+# Appended when the resolved profile has no ``artifact_server:`` block.
+_CATEGORIES_APPENDIX = """
+# --- Artifacts gallery: custom categories ------------------------------------
+# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
+# tool passes as category="<key>" when it saves an artifact; label and color
+# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
+# block also accepts host/port/auto_launch overrides for the gallery server.
+#
+# artifact_server:
+#   categories:
+#     optics:
+#       label: Optics
+#       color: "#4C9AFF"
+"""
+
 
 def _to_plain(value: Any) -> Any:
     """Recursively convert ruamel container types to plain dict/list.
@@ -317,4 +359,8 @@ def emit_standalone_profile_yaml(
 
     if "overlay" not in resolved:
         text += _OVERLAY_APPENDIX
+    if "mcp_servers" not in resolved:
+        text += _MCP_SERVERS_APPENDIX
+    if "artifact_server" not in resolved:
+        text += _CATEGORIES_APPENDIX
     return text
