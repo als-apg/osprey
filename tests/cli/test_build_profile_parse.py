@@ -64,6 +64,57 @@ def test_mcp_server_with_empty_command_and_url_raises() -> None:
         _parse_profile({"name": "x", "mcp_servers": {"empty": {"command": "", "url": ""}}})
 
 
+def test_mcp_server_transport_defaults_to_http() -> None:
+    """A URL server without a transport key parses as streamable-HTTP."""
+    profile = _parse_profile({"name": "x", "mcp_servers": {"api": {"url": "http://host:9000/mcp"}}})
+    assert profile.mcp_servers["api"].transport == "http"
+
+
+def test_mcp_server_transport_sse_parses() -> None:
+    """An explicit transport: sse with a url is accepted and carried through."""
+    profile = _parse_profile(
+        {
+            "name": "x",
+            "mcp_servers": {"legacy": {"transport": "sse", "url": "http://host:9000/sse"}},
+        }
+    )
+    assert profile.mcp_servers["legacy"].transport == "sse"
+
+
+def test_mcp_server_invalid_transport_raises() -> None:
+    """A transport outside http/sse raises, naming the bad value."""
+    with pytest.raises(
+        BuildProfileError, match="MCP server 'typo' transport must be 'http' or 'sse'"
+    ):
+        _parse_profile(
+            {
+                "name": "x",
+                "mcp_servers": {"typo": {"transport": "ssse", "url": "http://host:9000/mcp"}},
+            }
+        )
+
+
+def test_mcp_server_transport_with_command_raises() -> None:
+    """Stdio servers have no transport choice — declaring one is rejected."""
+    with pytest.raises(
+        BuildProfileError, match="MCP server 'local' declares 'transport' with 'command'"
+    ):
+        _parse_profile(
+            {
+                "name": "x",
+                "mcp_servers": {"local": {"transport": "http", "command": "uvx"}},
+            }
+        )
+
+
+def test_mcp_server_sse_requires_explicit_url() -> None:
+    """transport: sse with only a port raises — the derived URL is an /mcp endpoint."""
+    with pytest.raises(
+        BuildProfileError, match="MCP server 'legacy' transport 'sse' requires an explicit 'url'"
+    ):
+        _parse_profile({"name": "x", "mcp_servers": {"legacy": {"transport": "sse", "port": 9000}}})
+
+
 # ── services: ────────────────────────────────────────────────────────────────
 
 

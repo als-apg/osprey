@@ -434,6 +434,26 @@ configuration) and ``.claude/settings.json`` (tool permissions) — so a later
          allow: ["safe_tool"]
          ask: ["write_tool"]
 
+Remote servers declare a ``url`` instead of a ``command``, plus an optional
+``transport`` — ``http`` (streamable-HTTP, the default) or ``sse`` (legacy
+Server-Sent Events):
+
+.. code-block:: yaml
+
+   mcp_servers:
+     matlab:
+       transport: http
+       url: "http://localhost:8008/mcp"
+       permissions:
+         allow: ["mml_search"]
+     legacy_api:
+       transport: sse
+       url: "http://appsdev2:8001/sse"
+
+``command`` and ``url`` are mutually exclusive, and stdio servers must not set
+``transport`` (launching via ``command`` *is* the transport) — the profile
+loader rejects both combinations at load time.
+
 **Placeholder resolution:**
 
 - ``{project_root}`` — resolved at **build time** to the absolute project path

@@ -28,7 +28,11 @@ class McpServerDef:
     env: dict[str, str] = field(default_factory=dict)
     permissions: dict[str, list[str]] = field(default_factory=dict)
     # permissions: {"allow": ["tool1"], "ask": ["tool2"]}
-    url: str | None = None  # HTTP/SSE transport URL (mutually exclusive with command)
+    url: str | None = None  # Remote transport URL (mutually exclusive with command)
+    # Wire transport for URL servers: "http" (streamable-HTTP, the default) or
+    # "sse" (legacy Server-Sent Events). Stdio servers (command) must not set
+    # it — load_profile rejects that.
+    transport: str = "http"
     # Single port the HTTP MCP service binds AND publishes. Compose maps
     # host:port → container:port 1:1, so consumers can derive every URL
     # variant from this single value. Mutually exclusive with command;

@@ -727,21 +727,28 @@ class TestDisableServers:
         assert "mcp__my-server__do_stuff" in ask
 
     def test_regen_preserves_url_servers(self, tmp_path):
-        """URL/SSE servers in config.yml survive regen and appear in .mcp.json."""
+        """URL servers in config.yml survive regen; transport drives .mcp.json's type."""
         project_dir, _ = self._create_and_regen(
             tmp_path,
             custom_servers={
                 "remote-api": {
-                    "url": "http://remote:8001/sse",
+                    "url": "http://remote:8001/mcp",
                     "permissions": {"allow": ["search"]},
-                }
+                },
+                "legacy-api": {
+                    "transport": "sse",
+                    "url": "http://remote:8002/sse",
+                },
             },
         )
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
-        assert "remote-api" in mcp_data["mcpServers"]
+        # No transport key → streamable-HTTP default.
         entry = mcp_data["mcpServers"]["remote-api"]
-        assert entry == {"type": "http", "url": "http://remote:8001/sse"}
+        assert entry == {"type": "http", "url": "http://remote:8001/mcp"}
+        # Explicit transport: sse → rendered as an SSE server.
+        entry = mcp_data["mcpServers"]["legacy-api"]
+        assert entry == {"type": "sse", "url": "http://remote:8002/sse"}
 
         # Permissions should be in settings.json
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())

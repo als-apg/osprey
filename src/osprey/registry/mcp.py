@@ -60,7 +60,10 @@ class ServerDefinition:
     is_external: bool = False
     external_command: str | None = None
     external_args: list[str] = field(default_factory=list)
-    url: str | None = None  # HTTP/SSE transport URL (mutually exclusive with command)
+    url: str | None = None  # Remote transport URL (mutually exclusive with command)
+    # Wire transport for URL servers: "http" (streamable-HTTP) or "sse"
+    # (legacy Server-Sent Events). Meaningless for stdio servers.
+    transport: str = "http"
     port: int | None = (
         None  # Host/container port for HTTP servers; informational for non-Claude consumers
     )
@@ -506,8 +509,9 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 
     Returns:
         List of plain dicts, each representing one server with keys:
-        name, enabled, command, args, env, permissions_allow, permissions_ask,
-        fixed_allow, hooks_pre, hooks_post, is_custom.
+        name, enabled, url, transport (``"http"``/``"sse"`` for URL servers,
+        ``None`` for stdio), command, args, env, permissions_allow,
+        permissions_ask, fixed_allow, hooks_pre, hooks_post, is_custom.
     """
     servers: dict[str, ServerDefinition] = {
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
@@ -569,7 +573,9 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
                     name,
                 )
                 continue
-            servers[name] = _custom_server_from_spec(name, spec)
+            custom = _custom_server_from_spec(name, spec)
+            if custom is not None:
+                servers[name] = custom
 
     # ── Build output dicts ────────────────────────────────────
     result = []
@@ -727,9 +733,38 @@ def build_extended_server(name: str, spec: dict) -> ServerDefinition | None:
     return clone
 
 
-def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
-    """Build a ServerDefinition from a new-format config spec."""
+#: Valid ``transport`` values for URL-based custom servers.
+VALID_TRANSPORTS = ("http", "sse")
+
+
+def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
+    """Build a ServerDefinition from a new-format config spec.
+
+    Returns ``None`` (after a logged warning) for an invalid ``transport``
+    value — silently defaulting a typo like ``trasnport: ssse`` to HTTP would
+    ship a server that can never connect, so the spec is rejected loudly
+    instead (matches the missing-command/url handling in resolve_servers).
+    """
     perms = spec.get("permissions", {})
+
+    transport = spec.get("transport", "http")
+    if spec.get("url"):
+        if transport not in VALID_TRANSPORTS:
+            logger.warning(
+                "Server %r has invalid transport %r — must be one of %s; skipping",
+                name,
+                transport,
+                "/".join(VALID_TRANSPORTS),
+            )
+            return None
+    elif "transport" in spec:
+        # A command server is structurally stdio — there is no transport choice.
+        logger.warning(
+            "Server %r declares 'transport' but launches via 'command' — stdio "
+            "servers have no transport choice; ignoring the key",
+            name,
+        )
+        transport = "http"
 
     # Resolve pre-tool-use hook presets
     hooks_pre: list[HookRule] = []
@@ -753,6 +788,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
         external_command=spec.get("command", ""),
         external_args=spec.get("args", []),
         url=spec.get("url"),
+        transport=transport,
         port=spec.get("port"),
         permissions_allow=perms.get("allow", []),
         permissions_ask=perms.get("ask", []),
@@ -794,6 +830,9 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
         "name": sdef.name,
         "enabled": sdef.default_enabled,
         "url": url,
+        # Transport only means something for URL servers; None for stdio so a
+        # consumer can never mistake a command server for an HTTP one.
+        "transport": sdef.transport if url else None,
         "command": command,
         "args": args,
         "env": env,

@@ -688,7 +688,7 @@ class TestBuildHelpers:
             load_profile(p)
 
     def test_persist_mcp_servers_port_emits_network_block(self, tmp_path: Path):
-        """_persist_mcp_servers emits transport=http + network block when port is set."""
+        """_persist_mcp_servers emits transport + url + network block when port is set."""
         from osprey.cli.build_cmd import _persist_mcp_servers
 
         project_path = tmp_path / "project"
@@ -706,14 +706,16 @@ class TestBuildHelpers:
 
         config = yaml.safe_load((project_path / "config.yml").read_text())
         entry = config["claude_code"]["servers"]["matlab"]
+        # The default is written explicitly — the rendered config states its
+        # wire transport instead of implying it from the url's presence.
         assert entry["transport"] == "http"
         assert entry["url"] == "http://localhost:8008/mcp"
         assert entry["network"]["port"] == 8008
         assert entry["network"]["host_url"] == "http://localhost:8008/mcp"
         assert entry["network"]["docker_url"] == "http://matlab:8008/mcp"
 
-    def test_persist_mcp_servers_stdio_emits_transport_stdio(self, tmp_path: Path):
-        """Stdio servers get transport=stdio and no network block."""
+    def test_persist_mcp_servers_stdio_emits_command_only(self, tmp_path: Path):
+        """Stdio servers get command/args and no network block."""
         from osprey.cli.build_cmd import _persist_mcp_servers
 
         project_path = tmp_path / "project"
@@ -730,12 +732,13 @@ class TestBuildHelpers:
 
         config = yaml.safe_load((project_path / "config.yml").read_text())
         entry = config["claude_code"]["servers"]["confluence"]
-        assert entry["transport"] == "stdio"
+        # Stdio has no transport choice — the key must not appear.
+        assert "transport" not in entry
         assert entry["command"] == "uvx"
         assert "network" not in entry
 
     def test_persist_mcp_servers_url_without_port_no_network_block(self, tmp_path: Path):
-        """A url-only server (no port hint) gets transport=http but no network block."""
+        """A url-only server (no port hint) gets no network block."""
         from osprey.cli.build_cmd import _persist_mcp_servers
 
         project_path = tmp_path / "project"
@@ -752,6 +755,30 @@ class TestBuildHelpers:
         assert entry["transport"] == "http"
         assert entry["url"] == "http://appsdev2:8008/mcp"
         assert "network" not in entry
+
+    def test_persist_mcp_servers_sse_transport_and_network_path(self, tmp_path: Path):
+        """An SSE server persists transport=sse; network URLs follow the url's path."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("facility_name: test\n")
+
+        servers = {
+            "legacy": McpServerDef(
+                url="http://localhost:9000/sse",
+                transport="sse",
+                port=9000,
+            ),
+        }
+        _persist_mcp_servers(project_path, servers)
+
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        entry = config["claude_code"]["servers"]["legacy"]
+        assert entry["transport"] == "sse"
+        assert entry["url"] == "http://localhost:9000/sse"
+        assert entry["network"]["host_url"] == "http://localhost:9000/sse"
+        assert entry["network"]["docker_url"] == "http://legacy:9000/sse"
 
     def test_apply_config_overrides(self, tmp_path: Path):
         """_apply_config_overrides should update config.yml fields."""

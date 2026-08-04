@@ -585,14 +585,14 @@ deployed_services:
 uv run osprey deploy up
 ```
 
-3. Configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+3. Point your MCP client at the server (e.g. a Claude Code project's `.mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "channel-finder": {
-      "transport": "sse",
-      "url": "http://localhost:8051/sse"
+      "type": "http",
+      "url": "http://localhost:8051/mcp"
     }
   }
 }
