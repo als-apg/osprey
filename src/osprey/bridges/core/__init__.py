@@ -34,8 +34,9 @@ Layers:
 """
 
 from .artifacts import (
-    MAX_ARTIFACT_BYTES,
-    MAX_DOC_BYTES,
+    KNOWN_EXTENSIONS,
+    MAX_DELIVERED_DOC_BYTES,
+    MAX_DELIVERED_IMAGE_BYTES,
     PNG_MAGIC,
     FetchedArtifact,
     artifact_descriptors,
@@ -79,8 +80,9 @@ __all__ = [
     "is_retryable",
     "may_redispatch",
     # the pair over HTTP
-    "MAX_ARTIFACT_BYTES",
-    "MAX_DOC_BYTES",
+    "KNOWN_EXTENSIONS",
+    "MAX_DELIVERED_DOC_BYTES",
+    "MAX_DELIVERED_IMAGE_BYTES",
     "PNG_MAGIC",
     "DispatchClient",
     "DispatchError",

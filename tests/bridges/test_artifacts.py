@@ -96,6 +96,31 @@ class TestFetchArtifact:
     def test_404_returns_none(self):
         assert fetch_artifact(_http({}), CFG, "R1", "missing") is None
 
+    def test_max_bytes_boundary_is_inclusive(self):
+        # The guard rejects strictly-greater, so a body exactly at the budget
+        # is delivered. An off-by-one here silently drops artifacts sitting on
+        # the boundary, which is precisely the size a caller tunes toward.
+        http = _http({"a": (PNG, "image/png")})
+        assert fetch_artifact(http, CFG, "R1", "a", max_bytes=len(PNG)).data == PNG
+        assert fetch_artifact(http, CFG, "R1", "a", max_bytes=len(PNG) - 1) is None
+
+    def test_served_type_case_is_folded(self):
+        # Compared against bare literals like "image/png" downstream, so a
+        # worker (or proxy) that upper-cases the header must not change routing.
+        fetched = fetch_artifact(_http({"a": (PNG, "Image/PNG")}), CFG, "R1", "a")
+        assert fetched.content_type == "image/png"
+
+    def test_served_type_whitespace_is_trimmed(self):
+        fetched = fetch_artifact(_http({"a": (PNG, "  image/png ; charset=utf-8")}), CFG, "R1", "a")
+        assert fetched.content_type == "image/png"
+
+    def test_empty_or_parameters_only_served_type_becomes_none(self):
+        # An absent type is reported as absent, never guessed — a header that
+        # normalizes to nothing must not become a routable empty string.
+        for raw in ("", "  ", "; charset=utf-8"):
+            fetched = fetch_artifact(_http({"a": (PNG, raw)}), CFG, "R1", "a")
+            assert fetched.content_type is None, raw
+
 
 # ---------------------------------------------------------------------------
 # artifact_ids: normalize the run-status ``artifacts`` field to id strings.
