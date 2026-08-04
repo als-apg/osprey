@@ -208,6 +208,22 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError(
                 f"MCP server '{name}' has both 'command' and 'url' — use one or the other"
             )
+        transport = sdef.get("transport", "http")
+        if transport not in ("http", "sse"):
+            raise BuildProfileError(
+                f"MCP server '{name}' transport must be 'http' or 'sse' (got {transport!r})"
+            )
+        if "transport" in sdef and command:
+            raise BuildProfileError(
+                f"MCP server '{name}' declares 'transport' with 'command' — stdio "
+                "servers have no transport choice"
+            )
+        if transport == "sse" and not url:
+            # The port-derived URL below is a streamable-HTTP /mcp endpoint;
+            # an SSE server must spell out where its event stream lives.
+            raise BuildProfileError(
+                f"MCP server '{name}' transport 'sse' requires an explicit 'url'"
+            )
         if port is not None and command:
             raise BuildProfileError(
                 f"MCP server '{name}' has both 'command' and 'port' — stdio servers cannot declare a port"
@@ -227,6 +243,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 "ask": perms.get("ask", []),
             },
             url=url,
+            transport=transport,
             port=port,
         )
 
