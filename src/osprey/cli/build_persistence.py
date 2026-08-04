@@ -214,26 +214,34 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
     _save(config_path, data)
 
 
-def _persist_categories(project_path: Path, categories: dict[str, dict[str, str]]) -> None:
-    """Persist custom artifact categories into config.yml's ``categories`` section."""
+def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> None:
+    """Merge profile ``artifact_server`` overrides into config.yml's block.
+
+    Scalar subkeys (``host``, ``port``, ``auto_launch``) replace the rendered
+    defaults; ``categories`` entries are written into the block's
+    ``categories`` submap.
+    """
+    from ruamel.yaml import CommentedMap
+
     from osprey.utils.config_writer import _load, _save
 
     config_path = project_path / "config.yml"
     data = _load(config_path)
 
-    if "categories" not in data:
-        from ruamel.yaml import CommentedMap
+    if "artifact_server" not in data:
+        data["artifact_server"] = CommentedMap()
+    block = data["artifact_server"]
 
-        data["categories"] = CommentedMap()
-    cat_section = data["categories"]
-
-    for key, spec in categories.items():
-        from ruamel.yaml import CommentedMap
-
+    for key, value in overrides.items():
+        if key != "categories":
+            block[key] = value
+    for key, spec in overrides.get("categories", {}).items():
+        if "categories" not in block:
+            block["categories"] = CommentedMap()
         entry = CommentedMap()
         entry["label"] = spec["label"]
         entry["color"] = spec["color"]
-        cat_section[key] = entry
+        block["categories"][key] = entry
 
     _save(config_path, data)
 
