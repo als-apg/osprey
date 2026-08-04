@@ -1348,6 +1348,23 @@ configuration) and <code class="docutils literal notranslate"><span class="pre">
 <span class="w">      </span><span class="nt">ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;write_tool&quot;</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
+<p>Remote servers declare a <code class="docutils literal notranslate"><span class="pre">url</span></code> instead of a <code class="docutils literal notranslate"><span class="pre">command</span></code>, plus an optional
+<code class="docutils literal notranslate"><span class="pre">transport</span></code> — <code class="docutils literal notranslate"><span class="pre">http</span></code> (streamable-HTTP, the default) or <code class="docutils literal notranslate"><span class="pre">sse</span></code> (legacy
+Server-Sent Events):</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">matlab</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">transport</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:8008/mcp&quot;</span>
+<span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;mml_search&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">legacy_api</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">transport</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sse</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://appsdev2:8001/sse&quot;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">command</span></code> and <code class="docutils literal notranslate"><span class="pre">url</span></code> are mutually exclusive, and stdio servers must not set
+<code class="docutils literal notranslate"><span class="pre">transport</span></code> (launching via <code class="docutils literal notranslate"><span class="pre">command</span></code> <em>is</em> the transport) — the profile
+loader rejects both combinations at load time.</p>
 <p><strong>Placeholder resolution:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> — resolved at <strong>build time</strong> to the absolute project path</p></li>
