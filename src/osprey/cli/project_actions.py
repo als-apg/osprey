@@ -528,6 +528,7 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
             value=types.VIRTUAL_ACCELERATOR,
         ),
         Choice("EPICS - Production mode (connects to real control system)", value=types.EPICS),
+        Choice("DOOCS - Production mode (DESY / European XFEL)", value=types.DOOCS),
         Choice("─" * 60, value=None, disabled=True),
         Choice("[←] Back - Return to config menu", value="back"),
     ]
@@ -551,6 +552,12 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
             choices=build_archiver_choices(),
             style=custom_style,
         ).ask()
+    elif control_type == types.DOOCS:
+        # The DOOCS archiver reads DOOCS local histories, so it is the only
+        # archiver that pairs with a DOOCS control system. Offering the
+        # EPICS/MongoDB menu here would only let the wizard write a
+        # combination no facility runs.
+        archiver_type = types.DOOCS_ARCHIVER
     else:
         archiver_type = types.MOCK_ARCHIVER
 

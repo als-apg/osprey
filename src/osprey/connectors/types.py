@@ -9,12 +9,14 @@ and don't need constants here.
 MOCK = "mock"
 EPICS = "epics"
 VIRTUAL_ACCELERATOR = "virtual_accelerator"
+DOOCS = "doocs"
 
 # -- Archiver connector types --
 MOCK_ARCHIVER = "mock_archiver"
 EPICS_ARCHIVER = "epics_archiver"
 MONGODB_ARCHIVER = "mongodb_archiver"
+DOOCS_ARCHIVER = "doocs_archiver"
 
 # -- CLI choice lists (only types with implementations) --
-CLI_CONTROL_SYSTEM_TYPES = [MOCK, EPICS, VIRTUAL_ACCELERATOR]
-CLI_ARCHIVER_TYPES = [MOCK_ARCHIVER, EPICS_ARCHIVER, MONGODB_ARCHIVER]
+CLI_CONTROL_SYSTEM_TYPES = [MOCK, EPICS, VIRTUAL_ACCELERATOR, DOOCS]
+CLI_ARCHIVER_TYPES = [MOCK_ARCHIVER, EPICS_ARCHIVER, MONGODB_ARCHIVER, DOOCS_ARCHIVER]

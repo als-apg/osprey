@@ -20,6 +20,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- DOOCS facilities can now select their connectors by name: `control_system.type:
+  doocs` and `archiver.type: doocs_archiver`, in `config.yml`, through `osprey
+  config set-control-system doocs`, or from the interactive config menu.
+  Previously the connectors shipped but were reachable only by spelling out their
+  dotted class paths. Both still require `doocs4py` from the DOOCS environment.
+
 - New `osprey.bridges.core` package: a channel-agnostic engine for connecting a
   chat or email channel to the OSPREY dispatcher/worker pair as its own process.
   It owns the parts that are the same for every channel — a crash-safe dedup
