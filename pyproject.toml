@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
@@ -239,8 +239,18 @@ cron = "osprey.dispatch.sources.cron:CronSource"
 epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
 # Hatchling build configuration
+# The version comes from the git tag, not a literal — a release is cut by tagging.
+# `post-release` keeps the base version on the *last* tag (2026.6.2.post783+g83fda5e60),
+# where the default `guess-next-dev` would invent an unreleased 2026.6.3. CalVer cannot
+# predict its own next number, so guessing is worse than not guessing.
 [tool.hatch.version]
-path = "src/osprey/__init__.py"
+source = "vcs"
+raw-options = { version_scheme = "post-release" }
+
+# Stamps the resolved version into the built artifact, which is the only way a wheel
+# (and any container built from one) can report its version without git present.
+[tool.hatch.build.hooks.vcs]
+version-file = "src/osprey/_version.py"
 
 [tool.hatch.build]
 # Never package benchmark results produced by running the channel-finder
@@ -343,6 +353,9 @@ markers = [
 line-length = 100
 target-version = "py311"
 src = ["src", "interfaces", "deployment"]
+# Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
+# enforce, and it is present in any built or editable-installed tree.
+extend-exclude = ["src/osprey/_version.py"]
 
 [tool.ruff.lint]
 select = [
