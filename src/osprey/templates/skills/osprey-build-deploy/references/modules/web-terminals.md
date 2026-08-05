@@ -350,7 +350,7 @@ No new entries are required by this module on its own — web terminals reuse th
 
 - `nginx/nginx.conf` — generated; routes `/u/<user>/` to the matching upstream and serves the landing page at `/`.
 - `nginx/landing.html` — rendered from `modules.web_terminals.landing.groups` (see Configuration above): a `type: "users"` group auto-populates one card per entry in `users:`, and any `type: "links"` groups render as static link lists (e.g. facility tools). There is no `landing_page_template` field anymore — the landing page is fully data-driven from `landing.groups`.
-- `docker/web-terminal-context/base.md` — generated empty stub; intended to hold guidance every user sees.
+- `docker/web-terminal-context/base.md` — the framework-installed persona baseline, copied into every build; holds the guidance every user sees and is meant to be edited in place by the facility.
 - `docker/web-terminal-context/<user>/extra.md` — one empty stub per user; intended for per-user nicknames, working preferences, etc. The legacy flat `docker/web-terminal-context/<user>.md` is still read as a fallback when this file doesn't exist (see `osprey deploy` (up / seed) above).
 - `docker/web-terminal-context/<user>/skills/` — optional per-user skill overlay, deploy-managed and sentinel-tracked (see `osprey deploy` (up / seed) above); never touches user-authored skills already present in the running container. Seeded to the container's **project-scope** `.claude/skills/`, not `CLAUDE_CONFIG_DIR` — see `osprey deploy` (up / seed) above for why.
 

@@ -181,7 +181,11 @@ def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None
         from osprey.utils.dotenv import merge_env_preserving_existing
 
         merged = merge_env_preserving_existing(
-            src.read_text(encoding="utf-8"), dst.read_text(encoding="utf-8")
+            src.read_text(encoding="utf-8"),
+            dst.read_text(encoding="utf-8"),
+            # The rendered side here is a profile fragment, not the build's own
+            # render, so it cannot un-write the build-derived keys.
+            build_derived_keys=frozenset(),
         )
         dst.write_text(merged, encoding="utf-8")
         logger.info("  ✓ Merged %s → .env (existing values preserved)", env_file)

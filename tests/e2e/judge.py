@@ -27,7 +27,7 @@ def _default_provider_config(provider: str) -> dict[str, str] | None:
             return None
         # base_url overridable so the judge can follow a redirected provider
         # (e.g. a cborg-only box). Unset -> unchanged default, so CI is unaffected.
-        base_url = os.environ.get("ALS_APG_BASE_URL", "https://llm.gianlucamartino.com/v1")
+        base_url = os.environ.get("ALS_APG_BASE_URL") or "https://llm.gianlucamartino.com/v1"
         return {"api_key": api_key, "base_url": base_url}
     return None
 

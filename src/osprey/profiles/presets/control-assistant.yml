@@ -10,7 +10,7 @@ name: Control Assistant
 # The data bundle provides the project skeleton (config.yml, registry, data
 # files, benchmark datasets, etc.).  "control_assistant" is the standard full
 # bundle that includes channel databases, benchmarks, and a logbook seed.
-data_bundle: control_assistant
+app_template: control_assistant
 
 # Default LLM provider and model. Override here or via `osprey build`'s
 # --set provider=... / --set model=... flags; explicit --set overrides are

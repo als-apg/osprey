@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from osprey.utils.logger import configure_logging
 
 # Version information
-__version__ = "2026.6.3"
+__version__ = "2026.8.0"
 
 __all__ = ["__version__", "configure_logging"]
 

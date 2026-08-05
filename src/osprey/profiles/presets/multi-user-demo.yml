@@ -24,7 +24,7 @@ name: Multi-User Demo
 # The standard full bundle (channel databases, simulation data, logbook seed) —
 # the demo needs real channels to read, and a channel_limits.json for the
 # write-capable tier's limits checking to bite on.
-data_bundle: control_assistant
+app_template: control_assistant
 
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves

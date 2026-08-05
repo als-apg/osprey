@@ -132,7 +132,13 @@ class TestRegistryMatchesTemplateDirectory:
     def test_no_unregistered_templates(self):
         """All files in the template directory should be registered.
 
-        Exemptions: __pycache__, .pyc, directories-only, __init__.py
+        Exemptions: __pycache__, .pyc, directories-only, __init__.py,
+        ``_terminology`` partials, and ``web-terminal-context/`` — the
+        web-terminal persona baseline. The catalog governs artifacts rendered
+        into ``.claude/`` and claimable via ``osprey scaffold claim``; base.md
+        is copied verbatim to ``docker/web-terminal-context/`` for deploy-time
+        seeding and never passes through the override machinery, so a catalog
+        entry for it would advertise a claim that the build ignores.
         """
         registry = BuildArtifactCatalog.default()
         template_root = (
@@ -149,6 +155,8 @@ class TestRegistryMatchesTemplateDirectory:
             if template_file.name == "__init__.py":
                 continue
             if "_terminology" in template_file.parts:
+                continue
+            if "web-terminal-context" in template_file.parts:
                 continue
 
             rel = str(template_file.relative_to(template_root))

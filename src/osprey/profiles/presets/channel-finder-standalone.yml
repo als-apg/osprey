@@ -11,7 +11,7 @@ name: Channel Finder Standalone
 
 # Data bundle: channel-finder-only project skeleton (channel_finder config, a
 # bundled demo hierarchical database, no Postgres / logbook / benchmark data).
-data_bundle: channel_finder_standalone
+app_template: channel_finder_standalone
 
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves

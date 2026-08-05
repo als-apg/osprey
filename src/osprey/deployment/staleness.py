@@ -85,8 +85,16 @@ def staleness_reasons(project_dir: Path) -> list[str]:
 
             if build_args.get("preset"):
                 current_hash = build_profile.compute_preset_hash(build_args["preset"])
-            elif build_args.get("profile_path"):
-                current_hash = build_profile.compute_profile_hash(Path(build_args["profile_path"]))
+            elif build_args.get("profile_path_abs") or build_args.get("profile_path"):
+                # Prefer the absolute path the build resolved. `profile_path`
+                # is the string the user typed; a relative one re-resolves
+                # against the deploy's working directory, where it names
+                # nothing, and the advisory then goes quiet on exactly the
+                # projects it exists for. Manifests written before
+                # `profile_path_abs` existed still fall back to it.
+                current_hash = build_profile.compute_profile_hash(
+                    Path(build_args.get("profile_path_abs") or build_args["profile_path"])
+                )
         except Exception:
             current_hash = None
         if current_hash is not None and current_hash != stored_hash:

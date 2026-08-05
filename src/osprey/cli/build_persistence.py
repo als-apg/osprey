@@ -14,9 +14,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
 logger = get_logger("build")
+
+# Every build installs the framework's web-terminal persona baseline
+# (``base.md``) into this directory. A directory overlay landing on the
+# directory itself would rmtree that baseline; per-user subdirectories below
+# it are the supported mapping.
+_PERSONA_CONTEXT_DIR = Path("docker") / "web-terminal-context"
 
 
 def _clear_rendered_project_dir(project_path: Path) -> list[str]:
@@ -84,6 +91,20 @@ def _copy_overlay_files(
             # Path traversal guard
             if not dst.is_relative_to(project_path.resolve()):
                 raise ValueError(f"Overlay destination escapes project root: {dst_rel}")
+
+            # A directory overlay replaces its destination wholesale, so one
+            # aimed at the persona context root would delete the baseline the
+            # build just installed there. Point it at a per-user subdirectory.
+            if src.is_dir() and dst == (project_path / _PERSONA_CONTEXT_DIR).resolve():
+                raise BuildProfileError(
+                    f"Overlay destination {dst_rel!r} would replace the whole "
+                    f"{_PERSONA_CONTEXT_DIR.as_posix()}/ directory, removing the "
+                    "web-terminal persona baseline (base.md) the build installs "
+                    "there.\nMap each user's context directory instead, e.g.:\n"
+                    f"  overlay:\n"
+                    f"    {src_rel.rstrip('/')}/alice: "
+                    f"{_PERSONA_CONTEXT_DIR.as_posix()}/alice"
+                )
 
             dst.parent.mkdir(parents=True, exist_ok=True)
 

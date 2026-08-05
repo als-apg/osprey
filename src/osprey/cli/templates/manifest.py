@@ -282,6 +282,13 @@ def extract_build_args(
 
     Exactly one of ``preset_name`` and ``profile_path`` must be set.
 
+    ``profile_path`` stays the string the user typed — it is what
+    ``reproducible_command`` shows them — so when ``context`` carries a
+    ``profile_path_abs`` (stamped by ``osprey build`` from the path it actually
+    resolved) it is recorded alongside. A relative CLI string re-resolves
+    against whatever directory the *deploy* runs from, which silently turns the
+    staleness advisory off; the absolute form is what readers should follow.
+
     Args:
         project_name: Name of the project.
         preset_name: Hyphenated preset name (e.g. "hello-world") if the build
@@ -304,6 +311,9 @@ def extract_build_args(
         build_args["preset"] = preset_name
     if profile_path:
         build_args["profile_path"] = profile_path
+        profile_path_abs = context.get("profile_path_abs")
+        if profile_path_abs:
+            build_args["profile_path_abs"] = str(profile_path_abs)
 
     optional_keys = [
         ("default_provider", "provider"),
@@ -559,7 +569,12 @@ def generate_manifest(
         if preset_name:
             preset_hash = _build_profile.compute_preset_hash(preset_name)
         elif profile_path:
-            preset_hash = _build_profile.compute_profile_hash(Path(profile_path))
+            # Hash the path the build resolved, not the string the user typed:
+            # the two only agree while the process stays in the invocation
+            # directory, and a profile's data/overlay trees are anchored on it.
+            preset_hash = _build_profile.compute_profile_hash(
+                Path(build_args.get("profile_path_abs") or profile_path)
+            )
         else:
             preset_hash = None
     except Exception:

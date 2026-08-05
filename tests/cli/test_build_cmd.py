@@ -2355,3 +2355,111 @@ class TestCopyServiceTemplates:
         assert any("typesense" in r.getMessage() for r in caplog.records), (
             "a deployed service without a template must warn"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tier selection rules
+# ---------------------------------------------------------------------------
+
+
+class TestTierSelectionRules:
+    """Tier selection is restricted to {1, 3} on every configuration path, and
+    tier 1 is in_context-only. These rejected-combo cases pin the rule so a
+    tier-2 (retired) or tier1+non-in_context request fails with a rule-naming
+    error rather than an opaque downstream scaffolding FileNotFoundError.
+    """
+
+    @pytest.fixture()
+    def runner(self):
+        from click.testing import CliRunner
+
+        return CliRunner()
+
+    def test_cli_tier_2_rejected_by_choice(self, runner, tmp_path: Path) -> None:
+        """``--tier 2`` is no longer a valid choice — click rejects it at parse time."""
+        from osprey.cli.build_cmd import build
+
+        out = tmp_path / "out"
+        out.mkdir()
+        result = runner.invoke(
+            build,
+            [
+                "proj",
+                "--preset",
+                "hello-world",
+                "--tier",
+                "2",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "--tier" in result.output
+        # click's invalid-choice message names the rejected value against {1,3}.
+        assert "'2' is not one of" in result.output
+
+    def test_profile_tier_2_rejected(self, tmp_path: Path) -> None:
+        """A profile YAML with ``tier: 2`` fails validation naming the {1,3} rule."""
+        from osprey.cli.build_profile import resolve_build_profile
+
+        prof = tmp_path / "profile.yml"
+        prof.write_text("name: t\nchannel_finder_mode: in_context\ntier: 2\n")
+        with pytest.raises(BuildProfileError, match="tier must be 1 or 3"):
+            resolve_build_profile(prof.resolve(), preset=None)
+
+    def test_profile_tier1_hierarchical_rejected(self, tmp_path: Path) -> None:
+        """tier 1 paired with a non-in_context paradigm fails at validation with
+        the tier rule — not later as a scaffolding FileNotFoundError."""
+        from osprey.cli.build_profile import resolve_build_profile
+
+        prof = tmp_path / "profile.yml"
+        prof.write_text("name: t\nchannel_finder_mode: hierarchical\ntier: 1\n")
+        with pytest.raises(
+            BuildProfileError, match="tier 1 requires channel_finder_mode: in_context"
+        ):
+            resolve_build_profile(prof.resolve(), preset=None)
+
+    def test_profile_tier1_in_context_accepted(self, tmp_path: Path) -> None:
+        """The valid tier-1 combo (in_context) resolves cleanly."""
+        from osprey.cli.build_profile import resolve_build_profile
+
+        prof = tmp_path / "profile.yml"
+        prof.write_text("name: t\nchannel_finder_mode: in_context\ntier: 1\n")
+        resolved, _ = resolve_build_profile(prof.resolve(), preset=None)
+        assert resolved.tier == 1
+        assert resolved.resolved_tier() == 1
+
+    def test_cli_tier1_override_on_hierarchical_rejected(self, runner, tmp_path: Path) -> None:
+        """A CLI ``--tier 1`` override applied over a hierarchical profile is
+        caught by the post-override re-validation, so the build aborts on the
+        tier rule instead of reaching (and FileNotFound-ing in) scaffolding."""
+        from osprey.cli.build_cmd import build
+
+        prof = tmp_path / "profile.yml"
+        prof.write_text(
+            "name: t\n"
+            "data_bundle: hello_world\n"
+            "provider: anthropic\n"
+            "channel_finder_mode: hierarchical\n"
+        )
+        out = tmp_path / "out"
+        out.mkdir()
+        result = runner.invoke(
+            build,
+            [
+                "proj",
+                str(prof),
+                "--tier",
+                "1",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(out),
+            ],
+        )
+        # Aborts (exit 1) at validation; must not surface as an uncaught
+        # FileNotFoundError from materialize_tier_artifacts.
+        assert result.exit_code == 1, result.output
+        assert not isinstance(result.exception, FileNotFoundError)
