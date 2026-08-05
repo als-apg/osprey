@@ -33,9 +33,11 @@ _MANIFEST_FILENAME = ".osprey-manifest.json"
 
 
 def _installed_version() -> str:
-    from osprey.cli.templates.manifest import get_framework_version
+    # The release lineage, matching what the manifest stores. Comparing running
+    # versions would flag every commit in a development checkout as drift.
+    from osprey.cli.templates.manifest import get_framework_release_version
 
-    return get_framework_version()
+    return get_framework_release_version()
 
 
 def _load_manifest(project_dir: Path) -> dict[str, Any] | None:

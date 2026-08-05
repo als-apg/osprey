@@ -67,6 +67,32 @@ def test_fresh_project_yields_no_reasons(tmp_path, presets_dir, monkeypatch):
     assert staleness.staleness_reasons(tmp_path) == []
 
 
+def test_development_commits_do_not_read_as_drift(tmp_path, presets_dir, monkeypatch):
+    """Two dev builds of the same release must not register as staleness.
+
+    Both sides of this comparison carry the release lineage, not the running
+    version. If either carried the running version, every commit in a development
+    checkout would report the project as stale and the advisory would become noise.
+    """
+    _write_preset(presets_dir, "demo", "name: Demo\n")
+    from osprey.cli.templates import manifest as manifest_mod
+
+    # Rendered at one dev commit...
+    monkeypatch.setattr(manifest_mod, "get_release_version", lambda: "2026.7.0", raising=False)
+    _write_manifest(
+        tmp_path,
+        creation={
+            "osprey_version": "2026.7.0",
+            "preset_hash": build_profile.compute_preset_hash("demo"),
+        },
+    )
+
+    # ...deployed from another, 40 commits later on the same release.
+    monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
+
+    assert staleness.staleness_reasons(tmp_path) == []
+
+
 def test_version_drift_is_reported(tmp_path, monkeypatch):
     monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.8.1")
     _write_manifest(tmp_path)

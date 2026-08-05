@@ -304,21 +304,26 @@ def build(
             from packaging.specifiers import SpecifierSet
             from packaging.version import Version
 
-            from osprey import __version__
+            from osprey.version import get_release_version
 
-            spec = SpecifierSet(build_profile.requires_osprey_version)
-            current = Version(__version__)
+            # Compare the release lineage, not the running version: a development
+            # build carries a post/local segment that no release specifier is
+            # written against. `prereleases=True` keeps a pre-release lineage from
+            # being excluded by PEP 440's default filtering.
+            release_version = get_release_version()
+            spec = SpecifierSet(build_profile.requires_osprey_version, prereleases=True)
+            current = Version(release_version)
             if current not in spec:
                 logger.error(
                     "  ✗ OSPREY %s does not satisfy requires_osprey_version: %s",
-                    __version__,
+                    release_version,
                     build_profile.requires_osprey_version,
                 )
                 logger.info("     Upgrade OSPREY or run: osprey --version")
                 raise click.Abort()
             logger.info(
                 "  ✓ OSPREY %s satisfies %s",
-                __version__,
+                release_version,
                 build_profile.requires_osprey_version,
             )
 
