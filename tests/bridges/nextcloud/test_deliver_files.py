@@ -61,7 +61,12 @@ def png_descriptor(artifact_id, **extra):
 
 
 class FakeWorker:
-    """The worker's artifact byte route: serves per-id payloads, records every request."""
+    """The worker's artifact byte route: serves per-id payloads, records every request.
+
+    A payload is either raw bytes or ``(bytes, content_type)`` — the byte route's
+    Content-Type is what a consumer names a fallback delivery from, so it is part
+    of what this fake has to reproduce.
+    """
 
     def __init__(self, payloads=None, *, fail_ids=(), status=500):
         self.payloads = dict(payloads or {})
@@ -79,7 +84,10 @@ class FakeWorker:
         artifact_id = request.url.path.rsplit("/", 1)[-1]
         if artifact_id in self.fail_ids:
             return httpx.Response(self.status, text="worker down")
-        return httpx.Response(200, content=self.payloads.get(artifact_id, PNG))
+        payload = self.payloads.get(artifact_id, PNG)
+        data, content_type = payload if isinstance(payload, tuple) else (payload, None)
+        headers = {"Content-Type": content_type} if content_type else {}
+        return httpx.Response(200, content=data, headers=headers)
 
 
 class FakeNextcloud:
@@ -243,16 +251,54 @@ def test_an_oversize_image_is_dropped_without_uploading():
     assert nc.of("PUT") == []
 
 
-def test_a_non_png_payload_in_the_image_bucket_is_dropped():
-    # The magic-byte guard stays on for the image path: Talk would render a
-    # mislabelled file as a broken image.
-    ops, _, nc = _ops(FakeWorker({"plot": b"not-a-png"}))
+# ==========================================================================
+# The bytes decide, not the descriptor
+#
+# A descriptor is written when a run completes and promises "image/png" for
+# everything the worker intends to render. Whether the render actually happens
+# is only known at fetch time — a converter dependency can be missing, a
+# renderer can crash — and the byte route then serves the ORIGINAL bytes under
+# their real Content-Type. Routing on the promise loses those artifacts
+# silently (osprey #503), so delivery routes on what arrived.
+# ==========================================================================
+
+
+def test_a_predicted_image_that_arrives_as_text_is_delivered_as_a_document():
+    # osprey #503: descriptor says image/png, the conversion failed, the byte
+    # route served the original CSV. The file must reach the room, not vanish.
+    csv = b"x,sin_x\n0,0\n"
+    ops, _, nc = _ops(FakeWorker({"plot": (csv, "text/csv")}))
     assert ops.deliver_files(ENTRY, result(png_descriptor("plot"))) == {}
-    assert nc.of("PUT") == []
+    assert nc.of("PUT")[0].content == csv
+    assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/plot.csv")
+
+
+def test_a_fallback_replaces_the_predicted_extension_rather_than_stacking_it():
+    # The descriptor's filename is predicted too ("data.png" for a render that
+    # never happened); the extension still comes from the mime that was served.
+    csv = b"x,sin_x\n"
+    ops, _, nc = _ops(FakeWorker({"plot": (csv, "text/csv")}))
+    ops.deliver_files(ENTRY, result(png_descriptor("plot", filename="data.png")))
+    assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/data.csv")
+
+
+def test_a_fallback_without_a_content_type_falls_back_to_the_predicted_mime():
+    # An older worker that serves no Content-Type leaves only the prediction to
+    # name the file — still better than dropping it.
+    ops, _, nc = _ops(FakeWorker({"doc1": PDF}))
+    ops.deliver_files(ENTRY, result({"artifact_id": "doc1", "delivered_mime": "application/pdf"}))
+    assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/doc1.pdf")
+
+
+def test_png_bytes_are_delivered_as_an_image_whatever_the_descriptor_predicted():
+    # The mirror case: a descriptor with no mime at all, PNG bytes on the wire.
+    ops, _, nc = _ops(FakeWorker({"doc1": (PNG, "image/png")}))
+    ops.deliver_files(ENTRY, result({"artifact_id": "doc1"}))
+    assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/doc1.png")
 
 
 # ==========================================================================
-# Artifact-id normalisation (core's split_artifacts tolerance)
+# Artifact-entry normalisation (core's artifact_descriptors tolerance)
 # ==========================================================================
 
 
@@ -407,6 +453,10 @@ def test_delivery_touches_only_the_artifact_byte_route_and_the_dav_share_surface
         ("plot", ".png", "plot.png"),
         ("plot.png", ".png", "plot.png"),  # not doubled
         ("PLOT.PNG", ".png", "PLOT.PNG"),  # case-insensitive match
+        # A predicted name whose extension the delivery contradicted: the mime
+        # wins and the stale extension is replaced, never stacked.
+        ("data.png", ".csv", "data.csv"),
+        ("run_2026.04.01_orbit", ".csv", "run_2026.04.01_orbit.csv"),  # not an extension
         ("orbit report", ".pdf", "orbit_report.pdf"),
         # Separators become "_" and the leading dot/underscore run is stripped, so a
         # traversal attempt collapses into one ordinary filename.

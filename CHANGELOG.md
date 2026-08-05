@@ -45,6 +45,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   `claude_code.default_model` (e.g. `--set model=...`) names a model the
   selected provider does not serve. Previously the build only warned and the
   deployed web terminals crash-looped behind the reverse proxy (502).
+- Chat bridges no longer drop an artifact whose conversion failed. A run's
+  artifact descriptors predict `image/png` for everything the worker intends to
+  render, but a conversion that fails at fetch time makes the byte route serve
+  the original file instead — and a delivery path routing on the prediction
+  rejected those bytes as "not a PNG" and discarded them with no error anywhere.
+  Delivery now routes on what actually arrived (the bytes and the served
+  Content-Type), so a failed render is delivered as a document rather than lost,
+  and its filename takes the extension of what was served. The same prediction
+  drove prior-image re-injection, which could hand the agent a text file
+  labelled as an image on a follow-up question; a prior artifact is now
+  re-injected under the type it was really served as, or not at all.
 
 ### Added
 
