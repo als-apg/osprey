@@ -60,6 +60,7 @@ class TestLazyGroup:
         # Verify expected commands are present
         expected_commands = [
             "build",
+            "profile",
             "config",
             "deploy",
             "health",

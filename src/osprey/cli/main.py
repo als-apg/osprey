@@ -32,7 +32,10 @@ if sys.platform == "win32":
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "2026.6.2"
+    # Only reachable from a broken/partial install. A sentinel rather than a
+    # release number: any literal release named here is stale the moment the
+    # next version ships, and `osprey --version` would report it as fact.
+    __version__ = "0.0.0+unknown"
 
 
 class LazyGroup(click.Group):
@@ -43,6 +46,7 @@ class LazyGroup(click.Group):
         # Map command names to their module paths
         commands = {
             "build": "osprey.cli.build_cmd",
+            "profile": "osprey.cli.profile_cmd",  # Build-profile authoring
             "deploy": "osprey.cli.deploy_cmd",
             "config": "osprey.cli.config_cmd",
             "health": "osprey.cli.health_cmd",
@@ -85,6 +89,8 @@ class LazyGroup(click.Group):
             cmd_func = mod.theme_lab
         elif cmd_name == "scaffold":
             cmd_func = mod.scaffold
+        elif cmd_name == "profile":
+            cmd_func = mod.profile
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -94,6 +100,7 @@ class LazyGroup(click.Group):
         """Return list of available commands (for --help)."""
         return [
             "build",
+            "profile",
             "config",
             "deploy",
             "health",

@@ -1,30 +1,95 @@
 # {{ profile_name }}
 
-OSPREY build profile emitted from the bundled `{{ preset_name }}` preset —
-fully explicit and standalone: everything the preset configures is written
-out in `profile.yml`, and nothing is inherited at build time.
+An OSPREY build profile, materialized from the bundled `{{ preset_name }}`
+preset. Everything the preset configures is written out here explicitly —
+nothing is inherited at build time, and nothing is hidden inside the OSPREY
+package. This directory is yours.
 
-## Layout
+## The pipeline
+
+```
+PRESET  ──materialize──>  PROFILE DIR  ──build──>  PROJECT  ──deploy──>  RUNNING
+(bundled)                 (this dir)               (derived)             (containers)
+```
+
+You are at step two. The preset was a starting point; this directory is now
+the source of truth. The project you build from it is a derived artifact —
+regenerable, and safe to delete and rebuild at any time.
+
+## What you own, and what OSPREY owns
+
+**Yours — edit freely, keep in version control:**
 
 ```
 {{ profile_dirname }}/
-  profile.yml          # the full configuration — edit freely
-  overlays/
-    rules/             # drop facility-specific rule .md files here
-    skills/            # drop custom skill directories here (each with SKILL.md)
-    agents/            # drop custom subagent .md files here
-  README.md            # this file
+  profile.yml     the full configuration
+  data/           facility content: channel databases, knowledge, lattice, scenarios
+{% if persona_profiles %}  personas/       one profile per web-terminal persona, each reading ../data
+{% endif %}  overlays/       your own artifacts, copied into the project at build time
+    rules/                  facility rule .md files
+    skills/                 custom skill directories (each with a SKILL.md)
+    agents/                 custom subagent .md files
+    web-terminal-context/   per-user web-terminal persona content
+  README.md       this file
 ```
 
-## Building a project from this profile
+**OSPREY's — regenerated on every build, never hand-edited in the project:**
+the safety hooks, the `.claude/` scaffolding, `.mcp.json` wiring, the app
+templates, and the container service definitions.
+
+## Building a project
 
 ```
 osprey build <PROJECT_NAME> {{ profile_filename }}
 ```
 
-The rendered project is regenerable — treat it as a build artifact. Make
-durable changes by editing `profile.yml` or files under `overlays/`, then
-rebuild.
+Make durable changes here — in `profile.yml`, `data/`, or `overlays/` — then
+rebuild. Changes made directly inside a built project are lost on the next
+build.
+
+## About `data/`
+
+This tree was copied verbatim from the preset. Edit the files here, not their
+materialized copies inside a built project.
+{% if staging_notes %}
+Some of what you see is build-time input rather than deployed content:
+{% for entry in staging_notes %}
+- `{{ entry.path }}/` — {{ entry.note }}
+{%- endfor %}
+{%- endif %}
+
+{% if persona_profiles %}## About `personas/`
+
+This deployment gives each operator a web terminal, and each terminal runs
+with a persona — a capability posture, such as read-only versus write-capable.
+One profile per persona was materialized here:
+
+{% for persona in persona_profiles %}- `personas/{{ persona }}.yml`
+{% endfor %}
+Every one of them carries `data: ../data`, so the whole stack reads the single
+tree above. Edit `data/` once and each persona picks the change up on its next
+build — there is no per-persona copy to keep in sync.
+
+These are ordinary profiles. Edit one to change what that persona's terminal
+can do, validate it on its own, or build it directly:
+
+```
+osprey profile validate {{ profile_dirname }}/personas/{{ persona_profiles[0] }}.yml
+```
+
+`profile.yml` points at these files by path, so keep the names in step if you
+rename one.
+
+## Still sourced from the OSPREY package{% else %}## Still sourced from the OSPREY package{% endif %}
+
+A few things are deliberately not carried in this directory, so editing them
+here would have no effect on a deployment:
+
+- the accelerator lattice the virtual accelerator runs (`als_u_ar.mat`) — a
+  `data/lattice/` edit here is inert for the running VA;
+- the framework safety layer — hooks and `.claude/` scaffolding;
+- the `docker/` service definitions, and the base context file the framework
+  installs at `docker/web-terminal-context/base.md`.
 
 ## Adding an overlay artifact
 
@@ -36,18 +101,24 @@ rebuild.
 3. If the artifact's canonical name needs to appear in the artifact list,
    also add it under `skills:`, `rules:`, or `agents:`.
 
+Per-user web-terminal content works the same way, mapped one user at a time
+(`overlays/web-terminal-context/alice: docker/web-terminal-context/alice`).
+Map each user individually — mapping a directory onto
+`docker/web-terminal-context` itself is rejected at build time, because it
+would replace the framework's own base context.
+
 ## Relationship to the preset
 
-- **Preset** (`{{ preset_name }}`): the bundled snapshot this profile was
-  emitted from. Later OSPREY releases may improve it — those changes do
-  **not** flow into this profile automatically.
+- **Preset** (`{{ preset_name }}`): the bundled snapshot this profile came
+  from. Later OSPREY releases may improve it — those changes do **not** flow
+  into this profile automatically.
 - **Profile** (this directory): your facility's source of truth.
 - **Project** (output of `osprey build`): derived, regenerable.
 
-To pick up upstream preset improvements, emit a fresh profile into a scratch
-directory and diff it against this one:
+To see what a newer OSPREY would give you, materialize a fresh profile into a
+scratch directory and diff it against this one:
 
 ```
-osprey build --emit-profile /tmp/fresh-profile --preset {{ preset_name }}
-diff -u /tmp/fresh-profile/profile.yml {{ profile_dirname }}/profile.yml
+osprey profile new /tmp/fresh-profile --preset {{ preset_name }}
+diff -u /tmp/fresh-profile/profile.yml {{ profile_filename }}
 ```
