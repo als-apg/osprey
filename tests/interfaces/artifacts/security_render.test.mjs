@@ -470,12 +470,12 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
           timestamps: ['2026-07-01T00:00:00Z'],
           values: [1.0],
           total_points: 1,
-          downsampled: false,
           returned_points: 1,
           numeric: true,
         },
       ],
       metadata: {},
+      summary: { total_points: 1, returned_points: 1, downsampled: false, row_count: 1 },
       ...overrides,
     };
   }
@@ -512,6 +512,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       newPlot: vi.fn((el) => { el.data = []; }),
       restyle: vi.fn(),
       relayout: vi.fn(),
+      update: vi.fn(),
     });
     stubScriptLoad();
   });
@@ -526,7 +527,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData()) }));
       const el = document.createElement('div');
 
-      await renderTimeseriesTable(el, 'ts1', [HOSTILE.DQ_IMG], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       expectNoLiveInjection(el);
       expect(el.innerHTML).not.toContain(HOSTILE.DQ_IMG);

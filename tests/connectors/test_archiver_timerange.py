@@ -63,7 +63,7 @@ class TestToUtc:
 
     def test_naive_reads_as_facility_zone(self, monkeypatch):
         monkeypatch.setattr(
-            "osprey.connectors.archiver._timerange.get_facility_timezone",
+            "osprey.utils.config.get_facility_timezone",
             lambda: ZoneInfo("America/Los_Angeles"),
         )
         assert to_utc(datetime(2026, 7, 30, 11, 0, 0)) == datetime(
@@ -79,39 +79,57 @@ class TestToUtc:
 
 class TestResolveProcessing:
     @pytest.mark.parametrize(
-        "mode,operator,agg",
+        "mode,operator",
         [
-            # "raw" renders a server-side operator (the appliance's lastSample
-            # is faithful — it returns a real archived sample) but NO pandas
-            # aggregation: see test_raw_renders_no_pandas_aggregation.
-            ("raw", "lastSample_60", None),
-            ("mean", "mean_60", "mean"),
-            ("min", "min_60", "min"),
-            ("max", "max_60", "max"),
-            ("median", "median_60", "median"),
-            ("std", "std_60", "std"),
-            ("count", "count_60", "count"),
+            # "raw" renders a server-side operator — the appliance's lastSample
+            # is faithful, returning a real archived sample. Client-side it is
+            # decimated instead of resampled; see
+            # test_raw_never_reaches_the_resampler.
+            ("raw", "lastSample_60"),
+            ("mean", "mean_60"),
+            ("min", "min_60"),
+            ("max", "max_60"),
+            ("median", "median_60"),
+            ("std", "std_60"),
+            ("count", "count_60"),
         ],
     )
-    def test_each_mode_renders_for_both_backends(self, mode, operator, agg):
+    def test_each_mode_renders_for_both_backends(self, mode, operator):
         p = resolve_processing(mode, 60_000)
         assert p.epics_operator == operator
-        assert p.pandas_agg == agg
+        # Client-side, the mode name IS the pandas aggregation name, so there is
+        # no second rendering to assert — only that the mode survives resolution.
+        assert p.mode == mode
 
-    def test_raw_renders_no_pandas_aggregation(self):
+    def test_raw_never_reaches_the_resampler(self):
         # There is no resample aggregation that does what "raw" means. The
         # closest, `agg("last")`, returns the bin's last value but relabels it
         # at the bin's leading edge — a timestamp nothing was recorded at.
-        # decimate_raw exists precisely to avoid that, so "raw" must render no
-        # pandas aggregation at all: a value here is a standing invitation for
-        # a future caller to hand it to resample() and manufacture a timestamp.
-        assert resolve_processing("raw", 60_000).pandas_agg is None
+        # decimate_raw exists precisely to avoid that, so aggregate_series must
+        # leave before resampling: passing "raw" to resample() would manufacture
+        # a timestamp. Assert on the behavior rather than on a sentinel field,
+        # which is what a stray `agg(resolved.mode)` would actually break.
+        index = pd.to_datetime(
+            ["2026-07-30T10:00:00Z", "2026-07-30T10:00:30Z", "2026-07-30T10:00:45Z"], utc=True
+        )
+        s = pd.Series([1.0, 2.0, 3.0], index=index, name="SR:DCCT")
+        out = aggregate_series(s, resolve_processing("raw", 60_000))
+        # The kept sample carries its own recorded timestamp, not the bin's
+        # leading edge (10:00:00) that `resample(...).agg("last")` would emit.
+        assert list(out.index) == [index[2]]
+        assert list(out) == [3.0]
 
-    def test_every_aggregate_mode_renders_a_pandas_aggregation(self):
+    def test_every_aggregate_mode_resamples_under_its_own_name(self):
+        index = pd.to_datetime(["2026-07-30T10:00:00Z", "2026-07-30T10:00:30Z"], utc=True)
+        s = pd.Series([1.0, 3.0], index=index, name="SR:DCCT")
         for mode in PROCESSING_MODES:
             if mode == "raw":
                 continue
-            assert resolve_processing(mode, 1000).pandas_agg
+            # pandas spells every one of our aggregate modes the same way we do,
+            # which is why Processing carries no separate aggregation name.
+            expected = s.resample("60000ms").agg(mode)
+            out = aggregate_series(s, resolve_processing(mode, 60_000))
+            assert list(out) == list(expected)
 
     def test_raw_at_full_resolution_has_no_operator(self):
         assert resolve_processing("raw", 0).epics_operator is None

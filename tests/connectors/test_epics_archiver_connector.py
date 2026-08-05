@@ -36,6 +36,26 @@ def _archiver_payload(pv: str, points: list) -> list:
     ]
 
 
+@pytest.fixture
+def captured_urls():
+    """Patch ``urlopen`` to record each request URL and answer with no data.
+
+    Every test that asserts on what reached the appliance -- the query window,
+    the operator prefix, or that nothing was sent at all -- needs exactly this
+    setup, and each one used to carry its own copy. They must not drift: a copy
+    that forgot to assert ``to=`` is a copy that stops covering the window's
+    upper bound.
+    """
+    urls: list[str] = []
+
+    def mock_urlopen(req, timeout=None):
+        urls.append(req.full_url)
+        return _make_urlopen_response([])
+
+    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+        yield urls
+
+
 class TestConnectDisconnectLifecycle:
     """Tests for connect/disconnect lifecycle."""
 
@@ -620,90 +640,59 @@ class TestFactoryIntegration:
 
 
 class TestQueryWindowTimezone:
-    """The wire format is UTC; a caller's zone must be converted, not relabeled."""
+    """The wire format is UTC; a caller's zone must be converted, not relabeled.
+
+    Every case is the same query differing only in how its bounds are zoned, so
+    they are one parametrized body: the point is that all three spellings of
+    10:00 Pacific / 17:00 UTC put the *same instant* on the wire. Regression:
+    the connector used to strftime a literal 'Z' onto whatever wall-clock digits
+    the datetime carried, shifting every ALS query by 7-8h.
+    """
+
+    _LA = ZoneInfo("America/Los_Angeles")
 
     @pytest.mark.asyncio
-    async def test_facility_local_window_is_converted_to_utc(self):
-        """A tz-aware non-UTC window must reach the archiver as the same instant.
-
-        Regression: the connector used to strftime a literal 'Z' onto whatever
-        wall-clock digits the datetime carried, shifting every ALS query by 7-8h.
-        """
-        captured_urls = []
-
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
-
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            la = ZoneInfo("America/Los_Angeles")
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=la),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=la),
-                precision_ms=1000,
+    @pytest.mark.parametrize(
+        ("start", "end", "facility_local"),
+        [
+            # tz-aware, non-UTC: converted, not relabeled.
+            (
+                datetime(2026, 7, 30, 10, 0, 0, tzinfo=_LA),
+                datetime(2026, 7, 30, 11, 0, 0, tzinfo=_LA),
+                False,
+            ),
+            # already UTC: survives untouched.
+            (
+                datetime(2026, 7, 30, 17, 0, 0, tzinfo=UTC),
+                datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC),
+                False,
+            ),
+            # bare wall-clock: means facility-local, matching the tool layer.
+            (datetime(2026, 7, 30, 10, 0, 0), datetime(2026, 7, 30, 11, 0, 0), True),
+        ],
+        ids=["aware_non_utc", "aware_utc", "naive_facility_local"],
+    )
+    async def test_window_reaches_the_archiver_as_the_same_utc_instant(
+        self, monkeypatch, captured_urls, start, end, facility_local
+    ):
+        if facility_local:
+            monkeypatch.setattr(
+                "osprey.utils.config.get_facility_timezone",
+                lambda: ZoneInfo("America/Los_Angeles"),
             )
 
-            # 10:00 PDT is 17:00 UTC; 11:00 PDT is 18:00 UTC.
-            assert "from=2026-07-30T17%3A00%3A00.000Z" in captured_urls[0]
-            assert "to=2026-07-30T18%3A00%3A00.000Z" in captured_urls[0]
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
 
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_utc_aware_window_is_unchanged(self):
-        """An already-UTC window must survive conversion untouched."""
-        captured_urls = []
-
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
-
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 17, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC),
-                precision_ms=1000,
-            )
-
-            assert "from=2026-07-30T17%3A00%3A00.000Z" in captured_urls[0]
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_naive_window_reads_as_facility_zone(self, monkeypatch):
-        """A bare wall-clock means facility-local, matching the tool layer."""
-        monkeypatch.setattr(
-            "osprey.connectors.archiver._timerange.get_facility_timezone",
-            lambda: ZoneInfo("America/Los_Angeles"),
+        await connector.get_data(
+            pv_list=["SR:DCCT"], start_date=start, end_date=end, precision_ms=1000
         )
-        captured_urls = []
 
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
+        # 10:00 PDT is 17:00 UTC; 11:00 PDT is 18:00 UTC.
+        assert "from=2026-07-30T17%3A00%3A00.000Z" in captured_urls[0]
+        assert "to=2026-07-30T18%3A00%3A00.000Z" in captured_urls[0]
 
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0),
-                end_date=datetime(2026, 7, 30, 11, 0, 0),
-                precision_ms=1000,
-            )
-
-            assert "from=2026-07-30T17%3A00%3A00.000Z" in captured_urls[0]
-
-            await connector.disconnect()
+        await connector.disconnect()
 
 
 class TestProcessingModes:
@@ -722,28 +711,21 @@ class TestProcessingModes:
             ("count", "count_60"),
         ],
     )
-    async def test_mode_selects_the_archiver_operator(self, mode, expected):
-        captured_urls = []
+    async def test_mode_selects_the_archiver_operator(self, captured_urls, mode, expected):
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
 
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
+        await connector.get_data(
+            pv_list=["SR:DCCT"],
+            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            precision_ms=60_000,
+            processing=mode,
+        )
 
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+        assert expected in captured_urls[0]
 
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
-                precision_ms=60_000,
-                processing=mode,
-            )
-
-            assert expected in captured_urls[0]
-
-            await connector.disconnect()
+        await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_unknown_mode_raises_value_error(self):
@@ -868,7 +850,7 @@ class TestSubSecondPrecision:
 
     @pytest.mark.asyncio
     async def test_rejection_follows_resolve_processing_rather_than_a_second_copy_of_the_rule(
-        self, monkeypatch
+        self, monkeypatch, captured_urls
     ):
         """Which widths are expressible is decided once, in ``resolve_processing``.
 
@@ -885,38 +867,30 @@ class TestSubSecondPrecision:
         return full-resolution samples for a ``processing="mean"`` query and
         hand them back labelled as means.
         """
-        captured_urls = []
-
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
-
         monkeypatch.setattr(
             "osprey.connectors.archiver.epics_archiver_connector.resolve_processing",
             lambda processing, precision_ms: Processing(
                 mode=processing,
                 precision_ms=precision_ms,
                 epics_operator=None,
-                pandas_agg="mean",
             ),
         )
 
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
 
-            with pytest.raises(ValueError, match="whole number of seconds"):
-                await connector.get_data(
-                    pv_list=["SR:DCCT"],
-                    start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                    end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
-                    precision_ms=60_000,
-                    processing="mean",
-                )
+        with pytest.raises(ValueError, match="whole number of seconds"):
+            await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=60_000,
+                processing="mean",
+            )
 
-            assert captured_urls == []
+        assert captured_urls == []
 
-            await connector.disconnect()
+        await connector.disconnect()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -933,53 +907,39 @@ class TestSubSecondPrecision:
         ],
     )
     async def test_whole_second_precision_renders_the_operator(
-        self, processing, precision_ms, expected
+        self, captured_urls, processing, precision_ms, expected
     ):
-        captured_urls = []
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
 
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
+        await connector.get_data(
+            pv_list=["SR:DCCT"],
+            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            precision_ms=precision_ms,
+            processing=processing,
+        )
 
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+        assert len(captured_urls) == 1
+        assert expected in captured_urls[0]
 
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
-                precision_ms=precision_ms,
-                processing=processing,
-            )
-
-            assert len(captured_urls) == 1
-            assert expected in captured_urls[0]
-
-            await connector.disconnect()
+        await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_full_resolution_is_still_allowed(self):
+    async def test_full_resolution_is_still_allowed(self, captured_urls):
         """precision_ms <= 0 is full resolution, not a sub-second bin width."""
-        captured_urls = []
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
 
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
+        await connector.get_data(
+            pv_list=["SR:DCCT"],
+            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            precision_ms=0,
+            processing="raw",
+        )
 
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
+        # Bare PV name, no operator wrapper.
+        assert "lastSample" not in captured_urls[0]
 
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
-                precision_ms=0,
-                processing="raw",
-            )
-
-            # Bare PV name, no operator wrapper.
-            assert "lastSample" not in captured_urls[0]
-
-            await connector.disconnect()
+        await connector.disconnect()

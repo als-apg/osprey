@@ -12,6 +12,34 @@ import math
 import pytest
 
 
+def _write_artifact(store, workspace_root, payload, filename, title):
+    """Write ``payload`` as an artifact's data file and register the entry.
+
+    The half every builder below shares: the entry itself is always the same
+    placeholder text file whose ``metadata.data_file`` points at the JSON the
+    endpoint actually reads. Only the payload shape differs between builders,
+    so only the payload is built by them.
+    """
+    data_dir = workspace_root / "data"
+    data_dir.mkdir(exist_ok=True)
+    data_file = data_dir / filename
+    data_file.write_text(json.dumps(payload))
+
+    return store.save_file(
+        file_content=b"timeseries placeholder",
+        filename="ts.txt",
+        artifact_type="text",
+        title=title,
+        description=f"test {title} artifact",
+        mime_type="text/plain",
+        tool_source="archiver_read",
+        metadata={
+            "data_type": "timeseries",
+            "data_file": str(data_file),
+        },
+    )
+
+
 def _make_timeseries_artifact(store, workspace_root, n_rows=100, n_channels=2, channels=None):
     """Create an artifact with associated timeseries data file."""
     if channels is None:
@@ -19,32 +47,16 @@ def _make_timeseries_artifact(store, workspace_root, n_rows=100, n_channels=2, c
     else:
         n_channels = len(channels)
 
-    columns = channels
-    index = list(range(n_rows))
-    data = [
-        [math.sin(2 * math.pi * r / n_rows + c) for c in range(n_channels)] for r in range(n_rows)
-    ]
-
-    payload = {"columns": columns, "index": index, "data": data}
-
-    # Write data file
-    data_dir = workspace_root / "data"
-    data_dir.mkdir(exist_ok=True)
-    data_file = data_dir / f"ts_{n_rows}.json"
-    data_file.write_text(json.dumps({"data": payload}))
-
-    entry = store.save_file(
-        file_content=b"timeseries placeholder",
-        filename="ts.txt",
-        artifact_type="text",
-        title=f"Timeseries ({n_rows} rows)",
-        description="test timeseries artifact",
-        mime_type="text/plain",
-        tool_source="archiver_read",
-        metadata={
-            "data_type": "timeseries",
-            "data_file": str(data_file),
-        },
+    payload = {
+        "columns": channels,
+        "index": list(range(n_rows)),
+        "data": [
+            [math.sin(2 * math.pi * r / n_rows + c) for c in range(n_channels)]
+            for r in range(n_rows)
+        ],
+    }
+    entry = _write_artifact(
+        store, workspace_root, {"data": payload}, f"ts_{n_rows}.json", f"Timeseries ({n_rows} rows)"
     )
     return entry, payload
 
@@ -56,7 +68,9 @@ def _make_new_format_artifact(store, workspace_root, series, filename="series_ar
 
     ``series`` maps channel name -> (timestamps, values); channels may have
     independent lengths/cadences (unlike the legacy split-orient layout,
-    where every column shares one index).
+    where every column shares one index). Pairs are always built well-formed
+    and equal-length -- see ``_make_raw_series_artifact`` for the deliberately
+    malformed cases this shape cannot express.
     """
     payload = {
         "query": {"channels": list(series.keys())},
@@ -64,26 +78,9 @@ def _make_new_format_artifact(store, workspace_root, series, filename="series_ar
             ch: {"timestamps": list(ts), "values": list(vals)} for ch, (ts, vals) in series.items()
         },
     }
-
-    data_dir = workspace_root / "data"
-    data_dir.mkdir(exist_ok=True)
-    data_file = data_dir / filename
-    data_file.write_text(json.dumps(payload))
-
-    entry = store.save_file(
-        file_content=b"timeseries placeholder",
-        filename="ts.txt",
-        artifact_type="text",
-        title="New format timeseries",
-        description="test new-format timeseries artifact",
-        mime_type="text/plain",
-        tool_source="archiver_read",
-        metadata={
-            "data_type": "timeseries",
-            "data_file": str(data_file),
-        },
-    )
-    return entry, payload
+    return _write_artifact(
+        store, workspace_root, payload, filename, "New format timeseries"
+    ), payload
 
 
 def _make_legacy_dataframe_artifact(store, workspace_root, columns, index, data):
@@ -98,24 +95,12 @@ def _make_legacy_dataframe_artifact(store, workspace_root, columns, index, data)
         "dataframe": {"columns": columns, "index": index, "data": data},
         "query": {"channels": columns},
     }
-
-    data_dir = workspace_root / "data"
-    data_dir.mkdir(exist_ok=True)
-    data_file = data_dir / "dataframe_wrapper.json"
-    data_file.write_text(json.dumps(payload))
-
-    entry = store.save_file(
-        file_content=b"timeseries placeholder",
-        filename="ts.txt",
-        artifact_type="text",
-        title="Legacy dataframe-wrapper timeseries",
-        description="test legacy dataframe-wrapper artifact",
-        mime_type="text/plain",
-        tool_source="archiver_read",
-        metadata={
-            "data_type": "timeseries",
-            "data_file": str(data_file),
-        },
+    entry = _write_artifact(
+        store,
+        workspace_root,
+        payload,
+        "dataframe_wrapper.json",
+        "Legacy dataframe-wrapper timeseries",
     )
     return entry, payload
 
@@ -129,26 +114,9 @@ def _make_raw_series_artifact(store, workspace_root, series_payload, filename="r
     tuple-based helper can't represent.
     """
     payload = {"query": {}, "series": series_payload}
-
-    data_dir = workspace_root / "data"
-    data_dir.mkdir(exist_ok=True)
-    data_file = data_dir / filename
-    data_file.write_text(json.dumps(payload))
-
-    entry = store.save_file(
-        file_content=b"timeseries placeholder",
-        filename="ts.txt",
-        artifact_type="text",
-        title="Raw series timeseries",
-        description="test raw-series artifact",
-        mime_type="text/plain",
-        tool_source="archiver_read",
-        metadata={
-            "data_type": "timeseries",
-            "data_file": str(data_file),
-        },
-    )
-    return entry, payload
+    return _write_artifact(
+        store, workspace_root, payload, filename, "Raw series timeseries"
+    ), payload
 
 
 def _make_non_timeseries_artifact(store):
@@ -203,10 +171,12 @@ class TestArtifactDataAPI:
         assert len(data["channels"]) == len(payload["columns"])
         for ch in data["channels"]:
             assert ch["total_points"] == 5000
-            assert ch["downsampled"] is True
             assert ch["returned_points"] <= 100
             assert len(ch["timestamps"]) == ch["returned_points"]
             assert len(ch["values"]) == ch["returned_points"]
+        # "Was anything reduced" is published once, on the summary, derived from
+        # the counts above rather than repeated as a per-channel flag.
+        assert data["summary"]["downsampled"] is True
 
     @pytest.mark.unit
     def test_chart_small_dataset_not_downsampled(self, app_client):
@@ -220,8 +190,8 @@ class TestArtifactDataAPI:
         data = resp.json()
         for ch in data["channels"]:
             assert ch["total_points"] == 50
-            assert ch["downsampled"] is False
             assert ch["returned_points"] == 50
+        assert data["summary"]["downsampled"] is False
 
     @pytest.mark.unit
     def test_chart_format_new_layout_channels_have_independent_timestamps(self, app_client):

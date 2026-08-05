@@ -500,7 +500,14 @@ class TestReadHistory:
         addr_arg = mock_d4py.Address.call_args[0][0]
         assert addr_arg.count(".HIST") == 1
 
-    def test_metadata_fields_present(self):
+    def test_returns_only_the_parallel_arrays_get_data_consumes(self):
+        """``_read_history`` hands back exactly ``time`` and ``data``, nothing else.
+
+        It used to also build a ``metadata`` dict (raw_count/avg_window/
+        start_iso/end_iso) that no caller ever read — ``get_data`` takes only
+        the two arrays — so every fetch paid for two ``np.datetime64``
+        conversions to populate a field that was dead on arrival.
+        """
         chunk = _make_raw_chunk(n=10)
         mock_d4py = MagicMock()
         self._mock_get(mock_d4py, chunk)
@@ -508,10 +515,8 @@ class TestReadHistory:
         conn = self._make_connector_with_d4py(mock_d4py)
         out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS)
 
-        assert "metadata" in out
-        meta = out["metadata"]
-        assert "raw_count" in meta
-        assert "avg_window" in meta
+        assert set(out) == {"time", "data"}
+        assert len(out["time"]) == len(out["data"])
 
 
 # --------------------------------------------------------------------------------------
@@ -661,7 +666,7 @@ class TestQueryWindowTimezone:
 
         conn, mock_d4py = archiver
         monkeypatch.setattr(
-            "osprey.connectors.archiver._timerange.get_facility_timezone",
+            "osprey.utils.config.get_facility_timezone",
             lambda: ZoneInfo("America/Los_Angeles"),
         )
 

@@ -13,11 +13,9 @@ from typing import Any
 import pandas as pd
 
 from osprey.connectors.archiver._timerange import (
-    aggregate_series,
-    long_frame,
-    require_datetime,
+    aggregate_long_frame,
     resolve_processing,
-    to_utc,
+    utc_window,
 )
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
@@ -237,18 +235,15 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         self._require_connected()
 
-        require_datetime(start_date, end_date)
+        # pymongo converts aware datetimes correctly but reads naive ones as UTC;
+        # normalizing here makes a bare wall-clock mean facility-local, matching
+        # every other connector.
+        start_utc, end_utc = utc_window(start_date, end_date)
 
         if not pv_list:
             raise ValueError("pv_list cannot be empty")
 
         resolved = resolve_processing(processing, precision_ms)
-
-        # pymongo converts aware datetimes correctly but reads naive ones as UTC;
-        # normalizing here makes a bare wall-clock mean facility-local, matching
-        # every other connector.
-        start_utc = to_utc(start_date)
-        end_utc = to_utc(end_date)
 
         def fetch_data():
             """Synchronous data fetch function."""
@@ -297,14 +292,15 @@ class MongoDBArchiverConnector(ArchiverConnector):
             # so a fine precision_ms over a sparsely (or differently)
             # archived PV can only return fewer rows than it has samples,
             # never manufacture more — no bin-width floor is needed.
-            series = {
-                pv: aggregate_series(
-                    pd.Series(values[pv], index=pd.to_datetime(timestamps[pv], utc=True), name=pv),
-                    resolved,
-                )
-                for pv in pv_list
-            }
-            return long_frame(series)
+            return aggregate_long_frame(
+                {
+                    pv: pd.Series(
+                        values[pv], index=pd.to_datetime(timestamps[pv], utc=True), name=pv
+                    )
+                    for pv in pv_list
+                },
+                resolved,
+            )
 
         try:
             # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution

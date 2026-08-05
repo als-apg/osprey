@@ -14,9 +14,8 @@ import logging
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.timeseries import (
+    downsample_channel_map,
     extract_channel_series,
-    is_numeric_channel,
-    lttb_downsample_channel,
 )
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_downsample")
@@ -89,40 +88,27 @@ async def archiver_downsample(
         )
 
     series, _query_meta = extract_channel_series(raw)
-    all_channels = list(series.keys())
-
-    # Filter channels if requested
-    if channels:
-        selected_channels = [c for c in channels if c in series]
-        if not selected_channels:
-            return make_error(
-                "validation_error",
-                f"None of the requested channels {channels} found in entry channels "
-                f"{all_channels}.",
-            )
-    else:
-        selected_channels = all_channels
 
     max_points = max(3, min(max_points, 10000))
+    records = downsample_channel_map(series, max_points, channels=channels or None)
 
-    datasets = []
-    for channel in selected_channels:
-        chan_data = series[channel]
-        timestamps = chan_data.get("timestamps", [])
-        values = chan_data.get("values", [])
-
-        ds_timestamps, ds_values = lttb_downsample_channel(timestamps, values, max_points)
-
-        datasets.append(
-            {
-                "channel": channel,
-                "timestamps": ds_timestamps,
-                "values": ds_values,
-                "original_points": len(timestamps),
-                "downsampled_points": len(ds_timestamps),
-                "numeric": is_numeric_channel(values),
-            }
+    if channels and not records:
+        return make_error(
+            "validation_error",
+            f"None of the requested channels {channels} found in entry channels {list(series)}.",
         )
+
+    datasets = [
+        {
+            "channel": record["channel"],
+            "timestamps": record["timestamps"],
+            "values": record["values"],
+            "original_points": record["original_points"],
+            "downsampled_points": record["returned_points"],
+            "numeric": record["numeric"],
+        }
+        for record in records
+    ]
 
     # A channel with no samples has no span to contribute -- but it must not
     # erase the others', hence filtering it out here rather than letting an

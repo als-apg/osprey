@@ -250,27 +250,21 @@ export async function renderTimeseriesView(container, artifact) {
     channels.forEach((/** @type {any} */ ch) => {
       html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${escapeHtml(_tsShortChannelName(ch.channel))}</span>`;
     });
-    // Totals are the server's when it sends them. Summing here is a fallback
-    // for responses predating `summary`, and it can only ever be a proxy: the
-    // sum counts each channel's own timestamps, whereas the table paginates a
-    // *unioned* row axis, so the two numbers disagree whenever channels are
-    // sampled at different times. Only the server sees both, so only the
-    // server can report a `row_count` that matches the table's `total_rows`.
-    const summary = chartData.summary ?? null;
-    const sumOver = (/** @type {string} */ key) =>
-      channels.reduce((/** @type {number} */ sum, /** @type {any} */ ch) => sum + (ch[key] || 0), 0);
-
-    const totalPoints = summary?.total_points ?? sumOver("total_points");
-    html += `<span class="ts-badge ts-badge-points"><span class="badge-label">Points</span> ${totalPoints.toLocaleString()}</span>`;
-    if (summary && typeof summary.row_count === "number") {
+    // Cross-channel totals are the server's, unconditionally. Summing per-channel
+    // point counts here could only ever be a proxy: the sum counts each channel's
+    // own timestamps, whereas the table paginates a *unioned* row axis, so the two
+    // disagree whenever channels are sampled at different times -- and `row_count`
+    // is not derivable client-side at all. This script and the endpoint that
+    // answers it ship in the same wheel, so `summary` is always present; a
+    // fallback here would be a second, knowingly-wrong number for a case that
+    // cannot arise.
+    const summary = chartData.summary;
+    html += `<span class="ts-badge ts-badge-points"><span class="badge-label">Points</span> ${summary.total_points.toLocaleString()}</span>`;
+    if (typeof summary.row_count === "number") {
       html += `<span class="ts-badge ts-badge-rows"><span class="badge-label">Rows</span> ${summary.row_count.toLocaleString()}</span>`;
     }
-    const anyDownsampled = summary
-      ? summary.downsampled
-      : channels.some((/** @type {any} */ ch) => ch.downsampled);
-    if (anyDownsampled) {
-      const returnedPoints = summary?.returned_points ?? sumOver("returned_points");
-      html += `<span class="ts-badge ts-badge-downsampled"><span class="badge-label">Downsampled</span> ${returnedPoints.toLocaleString()} pts</span>`;
+    if (summary.downsampled) {
+      html += `<span class="ts-badge ts-badge-downsampled"><span class="badge-label">Downsampled</span> ${summary.returned_points.toLocaleString()} pts</span>`;
     }
     html += '</div>';
 
@@ -335,17 +329,20 @@ export async function renderTimeseriesView(container, artifact) {
           // boolean array lines up positionally with Plotly's trace array
           // even though visibility itself is tracked by channel name.
           const update = columns.map((/** @type {any} */ c) => visible.has(c));
-          Plotly.restyle(chartEl, { visible: update });
-          if (hasNonNumeric) {
-            // Hiding the last visible enum/status channel would otherwise
-            // leave an empty category `yaxis2` sitting on the right with
-            // nothing plotted against it; show it again once any
-            // non-numeric channel is visible again.
-            const nonNumericVisible = channels.some(
-              (/** @type {any} */ ch) => _tsIsNonNumeric(ch) && visible.has(ch.channel)
-            );
-            Plotly.relayout(chartEl, { "yaxis2.visible": nonNumericVisible });
-          }
+          // Hiding the last visible enum/status channel would otherwise leave an
+          // empty category `yaxis2` sitting on the right with nothing plotted
+          // against it; show it again once any non-numeric channel is visible
+          // again. Applied as one `update` rather than restyle-then-relayout so
+          // a toggle costs a single redraw instead of two, with no intermediate
+          // frame showing the traces already hidden but the axis still there.
+          const layoutUpdate = hasNonNumeric
+            ? {
+                "yaxis2.visible": channels.some(
+                  (/** @type {any} */ ch) => _tsIsNonNumeric(ch) && visible.has(ch.channel)
+                ),
+              }
+            : {};
+          Plotly.update(chartEl, { visible: update }, layoutUpdate);
         }
       });
     });
@@ -376,7 +373,7 @@ export async function renderTimeseriesView(container, artifact) {
     await renderTimeseriesChart(/** @type {any} */ (chartEl), chartData);
 
     const tableEl = container.querySelector("[data-ts-table]");
-    await renderTimeseriesTable(/** @type {any} */ (tableEl), artifact.id, columns, 0);
+    await renderTimeseriesTable(/** @type {any} */ (tableEl), artifact.id, 0);
   } catch (err) {
     console.error("Timeseries render failed:", err);
     container.innerHTML = '<span class="text-muted">Failed to load timeseries data</span>';
@@ -515,11 +512,10 @@ const TS_TABLE_PAGE_SIZE = 50;
 /**
  * @param {any} el
  * @param {string} artifactId
- * @param {string[]} columns
  * @param {number} offset
  * @returns {Promise<void>}
  */
-export async function renderTimeseriesTable(el, artifactId, columns, offset) {
+export async function renderTimeseriesTable(el, artifactId, offset) {
   if (!el) return;
   el.innerHTML = '<div class="ts-loading">Loading table...</div>';
 
@@ -533,16 +529,14 @@ export async function renderTimeseriesTable(el, artifactId, columns, offset) {
     const totalPages = Math.ceil(tableData.total_rows / TS_TABLE_PAGE_SIZE);
     const currentPage = Math.floor(offset / TS_TABLE_PAGE_SIZE) + 1;
 
-    // Header from THIS response, not from `columns` -- those came from a
-    // separate format=chart request, and for an artifact being written while
-    // it is viewed the two can disagree, putting this page's cells under the
-    // other request's PV names. `columns` remains the fallback for a response
-    // that predates the field, and still seeds the first render's toggles.
-    const headerColumns = tableData.columns ?? columns;
-
+    // Header comes from THIS response and nowhere else. Taking it from the
+    // caller's channel list would mean the names came from a separate
+    // format=chart request, and for an artifact being written while it is viewed
+    // the two can disagree -- putting this page's cells under the other
+    // request's PV names.
     let html = '<div class="ts-data-table-wrapper"><table class="ts-data-table">';
     html += '<thead><tr><th>Index</th>';
-    headerColumns.forEach((/** @type {string} */ c) => { html += `<th>${escapeHtml(c)}</th>`; });
+    tableData.columns.forEach((/** @type {string} */ c) => { html += `<th>${escapeHtml(c)}</th>`; });
     html += '</tr></thead><tbody>';
 
     tableData.index.forEach((/** @type {any} */ idx, /** @type {number} */ i) => {
@@ -564,10 +558,10 @@ export async function renderTimeseriesTable(el, artifactId, columns, offset) {
     el.innerHTML = html;
 
     el.querySelector("[data-ts-prev]")?.addEventListener("click", () => {
-      renderTimeseriesTable(el, artifactId, columns, Math.max(0, offset - TS_TABLE_PAGE_SIZE));
+      renderTimeseriesTable(el, artifactId, Math.max(0, offset - TS_TABLE_PAGE_SIZE));
     });
     el.querySelector("[data-ts-next]")?.addEventListener("click", () => {
-      renderTimeseriesTable(el, artifactId, columns, offset + TS_TABLE_PAGE_SIZE);
+      renderTimeseriesTable(el, artifactId, offset + TS_TABLE_PAGE_SIZE);
     });
   } catch (err) {
     console.error("Table render failed:", err);

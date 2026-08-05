@@ -7,17 +7,16 @@ Ideal for R&D and development without archiver access.
 """
 
 import zlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
 from osprey.connectors.archiver._timerange import (
-    aggregate_series,
-    long_frame,
+    aggregate_long_frame,
     resolve_processing,
-    to_utc,
+    utc_window,
 )
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.connectors.pv_taxonomy import classify_pv
@@ -144,8 +143,7 @@ class MockArchiverConnector(ArchiverConnector):
         # naive start/end (facility wall-clock, per the framework's convention)
         # is normalized the same way every other archiver connector normalizes
         # its query window, before any timestamps are generated from it.
-        start_date = to_utc(start_date)
-        end_date = to_utc(end_date)
+        start_date, end_date = utc_window(start_date, end_date)
         duration = (end_date - start_date).total_seconds()
 
         # Limit number of points for performance.
@@ -161,10 +159,10 @@ class MockArchiverConnector(ArchiverConnector):
         num_points = min(int(duration / (effective_precision_ms / 1000.0)), 10000)
         num_points = max(num_points, 10)  # At least 10 points
 
-        # Generate timestamps
-        time_step = duration / (num_points - 1) if num_points > 1 else 0
-        timestamps = [start_date + timedelta(seconds=i * time_step) for i in range(num_points)]
-        index = pd.DatetimeIndex(timestamps)
+        # Generate timestamps. date_range spaces the endpoints in integer
+        # nanoseconds rather than accumulating a float second step, so the
+        # lattice stays exact across a long window.
+        index = pd.date_range(start=start_date, end=end_date, periods=num_points)
 
         # Generate data for each PV. Channels known to the simulation engine
         # are synthesized from the machine model; everything else uses the
@@ -176,17 +174,16 @@ class MockArchiverConnector(ArchiverConnector):
         series = {}
         for pv in pv_list:
             if engine_serves(self._sim_engine, pv):
-                values = self._sim_engine.synthesize_series(pv, timestamps)
+                values = self._sim_engine.synthesize_series(pv, index)
             else:
                 values = self._generate_time_series(pv, num_points)
             # No dtype is forced: a numeric series (list[float] or a float
             # ndarray) infers float64 as always; an enum/status channel's
             # list[str] is passed through untouched, per the long_frame
             # contract that leaves `value` dtype-unconstrained.
-            raw_series = pd.Series(values, index=index, name=pv)
-            series[pv] = aggregate_series(raw_series, resolved)
+            series[pv] = pd.Series(values, index=index, name=pv)
 
-        data = long_frame(series)
+        data = aggregate_long_frame(series, resolved)
 
         logger.debug(
             f"Mock archiver generated {len(data)} rows across "

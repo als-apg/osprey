@@ -19,9 +19,8 @@ import pandas as pd
 from osprey.connectors.archiver._timerange import (
     long_frame,
     reject_non_numeric,
-    require_datetime,
     resolve_processing,
-    to_utc,
+    utc_window,
 )
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
@@ -174,13 +173,10 @@ class EPICSArchiverConnector(ArchiverConnector):
         if not self._connected:
             raise RuntimeError("Archiver not connected")
 
-        require_datetime(start_date, end_date)
-
         # The retrieval API's ".000Z" wire format is UTC. Convert rather than
         # relabel: a facility-local datetime formatted with a literal Z shifts
         # the whole window by the UTC offset.
-        start_utc = to_utc(start_date)
-        end_utc = to_utc(end_date)
+        start_utc, end_utc = utc_window(start_date, end_date)
         start_str = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         end_str = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -205,17 +201,19 @@ class EPICSArchiverConnector(ArchiverConnector):
             )
 
         # A None operator here can only mean full resolution: the branch above
-        # already rejected every other way of getting one.
-        if resolved.epics_operator is not None:
-            effective_pvs = [f"{resolved.epics_operator}({pv})" for pv in pv_list]
-        else:
-            effective_pvs = list(pv_list)
+        # already rejected every other way of getting one. Wrapping at the point
+        # of use keeps the queried name derived from the channel it is stored
+        # under, rather than tracked in a second list held in positional lockstep
+        # with pv_list.
+        operator = resolved.epics_operator
 
         def fetch_all():
-            series_dict = {}
-            for pv, effective_pv in zip(pv_list, effective_pvs, strict=True):
-                series_dict[pv] = self._fetch_single_pv(effective_pv, start_str, end_str)
-            return series_dict
+            return {
+                pv: self._fetch_single_pv(
+                    f"{operator}({pv})" if operator else pv, start_str, end_str
+                )
+                for pv in pv_list
+            }
 
         try:
             series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)

@@ -16,11 +16,9 @@ import numpy as np
 import pandas as pd
 
 from osprey.connectors.archiver._timerange import (
-    aggregate_series,
-    long_frame,
-    require_datetime,
+    aggregate_long_frame,
     resolve_processing,
-    to_utc,
+    utc_window,
 )
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
@@ -149,15 +147,12 @@ class DOOCSArchiverConnector(ArchiverConnector):
         if not self._connected:
             raise RuntimeError("DOOCS archiver not connected")
 
-        require_datetime(start_date, end_date)
-
         # A naive datetime's .timestamp() resolves against the *host* zone; convert
         # explicitly so the window means the same thing on every deploy box. Deriving
         # duration from the converted bounds (rather than the raw start_date/end_date)
         # also tolerates a mixed naive/aware pair, which would otherwise raise TypeError
         # on subtraction before either bound got a chance to be normalized.
-        start_utc = to_utc(start_date)
-        end_utc = to_utc(end_date)
+        start_utc, end_utc = utc_window(start_date, end_date)
         resolved = resolve_processing(processing, precision_ms)
 
         # Every real archived sample reaches aggregate_series below. It did not
@@ -204,8 +199,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             # channels are sampled. "raw" decimates via aggregate_series's
             # decimate_raw path: one real sample per precision_ms bin, at its
             # own real timestamp.
-            series = {pv: aggregate_series(s, resolved) for pv, s in series_dict.items()}
-            data = long_frame(series)
+            data = aggregate_long_frame(series_dict, resolved)
 
             logger.debug(
                 f"Retrieved DOOCS archiver data: {len(data)} rows "
@@ -325,8 +319,6 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raw_time, unique_indices = np.unique(raw_time, return_index=True)
             raw_data = raw_data[unique_indices]
 
-            smooth_data = None
-
             # Optional centered moving average over the real samples. The window
             # is a real duration, so irregular sample spacing is fine -- each
             # output value averages the samples that actually fall within
@@ -342,27 +334,19 @@ class DOOCSArchiverConnector(ArchiverConnector):
             # max(n_samples, window_width), so an avg_window wider than the
             # queried span used to hand back `data` longer than `time` and blow
             # up in get_data with a length mismatch.
-            if avg_window is not None and avg_window > 0:
-                smooth_data = (
-                    pd.Series(raw_data, index=pd.to_datetime(raw_time, unit="s"))
-                    .rolling(pd.Timedelta(seconds=avg_window), center=True)
-                    .mean()
-                    .to_numpy()
-                )
-
-            # Build metadata describing the request and the retrieved raw data.
-            metadata = {
-                "raw_count": int(raw_time.size),
-                "avg_window": avg_window,
-                "start_iso": np.datetime64(int(raw_time[0]), "s").astype(str),
-                "end_iso": np.datetime64(int(raw_time[-1]), "s").astype(str),
-            }
-
+            #
             # Smoothing keeps the real timestamps it operated on, so either way
             # every timestamp returned is one an archived sample really carries.
-            out_data = smooth_data if smooth_data is not None else raw_data
+            out_data = (
+                pd.Series(raw_data, index=pd.to_datetime(raw_time, unit="s"))
+                .rolling(pd.Timedelta(seconds=avg_window), center=True)
+                .mean()
+                .to_numpy()
+                if avg_window is not None and avg_window > 0
+                else raw_data
+            )
 
-            return {"time": raw_time, "data": out_data, "metadata": metadata}
+            return {"time": raw_time, "data": out_data}
 
         except Exception:
             return None

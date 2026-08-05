@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from osprey.utils.config import get_facility_timezone
+from osprey.utils.config import localize_facility
 
 PROCESSING_MODES = ("raw", "mean", "min", "max", "median", "std", "count")
 
@@ -28,20 +28,6 @@ LONG_COLUMNS = ("timestamp", "channel", "value")
 # maps to lastSample so a binned raw query keeps its long-standing behavior.
 _EPICS_OPERATORS = {
     "raw": "lastSample",
-    "mean": "mean",
-    "min": "min",
-    "max": "max",
-    "median": "median",
-    "std": "std",
-    "count": "count",
-}
-
-# pandas resample aggregation names, keyed by our canonical mode. "raw" has no
-# entry on purpose: it is decimated by decimate_raw, and the aggregation that
-# looks equivalent, `resample(...).agg("last")`, is not — it relabels the kept
-# sample at the bin's leading edge. Rendering "last" here would put that
-# substitution one attribute access away.
-_PANDAS_AGGS = {
     "mean": "mean",
     "min": "min",
     "max": "max",
@@ -74,10 +60,11 @@ def to_utc(dt: datetime) -> datetime:
     """Return ``dt`` as a timezone-aware UTC datetime.
 
     An aware datetime is converted. A naive one carries no zone, so it is read
-    as facility-local — matching how the rest of the framework reads operator
-    wall-clock times — and then converted. ``get_facility_timezone()`` degrades
-    to UTC when ``system.timezone`` is unset, so an unconfigured deployment
-    still treats naive input as UTC.
+    as facility-local via :func:`~osprey.utils.config.localize_facility` — the
+    framework's one rule for operator wall-clock times, shared with the ARIEL
+    query and render paths rather than restated here. That helper degrades to
+    UTC when ``system.timezone`` is unset, so an unconfigured deployment still
+    treats naive input as UTC.
 
     Args:
         dt: The datetime to normalize.
@@ -85,9 +72,30 @@ def to_utc(dt: datetime) -> datetime:
     Returns:
         The same instant, timezone-aware in UTC.
     """
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=get_facility_timezone())
-    return dt.astimezone(UTC)
+    return localize_facility(dt).astimezone(UTC)
+
+
+def utc_window(start_date: datetime, end_date: datetime) -> tuple[datetime, datetime]:
+    """Validate a caller's query bounds and return them as UTC instants.
+
+    Every connector needs both halves and needs them in this order — the
+    :func:`require_datetime` check exists precisely so :func:`to_utc` never sees
+    a non-datetime. Composing them here means a backend cannot accidentally ship
+    one without the other, which is exactly how the mock connector ended up
+    normalizing its window without validating it.
+
+    Args:
+        start_date: The caller's start bound, unvalidated.
+        end_date: The caller's end bound, unvalidated.
+
+    Returns:
+        ``(start_utc, end_utc)``, both timezone-aware in UTC.
+
+    Raises:
+        TypeError: If either bound is not a ``datetime``, naming which one.
+    """
+    require_datetime(start_date, end_date)
+    return to_utc(start_date), to_utc(end_date)
 
 
 @dataclass(frozen=True)
@@ -106,16 +114,11 @@ class Processing:
             express. ``precision_ms`` tells those two apart; see
             :meth:`EPICSArchiverConnector.get_data`, which turns the second into
             a ``ValueError``.
-        pandas_agg: The pandas resample aggregation name for client-side
-            backends, or ``None`` for ``"raw"`` — which is decimated by
-            :func:`decimate_raw`, not resampled. Read it only from the non-raw
-            branch that :func:`aggregate_series` already takes.
     """
 
     mode: str
     precision_ms: int
     epics_operator: str | None
-    pandas_agg: str | None
 
 
 def resolve_processing(processing: str, precision_ms: int) -> Processing:
@@ -153,12 +156,7 @@ def resolve_processing(processing: str, precision_ms: int) -> Processing:
         operator = f"{_EPICS_OPERATORS[processing]}_{precision_ms // 1000}"
     else:
         operator = None
-    return Processing(
-        mode=processing,
-        precision_ms=precision_ms,
-        epics_operator=operator,
-        pandas_agg=_PANDAS_AGGS.get(processing),
-    )
+    return Processing(mode=processing, precision_ms=precision_ms, epics_operator=operator)
 
 
 def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
@@ -287,19 +285,25 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
         resolved: The resolved processing mode. ``resolved.precision_ms`` is the
             bin width — it travels with the mode rather than alongside it, so a
             caller cannot resolve at one width and bin at another.
-            ``resolved.pandas_agg`` names the per-bin aggregation, and is
-            ``None`` for ``"raw"``, which is decimated by :func:`decimate_raw`
-            instead of resampled.
 
     Returns:
         For ``"raw"``: whatever :func:`decimate_raw` returns. For every other
-        mode: one value per *non-empty* bin, aggregated with
-        ``resolved.pandas_agg``, indexed at ns resolution.
+        mode: one value per *non-empty* bin, aggregated under the mode's own
+        name — every aggregate mode is spelled identically by pandas — indexed
+        at ns resolution.
 
     Raises:
         ValueError: If a non-raw mode is applied to a non-empty channel holding
             non-numeric values — see :func:`reject_non_numeric`.
     """
+    # "raw" leaves before any resampling, and every mode that does reach the
+    # resampler is spelled the same way by pandas as by us — so the mode name is
+    # the aggregation name, with no lookup table to keep in step. The early
+    # return is what makes that safe. The aggregation that looks equivalent to
+    # "raw", `resample(...).agg("last")`, is not: it relabels the kept sample
+    # at the bin's leading edge, fabricating a timestamp nothing was ever
+    # recorded at. That is why decimate_raw exists, and why "raw" must never be
+    # handed to the resampler below.
     if resolved.mode == "raw":
         return decimate_raw(s, resolved.precision_ms)
     if s.empty:
@@ -312,5 +316,30 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
         s = s.set_axis(s.index.as_unit("ns"))
     resampler = s.resample(f"{resolved.precision_ms}ms")
     counts = resampler.count()
-    aggregated = resampler.agg(resolved.pandas_agg)
+    aggregated = resampler.agg(resolved.mode)
     return aggregated[counts > 0]
+
+
+def aggregate_long_frame(series: dict[str, pd.Series], resolved: Processing) -> pd.DataFrame:
+    """Bin every channel client-side, then assemble the canonical long frame.
+
+    The whole tail of a client-side backend's ``get_data``. Backends that bin
+    server-side (EPICS) deliberately do not use it — they call :func:`long_frame`
+    on the already-binned series after :func:`reject_non_numeric`, and keeping
+    the two-step composition in one place here is what makes that exception
+    visible rather than making a missing :func:`aggregate_series` look ordinary.
+
+    Args:
+        series: Mapping of channel name to its raw sample series, each with a
+            UTC-aware ``DatetimeIndex``.
+        resolved: The resolved processing mode, applied to every channel
+            independently.
+
+    Returns:
+        The canonical long frame — see :func:`long_frame`.
+
+    Raises:
+        ValueError: If a non-raw mode is applied to a non-empty channel holding
+            non-numeric values — see :func:`reject_non_numeric`.
+    """
+    return long_frame({channel: aggregate_series(s, resolved) for channel, s in series.items()})

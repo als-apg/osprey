@@ -134,9 +134,8 @@ elif _data_path.endswith('.json'):
             # artifact) is tolerated the same way the chart downsampler and
             # the artifacts-app table pivot already tolerate it.
             if len(_timestamps) != len(_values):
-                _paired = list(zip(_timestamps, _values, strict=False))
-                _timestamps = [_t for _t, _ in _paired]
-                _values = [_v for _, _v in _paired]
+                _shared = min(len(_timestamps), len(_values))
+                _timestamps, _values = _timestamps[:_shared], _values[:_shared]
             # utc=True: an empty channel (always present for every requested
             # channel per archiver_read's contract) yields a tz-naive empty
             # index from pd.to_datetime([]), while a populated channel yields

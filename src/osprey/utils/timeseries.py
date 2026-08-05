@@ -133,11 +133,6 @@ def extract_channel_series(raw: dict) -> tuple[dict[str, dict], dict]:
     return series, query
 
 
-def _is_numeric_sample(value: object) -> bool:
-    """True for ``None`` or an int/float sample; False for an enum/status string."""
-    return value is None or isinstance(value, int | float)
-
-
 def is_numeric_channel(values: list) -> bool:
     """True if every value in a channel's series is numeric (``None`` counts as numeric).
 
@@ -152,7 +147,10 @@ def is_numeric_channel(values: list) -> bool:
     Returns:
         True if the channel is numeric (safe for LTTB), False otherwise.
     """
-    return all(_is_numeric_sample(v) for v in values)
+    # `None` counts as numeric: it is a gap marker (archiver disconnect / IOC
+    # reboot), not an enum/status value, and LTTB zero-fills it for the area math
+    # while preserving it in the output.
+    return all(v is None or isinstance(v, int | float) for v in values)
 
 
 def _even_subsample(timestamps: list, values: list, max_points: int) -> tuple[list, list]:
@@ -171,7 +169,9 @@ def _even_subsample(timestamps: list, values: list, max_points: int) -> tuple[li
     return [timestamps[i] for i in selected], [values[i] for i in selected]
 
 
-def lttb_downsample_channel(timestamps: list, values: list, max_points: int) -> tuple[list, list]:
+def lttb_downsample_channel(
+    timestamps: list, values: list, max_points: int, numeric: bool | None = None
+) -> tuple[list, list]:
     """Largest-Triangle-Three-Buckets downsampling for a single channel.
 
     Each channel carries its own timestamps, independent of every other
@@ -193,33 +193,91 @@ def lttb_downsample_channel(timestamps: list, values: list, max_points: int) -> 
 
     A channel whose ``timestamps``/``values`` lengths differ (a malformed
     artifact, not the expected shape) is tolerated the same way
-    ``_pivot_channel_series_to_table`` already tolerates it: pairs are built
-    with ``zip(..., strict=False)``, so the mismatch never crashes the
-    caller. Without this, real LTTB's helper arrays are built from
-    ``values`` while its bucket loop walks ``range(len(timestamps))``, so a
-    shorter ``values`` raises ``IndexError`` once the point count exceeds
-    ``max_points``.
+    ``_pivot_channel_series_to_table`` already tolerates it: both are truncated
+    to the shorter length, so the mismatch never crashes the caller. Without
+    this, real LTTB's helper arrays are built from ``values`` while its bucket
+    loop walks ``range(len(timestamps))``, so a shorter ``values`` raises
+    ``IndexError`` once the point count exceeds ``max_points``.
 
     Args:
         timestamps: This channel's own timestamps, ascending.
         values: This channel's own values, one per timestamp -- numeric,
             ``None``, or non-numeric strings (enum/status channels).
         max_points: Maximum number of points to return.
+        numeric: Whether this channel is numeric, if the caller already knows.
+            Callers that report a channel's dtype alongside its samples have
+            already paid for :func:`is_numeric_channel`; passing the answer in
+            keeps this from walking every value a second time. ``None`` means
+            "work it out", which is what a caller that does not report dtype
+            wants.
 
     Returns:
         Tuple of (downsampled_timestamps, downsampled_values).
     """
     if len(values) != len(timestamps):
-        paired = list(zip(timestamps, values, strict=False))
-        timestamps = [ts for ts, _ in paired]
-        values = [v for _, v in paired]
+        shared = min(len(timestamps), len(values))
+        timestamps, values = timestamps[:shared], values[:shared]
 
     n = len(timestamps)
     if n <= max_points or max_points < 3:
         return timestamps, values
 
-    if not is_numeric_channel(values):
+    if not (is_numeric_channel(values) if numeric is None else numeric):
         return _even_subsample(timestamps, values, max_points)
 
     selected = _lttb_select_indices(values, max_points)
     return [timestamps[i] for i in selected], [values[i] for i in selected]
+
+
+def downsample_channel_map(
+    series: dict[str, dict], max_points: int, channels: list[str] | None = None
+) -> list[dict]:
+    """Downsample each requested channel and report what that cost it.
+
+    The shared body of every "give me a plottable version of this artifact"
+    endpoint: pick the channels, reduce each one, and say how many points it
+    started with, how many came back, and whether it is numeric. Callers rename
+    these into their own published field names -- the artifacts web API and the
+    ``archiver_downsample`` MCP tool each have their own wire vocabulary -- but
+    none of them re-derive the numbers.
+
+    Deciding ``numeric`` here rather than in each caller is also what keeps the
+    channel from being walked twice: :func:`lttb_downsample_channel` needs the
+    same answer internally, and takes it as an argument rather than recomputing
+    it.
+
+    Args:
+        series: Per-channel series as returned by :func:`extract_channel_series`.
+        max_points: Maximum points to return per channel.
+        channels: Optional subset to keep, in the caller's requested order.
+            ``None`` keeps every channel in the series' own order. Names not
+            present in ``series`` are dropped, so an empty result means nothing
+            requested matched.
+
+    Returns:
+        One record per selected channel, in selection order, with keys
+        ``channel``, ``timestamps``, ``values``, ``original_points``,
+        ``returned_points`` and ``numeric``.
+    """
+    selected = list(series) if channels is None else [c for c in channels if c in series]
+
+    records = []
+    for channel in selected:
+        channel_series = series[channel]
+        timestamps = channel_series.get("timestamps", [])
+        values = channel_series.get("values", [])
+        numeric = is_numeric_channel(values)
+        ds_timestamps, ds_values = lttb_downsample_channel(
+            timestamps, values, max_points, numeric=numeric
+        )
+        records.append(
+            {
+                "channel": channel,
+                "timestamps": ds_timestamps,
+                "values": ds_values,
+                "original_points": len(timestamps),
+                "returned_points": len(ds_timestamps),
+                "numeric": numeric,
+            }
+        )
+    return records

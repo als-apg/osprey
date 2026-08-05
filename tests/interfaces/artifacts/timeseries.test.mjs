@@ -56,21 +56,41 @@ function makeChartChannel(overrides = {}) {
     timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
     values: [1.0, 1.5],
     total_points: 2,
-    downsampled: false,
     returned_points: 2,
     numeric: true,
     ...overrides,
   };
 }
 
+/**
+ * The `summary` block app.py's chart branch derives from its channels. Built
+ * here the same way the server builds it so a test that overrides `channels`
+ * gets totals that agree with them, rather than a hand-written pair that can
+ * quietly contradict the fixture it describes. `row_count` is the one field
+ * with no client-side equivalent -- it counts the *unioned* timestamp axis, so
+ * it defaults to the fixture's shared two-timestamp axis and is overridden
+ * explicitly by tests that care.
+ */
+function makeChartSummary(channels, overrides = {}) {
+  return {
+    total_points: channels.reduce((sum, ch) => sum + ch.total_points, 0),
+    returned_points: channels.reduce((sum, ch) => sum + ch.returned_points, 0),
+    downsampled: channels.some((ch) => ch.returned_points < ch.total_points),
+    row_count: 2,
+    ...overrides,
+  };
+}
+
 /** Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`). */
 function makeChartData(overrides = {}) {
+  const channels = overrides.channels ?? [
+    makeChartChannel({ channel: 'SR:MAG:QF1:I', values: [1.0, 1.5] }),
+    makeChartChannel({ channel: 'SR:MAG:QF2:I', values: [2.0, 2.5] }),
+  ];
   return {
-    channels: [
-      makeChartChannel({ channel: 'SR:MAG:QF1:I', values: [1.0, 1.5] }),
-      makeChartChannel({ channel: 'SR:MAG:QF2:I', values: [2.0, 2.5] }),
-    ],
+    channels,
     metadata: {},
+    summary: makeChartSummary(channels),
     ...overrides,
   };
 }
@@ -158,6 +178,7 @@ beforeEach(() => {
     newPlot: vi.fn((el) => { el.data = []; }),
     restyle: vi.fn(),
     relayout: vi.fn(),
+    update: vi.fn(),
   });
   stubScriptLoad();
 });
@@ -240,17 +261,6 @@ describe('renderTimeseriesView', () => {
     expect(qs(container, '.ts-badge-rows').textContent).toContain('7');
   });
 
-  test('falls back to summing channels when the server sends no summary', async () => {
-    // Older artifacts (and any response predating the `summary` field) must
-    // still render totals rather than showing a blank or NaN badge.
-    stubFetchRouting();
-
-    await renderTimeseriesView(container, { id: 'ts1' });
-
-    expect(qs(container, '.ts-badge-points').textContent).toContain('4');
-    expect(container.querySelector('.ts-badge-rows')).toBeNull();
-  });
-
   test('shows a loading placeholder, then the info bar, toolbar, chart, and table containers on success', async () => {
     stubFetchRouting();
 
@@ -261,9 +271,9 @@ describe('renderTimeseriesView', () => {
 
     expect(container.querySelector('.ts-info-bar')).not.toBeNull();
     expect(container.querySelectorAll('.ts-badge-channel').length).toBe(2);
-    // The row-count badge is no longer a shared `total_rows` (that key no
-    // longer exists in the response) -- it's now the sum of each channel's
-    // own `total_points`. Default fixture: two channels, 2 points each = 4.
+    // The points badge is the server's `summary.total_points`, which sums each
+    // channel's own `total_points`. Default fixture: two channels, 2 points
+    // each = 4.
     expect(qs(container, '.ts-badge-points').textContent).toContain('4');
     expect(container.querySelector('[data-ts-chart]')).not.toBeNull();
     expect(container.querySelector('[data-ts-table]')).not.toBeNull();
@@ -278,13 +288,15 @@ describe('renderTimeseriesView', () => {
   });
 
   test('shows a downsampled badge only when at least one channel reports downsampling, summed across channels', async () => {
+    // Only channel A came back shorter than it started; the badge must still
+    // appear, and must report the sum across both channels.
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
         json: () => Promise.resolve(makeChartData({
           channels: [
-            makeChartChannel({ channel: 'A', downsampled: true, returned_points: 500, total_points: 5000 }),
-            makeChartChannel({ channel: 'B', downsampled: false, returned_points: 2, total_points: 2 }),
+            makeChartChannel({ channel: 'A', returned_points: 500, total_points: 5000 }),
+            makeChartChannel({ channel: 'B', returned_points: 2, total_points: 2 }),
           ],
         })),
       }),
@@ -462,7 +474,7 @@ describe('renderTimeseriesView', () => {
       expect(toggles[1].getAttribute('aria-pressed')).toBe('true');
     });
 
-    test('clicking a channel button hides it and calls Plotly.restyle with the updated visibility mask', async () => {
+    test('clicking a channel button hides it and calls Plotly.update with the updated visibility mask', async () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
@@ -472,7 +484,7 @@ describe('renderTimeseriesView', () => {
       toggles[0].click();
 
       expect(toggles[0].classList.contains('ts-ch-off')).toBe(true);
-      expect(Plotly.restyle).toHaveBeenCalledWith(chartEl, { visible: [false, true] });
+      expect(Plotly.update).toHaveBeenCalledWith(chartEl, { visible: [false, true] }, {});
     });
 
     test('refuses to hide the last visible channel', async () => {
@@ -481,12 +493,12 @@ describe('renderTimeseriesView', () => {
 
       const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
       toggles[0].click(); // hide channel 1, leaving channel 2 visible
-      Plotly.restyle.mockClear();
+      Plotly.update.mockClear();
 
       toggles[1].click(); // attempt to hide the only remaining visible channel
 
       expect(toggles[1].classList.contains('ts-ch-off')).toBe(false);
-      expect(Plotly.restyle).not.toHaveBeenCalled();
+      expect(Plotly.update).not.toHaveBeenCalled();
     });
 
     test('re-clicking a hidden channel shows it again', async () => {
@@ -498,7 +510,7 @@ describe('renderTimeseriesView', () => {
       toggles[0].click(); // show again
 
       expect(toggles[0].classList.contains('ts-ch-off')).toBe(false);
-      expect(Plotly.restyle).toHaveBeenLastCalledWith(expect.anything(), { visible: [true, true] });
+      expect(Plotly.update).toHaveBeenLastCalledWith(expect.anything(), { visible: [true, true] }, {});
     });
 
     test('toggles are keyed by channel name (data-ch-name), not by a column index', async () => {
@@ -527,7 +539,7 @@ describe('renderTimeseriesView', () => {
       const chartEl = container.querySelector('[data-ts-chart]');
       /** @type {HTMLElement} */ (toggles[1]).click(); // hide the middle channel, by name
 
-      expect(Plotly.restyle).toHaveBeenCalledWith(chartEl, { visible: [true, false, true] });
+      expect(Plotly.update).toHaveBeenCalledWith(chartEl, { visible: [true, false, true] }, {});
     });
 
     test('hiding the only visible non-numeric channel hides its secondary axis; showing it again restores it', async () => {
@@ -554,11 +566,17 @@ describe('renderTimeseriesView', () => {
 
       // Otherwise an empty category yaxis2 is left sitting on the right with
       // nothing plotted against it.
-      expect(Plotly.relayout).toHaveBeenLastCalledWith(chartEl, { 'yaxis2.visible': false });
+      // One call, not a restyle followed by a relayout: the trace and layout
+      // deltas are applied together so a toggle costs a single redraw.
+      expect(Plotly.update).toHaveBeenLastCalledWith(
+        chartEl, { visible: [true, false] }, { 'yaxis2.visible': false }
+      );
 
       enumToggle.click(); // show it again
 
-      expect(Plotly.relayout).toHaveBeenLastCalledWith(chartEl, { 'yaxis2.visible': true });
+      expect(Plotly.update).toHaveBeenLastCalledWith(
+        chartEl, { visible: [true, true] }, { 'yaxis2.visible': true }
+      );
     });
 
     test('does not touch yaxis2 visibility when no channel is non-numeric', async () => {
@@ -569,6 +587,9 @@ describe('renderTimeseriesView', () => {
       toggles[0].click();
 
       expect(Plotly.relayout).not.toHaveBeenCalled();
+      // The layout half of the combined update is empty, so nothing about
+      // yaxis2 is asserted on a chart that has no secondary axis at all.
+      expect(Plotly.update).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), {});
     });
   });
 
@@ -1069,7 +1090,7 @@ describe('renderTimeseriesTable', () => {
     // now carries the very column list its rows were built from.
     stubTableFetch({ columns: ['FRESH:A', 'FRESH:B'] });
 
-    await renderTimeseriesTable(el, 'ts1', ['STALE:A', 'STALE:B'], 0);
+    await renderTimeseriesTable(el, 'ts1', 0);
 
     const headers = Array.from(el.querySelectorAll('thead th')).map((th) => th.textContent);
     expect(headers).toEqual(['Index', 'FRESH:A', 'FRESH:B']);
@@ -1078,7 +1099,7 @@ describe('renderTimeseriesTable', () => {
   test('renders a header row and one data row per index entry, from fixture series', async () => {
     stubTableFetch();
 
-    await renderTimeseriesTable(el, 'ts1', ['SR:MAG:QF1:I', 'SR:MAG:QF2:I'], 0);
+    await renderTimeseriesTable(el, 'ts1', 0);
 
     const headers = Array.from(el.querySelectorAll('thead th')).map((th) => th.textContent);
     expect(headers).toEqual(['Index', 'SR:MAG:QF1:I', 'SR:MAG:QF2:I']);
@@ -1098,7 +1119,7 @@ describe('renderTimeseriesTable', () => {
   test('renders null values as "--" rather than the string "null"', async () => {
     stubTableFetch({ data: [[null, 2.0]], index: ['2026-07-01T00:00:00Z'] });
 
-    await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
+    await renderTimeseriesTable(el, 'ts1', 0);
 
     const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent);
     expect(cells[1]).toBe('--');
@@ -1113,7 +1134,7 @@ describe('renderTimeseriesTable', () => {
         data: [[null, 0, 1.23456789]],
       });
 
-      await renderTimeseriesTable(el, 'ts1', ['a', 'b', 'c'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
       expect(cells).toEqual(['--', '0', '1.2346']);
@@ -1126,7 +1147,7 @@ describe('renderTimeseriesTable', () => {
         data: [[1e7, 0.000123]],
       });
 
-      await renderTimeseriesTable(el, 'ts1', ['big', 'tiny'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
       expect(cells).toEqual([(1e7).toExponential(3), (0.000123).toExponential(3)]);
@@ -1139,7 +1160,7 @@ describe('renderTimeseriesTable', () => {
         data: [['not-a-number', NaN]],
       });
 
-      await renderTimeseriesTable(el, 'ts1', ['s', 'n'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
       expect(cells).toEqual(['not-a-number', 'NaN']);
@@ -1154,7 +1175,7 @@ describe('renderTimeseriesTable', () => {
         data: [[1.0]],
       });
 
-      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       const indexCellText = qs(el, '.ts-index-cell').textContent;
       // Locale-dependent exact rendering -- assert shape, not an exact string.
@@ -1171,7 +1192,7 @@ describe('renderTimeseriesTable', () => {
         data: [[1.0], [2.0], [3.0]],
       });
 
-      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       const cells = Array.from(el.querySelectorAll('.ts-index-cell')).map((c) => c.textContent);
       // new Date(null) is epoch 0 and new Date('0') parses as year 2000 --
@@ -1186,7 +1207,7 @@ describe('renderTimeseriesTable', () => {
         data: [[1.0]],
       });
 
-      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       expect(qs(el, '.ts-index-cell').textContent).toBe('not-a-date');
     });
@@ -1202,7 +1223,7 @@ describe('renderTimeseriesTable', () => {
         data: [[XSS_PAYLOAD]],
       });
 
-      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       expect(el.querySelectorAll('img').length).toBe(0);
       expect(el.innerHTML).toContain('&lt;img');
@@ -1218,7 +1239,7 @@ describe('renderTimeseriesTable', () => {
         data: [[1.0]],
       });
 
-      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       expect(el.querySelectorAll('img').length).toBe(0);
       expect(el.innerHTML).toContain('&lt;img');
@@ -1231,7 +1252,7 @@ describe('renderTimeseriesTable', () => {
     test('Prev is disabled at offset 0; Next is disabled once all rows are on the page', async () => {
       stubTableFetch({ total_rows: 2 });
 
-      await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       expect(qs(el, '[data-ts-prev]', HTMLButtonElement).disabled).toBe(true);
       expect(qs(el, '[data-ts-next]', HTMLButtonElement).disabled).toBe(true); // total_rows (2) <= offset(0) + limit(50)
@@ -1241,7 +1262,7 @@ describe('renderTimeseriesTable', () => {
     test('Next is enabled when more rows remain, and clicking it re-fetches at the next offset', async () => {
       const fetchMock = stubTableFetch({ total_rows: 120 });
 
-      await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       const nextBtn = qs(el, '[data-ts-next]', HTMLButtonElement);
       expect(nextBtn.disabled).toBe(false);
@@ -1254,7 +1275,7 @@ describe('renderTimeseriesTable', () => {
     test('Prev clamps to offset 0 rather than going negative', async () => {
       const fetchMock = stubTableFetch({ total_rows: 120, offset: 20 });
 
-      await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 20);
+      await renderTimeseriesTable(el, 'ts1', 20);
       fetchMock.mockClear();
 
       qs(el, '[data-ts-prev]', HTMLButtonElement).click();
@@ -1265,7 +1286,7 @@ describe('renderTimeseriesTable', () => {
   test('on a fetch failure: shows the failure fallback', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
 
-    await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
+    await renderTimeseriesTable(el, 'ts1', 0);
 
     expect(el.textContent).toContain('Failed to load table data');
   });

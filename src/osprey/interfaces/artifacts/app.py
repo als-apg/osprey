@@ -23,9 +23,8 @@ from pydantic import BaseModel
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
 from osprey.utils.timeseries import (
+    downsample_channel_map,
     extract_channel_series,
-    is_numeric_channel,
-    lttb_downsample_channel,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -845,23 +844,17 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         series, query_meta = extract_channel_series(raw)
 
         if format == "chart":
-            channels_out = []
-            for channel, channel_series in series.items():
-                timestamps = channel_series.get("timestamps", [])
-                values = channel_series.get("values", [])
-                total_points = len(timestamps)
-                ds_timestamps, ds_values = lttb_downsample_channel(timestamps, values, max_points)
-                channels_out.append(
-                    {
-                        "channel": channel,
-                        "timestamps": ds_timestamps,
-                        "values": ds_values,
-                        "total_points": total_points,
-                        "downsampled": len(ds_timestamps) < total_points,
-                        "returned_points": len(ds_timestamps),
-                        "numeric": is_numeric_channel(values),
-                    }
-                )
+            channels_out = [
+                {
+                    "channel": record["channel"],
+                    "timestamps": record["timestamps"],
+                    "values": record["values"],
+                    "total_points": record["original_points"],
+                    "returned_points": record["returned_points"],
+                    "numeric": record["numeric"],
+                }
+                for record in downsample_channel_map(series, max_points)
+            ]
             # Cross-channel aggregates belong to whoever knows all the
             # channels. Every client would otherwise re-derive the three sums
             # itself, and none of them can derive `row_count` at all: the
@@ -874,7 +867,13 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 "summary": {
                     "total_points": sum(ch["total_points"] for ch in channels_out),
                     "returned_points": sum(ch["returned_points"] for ch in channels_out),
-                    "downsampled": any(ch["downsampled"] for ch in channels_out),
+                    # Whether a channel was reduced is exactly "it came back
+                    # shorter", so it is derived here rather than published
+                    # per-channel as a second field the client would have to
+                    # keep consistent with the two counts beside it.
+                    "downsampled": any(
+                        ch["returned_points"] < ch["total_points"] for ch in channels_out
+                    ),
                     "row_count": len(_union_timestamp_axis(series)),
                 },
             }
