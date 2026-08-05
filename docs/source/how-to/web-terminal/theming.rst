@@ -1,5 +1,5 @@
 Theming
-=======
+========
 
 Every OSPREY browser interface — the terminal and all of its panels — draws its
 colors and fonts from one shared design system. Pick a theme once and everything
@@ -23,16 +23,21 @@ matches automatically, in light or dark. You can also design your own.
 Choosing a theme
 ----------------
 
-Themes come in **families**. OSPREY ships three:
+Themes come in **families**. OSPREY ships four:
 
 - **osprey** — the default look, in light and dark.
 - **high-contrast** — a stronger-contrast family for accessibility, also in
   light and dark.
 - **apex** — a warm, gold-accented alternative look, also in light and dark.
+- **retro** — the navy-and-teal look of the pre-redesign web terminal,
+  kept for teams who prefer the familiar appearance.
 
-The switcher in the header lets you change family and flip between light and
-dark; it remembers your choice, and an ``auto`` setting follows your operating
-system's light/dark preference.
+In the terminal, click the small round dot at the top right to open the
+display menu — it holds the light/dark switch, the Expert/Simple view toggle,
+and the theme family picker. Panels opened as standalone pages show the same
+theme controls inline in their own header, as pictured below. Your choice is
+remembered, and an ``auto`` setting follows your operating system's light/dark
+preference.
 
 .. grid:: 1 1 2 2
    :gutter: 2
@@ -68,6 +73,45 @@ across reloads.
 
    ``web.theme`` (the browser interfaces) is separate from ``cli.theme`` (the
    colors of OSPREY's plain terminal output). They never affect each other.
+
+Restoring the pre-redesign look
+-------------------------------
+
+Deployments upgrading from the pre-redesign web terminal can bring back the
+familiar appearance with two settings in ``config.yml``:
+
+.. code-block:: yaml
+
+   web:
+     theme: retro            # the original navy/teal palette
+     rail_position: top      # panel buttons along the top, like the old tabs
+
+Each user can still override both from the interface: the theme from the
+theme switcher in the header, and the rail position from the panel "+" menu.
+
+Propose a theme
+---------------
+
+Have a color of your own in mind? Run:
+
+.. code-block:: bash
+
+   osprey theme-lab
+
+That opens the Theme Lab in your browser. Pick an accent color and the dark and
+light mock-ups of the terminal re-skin as you go, while the contrast badges tell
+you at a glance whether text stays readable against it — the same check every
+shipped theme has to pass. When you are happy, give the theme a name, copy the
+export block, and paste it into a GitHub issue. The lab doesn't create the theme
+itself; the export spells out exactly what needs to change to make it real.
+
+A theme has two accents: the main one, and a second used for highlights and
+warnings. Switch between them with the **Accent** / **Second accent** buttons
+above the color wheel — one set of controls edits whichever is selected, and
+both previews update either way. The second accent gets a contrast badge of its
+own, because the build holds it to the stricter body-text standard: it is used
+for readable text, where the main accent mostly is not. If that badge goes red,
+drag the lightness slider for the mode it failed in until it clears.
 
 .. dropdown:: Going deeper — the design system
    :icon: paintbrush

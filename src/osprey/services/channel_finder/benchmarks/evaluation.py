@@ -128,7 +128,7 @@ def llm_judge_coverage(response_text: str, expected: list[str]) -> tuple[list[st
             provider = "als-apg"
             api_key = als_apg_key
             model_id = "claude-haiku-4-5-20251001"
-            base_url = "https://llm.gianlucamartino.com"
+            base_url = os.environ.get("ALS_APG_BASE_URL", "https://llm.gianlucamartino.com")
         else:
             cborg_key = os.environ.get("CBORG_API_KEY")
             auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN")

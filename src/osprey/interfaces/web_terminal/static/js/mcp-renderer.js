@@ -18,8 +18,8 @@
  */
 
 import { el as _el } from '/design-system/js/dom.js';
-import { withPrefix } from './api.js';
 import { _section } from './config-render-helpers.js';
+import { fetchJSON } from './api.js';
 
 /**
  * @typedef {Object} McpServerSpec
@@ -189,10 +189,7 @@ function _clearChildren(el) {
  * @param {Record<string, HTMLElement>} cardMap
  */
 function _fetchAndEnrichCards(cardMap) {
-  // Prefix-aware so this reaches the container under /u/<user>/ in
-  // multi-user deployments.
-  fetch(withPrefix('/api/mcp-servers'))
-    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+  fetchJSON('/api/mcp-servers') // prefix-aware
     .then(servers => {
       for (const server of servers) {
         const card = cardMap[server.name];
@@ -328,8 +325,8 @@ function _fetchAndEnrichCards(cardMap) {
  * Parse a Google-style docstring into summary, args, and returns.
  *
  * Exported (despite the underscore) for direct unit testing (see
- * mcp-renderer.test.mjs) -- same convention config-renderers.js already
- * uses for `_section`/`_groupPermissions`/`_countHooks`.
+ * mcp-renderer.test.mjs) -- same convention config-render-helpers.js
+ * already uses for `_section`/`_groupPermissions`/`_renderHookEvents`.
  *
  * @param {string} desc
  * @returns {{summary: string, args: ParsedToolArg[], returns: string}}

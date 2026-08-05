@@ -45,7 +45,7 @@ _PROFILE_YAML = """\
 name: NcBridgeTest
 data_bundle: hello_world
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku
 dispatch:
   triggers: triggers.yml
 {nextcloud_bridge}
@@ -402,7 +402,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     profile_dir.mkdir()
     (profile_dir / "profile.yml").write_text(
         "name: NcNoDispatch\ndata_bundle: hello_world\nprovider: anthropic\n"
-        "model: claude-haiku-4-5\nnextcloud_bridge: {}\n",
+        "model: haiku\nnextcloud_bridge: {}\n",
         encoding="utf-8",
     )
     with caplog.at_level(logging.ERROR):

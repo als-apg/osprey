@@ -11,7 +11,37 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Changed
+
+- Custom artifact-gallery categories moved from the top-level `categories`
+  key into the `artifact_server:` block (`artifact_server.categories`), in
+  both build profiles and rendered config.yml — the bare name was ambiguous
+  next to unrelated notions like `health.categories`. No alias: the old key
+  is no longer read. The profile-side block also accepts `host`/`port`/
+  `auto_launch` overrides for the gallery server. Emitted profiles now
+  include commented guidance for adding facility `mcp_servers:` and
+  `artifact_server.categories`.
+- `osprey build --emit-profile` now writes a fully explicit, standalone
+  `profile.yml`: the preset's resolved configuration (including any `extends`
+  chain) is materialized with its comments preserved, instead of a sparse
+  profile referencing the preset via `extends:`. It also accepts `--set` and
+  `-O/--override`, applying the values in place — a validated build one-liner
+  carries straight into an editable facility profile.
+
+### Fixed
+
+- `osprey build` now fails with an actionable error when
+  `claude_code.default_model` (e.g. `--set model=...`) names a model the
+  selected provider does not serve. Previously the build only warned and the
+  deployed web terminals crash-looped behind the reverse proxy (502).
+
 ### Added
+
+- DOOCS facilities can now select their connectors by name: `control_system.type:
+  doocs` and `archiver.type: doocs_archiver`, in `config.yml`, through `osprey
+  config set-control-system doocs`, or from the interactive config menu.
+  Previously the connectors shipped but were reachable only by spelling out their
+  dotted class paths. Both still require `doocs4py` from the DOOCS environment.
 
 - New `osprey.bridges.core` package: a channel-agnostic engine for connecting a
   chat or email channel to the OSPREY dispatcher/worker pair as its own process.
@@ -65,9 +95,27 @@ Compatibility is documented in release notes, not encoded in the version string.
   and a key that was retired cannot come back in a template, a preset override,
   or the loader's defaults. Contributors can run it from a checkout with
   `uv run python scripts/check_config_keys.py`.
+- `osprey theme-lab` opens a browser workbench for designing a theme: pick its
+  two accent colors — the main one and the second used for highlights and
+  warnings — see them previewed live in dark and light with contrast badges,
+  then copy an export block describing the theme to request it. One set of
+  controls edits whichever accent is selected. The second accent carries a
+  contrast badge of its own, because the build holds it to the stricter
+  body-text standard the main accent is not held to.
 
 ### Changed
 
+- The event dispatcher panel is rebuilt around two tabs — Activity and
+  Triggers — instead of five surfaces competing for the same screen. There is
+  one place to fire a trigger, one trigger list, and one operator (Simple)
+  view. Three long-standing faults go with it: timeline marks now sit at their
+  actual times (every mark previously rendered at the left edge, so a quiet
+  trigger looked the same as a busy one), an open transcript survives the
+  three-second refresh instead of collapsing what you had expanded, and write
+  actions no longer pop a token prompt inside the embedded panel. A run now
+  also links to the trigger that started it and, where a telemetry store is
+  deployed, to that run's own records — each link appearing only when there is
+  something real to open.
 - Raised minimum versions for `aiofiles`, `click`, `fastapi`, `httpx`,
   `matplotlib`, `mss`, `playwright`, `requests`, and `typing_extensions`, and
   regenerated `uv.lock` to match.
@@ -78,6 +126,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   resolved config is published to child processes (including the `--reload`
   worker), and a detached server's command line always carries `--project` so
   a copied restart cannot lose the project identity.
+- Every draggable divider in the web terminal now looks and behaves the same.
+  Panes sit flush against each other with the grip attached to the pane edge
+  (previously the workspace gallery and the plan panel floated their panes in a
+  gutter), every divider can be moved with Arrow keys as well as the pointer,
+  and double-clicking one collapses that pane and restores it to the width or
+  height you had. The lattice dashboard's control sidebar, which could only be
+  collapsed, can now be resized too.
 - `osprey deploy --dev` now fails with a clear error when the local osprey wheel
   cannot be built, instead of warning and deploying the pinned PyPI release.
   Previously a missing `build` package (or a broken local checkout) produced one
@@ -142,6 +197,27 @@ Compatibility is documented in release notes, not encoded in the version string.
   test must declare its lane (gated per matrix cell and in CI); 19 non-LLM e2e
   files moved to the matrix exclusion list. The `e2e_benchmark` marker was
   renamed to `channel_finder_benchmark` to say what it actually covers.
+- Web terminal header: the Expert/Simple toggle and theme controls are collapsed
+  into a single display-menu dot that opens a popover with appearance
+  (light/dark), view, and theme-family pickers. The header's search box and the
+  display menu — System Settings included — now look and behave the same in both
+  Expert and Simple, so nothing in the top-right corner moves when you switch
+  view; the standalone "?" button is gone (the safety guide is still one search
+  away). The popover also stays open while you switch appearance, theme, or
+  view, so you can flip back and forth without reopening it.
+- The default theme family is now named **main** (it was `osprey`): use
+  `web.theme: main`.
+- Workspace gallery browser: the three stacked header rows (title/count bar,
+  type filter chips, controls row) are collapsed into a single toolbar —
+  filter input, Types/Activity toggle, and a `⋯` menu holding the rare
+  actions (all-sessions scope, refresh, layout). The all-sessions scope shows
+  as a dismissible pill above the list while active, and pinned artifacts are
+  promoted into a "Pinned" section at the top of the type tree.
+- The **high-contrast** family is now fully monochrome — pure black and white,
+  with status, diffs, chart series and terminal colors separating by brightness
+  instead of hue. It was previously a high-contrast variant of the pre-redesign
+  palette, and still meets the same WCAG AAA gates.
+
 - A config that does not say which control system it talks to now gets the mock
   connector instead of EPICS, with a warning naming `control_system.type`. The
   same rule applies to the archiver: a missing or blank `archiver.type` resolves
@@ -249,7 +325,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   `control_system.patterns` overrides rather than extends the built-in patterns,
   and what `control_system.write_tools` covers.
 
+
 ### Removed
+
+- The `apex` theme family.
 
 - Configuration keys that nothing read are retired — from the shipped templates
   and presets, and from the framework's own config classes and loader:
@@ -278,8 +357,22 @@ Compatibility is documented in release notes, not encoded in the version string.
   no longer carries a `TZ` line detected from the host — the facility timezone
   is `system.timezone` in `config.yml`.
 
+
 ### Fixed
 
+- Dragging the horizontal dividers in the events panel no longer lags behind the
+  pointer. The timeline pane animated the same height the drag was setting, so it
+  eased toward a target the cursor had already left and trailed by up to 85
+  pixels for the whole gesture.
+- `osprey build` no longer aborts partway through creating a project's virtual
+  environment on a slow connection. Installing osprey's dependencies was capped
+  at five minutes, which a first-time download can exceed, and the build stopped
+  with an unexplained "Unexpected error". The limit is now generous enough for a
+  full download, and if it is ever reached the message names the install as the
+  step that ran long and suggests what to try.
+- Dispatched runs that delegate to a subagent now wait for the delegated work
+  and return the full answer. Previously the reply could stop at "the agent is
+  searching, I'll notify you when it completes" and nothing further arrived.
 - `osprey web --project <dir>` launched from outside the project now behaves the
   same as running `osprey web` inside it. Previously the flag only set the
   terminal's working directory, so the project's `.env` was never loaded
@@ -347,11 +440,22 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The shipped control-assistant simulation data now produces organic BPM and
   corrector-readback signals instead of flat lines, and corrector channels gained
   the symmetric upper current limit their lower limit implied.
+- Workspace gallery: the Simple view's result card now shows every artifact type
+  the Expert preview does. Markdown, JSON, plain text, PDFs and archiver
+  timeseries previously appeared there as a type icon or a raw summary dump —
+  which covered channel-finder results and the agent's own written answers, since
+  those are saved as markdown or JSON. Both views now render through one shared
+  renderer, so no type can display in one view and not the other.
 
 ### Added
 
+- Web terminal: the panel rail can now sit along the top (`web.rail_position: top` or the panel "+" menu).
+- Web terminal: new `retro` theme family restoring the pre-redesign look (`web.theme: retro`) — the navy/teal palette, the CRT treatment, and the horizontal tab bar. Setting `web.rail_position` explicitly still pins the rail in every theme.
+- A `demo-ui` skill runs short scripted demonstrations of the agent driving the web workspace: a panel tour, an artifact hand-off, and a layout switch, individually or back to back. It reads the live panel inventory rather than assuming a fixed tab set, and restores the starting layout when it finishes.
+- The web terminal's Simple mode now starts as a clean chat-first experience: with an empty agent workspace the page shows only the chat, and the WORKSPACE panel appears the moment the agent shares its first artifact (`show_panel`); a workspace that already holds artifacts opens as before. The OSPREY agent is told at session start which surface it serves — Simple sessions are instructed to bring up the WORKSPACE panel whenever they produce something the operator should see.
 - A `channel-finder-standalone` preset packages OSPREY's natural-language channel/PV address finder — the channel-finder pipeline plus its interactive CHANNELS web panel — as a standalone, read-only deployment with no control-system stack, archiver, logbook, or Python executor. It ships a bundled demo hierarchical database so it runs out of the box; `channel_finder_mode` selects the `in_context`, `hierarchical`, or `middle_layer` pipeline.
 - The control-assistant preset now ships the KNOWLEDGE panel, a browser for the project's facility knowledge bundle. Existing projects gain the tab by adding `okf` to `web_panels` and rebuilding.
+- Agent actions are now highlighted live in the web terminal: the plan panel follows the OSPREY agent's drafts (with a banner instead of a switch when you have unsaved edits), panels the agent touches glow and carry an attention badge on the panel rail until you open them, and backend actions — channel writes, run launches — appear briefly in the status-bar activity strip.
 - Explicit `--set provider=` / `--set model=` / `--set channel_finder_mode=` build overrides now propagate to the persona projects that multi-user deploys auto-render: the manifest records which of these keys were explicitly passed, and `osprey deploy up` forwards them to each persona's `osprey build` — so one override at build time retints the whole stack. Preset defaults are never forwarded, keeping per-persona provider customization intact.
 - Broad unit-test coverage for previously untested modules across services (migration engine, channel-finder data layer and tools, python-executor sandbox plumbing), interfaces (lattice-dashboard physics workers, web-terminal file/chat/scaffold routes incl. the path-traversal guard), CLI menus, MCP servers, registry loader/export, deployment, template hooks, and utilities.
 - A bluesky scan plan can now be hidden from the agent without turning off the whole scan server. Set `bluesky.excluded_plans` on the profile of the project that deploys the bridge; the deploy render carries it into the bridge as the `BLUESKY_EXCLUDED_PLANS` environment variable. An excluded plan is both absent from the agent's plan list and non-runnable — it cannot be staged or launched by name. The bare config key is a local/development convenience; the environment variable is the production channel.
@@ -409,10 +513,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 - **Design token scales** — type, font weight, line-height, spacing, radius, z-index, and duration are now generated CSS variables (`--text-*`, `--weight-*`, `--leading-*`, `--space-*`, `--radius-*`, `--z-*`, `--duration-*`) alongside the existing color and font tokens, with a hygiene check enforcing zero bare scale literals in migrated interfaces. The Web Terminal and design-system CSS are fully migrated onto them. A live, runtime-enumerated token reference page is served at `/design-system/reference.html` in every interface; see `src/osprey/interfaces/design_system/DESIGN.md` for the designer-facing contract.
 - Themes are now grouped into **families** — a family is a `{light, dark}` pair. Alongside the existing `osprey` family, a new WCAG-AAA `high-contrast` family ships out of the box. The theme switcher now picks a family, and toggling light/dark stays within the active family. A new `web.theme` key under `config.yml`'s `web:` section sets the default family (or a specific theme) the Web Terminal server-renders on first paint, independent of the CLI's own `cli.theme`. See the "Theming" how-to for authoring a new theme or family.
 - A new **`apex`** theme family — a warm, gold-forward skin with softer slate dark surfaces and an Instrument Serif / IBM Plex Sans typographic pairing — ships alongside `osprey` and `high-contrast`, selectable from the theme switcher. The product default theme is now pinned explicitly via `$extensions.default`, so adding a theme whose filename sorts ahead of the default can no longer change which theme the interfaces boot into.
+- **Web Terminal UI modes** — a new `web.ui_mode` key under `config.yml`'s `web:` section chooses the interface density the terminal server-renders on first paint: `expert` (default) shows the full operator shell; `simple` shows a pared-down shell for lighter-weight use. An operator can override per session with a `?mode=expert|simple` URL parameter or the in-app header toggle (remembered across reloads); an unknown value falls back to `expert`. Every panel follows the mode live — Workspace, ARIEL, Channels, Lattice, Knowledge, the Events dashboard, and the Bluesky scan panels each ship a simple variant (one primary surface, plain-language cards, expert-only chrome hidden) alongside their unchanged expert view.
+- **Simple-mode operator chat** — in Simple UI mode the Web Terminal's terminal card becomes a minimal chat: you type a prompt and the OSPREY agent's reply streams back, with a one-line activity indicator while it works. Conversations are multi-turn for the life of the page (a reload starts a fresh one; chat history is not persisted); Expert mode keeps the full interactive terminal. Three `web` keys bound the chat pool — `chat_turn_timeout_s` (600), `chat_idle_timeout_s` (1800), and `chat_max_sessions` (5). See the "Operate" how-to.
+- **Rearrangeable Web Terminal workspace** — in Expert mode the fixed panel/terminal split is now a docking workspace of tiles, one panel per tile. The icon rail is the workspace's tab system: clicking a panel switches the focused tile to it (the replaced panel dims on the rail, one click from coming back), clicking a panel that is already open jumps to its tile, and the "+" menu opens a panel in a new tile beside the active one. Drag any tile (or the terminal card) into side-by-side splits; drops that would stack panels as tabs inside one tile are rejected. Your arrangement is saved per project and restored on reload, and "Reset layout" returns to the default. Simple mode stays a fixed, locked layout with a single panel tile, and agent-driven panel changes still apply in either mode.
 - **Panel authoring standard** — a panel is a directory bundling a themed, token-only HTML entry point plus a `manifest.json`. Author one from the reference panel, then check it against the panel validator (`assert_valid_panel`), which verifies the manifest schema, the pre-paint theme boot and token stylesheet, and that no raw hex colors bypass the design tokens. The new `creating-an-osprey-panel` skill (`osprey skills install creating-an-osprey-panel`) is the guided path, and the "Panels" how-to documents the contract.
 - **Local panel discovery** — drop a compliant panel bundle under `<project>/panels/` and, with `web.allow_runtime_panels: true` (off by default), the Web Terminal discovers it on startup and serves it same-origin at `/panel-static/<id>/`. Discovery is fail-closed: a malformed or non-compliant bundle is skipped and logged, never served, and never affects the other panels. See the "Panels" how-to. Note: the Web Terminal has no application-level authentication yet — enabling this trusts the panels made available to the terminal; first-class auth is a tracked follow-up.
 - Dev/CI-only front-end JavaScript toolchain — `npm run typecheck` (`tsc --noEmit`) and `npm run test:js` (Vitest), enforced by a CI job; JS files opt into type-checking with a `// @ts-check` comment. Not needed to install or run OSPREY.
 - Dev/CI-only Python-Playwright browser-test foundation under `tests/interfaces/` — a shared server/browser conftest plus an `assert_page_loads_clean` helper and a per-interface "loads clean in a real browser" smoke over all six web interfaces (`-m browser`), wired into the existing theming CI job. Skips cleanly when Chromium is absent; not needed to install or run OSPREY.
+- Dev-only contact-sheet renderer (`python -m docs.screenshots.contact_sheet --out DIR`) — boots the real Web Terminal in every theme × UI-mode variant against a pre-seeded demo workspace (no live agent, provider, or hardware), then every supported panel standalone in the same 2×2 matrix, and composes one self-contained `contact-sheet.html` for reviewing a redesign at a glance; `--accents` renders each hub variant under both accent candidates for an A/B decision. A capture/review tool only — nothing it produces is committed or CI-gated. See the contributing guide.
 - **Native Phoebus control panels** — an optional `phoebus` MCP server lets the agent perceive a running [Phoebus](https://control-system-studio.readthedocs.io/) panel's widget tree, snapshot widgets, and drive controls (driving is approval-gated, like any hardware write). Off by default; enable with `claude_code.servers.phoebus.enabled: true` and configure the bridge and named panels via the `phoebus.*` config keys (see the build-deploy config schema). The Phoebus agent bridge itself is a facility build, not part of OSPREY.
 - **KNOWLEDGE web panel** — a read-only browser panel over a facility-knowledge (OKF) bundle: concept tree, markdown reader, substring search, and a bundle-health summary, served as the `KNOWLEDGE` tab in the Web Terminal (the `okf` builtin panel). Reads the bundle configured at `facility_knowledge.bundle_path`.
 - **Multi-turn agent sessions** — `agent_session(...)` holds one agent conversation open across several turns so a caller can decide each message from the agent's previous reply, with per-turn and cumulative cost tracking and a session-wide budget; `run_turns(...)` is a convenience for a fixed prompt sequence. The single-turn `osprey query` path (`run_query`) is unchanged and now shares the same provider-routing and stream-parsing code.
@@ -460,6 +568,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Dependency floors raised — `bokeh`, `gspread`, `watchdog`, `questionary`, `pillow`, `openai`, `scipy`, `bluesky`, `sphinx`, `docker`, `duckdb`, `idna`, `nltk`, `ollama`, `testcontainers`, `tiled`, `urllib3`, `uvicorn`; `uv.lock` regenerated to match.
 - The Claude Code launch environment now builds its model-tier variables from a single declaration shared by the launch, e2e-override, and scrub paths, so adding a model tier can no longer leave those lists out of sync (#357). The full project-`.env` passthrough into the agent environment — which feeds `.mcp.json` `${VAR}` references such as `EPICS_CA_ADDR_LIST` — is now explicit and test-covered, and proxy providers carry their raw API-key variable through the launch path as well.
 - README rewritten: corrected the connector claim (EPICS and Mock ship in-tree; other stacks use the connector interface), fixed the `osprey skills install` quickstart command, and removed stale release and conference notices. The PyPI package description now matches the documentation.
+- **The Web Terminal and Artifacts interfaces have been visually redesigned.** A flat card idiom replaces the prior CRT/terminal look, over a new neutral-gray canvas with an azure accent, and the horizontal panel tab strip is now a vertical icon rail (its show/close and add-panel affordances move onto the rail). The panel content now sits directly beside the rail that selects it, with the terminal in the right-hand column (the divider still resizes the split), and the header's documentation shortcut is now a `Docs` link in the status bar. Panel behavior and APIs are unchanged.
 - The Web Terminal and ARIEL settings drawers now share one accessible `<osprey-drawer>` component (focus trap and restore, `Escape`/backdrop close, screen-reader dialog semantics, inert background); each interface keeps its own look, and the Web Terminal drawer's tabs, resizing, and unsaved-changes guard behave as before.
 - The Web Terminal's first-run theme default changed from forced-dark to `auto`; use the in-app theme toggle if you want a fixed theme regardless of OS preference.
 - All web interface factories now share one app-setup helper for CORS, middleware, and static mounts; the Lattice dashboard picks up the standardized CORS policy and two request middlewares it was previously missing.

@@ -18,7 +18,7 @@
  *                pre-paint, and applies whatever the hub broadcasts.
  *
  * Family model: a THEMES entry is `{id, label, mode, family}` -- a family
- * is a `{light, dark}` pair (e.g. the built-in 'osprey' family, or the
+ * is a `{light, dark}` pair (e.g. the built-in 'main' family, or the
  * WCAG-AAA 'high-contrast' family). DEFAULTS is keyed by family, then mode:
  * `DEFAULTS[family][mode] -> concrete id`. The hub's preference is a
  * (family, mode|auto) pair, not a single id -- picking a family and
@@ -92,10 +92,10 @@ const _validIds = _themes.map((theme) => theme.id);
 // emit_js.py's render_tokens_js and shared verbatim with theme-boot.js's
 // own baked copy (see that generator's docstring) -- this module never
 // re-derives it from DEFAULTS, so the two generated-consuming runtimes
-// can't drift on a future regeneration. Falls back to 'osprey' only in
+// can't drift on a future regeneration. Falls back to 'main' only in
 // the pathological case of an empty manifest (no families declared at
 // all), which build validation never allows in practice.
-const DEFAULT_FAMILY = _isKnownFamily(_EMITTED_DEFAULT_FAMILY) ? _EMITTED_DEFAULT_FAMILY : 'osprey';
+const DEFAULT_FAMILY = _isKnownFamily(_EMITTED_DEFAULT_FAMILY) ? _EMITTED_DEFAULT_FAMILY : 'main';
 
 // ---- Module state ----
 
@@ -564,7 +564,7 @@ export function setTheme(id) {
  * Contract for the family-picker switcher (Task 1.9):
  *   `setFamily(family: string): void`
  * Call it with one of the family ids that key `DEFAULTS` / appear as
- * `THEMES[].family` (e.g. `'osprey'`, `'high-contrast'`). Use
+ * `THEMES[].family` (e.g. `'main'`, `'high-contrast'`). Use
  * `toggleTheme()` for the mode control and `getFamily()`/`getTheme()` to
  * read back current state (e.g. to mark the active family selected).
  *

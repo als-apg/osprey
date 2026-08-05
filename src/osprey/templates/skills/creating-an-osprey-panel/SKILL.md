@@ -103,7 +103,8 @@ Use these real token names (verified against `tokens.css`):
 | Accent border | `var(--border-accent)` |
 | Accent / link / highlight color | `var(--color-accent-light)` |
 | Success (semantic) | `var(--color-success)` + tint `var(--success-tint-08)` |
-| Warning / amber (semantic) | `var(--color-amber)` + tint `var(--amber-tint-08)` |
+| Warning (semantic) | `var(--color-warning)` |
+| Secondary accent / decorative highlight | `var(--color-accent-secondary-light)` + tint `var(--accent-secondary-tint-08)` |
 | Error (semantic) | `var(--color-error)` + tint `var(--error-tint-08)` |
 | Accent tint (subtle fill) | `var(--accent-tint-06)` |
 | Neutral tint (subtle fill, e.g. `<code>`) | `var(--neutral-tint-08)` |

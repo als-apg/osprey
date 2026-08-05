@@ -234,6 +234,16 @@ class ArtifactGallery {
     return this._data.load();
   }
 
+  /**
+   * Full reload after a mutating action: invalidates the shared fetch cache,
+   * refreshes artifacts + untracked files + summary, and re-renders the
+   * gallery via the onLoaded callback. The single data pipeline shared with
+   * load() — see scaffold/data.js.
+   */
+  async reloadFull() {
+    return this._data.reloadFull();
+  }
+
   // ---- Gallery View ---- //
   //
   // Rendering (search bar, filter chips, untracked-file banner, summary,

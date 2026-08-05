@@ -84,7 +84,7 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   padding: 1px 4px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 .osprey-md-rendered pre {

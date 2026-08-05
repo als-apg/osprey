@@ -860,10 +860,11 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
         "name: CatTest\n"
         "data_bundle: hello_world\n"
         "provider: anthropic\n"
-        "categories:\n"
-        "  diagnostics:\n"
-        "    label: Diagnostics\n"
-        "    color: '#ff0066'\n"
+        "artifact_server:\n"
+        "  categories:\n"
+        "    diagnostics:\n"
+        "      label: Diagnostics\n"
+        "      color: '#ff0066'\n"
     )
     result = runner.invoke(
         build,
@@ -878,10 +879,12 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
-    cats = config.get("categories", {})
-    assert "diagnostics" in cats, f"categories in config: {list(cats.keys())}"
+    cats = config.get("artifact_server", {}).get("categories", {})
+    assert "diagnostics" in cats, f"artifact_server.categories in config: {list(cats.keys())}"
     assert cats["diagnostics"]["label"] == "Diagnostics"
     assert cats["diagnostics"]["color"].lower() == "#ff0066"
+    # Rendered defaults from the template survive the merge.
+    assert "port" in config.get("artifact_server", {})
 
 
 def test_overlay_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: Path) -> None:
@@ -1280,6 +1283,37 @@ class TestDeployServicesKnob:
         cfg = _config_yaml(tmp_path / "op")
         assert cfg["deployed_services"] == []
         assert not (tmp_path / "op" / "services").exists()
+
+
+def test_set_unservable_model_fails_build(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A model the selected provider cannot serve must fail the build itself.
+
+    The web-terminal container runs the same resolver strict at startup, so a
+    build that merely warns here ships a deploy whose per-user terminals
+    crash-loop behind the reverse proxy (502). The build is the checkpoint the
+    operator actually watches — it must stop the `build && deploy` chain.
+    """
+    with caplog.at_level(logging.ERROR):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "provider=als-apg",
+                "--set",
+                "model=anthropic/claude-opus",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+    assert result.exit_code != 0, result.output
+    _assert_build_error_logged(caplog, "neither a model tier nor a model id")
 
 
 def test_set_value_invalid_yaml_raises() -> None:

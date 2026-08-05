@@ -149,7 +149,7 @@ def register_category(key: str, label: str, color: str) -> None:
 
 
 def load_categories_from_config() -> int:
-    """Load custom categories from the ``categories`` section of config.yml.
+    """Load custom categories from config.yml's ``artifact_server.categories``.
 
     Returns:
         Number of categories successfully loaded.
@@ -157,7 +157,8 @@ def load_categories_from_config() -> int:
     from osprey.utils.config import get_config_builder
 
     cb = get_config_builder()
-    entries: dict[str, Any] = cb.get("categories", {})
+    block = cb.get("artifact_server", {})
+    entries: dict[str, Any] = block.get("categories", {}) if isinstance(block, dict) else {}
     if not isinstance(entries, dict):
         return 0
 

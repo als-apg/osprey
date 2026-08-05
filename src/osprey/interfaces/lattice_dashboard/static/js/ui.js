@@ -14,6 +14,8 @@
  * figure catalog passed to createUI().
  */
 
+import { initSplitter } from '/design-system/js/splitter.js';
+
 const SIDEBAR_TAB_KEY = 'lattice-sidebar-tab';
 const PANEL_ORDER_KEY = 'lattice-panel-order';
 const LAYOUT_KEY = 'lattice-layout-mode';
@@ -47,22 +49,66 @@ export function createUI(figureNames) {
     });
   }
 
-  // ── Sidebar Collapse ────────────────────────────────────
+  // ── Sidebar: collapse + resize ──────────────────────────
 
+  /**
+   * The shared splitter, which owns both the sidebar's width and its collapsed
+   * state. Three call sites used to write `.sidebar-collapsed` and the storage
+   * key independently — the chevron, the boot path, and the tab strip's
+   * expand-on-click — and nothing kept them agreeing. They all route here now.
+   */
+  /** @type {import('/design-system/js/splitter.js').SplitterApi|null} */
+  let sidebarSplitter = null;
+
+  /**
+   * Idempotent, and safe to call from any entry point. `createUI()` hands back
+   * independent functions that a caller may invoke in any order, so the
+   * chevron and the tab strip both ensure the splitter exists rather than
+   * assuming boot already made it — otherwise whichever runs first silently
+   * no-ops.
+   */
   function initSidebar() {
+    if (sidebarSplitter) return;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
-    // Default to collapsed (true) unless user explicitly expanded
-    const collapsed = localStorage.getItem(SIDEBAR_KEY) !== 'false';
-    sidebar.classList.toggle('sidebar-collapsed', collapsed);
+    sidebarSplitter = initSplitter({
+      handle: document.getElementById('sidebar-resizer'),
+      pane: sidebar,
+      storageKey: SIDEBAR_KEY,
+      axis: 'x',
+      anchor: 'start',
+      // #sidebar is a plain flex child sized by `width`, and its
+      // `.sidebar-collapsed` rule is a non-important `width: 36px` — an inline
+      // flex-basis would outrank it and the collapse would stop working.
+      sizing: 'box',
+      min: 160,
+      max: 480,
+      collapsedSize: 36,
+      // The pre-splitter read was `getItem(key) !== 'false'`, so an absent key
+      // means COLLAPSED here — the inverse of every other host. Without this,
+      // every operator who never touched the chevron silently gets an expanded
+      // sidebar on first load after the upgrade.
+      defaultCollapsed: true,
+      // Plotly does not re-measure on its own; a width change that skips this
+      // leaves every figure rendered at the old width.
+      onCommit: () => {
+        sidebar.classList.toggle('sidebar-collapsed', !!sidebarSplitter?.isCollapsed());
+        setTimeout(_reflowFigures, 250);
+      },
+    });
+    sidebarSplitter.restoreSize();
+    sidebar.classList.toggle('sidebar-collapsed', sidebarSplitter.isCollapsed());
   }
 
   function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    if (!sidebar) return;
-    const collapsed = sidebar.classList.toggle('sidebar-collapsed');
-    localStorage.setItem(SIDEBAR_KEY, collapsed ? 'true' : 'false');
-    setTimeout(_reflowFigures, 250);
+    initSidebar();
+    sidebarSplitter?.toggleCollapse();
+  }
+
+  /** Expand the sidebar if it is collapsed; a no-op otherwise. */
+  function expandSidebar() {
+    initSidebar();
+    if (sidebarSplitter?.isCollapsed()) sidebarSplitter.expand();
   }
 
   // ── Layout Mode ─────────────────────────────────────────
@@ -111,15 +157,9 @@ export function createUI(figureNames) {
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const tabName = /** @type {HTMLElement} */ (tab).dataset.tab;
-        const sidebar = document.getElementById('sidebar');
-
-        // If sidebar is collapsed, expand it
-        if (sidebar && sidebar.classList.contains('sidebar-collapsed')) {
-          sidebar.classList.remove('sidebar-collapsed');
-          localStorage.setItem(SIDEBAR_KEY, 'false');
-          setTimeout(_reflowFigures, 250);
-        }
-
+        // Picking a tab implies wanting to see it. Routed through the splitter
+        // so the class, the persisted state and the Plotly reflow stay in step.
+        expandSidebar();
         switchTab(/** @type {string} */ (tabName));
       });
     });
@@ -304,5 +344,6 @@ export function createUI(figureNames) {
     initSidebarTabs,
     setupDragAndDrop,
     restorePanelOrder,
+    reflowFigures: _reflowFigures,
   };
 }

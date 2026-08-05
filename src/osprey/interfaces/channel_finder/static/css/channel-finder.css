@@ -94,7 +94,7 @@ a:hover { color: var(--color-accent-light); }
 .font-display { font-family: var(--font-display); }
 .pv-name {
   font-family: var(--cf-font-pv);
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   letter-spacing: 0.02em;
 }
 
@@ -117,10 +117,10 @@ a:hover { color: var(--color-accent-light); }
   z-index: 100;
 }
 
-/* Embedded mode keeps the fixed header (so the pipeline switcher + nav stay
-   usable inside the hub) and only hides the standalone-only logo; .app-main
-   keeps its 48px padding-top below to clear that still-visible header. */
+/* Embedded in web terminal: the host tile header bar shows the panel name
+ * and the hub owns theming — hide the logo and the theme switcher. */
 body.embedded .app-logo { display: none; }
+body.embedded osprey-theme-switcher { display: none; }
 
 .header-left {
   display: flex;
@@ -150,8 +150,8 @@ body.embedded .app-logo { display: none; }
 }
 
 .pipeline-badge {
-  background: var(--amber-tint-15);
-  color: var(--color-amber);
+  background: var(--accent-secondary-tint-15);
+  color: var(--color-accent-secondary-light);
   font-family: var(--font-display);
   font-size: 0.6rem;
   font-weight: 600;
@@ -159,13 +159,13 @@ body.embedded .app-logo { display: none; }
   text-transform: uppercase;
   padding: 2px 10px;
   border-radius: var(--cf-radius-full);
-  border: 1px solid var(--amber-tint-25);
+  border: 1px solid var(--accent-secondary-tint-25);
   cursor: pointer;
   transition: background var(--transition-fast);
 }
 
 .pipeline-badge:hover {
-  background: var(--amber-tint-25);
+  background: var(--accent-secondary-tint-25);
 }
 
 .pipeline-badge:empty { display: none; }
@@ -210,8 +210,8 @@ body.embedded .app-logo { display: none; }
 }
 
 .pipeline-dropdown-item.active {
-  color: var(--color-amber);
-  background: var(--amber-tint-08);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
 }
 
 /* ================================================================
@@ -397,7 +397,7 @@ body.embedded .app-logo { display: none; }
 
 .data-table .pv-cell {
   font-family: var(--cf-font-pv);
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   letter-spacing: 0.01em;
 }
 
@@ -465,7 +465,7 @@ body.embedded .app-logo { display: none; }
 }
 
 .miller-item.selected {
-  border-left-color: var(--color-amber);
+  border-left-color: var(--color-accent-secondary);
   background: var(--accent-tint-08);
 }
 
@@ -568,7 +568,7 @@ body.embedded .app-logo { display: none; }
 .column-item:hover { background: var(--surface-hover); }
 
 .column-item.selected {
-  border-left-color: var(--color-amber);
+  border-left-color: var(--color-accent-secondary);
   background: var(--accent-tint-08);
 }
 
@@ -1177,11 +1177,11 @@ textarea.form-input {
 }
 
 .modal-impact {
-  background: var(--amber-tint-12);
-  border: 1px solid var(--amber-tint-25);
+  background: var(--accent-secondary-tint-12);
+  border: 1px solid var(--accent-secondary-tint-25);
   border-radius: var(--cf-radius-md);
   padding: var(--cf-space-2) var(--cf-space-3);
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   font-size: var(--cf-text-sm);
   margin-top: var(--cf-space-2);
 }
@@ -1478,7 +1478,7 @@ textarea.form-input {
 
 .fb-sel-value {
   font-family: var(--cf-font-pv);
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   padding: 2px 6px;
 }
 
@@ -1675,7 +1675,7 @@ textarea.form-input {
 .fb-pending-pv {
   font-family: var(--cf-font-pv);
   font-size: var(--cf-text-xs);
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   background: var(--bg-elevated);
   border: 1px solid var(--neutral-tint-10);
   border-radius: var(--cf-radius-sm);
@@ -1764,4 +1764,93 @@ textarea.form-input {
   .fb-record-meta .fb-record-actions {
     display: flex;
   }
+}
+
+/* ================================================================
+   UI Mode: Simple
+   Third presentation axis (independent of theme + embedded). Every
+   delta gates on html[data-ui-mode="simple"]; Expert (the default) is
+   left untouched, so it stays pixel-identical to today. The plain
+   result cards (.cf-simple-*) are only emitted into the DOM by the
+   in-context renderer under Simple mode, so they need no mode guard.
+   ================================================================ */
+
+/* Header: drop the Explore/Feedback tabs, the pipeline switcher and the
+   stats badges — Simple keeps only the wordmark + theme toggle. */
+html[data-ui-mode="simple"] .header-nav,
+html[data-ui-mode="simple"] .pipeline-switcher,
+html[data-ui-mode="simple"] .stats-badges {
+  display: none;
+}
+
+/* Section header: keep the title (centred over the search), drop the
+   descriptive subtitle, db-source badge, description toggle and schema
+   diagram — all dense/pipeline chrome. */
+html[data-ui-mode="simple"] .section-header {
+  justify-content: center;
+  text-align: center;
+}
+
+html[data-ui-mode="simple"] .section-subtitle,
+html[data-ui-mode="simple"] .db-source-badge,
+html[data-ui-mode="simple"] .miller-toggle,
+html[data-ui-mode="simple"] .db-schema-section {
+  display: none;
+}
+
+/* Search box front and centre: the filter bar becomes a single large
+   input. Hide the "Filter:" / "N of M" labels (Simple prints its own
+   friendly count above the cards) and the inline Add-Channel button. */
+html[data-ui-mode="simple"] .filter-bar {
+  max-width: 720px;
+  margin: 0 auto var(--cf-space-5);
+  padding: var(--cf-space-2) var(--cf-space-3);
+}
+
+html[data-ui-mode="simple"] .filter-bar .filter-label,
+html[data-ui-mode="simple"] #ic-add-channel {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .filter-input {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  padding: var(--cf-space-2) var(--cf-space-3);
+}
+
+/* Plain result cards: address prominent, plain-language description below. */
+.cf-simple-count {
+  max-width: 720px;
+  margin: 0 auto var(--cf-space-3);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-sm);
+}
+
+.cf-simple-card-list {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cf-space-2);
+}
+
+.cf-simple-card {
+  background: var(--surface-card);
+  border: 1px solid var(--neutral-tint-10);
+  border-radius: var(--cf-radius-md);
+  padding: var(--cf-space-3) var(--cf-space-4);
+}
+
+.cf-simple-card-name {
+  font-family: var(--cf-font-pv);
+  color: var(--color-accent-secondary-light);
+  font-size: var(--cf-text-base);
+  letter-spacing: 0.02em;
+}
+
+.cf-simple-card-desc {
+  margin-top: var(--cf-space-1);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-sm);
+  line-height: 1.5;
 }

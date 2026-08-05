@@ -547,7 +547,13 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     resolved_path = str(Path(config_path).resolve())
 
     if resolved_path not in _config_cache:
-        logger.info(f"Loading configuration from explicit path: {resolved_path}")
+        # Log honestly: a missing file is about to raise in ConfigBuilder, and
+        # many callers swallow that — a cheerful "Loading configuration from
+        # explicit path" would then be the only (misleading) trace in the log.
+        if Path(resolved_path).is_file():
+            logger.info(f"Loading configuration from explicit path: {resolved_path}")
+        else:
+            logger.warning(f"Config file not found: {resolved_path} — load will fail")
         _config_cache[resolved_path] = ConfigBuilder(resolved_path)
 
     if set_as_default:

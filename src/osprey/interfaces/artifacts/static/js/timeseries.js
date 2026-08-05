@@ -265,6 +265,50 @@ export function _tsChartTheme() {
 }
 
 /**
+ * Re-theme every mounted timeseries chart in place after a theme change.
+ * Lives here so the theme→Plotly layout-key mapping has one owner (this
+ * module's {@link renderTimeseriesChart} builds the same keys at initial
+ * render); gallery.js's theme subscription just calls this.
+ *
+ * Plural, and document-wide, because the gallery's two artifact surfaces —
+ * Expert's preview pane and Simple's result card — can each hold a mounted
+ * chart at the same time (`renderPreview` still runs while Simple is on
+ * screen). Restyling only "the visible one" would mean deciding which that is
+ * from a `display:none` ancestor; restyling all of them is both cheaper and
+ * correct, since there are at most two and a hidden chart re-themed early is
+ * simply already right when its pane comes back.
+ * @returns {void}
+ */
+export function restyleMountedCharts() {
+  if (typeof Plotly === "undefined") return;
+  // Target the actual Plotly graph divs, not the outer viewport wrappers.
+  const charts = document.querySelectorAll(".ts-viewport-container [data-ts-chart]");
+  if (!charts.length) return;
+  const t = _tsChartTheme();
+  const series = chartSeries();
+  charts.forEach((tsChart) => {
+    try {
+      Plotly.relayout(tsChart, {
+        paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
+        "font.color": t.font.color,
+        "xaxis.gridcolor": t.xaxis.gridcolor, "xaxis.linecolor": t.line,
+        "yaxis.gridcolor": t.yaxis.gridcolor, "yaxis.linecolor": t.line,
+        "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
+      });
+      // relayout doesn't touch trace colors, so the data lines and their legend
+      // dots keep the prior theme's palette until reload. Restyle each trace's
+      // line+marker to the current series palette so they re-theme live too.
+      const traces = /** @type {any} */ (tsChart).data || [];
+      if (series.length && traces.length) {
+        const colors = traces.map((/** @type {any} */ _t, /** @type {number} */ i) => series[i % series.length]);
+        Plotly.restyle(tsChart, { "line.color": colors, "marker.color": colors });
+      }
+    // eslint-disable-next-line no-empty -- intentional empty catch: Plotly relayout is best-effort restyle
+    } catch {}
+  });
+}
+
+/**
  * @param {any} el
  * @param {any} chartData
  * @returns {Promise<void>}

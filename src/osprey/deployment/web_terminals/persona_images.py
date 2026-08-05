@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 from typing import cast
 
+from osprey.build.claude_code_resolver import load_provider_spec
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
     resolve_project_name,
@@ -298,7 +299,22 @@ def auto_render_missing_personas(
                     "directory and re-run `osprey deploy up` to re-render it, or "
                     "rebuild it with `osprey build`."
                 )
-            # Complete render is user-owned -- never overwrite it.
+            # Complete render is user-owned -- never overwrite it. But do
+            # validate that its model selection still resolves: the web
+            # terminal runs the same resolver strict at startup, so a stale
+            # model baked in by an earlier parent build (existing renders
+            # never inherit new `--set` overrides) would otherwise ship a
+            # container that crash-loops behind the reverse proxy (502).
+            try:
+                load_provider_spec(project_path)
+            except ValueError as e:
+                raise ValueError(
+                    f"Persona {persona_name!r} render at {project_path} has a "
+                    f"model configuration its provider cannot serve:\n  {e}\n"
+                    f"Fix {project_path / 'config.yml'}, or remove that "
+                    "directory and re-run `osprey deploy up` to re-render it "
+                    "from the parent build's settings."
+                ) from e
             continue
 
         build_profile = unit["build_profile"]

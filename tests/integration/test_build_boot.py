@@ -111,7 +111,14 @@ def build_outputs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=600,
+            # The build's own dependency install is the long pole: it downloads
+            # osprey's whole tree into the project venv, which on a hosted
+            # runner's cold cache is a multi-minute transfer that macOS runners
+            # have been observed to stretch past five minutes. This budget sits
+            # above the build's internal install cap's realistic range so a slow
+            # download surfaces as the build's own diagnostic rather than as an
+            # opaque timeout here, and fails only on a genuinely stuck build.
+            timeout=1200,
             env={**os.environ, "CLAUDECODE": ""},
         )
         if proc.returncode != 0:

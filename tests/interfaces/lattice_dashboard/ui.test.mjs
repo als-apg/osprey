@@ -84,14 +84,20 @@ describe('sidebar collapse', () => {
   });
 
   test('toggleSidebar flips the class and persists the new state', () => {
+    // The shared splitter persists a {size, collapsed} record under the same
+    // key; the legacy 'true'/'false' strings are still read on the way in, so
+    // an operator's stored preference survives the upgrade.
+    const collapsedFlag = () =>
+      JSON.parse(String(window.localStorage.getItem('lattice-sidebar-collapsed'))).collapsed;
+
     const ui = createUI(FIGURE_NAMES);
     ui.toggleSidebar();
     expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
-    expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('false');
+    expect(collapsedFlag()).toBe(false);
 
     ui.toggleSidebar();
     expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
-    expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('true');
+    expect(collapsedFlag()).toBe(true);
   });
 });
 
@@ -181,7 +187,9 @@ describe('sidebar tabs', () => {
     qs(document, '.sidebar-tab[data-tab="settings"]', HTMLElement).click();
 
     expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
-    expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('false');
+    expect(
+      JSON.parse(String(window.localStorage.getItem('lattice-sidebar-collapsed'))).collapsed
+    ).toBe(false);
   });
 });
 

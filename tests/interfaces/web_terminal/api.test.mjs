@@ -6,6 +6,8 @@
  * Covers the browser-free surface of api.js:
  *   - wsUrl(path): scheme derivation (wss:// under TLS, ws:// otherwise)
  *   - fetchJSON(url): 2xx -> parsed JSON; non-2xx -> throws `HTTP <s>: <t>`
+ *   - apiRequest(url, opts): mutating-verb helper -- json body wiring, server
+ *     `detail` extraction on error, errorPrefix fallback, null on empty body
  *   - onConnectionStateChange / getConnectionState: initial shape and that a
  *     registered listener is stored and fires on the next state transition
  *   - per-user URL prefix: wsUrl/fetchJSON/createEventSource read
@@ -77,6 +79,96 @@ describe('fetchJSON: success and error paths', () => {
     await expect(api.fetchJSON('/api/state')).rejects.toThrow(
       'HTTP 503: Service Unavailable'
     );
+  });
+});
+
+describe('apiRequest: mutating-verb helper (method/body wiring and detail extraction)', () => {
+  test('serializes `json` as the request body with the JSON content type', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ saved: true }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await api.apiRequest('/api/config', {
+      method: 'PATCH',
+      json: { updates: { a: 1 } },
+    });
+    expect(result).toEqual({ saved: true });
+    expect(fetchMock).toHaveBeenCalledWith('/api/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates: { a: 1 } }),
+    });
+  });
+
+  test('omits headers and body when no `json` payload is given', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.apiRequest('/api/scaffold/x/claim', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/scaffold/x/claim', { method: 'POST' });
+  });
+
+  test('a non-OK response throws the server `detail` message when present', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        json: async () => ({ detail: 'already claimed' }),
+      }))
+    );
+
+    await expect(
+      api.apiRequest('/api/scaffold/x/claim', { method: 'POST', errorPrefix: 'Scaffold failed' })
+    ).rejects.toThrow('already claimed');
+  });
+
+  test('a non-OK response without a JSON body falls back to `<errorPrefix> (HTTP <status>)`', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        json: async () => { throw new SyntaxError('not JSON'); },
+      }))
+    );
+
+    await expect(
+      api.apiRequest('/api/config', { method: 'PUT', errorPrefix: 'Save failed' })
+    ).rejects.toThrow('Save failed (HTTP 502)');
+  });
+
+  test('an OK response without a JSON body (e.g. empty DELETE) resolves to null', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 204,
+        json: async () => { throw new SyntaxError('empty body'); },
+      }))
+    );
+
+    await expect(api.apiRequest('/api/thing', { method: 'DELETE' })).resolves.toBeNull();
+  });
+
+  test('routes the URL through the withPrefix chokepoint', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.apiRequest('/api/terminal/restart', { method: 'POST' });
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/terminal/restart', { method: 'POST' });
   });
 });
 

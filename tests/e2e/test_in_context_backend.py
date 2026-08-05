@@ -79,7 +79,10 @@ if _ALS_APG_KEY:
     _PROVIDER = "als-apg"
     _PROVIDER_API_KEY = _ALS_APG_KEY
     _SUBAGENT_MODEL = "claude-haiku-4-5-20251001"  # bare wire id; gateway rejects prefixed slugs
-    _PROVIDER_BASE_URL = "https://llm.gianlucamartino.com"
+    # Overridable so a run can be aimed at another gateway; same convention as
+    # judge.py. The value is written into the generated project's config, which
+    # is what the MCP subprocess reads — it does not inherit this process's env.
+    _PROVIDER_BASE_URL = os.environ.get("ALS_APG_BASE_URL", "https://llm.gianlucamartino.com")
     _BACKEND_MODEL = "als-apg/claude-haiku-4-5-20251001"
     _EXPECTED_WIRE = "claude-haiku-4-5-20251001"
 elif _CBORG_KEY:

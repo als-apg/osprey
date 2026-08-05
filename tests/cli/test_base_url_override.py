@@ -151,3 +151,130 @@ class TestEndToEndThroughLoadProviderSpec:
 
         spec = load_provider_spec(tmp_path, include_telemetry=False)
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+
+class TestEnvVarBreakGlassOverride:
+    """A supplied ``base_url_env_var`` value beats config and the built-in URL.
+
+    Config is often baked into container images at build time; the env var is
+    the runtime lever that redirects an already-deployed system at a fallback
+    gateway without a rebuild. Only providers that declare ``base_url_env_var``
+    in CLAUDE_CODE_PROVIDERS participate, and the value must be handed in via
+    ``environ`` — see :class:`TestResolveNeverReadsAmbientEnviron` for why
+    ``resolve()`` refuses to read the process environment itself.
+    """
+
+    def test_supplied_value_wins_over_builtin_url(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            environ={"ALS_APG_BASE_URL": f"{FACILITY_GATEWAY}/v1"},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+    def test_supplied_value_wins_over_config_base_url(self):
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            api_providers={"als-apg": {"base_url": "https://baked.example.org/v1"}},
+            environ={"ALS_APG_BASE_URL": f"{FACILITY_GATEWAY}/v1"},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+    def test_absent_value_preserves_existing_behavior(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"}, environ={})
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+
+    def test_empty_value_is_ignored(self):
+        """An empty export must not blank the URL — fall through to the default."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"}, environ={"ALS_APG_BASE_URL": ""}
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+
+    def test_provider_without_the_declaration_ignores_the_value(self):
+        """The override is opt-in per provider, so it cannot leak across them."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "cborg"},
+            environ={"ALS_APG_BASE_URL": f"{FACILITY_GATEWAY}/v1"},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
+
+
+class TestResolveNeverReadsAmbientEnviron:
+    """``resolve()`` is pure: the process environment must not reach it.
+
+    This method also renders ``settings.json`` at *build* time
+    (``cli/templates/claude_code.py``, ``cli/templates/manager.py``). If it read
+    ``os.environ``, whatever gateway the build machine happened to export would
+    be baked into the shipped artifact — a CI builder would ship its own test
+    endpoint to production. Overrides therefore arrive only via ``environ``,
+    which is what ``load_provider_spec`` supplies on the runtime paths.
+    """
+
+    def test_process_env_does_not_reach_the_env_block(self, monkeypatch):
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://build-machine.example.org/v1")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+
+    def test_process_env_does_not_override_a_config_base_url(self, monkeypatch):
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://build-machine.example.org/v1")
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            api_providers={"als-apg": {"base_url": f"{FACILITY_GATEWAY}/v1"}},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+    def test_supplied_environ_beats_the_process_env(self, monkeypatch):
+        """The caller's mapping is authoritative, not a merge with os.environ."""
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://build-machine.example.org/v1")
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            environ={"ALS_APG_BASE_URL": f"{FACILITY_GATEWAY}/v1"},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+
+class TestOverrideReachesTheRuntimePath:
+    """``load_provider_spec`` is where the override becomes live.
+
+    It supplies the ``os.environ`` + project-``.env`` overlay, so a deployment
+    redirects itself by exporting the variable (or writing it into ``.env``)
+    and restarting the process — the config baked into its image is untouched.
+    """
+
+    BAKED_CONFIG = (
+        "api:\n"
+        "  providers:\n"
+        "    als-apg:\n"
+        "      base_url: https://baked.example.org/v1\n"
+        "claude_code:\n"
+        "  provider: als-apg\n"
+    )
+
+    def test_process_env_overrides_the_baked_config(self, tmp_path, monkeypatch):
+        """The production mechanism: the value arrives in the container's env."""
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
+        monkeypatch.setenv("ALS_APG_BASE_URL", f"{FACILITY_GATEWAY}/v1")
+
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+    def test_project_dotenv_overrides_the_baked_config(self, tmp_path, monkeypatch):
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
+        (tmp_path / ".env").write_text(f"ALS_APG_BASE_URL={FACILITY_GATEWAY}/v1\n")
+
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+    def test_baked_config_stands_when_nothing_overrides_it(self, tmp_path, monkeypatch):
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        (tmp_path / "config.yml").write_text(self.BAKED_CONFIG)
+
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://baked.example.org"

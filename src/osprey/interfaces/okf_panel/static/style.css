@@ -6,9 +6,12 @@
  * same "Precision Instrumentation" design system as every other OSPREY
  * interface and honours the hub's dark/light theme automatically:
  *   --bg-primary/secondary/panel/elevated, --text-primary/secondary/muted,
- *   --color-accent[-light], --color-amber-light, --color-success/warning,
+ *   --color-accent[-light], --color-accent-secondary-light, --color-success/warning,
  *   --border-default/accent, --font-display, --font-mono, and the
- *   --accent-tint-*/--neutral-tint-* ramps.
+ *   --accent-tint-N and --neutral-tint-N ramps. (Never write the token
+ *   families glob-style here: an asterisk followed by a slash terminates
+ *   this comment mid-file and the parser then eats the :root block below —
+ *   every --okf-* token silently vanishes.)
  * Only panel-local scale/layout tokens with no fleet-wide equivalent
  * (typography steps, spacing, radius, transitions, translucent surfaces) stay
  * in the reduced :root below, mirroring the artifact gallery's post-migration
@@ -83,6 +86,8 @@ body {
 /* -- Sidebar -------------------------------------------------------------- */
 
 #sidebar {
+  /* flex-basis/max-width are overridden inline by js/resize.js when the
+     operator drags the #sidebar-resizer splitter (persisted per origin). */
   flex: 0 0 300px;
   max-width: 300px;
   display: flex;
@@ -91,6 +96,12 @@ body {
   border-right: 1px solid var(--border-default);
   overflow: hidden;
 }
+
+/* The splitter between sidebar and reader carries `.osprey-splitter` from the
+   design system's base.css — the grip-pill visual shared with the artifact
+   gallery, the PLAN panel, and the hub's dockview sashes. Nothing to restate
+   here; the only OKF-specific splitter rules are the two `display: none`
+   cases further down (stacked responsive layout, Simple UI mode). */
 
 #search-box {
   flex: 0 0 auto;
@@ -170,7 +181,7 @@ body {
 #search-results {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: var(--okf-space-2) var(--okf-space-1) var(--okf-space-6);
+  padding: var(--okf-space-2) var(--okf-space-2) var(--okf-space-6);
 }
 
 #search-results {
@@ -267,7 +278,7 @@ body {
 #reader-content {
   max-width: 860px;
   margin: 0 auto;
-  padding: var(--okf-space-4) var(--okf-space-6) var(--okf-space-12);
+  padding: var(--okf-space-4) var(--okf-space-8) var(--okf-space-12);
 }
 
 .concept-title {
@@ -374,7 +385,7 @@ body {
   border: 1px solid var(--border-default);
   border-radius: 3px;
   padding: 1px 4px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 .osprey-md-rendered pre {
@@ -432,6 +443,10 @@ body {
     border-right: none;
     border-bottom: 1px solid var(--border-default);
   }
+  /* Stacked layout has no side-by-side split to resize. */
+  #sidebar-resizer {
+    display: none;
+  }
   #reader {
     flex: 1 1 auto;
   }
@@ -477,5 +492,133 @@ body {
 }
 
 .bundle-health.has-warnings .health-text {
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
+
+/* ================================================================
+   Simple Mode — reading-focused (html[data-ui-mode="simple"])
+   ----------------------------------------------------------------
+   Expert is the default and stays pixel-identical: every rule below is
+   gated on the data-ui-mode attribute, so nothing here touches the panel
+   until the hub flips it to "simple". The reading-focused mode drops the
+   expert navigation/diagnostic chrome (tree, search, group labels,
+   bundle-health, mono tag chips) and puts the rendered document front and
+   centre with a generous reading measure — reached via a persistent
+   "Browse all pages" affordance that loads the structure overview (the
+   plain doc list). Mirrors the artifacts panel's Expert/Simple recipe.
+   ================================================================ */
+
+/* Drop the whole expert navigation column (tree, search, group labels,
+   bundle-health footer) and its resizer. #app is a flex row, so #reader then
+   fills the panel. */
+:root[data-ui-mode="simple"] #sidebar,
+:root[data-ui-mode="simple"] #sidebar-resizer {
+  display: none;
+}
+
+/* Expert-only concept metadata: the mono tag chips read as reference chrome. */
+:root[data-ui-mode="simple"] .concept-tags {
+  display: none;
+}
+
+/* Persistent top affordance — hidden in Expert (default), a sticky
+   "Browse all pages" bar in Simple. */
+.reader-topbar {
+  display: none;
+}
+
+:root[data-ui-mode="simple"] .reader-topbar {
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  justify-content: center;
+  padding: var(--okf-space-4) var(--okf-space-6) var(--okf-space-2);
+  background: var(--bg-primary);
+}
+
+.browse-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--okf-space-2);
+  width: 100%;
+  max-width: 760px;
+  padding: var(--okf-space-2) var(--okf-space-3);
+  font-family: var(--font-display);
+  font-size: var(--okf-text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--okf-radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast),
+    border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.browse-all-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-accent);
+  color: var(--color-accent-light);
+}
+
+.browse-all-btn .browse-all-icon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+
+.browse-all-btn .browse-all-arrow {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.browse-all-btn:hover .browse-all-arrow {
+  color: var(--color-accent-light);
+}
+
+/* Generous reading measure: a narrower, larger-type column so the document
+   reads as prose rather than reference chrome. */
+:root[data-ui-mode="simple"] #reader-content {
+  max-width: 760px;
+  padding: var(--okf-space-4) var(--okf-space-6) var(--okf-space-12);
+  font-size: var(--okf-text-base);
+}
+
+:root[data-ui-mode="simple"] .concept-title {
+  font-size: 1.9rem;
+}
+
+:root[data-ui-mode="simple"] .concept-description {
+  font-size: 1.0625rem;
+  line-height: var(--okf-leading-normal);
+}
+
+:root[data-ui-mode="simple"] .osprey-md-rendered {
+  max-width: none;
+  line-height: 1.8;
+  font-size: var(--okf-text-base);
+}
+
+:root[data-ui-mode="simple"] .osprey-md-rendered p,
+:root[data-ui-mode="simple"] .osprey-md-rendered ul,
+:root[data-ui-mode="simple"] .osprey-md-rendered ol,
+:root[data-ui-mode="simple"] .osprey-md-rendered li {
+  font-size: 1rem;
+}
+
+:root[data-ui-mode="simple"] .osprey-md-rendered h1 {
+  font-size: 22px;
+}
+
+:root[data-ui-mode="simple"] .osprey-md-rendered h2 {
+  font-size: 18px;
+}
+
+:root[data-ui-mode="simple"] .osprey-md-rendered h3 {
+  font-size: 15px;
+}
+
+/* Embedded in the web-terminal hub: the hub owns theming — the sidebar's
+ * theme switcher is standalone-only. */
+body.embedded osprey-theme-switcher { display: none; }

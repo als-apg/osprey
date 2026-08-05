@@ -88,7 +88,7 @@
 
 @keyframes perm-flash {
   0%, 100% { background: transparent; }
-  50% { background: var(--amber-tint-15); }
+  50% { background: var(--accent-secondary-tint-15); }
 }
 
 /* ---- Permission Row Icon ---- */
@@ -143,8 +143,8 @@
 
 .config-edit-level-ask {
   color: var(--color-warning);
-  background: var(--amber-tint-08);
-  border-color: var(--amber-tint-25);
+  background: var(--accent-secondary-tint-08);
+  border-color: var(--accent-secondary-tint-25);
 }
 
 .config-edit-level-deny {

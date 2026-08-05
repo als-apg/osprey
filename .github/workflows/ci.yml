@@ -45,6 +45,10 @@ on:
 # src/osprey/templates/services/openobserve/docker-compose.yml.j2 moves.
 env:
   OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
+  # ALS-APG endpoint override: set the ALS_APG_BASE_URL repository variable
+  # to point every LLM-touching job (probes and pytest alike) at an
+  # alternate gateway. Empty/unset keeps the provider's default endpoint.
+  ALS_APG_BASE_URL: ${{ vars.ALS_APG_BASE_URL }}
 
 jobs:
   test:
@@ -358,7 +362,9 @@ jobs:
       if: steps.changes.outputs.theming == 'true'
       run: |
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
+          tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
+          tests/interfaces/web_terminal/test_agent_activity_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
           tests/interfaces/web_terminal/test_logout_resume_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
@@ -511,8 +517,10 @@ jobs:
           echo "   (Check repo secrets; required for the agentic-per-preset job.)"
           exit 1
         fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
         HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
@@ -585,8 +593,10 @@ jobs:
           echo "❌ ALS_APG_API_KEY secret is not set on this runner"
           exit 1
         fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
         HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
@@ -707,8 +717,10 @@ jobs:
           echo "❌ ALS_APG_API_KEY secret is not set on this runner"
           exit 1
         fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
         HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
@@ -831,8 +843,10 @@ jobs:
           echo "❌ ALS_APG_API_KEY secret is not set on this runner"
           exit 1
         fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
         HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
@@ -903,8 +917,10 @@ jobs:
           echo "❌ ALS_APG_API_KEY secret is not set on this runner"
           exit 1
         fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
         HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
@@ -1366,8 +1382,10 @@ jobs:
           echo "❌ ALS_APG_API_KEY secret is not set on this runner"
           exit 1
         fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
         HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
-          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \

@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,10 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
         "auth_secret_env": "ALS_APG_API_KEY",  # Shell env var holding the secret
         "base_url": "https://llm.gianlucamartino.com",  # ALS-APG AWS proxy (no /v1)
+        # Break-glass redirect: a set env var beats config and the URL above,
+        # so a deployment with a baked-in config can be pointed at a fallback
+        # gateway at runtime (mirrors the provider adapter's base_url_env_var).
+        "base_url_env_var": "ALS_APG_BASE_URL",
         "default_model_tier": "haiku",
         # Fallback model IDs (used when api.providers.als-apg.models is absent)
         "models": {
@@ -473,6 +478,7 @@ def load_provider_spec(
         cc_config,
         cfg.get("api", {}).get("providers", {}),
         include_telemetry=include_telemetry,
+        environ=lookup,
     )
 
 
@@ -599,6 +605,7 @@ class ClaudeCodeModelResolver:
         api_providers: dict | None = None,
         *,
         include_telemetry: bool = True,
+        environ: Mapping[str, str] | None = None,
     ) -> ClaudeCodeModelSpec | None:
         """Build a ``ClaudeCodeModelSpec`` from config.
 
@@ -614,7 +621,15 @@ class ClaudeCodeModelResolver:
         ``base_url`` follows the same rule: ``api.providers[name].base_url``
         overrides the built-in URL, so a facility can front a built-in provider
         with its own gateway and have the agent use the endpoint ``osprey
-        health`` probes. The trailing ``/v1`` is stripped for
+        health`` probes. Above both sits the break-glass env override: a
+        built-in provider that declares ``base_url_env_var`` lets a set
+        (non-empty) value beat config and the built-in URL, so an
+        already-deployed system whose config is baked into an image can be
+        redirected at a fallback gateway without a rebuild. That value is read
+        only from an explicitly supplied ``environ`` — this method never
+        consults ``os.environ``, because it also renders ``settings.json`` at
+        build time, where an ambient read would bake the builder's endpoint
+        into the artifact. The trailing ``/v1`` is stripped for
         ``ANTHROPIC_BASE_URL`` either way (see below).
 
         A provider that leaves a tier unmapped by all three sources is refused
@@ -627,6 +642,12 @@ class ClaudeCodeModelResolver:
         Args:
             claude_code_config: The ``claude_code`` section of config.yml.
             api_providers: The ``api.providers`` section (optional).
+            environ: Mapping the ``base_url_env_var`` override is read from.
+                Omitted means "no override" — never ``os.environ``, so
+                build-time rendering is reproducible on any machine.
+                :func:`load_provider_spec` passes its ``os.environ`` +
+                project-``.env`` overlay, which is what enables the override on
+                every runtime path.
 
         Returns:
             Resolved spec, or ``None`` when no provider is configured.
@@ -669,8 +690,22 @@ class ClaudeCodeModelResolver:
         # having the built-in URL silently win. The built-in URL is the
         # fallback for configs that name none; a custom provider has no
         # built-in entry, so its api.providers value is the only source.
-        base_url = api_providers.get(provider_name, {}).get("base_url") or provider_def.get(
-            "base_url"
+        # Above all of that sits the break-glass env override (providers that
+        # declare base_url_env_var): config is often baked into a container
+        # image, and a set env var must be able to redirect the deployment at
+        # a fallback gateway without a rebuild. Empty means unset.
+        # No ambient os.environ read: the override is honored only when a
+        # caller hands in a lookup, i.e. from load_provider_spec's runtime
+        # overlay. resolve() also renders settings.json at *build* time
+        # (templates/claude_code.py, templates/manager.py), where reading the
+        # builder's environment would bake whatever gateway that machine
+        # happened to export into the shipped artifact.
+        env_lookup: Mapping[str, str] = environ if environ is not None else {}
+        env_var = provider_def.get("base_url_env_var")
+        base_url = (
+            (env_lookup.get(env_var) if env_var else None)
+            or api_providers.get(provider_name, {}).get("base_url")
+            or provider_def.get("base_url")
         )
 
         # ── Build tier → model mapping ───────────────────────────

@@ -386,11 +386,13 @@ keys:
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)'}
   web.theme:
-    evidence: 'get_config_value\("web\.theme", "osprey"\)'
+    evidence: 'get_config_value\("web\.theme", "main"\)'
     note: >-
       Live in project only; commented in control_assistant; absent from the
-      three others. The default is "osprey" whether the key is live or absent,
+      three others. The default is "main" whether the key is live or absent,
       so no behaviour depends on the form. Deliberately per-template.
+      The shipped default family was renamed from "osprey" to "main"; the
+      evidence tracks the default in app.py, so it moves with that rename.
   web.panels: {evidence: 'web\.panels'}
   web.panels.ariel: {covered-by: web.panels}
   web.panels.ariel.enabled: {covered-by: web.panels.ariel}

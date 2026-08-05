@@ -379,24 +379,28 @@ def test_non_list_panel_presets_entry_is_rejected(tmp_path: Path) -> None:
     ]
 
 
-# --- categories -----------------------------------------------------------
+# --- artifact_server ------------------------------------------------------
 
 
 def test_non_mapping_category_is_rejected(tmp_path: Path) -> None:
     """A category that is not a mapping is reported once, then skipped."""
-    profile = _parse_profile({"name": "x", "categories": {"ops": ["label", "color"]}})
+    profile = _parse_profile(
+        {"name": "x", "artifact_server": {"categories": {"ops": ["label", "color"]}}}
+    )
     assert _errors(profile, tmp_path) == ["Category 'ops' must be a mapping with label and color"]
 
 
 def test_category_missing_label_is_rejected(tmp_path: Path) -> None:
     """A category needs a string 'label'."""
-    profile = BuildProfile(name="x", categories={"ops": {"color": "#aabbcc"}})
+    profile = BuildProfile(name="x", artifact_server={"categories": {"ops": {"color": "#aabbcc"}}})
     assert _errors(profile, tmp_path) == ["Category 'ops' missing or invalid 'label'"]
 
 
 def test_category_with_non_hex_color_is_rejected(tmp_path: Path) -> None:
     """Category colors must be #RRGGBB hex."""
-    profile = BuildProfile(name="x", categories={"ops": {"label": "Ops", "color": "red"}})
+    profile = BuildProfile(
+        name="x", artifact_server={"categories": {"ops": {"label": "Ops", "color": "red"}}}
+    )
     assert _errors(profile, tmp_path) == [
         "Category 'ops' missing or invalid 'color' (must be #RRGGBB)"
     ]
@@ -404,9 +408,25 @@ def test_category_with_non_hex_color_is_rejected(tmp_path: Path) -> None:
 
 def test_well_formed_category_validates(tmp_path: Path) -> None:
     """A label + #RRGGBB color pair passes."""
-    BuildProfile(name="x", categories={"ops": {"label": "Ops", "color": "#A1B2C3"}}).validate(
-        tmp_path
-    )
+    BuildProfile(
+        name="x", artifact_server={"categories": {"ops": {"label": "Ops", "color": "#A1B2C3"}}}
+    ).validate(tmp_path)
+
+
+def test_artifact_server_unknown_subkey_rejected(tmp_path: Path) -> None:
+    """Only host/port/auto_launch/categories are supported under artifact_server."""
+    profile = BuildProfile(name="x", artifact_server={"prot": "http"})
+    assert _errors(profile, tmp_path) == [
+        "artifact_server.prot is not a supported key "
+        "(must be one of ['auto_launch', 'categories', 'host', 'port'])"
+    ]
+
+
+def test_artifact_server_scalar_overrides_validate(tmp_path: Path) -> None:
+    """host/port/auto_launch overrides pass through validation."""
+    BuildProfile(
+        name="x", artifact_server={"host": "0.0.0.0", "port": 9086, "auto_launch": False}
+    ).validate(tmp_path)
 
 
 # --- dispatch numeric bounds ----------------------------------------------
