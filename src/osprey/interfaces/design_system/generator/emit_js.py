@@ -59,6 +59,7 @@ __all__ = [
     "ThemeFamilyDefaultsError",
     "build_theme_manifest",
     "build_theme_defaults",
+    "build_family_labels",
     "render_tokens_js",
     "render_theme_boot_js",
 ]
@@ -95,12 +96,20 @@ class ThemeManifestEntry:
             :func:`build_theme_defaults`) and, separately, selects the
             theme's required WCAG gate tuple
             (:func:`~osprey.interfaces.design_system.generator.validate.gates_for_family`).
+        family_label: The display name for the *family*
+            (``$extensions.family_label``), or ``None`` when the theme declares
+            none. Exists for families whose id does not title-case correctly
+            (``desy`` -> ``DESY``); consumers fall back to deriving a label
+            from the family id. Validation requires every declaration within
+            one family to agree, so this is a family-level fact carried on
+            each member rather than a per-theme one.
     """
 
     id: str
     label: str
     mode: str
     family: str
+    family_label: str | None = None
 
 
 class ThemeFamilyDefaultsError(ValueError):
@@ -136,9 +145,38 @@ def build_theme_manifest(tree: TokenTree) -> list[ThemeManifestEntry]:
             label=metadata["label"],
             mode=metadata["mode"],
             family=metadata["family"],
+            family_label=metadata.get("family_label"),
         )
         for metadata in tree.theme_metadata.values()
     ]
+
+
+def build_family_labels(entries: Sequence[ThemeManifestEntry]) -> dict[str, str]:
+    """Build the ``{family: display label}`` map for families that declare one.
+
+    Only families with an explicit ``$extensions.family_label`` appear. A family
+    that declares none is absent from the map entirely rather than present with a
+    derived value: deriving is the *consumer's* fallback (``familyLabel()`` in
+    display-menu.js and osprey-theme-switcher.js), and baking a derived value in
+    here would make the map look authoritative when it is not.
+
+    Validation (``check_theme_metadata``) already rejects a family whose members
+    declare conflicting labels, so the first declaration wins here only in the
+    sense that there is nothing to disagree with.
+
+    Args:
+        entries: The ordered manifest, as returned by
+            :func:`build_theme_manifest`.
+
+    Returns:
+        ``{family: label}`` in manifest order, omitting families that declare
+        no label.
+    """
+    labels: dict[str, str] = {}
+    for entry in entries:
+        if entry.family_label and entry.family not in labels:
+            labels[entry.family] = entry.family_label
+    return labels
 
 
 def build_theme_defaults(entries: Sequence[ThemeManifestEntry]) -> dict[str, dict[str, str]]:
@@ -273,6 +311,7 @@ def render_tokens_js(tree: TokenTree) -> str:
     entries = build_theme_manifest(tree)
     defaults = build_theme_defaults(entries)
     default_family = _default_family(tree, defaults)
+    family_labels = build_family_labels(entries)
 
     themes_json = json.dumps(
         [{"id": e.id, "label": e.label, "mode": e.mode, "family": e.family} for e in entries],
@@ -281,6 +320,7 @@ def render_tokens_js(tree: TokenTree) -> str:
     )
     defaults_json = json.dumps(defaults, indent=2, ensure_ascii=True)
     default_family_json = json.dumps(default_family, ensure_ascii=True)
+    family_labels_json = json.dumps(family_labels, indent=2, ensure_ascii=True)
 
     body = (
         "// Theme registry only: no color palettes here (see module docstring\n"
@@ -291,7 +331,12 @@ def render_tokens_js(tree: TokenTree) -> str:
         "// The explicit-default family ($extensions.default), else the first\n"
         "// declared -- the single fallback\n"
         "// theme-manager.js reads instead of re-deriving it from DEFAULTS.\n"
-        f"export const DEFAULT_FAMILY = {default_family_json};"
+        f"export const DEFAULT_FAMILY = {default_family_json};\n\n"
+        "// Display names for families whose id does not title-case correctly\n"
+        "// ('desy' -> 'DESY'). Sparse BY DESIGN: a family that declares no\n"
+        "// $extensions.family_label is absent here, and consumers derive its\n"
+        "// label from the family id instead.\n"
+        f"export const FAMILY_LABELS = {family_labels_json};"
     )
     return _render(GENERATED_HEADER_LINES, body)
 

@@ -14,6 +14,7 @@ import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-syste
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initDisplayMenu } from './display-menu.js';
+import { initIdentityMenu } from './identity-menu.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initLogoutButton();
   initModeToggle();
   initDisplayMenu();
+  initIdentityMenu();
   initRailPosition();
   initDrawerTriggerHighlight();
   initSettings();

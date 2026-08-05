@@ -10,6 +10,25 @@
     facility_name: str, optional
       Shown in the page header. Falls back to "OSPREY" when empty/undefined.
 
+    theme_blocks: list[dict], required
+      The design-system token values to bake into the inline stylesheet, built
+      by render.py's `_landing_theme_blocks()` from the deployment's
+      `web.theme`:
+        {
+          "media": str | None,      # e.g. "(prefers-color-scheme: light)"
+          "color_scheme": str,      # "dark" | "light"
+          "variables": [(name, value), ...],   # "--bg-primary", "#091720"
+        }
+      A family-valued `web.theme` yields two blocks (dark under `:root`, light
+      behind the media query); a concrete-id one yields a single unconditional
+      block, honoring the pinned mode. This page has no theme picker and no
+      localStorage — it is shown before anyone has identified themselves, so it
+      always uses the deployment-level theme, never a per-user one.
+      NOT `|e`-escaped: these are CSS, not HTML, and HTML escaping would corrupt
+      values while doing nothing about the only real hazard (a `</style>`
+      sequence). render.py pattern-checks every value instead, and the values
+      originate in the framework's own token tree rather than operator config.
+
     groups: list[dict], required
       Ordered list of groups to render:
         {
@@ -53,34 +72,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ (facility_name|default("", true))|e or "OSPREY" }} Web Terminals</title>
   <style>
-    :root {
-      color-scheme: dark;
-      --bg-primary: #0a0f1a;
-      --bg-panel: #0e1525;
-      --bg-elevated: #1a2332;
-      --text-primary: #f1f5f9;
-      --text-secondary: #8b9ab5;
-      --text-muted: #64748b;
-      --color-accent: #4fd1c5;
-      --border-default: rgba(148, 163, 184, 0.16);
-      --border-accent: rgba(79, 209, 197, 0.35);
-      --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
+    {#- Design-system token values, baked at render time from the deployment's
+       `web.theme`. Two blocks when web.theme named a family (dark under :root,
+       light behind a prefers-color-scheme query, so the page follows the
+       viewer's OS just as the terminals do); one block and no query when it
+       named a concrete id, which pins the mode. Values come from the framework's
+       own token tree and are pattern-checked in _landing_theme_blocks() before
+       reaching this <style>. #}
+    {%- for block in theme_blocks|default([]) %}
+    {%- set pad = "  " if block["media"] else "" %}
+    {%- if block["media"] %}
+    @media {{ block["media"] }} {
+    {%- endif %}
+    {{ pad }}:root {
+    {{ pad }}  color-scheme: {{ block["color_scheme"] }};
+    {%- for name, value in block["variables"] %}
+    {{ pad }}  {{ name }}: {{ value }};
+    {%- endfor %}
+    {{ pad }}}
+    {%- if block["media"] %}
     }
-    @media (prefers-color-scheme: light) {
-      :root {
-        color-scheme: light;
-        --bg-primary: #f7f9fc;
-        --bg-panel: #ffffff;
-        --bg-elevated: #eef2f7;
-        --text-primary: #0c1322;
-        --text-secondary: #45526b;
-        --text-muted: #64748b;
-        --color-accent: #0a8f8c;
-        --border-default: #d9dfe8;
-        --border-accent: rgba(10, 143, 140, 0.35);
-        --shadow-card: 0 4px 16px rgba(15, 23, 42, 0.08);
-      }
-    }
+    {%- endif %}
+    {%- endfor %}
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -152,7 +165,7 @@
       background: var(--bg-panel);
       border: 1px solid var(--border-default);
       border-radius: 10px;
-      box-shadow: var(--shadow-card);
+      box-shadow: var(--shadow-dropdown);
       text-decoration: none;
       color: inherit;
       transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;

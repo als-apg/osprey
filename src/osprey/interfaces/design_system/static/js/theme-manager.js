@@ -27,6 +27,19 @@
  * family. See setTheme()/setFamily()/toggleTheme() below for the exact
  * contract.
  *
+ * Server-rendered defaults (hub only, first visit only): the page may carry
+ * `<html data-theme="...">` (the concrete id theme-boot.js first-painted) and,
+ * optionally, `<html data-theme-mode="dark|light">`. The second attribute is
+ * present only when the deployment configured a concrete theme id rather than a
+ * bare family -- i.e. when it PINNED light or dark rather than just choosing a
+ * palette. The hub adopts both as its starting preference; without the mode
+ * attribute it starts on 'auto' and follows the OS, as before. Either way this
+ * is only a DEFAULT: a stored preference and an explicit '?theme=' both outrank
+ * it, and the moment the operator picks anything their choice is persisted and
+ * wins on every later visit. Followers ignore the attribute entirely -- they
+ * have no preference of their own and must not resolve independently of their
+ * hub.
+ *
  * Colors are never imported as JS data (tokens.js intentionally carries
  * none — see its own header comment). xtermPalette()/chartTheme()/
  * chartSeries() are *computed-style bridges*: every call does a fresh
@@ -54,7 +67,12 @@
  * silently returning colors it can't vouch for.
  */
 
-import { DEFAULT_FAMILY as _EMITTED_DEFAULT_FAMILY, DEFAULTS, THEMES } from './tokens.js';
+import {
+  DEFAULT_FAMILY as _EMITTED_DEFAULT_FAMILY,
+  DEFAULTS,
+  FAMILY_LABELS,
+  THEMES,
+} from './tokens.js';
 
 /** @typedef {{id: string, label: string, mode: string, family: string}} ThemeEntry */
 /** @typedef {'auto'|'dark'|'light'} ModePreference */
@@ -83,6 +101,9 @@ const MAX_CHART_SERIES = 12;
 const _themes = /** @type {ThemeEntry[]} */ (THEMES);
 /** @type {Record<string, Record<string, string>>} */
 const _defaults = /** @type {Record<string, Record<string, string>>} */ (DEFAULTS);
+
+/** @type {Record<string, string>} */
+const _familyLabels = /** @type {Record<string, string>} */ (FAMILY_LABELS);
 
 const _themesById = new Map(_themes.map((theme) => [theme.id, theme]));
 const _validIds = _themes.map((theme) => theme.id);
@@ -165,6 +186,30 @@ function _familyOf(id) {
   return theme ? theme.family : DEFAULT_FAMILY;
 }
 
+/**
+ * The display name for a theme family. Prefers the family's declared
+ * `$extensions.family_label` (emitted into tokens.js as FAMILY_LABELS) and
+ * otherwise derives one by title-casing each hyphen-separated word of the id
+ * ('high-contrast' -> 'High Contrast'). The declared label exists for families
+ * whose id does not title-case correctly -- 'desy' -> 'DESY', not 'Desy'.
+ *
+ * The single implementation for every family picker in the fleet: both
+ * web-terminal's display menu and <osprey-theme-switcher> import this rather
+ * than deriving a label of their own, so a newly-labelled family can never
+ * render one way in one picker and another way in the other.
+ *
+ * @param {string} family
+ * @returns {string}
+ */
+export function familyLabel(family) {
+  const declared = _familyLabels[family];
+  if (typeof declared === 'string' && declared) return declared;
+  return family
+    .split('-')
+    .map((word) => (word.length ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(' ');
+}
+
 function _prefersDarkOS() {
   try {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -230,6 +275,26 @@ function _readQueryTheme() {
   } catch {
     return null;
   }
+}
+
+/**
+ * The mode the server pinned via `<html data-theme-mode>`, or 'auto' when it
+ * pinned none. Only ever consulted on a first visit (no stored preference, no
+ * `?theme=`) -- see initTheme()'s hub branch.
+ *
+ * An absent or unrecognized attribute yields 'auto', which is exactly the
+ * pre-existing behavior, so a server that renders no such attribute is
+ * unaffected.
+ * @returns {ModePreference}
+ */
+function _readServerMode() {
+  let raw = null;
+  try {
+    raw = document.documentElement.getAttribute('data-theme-mode');
+  } catch {
+    return 'auto';
+  }
+  return raw === 'dark' || raw === 'light' ? raw : 'auto';
 }
 
 /**
@@ -482,13 +547,21 @@ export function initTheme({ role = 'follower' } = {}) {
   if (_role === 'hub') {
     const queryPreference = _parsePreferenceToken(queryTheme);
     const storedPreference = _readStoredPreference();
-    // First visit (nothing stored, no ?theme=): keep mode 'auto' but adopt
-    // the family theme-boot.js already applied, so a server-configured
-    // web.theme family survives hub init instead of being displaced by
-    // DEFAULT_FAMILY.
+    // First visit (nothing stored, no ?theme=): adopt the family theme-boot.js
+    // already applied, so a server-configured web.theme family survives hub
+    // init instead of being displaced by DEFAULT_FAMILY.
+    //
+    // The mode comes from the server too, when the server stated one.
+    // `data-theme-mode` is set only when the deployment configured a concrete
+    // theme id (`web.theme: desy-light`) rather than a bare family
+    // (`web.theme: desy`) -- see resolve_web_theme_pinned_mode() in the web
+    // terminal's app.py. Without reading it, a configured light default would
+    // paint correctly and then be discarded one frame later by 'auto'
+    // re-resolving the mode from the OS. A stored preference still outranks
+    // it: config sets the DEFAULT, not a lock.
     const preference = queryPreference || storedPreference || {
       family: _isKnownId(attrTheme) ? _familyOf(attrTheme) : DEFAULT_FAMILY,
-      mode: /** @type {ModePreference} */ ('auto'),
+      mode: _readServerMode(),
     };
     _preferenceFamily = preference.family;
     _preferenceMode = preference.mode;

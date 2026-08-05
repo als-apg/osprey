@@ -172,6 +172,15 @@ services:
          OSPREY_WEB_APP_NAME in preference to config web.app_name. #}
       - {{ ("OSPREY_WEB_APP_NAME=" ~ svc.display_name) | tojson }}
 {%- endif %}
+{%- if svc.theme %}
+      {#- This user's default web UI theme: a theme family ("desy") or a
+         concrete id ("desy-light", which additionally pins light/dark).
+         Quoted the same way as OSPREY_WEB_APP_NAME above, for the same
+         reason. app.py reads OSPREY_WEB_THEME in preference to config
+         web.theme, and warns+falls back on an unknown value. A user's own
+         choice in the display menu still outranks this. #}
+      - {{ ("OSPREY_WEB_THEME=" ~ svc.theme) | tojson }}
+{%- endif %}
 {%- for env in svc.panel_env %}
       - {{ env.name }}={{ env.port }}
 {%- endfor %}

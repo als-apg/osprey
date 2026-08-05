@@ -102,6 +102,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_reserved_names(users))
     findings.extend(_check_username_charset(users))
     findings.extend(_check_display_name(users))
+    findings.extend(_check_user_theme(users))
     findings.extend(_check_invalid_index(users))
     findings.extend(_check_duplicate_index(users))
     findings.extend(_check_bare_list_port_drift_risk(users))
@@ -266,6 +267,43 @@ def _check_display_name(users: list[Any]) -> list[Finding]:
                 message=(
                     f"modules.web_terminals.users entry {name!r} has a non-string "
                     f"display_name {display_name!r}; display_name must be a string"
+                ),
+            )
+        )
+    return findings
+
+
+def _check_user_theme(users: list[Any]) -> list[Finding]:
+    """An object-form entry's optional ``theme`` (the per-user default web UI
+    theme emitted as ``OSPREY_WEB_THEME``) must be a string when present.
+
+    Same shape and rationale as :func:`_check_display_name`: the renderer drops
+    a non-string one rather than emitting a broken env line, so a config typo
+    would otherwise degrade silently at render time.
+
+    Only the *type* is checked here. Whether the string names a real theme
+    family or id is deliberately not lint's business: the theme registry lives
+    in the design system, is versioned with the image rather than with this
+    config, and the web terminal already warns and falls back on an unknown
+    value at startup. Failing a build over a name this module cannot
+    authoritatively resolve would be worse than that warning.
+    """
+    findings: list[Finding] = []
+    for user in users:
+        if not isinstance(user, dict) or "theme" not in user:
+            continue
+        theme = user.get("theme")
+        if isinstance(theme, str):
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_user_theme",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} has a non-string "
+                    f"theme {theme!r}; theme must be a string (a theme family such "
+                    f"as 'desy', or a concrete id such as 'desy-light')"
                 ),
             )
         )

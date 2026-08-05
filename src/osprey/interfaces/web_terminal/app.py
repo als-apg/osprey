@@ -226,30 +226,21 @@ def _launch_system_health_server(app: FastAPI) -> None:
 def _load_theme_registry() -> tuple[list[ThemeManifestEntry], dict[str, dict[str, str]]]:
     """Load the baked theme manifest + per-family defaults for SSR resolution.
 
-    Reads the same ``tokens/`` source tree the design-system generator
-    builds from (``generator/build.py::DEFAULT_TOKENS_DIR``) rather than
-    parsing the generated ``tokens.js`` — one source, no risk of drifting
-    from a stale generated artifact. This intentionally skips
-    ``validate.assert_valid``: the checked-in tree is validated by
-    ``build --check`` in CI, and full WCAG/completeness validation isn't
-    needed just to read theme identity for SSR.
+    Thin alias for
+    :func:`osprey.interfaces.design_system.theme_config.load_theme_registry`,
+    kept because this module's lifespan and its tests both reach for it by this
+    name. The multi-user landing-page renderer resolves the same config value
+    through that same module, so the two surfaces cannot disagree about what
+    ``web.theme`` means.
 
     Returns:
         ``(entries, defaults)`` as produced by
         :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_manifest`
         and :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`.
     """
-    from osprey.interfaces.design_system.generator.build import DEFAULT_TOKENS_DIR
-    from osprey.interfaces.design_system.generator.emit_js import (
-        build_theme_defaults,
-        build_theme_manifest,
-    )
-    from osprey.interfaces.design_system.generator.model import load_token_tree
+    from osprey.interfaces.design_system.theme_config import load_theme_registry
 
-    tree = load_token_tree(DEFAULT_TOKENS_DIR)
-    entries = build_theme_manifest(tree)
-    defaults = build_theme_defaults(entries)
-    return entries, defaults
+    return load_theme_registry()
 
 
 def resolve_web_theme_id(
@@ -259,56 +250,58 @@ def resolve_web_theme_id(
 ) -> str:
     """Resolve the ``web.theme`` config value into a concrete baked theme id.
 
-    ``configured`` may be:
+    ``web.theme``-named alias for
+    :func:`osprey.interfaces.design_system.theme_config.resolve_theme_id`,
+    which documents the full contract (family vs concrete id, the warn +
+    fallback on an unknown value, and the guarantee that the result is always a
+    real baked id — what the pre-paint ``theme-boot.js`` rung requires). The
+    multi-user landing-page renderer calls that same function, so the two
+    surfaces cannot disagree about what ``web.theme`` means.
 
-    - A concrete theme id (e.g. ``"high-contrast-light"``) — used as-is.
-      This is how an operator pins a specific mode instead of the
-      family's dark default.
-    - A theme *family* name (e.g. ``"main"``, ``"high-contrast"``) —
-      resolved to that family's **dark** id, the canonical SSR default.
-    - Anything else (unknown/misspelled) — logged as a warning and
-      resolved to the ``main`` family's dark id.
-
-    Mirrors the warn+fallback shape of
-    :func:`osprey.cli.styles.load_theme_from_config`: never raises.
+    The returned id alone does NOT say whether the deployment pinned a mode —
+    see :func:`resolve_web_theme_pinned_mode` for that half.
 
     Args:
         configured: The raw ``web.theme`` config value.
-        entries: The theme manifest (see
-            :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_manifest`).
-        defaults: The per-family ``{family: {mode: id}}`` map (see
-            :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`).
+        entries: The theme manifest.
+        defaults: The per-family ``{family: {mode: id}}`` map.
 
     Returns:
-        A concrete theme id present in ``entries`` — the pre-paint
-        ``theme-boot.js`` rung (Task 1.8) only honors a server-rendered
-        ``data-theme`` that is a real baked id, never a family name or
-        ``"auto"``.
+        A concrete theme id present in ``entries``.
     """
-    valid_ids = {entry.id for entry in entries}
-    if configured in valid_ids:
-        return configured
-    if configured in defaults:
-        return defaults[configured]["dark"]
+    from osprey.interfaces.design_system.theme_config import resolve_theme_id
 
-    logger.warning(
-        "Unknown web.theme %r (not a theme id or family); falling back to "
-        "the main family's dark theme. Valid ids: %s; valid families: %s",
-        configured,
-        sorted(valid_ids),
-        sorted(defaults),
-    )
-    main_dark = defaults.get("main", {}).get("dark")
-    if main_dark is not None:
-        return main_dark
-    # Degenerate case (no built-in ``main`` family): still return a real
-    # baked dark id — ``build_theme_defaults`` guarantees each family has a
-    # dark member — rather than an unverified literal, so Task 1.8's boot
-    # rung honors it instead of silently dropping to auto (FOUC).
-    for family_modes in defaults.values():
-        if "dark" in family_modes:
-            return family_modes["dark"]
-    return next(iter(sorted(valid_ids)), "dark")
+    return resolve_theme_id(configured, entries, defaults, config_key="web.theme")
+
+
+def resolve_web_theme_pinned_mode(
+    configured: str,
+    entries: Sequence[ThemeManifestEntry],
+) -> str | None:
+    """The light/dark mode a ``web.theme`` value *pins*, if any.
+
+    ``web.theme``-named alias for
+    :func:`osprey.interfaces.design_system.theme_config.resolve_pinned_mode`,
+    which documents why the pin has to be carried separately from the resolved
+    id at all.
+
+    The lifespan server-renders the result as ``<html data-theme-mode>``, and
+    the browser needs it: without that attribute ``theme-manager.js``'s hub
+    assumes ``mode: 'auto'`` on a first visit and immediately re-resolves the
+    mode from the OS, silently discarding a configured pin one frame after
+    paint.
+
+    Args:
+        configured: The raw ``web.theme`` config value.
+        entries: The theme manifest.
+
+    Returns:
+        ``"dark"`` or ``"light"`` when ``configured`` names a concrete theme id;
+        ``None`` when it names a family or is unknown.
+    """
+    from osprey.interfaces.design_system.theme_config import resolve_pinned_mode
+
+    return resolve_pinned_mode(configured, entries)
 
 
 #: The two supported web UI modes. ``expert`` is the full split-pane terminal
@@ -754,10 +747,24 @@ def _create_lifespan(
         try:
             from osprey.utils.config import get_config_value
 
-            configured_web_theme = get_config_value("web.theme", "main")
+            # ``OSPREY_WEB_THEME`` takes precedence over ``web.theme``, so
+            # several containers sharing one baked config image can each be
+            # themed individually via the environment — the same shape
+            # ``OSPREY_WEB_APP_NAME`` uses above. Multi-user deployments set it
+            # per user from the roster's ``theme:`` key.
+            configured_web_theme = os.environ.get(
+                "OSPREY_WEB_THEME", ""
+            ).strip() or get_config_value("web.theme", "main")
             theme_entries, theme_defaults = _load_theme_registry()
             app.state.web_theme_id = resolve_web_theme_id(
                 configured_web_theme, theme_entries, theme_defaults
+            )
+            # Whether the configured value pinned a mode (a concrete id) or only
+            # a palette (a family). Server-rendered alongside data-theme so the
+            # browser hub can honor a pin instead of assuming 'auto' — see
+            # resolve_web_theme_pinned_mode().
+            app.state.web_theme_mode = resolve_web_theme_pinned_mode(
+                configured_web_theme, theme_entries
             )
             # The resolved theme's family, kept for the rail-position block
             # below (an unconfigured rail follows the family — see
@@ -773,6 +780,7 @@ def _create_lifespan(
                 exc_info=True,
             )
             app.state.web_theme_id = "dark"
+            app.state.web_theme_mode = None
             app.state.web_theme_family = None
 
         # ── Web UI mode (SSR no-flash attribute, Task 5.1) ──
@@ -1050,6 +1058,7 @@ def create_app(
     async def root(request: Request):
         app_name = getattr(request.app.state, "app_name", "")
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
+        web_theme_mode = getattr(request.app.state, "web_theme_mode", None)
         web_ui_mode = getattr(request.app.state, "web_ui_mode", DEFAULT_UI_MODE)
         web_rail_position = getattr(request.app.state, "web_rail_position", DEFAULT_RAIL_POSITION)
         terminal_user = getattr(request.app.state, "terminal_user", "")
@@ -1060,6 +1069,7 @@ def create_app(
             {
                 "app_name": app_name,
                 "web_theme_id": web_theme_id,
+                "web_theme_mode": web_theme_mode or "",
                 "web_ui_mode": web_ui_mode,
                 "web_rail_position": web_rail_position,
                 "terminal_user": terminal_user,

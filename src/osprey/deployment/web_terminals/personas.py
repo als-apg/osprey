@@ -58,6 +58,13 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     reads a user's identity off of, rather than re-deriving the field from the raw
     roster the way ``persona`` is.
 
+    An object entry's optional ``theme`` (that user's default web UI theme --
+    a theme family like ``desy`` or a concrete id like ``desy-light``, surfaced
+    downstream as the per-user ``OSPREY_WEB_THEME``) is carried through on
+    exactly the same terms. Validity of the *value* is not checked here: the
+    web terminal resolves it at startup and warns+falls back on an unknown one,
+    and lint reports a non-string separately.
+
     Malformed entries — anything that isn't a string, and any dict missing a
     string ``name`` or an int ``index`` — are dropped rather than raising
     (well-formedness is lint.py's job). ``bool`` is a subclass of ``int`` in
@@ -92,6 +99,9 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 display_name = entry.get("display_name")
                 if isinstance(display_name, str):
                     normalized_entry["display_name"] = display_name
+                theme = entry.get("theme")
+                if isinstance(theme, str):
+                    normalized_entry["theme"] = theme
                 normalized.append(normalized_entry)
     return normalized
 
@@ -224,11 +234,12 @@ def resolve_personas(
         ``seed_base`` (a bool; anything else is defensively coerced to
         ``True``), and always ``True`` for the zero-migration / lenient-degrade
         paths — it controls whether the shared base context is prepended when
-        seeding this entry's ``CLAUDE.md``. An optional ``"display_name"`` key is
-        added — carried through from :func:`normalize_users` — only when the entry
-        declared a non-empty string one (render emits it as
-        ``OSPREY_WEB_APP_NAME``); it is omitted entirely otherwise, so a roster
-        with no ``display_name`` resolves byte-identically to before this field
+        seeding this entry's ``CLAUDE.md``. Optional ``"display_name"`` and
+        ``"theme"`` keys are added — carried through from
+        :func:`normalize_users` — only when the entry declared a non-empty string
+        one (render emits them as ``OSPREY_WEB_APP_NAME`` and
+        ``OSPREY_WEB_THEME``); each is omitted entirely otherwise, so a roster
+        declaring neither resolves byte-identically to before these fields
         existed.
 
     Raises:
@@ -269,28 +280,30 @@ def resolve_personas(
     default_container_dir = f"/app/{facility_prefix}-assistant"
     default_image = f"{registry_url}/web-terminal:{image_tag}"
 
-    def _with_display_name(entry: dict[str, Any], display_name: Any) -> dict[str, Any]:
-        """Attach an optional ``display_name`` to a resolved entry, mirroring
-        render.py's conditional-``sublabel`` convention: the key is present only
-        for a non-empty string, so an absent/empty one leaves the entry
-        byte-identical to a pre-``display_name`` resolution."""
-        if isinstance(display_name, str) and display_name:
-            entry["display_name"] = display_name
+    def _with_optional_fields(entry: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+        """Attach the optional per-user fields to a resolved entry, mirroring
+        render.py's conditional-``sublabel`` convention: a key is present only
+        for a non-empty string, so a roster declaring none leaves the entry
+        byte-identical to a resolution from before these fields existed."""
+        for field in ("display_name", "theme"):
+            value = source.get(field)
+            if isinstance(value, str) and value:
+                entry[field] = value
         return entry
 
     def _zero_migration_entry(
-        name: str, index: int, persona: str | None, display_name: Any
+        name: str, index: int, persona: str | None, source: dict[str, Any]
     ) -> dict[str, Any]:
         """The zero-migration resolution: today's exact pre-persona values, with
         ``persona`` carried through for logging (``None`` when no persona is in
         effect, or the unresolvable reference on the lenient degrade path) and the
-        optional ``display_name`` passed through unchanged. ``extra_mounts`` is
+        optional per-user fields passed through unchanged. ``extra_mounts`` is
         empty here — the zero-migration path has no catalog entry to read
         persona-level host mounts from. ``seed_base`` is ``True`` — the shared
         base-context prepend has always been mandatory for a
         no-persona/zero-migration entry, and opting out is only expressible
         through a catalog entry."""
-        return _with_display_name(
+        return _with_optional_fields(
             {
                 "name": name,
                 "index": index,
@@ -301,19 +314,18 @@ def resolve_personas(
                 "extra_mounts": [],
                 "seed_base": True,
             },
-            display_name,
+            source,
         )
 
     resolved: list[dict[str, Any]] = []
     for entry in normalized:
         name = entry["name"]
         index = entry["index"]
-        display_name = entry.get("display_name")
         persona_ref = persona_ref_by_name.get(name) or default_persona_name
 
         if persona_ref is None:
             # No persona system in effect for this entry — zero-migration path.
-            resolved.append(_zero_migration_entry(name, index, None, display_name))
+            resolved.append(_zero_migration_entry(name, index, None, entry))
             continue
 
         catalog_entry = personas_catalog.get(persona_ref)
@@ -326,7 +338,7 @@ def resolve_personas(
             # Lenient degrade (lifecycle verbs): keep the requested persona name
             # visible for logging, but fall back to the zero-migration values so
             # a stale/bad reference never blocks a lifecycle verb.
-            resolved.append(_zero_migration_entry(name, index, persona_ref, display_name))
+            resolved.append(_zero_migration_entry(name, index, persona_ref, entry))
             continue
 
         project = catalog_entry.get("project")
@@ -364,7 +376,7 @@ def resolve_personas(
         container_project_dir = f"/app/{project}"
 
         resolved.append(
-            _with_display_name(
+            _with_optional_fields(
                 {
                     "name": name,
                     "index": index,
@@ -375,7 +387,7 @@ def resolve_personas(
                     "extra_mounts": extra_mounts,
                     "seed_base": seed_base,
                 },
-                display_name,
+                entry,
             )
         )
 

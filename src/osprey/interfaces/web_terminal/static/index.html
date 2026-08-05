@@ -1,5 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ web_theme_id }}" data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}">
+{#- data-theme-mode is present ONLY when web.theme named a concrete theme id,
+    i.e. the deployment pinned light/dark rather than just a palette. Its
+    absence is meaningful: it tells theme-manager.js's hub to leave the mode on
+    'auto' and follow the operator's OS. Never emit it empty. -#}
+<html lang="en" data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -89,11 +93,16 @@
     <div class="header-left">
       <span class="header-logo">OSPREY</span>
       <span class="header-title">Web Terminal</span>
+      <!-- Deployment identity (web.app_name / OSPREY_WEB_APP_NAME) sits with the
+           product name it qualifies, not in the action cluster: it says WHICH
+           deployment this is, which is the same kind of fact as "Web Terminal",
+           whereas everything on the right is something you can DO. It used to
+           render as a second grey chip beside the user name, where the two read
+           as a pair of unrelated badges. -->
+      {% if app_name %}<span class="header-deployment" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
     </div>
     <div class="header-right">
       <div class="header-actions">
-        {% if terminal_user %}<span class="header-app-name" id="header-user-name" title="Logged in as {{ terminal_user }}">{{ terminal_user }}</span>{% endif %}
-        {% if app_name %}<span class="header-app-name" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
         <!-- Command palette trigger (frame). Reads as a search bar; behaviour
              (Cmd/Ctrl+K, filtering, keyboard nav) is wired by a later JS task.
              CSS-hidden in simple UI mode. -->
@@ -104,6 +113,47 @@
           <span class="command-palette-trigger-label">Search</span>
           <span class="command-palette-kbd" aria-hidden="true">&#8984;K</span>
         </button>
+        <!-- Identity chip: who you are, and the only way out. The user badge and
+             the logout button used to be two separate controls floating in this
+             cluster; they are one fact ("you are signed in as alice") and one
+             action on that fact, so they collapse into a single chip whose
+             popover holds the action. Logging out ends the session, so the extra
+             click the popover costs is a feature, not a tax.
+
+             Rendered only when the server knows a user (OSPREY_TERMINAL_USER),
+             i.e. multi-user deployments; single-user terminals see search +
+             display menu alone, exactly as before. The logout control keeps its
+             `#logout-btn` id and `data-landing-url` contract — app.js's
+             initLogoutButton() and palette-boot.js's "Log out" command both find
+             it by id, so this move is placement-only. -->
+        {% if terminal_user %}
+        <div class="identity-menu" id="identity-menu">
+          <button class="identity-trigger" id="identity-menu-btn" type="button"
+                  title="Signed in as {{ terminal_user }}"
+                  aria-label="Signed in as {{ terminal_user }}"
+                  aria-haspopup="true" aria-expanded="false">
+            <span class="identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
+            <span class="identity-name">{{ terminal_user }}</span>
+            <svg class="identity-caret" aria-hidden="true" width="10" height="10"
+                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                 stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="identity-card" id="identity-menu-card" role="group" aria-label="Session">
+            <div class="identity-card-identity">
+              <span class="identity-card-name">{{ terminal_user }}</span>
+              {% if app_name %}<span class="identity-card-sub">{{ app_name }}</span>{% endif %}
+            </div>
+            {% if landing_url %}
+            <button class="identity-card-logout" id="logout-btn" type="button"
+                    data-landing-url="{{ landing_url }}"
+                    title="Log out {{ terminal_user }} and return to the landing page"
+                    aria-label="Log out {{ terminal_user }} and return to the landing page">
+              <span class="identity-card-logout-icon" aria-hidden="true">&#128682;</span>Log out
+            </button>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
         <!-- Display menu: the header sliders button. Collapses the Expert/Simple mode
              toggle and both theme axes (light/dark + family) into one popover
              card so the header stays quiet. display-menu.js owns open/close
@@ -165,7 +215,6 @@
             </button>
           </div>
         </div>
-        {% if landing_url %}<button class="header-icon-btn" id="logout-btn" data-landing-url="{{ landing_url }}" title="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page" aria-label="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page"><span aria-hidden="true">&#128682;</span></button>{% endif %}
       </div>
     </div>
   </header>

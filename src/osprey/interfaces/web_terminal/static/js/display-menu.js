@@ -38,6 +38,7 @@
  */
 
 import {
+  familyLabel,
   getFamily,
   getTheme,
   setFamily,
@@ -53,20 +54,11 @@ import { THEMES } from '/design-system/js/tokens.js';
 // rationale as theme-manager.js's own `_themes` cast).
 const _themes = /** @type {ThemeEntry[]} */ (THEMES);
 
-/**
- * Human label for a family id: title-case each hyphen-separated word
- * ('osprey' → 'Osprey', 'high-contrast' → 'High Contrast'). Same derivation
- * as <osprey-theme-switcher> — THEMES carries per-theme labels but no
- * family-level one.
- * @param {string} family
- * @returns {string}
- */
-export function familyLabel(family) {
-  return family
-    .split('-')
-    .map((word) => (word.length ? word[0].toUpperCase() + word.slice(1) : word))
-    .join(' ');
-}
+// Human label for a family id. Re-exported from theme-manager.js, which owns
+// the single implementation shared with <osprey-theme-switcher> — a family that
+// declares a `family_label` (e.g. 'desy' → 'DESY') must render identically in
+// both pickers, which a second local derivation could not guarantee.
+export { familyLabel };
 
 /**
  * The available families, deduped, in THEMES declaration order — the same

@@ -386,11 +386,16 @@ claude_code:
 # (console-only) — the two never share a value.
 
 web:
-  # Default web UI theme: a theme FAMILY (e.g. "osprey", "high-contrast") or
-  # a concrete theme id (e.g. "high-contrast-light") to pin a specific mode.
-  # A user's in-browser choice (switcher selection, ?theme=, localStorage)
-  # always overrides this default. An unknown value falls back to "osprey".
-  theme: osprey
+  # Default web UI theme. Two forms, and the difference matters:
+  #   - a theme FAMILY ("main", "desy", "high-contrast", "retro") sets the
+  #     palette and leaves light/dark to each viewer's OS preference;
+  #   - a concrete theme id ("desy-light", "high-contrast-light") additionally
+  #     PINS light or dark as this deployment's default.
+  # A user's in-browser choice (display menu, ?theme=, localStorage) always
+  # overrides this default. An unknown value warns and falls back to "main".
+  # In a multi-user deployment, a roster entry's `theme:` (rendered as
+  # OSPREY_WEB_THEME) overrides this per user.
+  theme: main
 
 # ============================================================
 # CLI CONFIGURATION
