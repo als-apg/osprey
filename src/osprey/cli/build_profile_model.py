@@ -51,6 +51,16 @@ class BuildProfile:
 
     name: str
     data_bundle: str = "control_assistant"
+    data: str | None = None
+    """Facility data tree this profile carries, as a path relative to the
+    profile directory (``data`` for a materialized profile, ``../data`` for a
+    sibling persona profile that shares its parent's tree; may therefore
+    resolve above the profile dir). When set, the build copies this tree
+    instead of the bundled ``apps/<data_bundle>/data/`` — a full replacement,
+    not a layered fallback. Meaningless for ``--preset`` builds, which have no
+    profile directory to anchor it against; the resolution point for both the
+    validator and the build is :meth:`resolved_data_root`.
+    """
     deploy_services: bool = True
     """Whether this project scaffolds its own container-services stack.
 
@@ -145,6 +155,24 @@ class BuildProfile:
         if self.tier is not None:
             return self.tier
         return default_tier_for_mode(self.channel_finder_mode)
+
+    def resolved_data_root(self, profile_dir: Path) -> Path | None:
+        """Resolve the profile's ``data:`` tree against its profile directory.
+
+        The single anchoring point shared by :meth:`validate` and the build, so
+        the tree the validator checks is the tree the build copies.
+
+        Args:
+            profile_dir: Directory holding the profile file.
+
+        Returns:
+            The resolved data root, or ``None`` when the profile declares no
+            ``data:`` (or declares it with a non-string value, which
+            :meth:`validate` reports).
+        """
+        if not isinstance(self.data, str) or not self.data.strip():
+            return None
+        return (profile_dir / self.data).resolve()
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a panel this profile could render.
@@ -261,6 +289,20 @@ class BuildProfile:
                 f"channel_finder_mode must be one of {VALID_CHANNEL_FINDER_MODES} "
                 f"(got {self.channel_finder_mode!r})"
             )
+
+        # The data tree may legitimately sit above the profile dir (persona
+        # profiles share their parent's tree via ``data: ../data``), so only
+        # existence and shape are checked, never containment.
+        if self.data is not None:
+            if not isinstance(self.data, str) or not self.data.strip():
+                errors.append(f"data must be a non-empty directory path (got {self.data!r})")
+            else:
+                data_root = self.resolved_data_root(profile_dir)
+                assert data_root is not None  # narrows for type-checkers
+                if not data_root.exists():
+                    errors.append(f"data directory not found: {self.data} (resolved: {data_root})")
+                elif not data_root.is_dir():
+                    errors.append(f"data must be a directory: {self.data} (resolved: {data_root})")
 
         # Validate overlay source paths exist
         for src, _dst in self.overlay.items():

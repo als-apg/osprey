@@ -112,6 +112,58 @@ def test_generate_manifest_stamps_preset_hash(presets_dir, tmp_path):
     assert on_disk["creation"]["preset_hash"] == data["creation"]["preset_hash"]
 
 
+def test_generate_manifest_records_both_profile_path_forms(tmp_path, monkeypatch):
+    """The typed string is kept for display; the resolved path is kept for reuse.
+
+    ``reproducible_command`` has to echo what the user typed, but every later
+    reader — the deploy-side staleness advisory above all — needs a path that
+    still resolves from somewhere other than the build's working directory.
+    """
+    from osprey.cli.templates import manifest as manifest_mod
+
+    profile = tmp_path / "profiles" / "facility.yml"
+    profile.parent.mkdir()
+    profile.write_text("name: Facility\n", encoding="utf-8")
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    data = manifest_mod.generate_manifest(
+        template_root=tmp_path / "templates",
+        jinja_env=None,
+        project_dir=project_dir,
+        project_name="proj",
+        template_name="demo_bundle",
+        context={"profile_path_abs": str(profile)},
+        profile_path="profiles/facility.yml",
+    )
+
+    assert data["build_args"]["profile_path"] == "profiles/facility.yml"
+    assert data["build_args"]["profile_path_abs"] == str(profile)
+    assert data["reproducible_command"] == "osprey build proj profiles/facility.yml"
+    assert data["creation"]["preset_hash"] == build_profile.compute_profile_hash(profile)
+
+
+def test_generate_manifest_omits_absolute_path_when_build_gave_none(tmp_path):
+    """A --preset build has no profile path to resolve; the key stays absent."""
+    from osprey.cli.templates import manifest as manifest_mod
+
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+
+    data = manifest_mod.generate_manifest(
+        template_root=tmp_path / "templates",
+        jinja_env=None,
+        project_dir=project_dir,
+        project_name="proj",
+        template_name="demo_bundle",
+        context={},
+        preset_name="demo",
+    )
+
+    assert "profile_path_abs" not in data["build_args"]
+
+
 def test_generate_manifest_survives_unhashable_preset(tmp_path, monkeypatch):
     """Hash stamping is best-effort: a failing hash must not break the build."""
     from osprey.cli.templates import manifest as manifest_mod

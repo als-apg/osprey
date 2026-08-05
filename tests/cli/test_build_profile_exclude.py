@@ -144,10 +144,11 @@ def test_set_readd_does_not_win(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_exclude_does_not_warn_unknown_key(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """``exclude`` is a known key — it must not fire ``_warn_unknown_keys``."""
+def test_exclude_is_not_an_unknown_key(tmp_path: Path) -> None:
+    """``exclude`` is allowlisted — it must not trip ``_reject_unknown_keys``.
+
+    Unknown keys are fatal, so resolving at all is the assertion.
+    """
     _write(
         tmp_path / "base.yml",
         "name: Base\ndata_bundle: hello_world\nskills: [a, b]\n",
@@ -156,9 +157,10 @@ def test_exclude_does_not_warn_unknown_key(
         tmp_path / "child.yml",
         "extends: ./base.yml\nname: Child\nexclude:\n  skills: [b]\n",
     )
-    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_profile_load"):
-        resolve_build_profile(child.resolve(), preset=None)
-    assert not any("Unknown profile key" in rec.message for rec in caplog.records)
+
+    profile, _dir = resolve_build_profile(child.resolve(), preset=None)
+
+    assert profile.skills == ["a"]
 
 
 # ---------------------------------------------------------------------------

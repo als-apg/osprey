@@ -339,8 +339,12 @@ def test_preset_drift_guard() -> None:
         )
 
 
-def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) -> None:
-    """C11: unknown top-level profile keys (e.g. typos) emit a warning, not silence."""
+def test_unknown_profile_key_fails_the_build(runner: CliRunner, tmp_path: Path, caplog) -> None:
+    """C11 promoted: unknown top-level keys now fail the build, naming each typo.
+
+    Previously they were warned about and ignored, which shipped a project
+    missing whatever the profile asked for.
+    """
     profile = tmp_path / "p.yml"
     profile.write_text(
         "name: TypoTest\n"
@@ -351,7 +355,7 @@ def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) ->
     )
     import logging
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.ERROR):
         result = runner.invoke(
             build,
             [
@@ -363,10 +367,11 @@ def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) ->
                 str(tmp_path),
             ],
         )
-    assert result.exit_code == 0, result.output
-    warnings = " ".join(r.message for r in caplog.records if r.levelno >= logging.WARNING)
-    assert "mcp_server" in warnings
-    assert "permission" in warnings
+
+    assert result.exit_code != 0
+    assert "mcp_server" in caplog.text
+    assert "permission" in caplog.text
+    assert not (tmp_path / "smoke").exists()
 
 
 def test_manifest_schema_version_bumped(runner: CliRunner, tmp_path: Path) -> None:

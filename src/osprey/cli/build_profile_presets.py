@@ -13,9 +13,9 @@ import importlib.resources
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from osprey.errors import BuildProfileError
+
+from .build_profile_document import _read_profile_document
 
 _PRESETS_PACKAGE = "osprey.profiles.presets"
 
@@ -79,10 +79,7 @@ def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     if not target.exists():
         available = ", ".join(list_presets()) or "(none)"
         raise BuildProfileError(f"Unknown preset {name!r}. Available: {available}")
-    try:
-        raw = yaml.safe_load(target.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
-        raise BuildProfileError(f"Invalid YAML in preset {name!r}: {e}") from e
+    raw = _read_profile_document(target, source=f"preset {name!r}")
     if not isinstance(raw, dict):
         raise BuildProfileError(f"Preset {name!r} must be a YAML mapping")
     return raw, target

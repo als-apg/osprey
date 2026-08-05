@@ -2,8 +2,8 @@
 
 Turns a raw profile mapping into the typed dataclasses — validating the
 per-server and per-section shapes that only the parser can see (MCP
-command/url/port exclusivity, mapping-vs-scalar sections) and warning on
-top-level keys that are almost certainly typos. :func:`load_profile` is the
+command/url/port exclusivity, mapping-vs-scalar sections) and rejecting
+top-level keys the schema does not define. :func:`load_profile` is the
 plain single-file entry point; the preset/override/``--set`` layering path in
 :mod:`osprey.cli.build_profile_resolve` reuses :func:`_parse_profile` after it has
 assembled its own raw dict.
@@ -11,14 +11,13 @@ assembled its own raw dict.
 
 from __future__ import annotations
 
-import logging
+import difflib
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from osprey.errors import BuildProfileError
 
+from .build_profile_document import _normalize_profile_aliases, _read_profile_document
 from .build_profile_merge import _resolve_extends
 from .build_profile_model import BuildProfile
 from .build_profile_schema import (
@@ -34,8 +33,6 @@ from .build_profile_schema import (
     ServiceDef,
     VAConfig,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 
 def load_profile(path: Path) -> BuildProfile:
@@ -53,10 +50,7 @@ def load_profile(path: Path) -> BuildProfile:
     if not path.exists():
         raise BuildProfileError(f"Profile not found: {path}")
 
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
-        raise BuildProfileError(f"Invalid YAML in {path}: {e}") from e
+    raw = _read_profile_document(path)
 
     if not isinstance(raw, dict):
         raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
@@ -70,6 +64,16 @@ def load_profile(path: Path) -> BuildProfile:
     return profile
 
 
+# Minimum OSPREY release that understands the current profile schema — the one
+# that ships ``app_template:`` and ``data:``. Emitted profiles stamp
+# ``requires_osprey_version`` from this constant (as ``>=<value>``) rather than
+# from the running ``__version__``: the stamp must name the floor a *reader*
+# needs, and a dynamic stamp would let the emitting release satisfy its own
+# gate while silently ignoring the keys it just wrote. Pinned by test — bump it
+# only when a release adds profile keys older releases cannot honor.
+_PROFILE_SCHEMA_MIN_OSPREY = "2026.8.0"
+
+
 # Top-level keys recognized by BuildProfile. Anything else is almost certainly
 # a typo of one of these (e.g. mcp_server vs mcp_servers).
 _KNOWN_PROFILE_KEYS = frozenset(
@@ -78,6 +82,13 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "extends",
         "exclude",
         "data_bundle",
+        # YAML-surface spelling of data_bundle, never reached by the check
+        # itself: _parse_profile normalizes it away before _reject_unknown_keys
+        # runs. It is a member because this frozenset is also the "valid keys
+        # are:" list in that check's error, where dropping the spelling users
+        # are told to write would name it invalid.
+        "app_template",
+        "data",
         "deploy_services",
         "provider",
         "model",
@@ -113,10 +124,10 @@ _KNOWN_PROFILE_KEYS = frozenset(
 )
 
 
-# Keys recognized inside the ``environment:`` block. Unlike the top-level
-# schema (lenient — see _warn_unknown_keys), a typo here is rejected outright:
-# the block is small and closed, and a silently ignored ``package:`` would leave
-# the built environment missing what the facility asked for.
+# Keys recognized inside the ``environment:`` block. Rejected outright like the
+# top-level schema (see _reject_unknown_keys): the block is small and closed,
+# and a silently ignored ``package:`` would leave the built environment missing
+# what the facility asked for.
 _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
 
 
@@ -172,24 +183,46 @@ def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
     )
 
 
-def _warn_unknown_keys(raw: dict[str, Any]) -> None:
-    """Warn (don't abort) on unknown top-level profile keys.
+def _reject_unknown_keys(raw: dict[str, Any]) -> None:
+    """Reject unknown top-level profile keys, naming every one at once.
 
-    Lenient first; promote to a hard error after one release cycle if it
-    stays clean. See cleanup item C11.
+    A key the schema does not define is a facility asking for something the
+    build will never do; ignoring it with a warning buries that in the log and
+    ships a deployment missing what the profile asked for.
+
+    Args:
+        raw: The resolved raw profile dict (``extends``/``exclude`` already
+            consumed, though both stay allowlisted for pre-resolution callers).
+
+    Raises:
+        BuildProfileError: If any key is unrecognized. The message names every
+            offender, its closest known spelling, and the full valid set.
     """
     unknown = sorted(set(raw.keys()) - _KNOWN_PROFILE_KEYS)
+    if not unknown:
+        return
+
+    known = sorted(_KNOWN_PROFILE_KEYS)
+    named = []
     for key in unknown:
-        _LOGGER.warning(
-            "Unknown profile key %r — ignored. Did you mean one of: %s?",
-            key,
-            ", ".join(sorted(_KNOWN_PROFILE_KEYS)),
-        )
+        close = difflib.get_close_matches(key, known, n=1)
+        named.append(f"{key!r} (did you mean {close[0]!r}?)" if close else repr(key))
+    raise BuildProfileError(
+        f"Unknown profile key(s): {', '.join(named)}. "
+        f"Remove or correct them — valid keys are: {', '.join(known)}."
+    )
 
 
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
-    """Parse raw YAML dict into a BuildProfile."""
-    _warn_unknown_keys(raw)
+    """Parse raw YAML dict into a BuildProfile.
+
+    Callers that read documents have already normalized their YAML-surface
+    spellings; normalizing again here covers the hand-assembled dicts that
+    reach the parser directly, where an ``app_template`` key would otherwise
+    be allowlisted, ignored, and silently replaced by the loader default.
+    """
+    _normalize_profile_aliases(raw, "profile")
+    _reject_unknown_keys(raw)
     mcp_servers: dict[str, McpServerDef] = {}
     for name, sdef in raw.get("mcp_servers", {}).items():
         if not isinstance(sdef, dict):
@@ -345,6 +378,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
+        data=raw.get("data"),
         deploy_services=raw.get("deploy_services", True),
         provider=raw.get("provider"),
         model=raw.get("model"),

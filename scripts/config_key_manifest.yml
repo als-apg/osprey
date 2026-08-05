@@ -832,7 +832,7 @@ absent_paths:
       distinguish success from failure. Path absence is the only assertion that
       actually tests this deletion. Note the deliberate asymmetry with
       `keeps`: the same ledger item both DELETES this module and KEEPS the
-      control_assistant machine_state_channels.json.j2 asset, so the two
+      control_assistant machine_state_channels.json asset, so the two
       sections guard opposite halves of one change.
 
 # ---------------------------------------------------------------------------
@@ -841,7 +841,7 @@ absent_paths:
 # that would be searched for.
 # ---------------------------------------------------------------------------
 keeps:
-  - path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json.j2
+  - path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json
     assert: exists
     why: >-
       Feeds VA manifest reconciliation via
