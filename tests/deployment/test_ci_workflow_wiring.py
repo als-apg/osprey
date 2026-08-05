@@ -77,6 +77,17 @@ GCHAT_EXTRA = "gchat"
 GCHAT_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 PUBSUB_FIXTURE_NAME = "pubsub_emulator"
 
+ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
+PROBE_BASE_VAR = "ALS_APG_PROBE_BASE"
+PROBE_KEY_ENV = "ALS_APG_API_KEY"
+PROBE_TARGET_PATH = "/v1/messages"
+# `ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://…}"` — the `:-default` is optional.
+PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_ENV}(:-[^}}]*)?\}}"')
+# Guards against silent under-discovery: if probe steps are renamed or reshaped
+# so the finder stops matching them, the count check fails loudly instead of
+# passing over an empty list. Raise this when probe lanes are added.
+EXPECTED_MIN_ALS_APG_PROBES = 7
+
 CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
 SCHEDULER_HOOK = "pytest_xdist_make_scheduler"
@@ -1187,6 +1198,107 @@ def test_all_checks_passed_needs_gchat_bridge__mutation_drops_check_pr_lane_line
     assert GCHAT_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_gchat_bridge(mutated)
+
+
+# ---------------------------------------------------------------------------
+# ALS-APG endpoint-override drift guard
+# ---------------------------------------------------------------------------
+
+
+def _als_apg_probe_steps(wf: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Every step that preflight-probes the ALS-APG gateway, as
+    ``(job, step name, run text)``.
+
+    Discovery keys on what a probe *does* — POST an authenticated request to
+    ``/v1/messages`` — not on whether it happens to define
+    ``ALS_APG_PROBE_BASE``. That distinction is the whole point: a newly added
+    probe that hardcodes its URL defines no such variable, so keying on the
+    variable would skip exactly the step the guard exists to catch.
+    """
+    found: list[tuple[str, str, str]] = []
+    for job_name, job in _jobs(wf).items():
+        for step in job.get("steps") or []:
+            run = step.get("run")
+            if isinstance(run, str) and PROBE_TARGET_PATH in run and PROBE_KEY_ENV in run:
+                found.append((job_name, step.get("name", "<unnamed>"), run))
+    return found
+
+
+def test_workflow_exports_the_als_apg_base_url_override(workflow: dict[str, Any]) -> None:
+    """The workflow-level ``env:`` block is what lets a single repository
+    variable retarget every LLM-touching job at once. Without it the probes
+    below would each fall back to the baked-in default and the override would
+    silently do nothing — green locally, wrong in CI."""
+    env = workflow.get("env") or {}
+    assert env.get(ALS_APG_BASE_URL_ENV) == "${{ vars.ALS_APG_BASE_URL }}", (
+        f"ci.yml must export {ALS_APG_BASE_URL_ENV} from the repository variable "
+        f"at workflow level; found {env.get(ALS_APG_BASE_URL_ENV)!r}"
+    )
+
+
+def test_workflow_exports_the_als_apg_base_url_override__mutation_drops_export() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    (mutated.get("env") or {}).pop(ALS_APG_BASE_URL_ENV, None)
+    with pytest.raises(AssertionError, match="must export"):
+        test_workflow_exports_the_als_apg_base_url_override(mutated)
+
+
+def test_every_als_apg_probe_honors_the_base_url_override(workflow: dict[str, Any]) -> None:
+    """Each probe must derive its base from ``$ALS_APG_BASE_URL`` (a baked-in
+    default after ``:-`` is fine) and must aim curl at that derived variable.
+
+    Both halves are load-bearing and fail independently: a probe can read the
+    override into ``ALS_APG_PROBE_BASE`` and then still curl a literal URL,
+    which is how a hardcoded endpoint survived review once already. Such a
+    lane fails against a perfectly healthy gateway, and reads as an outage."""
+    probes = _als_apg_probe_steps(workflow)
+    assert len(probes) >= EXPECTED_MIN_ALS_APG_PROBES, (
+        f"expected at least {EXPECTED_MIN_ALS_APG_PROBES} ALS-APG probe steps in ci.yml, "
+        f"found {len(probes)} — discovery has drifted and this guard is now vacuous"
+    )
+    for job_name, step_name, run in probes:
+        where = f"{job_name} / {step_name}"
+        assert PROBE_BASE_ASSIGNMENT.search(run), (
+            f"{where}: ALS-APG probe must derive its base from "
+            f'${{{ALS_APG_BASE_URL_ENV}}} (e.g. ALS_APG_PROBE_BASE="${{{ALS_APG_BASE_URL_ENV}'
+            ':-https://default}"), so the repository variable can retarget it'
+        )
+        target_lines = [line for line in run.splitlines() if PROBE_TARGET_PATH in line]
+        assert target_lines, f"{where}: probe target line vanished"
+        for line in target_lines:
+            assert f"${PROBE_BASE_VAR}" in line, (
+                f"{where}: probe must curl $"
+                + PROBE_BASE_VAR
+                + f", not a literal URL: {line.strip()}"
+            )
+
+
+def test_every_als_apg_probe_honors_the_base_url_override__mutation_hardcodes_base() -> None:
+    """The original bug's exact shape: the assignment stops reading the
+    override and pins a URL instead."""
+    mutated = copy.deepcopy(_load_workflow())
+    job_name, step_name, _ = _als_apg_probe_steps(mutated)[0]
+    step = _find_named_step(mutated, job_name, step_name)
+    step["run"] = PROBE_BASE_ASSIGNMENT.sub(
+        f'{PROBE_BASE_VAR}="https://hardcoded.example"', step["run"], count=1
+    )
+    with pytest.raises(AssertionError, match="must derive its base"):
+        test_every_als_apg_probe_honors_the_base_url_override(mutated)
+
+
+def test_every_als_apg_probe_honors_the_base_url_override__mutation_curls_literal_url() -> None:
+    """The subtler half: the override is still read into the variable — so a
+    reader skimming the assignment sees the right thing — while curl ignores
+    it and hits a literal endpoint."""
+    mutated = copy.deepcopy(_load_workflow())
+    job_name, step_name, _ = _als_apg_probe_steps(mutated)[0]
+    step = _find_named_step(mutated, job_name, step_name)
+    step["run"] = step["run"].replace(
+        f'"${PROBE_BASE_VAR}{PROBE_TARGET_PATH}"', f'"https://hardcoded.example{PROBE_TARGET_PATH}"'
+    )
+    assert PROBE_BASE_ASSIGNMENT.search(step["run"]), "the assignment must survive this mutation"
+    with pytest.raises(AssertionError, match="not a literal URL"):
+        test_every_als_apg_probe_honors_the_base_url_override(mutated)
 
 
 # ---------------------------------------------------------------------------
