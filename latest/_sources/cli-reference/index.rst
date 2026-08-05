@@ -16,6 +16,7 @@ without arguments launches an interactive TUI menu.
 
    osprey                    # Launch interactive menu
    osprey --version          # Show framework version
+   osprey profile            # Author, validate, and inspect build profiles
    osprey build PROJECT      # Build project from preset or profile
    osprey config             # Manage configuration
    osprey deploy COMMAND     # Manage services
@@ -65,11 +66,56 @@ Manage project configuration. Interactive menu if no subcommand is given.
    osprey config show
    osprey config set-control-system epics
 
+osprey profile
+==============
+
+Author, validate, and inspect build profiles. A profile directory is the
+durable, facility-owned input to ``osprey build`` — see
+:doc:`/how-to/build-profiles`.
+
+.. code-block:: bash
+
+   osprey profile new TARGET_DIR --preset NAME [OPTIONS]
+   osprey profile validate TARGET
+   osprey profile presets
+
+``osprey profile new TARGET_DIR --preset NAME``
+   Materialize an editable profile directory from a bundled preset.
+   ``TARGET_DIR`` is created and populated with a standalone ``profile.yml``
+   (the preset's full configuration written out explicitly, no ``extends:``),
+   the preset's ``data/`` tree copied verbatim, an ``overlays/`` seed, and a
+   ``README.md``. Refuses to overwrite an existing directory.
+
+   ``-O, --override PATH`` — Layer a YAML file on top of the preset before
+   writing (repeatable, in order).
+
+   ``--set KEY.PATH=VALUE`` — Inline override baked into the written profile
+   (repeatable). RHS is parsed as YAML. Wins over ``-O`` at the same key.
+
+``osprey profile validate TARGET``
+   Check a profile without building anything. ``TARGET`` is a profile
+   directory (its ``profile.yml`` is used) or a path to a profile file.
+   Resolves ``extends:`` chains and reports every problem found — overlay
+   sources, the ``data:`` tree, service templates, lifecycle steps, env vars.
+   Exits 0 when valid, 2 with the accumulated errors when not.
+
+``osprey profile presets``
+   List bundled preset names, one per line. Every name printed is usable as
+   ``--preset NAME`` for ``osprey profile new`` and ``osprey build``.
+
+.. code-block:: bash
+
+   osprey profile presets
+   osprey profile new my-profile --preset control-assistant --set model=opus
+   osprey profile validate my-profile/
+   osprey build my-agent my-profile/profile.yml
+
 osprey build
 ============
 
 Build a facility-specific assistant from a bundled preset or a YAML profile.
-See :doc:`/how-to/build-profiles`.
+For durable, facility-owned customization, materialize a profile first with
+``osprey profile new`` and build from it. See :doc:`/how-to/build-profiles`.
 
 .. code-block:: bash
 

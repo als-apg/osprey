@@ -934,7 +934,7 @@ custom MCP servers) from <strong>what OSPREY provides</strong> (agents, rules, h
 <p>The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> command takes a YAML profile and produces a standalone Osprey agent
 project. The profile declares:</p>
 <ul class="simple">
-<li><p><strong>Data bundle</strong> to start from (<code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>, <code class="docutils literal notranslate"><span class="pre">hello_world</span></code>, or <code class="docutils literal notranslate"><span class="pre">ariel_standalone</span></code>)</p></li>
+<li><p><strong>App template</strong> to start from (<code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>, <code class="docutils literal notranslate"><span class="pre">hello_world</span></code>, or <code class="docutils literal notranslate"><span class="pre">ariel_standalone</span></code>)</p></li>
 <li><p><strong>Config overrides</strong> for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (dot-notation)</p></li>
 <li><p><strong>File overlays</strong> that copy facility data into the project</p></li>
 <li><p><strong>MCP server definitions</strong> to inject custom tools</p></li>
@@ -968,7 +968,7 @@ facility needs. This is your durable source-of-truth for customizations.</p></li
 <li><p><strong>Project</strong> — the rendered output of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Derived; regenerable;
 treat it as a build artifact and avoid editing it in place.</p></li>
 </ul>
-<p>You can drive <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> in three modes:</p>
+<p>The three steps that move between those layers:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
@@ -976,7 +976,7 @@ treat it as a build artifact and avoid editing it in place.</p></li>
 <col style="width: 40.0%" />
 </colgroup>
 <thead>
-<tr class="row-odd"><th class="head"><p>Mode</p></th>
+<tr class="row-odd"><th class="head"><p>Step</p></th>
 <th class="head"><p>Command</p></th>
 <th class="head"><p>When to use</p></th>
 </tr>
@@ -986,14 +986,15 @@ treat it as a build artifact and avoid editing it in place.</p></li>
 <td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">my-project</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
 <td><p>Trying a preset; no customizations needed.</p></td>
 </tr>
-<tr class="row-odd"><td><p>Scaffold profile</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--emit-profile</span> <span class="pre">my-profile</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
+<tr class="row-odd"><td><p>Materialize a profile</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">my-profile</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
 <td><p>Starting facility-specific customization. Writes an editable,
-<strong>standalone</strong> profile directory and exits — no project rendered
-yet. The preset’s full configuration is materialized into
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (comments preserved, no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>), and any
-<code class="docutils literal notranslate"><span class="pre">--set</span></code> / <code class="docutils literal notranslate"><span class="pre">-O</span></code> values are applied in place, so a validated
-build one-liner carries straight into the profile.</p></td>
+<strong>standalone</strong> profile directory — no project rendered yet. The
+preset’s full configuration is materialized into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
+(comments preserved, no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>) alongside a copy of the
+preset’s data tree, and any <code class="docutils literal notranslate"><span class="pre">--set</span></code> / <code class="docutils literal notranslate"><span class="pre">-O</span></code> values are applied
+in place, so a validated build one-liner carries straight into
+the profile.</p></td>
 </tr>
 <tr class="row-even"><td><p>Build from profile</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">my-project</span> <span class="pre">my-profile/profile.yml</span></code></p></td>
@@ -1003,23 +1004,52 @@ the profile exists).</p></td>
 </tbody>
 </table>
 </div>
-<p>The scaffold mode writes:</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
   profile.yml          # the preset&#39;s full configuration, materialized — edit freely
+  data/                # the preset&#39;s data tree, copied verbatim — edit freely
   overlays/
-    rules/   .gitkeep  # drop facility-specific rule .md files here
-    skills/  .gitkeep  # drop custom skill directories here
-    agents/  .gitkeep  # drop custom subagent .md files here
+    rules/                 .gitkeep  # drop facility-specific rule .md files here
+    skills/                .gitkeep  # drop custom skill directories here
+    agents/                .gitkeep  # drop custom subagent .md files here
+    web-terminal-context/  .gitkeep  # drop per-user web-terminal content here
   README.md            # explains the layout
 </pre></div>
 </div>
-<p>The emitted <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is fully self-sufficient: every section the preset
+<p>The materialized <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is fully self-sufficient: every section the preset
 configures (artifact lists, <code class="docutils literal notranslate"><span class="pre">config:</span></code> overrides, service blocks like
 <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> / <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> / <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code>, <code class="docutils literal notranslate"><span class="pre">env:</span></code> wiring) is
 written out explicitly with the preset’s own comments, and nothing is
 inherited at build time. Upstream preset improvements in later OSPREY releases
-do <strong>not</strong> flow in automatically — emit a fresh profile into a scratch
+do <strong>not</strong> flow in automatically — materialize a fresh profile into a scratch
 directory and diff to pick them up.</p>
+<section id="persona-profiles">
+<h3>Persona profiles<a class="headerlink" href="#persona-profiles" title="Link to this heading">#</a></h3>
+<p>Some presets give each operator their own web terminal, and each terminal runs
+with a persona — a capability posture, such as read-only versus write-capable.
+For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">multi-user-demo</span></code>),
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes one profile per persona into a <code class="docutils literal notranslate"><span class="pre">personas/</span></code>
+directory alongside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
+  profile.yml
+  data/
+  personas/
+    readonly.yml       # a read-only terminal
+    readwrite.yml      # a write-capable terminal
+</pre></div>
+</div>
+<p>Each persona profile carries <code class="docutils literal notranslate"><span class="pre">data:</span> <span class="pre">../data</span></code>, so the whole stack reads the
+single data tree above it — edit <code class="docutils literal notranslate"><span class="pre">data/</span></code> once and every persona picks the
+change up on its next build, with no per-persona copy to keep in sync. The
+host <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> points at these files by path, so keep the names in step
+if you rename one.</p>
+<p>They are ordinary profiles: edit one to change what that persona’s terminal
+can do, validate it on its own, or build it directly.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>my-profile/personas/readonly.yml
+</pre></div>
+</div>
+<p>At deployment time, the persona projects are rendered from these files.</p>
+</section>
 <section id="inheriting-from-a-preset">
 <h3>Inheriting from a preset<a class="headerlink" href="#inheriting-from-a-preset" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">extends:</span></code> accepts either a bundled preset name or a filesystem path:</p>
@@ -1113,7 +1143,7 @@ dev-only convenience).</p>
 <p>Create a minimal profile and build:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># my-facility-dev.yml</span>
 <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;My</span><span class="nv"> </span><span class="s">Facility</span><span class="nv"> </span><span class="s">(Dev)&quot;</span>
-<span class="nt">data_bundle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
+<span class="nt">app_template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
 <span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
 <span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
 <span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span>
@@ -1152,7 +1182,7 @@ a complete Osprey agent project at <code class="docutils literal notranslate"><s
 <td><p><em>required</em></p></td>
 <td><p>Human-readable profile name.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data_bundle</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">app_template</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">control_assistant</span></code></p></td>
 <td><p>App template (data bundle) to use. Valid: <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>,
@@ -1719,23 +1749,16 @@ points at. Advanced — overrides the default derived from the channel
 finder paradigm (<code class="docutils literal notranslate"><span class="pre">in_context</span></code> → tier 1, <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code> /
 <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code> → tier 3). Tier 1 is <code class="docutils literal notranslate"><span class="pre">in_context</span></code>-only.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--emit-profile</span> <span class="pre">DIR</span></code></p></td>
-<td><p>Scaffold an editable, standalone profile directory at <code class="docutils literal notranslate"><span class="pre">DIR</span></code>
-materializing <code class="docutils literal notranslate"><span class="pre">--preset</span></code>’s full configuration (comments
-preserved, no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>), then exit without rendering a
-project. <code class="docutils literal notranslate"><span class="pre">--set</span></code> / <code class="docutils literal notranslate"><span class="pre">-O</span></code> values are applied in place. Build
-from it with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&lt;PROJECT_NAME&gt;</span> <span class="pre">DIR/profile.yml</span></code>.</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code></p></td>
 <td><p>Stream lifecycle step output in real time.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code></p></td>
 <td><p>Skip <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and <code class="docutils literal notranslate"><span class="pre">validate</span></code> phases.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code></p></td>
 <td><p>Skip venv creation and dependency installation (CI mode).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code></p></td>
 <td><p>Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config. Useful when the
 build path differs from the runtime path (e.g. container builds).</p></td>
 </tr>
@@ -1759,8 +1782,8 @@ osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="
 <span class="w">    </span>-O<span class="w"> </span>als-overrides.yml<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-sonnet-4-6
 
-<span class="c1"># Scaffold a facility profile with those same overrides baked in</span>
-osprey<span class="w"> </span>build<span class="w"> </span>--emit-profile<span class="w"> </span>als-profile<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="se">\</span>
+<span class="c1"># Materialize a facility profile with those same overrides baked in</span>
+osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>als-profile<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--set<span class="w"> </span><span class="nv">provider</span><span class="o">=</span>als-apg<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>opus
 </pre></div>
 </div>
@@ -1908,6 +1931,7 @@ directory must contain a <code class="docutils literal notranslate"><span class=
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-profile-project">Preset → Profile → Project</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persona-profiles">Persona profiles</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inheriting-from-a-preset">Inheriting from a preset</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#excluding-inherited-entries">Excluding inherited entries</a></li>
 </ul>

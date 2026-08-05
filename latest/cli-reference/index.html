@@ -486,6 +486,7 @@
 without arguments launches an interactive TUI menu.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w">                    </span><span class="c1"># Launch interactive menu</span>
 osprey<span class="w"> </span>--version<span class="w">          </span><span class="c1"># Show framework version</span>
+osprey<span class="w"> </span>profile<span class="w">            </span><span class="c1"># Author, validate, and inspect build profiles</span>
 osprey<span class="w"> </span>build<span class="w"> </span>PROJECT<span class="w">      </span><span class="c1"># Build project from preset or profile</span>
 osprey<span class="w"> </span>config<span class="w">             </span><span class="c1"># Manage configuration</span>
 osprey<span class="w"> </span>deploy<span class="w"> </span>COMMAND<span class="w">     </span><span class="c1"># Manage services</span>
@@ -533,10 +534,49 @@ osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<s
 </pre></div>
 </div>
 </section>
+<section id="osprey-profile">
+<h2>osprey profile<a class="headerlink" href="#osprey-profile" title="Link to this heading">#</a></h2>
+<p>Author, validate, and inspect build profiles. A profile directory is the
+durable, facility-owned input to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> — see
+<a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>TARGET_DIR<span class="w"> </span>--preset<span class="w"> </span>NAME<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>TARGET
+osprey<span class="w"> </span>profile<span class="w"> </span>presets
+</pre></div>
+</div>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">TARGET_DIR</span> <span class="pre">--preset</span> <span class="pre">NAME</span></code></dt><dd><p>Materialize an editable profile directory from a bundled preset.
+<code class="docutils literal notranslate"><span class="pre">TARGET_DIR</span></code> is created and populated with a standalone <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
+(the preset’s full configuration written out explicitly, no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>),
+the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree copied verbatim, an <code class="docutils literal notranslate"><span class="pre">overlays/</span></code> seed, and a
+<code class="docutils literal notranslate"><span class="pre">README.md</span></code>. Refuses to overwrite an existing directory.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">PATH</span></code> — Layer a YAML file on top of the preset before
+writing (repeatable, in order).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code> — Inline override baked into the written profile
+(repeatable). RHS is parsed as YAML. Wins over <code class="docutils literal notranslate"><span class="pre">-O</span></code> at the same key.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span> <span class="pre">TARGET</span></code></dt><dd><p>Check a profile without building anything. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> is a profile
+directory (its <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is used) or a path to a profile file.
+Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains and reports every problem found — overlay
+sources, the <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree, service templates, lifecycle steps, env vars.
+Exits 0 when valid, 2 with the accumulated errors when not.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code></dt><dd><p>List bundled preset names, one per line. Every name printed is usable as
+<code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+</dd>
+</dl>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>presets
+osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>my-profile<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>opus
+osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>my-profile/
+osprey<span class="w"> </span>build<span class="w"> </span>my-agent<span class="w"> </span>my-profile/profile.yml
+</pre></div>
+</div>
+</section>
 <section id="osprey-build">
 <h2>osprey build<a class="headerlink" href="#osprey-build" title="Link to this heading">#</a></h2>
 <p>Build a facility-specific assistant from a bundled preset or a YAML profile.
-See <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+For durable, facility-owned customization, materialize a profile first with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> and build from it. See <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>PROJECT_NAME<span class="w"> </span><span class="o">[</span>PROFILE<span class="o">]</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
@@ -981,6 +1021,7 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-options">Global Options</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-config">osprey config</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-profile">osprey profile</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-build">osprey build</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-deploy">osprey deploy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-health">osprey health</a></li>

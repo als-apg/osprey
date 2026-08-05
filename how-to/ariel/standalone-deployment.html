@@ -647,15 +647,17 @@ to point at your facility’s logbook system (see
 <section id="durable-customization-a-profile-you-own">
 <h3>Durable customization (a profile you own)<a class="headerlink" href="#durable-customization-a-profile-you-own" title="Link to this heading">#</a></h3>
 <p>For changes you want to keep across rebuilds — adding a custom skill,
-overriding a rule, wiring up a real logbook — scaffold an editable build
-profile that extends the <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>--emit-profile<span class="w"> </span>my-ariel-profile<span class="w"> </span>--preset<span class="w"> </span>ariel-standalone
+overriding a rule, wiring up a real logbook — materialize an editable build
+profile from the <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>my-ariel-profile<span class="w"> </span>--preset<span class="w"> </span>ariel-standalone
 </pre></div>
 </div>
-<p>This writes a <code class="docutils literal notranslate"><span class="pre">my-ariel-profile/</span></code> directory with <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (extending
-the preset) plus <code class="docutils literal notranslate"><span class="pre">overlays/{rules,skills,agents}/</span></code> sentinels. Edit
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> to layer config overrides and overlay artifacts on top of the
-preset, then rebuild whenever you change something:</p>
+<p>This writes a <code class="docutils literal notranslate"><span class="pre">my-ariel-profile/</span></code> directory containing a standalone
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — the preset’s full configuration written out explicitly, with
+no <code class="docutils literal notranslate"><span class="pre">extends:</span></code> back to the preset — plus the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree and
+<code class="docutils literal notranslate"><span class="pre">overlays/{rules,skills,agents,web-terminal-context}/</span></code> sentinels. Edit
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, the data files, and the overlays directly, then rebuild
+whenever you change something:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-ariel<span class="w"> </span>./my-ariel-profile/profile.yml
 </pre></div>
 </div>
