@@ -106,13 +106,14 @@ import httpx
 from osprey.bridges.core import (
     ChannelOps,
     CoreConfig,
+    FetchedArtifact,
     InboundEvent,
     InputDownload,
     ReplyContext,
+    artifact_descriptors,
+    bare_mime,
     fetch_artifact,
     safe_label,
-    served_mime,
-    split_artifacts,
 )
 
 from .client import ChatClient, chunk_text
@@ -129,7 +130,7 @@ from .events import (
 from .events import parse_event as parse_chat_event
 from .events import resolve_reply_context as resolve_chat_reply_context
 from .formatting import markdown_to_chat
-from .gcs import publish_artifacts, publish_documents
+from .gcs import IMAGE_CONTENT_TYPE, publish_artifacts, publish_documents
 from .inbound import (
     DEFAULT_FILENAME,
     DOWNLOAD_FAILED_REASON,
@@ -214,7 +215,7 @@ PRIOR_FETCH_TIMEOUT = 30.0
 cannot eat the fallback's budget as well."""
 
 PriorArtifactFetcher = Callable[
-    [CoreConfig, str | None, Mapping[str, Any], int], tuple[bytes | None, str | None]
+    [CoreConfig, str | None, Mapping[str, Any], int], FetchedArtifact | None
 ]
 """The engine's prior-artifact fetch seam, called
 ``(cfg, run_id, descriptor, max_bytes)``. See
@@ -269,14 +270,14 @@ def build_prior_artifact_fetcher(
 
     def fetch(
         cfg: CoreConfig, run_id: str | None, descriptor: Mapping[str, Any], max_bytes: int
-    ) -> tuple[bytes | None, str | None]:
+    ) -> FetchedArtifact | None:
         if max_bytes <= 0:
-            return None, None
+            return None
         entry_id = descriptor.get("entry_id")
         if run_id and isinstance(entry_id, str) and entry_id:
-            data, served = _fetch_from_worker(cfg, run_id, entry_id, max_bytes, worker_http)
-            if data is not None:
-                return data, served
+            fetched = _fetch_from_worker(cfg, run_id, entry_id, max_bytes, worker_http)
+            if fetched is not None:
+                return fetched
         # Every worker-side failure falls through, not just the 404 this exists for:
         # ``fetch_artifact`` reports a swept artifact, a transport error and an oversize
         # body identically, and the fallback is harmless in each case — it is one GET
@@ -292,7 +293,7 @@ def _fetch_from_worker(
     artifact_id: str,
     max_bytes: int,
     http: httpx.Client | None,
-) -> tuple[bytes | None, str | None]:
+) -> FetchedArtifact | None:
     """The worker leg of :func:`build_prior_artifact_fetcher`. Never raises.
 
     :func:`~osprey.bridges.core.fetch_artifact` already swallows everything it can hit; the
@@ -312,7 +313,7 @@ def _fetch_from_worker(
             artifact_id,
             exc_info=True,
         )
-        return None, None
+        return None
     finally:
         if owns and client is not None:
             client.close()
@@ -320,7 +321,7 @@ def _fetch_from_worker(
 
 def _fetch_public(
     cfg: CoreConfig, url: object, max_bytes: int, http: httpx.Client | None
-) -> tuple[bytes | None, str | None]:
+) -> FetchedArtifact | None:
     """The ``public_url`` leg of :func:`build_prior_artifact_fetcher`. Never raises.
 
     Args:
@@ -333,13 +334,16 @@ def _fetch_public(
         http: Client to use, or ``None`` to build and close one here.
 
     Returns:
-        ``(bytes, served content type)``, or ``(None, None)``. The type is the
-        ``Content-Type`` the object was actually served under, normalized by
-        :func:`~osprey.bridges.core.served_mime`; an object served with no header at all
-        reports ``None``, which the engine treats as "not provably an image" and skips.
+        The object as served, or ``None``. Built here rather than by
+        :func:`~osprey.bridges.core.fetch_artifact` because this leg reads a public
+        object store instead of the worker byte route — the same shape from a
+        different source, so the seam sees one type either way. The content type is
+        normalized by :func:`~osprey.bridges.core.bare_mime`; an object served with no
+        header at all reports ``None``, which the engine treats as "not provably an
+        image" and skips.
     """
     if not isinstance(url, str) or not url:
-        return None, None
+        return None
     owns = http is None
     client: httpx.Client | None = None
     try:
@@ -347,14 +351,14 @@ def _fetch_public(
         resp = client.get(url)
         resp.raise_for_status()
         data = resp.content
-        mime = served_mime(resp.headers.get("content-type"))
+        mime = bare_mime(resp.headers.get("content-type"))
     except Exception as exc:
         # Broad on purpose, for the reason ``fetch_artifact`` documents: the URL comes off
         # a stored descriptor, and a malformed one raises at construction time, before any
         # transport error is possible. A prior image is an enrichment — nothing here may
         # cost the dispatch.
         logger.warning("prior artifact fetch failed for %s: %s", url, exc)
-        return None, None
+        return None
     finally:
         if owns and client is not None:
             client.close()
@@ -362,8 +366,46 @@ def _fetch_public(
         logger.warning(
             "prior artifact %s oversize (%d bytes > %d), skipping", url, len(data), max_bytes
         )
-        return None, None
-    return data, mime
+        return None
+    return FetchedArtifact(data=data, content_type=mime)
+
+
+def _attempt_order(
+    descriptors: Sequence[Mapping[str, Any]],
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+    """Split descriptors into ``(try_image_first, documents_only)``.
+
+    This reads ``delivered_mime`` — the prediction that :func:`fetch_artifact`
+    refuses to route on — and that is safe HERE and nowhere else, because of what
+    the two lists are used for. Getting this wrong costs an artifact its image
+    CARD, never its delivery: an artifact whose image attempt declines is
+    re-offered to the document path, which makes no claim about the payload and
+    publishes it under whatever it turned out to be. Nothing is dropped on the
+    strength of the prediction, which is the whole of osprey #503.
+
+    What it buys is one fetch instead of two. The two paths fetch under different
+    budgets (image bytes vs document bytes), so attempting the image path for
+    every artifact would fetch each document twice — once to be declined, once to
+    be published. The prediction is a good enough guess to avoid that, and is
+    allowed to be wrong.
+
+    Args:
+        descriptors: Normalized descriptors, in worker order.
+
+    Returns:
+        ``(images, documents)``. An entry predicting PNG, and one predicting
+        nothing at all (a bare id from an older worker), try the image path
+        first; everything else goes straight to documents.
+    """
+    images: list[Mapping[str, Any]] = []
+    documents: list[Mapping[str, Any]] = []
+    for descriptor in descriptors:
+        predicted = descriptor.get("delivered_mime")
+        if predicted is None or predicted == IMAGE_CONTENT_TYPE:
+            images.append(descriptor)
+        else:
+            documents.append(descriptor)
+    return images, documents
 
 
 def _space(entry: Mapping[str, Any]) -> str:
@@ -894,9 +936,10 @@ class GoogleChatOps:
         if not isinstance(run_id, str) or not run_id:
             return []
         artifacts = result.get("artifacts")
-        images, documents = split_artifacts(artifacts if isinstance(artifacts, list) else None)
-        if not images and not documents:
+        descriptors = artifact_descriptors(artifacts if isinstance(artifacts, list) else None)
+        if not descriptors:
             return []
+        images, documents = _attempt_order(descriptors)
 
         urls: list[str] = []
         mapping: dict[str, str] = {}
@@ -904,7 +947,7 @@ class GoogleChatOps:
         for descriptor in images:
             artifact_id = descriptor.get("artifact_id")
             if not isinstance(artifact_id, str) or not artifact_id:
-                continue  # split_artifacts already drops these; belt for a future shape
+                continue  # artifact_descriptors already drops these; belt for a future shape
             url = self._publish_image(run_id, artifact_id)
             if url is None:
                 # Declined (or failed): re-offered below rather than dropped. See the

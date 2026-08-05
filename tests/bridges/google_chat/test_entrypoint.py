@@ -456,11 +456,10 @@ def test_the_prior_artifact_fetcher_reads_the_worker_over_the_injected_client(
     http, seen = worker_route(PNG_BYTES, "image/png")
     wiring = build_wiring(cfg, chat_service=FakeChatService(), worker_http=http)
 
-    data, served = wiring.deps.fetch_prior_artifact(
-        cfg.core, RUN_ID, {"entry_id": ARTIFACT_ID}, BUDGET
-    )
+    fetched = wiring.deps.fetch_prior_artifact(cfg.core, RUN_ID, {"entry_id": ARTIFACT_ID}, BUDGET)
 
-    assert (data, served) == (PNG_BYTES, "image/png")
+    assert fetched.data == PNG_BYTES
+    assert fetched.content_type == "image/png"
     assert [str(request.url) for request in seen] == [
         f"{WORKER_URL}/dispatch/{RUN_ID}/artifacts/{ARTIFACT_ID}"
     ]

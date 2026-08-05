@@ -105,6 +105,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A run whose steps each wrote a file with the same name (two `plot.png`, say)
+  now delivers all of them to a chat bridge. Previously the second overwrote the
+  first in the shared upload directory and both were reported as delivered, so a
+  plot went missing with nothing in the logs to say so.
 - `web.theme` set to a concrete theme id (e.g. `desy-light`) now actually pins
   light or dark as the deployment default. It painted correctly and was then
   overridden by the viewer's OS preference a moment later. A bare family

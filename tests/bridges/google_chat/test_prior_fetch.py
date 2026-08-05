@@ -23,7 +23,7 @@ from typing import Any
 import httpx
 import pytest
 
-from osprey.bridges.core import PNG_MAGIC, CoreConfig
+from osprey.bridges.core import PNG_MAGIC, CoreConfig, FetchedArtifact
 from osprey.bridges.google_chat import ops as ops_module
 from osprey.bridges.google_chat.ops import build_prior_artifact_fetcher
 
@@ -136,7 +136,7 @@ def test_the_worker_route_answers_and_the_published_url_is_never_touched():
         gcs_serving({PUBLIC_URL: (GCS_BYTES, "image/png")}),
     )
 
-    assert result == (PNG_BYTES, "image/png")
+    assert result == FetchedArtifact(data=PNG_BYTES, content_type="image/png")
     assert len(worker_seen) == 1
     assert public_seen == []
 
@@ -150,7 +150,7 @@ def test_the_served_type_is_read_off_the_response_not_off_the_descriptor():
         gcs_serving({}),
     )
 
-    assert result == (b"<html>not a plot</html>", "text/html")
+    assert result == FetchedArtifact(data=b"<html>not a plot</html>", content_type="text/html")
 
 
 # --- the fallback ------------------------------------------------------------
@@ -164,7 +164,7 @@ def test_a_swept_artifact_falls_back_to_the_url_the_bridge_published():
         gcs_serving({PUBLIC_URL: (GCS_BYTES, "image/png")}),
     )
 
-    assert result == (GCS_BYTES, "image/png")
+    assert result == FetchedArtifact(data=GCS_BYTES, content_type="image/png")
     assert len(worker_seen) == 1
     assert [str(request.url) for request in public_seen] == [PUBLIC_URL]
 
@@ -188,7 +188,7 @@ def test_an_object_served_with_no_content_type_reports_no_served_type():
         gcs_serving({PUBLIC_URL: (GCS_BYTES, None)}),
     )
 
-    assert result == (GCS_BYTES, None)
+    assert result == FetchedArtifact(data=GCS_BYTES, content_type=None)
 
 
 def test_the_served_type_is_normalized_to_a_bare_mime():
@@ -197,7 +197,7 @@ def test_the_served_type_is_normalized_to_a_bare_mime():
         gcs_serving({PUBLIC_URL: (GCS_BYTES, "Image/PNG; charset=binary")}),
     )
 
-    assert result == (GCS_BYTES, "image/png")
+    assert result == FetchedArtifact(data=GCS_BYTES, content_type="image/png")
 
 
 def test_a_worker_body_over_budget_still_falls_back_to_the_published_url():
@@ -210,7 +210,7 @@ def test_a_worker_body_over_budget_still_falls_back_to_the_published_url():
         max_bytes=100,
     )
 
-    assert result == (GCS_BYTES, "image/png")
+    assert result == FetchedArtifact(data=GCS_BYTES, content_type="image/png")
     assert len(public_seen) == 1
 
 
@@ -221,7 +221,7 @@ def test_a_turn_with_no_run_id_goes_straight_to_the_published_url():
         run_id=None,
     )
 
-    assert result == (GCS_BYTES, "image/png")
+    assert result == FetchedArtifact(data=GCS_BYTES, content_type="image/png")
     assert worker_seen == []
 
 
@@ -232,7 +232,7 @@ def test_a_descriptor_naming_no_artifact_goes_straight_to_the_published_url():
         desc=descriptor(entry_id=None),
     )
 
-    assert result == (GCS_BYTES, "image/png")
+    assert result == FetchedArtifact(data=GCS_BYTES, content_type="image/png")
     assert worker_seen == []
 
 
@@ -248,7 +248,7 @@ def test_a_descriptor_with_no_published_url_reports_nothing_when_the_worker_has_
         desc=descriptor(public_url=None),
     )
 
-    assert result == (None, None)
+    assert result is None
     assert public_seen == []
 
 
@@ -258,7 +258,7 @@ def test_both_routes_failing_reports_nothing_rather_than_raising():
 
     result, _, _ = fetch(worker_serving({}), failing)
 
-    assert result == (None, None)
+    assert result is None
 
 
 def test_a_transport_error_on_the_fallback_reports_nothing_rather_than_raising():
@@ -267,7 +267,7 @@ def test_a_transport_error_on_the_fallback_reports_nothing_rather_than_raising()
 
     result, _, _ = fetch(worker_serving({}), exploding)
 
-    assert result == (None, None)
+    assert result is None
 
 
 def test_a_malformed_published_url_reports_nothing_rather_than_raising():
@@ -279,7 +279,7 @@ def test_a_malformed_published_url_reports_nothing_rather_than_raising():
         desc=descriptor(public_url="not-a-url"),
     )
 
-    assert result == (None, None)
+    assert result is None
 
 
 def test_an_over_budget_object_is_dropped_whole_rather_than_truncated():
@@ -289,7 +289,7 @@ def test_an_over_budget_object_is_dropped_whole_rather_than_truncated():
         max_bytes=100,
     )
 
-    assert result == (None, None)
+    assert result is None
 
 
 def test_an_exhausted_budget_fetches_nothing_at_all():
@@ -301,7 +301,7 @@ def test_an_exhausted_budget_fetches_nothing_at_all():
         max_bytes=0,
     )
 
-    assert result == (None, None)
+    assert result is None
     assert worker_seen == []
     assert public_seen == []
 
@@ -352,7 +352,7 @@ def test_the_fallback_route_honors_the_configured_proxy_setting(
 
     result = build_prior_artifact_fetcher()(cfg, RUN_ID, descriptor(), BUDGET)
 
-    assert result == (GCS_BYTES, "image/png")
+    assert result == FetchedArtifact(data=GCS_BYTES, content_type="image/png")
     worker_client, public_client = built
     assert worker_client.trust_env is False
     assert public_client.trust_env is trust_env

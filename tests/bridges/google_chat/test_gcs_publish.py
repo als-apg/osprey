@@ -247,10 +247,11 @@ def test_several_artifacts_are_published_in_input_order(cfg):
 # --- publish_artifacts: what may NOT become an image card ------------------
 
 
-def test_png_bytes_served_as_html_are_declined_rather_than_posted_as_an_image(cfg, caplog):
-    # The fallback-conversion case: the descriptor said PNG, the worker served
-    # something else. Chat fetches the URL itself, so an image card here renders
-    # broken — the served type is the only thing that can catch it.
+def test_png_bytes_mislabelled_by_the_worker_are_still_published_as_an_image(cfg):
+    # The bytes decide, not the header. This object is re-uploaded to OUR bucket
+    # under OUR content_type, so the type the worker served it under never reaches
+    # Chat — only the bytes do, and they are a real PNG. Declining here would lose
+    # a perfectly renderable plot over a header nobody downstream ever sees.
     client = FakeGcsClient()
 
     urls = publish_artifacts(
@@ -261,13 +262,17 @@ def test_png_bytes_served_as_html_are_declined_rather_than_posted_as_an_image(cf
         client_factory=factory_for(client),
     )
 
-    assert urls == []
-    assert client.buckets == {}  # bucket() is the only route to a blob
-    assert_warned(caplog, "not a PNG")
-    assert_warned(caplog, "text/html")
+    assert len(urls) == 1
+    assert urls[0].endswith(".png")
+    [blob] = client.buckets["my-bucket"].uploads
+    assert blob.content_type == "image/png"  # ours, not the worker's text/html
+    assert blob.uploaded == PNG_BYTES
 
 
-def test_an_artifact_served_with_no_content_type_is_never_guessed_into_an_image(cfg, caplog):
+def test_png_bytes_served_with_no_content_type_are_still_published_as_an_image(cfg):
+    # Same rule at the other edge: an absent header is not evidence against the
+    # bytes. An older worker that sends no Content-Type must not cost the user
+    # their image card.
     client = FakeGcsClient()
 
     urls = publish_artifacts(
@@ -278,9 +283,8 @@ def test_an_artifact_served_with_no_content_type_is_never_guessed_into_an_image(
         client_factory=factory_for(client),
     )
 
-    assert urls == []
-    assert client.buckets == {}
-    assert_warned(caplog, "not a PNG")
+    assert len(urls) == 1
+    assert urls[0].endswith(".png")
 
 
 def test_non_png_bytes_announced_as_a_png_are_declined(cfg, caplog):

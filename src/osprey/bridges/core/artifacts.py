@@ -89,8 +89,15 @@ class FetchedArtifact:
         return self.data.startswith(PNG_MAGIC)
 
 
-def _bare_mime(content_type: str | None) -> str | None:
-    """Strip parameters and case from a Content-Type; ``None`` stays ``None``."""
+def bare_mime(content_type: str | None) -> str | None:
+    """Strip parameters and case from a Content-Type; ``None`` stays ``None``.
+
+    Public because an adapter that fetches bytes from somewhere other than the
+    worker's byte route — a bridge re-reading a prior artifact off its own public
+    object store, say — has to normalize the served header the same way
+    :func:`fetch_artifact` does, or the two disagree about what ``image/png``
+    means. One implementation, not a copy per call site.
+    """
     if not content_type:
         return None
     return content_type.split(";", 1)[0].strip().lower() or None
@@ -254,4 +261,4 @@ def fetch_artifact(
             max_bytes,
         )
         return None
-    return FetchedArtifact(data=data, content_type=_bare_mime(content_type))
+    return FetchedArtifact(data=data, content_type=bare_mime(content_type))

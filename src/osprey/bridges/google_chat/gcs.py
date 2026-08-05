@@ -44,7 +44,6 @@ import httpx
 from osprey.bridges.core import (
     MAX_DELIVERED_DOC_BYTES,
     MAX_DELIVERED_IMAGE_BYTES,
-    PNG_MAGIC,
     ext_for_mime,
     fetch_artifact,
     safe_label,
@@ -76,7 +75,8 @@ DOCUMENT_PREFIX = "docs/"
 """Key prefix for objects delivered as document links."""
 
 IMAGE_CONTENT_TYPE = "image/png"
-"""The only type :func:`publish_artifacts` writes; see :func:`_is_image`."""
+"""The only type :func:`publish_artifacts` writes. What qualifies is decided by
+:attr:`~osprey.bridges.core.FetchedArtifact.is_png` — the bytes, not the header."""
 
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 """Upload type for a document the worker served with no ``Content-Type`` at all.
@@ -121,28 +121,6 @@ def _default_gcs_client(cfg: GoogleChatBridgeConfig) -> Any:
         scopes=GCS_SCOPES,
     )
     return storage.Client(project=cfg.gcs_project or None, credentials=credentials)
-
-
-def _is_image(data: bytes, served_type: str | None) -> bool:
-    """Whether fetched bytes may be posted as a ``cardsV2`` image widget.
-
-    Both conditions are required and each catches a different mislabel. The served
-    type catches a conversion that fell back — the descriptor still claims PNG
-    while the worker serves HTML — and the magic bytes catch the reverse, a
-    payload announced as a PNG that is not one. Either way Chat would render a
-    broken image, since it fetches the URL itself and trusts nothing the bridge
-    says about it. The image size bound is not re-checked here: it is the fetch
-    budget :func:`publish_artifacts` passes, so oversize bytes never arrive.
-
-    Args:
-        data: The fetched bytes.
-        served_type: Normalized served ``Content-Type``, ``None`` when the worker
-            sent no header. An absent type is never guessed into an image.
-
-    Returns:
-        ``True`` when the bytes may take the image path.
-    """
-    return served_type == IMAGE_CONTENT_TYPE and data.startswith(PNG_MAGIC)
 
 
 def _public_url(bucket: str, name: str) -> str:
@@ -266,26 +244,32 @@ def _publish_image(
         The object's public URL, or ``None`` when the artifact could not be
         fetched, is not a renderable PNG, or failed to upload.
     """
-    data, served_type = fetch_artifact(
+    fetched = fetch_artifact(
         http_client, cfg.core, run_id, artifact_id, max_bytes=MAX_DELIVERED_IMAGE_BYTES
     )
-    if data is None:
+    if fetched is None:
         return None  # fetch_artifact logged why: transport, HTTP status, or oversize.
-    if not _is_image(data, served_type):
+    if not fetched.is_png:
         # Not dropped for being unwanted — dropped for being undeliverable on
         # THIS path. A caller that wants it anyway can offer the same artifact to
         # publish_documents, which makes no claim about the payload.
+        #
+        # The bytes decide, not the served header: this object is written to a
+        # public bucket labelled image/png, and the magic bytes are what make that
+        # label true. A real PNG served with no Content-Type at all is still a PNG
+        # and is still publishable — dropping it over a missing header is the
+        # silent artifact loss #503 exists to prevent.
         logger.warning(
             "artifact %s/%s is not a PNG (served as %s); no image card",
             run_id,
             artifact_id,
-            served_type or "no content type",
+            fetched.content_type or "no content type",
         )
         return None
     return _upload(
         gcs_client,
         cfg,
-        data,
+        fetched.data,
         name=f"{IMAGE_PREFIX}{uuid.uuid4()}.png",
         content_type=IMAGE_CONTENT_TYPE,
     )
@@ -320,17 +304,17 @@ def _publish_document(
     artifact_id = descriptor.get("artifact_id")
     if not isinstance(artifact_id, str) or not artifact_id:
         return None
-    data, served_type = fetch_artifact(
+    fetched = fetch_artifact(
         http_client, cfg.core, run_id, artifact_id, max_bytes=MAX_DELIVERED_DOC_BYTES
     )
-    if data is None:
+    if fetched is None:
         return None  # fetch_artifact logged why: transport, HTTP status, or oversize.
-    content_type = served_type or DEFAULT_CONTENT_TYPE
-    extension = ext_for_mime(served_type)
+    content_type = fetched.content_type or DEFAULT_CONTENT_TYPE
+    extension = ext_for_mime(fetched.content_type)
     url = _upload(
         gcs_client,
         cfg,
-        data,
+        fetched.data,
         name=f"{DOCUMENT_PREFIX}{uuid.uuid4()}{extension}",
         content_type=content_type,
     )
@@ -356,7 +340,7 @@ def publish_artifacts(
     """Publish a run's images as public GCS objects. Never raises.
 
     Each artifact is fetched from the worker and, if it is genuinely a renderable
-    PNG (see :func:`_is_image`), written to ``plots/{uuid4}.png`` and returned as
+    PNG (``FetchedArtifact.is_png``), written to ``plots/{uuid4}.png`` and returned as
     a public URL for a ``cardsV2`` image widget. An artifact that is not — the
     fallback-conversion case, where the descriptor said PNG and the worker served
     something else — yields no URL here: it is **not deliverable as an image**,
