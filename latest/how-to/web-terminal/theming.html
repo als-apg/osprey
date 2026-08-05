@@ -500,14 +500,14 @@ matches automatically, in light or dark. You can also design your own.</p>
 <h2>Choosing a theme<a class="headerlink" href="#choosing-a-theme" title="Link to this heading">#</a></h2>
 <p>Themes come in <strong>families</strong>. OSPREY ships four:</p>
 <ul class="simple">
-<li><p><strong>osprey</strong> — the default look, in light and dark.</p></li>
+<li><p><strong>main</strong> — the default look, in light and dark.</p></li>
+<li><p><strong>desy</strong> — the DESY corporate palette, in light and dark.</p></li>
 <li><p><strong>high-contrast</strong> — a stronger-contrast family for accessibility, also in
 light and dark.</p></li>
-<li><p><strong>apex</strong> — a warm, gold-accented alternative look, also in light and dark.</p></li>
 <li><p><strong>retro</strong> — the navy-and-teal look of the pre-redesign web terminal,
 kept for teams who prefer the familiar appearance.</p></li>
 </ul>
-<p>In the terminal, click the small round dot at the top right to open the
+<p>In the terminal, click the sliders button at the top right to open the
 display menu — it holds the light/dark switch, the Expert/Simple view toggle,
 and the theme family picker. Panels opened as standalone pages show the same
 theme controls inline in their own header, as pictured below. Your choice is
@@ -529,18 +529,39 @@ preference.</p>
 v2026.6.3.</p>
 <p>To set the theme a deployment <em>starts</em> in, use <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey</span><span class="w">        </span><span class="c1"># a family, or a specific theme like high-contrast-light</span>
+<span class="w">  </span><span class="nt">theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span><span class="w">        </span><span class="c1"># a family, or a specific theme like high-contrast-light</span>
 </pre></div>
 </div>
 <p>Name a family to start visitors in that family (light or dark then follows
 their operating-system preference), or name a specific theme to pin an exact
-look. Whatever you pick in the browser always wins over this and sticks
-across reloads.</p>
+look — including whether the deployment starts light or dark. Whatever you pick
+in the browser always wins over this and sticks across reloads.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><code class="docutils literal notranslate"><span class="pre">web.theme</span></code> (the browser interfaces) is separate from <code class="docutils literal notranslate"><span class="pre">cli.theme</span></code> (the
 colors of OSPREY’s plain terminal output). They never affect each other.</p>
 </div>
+</section>
+<section id="giving-each-user-their-own-default">
+<h2>Giving each user their own default<a class="headerlink" href="#giving-each-user-their-own-default" title="Link to this heading">#</a></h2>
+<p>In a multi-user deployment every user gets their own terminal, but they all run
+the same image — so they all read the same <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>. To start a particular
+user somewhere else, add <code class="docutils literal notranslate"><span class="pre">theme</span></code> to their entry in the user list:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">        </span><span class="nt">theme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">desy-light</span>
+</pre></div>
+</div>
+<p>The value takes the same two forms as <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>: a family, or a specific
+theme to also pin light or dark. It applies to that user only, and their own
+pick in the display menu still wins over it.</p>
+<p>The landing page that lists everyone’s terminals uses the deployment-wide
+<code class="docutils literal notranslate"><span class="pre">web.theme</span></code>. It is shown before anyone has said who they are, so there is no
+personal setting to apply yet.</p>
 </section>
 <section id="restoring-the-pre-redesign-look">
 <h2>Restoring the pre-redesign look<a class="headerlink" href="#restoring-the-pre-redesign-look" title="Link to this heading">#</a></h2>
@@ -673,6 +694,7 @@ theme boot every OSPREY page uses.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-a-theme">Choosing a theme</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#giving-each-user-their-own-default">Giving each user their own default</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#restoring-the-pre-redesign-look">Restoring the pre-redesign look</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#propose-a-theme">Propose a theme</a></li>
 </ul>

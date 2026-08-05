@@ -652,9 +652,9 @@ not at the menu.</p>
 </section>
 <section id="logging-out-and-switching-users">
 <h2>Logging out and switching users<a class="headerlink" href="#logging-out-and-switching-users" title="Link to this heading">#</a></h2>
-<p>Every session’s header carries a logout button. It POSTs to the terminal’s
-logout route, clears the local session pointer, and returns you to the landing
-page. From there, pick another card to open a different user. Logging out
+<p>Every session’s header carries a chip naming the signed-in user; clicking it
+opens a small menu with <strong>Log out</strong>. That POSTs to the terminal’s logout route,
+clears the local session pointer, and returns you to the landing page. From there, pick another card to open a different user. Logging out
 ends the session for real — the terminal drops its running processes, so the
 next login starts <strong>fresh</strong>. Simply navigating away (without logout) keeps
 the session warm, and returning to the same user reconnects to it.</p>

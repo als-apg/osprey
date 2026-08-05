@@ -25,14 +25,14 @@ Choosing a theme
 
 Themes come in **families**. OSPREY ships four:
 
-- **osprey** — the default look, in light and dark.
+- **main** — the default look, in light and dark.
+- **desy** — the DESY corporate palette, in light and dark.
 - **high-contrast** — a stronger-contrast family for accessibility, also in
   light and dark.
-- **apex** — a warm, gold-accented alternative look, also in light and dark.
 - **retro** — the navy-and-teal look of the pre-redesign web terminal,
   kept for teams who prefer the familiar appearance.
 
-In the terminal, click the small round dot at the top right to open the
+In the terminal, click the sliders button at the top right to open the
 display menu — it holds the light/dark switch, the Expert/Simple view toggle,
 and the theme family picker. Panels opened as standalone pages show the same
 theme controls inline in their own header, as pictured below. Your choice is
@@ -62,17 +62,42 @@ To set the theme a deployment *starts* in, use ``web.theme`` in ``config.yml``:
 .. code-block:: yaml
 
    web:
-     theme: osprey        # a family, or a specific theme like high-contrast-light
+     theme: main        # a family, or a specific theme like high-contrast-light
 
 Name a family to start visitors in that family (light or dark then follows
 their operating-system preference), or name a specific theme to pin an exact
-look. Whatever you pick in the browser always wins over this and sticks
-across reloads.
+look — including whether the deployment starts light or dark. Whatever you pick
+in the browser always wins over this and sticks across reloads.
 
 .. note::
 
    ``web.theme`` (the browser interfaces) is separate from ``cli.theme`` (the
    colors of OSPREY's plain terminal output). They never affect each other.
+
+Giving each user their own default
+----------------------------------
+
+In a multi-user deployment every user gets their own terminal, but they all run
+the same image — so they all read the same ``web.theme``. To start a particular
+user somewhere else, add ``theme`` to their entry in the user list:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       users:
+         - alice
+         - name: bob
+           index: 1
+           theme: desy-light
+
+The value takes the same two forms as ``web.theme``: a family, or a specific
+theme to also pin light or dark. It applies to that user only, and their own
+pick in the display menu still wins over it.
+
+The landing page that lists everyone's terminals uses the deployment-wide
+``web.theme``. It is shown before anyone has said who they are, so there is no
+personal setting to apply yet.
 
 Restoring the pre-redesign look
 -------------------------------
