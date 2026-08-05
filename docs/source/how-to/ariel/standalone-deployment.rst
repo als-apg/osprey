@@ -175,17 +175,19 @@ Durable customization (a profile you own)
 -----------------------------------------
 
 For changes you want to keep across rebuilds — adding a custom skill,
-overriding a rule, wiring up a real logbook — scaffold an editable build
-profile that extends the ``ariel-standalone`` preset:
+overriding a rule, wiring up a real logbook — materialize an editable build
+profile from the ``ariel-standalone`` preset:
 
 .. code-block:: bash
 
-   osprey build --emit-profile my-ariel-profile --preset ariel-standalone
+   osprey profile new my-ariel-profile --preset ariel-standalone
 
-This writes a ``my-ariel-profile/`` directory with ``profile.yml`` (extending
-the preset) plus ``overlays/{rules,skills,agents}/`` sentinels. Edit
-``profile.yml`` to layer config overrides and overlay artifacts on top of the
-preset, then rebuild whenever you change something:
+This writes a ``my-ariel-profile/`` directory containing a standalone
+``profile.yml`` — the preset's full configuration written out explicitly, with
+no ``extends:`` back to the preset — plus the preset's ``data/`` tree and
+``overlays/{rules,skills,agents,web-terminal-context}/`` sentinels. Edit
+``profile.yml``, the data files, and the overlays directly, then rebuild
+whenever you change something:
 
 .. code-block:: bash
 

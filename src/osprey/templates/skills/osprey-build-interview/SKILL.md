@@ -106,33 +106,33 @@ person* rather than guessing. Categories worth checking:
 
 ## Generating the profile
 
-Pick the starting preset first. `osprey build --list-presets` reports what this
+Pick the starting preset first. `osprey profile presets` reports what this
 installation ships; open the ones that sound close — the map says where they live — and
 take the one whose privilege level and connection mode match what the interview
 established. The `control-assistant` family is the canonical modern example and a
 sensible default when nothing else stands out.
 
-Then emit an editable profile:
+Then materialize an editable profile:
 
 ```
-osprey build --emit-profile build-profile/ --preset <closest-preset>
+osprey profile new build-profile/ --preset <closest-preset>
 ```
 
 `--preset` is required. The command refuses if `build-profile/` already exists, which a
-second pass through the interview will hit — move the old directory aside or emit into a
-fresh one, and tell the person which you did. It also refuses the project-render flags;
-the map lists them.
+second pass through the interview will hit — move the old directory aside or materialize
+into a fresh one, and tell the person which you did.
 
-What you get back is a self-documenting `profile.yml`: `extends: <preset>` plus
-commented-out sections for skills, rules, agents, config, env, and overlays. Read it
-before you edit it. It is the current, authoritative statement of what a profile can
-say, which is exactly why no copy of it lives in this file.
+What you get back is a self-documenting profile directory: a standalone `profile.yml`
+carrying the preset's full configuration written out explicitly — no `extends:` — with
+the preset's own comments, next to a `data/` tree copied from the preset and an
+`overlays/` seed. Read `profile.yml` before you edit it. It is the current, authoritative
+statement of what a profile can say, which is exactly why no copy of it lives in this
+file.
 
 Now edit **only the deltas the interview actually decided** — the project name and
 description, the connection mode, the AI service, the signals. Everything that never
-came up in the conversation is already answered sensibly by the preset, and leaving
-those sections commented out is the whole point of extending a preset instead of
-authoring a profile from scratch. Under `config:`, use dotted keys
+came up in the conversation already carries the preset's answer, so leave those keys as
+materialized rather than second-guessing them. Under `config:`, use dotted keys
 (`system.timezone: "America/Los_Angeles"`); nested YAML there does not merge the way
 people expect.
 
