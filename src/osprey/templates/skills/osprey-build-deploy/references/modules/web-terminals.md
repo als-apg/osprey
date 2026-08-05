@@ -76,6 +76,7 @@ modules:
       - name: "bob"                     # object form — needed to set per-user fields
         index: 1
         display_name: "Operations"      # optional window/tab title → OSPREY_WEB_APP_NAME
+        theme: "desy-light"             # optional default theme    → OSPREY_WEB_THEME
       - carol
     landing:                            # grouped landing page served at nginx_port
       groups:
@@ -98,6 +99,22 @@ user can carry a distinct title (e.g. `"Operations"` vs `"Physics"`) without a
 per-user image. Omitting it emits no env line and inherits `web.app_name`. See the
 full field reference in `references/facility-config-schema.md` § "User roster
 entries".
+
+**Per-user default theme** (`theme`, optional). The same shape, for the same
+reason: `config.yml`'s `web.theme` is baked into the shared image, so an
+object-form entry's `theme` emits `OSPREY_WEB_THEME=<value>` into just that
+user's container, which `osprey web` treats as authoritative over `web.theme`.
+The value is either a theme **family** (`"main"`, `"desy"`, `"high-contrast"`,
+`"retro"`) — setting the palette while leaving light/dark to that user's OS
+preference — or a concrete theme **id** (`"desy-light"`), which additionally pins
+the mode. Either way it is a *default*: the user's own pick in the display menu
+outranks it from then on. An unknown value warns at container start and falls
+back to `main`, so lint checks only that the value is a string (the theme
+registry ships with the image, not with this config).
+
+The landing page in front of these terminals is themed from the deployment-level
+`web.theme` only — it is shown before anyone has identified themselves, so there
+is no per-user theme to apply yet.
 
 **The per-user list is durable**. Adding a user appends to the list (re-run the interview, or hand-edit then re-scaffold) without disturbing existing users' state. Removing a user from the list does **not** delete their named volume by default — the volume sticks around and can be reattached if the user comes back. To actually wipe a user's state, use `osprey deploy decommission <user> --purge` (see "Operating the module" below), or run `${config.runtime.engine} volume rm ${config.facility.prefix}-${user}-claude-config` by hand.
 

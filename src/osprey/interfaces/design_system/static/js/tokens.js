@@ -79,3 +79,11 @@ export const DEFAULTS = {
 // declared -- the single fallback
 // theme-manager.js reads instead of re-deriving it from DEFAULTS.
 export const DEFAULT_FAMILY = "main";
+
+// Display names for families whose id does not title-case correctly
+// ('desy' -> 'DESY'). Sparse BY DESIGN: a family that declares no
+// $extensions.family_label is absent here, and consumers derive its
+// label from the family id instead.
+export const FAMILY_LABELS = {
+  "desy": "DESY"
+};

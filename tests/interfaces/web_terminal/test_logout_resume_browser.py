@@ -4,9 +4,10 @@ Exercises the client-side half of the multi-user round trip in a real Chromium
 page — the part a FastAPI TestClient can't see because it neither runs the
 frontend JS nor persists ``localStorage`` across navigations:
 
-  * the header user display (``#header-user-name``) and the logout control
-    (``#logout-btn`` carrying ``data-landing-url``) render only when the server
-    emitted a non-empty ``terminal_user`` / ``landing_url`` (multi-user);
+  * the header identity chip (``#identity-menu``, naming the user) and the
+    logout control inside its popover (``#logout-btn`` carrying
+    ``data-landing-url``) render only when the server emitted a non-empty
+    ``terminal_user`` / ``landing_url`` (multi-user);
   * clicking logout POSTs the real server logout route (``logout_terminal``,
     routes/websocket.py — empties the PTY and operator registries), clears the
     client's stored PTY session id, THEN navigates to the configured landing
@@ -197,10 +198,12 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         assert "session_id=" not in opening_url
 
         # Header shows the configured user; logout control carries the landing url.
-        expect(page.locator("#header-user-name")).to_have_text(user)
+        expect(page.locator("#identity-menu-btn .identity-name")).to_have_text(user)
         logout = page.locator("#logout-btn")
         expect(logout).to_have_count(1)
         assert logout.get_attribute("data-landing-url") == landing_url
+        # It lives inside the identity popover, so it starts hidden.
+        expect(logout).to_be_hidden()
 
         # --- Represent an established (warm) PTY session (see module docstring) ---
         page.evaluate("(id) => localStorage.setItem('osprey-pty-session', id)", stored_id)
@@ -214,6 +217,9 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         )
 
         # --- Logout: clears the stored pointer, THEN navigates to landing ---
+        # Logout lives in the identity chip's popover; open it first.
+        page.click("#identity-menu-btn")
+        expect(page.locator("#logout-btn")).to_be_visible()
         page.click("#logout-btn")
         page.wait_for_url(lambda u: u.startswith(landing_url))
         assert page.url.startswith(landing_url)
@@ -245,8 +251,8 @@ def test_standalone_has_no_logout_control(tmp_path, monkeypatch, chromium_browse
     """Plain ``osprey web`` (no landing_url env) omits the logout control.
 
     With neither ``OSPREY_TERMINAL_USER`` nor ``OSPREY_TERMINAL_LANDING_URL`` set,
-    both the user display and the logout button must be absent from the DOM — the
-    single-user experience is unchanged.
+    the whole identity chip — and with it the logout button it contains — must be
+    absent from the DOM; the single-user experience is unchanged.
     """
     with _launch_terminal(tmp_path, monkeypatch, terminal_user="", landing_url="") as base_url:
         page = chromium_browser.new_page()
@@ -256,6 +262,6 @@ def test_standalone_has_no_logout_control(tmp_path, monkeypatch, chromium_browse
         page.wait_for_selector(".header-actions", timeout=10_000)
 
         expect(page.locator("#logout-btn")).to_have_count(0)
-        expect(page.locator("#header-user-name")).to_have_count(0)
+        expect(page.locator("#identity-menu")).to_have_count(0)
 
         page.close()

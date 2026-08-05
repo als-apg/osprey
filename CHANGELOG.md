@@ -13,6 +13,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Web terminal header: the username badge and the logout button are now one
+  identity chip on the right, whose menu holds the deployment name and Log out.
+  The deployment name (`web.app_name`) moved to the left, beside "Web Terminal".
+
 - Custom artifact-gallery categories moved from the top-level `categories`
   key into the `artifact_server:` block (`artifact_server.categories`), in
   both build profiles and rendered config.yml — the bare name was ambiguous
@@ -30,6 +34,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `web.theme` set to a concrete theme id (e.g. `desy-light`) now actually pins
+  light or dark as the deployment default. It painted correctly and was then
+  overridden by the viewer's OS preference a moment later. A bare family
+  (`desy`) still follows the OS, and a user's own pick still wins over both.
+- The theme picker now labels the DESY family `DESY` rather than `Desy`.
+- Newly scaffolded projects set `web.theme: osprey`, a family that no longer
+  exists; the terminal warned and fell back on every start. Now `main`.
 - `osprey build` now fails with an actionable error when
   `claude_code.default_model` (e.g. `--set model=...`) names a model the
   selected provider does not serve. Previously the build only warned and the
@@ -37,6 +48,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Each user in a multi-user deployment can have their own default theme: set
+  `theme:` on a roster entry in `modules.web_terminals.users` (a family such as
+  `desy`, or a concrete id such as `desy-light` to also pin light/dark). It
+  overrides the image's `web.theme` for that user only, and the user's own pick
+  in the display menu still overrides it.
+- The multi-user landing page now uses the deployment's configured theme
+  instead of a fixed palette, so it matches the terminals it links to.
 - DOOCS facilities can now select their connectors by name: `control_system.type:
   doocs` and `archiver.type: doocs_archiver`, in `config.yml`, through `osprey
   config set-control-system doocs`, or from the interactive config menu.
