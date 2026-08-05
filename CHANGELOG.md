@@ -176,6 +176,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   that mention the bot are answered; files are shared with the room's members
   rather than published as public links. Messages posted while the bridge is down
   are picked up on restart. See the "Deploy a Chat Bridge" how-to.
+- Your team can now ask the agent questions from Google Chat — in a space or a
+  direct message — and get answers, including plots and files, back in the same
+  thread. Add a `gchat_bridge:` block to a build profile alongside a `dispatch:`
+  block, set the Google service account key, subscription, and app identity in
+  the project `.env`, and `osprey deploy up` brings up the bridge with the rest
+  of the stack. In a space only messages that @mention the app are answered; in
+  a direct message every message counts. Plots and files come back as public
+  links anyone who has the link can open, because that is the only way Chat can
+  show them; leave the bucket unset to answer text only. Run one bridge per
+  subscription — Google hands each message to a single reader. See the "Deploy a
+  Chat Bridge" how-to.
 - Every service image is now overridable through the same `env → config →
   default` chain: new `OSPREY_POSTGRES_IMAGE` env var plus
   `services.postgresql.image`, `services.openobserve.image`, and
