@@ -116,7 +116,7 @@ def _persona_image_build_cmd(
     cli_version = _resolve_persona_claude_cli_version(project_path)
     if cli_version:
         cmd.extend(["--build-arg", f"CLAUDE_CLI_VERSION={cli_version}"])
-    cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec()}"])
+    cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec(dev_mode=dev_mode)}"])
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.append(project_path)

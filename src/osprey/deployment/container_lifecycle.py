@@ -360,25 +360,46 @@ def _resolve_claude_cli_version(config: dict) -> str:
     return _DEFAULT_CLAUDE_CLI_VERSION
 
 
-def _resolve_pip_spec() -> str:
+def _resolve_pip_spec(dev_mode: bool = False) -> str:
     """The ``OSPREY_PIP_SPEC`` build arg for the project image.
 
     An operator ``OSPREY_PIP_SPEC`` export wins (e.g. a ``git+https`` URL that
-    pins an unreleased build). Otherwise pin the running framework version
+    pins an unreleased build). Otherwise pin the released framework version
     (``osprey-framework==<version>``), matching the dispatch image's production
     install, so a project image built without ``--dev`` ships a deterministic
     release rather than tracking whatever ``osprey-framework`` resolves to at
-    build time. Under ``--dev`` a locally-built wheel is staged into the build
-    context and the Dockerfile installs that instead, ignoring this spec.
+    build time.
+
+    Under ``dev_mode`` a locally-built wheel has been staged into the build
+    context and the Dockerfile installs that instead, ignoring this spec — so the
+    release check is skipped. It has to be: a development checkout is exactly
+    where ``--dev`` is used, and refusing there would block the workflow this
+    error recommends. The caller passes the *effective* dev mode, so a ``--dev``
+    run whose wheel staging failed still gets the check and refuses rather than
+    quietly installing released code.
+
+    :param dev_mode: Whether a local wheel was staged for this build.
+    :raises UnreleasedVersionPinError: if a PyPI install would be pinned to a
+        version that was never published.
     """
     spec = os.environ.get("OSPREY_PIP_SPEC")
     if spec:
         return spec
-    try:
-        from osprey import __version__ as osprey_version
-    except Exception:
-        osprey_version = ""
-    return f"osprey-framework=={osprey_version}" if osprey_version else "osprey-framework"
+
+    from osprey.deployment.errors import UnreleasedVersionPinError
+    from osprey.version import get_release_version, is_release, unreleased_pin_reason
+
+    if dev_mode:
+        # The staged wheel is what gets installed; this value is inert.
+        return f"osprey-framework=={get_release_version()}"
+
+    if not is_release():
+        raise UnreleasedVersionPinError(
+            unreleased_pin_reason(),
+            "Use `osprey deploy up --dev` to build and stage a wheel from this "
+            "checkout, or set OSPREY_PIP_SPEC to pin explicitly.",
+        )
+    return f"osprey-framework=={get_release_version()}"
 
 
 def _worker_image_target(config: dict, env: dict) -> str:
@@ -433,7 +454,7 @@ def _project_image_build_cmd(
         "--build-arg",
         f"CLAUDE_CLI_VERSION={_resolve_claude_cli_version(config)}",
         "--build-arg",
-        f"OSPREY_PIP_SPEC={_resolve_pip_spec()}",
+        f"OSPREY_PIP_SPEC={_resolve_pip_spec(dev_mode=dev_mode)}",
     ]
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
