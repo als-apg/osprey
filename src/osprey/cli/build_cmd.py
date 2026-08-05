@@ -670,8 +670,13 @@ def build(
         # `build && deploy` chain at the checkpoint the operator watches.
         from osprey.build.claude_code_resolver import load_provider_spec
 
+        # Telemetry credentials are exempt from this strictness: a profile may
+        # legitimately leave them as ${VAR} for the *deployment* to supply, and
+        # the runtime re-resolves them at agent-spawn (degrading telemetry, not
+        # the agent, if they are still unset). Aborting here would force every
+        # such build to hand the builder production observability secrets.
         try:
-            load_provider_spec(project_path)
+            load_provider_spec(project_path, defer_unresolved_telemetry_creds=True)
         except ValueError as e:
             raise BuildProfileError(str(e)) from e
 
