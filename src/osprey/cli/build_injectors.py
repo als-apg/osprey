@@ -5,7 +5,8 @@ writes the matching ``services.<name>`` block into ``config.yml`` (and
 registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
-``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``).
+``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
+``GChatBridgeProfileConfig``).
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
 and facility-declared service templates.
 """
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
         BlueskyConfig,
         BlueskyPanelsConfig,
         DispatchConfig,
+        GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
         VAConfig,
     )
@@ -831,4 +833,101 @@ def _inject_nextcloud_bridge(
         "    Images:     `osprey deploy up` builds the nextcloud-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_NEXTCLOUD_BRIDGE_IMAGE to use a published image."
+    )
+
+
+def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: Path) -> None:
+    """Wire the Google Chat bridge service into a built project.
+
+    1. Copy the bundled ``templates/services/gchat_bridge/`` compose template
+       into ``<project>/services/gchat_bridge/``.
+    2. Write ``services.gchat_bridge`` config + register it in
+       ``deployed_services`` (so ``find_service_config`` resolves it,
+       mirroring ``_inject_nextcloud_bridge``).
+    3. Print a post-build hint naming the Google credentials the operator must
+       supply, and the one deployment rule the compose file cannot enforce
+       (one bridge per Pub/Sub subscription).
+
+    Structurally a thin mirror of :func:`_inject_nextcloud_bridge` — the other
+    chat channel — down to the single ``trigger`` key the template reads with no
+    ``| default``. Like it, this must run *after* :func:`_inject_dispatch`,
+    which is what puts ``event_dispatcher`` / ``dispatch_worker`` into
+    ``deployed_services``; the compose template gates both its ``depends_on``
+    and its in-network ``DISPATCHER_URL``/``WORKER_URL`` on their presence there.
+
+    Args:
+        gchat_bridge: Validated bridge configuration from the build profile.
+            ``BuildProfile.validate`` has already established that a
+            ``dispatch:`` block exists and that ``trigger`` names a trigger
+            declared in the resolved triggers file.
+        project_path: Root of the built project.
+    """
+    from ruamel.yaml import YAML
+
+    # 1. Copy the bundled compose template (located the same way as service templates).
+    pkg_services = _locate_pkg_services()
+
+    src_dir = pkg_services / "gchat_bridge"
+    if not src_dir.is_dir():
+        logger.warning("No package template for gchat_bridge service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    dest_dir = dest_services_root / "gchat_bridge"
+    _refresh_service_dir(src_dir, dest_dir, "gchat_bridge", _user_owned_services(project_path))
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found — skipping gchat_bridge config registration")
+        return
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    # ``trigger`` is the one key the compose template reads with NO ``| default``
+    # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
+    # break the render loudly rather than silently firing another facility's
+    # trigger. No ``image`` key: the service builds the local
+    # <project>-gchat-bridge image on first ``osprey deploy up`` (the template's
+    # own ``| default`` supplies that tag). Override with
+    # OSPREY_GCHAT_BRIDGE_IMAGE, or set ``services.gchat_bridge.image`` here, to
+    # use a prebuilt/published image.
+    config.setdefault("services", {})
+    config["services"]["gchat_bridge"] = {
+        "path": "./services/gchat_bridge",
+        "trigger": gchat_bridge.trigger,
+    }
+    deployed = config.get("deployed_services", []) or []
+    if "gchat_bridge" not in [str(s) for s in deployed]:
+        deployed.append("gchat_bridge")
+    config["deployed_services"] = deployed
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    # 3. Post-build hint.
+    logger.info("  ✓ Injected Google Chat bridge (trigger %r)", gchat_bridge.trigger)
+    logger.info(
+        "    Credentials: set GCHAT_SA_KEY (host path to the service-account JSON "
+        "key, mounted read-only at the same path in the container), "
+        "GCHAT_SUBSCRIPTION and GCHAT_APP_ID in the project .env before "
+        "`osprey deploy up`. These are user-supplied — unlike the dispatch "
+        "tokens, deploy does not mint them, and the bridge aborts at boot "
+        "naming whichever is missing."
+    )
+    logger.info(
+        "    Subscription: deploy exactly ONE bridge per Pub/Sub subscription. "
+        "Pub/Sub load-balances a subscription across its consumers, so a second "
+        "deployment on the same name does not duplicate events — it silently "
+        "splits them, and each half answers only what it received. Give every "
+        "deployment its own subscription on the topic."
+    )
+    logger.info(
+        "    Images:     `osprey deploy up` builds the gchat-bridge image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_GCHAT_BRIDGE_IMAGE to use a published image."
     )

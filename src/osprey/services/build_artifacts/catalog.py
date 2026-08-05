@@ -362,6 +362,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/gchat_bridge",
+            template_path="gchat_bridge",
+            output_path="services/gchat_bridge",
+            description="Google Chat bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/bluesky",
             template_path="bluesky",
             output_path="services/bluesky",
