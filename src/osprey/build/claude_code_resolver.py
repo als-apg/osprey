@@ -623,10 +623,14 @@ class ClaudeCodeModelResolver:
         with its own gateway and have the agent use the endpoint ``osprey
         health`` probes. Above both sits the break-glass env override: a
         built-in provider that declares ``base_url_env_var`` lets a set
-        (non-empty) env var beat config and the built-in URL, so an
+        (non-empty) value beat config and the built-in URL, so an
         already-deployed system whose config is baked into an image can be
-        redirected at a fallback gateway without a rebuild. The trailing
-        ``/v1`` is stripped for ``ANTHROPIC_BASE_URL`` either way (see below).
+        redirected at a fallback gateway without a rebuild. That value is read
+        only from an explicitly supplied ``environ`` — this method never
+        consults ``os.environ``, because it also renders ``settings.json`` at
+        build time, where an ambient read would bake the builder's endpoint
+        into the artifact. The trailing ``/v1`` is stripped for
+        ``ANTHROPIC_BASE_URL`` either way (see below).
 
         A provider that leaves a tier unmapped by all three sources is refused
         — the framework will not substitute another provider's model IDs.
@@ -639,9 +643,11 @@ class ClaudeCodeModelResolver:
             claude_code_config: The ``claude_code`` section of config.yml.
             api_providers: The ``api.providers`` section (optional).
             environ: Mapping the ``base_url_env_var`` override is read from.
-                Defaults to ``os.environ``; :func:`load_provider_spec` passes
-                its ``os.environ`` + project-``.env`` overlay so the override
-                honors the same lookup as ``${VAR}`` config expansion.
+                Omitted means "no override" — never ``os.environ``, so
+                build-time rendering is reproducible on any machine.
+                :func:`load_provider_spec` passes its ``os.environ`` +
+                project-``.env`` overlay, which is what enables the override on
+                every runtime path.
 
         Returns:
             Resolved spec, or ``None`` when no provider is configured.
@@ -688,7 +694,13 @@ class ClaudeCodeModelResolver:
         # declare base_url_env_var): config is often baked into a container
         # image, and a set env var must be able to redirect the deployment at
         # a fallback gateway without a rebuild. Empty means unset.
-        env_lookup = os.environ if environ is None else environ
+        # No ambient os.environ read: the override is honored only when a
+        # caller hands in a lookup, i.e. from load_provider_spec's runtime
+        # overlay. resolve() also renders settings.json at *build* time
+        # (templates/claude_code.py, templates/manager.py), where reading the
+        # builder's environment would bake whatever gateway that machine
+        # happened to export into the shipped artifact.
+        env_lookup: Mapping[str, str] = environ if environ is not None else {}
         env_var = provider_def.get("base_url_env_var")
         base_url = (
             (env_lookup.get(env_var) if env_var else None)

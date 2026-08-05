@@ -15,12 +15,25 @@ asserting True. That default is pinned below.
 
 from unittest.mock import patch
 
+import pytest
 from pydantic import BaseModel
 
 from osprey.models.providers.als_apg import ALSAPGProviderAdapter
 
 COMPLETION = "osprey.models.providers.als_apg.execute_litellm_completion"
 HEALTH = "osprey.models.providers.als_apg.check_litellm_health"
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_base_url_override(monkeypatch):
+    """Clear ALS_APG_BASE_URL so these tests describe the adapter, not the host.
+
+    The adapter reads this variable at request time by design, so a CI runner
+    (or a developer shell) that exports it would otherwise rewrite the base_url
+    every assertion below is about. Tests that exercise the override set it
+    explicitly, which still wins — the fixture runs first.
+    """
+    monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
 
 
 class _Sample(BaseModel):
