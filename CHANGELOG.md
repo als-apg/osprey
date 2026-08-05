@@ -9,28 +9,51 @@ Versions follow `YYYY.MM.MICRO`. Year and month identify the release window;
 the micro segment increments for hotfixes and same-month follow-up releases.
 Compatibility is documented in release notes, not encoded in the version string.
 
-## [Unreleased]
+## [2026.8.0]
+
+### Removed
+
+- **Breaking:** `osprey build --emit-profile` is gone, with no alias — the
+  build command builds projects, and profile authoring now has its own verb.
+  Materialize a profile directory with:
+
+  ```
+  osprey profile new DIR --preset X
+  ```
+
+  It writes everything the flag wrote, plus the preset's `data/` tree, and
+  accepts the same `-O` / `--set` layers. Scripts still passing the old flag
+  fail with an unknown-option error rather than silently doing something else.
 
 ### Changed
 
+- A profile directory is now the durable source of truth for a deployment.
+  `osprey profile new` writes a fully explicit, standalone `profile.yml` — the
+  preset's resolved configuration (including any `extends` chain) materialized
+  with its comments preserved, nothing inherited at build time — alongside the
+  preset's `data/` tree copied verbatim and an `overlays/` seed. `--set` and
+  `-O/--override` values are baked in place, so a validated build one-liner
+  carries straight into an editable facility profile. Edit the profile
+  directory and rebuild; the project stays a regenerable artifact.
+  `osprey profile validate DIR` checks a profile without building, and
+  `osprey profile presets` lists the bundled presets.
 - Web terminal header: the username badge and the logout button are now one
   identity chip on the right, whose menu holds the deployment name and Log out.
   The deployment name (`web.app_name`) moved to the left, beside "Web Terminal".
-
 - Custom artifact-gallery categories moved from the top-level `categories`
   key into the `artifact_server:` block (`artifact_server.categories`), in
   both build profiles and rendered config.yml — the bare name was ambiguous
   next to unrelated notions like `health.categories`. No alias: the old key
   is no longer read. The profile-side block also accepts `host`/`port`/
-  `auto_launch` overrides for the gallery server. Emitted profiles now
+  `auto_launch` overrides for the gallery server. Materialized profiles now
   include commented guidance for adding facility `mcp_servers:` and
   `artifact_server.categories`.
-- `osprey build --emit-profile` now writes a fully explicit, standalone
-  `profile.yml`: the preset's resolved configuration (including any `extends`
-  chain) is materialized with its comments preserved, instead of a sparse
-  profile referencing the preset via `extends:`. It also accepts `--set` and
-  `-O/--override`, applying the values in place — a validated build one-liner
-  carries straight into an editable facility profile.
+- Building the `control-assistant` preset now generates the virtual
+  accelerator's channel manifest from the data tree the build sources, and
+  writes `VA_CHANNELS_FILE` and `VA_LATTICE` into the project `.env`. The
+  simulated machine therefore serves the channels in your profile's databases
+  rather than the container's packaged fallback set. Both keys are rewritten
+  on every rebuild, so an edited channel database reaches the running IOC.
 
 ### Fixed
 
