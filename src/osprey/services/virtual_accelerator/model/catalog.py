@@ -43,7 +43,11 @@ from osprey.services.virtual_accelerator.manifest import (
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, keeps `lume` out of import time
+    from collections.abc import Callable
+
     from lume.variables import ScalarVariable
+
+    VariableFactory = Callable[..., ScalarVariable]
 
 _SETPOINT_SUBFIELD = "SP"
 
@@ -86,7 +90,20 @@ def _load_limit_bands(path: Path | None = None) -> dict[str, tuple[float, float]
     return bands
 
 
-def build_variable_catalog(channels: list[dict] | None = None) -> dict[str, ScalarVariable]:
+def _plain_scalar_variable(channel: dict, **scalar_kwargs) -> ScalarVariable:
+    """The default variable factory: a plain ``ScalarVariable``, ignoring the
+    channel it was derived from."""
+    from lume.variables import ScalarVariable
+
+    return ScalarVariable(**scalar_kwargs)
+
+
+def build_variable_catalog(
+    channels: list[dict] | None = None,
+    *,
+    input_factory: VariableFactory = _plain_scalar_variable,
+    output_factory: VariableFactory = _plain_scalar_variable,
+) -> dict[str, ScalarVariable]:
     """Build the model's variable catalog, keyed by full channel address.
 
     Inputs are the pyat-coupled magnet setpoints (``:SP``); outputs are the
@@ -101,14 +118,21 @@ def build_variable_catalog(channels: list[dict] | None = None) -> dict[str, Scal
             pay for it twice per construction -- which the 216-construction
             band test in ``tests/templates/test_channel_limits_va.py`` bills
             216 times over.
+        input_factory: builds each writable ``:SP`` variable from
+            ``(channel, **scalar_kwargs)``, where ``channel`` is the whole
+            manifest channel dict and ``scalar_kwargs`` are the
+            ``ScalarVariable`` fields derived here. Defaults to a plain
+            ``ScalarVariable``; a caller binding variables to lattice
+            elements passes a wrapper that derives the element, attribute
+            and axis from ``channel`` -- keeping this the single derivation
+            path for the catalog's fields.
+        output_factory: the same, for the read-only BPM readings.
 
     Raises:
         pydantic.ValidationError: if a ``machine.json`` nominal falls
             outside its ``channel_limits.json`` band (a ``ValueError``; see
             the module docstring).
     """
-    from lume.variables import ScalarVariable
-
     machine_channels = load_machine_json_channels()
     bands = _load_limit_bands()
     if channels is None:
@@ -124,7 +148,9 @@ def build_variable_catalog(channels: list[dict] | None = None) -> dict[str, Scal
         address = channel["address"]
         entry = machine_channels.get(address, {})
         read_only = subfield != _SETPOINT_SUBFIELD
-        catalog[address] = ScalarVariable(
+        factory = output_factory if read_only else input_factory
+        catalog[address] = factory(
+            channel,
             name=address,
             read_only=read_only,
             default_validation_config="none",
