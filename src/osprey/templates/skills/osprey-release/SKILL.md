@@ -2,13 +2,13 @@
 name: osprey-release
 description: >
   Guides a maintainer through cutting an OSPREY release on the GitHub Flow
-  workflow: open a version-bump PR, merge it to main, tag the merge commit,
-  push the tag, verify the automated PyPI publish. Use when someone says
-  "create a release", "bump the version", "cut v2026.X.Y", "publish to PyPI",
-  "tag a release", or asks about the release process. Composes with
-  `osprey-contribute` for the bump PR. Versions follow CalVer (vYYYY.M.P) and
-  the source of truth is `src/osprey/__init__.py` — Hatch derives the
-  pyproject.toml version dynamically.
+  workflow: land the release-notes PR, tag the merge commit, push the tag,
+  verify the automated PyPI publish. Use when someone says "create a release",
+  "bump the version", "cut v2026.X.Y", "publish to PyPI", "tag a release", or
+  asks about the release process. Composes with `osprey-contribute` for the
+  notes PR. Versions follow CalVer (vYYYY.M.P) and the source of truth is the
+  git tag — Hatch derives the version from it, so there is no version literal
+  to bump.
 allowed-tools: Read, Glob, Grep, Bash, Edit
 ---
 
@@ -21,10 +21,10 @@ pushed.
 The shape is:
 
 1. Verify the working state and decide on the version number.
-2. Open a **version-bump PR** (no direct push to `main` — branch protection
-   rejects it).
+2. Open a **release-notes PR** carrying the CHANGELOG, RELEASE_NOTES and README
+   updates (no direct push to `main` — branch protection rejects it).
 3. Merge the PR to `main`.
-4. Tag the merge commit and push the tag.
+4. Tag the merge commit and push the tag. **This is what sets the version.**
 5. Verify the automated GitHub Actions workflow publishes successfully.
 
 For the PR mechanics in step 2, defer to the `osprey-contribute` skill.
@@ -42,21 +42,27 @@ month). When the year or month rolls over, `P` resets to `0`.
 
 ## The Source of Truth
 
-`src/osprey/__init__.py` holds `__version__`. Everything else either reads
-from there (Hatch, the GitHub Actions verify step) or is a doc string that
-also needs updating.
+**The git tag is the version.** There is no version literal anywhere in the
+tree to edit — `hatch-vcs` derives the package version from `git describe` at
+build time, and `osprey.version` resolves it at runtime. Tagging `v2026.7.0`
+*is* the act of setting the version to `2026.7.0`.
+
+Between releases the version reports its distance from the last tag
+(`2026.6.2.post783+g83fda5e60`), which is how a development build is
+distinguishable from the release it descends from.
 
 | File | Purpose | Updated by |
 | --- | --- | --- |
-| `src/osprey/__init__.py` | Source of truth — Hatch reads this for the package version | This skill |
-| `src/osprey/cli/main.py` | Fallback version printed by `osprey --version` when not installed | This skill |
 | `RELEASE_NOTES.md` | First-line title with the release version | This skill |
 | `CHANGELOG.md` | Add `## [vYYYY.M.P] - YYYY-MM-DD` heading; rotate `## [Unreleased]` content | This skill |
 | `README.md` | "Latest Release" line with version + theme | This skill |
-| `pyproject.toml` | Uses `dynamic = ["version"]`; Hatch reads from `__init__.py` | **Do not edit** |
+| `pyproject.toml` | `[tool.hatch.version] source = "vcs"` | **Do not edit** |
+| `src/osprey/_version.py` | Build-time stamp, gitignored | **Never commit** |
 
-The release.yml verify step greps `__version__ =` out of `src/osprey/__init__.py`
-and compares it to the pushed tag — if these disagree, the publish fails.
+The release.yml verify step builds the package and compares the *built wheel's*
+version to the pushed tag — if these disagree, the publish fails. They disagree
+when the tag is not on the commit being built, or when the checkout is shallow
+(which yields `0.1.devN` rather than failing outright).
 
 ---
 
@@ -98,23 +104,22 @@ deactivate && rm -rf .venv-release-test
 
 Any failures stop the release. Fix forward, then re-run.
 
-## Step 2: Version-bump PR
+## Step 2: Release-notes PR
 
-The version-bump commit cannot be pushed directly to `main` — branch
-protection rejects it. Open a PR instead.
+Release-notes commits cannot be pushed directly to `main` — branch protection
+rejects it. Open a PR instead.
 
 ```bash
 git checkout main && git pull --ff-only origin main
 git checkout -b release/vYYYY.M.P
 ```
 
-Update each file with the new version. Show the maintainer each diff before
-applying:
+There is **no version literal to edit** — the tag in Step 4 sets the version.
+This PR carries only the human-facing notes. Show the maintainer each diff
+before applying:
 
 | File | Change |
 | --- | --- |
-| `src/osprey/__init__.py` | `__version__ = "YYYY.M.P"` |
-| `src/osprey/cli/main.py` | The fallback `__version__ = "YYYY.M.P"` line |
 | `RELEASE_NOTES.md` | First line: `# Osprey Framework - Latest Release (vYYYY.M.P)` followed by the theme tagline |
 | `CHANGELOG.md` | Convert `## [Unreleased]` to `## [YYYY.M.P] - YYYY-MM-DD`; insert a fresh empty `## [Unreleased]` above it |
 | `README.md` | Update the "Latest Release" line with version + theme |
@@ -123,15 +128,13 @@ Then run a consistency check — every line should mention the same version:
 
 ```bash
 echo "=== VERSION CONSISTENCY CHECK ==="
-echo "__init__.py:    $(grep '__version__ = ' src/osprey/__init__.py)"
-echo "cli/main.py:    $(grep '__version__ = ' src/osprey/cli/main.py)"
 echo "RELEASE_NOTES:  $(head -1 RELEASE_NOTES.md)"
 echo "README.md:      $(grep 'Latest Release:' README.md)"
 echo "CHANGELOG.md:   $(grep -m1 '^## \[' CHANGELOG.md)"
 ```
 
 Now hand off to `osprey-contribute` for the rest of the PR mechanics:
-`quick_check.sh` → commit (`release: bump version to YYYY.M.P`) →
+`quick_check.sh` → commit (`release: notes for vYYYY.M.P`) →
 `ci_check.sh` → push → `premerge_check.sh main` → `gh pr create`.
 
 The PR title should be `release: vYYYY.M.P — <theme>`. The PR body should

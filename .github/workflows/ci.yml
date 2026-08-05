@@ -140,6 +140,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -212,6 +215,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -241,6 +247,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -406,6 +415,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Set up Node
       uses: actions/setup-node@v7
@@ -444,6 +456,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -485,6 +500,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
       uses: docker/login-action@v4
