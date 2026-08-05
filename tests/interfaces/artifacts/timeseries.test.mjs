@@ -46,9 +46,8 @@ import {
 
 /**
  * Fixture chart-format *channel* entry (one element of the `channels` array
- * the real `/api/artifacts/{id}/data?format=chart` response returns -- see
- * app.py's chart branch). Each channel carries its own `timestamps`/`values`,
- * independent of every other channel's (no shared axis any more).
+ * `/api/artifacts/{id}/data?format=chart` returns). Each channel carries its
+ * own `timestamps`/`values` -- no shared axis.
  */
 function makeChartChannel(overrides = {}) {
   return {
@@ -63,13 +62,9 @@ function makeChartChannel(overrides = {}) {
 }
 
 /**
- * The `summary` block app.py's chart branch derives from its channels. Built
- * here the same way the server builds it so a test that overrides `channels`
- * gets totals that agree with them, rather than a hand-written pair that can
- * quietly contradict the fixture it describes. `row_count` is the one field
- * with no client-side equivalent -- it counts the *unioned* timestamp axis, so
- * it defaults to the fixture's shared two-timestamp axis and is overridden
- * explicitly by tests that care.
+ * The `summary` block app.py's chart branch derives from its channels.
+ * `row_count` counts the *unioned* timestamp axis and is not derivable
+ * client-side; it defaults to the fixture's shared two-timestamp axis.
  */
 function makeChartSummary(channels, overrides = {}) {
   return {
@@ -241,10 +236,6 @@ describe('renderTimeseriesView', () => {
   test('info-bar totals come from the server summary, not a client-side re-derivation', async () => {
     // The per-channel numbers are deliberately inconsistent with `summary` so
     // the assertion can only pass if the server's figures are the ones shown.
-    // They must be: the "Points" sum is over each channel's own timestamps,
-    // while the table paginates a *unioned* row axis, and the two cannot be
-    // reconciled client-side. `summary.row_count` is the same number the
-    // `format=table` request reports as `total_rows`, computed once server-side.
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
@@ -271,25 +262,17 @@ describe('renderTimeseriesView', () => {
 
     expect(container.querySelector('.ts-info-bar')).not.toBeNull();
     expect(container.querySelectorAll('.ts-badge-channel').length).toBe(2);
-    // The points badge is the server's `summary.total_points`, which sums each
-    // channel's own `total_points`. Default fixture: two channels, 2 points
-    // each = 4.
+    // summary.total_points: two channels, 2 points each = 4.
     expect(qs(container, '.ts-badge-points').textContent).toContain('4');
     expect(container.querySelector('[data-ts-chart]')).not.toBeNull();
     expect(container.querySelector('[data-ts-table]')).not.toBeNull();
     expect(container.querySelectorAll('.ts-ch-toggle').length).toBe(2);
-    // The `[data-ts-table]` div is emitted into the HTML string regardless of
-    // whether the table ever actually renders -- it's present even if the
-    // `renderTimeseriesTable` call before it is silently skipped or dropped.
-    // Assert real, populated rows (the fixture's `format=table` response has
-    // 2), which is the one thing a silent (non-throwing) regression here
-    // could not fake.
+    // The `[data-ts-table]` div is emitted whether or not the table renders,
+    // so assert real populated rows.
     expect(container.querySelectorAll('.ts-data-table tbody tr').length).toBe(2);
   });
 
   test('shows a downsampled badge only when at least one channel reports downsampling, summed across channels', async () => {
-    // Only channel A came back shorter than it started; the badge must still
-    // appear, and must report the sum across both channels.
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
@@ -313,10 +296,8 @@ describe('renderTimeseriesView', () => {
 
     await renderTimeseriesView(container, { id: 'ts1' });
 
-    // Positive anchor: a view that throws before rendering anything (e.g.
-    // the pre-fix `total_rows` crash) would ALSO leave `.ts-badge-downsampled`
-    // null, for the wrong reason. Confirming the points badge rendered
-    // proves this is "no downsampling happened", not "the view died".
+    // Positive anchor: confirming the points badge rendered proves this is
+    // "no downsampling happened", not "the view died".
     expect(qs(container, '.ts-badge-points')).not.toBeNull();
     expect(container.querySelector('.ts-badge-downsampled')).toBeNull();
   });
@@ -330,10 +311,8 @@ describe('renderTimeseriesView', () => {
   });
 
   test('the toolbar marks a channel non-numeric from the `numeric` flag alone, even when its values look like numbers', async () => {
-    // Same mutation this guards against as the renderTimeseriesChart test of
-    // the same name: a dtype check that re-derives from the values (instead
-    // of trusting `numeric: false`) would treat 0/1/0 as a numeric channel
-    // and never mark the toggle button at all.
+    // A dtype check that re-derives from the values instead of trusting
+    // `numeric: false` would treat 0/1 as numeric and never mark the toggle.
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
@@ -357,13 +336,8 @@ describe('renderTimeseriesView', () => {
   });
 
   test('an absent `numeric` flag means numeric at every site -- only `numeric === false` is an enum channel', async () => {
-    // The per-channel "is this an enum?" question is asked at four places: does
-    // the layout need a yaxis2, does the toolbar mark this toggle, does hiding
-    // this channel hide that axis, and does this trace go to y2. They must all
-    // answer the same tri-state -- `numeric === false`, never `!ch.numeric` --
-    // because a response that simply omits the key (undefined here, exactly what
-    // an absent JSON key reads as) is a numeric channel, and the shorthand would
-    // route a real numeric signal onto a category axis instead of failing loudly.
+    // An absent JSON key reads as undefined and means numeric; every site must
+    // test `numeric === false`, never `!ch.numeric`.
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
@@ -401,13 +375,9 @@ describe('renderTimeseriesView', () => {
   });
 
   test('the enum axis marker is kept out of the accessible name, which comes from aria-label', async () => {
-    // The "R" glyph sits INSIDE the button's content, so it lands in the
-    // computed accessible name ("SR:RF:INTERLOCK_STATE R") while the text that
-    // actually explains it lives only in `title`, which accname demotes to a
-    // description whenever content exists -- many AT configurations never
-    // announce it, so a screen-reader user hears a stray "R". An explicit
-    // aria-label wins over content, and aria-hidden keeps the glyph visual-only.
-    // Same pattern as the design system's own osprey-theme-switcher.
+    // The "R" glyph sits inside the button content and would land in the
+    // accessible name; an explicit aria-label wins over content, and
+    // aria-hidden keeps the glyph visual-only.
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
@@ -428,22 +398,17 @@ describe('renderTimeseriesView', () => {
     );
     const tag = qs(enumToggle, '.ts-ch-axis-tag');
     expect(tag.getAttribute('aria-hidden')).toBe('true');
-    // The name is the full PV plus the explanation -- not the truncated display
-    // text with a stray "R" welded onto the end.
+    // Full PV plus the explanation -- not the display text with a stray "R".
     expect(enumToggle.getAttribute('aria-label')).toBe('SR:RF:INTERLOCK_STATE (status/enum -- plotted on right axis)');
     // A numeric channel has no marker, so its name is just the full PV.
     expect(toggles[0].getAttribute('aria-label')).toBe('SR:MAG:QF1:I');
-    // Toolbar buttons must not act as submit buttons if this markup is ever
-    // nested in a form (the design system's own toggle sets this too).
+    // type="button" so these never act as submit buttons inside a form.
     expect(toggles.every((b) => b.getAttribute('type') === 'button')).toBe(true);
   });
 
   describe('channel toggling', () => {
     test('a toggle reports its shown/hidden state via aria-pressed, not by CSS class alone', async () => {
-      // Hidden/shown was carried ONLY by the `ts-ch-off` class, which is
-      // invisible to assistive tech -- an off toggle was indistinguishable from
-      // an on one. aria-pressed is the design system's own convention here
-      // (osprey-theme-switcher renders it and keeps it in sync).
+      // The `ts-ch-off` class alone is invisible to assistive tech.
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
@@ -532,8 +497,7 @@ describe('renderTimeseriesView', () => {
       expect(toggles.map((b) => /** @type {HTMLElement} */ (b).dataset.chName)).toEqual([
         'SR:MAG:QF1:I', 'SR:MAG:QF2:I', 'SR:BPM:X:1',
       ]);
-      // `data-ch-index` was the old (broken-by-reshape) key; it must not be
-      // relied on any more.
+      // The old `data-ch-index` key must not be relied on any more.
       expect(/** @type {HTMLElement} */ (toggles[0]).dataset.chIndex).toBeUndefined();
 
       const chartEl = container.querySelector('[data-ts-chart]');
@@ -565,9 +529,8 @@ describe('renderTimeseriesView', () => {
       enumToggle.click(); // hide the only non-numeric channel
 
       // Otherwise an empty category yaxis2 is left sitting on the right with
-      // nothing plotted against it.
-      // One call, not a restyle followed by a relayout: the trace and layout
-      // deltas are applied together so a toggle costs a single redraw.
+      // nothing plotted against it. One call: trace and layout deltas are
+      // applied together so a toggle costs a single redraw.
       expect(Plotly.update).toHaveBeenLastCalledWith(
         chartEl, { visible: [true, false] }, { 'yaxis2.visible': false }
       );
@@ -587,17 +550,14 @@ describe('renderTimeseriesView', () => {
       toggles[0].click();
 
       expect(Plotly.relayout).not.toHaveBeenCalled();
-      // The layout half of the combined update is empty, so nothing about
-      // yaxis2 is asserted on a chart that has no secondary axis at all.
+      // The layout half of the combined update stays empty.
       expect(Plotly.update).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), {});
     });
   });
 
   describe('toolbar actions', () => {
     /**
-     * Capture the `download` filename each exporter puts on its throwaway
-     * anchor. Both exporters build that anchor the same way, so this is the
-     * one observable that distinguishes them.
+     * Capture the `download` filename each exporter puts on its anchor.
      * @returns {string[]}
      */
     function spyOnDownloadNames() {
@@ -638,9 +598,8 @@ describe('renderTimeseriesView', () => {
 
       qs(container, '[data-action="zoom-reset"]').click();
 
-      // Without this, a user who zooms the enum channel's secondary axis and
-      // clicks Reset Zoom gets the numeric axis reset while the status trace
-      // stays clipped/off-screen -- reading as "that channel has no data".
+      // Otherwise Reset Zoom leaves the enum channel's secondary axis clipped,
+      // reading as "that channel has no data".
       expect(Plotly.relayout).toHaveBeenCalledWith(
         container.querySelector('[data-ts-chart]'),
         { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true }
@@ -661,10 +620,8 @@ describe('renderTimeseriesView', () => {
       const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
       expect(blob.type).toBe('text/csv');
       const lines = (await blob.text()).split('\n');
-      // Header + 2 channels x 2 samples each = 5 lines. Long format (not the
-      // old wide `timestamp,ch1,ch2` shape) since each channel now has its
-      // own independent timestamps -- there is no shared axis to pivot into
-      // a wide row without re-implementing the server's union pivot.
+      // Header + 2 channels x 2 samples each = 5 lines. Long format: channels
+      // have independent timestamps, so there is no shared axis to pivot wide.
       expect(lines[0]).toBe('channel,timestamp,value');
       expect(lines).toHaveLength(5);
       expect(lines[1]).toBe('SR:MAG:QF1:I,2026-07-01T00:00:00Z,1');
@@ -675,9 +632,8 @@ describe('renderTimeseriesView', () => {
     });
 
     test('export-csv quotes/escapes a value containing a comma or a double quote', async () => {
-      // Non-numeric (enum/status) values are first-class chart data now, and
-      // a channel name is a CSV field rather than a fixed header -- an
-      // unquoted comma or embedded quote would silently corrupt the row.
+      // Channel names and enum values are CSV fields -- an unquoted comma or
+      // embedded quote would silently corrupt the row.
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
@@ -707,11 +663,8 @@ describe('renderTimeseriesView', () => {
     });
 
     test('a null value exports as an empty CSV field, not the string "null"', async () => {
-      // Gaps reach the client as real nulls (archiver_read.py's chart branch
-      // emits `None` for missing samples). A bare `String(v)` would write the
-      // four characters `null` into the cell, which a spreadsheet reads as the
-      // status text "null" -- indistinguishable from a channel that genuinely
-      // reported that string. An empty field is the honest encoding of a gap.
+      // Gaps arrive as real nulls; a bare `String(v)` would write the literal
+      // text "null", indistinguishable from a genuine status string.
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
@@ -741,9 +694,8 @@ describe('renderTimeseriesView', () => {
     });
 
     test('a channel with no samples contributes no CSV rows, and the header is emitted exactly once', async () => {
-      // The row set is a flat-map over channels: an empty channel must
-      // contribute nothing rather than a headerless blank row, and the header
-      // must not be re-seeded per channel.
+      // An empty channel must contribute nothing, and the header must not be
+      // re-seeded per channel.
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
@@ -772,9 +724,8 @@ describe('renderTimeseriesView', () => {
     });
 
     test('each exporter names its download with its own extension', async () => {
-      // Both exporters build the same Blob/ObjectURL/anchor sequence, so the
-      // filename extension is the one thing that must stay distinct between
-      // them -- the property a shared helper could quietly collapse.
+      // The filename extension is the one observable that distinguishes the
+      // two exporters.
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
@@ -844,8 +795,7 @@ describe('renderTimeseriesChart', () => {
           total_points: 3,
           returned_points: 3,
         }),
-        // Fast-cadence channel: 5 samples over the same window, on a
-        // completely different timestamp grid.
+        // Fast-cadence channel: 5 samples on a different timestamp grid.
         makeChartChannel({
           channel: 'SR:BPM:X:1',
           timestamps: [
@@ -894,9 +844,8 @@ describe('renderTimeseriesChart', () => {
     expect(numericTrace.y).toEqual([1.0, 1.5]);
 
     const statusTrace = traces.find((/** @type {any} */ t) => t.name === 'SR:RF:STATE');
-    // The plotted category is namespaced by channel so two enum channels can't
-    // interleave on the shared axis (see the multi-channel test below), and the
-    // real string values -- never coerced -- ride along in customdata.
+    // The category is namespaced by channel so two enum channels can't
+    // interleave on the shared axis; real values ride along in customdata.
     expect(statusTrace.y).toEqual(['SR:RF:STATE: STANDBY', 'SR:RF:STATE: CW']);
     expect(statusTrace.customdata).toEqual(['STANDBY', 'CW']);
     expect(statusTrace.yaxis).toBe('y2');
@@ -908,11 +857,9 @@ describe('renderTimeseriesChart', () => {
   });
 
   test('two enum channels get disjoint rungs on the shared category axis', async () => {
-    // Plotly builds a category axis's rungs from the union of its traces in
-    // first-appearance order. Plotting each channel's bare values put both
-    // vocabularies on one interleaved ladder, so each channel's step line
-    // crossed rungs belonging to the other -- rendering as a state the channel
-    // was never in. Namespacing by channel keeps each one's rungs contiguous.
+    // Plotly unions a category axis's rungs across traces; bare values would
+    // interleave both vocabularies on one ladder. Namespacing keeps each
+    // channel's rungs contiguous.
     const el = document.createElement('div');
     const chartData = makeChartData({
       channels: [
@@ -944,19 +891,10 @@ describe('renderTimeseriesChart', () => {
   });
 
   test('a null gap inside an enum channel stays a gap -- it never becomes a fabricated "CH: null" rung', async () => {
-    // A status channel really can arrive here with `null` in `values`:
-    // archiver_read.py's chart branch emits `None if pd.isna(v) else v`, and
-    // `extract_channel_series` passes the long-format series through as-is.
-    // Mapping EVERY value through `${ch.channel}: ${v}` turns that gap into the
-    // literal string 'SR:RF:STATE: null', which Plotly registers as a real rung
-    // on the category axis and walks the hv step line up to and back down from
-    // -- a state the channel was never in, which is the exact failure the
-    // namespacing exists to prevent, arriving from the other direction.
-    // A real `null` instead hits Plotly's category converter's `!= null` guard,
-    // yields BADNUM rather than a new category, and (connectgaps defaults to
-    // false) breaks the line. The numeric branch already renders such a null as
-    // a gap, since it passes `ch.values` straight through -- only the enum
-    // branch could invent a state.
+    // A status channel can carry `null` in `values`. Namespacing it as
+    // 'SR:RF:STATE: null' would register a real rung -- a state the channel
+    // was never in; a real null instead hits Plotly's `!= null` category
+    // guard and breaks the line.
     const el = document.createElement('div');
     const chartData = makeChartData({
       channels: [
@@ -978,11 +916,8 @@ describe('renderTimeseriesChart', () => {
   });
 
   test('non-numeric routing is driven by the `numeric` flag, not by sniffing whether the values look like numbers', async () => {
-    // Enum codes that happen to be numbers (e.g. an interlock state machine
-    // reporting 0/1/2) with `numeric: false` -- a dtype check that re-derives
-    // from the values instead of trusting the flag (e.g. `typeof v ===
-    // 'number'`) would misclassify this channel as numeric and route it onto
-    // the primary linear axis, silently defeating the whole point of the flag.
+    // Numeric-looking enum codes with `numeric: false`: sniffing the values
+    // would route them onto the linear axis, defeating the flag.
     const el = document.createElement('div');
     const chartData = makeChartData({
       channels: [
@@ -999,8 +934,7 @@ describe('renderTimeseriesChart', () => {
 
     const [, traces, layout] = Plotly.newPlot.mock.calls[0];
     const trace = traces[0];
-    // The numeric-looking codes stay numeric in customdata and become category
-    // labels on the axis -- they are never plotted on the linear y-axis.
+    // Codes stay numeric in customdata and become category labels on the axis.
     expect(trace.customdata).toEqual([0, 1, 0]);
     expect(trace.y).toEqual([
       'SR:RF:INTERLOCK_STATE: 0',
@@ -1015,16 +949,10 @@ describe('renderTimeseriesChart', () => {
   });
 
   test('the secondary category axis automargins, so its long namespaced rung labels are not clipped', async () => {
-    // yaxis2's tick labels are by construction the longest strings in the
-    // figure -- "<full PV name>: <VALUE>" -- and it sits on the RIGHT, against
-    // a hardcoded `margin.r: 20`. In the vendored plotly-3.3.1 the cartesian
-    // `automargin` attribute defaults to false, and it is only defaulted true
-    // for a `anchor: "free"` axis with `autoshift`; this axis anchors to x, so
-    // it resolves false. `margin.autoexpand` only reacts to components that
-    // push margin (legend, colorbar, automargin axes), so nothing grows `r`
-    // and the labels are drawn past the paper edge and clipped -- i.e. the
-    // capability this axis exists for (reading machine state time-aligned
-    // against a numeric signal) is unreadable for exactly the long-PV case.
+    // yaxis2's rung labels ("<full PV name>: <VALUE>") are the longest strings
+    // in the figure and sit on the right against `margin.r: 20`; in the
+    // vendored plotly-3.3.1 `automargin` resolves false for this axis, so
+    // without it the labels are drawn past the paper edge and clipped.
     const el = document.createElement('div');
 
     await renderTimeseriesChart(el, makeChartData({
@@ -1033,20 +961,14 @@ describe('renderTimeseriesChart', () => {
 
     const [, , layout] = Plotly.newPlot.mock.calls[0];
     expect(layout.yaxis2.automargin).toBe(true);
-    // The numeric axes are left alone: they carry short numeric ticks against
-    // the (unchanged) left margin.
+    // The numeric axes keep the unchanged margins.
     expect(layout.margin).toEqual({ t: 30, r: 20, b: 50, l: 60 });
   });
 
   test('the secondary category axis draws no gridlines of its own', async () => {
-    // `xaxis`/`yaxis` both take `gridcolor` from the theme bridge; `yaxis2` sets
-    // only `linecolor`/`tickfont`. In the vendored bundle a cartesian axis's
-    // `showgrid` default collapses to `options.showGrid`, which is true for an
-    // overlaying axis -- so yaxis2 would draw ONE GRIDLINE PER RUNG (channels x
-    // states) in Plotly's auto blend of its `#444` default against
-    // `plot_bgcolor`, ignoring the --chart-* tokens, and that mismatch flips
-    // character between light and dark theme. The numeric grid is the one that
-    // carries meaning; the rungs are already legible from the ticks.
+    // In the vendored bundle an overlaying axis's `showgrid` defaults true, so
+    // yaxis2 would draw one un-themed gridline per rung, ignoring the
+    // --chart-* tokens in both themes.
     const el = document.createElement('div');
 
     await renderTimeseriesChart(el, makeChartData({
@@ -1083,11 +1005,8 @@ describe('renderTimeseriesTable', () => {
   });
 
   test('header comes from the table response, not from the caller-supplied columns', async () => {
-    // The caller's `columns` originate in a *separate* `format=chart` request.
-    // For an artifact being written while it is viewed, the two responses can
-    // disagree, which would pair this page's cells with the other request's
-    // header -- i.e. values shown under the wrong PV name. The table response
-    // now carries the very column list its rows were built from.
+    // A separate `format=chart` request can disagree with this one; the table
+    // response carries the very column list its rows were built from.
     stubTableFetch({ columns: ['FRESH:A', 'FRESH:B'] });
 
     await renderTimeseriesTable(el, 'ts1', 0);

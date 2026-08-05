@@ -8,10 +8,6 @@ last points and returns exactly ``max_points`` when it downsamples, and it
 applies the selected indices to the ORIGINAL values so ``None`` gap markers
 (archiver disconnects / IOC reboots) survive into the output even though the
 triangle-area math runs on a zero-filled working copy.
-
-Index selection is tested directly against the private ``_lttb_select_indices``
-because that is where the triangle-area rule lives; the public function's own
-tests then pin what the caller actually observes.
 """
 
 from __future__ import annotations
@@ -27,9 +23,7 @@ from osprey.utils.timeseries import (
 class TestLttbSelectIndices:
     """The triangle-area selection rule, exercised on its own.
 
-    The selector returns indices, never values -- that separation is what lets
-    the caller slice the untouched originals and keep gaps as gaps. Callers
-    only reach it with ``max_points >= 3`` and ``len(values) > max_points``.
+    Callers only reach it with ``max_points >= 3`` and ``len(values) > max_points``.
     """
 
     def test_returns_exactly_max_points_indices(self):
@@ -60,13 +54,9 @@ class TestLttbSelectIndices:
     def test_spike_and_valley_are_both_selected_by_triangle_area(self):
         """Extrema of BOTH signs survive, and only via the area comparison.
 
-        Unlike ``test_dominant_spike_is_selected`` above -- whose spike at 100
-        happens to land exactly on a bucket's first index (bucket_size 198/8 =
-        24.75, so i=5 gives b_start=100), meaning it is picked even if the
-        triangle-area comparison never fires -- neither 50 nor 150 is a bucket
-        start here (bucket_size 198/18 = 11.0, boundaries 1, 12, 23, ...). They
-        are reached only because their triangle area is the largest in their
-        bucket, so this pins the selection rule itself, not the bucket lattice.
+        Neither 50 nor 150 is a bucket start here (bucket_size 198/18 = 11.0),
+        so they are picked only by triangle area -- this pins the selection
+        rule itself, not the bucket lattice.
         """
         values = [0.0] * 200
         values[50] = 100.0  # spike
@@ -78,15 +68,9 @@ class TestLttbSelectIndices:
     def test_selected_indices_are_exactly_pinned(self):
         """Golden characterization of the selection rule itself.
 
-        The property tests above (spike/valley survive, endpoints kept, exact
-        count) all pass under arithmetic that is merely *close* to LTTB -- they
-        pin the shape of the answer, not the triangle-area formula. This test
-        pins the formula. Verified to move at least one index under each of:
-        widening the look-ahead bucket by one, flipping the sign of the ``x``
-        difference, and perturbing either the ``avg_x`` or ``avg_y`` term.
-
-        The fixture is a pure-integer ramp so the expectation is reproducible
-        on every platform and Python version.
+        The property tests pass under arithmetic merely *close* to LTTB; this
+        pins the formula. The pure-integer ramp keeps the expectation
+        reproducible on every platform.
         """
         values = [float(i) for i in range(120)]  # ramp
         values[17] = 50.0  # spike above the ramp
@@ -111,13 +95,7 @@ class TestLttbSelectIndices:
 
 
 class TestExtractChannelSeries:
-    """Normalizes all three artifact timeseries layouts to per-channel series.
-
-    This is the sole extractor. It replaced a split-orient-only predecessor
-    that had no branch for the long-format ``{"query": ..., "series": ...}``
-    payload and returned it unchanged, leaving downstream readers with empty
-    ``columns``/``index``/``data`` instead of the real per-channel arrays.
-    """
+    """Normalizes all three artifact timeseries layouts to per-channel series."""
 
     def test_new_series_layout_returned_as_is(self):
         series = {
@@ -230,9 +208,7 @@ class TestIsNumericChannel:
 
 class TestLttbDownsampleChannel:
     """The public reducer: one channel's own timestamps and values in, the
-    same pair reduced out. What the caller observes -- pass-through, first/last
-    retention, gap survival, and the non-numeric fallback -- is pinned here;
-    the index-selection rule itself is pinned in ``TestLttbSelectIndices``.
+    same pair reduced out.
     """
 
     def test_returns_input_when_n_below_max_points(self):
@@ -289,13 +265,9 @@ class TestLttbDownsampleChannel:
                 assert val is None
 
     def test_gap_on_an_always_kept_point_survives(self):
-        """The unconditional version of the test above.
-
-        Selection is data-dependent, so the sibling test only constrains gaps
-        that happen to be picked. Indices 0 and n-1 are kept by construction,
-        so putting a gap on each pins gap survival with no dependence on the
-        triangle-area outcome: a disconnect must arrive at the chart as a
-        break in the line, not as a fabricated 0.0 reading.
+        """The unconditional version of the test above: indices 0 and n-1 are
+        kept by construction, so a gap on each pins gap survival with no
+        dependence on the triangle-area outcome.
         """
         n = 300
         timestamps = [f"t{i}" for i in range(n)]
@@ -361,13 +333,9 @@ class TestLttbDownsampleChannel:
         assert len(result) == 2
 
     def test_shorter_values_than_timestamps_does_not_raise_and_is_paired_by_zip(self):
-        """Regression: a malformed channel whose `values` is shorter than its
-        `timestamps` used to raise IndexError once past max_points -- real
-        LTTB's bucket loop walks `range(len(timestamps))` but its helper
-        arrays are built from `values`, so a shorter `values` indexed out of
-        range. Tolerated the same way `_pivot_channel_series_to_table`
-        tolerates the mismatch: `zip(..., strict=False)` pairs up to the
-        shorter list rather than crashing.
+        """Regression: `values` shorter than `timestamps` used to raise
+        IndexError once past max_points. `zip(..., strict=False)` now pairs up
+        to the shorter list rather than crashing.
         """
         timestamps = list(range(50))
         values = [float(i) for i in range(30)]
@@ -376,22 +344,13 @@ class TestLttbDownsampleChannel:
 
         assert len(out_ts) == 10
         assert len(out_vals) == 10
-        # Paired against the (shorter) values list, so the output never
-        # ranges past index 29 -- confirms zip-pairing, not a silent slice.
+        # Paired against the (shorter) values list -- never past index 29.
         assert out_ts[0] == 0
         assert out_ts[-1] == 29
 
     def test_longer_values_than_timestamps_does_not_raise_and_is_paired_by_zip(self):
         """Same tolerance, opposite mismatch direction: `values` longer than
         `timestamps`.
-
-        NOT a regression test for the reported crash: with `values` longer,
-        `n = len(timestamps)` is already the SHORTER list before this fix, so
-        the pre-fix bucket loop (`range(n)`) never walked past the (longer)
-        `values`-derived working copy and never raised. Only the sibling
-        `test_shorter_values_than_timestamps_...` above reproduces the actual
-        `IndexError`. This test exists to document the tolerance is symmetric,
-        not to pin the fix.
         """
         timestamps = [f"t{i}" for i in range(30)]
         values = [float(i) for i in range(50)]

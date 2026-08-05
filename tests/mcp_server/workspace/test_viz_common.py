@@ -44,13 +44,7 @@ class TestBuildDataReaderJSON:
         assert data["SR:C01-MG:G01"].tolist() == pytest.approx([1.1, 2.2, 3.3])
 
     def test_archiver_series_format_produces_wide_dataframe(self, tmp_path: Path):
-        """Current archiver_read on-disk shape: bare {query, series} -- no envelope.
-
-        ``ArtifactStore.save_data`` writes raw JSON with no ``_osprey_metadata``
-        wrapper (see ``test_archiver_read_tool.py``'s own assertion of that), so
-        this -- not the enveloped legacy fixture above -- is what a real
-        ``archiver_read`` artifact file looks like on disk.
-        """
+        """Current archiver_read on-disk shape: bare {query, series} -- no envelope."""
         series_json = {
             "query": {"channels": ["A", "B"], "start_time": "2026-07-30T00:00:00-07:00"},
             "series": {
@@ -122,13 +116,9 @@ class TestBuildDataReaderJSON:
     def test_archiver_series_populated_and_empty_channel_concat(self, tmp_path: Path, order: str):
         """A channel with zero samples in range must not crash the pivot's concat.
 
-        ``archiver_read`` always emits every *requested* channel, even one
-        with no data in range, as ``{"timestamps": [], "values": []}``.
-        ``pd.to_datetime([])`` yields a tz-naive empty index while a
-        populated channel's index is tz-aware, so ``pd.concat`` raises
-        "Cannot join tz-naive with tz-aware DatetimeIndex" unless the empty
-        channel's index is built with ``utc=True`` too. Parametrized on
-        dict order since Python dicts preserve insertion order and either
+        ``pd.to_datetime([])`` yields a tz-naive empty index while a populated
+        channel's is tz-aware, so ``pd.concat`` raises unless the empty index
+        is built with ``utc=True`` too. Parametrized on dict order since either
         channel could be the one ``pd.concat`` sees first.
         """
         populated = {
@@ -149,9 +139,8 @@ class TestBuildDataReaderJSON:
         assert list(data.columns) == (["A", "B"] if order == "populated_first" else ["B", "A"])
         assert data["A"].dropna().tolist() == pytest.approx([1.1])
         assert data["B"].isna().all()
-        # Both columns must be float64. An empty channel left to pandas'
-        # inference lands on object dtype, which survives concat but breaks
-        # Plotly Express one layer later -- see the px.line test below.
+        # An empty channel left to pandas' inference lands on object dtype,
+        # which breaks Plotly Express one layer later -- see the px.line test.
         assert data["A"].dtype == "float64"
         assert data["B"].dtype == "float64"
 
@@ -159,13 +148,9 @@ class TestBuildDataReaderJSON:
     def test_archiver_series_populated_and_empty_channel_plots(self, tmp_path: Path, order: str):
         """The mixed populated/empty frame must survive Plotly Express, not just concat.
 
-        ``create_interactive_plot`` runs operator-written Plotly code against
-        the reader's ``data``; ``px.line(data)`` is the idiomatic call and the
-        one the data-visualizer agent template teaches. Plotly Express rejects
-        a wide frame "with columns of different type", so an object-dtype empty
-        channel beside a float64 populated one raises there even though the
-        concat in the reader succeeded. This is the operator scenario "plot
-        beam current alongside a channel with no data in this window".
+        Plotly Express rejects a wide frame "with columns of different type",
+        so an object-dtype empty channel beside a float64 populated one raises
+        even though the concat succeeded.
         """
         px = pytest.importorskip("plotly.express")
 
@@ -178,17 +163,14 @@ class TestBuildDataReaderJSON:
         data = _exec_data_reader(str(fp))
 
         assert isinstance(data, pd.DataFrame)
-        # Both the bare-frame and explicit-y forms; both raised before the fix.
+        # Both the bare-frame and explicit-y forms.
         px.line(data)
         px.line(data, y=list(data.columns))
 
     def test_archiver_series_ragged_lengths_tolerated(self, tmp_path: Path):
         """A channel whose timestamps/values differ in length must not raise.
 
-        The sibling implementations (``lttb_downsample_channel`` and
-        ``_pivot_channel_series_to_table``) both tolerate this with
-        ``zip(..., strict=False)``; the viz reader's pivot must match rather
-        than raising an uncaught ``ValueError``.
+        Matches the sibling implementations' ``zip(..., strict=False)`` tolerance.
         """
         series_json = {
             "query": {"channels": ["A"]},
@@ -213,19 +195,15 @@ class TestBuildDataReaderJSON:
     @pytest.mark.parametrize(
         ("payload", "expected_values"),
         [
-            # Dict of dicts, no 'timestamps' anywhere. The guard used to be
-            # "every entry is a dict", which this satisfies without being an
-            # archiver payload at all: it entered the pivot, every entry
-            # produced an empty column, and the reader handed back a useless
-            # empty two-column frame -- where the generic dict branch below
-            # builds a usable one. Pins the `'timestamps' in _v` requirement.
+            # Dict of dicts, no 'timestamps' anywhere. Pins the
+            # `'timestamps' in _v` requirement.
             pytest.param(
                 {"series": {"a": {"x": 1}, "b": {"x": 2}}},
                 None,
                 id="dict_of_dicts_without_timestamps",
             ),
-            # One entry carries 'timestamps', the other does not -- a real
-            # payload has them all. Pins `all(...)` against `any(...)`.
+            # One entry carries 'timestamps', the other does not. Pins
+            # `all(...)` against `any(...)`.
             pytest.param(
                 {
                     "series": {
@@ -236,10 +214,8 @@ class TestBuildDataReaderJSON:
                 None,
                 id="partial_timestamps",
             ),
-            # 'series' is a list, not a dict. Before the archiver branch
-            # existed this loaded fine via the generic ``pd.DataFrame(data)``
-            # path, and the pivot must not hijack it just because the key name
-            # matches. Pins the outer `isinstance(_series, dict)`.
+            # 'series' is a list, not a dict. Pins the outer
+            # `isinstance(_series, dict)`.
             pytest.param({"series": [1, 2, 3]}, [1, 2, 3], id="list"),
             # 'series' entries are bare lists rather than per-channel dicts.
             # Pins the `isinstance(_v, dict)` half of the entry predicate.
@@ -251,10 +227,6 @@ class TestBuildDataReaderJSON:
     ):
         """A top-level ``series`` key that is not an archiver envelope must not
         be pivoted -- it falls through to the generic dict/list branch.
-
-        Each payload defeats a different clause of the envelope guard; the
-        parametrize ids name which. All four are load-bearing: every one is
-        the sole test failing under at least one mutation of that guard.
         """
         fp = tmp_path / "series_collision.json"
         fp.write_text(json.dumps(payload))
@@ -318,11 +290,8 @@ class TestBuildDataReaderJSON:
 class TestBuildDataReaderSandboxSafety:
     """The generated reader code must clear the viz sandbox's import whitelist.
 
-    Regression guard: the series-format branch must be hand-rolled, not an
-    ``import osprey...`` at runtime -- the sandbox's AST-level whitelist
-    (``osprey.mcp_server.workspace.execution.sandbox_executor``) does not
-    include ``osprey`` itself, so any such import would fail *every* JSON
-    ``data_source`` load (not just archiver ones) with "Import not allowed".
+    The AST-level whitelist does not include ``osprey`` itself, so any runtime
+    ``import osprey...`` would fail every JSON ``data_source`` load.
     """
 
     def test_generated_code_has_no_disallowed_imports(self):

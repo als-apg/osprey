@@ -302,9 +302,7 @@ class TestMockArchiverConnector:
 
     @pytest.mark.asyncio
     async def test_multi_pv_returns_independent_rows_per_channel(self):
-        """Each channel contributes its own rows to the long frame; nothing is
-        collapsed, dropped, or cross-mixed between PVs the way a shared-index
-        wide frame would force."""
+        """Each channel contributes its own rows to the long frame."""
         connector = MockArchiverConnector()
         await connector.connect({"noise_level": 0.01})
 
@@ -324,9 +322,7 @@ class TestMockArchiverConnector:
 
         assert len(current_rows) > 0
         assert len(voltage_rows) > 0
-        # Every row belongs to exactly one of the two requested channels: no
-        # row is dropped or double-counted when the per-channel series are
-        # assembled into one frame.
+        # Every row belongs to exactly one of the two requested channels.
         assert len(current_rows) + len(voltage_rows) == len(df)
 
         await connector.disconnect()
@@ -335,35 +331,20 @@ class TestMockArchiverConnector:
 class TestMockArchiverProcessing:
     """The mock connector must genuinely aggregate non-raw processing modes.
 
-    Regression coverage for a resample that used to be bound by the
-    *requested* precision_ms instead of the grid actually generated: on a
-    long window the 10,000-point cap makes the real sample spacing far wider
-    than precision_ms, and even without the cap, the natural spacing
-    (duration / (num_points - 1)) is marginally wider than precision_ms.
-    Resampling at the requested precision_ms used to ask pandas to fill a much
-    finer grid than the data had, inflating the frame with mostly-NaN rows.
-    That is now structurally impossible: aggregate_series drops any bin with
-    no samples instead of filling it, so no bin-width floor is needed to
-    prevent the inflation.
+    Regression: resampling at the requested precision_ms against data spaced
+    far wider (the 10,000-point cap) inflated the frame with mostly-NaN rows.
     """
 
     @pytest.mark.asyncio
     async def test_processing_mean_aggregates_multiple_raw_samples(self):
         """A bin much wider than the data's spacing must average, not pass through."""
         connector = MockArchiverConnector()
-        # noise_level=0 makes the generated series deterministic (pure trend +
-        # wave) so the raw and mean calls — two independent get_data() calls,
-        # each drawing its own noise — are directly comparable.
+        # noise_level=0 makes the two independent get_data() calls comparable.
         await connector.connect({"noise_level": 0.0})
 
         # Both calls generate the same 10 points (the generator's forced
-        # minimum) over this 10s window regardless of precision_ms, since
-        # num_points is floored at 10 either way. The raw fetch uses a 1s bin
-        # -- finer than the ~1.11s natural sample spacing, so every point
-        # keeps its own bin (decimate_raw is a no-op here) -- to get the true
-        # per-sample ground truth. The mean fetch uses a 60s bin, wide enough
-        # to force every sample into a single aggregation bin, so a real mean
-        # is distinguishable from a relabeled pass-through.
+        # minimum) over this 10s window; the 60s mean bin forces every sample
+        # into a single aggregation bin.
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 0, 0, 10)
         pv = "BEAM:CURRENT"
@@ -406,11 +387,8 @@ class TestMockArchiverProcessing:
             processing="mean",
         )
 
-        # Before the fix, resampling at the raw precision_ms (1000ms) against
-        # data actually spaced ~60s apart inflated this to ~604,801 rows,
-        # almost entirely NaN. aggregate_series now drops empty bins outright
-        # instead of filling them, so the row count stays near the generator's
-        # 10,000-point cap and no NaN values can appear at all.
+        # Regression: resampling at 1000ms against ~60s-spaced data inflated
+        # this to ~604,801 mostly-NaN rows.
         assert len(df) <= 10_001
         assert not df["value"].isna().any()
 
@@ -420,18 +398,9 @@ class TestMockArchiverProcessing:
 class TestMockArchiverReproducibility:
     """The mock's synthetic data must be reproducible, which it advertises but did not do.
 
-    Two separate defects made it non-reproducible:
-
-    - the noise for every non-BPM channel was drawn from the *global*
-      ``np.random`` rather than the per-PV generator the BPM branch already
-      used, so repeated calls in one process disagreed;
-    - the per-PV generator was seeded from ``hash(pv_name)``, and CPython salts
-      string hashing per process (``PYTHONHASHSEED``), so even the seeded path
-      produced different data in different processes.
-
-    Both matter in practice: a mock deployment that returns different history
-    for the same query is indistinguishable from a machine that actually
-    changed, which is exactly the confusion the mock exists to avoid.
+    Regression: non-BPM noise came from the global ``np.random``, and the
+    per-PV seed came from salted ``hash(pv_name)``, so results differed both
+    within and across processes.
     """
 
     _WINDOW = (datetime(2024, 1, 15, 10, 0, 0), datetime(2024, 1, 15, 10, 5, 0))
@@ -457,9 +426,8 @@ class TestMockArchiverReproducibility:
     def test_same_pv_and_window_repeats_across_processes(self):
         """The point of the fix — run it in fresh interpreters with different hash seeds.
 
-        ``hash()`` is salted per process, so this is the only form of the test
-        that can catch a seed derived from it. Run in-process it would pass
-        even against the original bug.
+        ``hash()`` is salted per process, so only fresh interpreters can catch
+        a seed derived from it.
         """
         script = textwrap.dedent("""
             import asyncio, json

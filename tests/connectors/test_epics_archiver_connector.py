@@ -38,14 +38,7 @@ def _archiver_payload(pv: str, points: list) -> list:
 
 @pytest.fixture
 def captured_urls():
-    """Patch ``urlopen`` to record each request URL and answer with no data.
-
-    Every test that asserts on what reached the appliance -- the query window,
-    the operator prefix, or that nothing was sent at all -- needs exactly this
-    setup, and each one used to carry its own copy. They must not drift: a copy
-    that forgot to assert ``to=`` is a copy that stops covering the window's
-    upper bound.
-    """
+    """Patch ``urlopen`` to record each request URL and answer with no data."""
     urls: list[str] = []
 
     def mock_urlopen(req, timeout=None):
@@ -177,9 +170,8 @@ class TestGetDataMethod:
 
     @pytest.mark.asyncio
     async def test_get_data_string_valued_pv_round_trips(self):
-        """An mbbi/DBR_STRING-style PV (e.g. machine mode, interlock state)
-        archives a string ``val``; the long-format contract's ``value`` column
-        is not dtype-constrained, so this must come back unchanged, not raise."""
+        """An mbbi/DBR_STRING-style PV archives a string ``val``; it must come
+        back unchanged, not raise."""
         points = [(1704067200, 0, "CW"), (1704067201, 0, "CW"), (1704067202, 0, "STANDBY")]
         response = _make_urlopen_response(_archiver_payload("RF:MODE", points))
 
@@ -320,9 +312,7 @@ class TestMultiPVLongFormat:
 
     @pytest.mark.asyncio
     async def test_multi_pv_each_channel_keeps_its_own_timestamps(self):
-        """Channels sampled at different instants are not forced onto a shared
-        index — no timestamp is manufactured for a channel that wasn't
-        actually sampled at it, and no channel's rows leak into another's."""
+        """Channels sampled at different instants are not forced onto a shared index."""
         base = 1704067200
         pv1_points = [(base, 0, 1.0), (base + 2, 0, 2.0)]
         pv2_points = [(base + 1, 0, 10.0), (base + 3, 0, 20.0)]
@@ -363,8 +353,7 @@ class TestMultiPVLongFormat:
 
             assert a_timestamps == expected_a
             assert b_timestamps == expected_b
-            # Neither channel's timestamps appear against the other — no
-            # shared/aligned grid was fabricated between them.
+            # No shared/aligned grid was fabricated between them.
             assert set(a_timestamps).isdisjoint(set(b_timestamps))
 
             await connector.disconnect()
@@ -642,11 +631,8 @@ class TestFactoryIntegration:
 class TestQueryWindowTimezone:
     """The wire format is UTC; a caller's zone must be converted, not relabeled.
 
-    Every case is the same query differing only in how its bounds are zoned, so
-    they are one parametrized body: the point is that all three spellings of
-    10:00 Pacific / 17:00 UTC put the *same instant* on the wire. Regression:
-    the connector used to strftime a literal 'Z' onto whatever wall-clock digits
-    the datetime carried, shifting every ALS query by 7-8h.
+    Regression: the connector used to strftime a literal 'Z' onto the caller's
+    wall-clock digits, shifting every ALS query by 7-8h.
     """
 
     _LA = ZoneInfo("America/Los_Angeles")
@@ -747,13 +733,8 @@ class TestProcessingModes:
 class TestNonNumericAggregation:
     """Only ``raw`` is valid for an enum/status channel — on every backend.
 
-    ``base.py`` and ``docs/source/how-to/add-connector.rst`` both state this as
-    a contract every connector must honor, and Mongo/DOOCS/Mock get it for free
-    through ``aggregate_series``. EPICS pushes the aggregation to the appliance
-    and never calls that helper, so asking for ``mean_60(SR:MODE)`` on a
-    string-valued PV returned its raw ``CW``/``STANDBY`` values labelled as
-    means — the documented rule going unenforced in the one backend the ALS
-    actually runs.
+    Regression: EPICS pushed the aggregation to the appliance without enforcing
+    this, so a mean over a string PV returned raw values labelled as means.
     """
 
     @staticmethod
@@ -824,11 +805,8 @@ class TestNonNumericAggregation:
 class TestSubSecondPrecision:
     """A bin width the appliance cannot express is rejected, not rounded.
 
-    The operator syntax takes whole seconds, and the width used to be floored
-    with ``max(1, precision_ms // 1000)``: a 500 ms request was served at 1 s
-    and a 1500 ms request at 1 s, with nothing in the response saying so. Every
-    other backend bins at exactly the requested width, so the same call meant
-    two different things depending on which archiver was configured.
+    Regression: the width was floored with ``max(1, precision_ms // 1000)``,
+    silently serving a 500 ms or 1500 ms request at 1 s.
     """
 
     @pytest.mark.asyncio
@@ -854,18 +832,8 @@ class TestSubSecondPrecision:
     ):
         """Which widths are expressible is decided once, in ``resolve_processing``.
 
-        Both layers used to test ``precision_ms % 1000`` independently, and the
-        EPICS copy ran a dozen lines *before* the only read of
-        ``epics_operator`` — so the helper's "this width has no faithful
-        operator" verdict was never observed, and the two copies could drift
-        apart unnoticed. They must not: ``500 // 1000 == 0``, so a helper that
-        stopped returning ``None`` would put ``mean_0(SR:DCCT)`` on the wire.
-
-        Here the helper is made to reject a width EPICS' own arithmetic would
-        wave through (60 s is a whole number of seconds). The request must still
-        be refused — not silently downgraded to a bare PV name, which would
-        return full-resolution samples for a ``processing="mean"`` query and
-        hand them back labelled as means.
+        The helper is forced to reject a width EPICS' own arithmetic would wave
+        through; the request must be refused, not downgraded to a bare PV name.
         """
         monkeypatch.setattr(
             "osprey.connectors.archiver.epics_archiver_connector.resolve_processing",
@@ -899,10 +867,7 @@ class TestSubSecondPrecision:
             ("mean", 1000, "mean_1"),
             ("mean", 60_000, "mean_60"),
             ("mean", 3600_000, "mean_3600"),
-            # "raw" at a width other than 60 s. Not covered by
-            # TestProcessingModes (which sweeps the modes at a fixed 60 s) nor
-            # by the mean rows above: it is the only cell that fails when raw's
-            # operator width stops tracking precision_ms.
+            # raw at a non-60s width: raw's operator width must track precision_ms.
             ("raw", 5000, "lastSample_5"),
         ],
     )

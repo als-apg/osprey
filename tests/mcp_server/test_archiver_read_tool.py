@@ -24,9 +24,8 @@ from tests.mcp_server.conftest import (
     get_tool_fn,
 )
 
-# Five candidates so tests can build channels with up to 5 samples each,
-# including different lengths per channel (a channel's samples need not line
-# up with any other channel's — see test_archiver_read_handles_ragged_channels).
+# Five candidates so channels can have up to 5 samples each, with different
+# lengths per channel.
 _CANDIDATE_STAMPS = pd.to_datetime(
     [
         "2024-01-15T10:00:00",
@@ -40,14 +39,9 @@ _CANDIDATE_STAMPS = pd.to_datetime(
 
 
 def _make_archiver_df(channels_data):
-    """Build a mock long-format DataFrame via the real connector-shared builder.
-
-    Delegates to :func:`long_frame`, the same builder every real archiver
-    connector uses, so this helper cannot drift from the contract it claims to
-    mirror (a hand-rolled equivalent is exactly how the old wide-frame helper
-    hid a fully broken tool behind twelve green tests). Each channel's values
-    are paired with a prefix of the shared candidate timestamps, so callers
-    can pass value lists of different lengths per channel.
+    """Build a mock long-format DataFrame via :func:`long_frame`, the builder
+    every real connector uses. Each channel's values pair with a prefix of the
+    shared candidate timestamps, so lengths may differ per channel.
     """
     series = {
         ch: pd.Series(values, index=_CANDIDATE_STAMPS[: len(values)])
@@ -64,10 +58,7 @@ def _get_archiver_read():
 
 @pytest.fixture
 def archiver_project(tmp_path, monkeypatch):
-    """A project CWD wired to the mock archiver, with the server context up.
-
-    The three lines every test in this file needs before it can call the tool.
-    """
+    """A project CWD wired to the mock archiver, with the server context up."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
     initialize_server_context()
@@ -78,11 +69,9 @@ def archiver_project(tmp_path, monkeypatch):
 def archiver_read_tool(archiver_project):
     """``(tool, connector)`` with the archiver connector factory patched out.
 
-    The connector is a bare ``AsyncMock``: a test sets
-    ``connector.get_data.return_value`` to the long frame it wants back (or
-    ``.side_effect`` to raise), then awaits the tool. Tests that need the real
-    ``MockArchiverConnector`` take ``archiver_project`` instead and build the
-    tool themselves.
+    Set ``connector.get_data.return_value`` (or ``.side_effect``), then await
+    the tool. Tests that need the real ``MockArchiverConnector`` take
+    ``archiver_project`` instead.
     """
     connector = AsyncMock()
     with patch(
@@ -114,19 +103,16 @@ async def test_archiver_read_basic(archiver_read_tool):
     assert "SR:CURRENT:RB" in data["summary"]["per_channel"]
     assert data["summary"]["per_channel"]["SR:CURRENT:RB"]["points"] == 2
 
-    # access_details is returned inline so Claude knows how to read the data
-    # file: the root keys, and the expression that reaches one channel's data.
+    # access_details is returned inline so Claude knows how to read the data file
     ad = data["access_details"]
     assert ad["data_file_structure"]["root_keys"] == ["query", "series"]
     assert 'json_data["series"]["<channel>"]' in ad["access_pattern"]
-    # The schema text is honest about channels not sharing a timestamp axis,
-    # documents the query root key too, and doesn't overclaim ISO-8601/UTC
-    # for query.start_time/end_time (those are facility-local strings).
+    # The schema text must say channels are not aligned, and that
+    # query.start_time/end_time are facility-local strings.
     assert "not" in ad["schema"]["series"].lower()
     assert "aligned" in ad["schema"]["series"].lower()
     assert "facility-local" in ad["schema"]["query"].lower()
-    # Values can be null (non-numeric/missing samples), and "points" counts
-    # those nulls too — an agent must not assume points == usable numbers.
+    # Values can be null, and "points" counts those nulls too.
     assert "null" in ad["schema"]["values"].lower()
     assert "points" in ad["schema"]["values"].lower()
 
@@ -135,12 +121,9 @@ async def test_archiver_read_basic(archiver_read_tool):
 async def test_access_details_states_the_read_rule_once(archiver_read_tool):
     """The inline read guidance is stated once, not once per channel.
 
-    ``access_details`` rides on every response, so anything in it that scales
-    with the channel count is paid on every call — and the per-channel access
-    rule is one rule with the channel name substituted, while the names
-    themselves are already in ``summary.per_channel``. The guidance is
-    therefore identical for a 1-channel and a 20-channel read, and carries
-    nothing ``summary``/``query`` already carry.
+    ``access_details`` rides on every response, so it must be identical for a
+    1-channel and a 20-channel read, and carry nothing ``summary``/``query``
+    already carry.
     """
     fn, connector = archiver_read_tool
 
@@ -158,8 +141,7 @@ async def test_access_details_states_the_read_rule_once(archiver_read_tool):
     for duplicated in ("total_points", "processing", "bin_size"):
         assert duplicated not in one
 
-    # The rule an operator actually needs to reach the data survives, stated
-    # once with a placeholder rather than enumerated per channel.
+    # The access rule survives, stated once with a placeholder.
     pattern = one["access_pattern"]
     assert 'json_data["series"]' in pattern
     assert "timestamps" in pattern and "values" in pattern
@@ -223,12 +205,7 @@ def test_parse_time_interprets_naive_input_as_facility_local(monkeypatch):
     ],
 )
 def test_parse_time_relative_expressions(expression, expected_delta, monkeypatch):
-    """Every supported unit suffix maps to its own timedelta keyword.
-
-    One case per entry of the unit map, plus each amount form ``float``
-    accepts, so a change to how the suffix is looked up cannot silently drop a
-    unit or route one to the wrong keyword.
-    """
+    """Every supported unit suffix maps to its own timedelta keyword."""
     from datetime import UTC
 
     from osprey.mcp_server.control_system.tools import archiver_read as mod
@@ -258,10 +235,8 @@ def test_parse_time_relative_expressions(expression, expected_delta, monkeypatch
 def test_parse_time_unrecognized_relative_falls_through_to_dateutil(expression, monkeypatch):
     """A "... ago" string the unit map cannot serve still reaches the dateutil branch.
 
-    dateutil rejects all of these, so its ``ParserError`` is the observable
-    proof that the fall-through happened — rather than a ``ValueError`` escaping
-    from ``float`` or an ``IndexError`` from reading a suffix off an empty
-    amount.
+    dateutil rejects all of these, so ``ParserError`` proves the fall-through
+    happened.
     """
     from datetime import UTC
 
@@ -339,10 +314,7 @@ async def test_archiver_read_follows_requested_channel_order(tmp_path, archiver_
     """Every per-channel structure follows the caller's order, not the frame's.
 
     The long frame is sorted by channel name, so a caller who asks for Z
-    before A must still get Z before A back: the JSON object order is what a
-    reader iterating ``series`` — and the chart legend built from it — follows.
-    A channel with no rows holds its slot rather than collapsing the order
-    around it, and each channel keeps its own samples.
+    before A must still get Z before A back.
     """
     requested = ["SR:ZED:RB", "SR:VOID:RB", "SR:ALPHA:RB", "SR:MID:RB"]
     # Frame order is alphabetical (long_frame sorts) and omits SR:VOID:RB.
@@ -364,8 +336,6 @@ async def test_archiver_read_follows_requested_channel_order(tmp_path, archiver_
     assert file_content["query"]["channels"] == requested
     assert list(file_content["series"]) == requested
 
-    # Each channel carries its own samples — the order is not the only thing
-    # that has to line up with the request.
     assert file_content["series"]["SR:ZED:RB"]["values"] == [3.0, 3.1]
     assert file_content["series"]["SR:VOID:RB"]["values"] == []
     assert file_content["series"]["SR:ALPHA:RB"]["values"] == [1.0]
@@ -412,9 +382,7 @@ async def test_archiver_read_nan_channel_data(archiver_read_tool):
     """A numeric channel whose samples are all NaN reports no numeric stats.
 
     ``points`` is the real sample count for the channel (the archiver still
-    returned two rows — it just recorded NaN in each), not zero: the two
-    concepts (how many samples exist vs. whether any are numeric) are
-    independent since long_frame never manufactures rows.
+    returned two rows — it just recorded NaN in each), not zero.
     """
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df(
@@ -439,8 +407,7 @@ async def test_archiver_read_nan_channel_data(archiver_read_tool):
     assert good["max"] == 500.1
     assert good["mean"] is not None
 
-    # The all-NaN channel reports its point count and omits numeric stats
-    # entirely — it must not error, and must not report NaN.
+    # The all-NaN channel omits numeric stats entirely (not NaN, which breaks JSON)
     bad = data["summary"]["per_channel"]["SR:MISSING:RB"]
     assert bad["points"] == 2
     assert "min" not in bad
@@ -455,10 +422,8 @@ async def test_archiver_read_nan_channel_data(archiver_read_tool):
 async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, archiver_read_tool):
     """An enum/status channel (string values) reports point count, no stats.
 
-    Enum/status PVs (e.g. machine mode, interlock state) are archived as
-    strings, not numbers. ``pd.to_numeric(..., errors="coerce")`` turns every
-    one of them into NaN, so the channel must take the same "no numeric
-    samples" path as an all-NaN numeric channel, without ever raising.
+    ``pd.to_numeric(..., errors="coerce")`` turns every string into NaN, so the
+    channel takes the same "no numeric samples" path as an all-NaN channel.
     """
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df(
@@ -494,9 +459,7 @@ async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, archiver
 async def test_archiver_read_null_samples_become_json_null(tmp_path, archiver_read_tool):
     """A null sample is written as JSON ``null`` — never NaN, never dropped.
 
-    NaN is not valid JSON, and dropping the sample instead would misreport the
-    channel's real cadence. So every null-ish value becomes ``None`` while
-    keeping its slot, and the real values around it come through untouched.
+    Dropping the sample would misreport the channel's real cadence.
     """
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df(
@@ -525,10 +488,8 @@ async def test_archiver_read_null_samples_become_json_null(tmp_path, archiver_re
 
 @pytest.mark.unit
 async def test_archiver_read_integer_channel_keeps_integer_values(tmp_path, archiver_read_tool):
-    """An integer-valued channel (bucket count, status code) stays integral.
-
-    Marshalling the value column through a float representation would rewrite
-    a real archived ``3`` as ``3.0`` — a value the archiver never recorded.
+    """An integer-valued channel (bucket count, status code) stays integral,
+    never rewritten as ``3.0`` through a float representation.
     """
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df({"SR:BUCKET:COUNT": [3, 4, 5]})
@@ -552,9 +513,8 @@ async def test_archiver_read_enum_channel_keeps_null_gaps_between_strings(
 ):
     """A null inside a string-valued channel stays null — it never becomes a state.
 
-    Enum/status channels live in an object column, where the null-coercion has
-    to leave both neighbours' strings alone. Rendering the gap as any string
-    (``"nan"``, ``"None"``) would report the machine in a mode it was never in.
+    Rendering the gap as ``"nan"``/``"None"`` would report the machine in a
+    mode it was never in.
     """
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df(
@@ -612,8 +572,7 @@ async def test_archiver_read_rejects_unknown_processing(archiver_project):
             processing="p99",
         )
 
-    # The message says what is wrong; the suggestions say what to do instead.
-    # The valid set belongs in exactly one of them, not verbatim in both.
+    # The message names the bad mode; the suggestions carry the valid set.
     envelope = ctx["envelope"]
     assert "p99" in envelope["error_message"]
     suggestions = " ".join(envelope["suggestions"])
@@ -644,20 +603,14 @@ async def test_archiver_read_echoes_facility_local_time_range(archiver_read_tool
     data = extract_response_dict(result)
     assert "-08:00" in data["summary"]["time_range"]["start"]
 
-    # And the connector receives that same facility-local instant, not a
-    # pre-converted one — converting is the connector's job.
+    # The connector receives the facility-local instant; converting is its job.
     start_arg = connector.get_data.call_args.args[1]
     assert start_arg.utcoffset().total_seconds() == -8 * 3600
 
 
 @pytest.mark.unit
 async def test_archiver_read_bin_size_zero_is_full_resolution(archiver_read_tool):
-    """bin_size=0 requests full-resolution data: precision_ms=0 reaches the connector.
-
-    ``resolve_processing`` already treats ``precision_ms <= 0`` as full
-    resolution on every backend (EPICS sends the bare PV name), so bin_size=0
-    is the operator's only way to ask for undecimated raw samples.
-    """
+    """bin_size=0 requests full-resolution data: precision_ms=0 reaches the connector."""
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1, 500.3]})
 
@@ -707,13 +660,8 @@ async def test_archiver_read_rejects_negative_bin_size(archiver_project):
 
 @pytest.mark.unit
 async def test_archiver_read_handles_ragged_channels(tmp_path, archiver_read_tool):
-    """Channels with different sample counts are never forced onto a shared axis.
-
-    The schema text promises channels are "NOT aligned" and have independent
-    timestamps, but every other test's fixture happens to use equal-length
-    value lists. This pins the genuinely ragged case the long format exists
-    for: one channel with 3 samples, another with 1, neither padded or
-    truncated to match the other.
+    """Channels with different sample counts are never forced onto a shared axis:
+    one channel with 3 samples, another with 1, neither padded nor truncated.
     """
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df(
@@ -741,12 +689,7 @@ async def test_archiver_read_handles_ragged_channels(tmp_path, archiver_read_too
 
 @pytest.mark.unit
 async def test_archiver_read_channel_absent_from_result_reports_zero_points(archiver_read_tool):
-    """A requested channel with zero rows in the result reports points=0, not a crash.
-
-    The pre-fix tool silently dropped such a channel from ``per_channel``
-    entirely (``if ch in df.columns`` on a long frame never matches a channel
-    name). It must now appear honestly with a zero count and no numeric stats.
-    """
+    """A requested channel with zero rows appears with points=0 and no numeric stats."""
     # Only SR:CURRENT:RB has any rows; SR:VOID:RB is requested but the
     # archiver returned nothing for it (e.g. out of archival range).
     fn, connector = archiver_read_tool
@@ -774,13 +717,8 @@ async def test_archiver_read_emits_empty_series_entry_for_absent_channel(
 ):
     """The data file's series entry for a zero-row channel is exactly {timestamps: [], values: []}.
 
-    This is the other end of the contract consumers like ``build_data_reader``
-    (``_viz_common.py``) rely on: every *requested* channel gets an entry in
-    ``series``, even one with no data in range, and that entry always has the
-    ``{"timestamps": [...], "values": [...]}`` shape rather than being omitted
-    or shaped some other way. Pinning this exact literal here, alongside the
-    reader-side test that consumes it, keeps the two ends of the contract from
-    drifting apart independently.
+    Consumers like ``build_data_reader`` rely on every *requested* channel
+    getting an entry in ``series``, even one with no data in range.
     """
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
@@ -813,8 +751,7 @@ async def test_archiver_read_dedupes_repeated_channel_name(archiver_read_tool):
     assert data["summary"]["total_points"] == 2  # not doubled
     assert list(data["summary"]["per_channel"].keys()) == ["SR:CURRENT:RB"]
 
-    # The dedup happens before the connector call too — the archiver is only
-    # ever asked for the channel once.
+    # The dedup happens before the connector call too.
     queried_channels = connector.get_data.call_args.args[0]
     assert queried_channels == ["SR:CURRENT:RB"]
 
@@ -822,15 +759,8 @@ async def test_archiver_read_dedupes_repeated_channel_name(archiver_read_tool):
 class TestArchiverReadRealMockConnector:
     """End-to-end coverage through the real ``MockArchiverConnector``.
 
-    Every test above patches ``ConnectorFactory.create_archiver_connector``
-    with an ``AsyncMock``, so no ``archiver_read`` test ever exercised a real
-    connector's ``get_data`` — including its handling of ``precision_ms``.
-    That blind spot is exactly how ``bin_size=0`` reaching the default
-    ``mock_archiver`` connector's ``ZeroDivisionError`` (``precision_ms=0`` ->
-    ``duration / (precision_ms / 1000.0)``) went unnoticed: every fixture
-    above also wrote ``archiver:\\n  type: mock\\n``, which isn't even a
-    registered archiver name (``mock_archiver`` is) — it was never reachable
-    even if a test here had forgotten to patch the factory.
+    Every test above patches the connector factory, so only these exercise a
+    real connector's ``get_data`` — including its handling of ``precision_ms``.
     """
 
     @pytest.mark.unit
@@ -847,27 +777,17 @@ class TestArchiverReadRealMockConnector:
 
         data = extract_response_dict(result)
         assert data["status"] == "success"
-        # Pin the density, not just "some points". The mock's default
-        # sample_rate_hz is 1.0, so full resolution over a 300-second window is
-        # 300 samples. Asserting only `> 0` lets the whole feature be silently
-        # degraded: restoring the old `max(num_points, 10)` floor for
-        # precision_ms <= 0 — explicitly "not a fix" — still returns 10 points
-        # and still passes a `> 0` check.
+        # Full resolution at the mock's 1 Hz over 300 s is exactly 300 samples;
+        # `> 0` would still pass a degraded ten-point floor.
         assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 300
 
     @pytest.mark.unit
     async def test_bin_size_zero_returns_more_points_than_binned(self, archiver_project):
         """Full resolution must strictly out-resolve a binned query on the same window.
 
-        The exact-count assertion above pins the mock's own native rate; this
-        pins the *relationship* the feature exists for, and survives a change
-        to the mock's configured ``sample_rate_hz``.
-
-        The window is an hour rather than five minutes on purpose: it puts the
-        binned count (60) above the old ten-point floor, so a regression that
-        pins full resolution at 10 points fails this comparison too. Over a
-        five-minute window the binned count is 6, and a ten-point floor would
-        still satisfy ``full > binned``.
+        The hour-long window puts the binned count (60) above the old
+        ten-point floor, so a regression pinning full resolution at 10 points
+        fails this comparison too.
         """
         fn = _get_archiver_read()
         window = {
@@ -898,24 +818,17 @@ class TestArchiverReadRealMockConnector:
 
         data = extract_response_dict(result)
         assert data["status"] == "success"
-        # One sample per 60-second bin across a one-hour window. As above, an
-        # exact count rather than `> 0`: bin_size is the parameter under test,
-        # so a result that ignores it must fail here.
+        # One sample per 60-second bin across a one-hour window.
         assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 60
 
     @pytest.mark.unit
     async def test_processing_mode_succeeds(self, tmp_path, archiver_project):
         """A non-raw mode really aggregates: one derived value per bin, not raw in disguise.
 
-        This is the only test that drives the real connector's
-        ``aggregate_series`` path end to end through the tool (the mock-kwargs
-        test only proves the parameter *reaches* a connector), so it has to
-        assert something ``raw`` cannot produce. A five-minute window at a
-        60 s bin is chosen for that: the mock's ten-point floor puts *two*
-        real samples in each of the first four bins, so ``mean`` is a genuine
-        reduction over several samples rather than a passthrough of one.
-        ``points > 0`` cannot see that, and neither can an exact count —
-        ``raw`` returns the same six rows for this window.
+        A five-minute window at a 60 s bin puts two real samples in each of
+        the first four bins, so ``mean`` is a genuine reduction — and ``raw``
+        returns the same six rows for this window, so a row count alone
+        cannot tell the two apart.
         """
         fn = _get_archiver_read()
         window = {
@@ -937,17 +850,11 @@ class TestArchiverReadRealMockConnector:
         lows = await channel_series("min")
         highs = await channel_series("max")
 
-        # The bins really do hold several real samples: `count` reports how
-        # many. `raw` can never return these numbers — they are sample counts,
-        # not beam currents.
+        # `count` proves the bins really hold several real samples.
         assert counts["values"] == [2, 2, 2, 2, 1, 1]
 
-        # Same six rows as `raw` over this window, so a row count alone cannot
-        # tell the two apart...
         assert len(mean["values"]) == len(raw["values"]) == 6
-        # ...but every aggregated value is derived from that bin's real
-        # samples rather than being the last one in it: with two samples in a
-        # bin, their mean is exactly (min + max) / 2.
+        # With two samples in a bin, their mean is exactly (min + max) / 2.
         assert mean["values"] != raw["values"]
         assert mean["values"] == pytest.approx(
             [(low + high) / 2 for low, high in zip(lows["values"], highs["values"], strict=True)]

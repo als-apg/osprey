@@ -119,13 +119,8 @@ function _tsShortTime(iso) {
 
 /**
  * Whether one channel is enum/status rather than a numeric signal.
- *
- * Deliberately tri-state: ONLY an explicit `numeric === false` means enum, so a
- * response that omits the key is still numeric. Four sites ask this question --
- * whether the layout needs a `yaxis2`, whether the toolbar marks the toggle,
- * whether hiding a channel hides that axis, and which axis a trace is built on
- * -- and they must not drift, since getting the last one wrong routes a trace
- * onto the wrong axis rather than failing loudly.
+ * Only an explicit `numeric === false` means enum; a response that omits the
+ * key is still numeric.
  * @param {any} ch
  * @returns {boolean}
  */
@@ -136,11 +131,6 @@ function _tsIsNonNumeric(ch) {
 /**
  * Whether any channel is enum/status, i.e. whether the chart needs the
  * secondary category `yaxis2`.
- *
- * Both the view shell and the chart renderer need this answer and must agree:
- * the shell uses it to autorange and show/hide that axis on Reset Zoom and on
- * channel toggles, and the renderer uses it to decide whether to put the axis
- * in the layout at all. Computed once here so the two cannot drift.
  * @param {any[]} channels
  * @returns {boolean}
  */
@@ -151,15 +141,11 @@ function _tsHasNonNumeric(channels) {
 /**
  * RFC4180-ish CSV field quoting: a field containing a comma, double quote, or
  * line break is wrapped in double quotes with internal double quotes doubled.
- * Needed now that a CSV row's fields include free-form channel names and
- * non-numeric (enum/status) values -- e.g. a status string like
- * `"OFF, LOCAL"` -- rather than only numbers, which never need escaping.
  * @param {any} value
  * @returns {string}
  */
 function _tsCsvField(value) {
-  // `??`, not `||`: a gap (null/undefined) becomes an empty field, but the
-  // falsy-but-real values `0` and `""` must survive as themselves.
+  // `??`, not `||`: only null/undefined become empty; 0 and "" survive.
   const str = String(value ?? "");
   if (/["\n\r,]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
@@ -168,13 +154,9 @@ function _tsCsvField(value) {
 }
 
 /**
- * Long-format CSV: one row per (channel, timestamp) pair. Each channel now
- * carries its own timestamps independent of every other channel's (see
- * app.py's `format=chart` branch), so there is no shared axis to pivot into
- * a wide `timestamp,ch1,ch2,...` table without re-implementing the
- * server-side union pivot client-side (that pivot already exists, for the
- * table view, via `format=table`). Long format is the honest shape of the
- * data actually on hand here.
+ * Long-format CSV: one row per (channel, timestamp) pair. Each channel
+ * carries its own timestamps, so there is no shared axis to pivot into a
+ * wide table client-side.
  * @param {any} chartData
  */
 function _tsExportCSV(chartData) {
@@ -193,10 +175,7 @@ function _tsExportJSON(chartData) {
 }
 
 /**
- * Push `content` at the browser as a download. The two exporters differ only
- * in their content, MIME type and extension, so the Blob/ObjectURL/anchor
- * sequence -- including the revoke, which is easy to drop when copied -- lives
- * here once.
+ * Push `content` at the browser as a download.
  * @param {string} content
  * @param {string} mime
  * @param {string} ext
@@ -226,19 +205,11 @@ export async function renderTimeseriesView(container, artifact) {
     if (!chartResp.ok) throw new Error(`Chart fetch failed: ${chartResp.status}`);
     const chartData = await chartResp.json();
     // format=chart returns one entry per channel, each with its own
-    // timestamps/values (see app.py's chart branch) -- there is no shared
-    // `columns`/`total_rows` frame any more. `columns` here is just the
-    // channel-name projection, kept for the toggle logic and for
-    // renderTimeseriesTable, which still consumes the (unchanged) `format=table`
-    // shape and expects a plain name list.
+    // timestamps/values; `columns` is just the channel-name projection.
     const channels = chartData.channels || [];
     const columns = channels.map((/** @type {any} */ ch) => ch.channel);
-    // Whether renderTimeseriesChart will add a secondary category `yaxis2`
-    // for any enum/status channel -- needed here too, both so Reset Zoom
-    // also autoranges that axis (Plotly.relayout's autorange keys are
-    // per-axis; `yaxis.autorange` alone never touches `yaxis2`) and so a
-    // channel toggle can show/hide that axis as its last visible occupant
-    // is hidden/shown (see the toggle handler below).
+    // Needed so Reset Zoom also autoranges `yaxis2` and so channel toggles
+    // can show/hide that axis.
     const hasNonNumeric = _tsHasNonNumeric(channels);
 
     const visible = new Set(columns);
@@ -250,14 +221,9 @@ export async function renderTimeseriesView(container, artifact) {
     channels.forEach((/** @type {any} */ ch) => {
       html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${escapeHtml(_tsShortChannelName(ch.channel))}</span>`;
     });
-    // Cross-channel totals are the server's, unconditionally. Summing per-channel
-    // point counts here could only ever be a proxy: the sum counts each channel's
-    // own timestamps, whereas the table paginates a *unioned* row axis, so the two
-    // disagree whenever channels are sampled at different times -- and `row_count`
-    // is not derivable client-side at all. This script and the endpoint that
-    // answers it ship in the same wheel, so `summary` is always present; a
-    // fallback here would be a second, knowingly-wrong number for a case that
-    // cannot arise.
+    // Cross-channel totals come from the server: per-channel point sums
+    // disagree with the unioned row axis, and `row_count` is not derivable
+    // client-side.
     const summary = chartData.summary;
     html += `<span class="ts-badge ts-badge-points"><span class="badge-label">Points</span> ${summary.total_points.toLocaleString()}</span>`;
     if (typeof summary.row_count === "number") {
@@ -276,13 +242,8 @@ export async function renderTimeseriesView(container, artifact) {
       const color = _tsPalette[ci % _tsPalette.length];
       const isNonNumeric = _tsIsNonNumeric(ch);
       const title = isNonNumeric ? `${ch.channel} (status/enum -- plotted on right axis)` : ch.channel;
-      // `aria-pressed` + an explicit `aria-label` mirror the design system's own
-      // toggle (osprey-theme-switcher): the button's shown/hidden state must be
-      // exposed to assistive tech rather than carried only by the `ts-ch-off`
-      // class, and the accessible name must be the full PV plus the axis
-      // explanation -- not the truncated display text with the decorative "R"
-      // glyph welded on (accname demotes `title` to a description whenever the
-      // button has content, so `title` alone often goes unannounced).
+      // aria-label carries the full PV name plus the axis note; `title` alone
+      // is often unannounced once a button has content.
       html += `<button class="ts-ch-toggle" type="button" aria-pressed="true" data-ch-name="${escapeHtml(ch.channel)}" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}">`;
       html += `<span class="ts-ch-dot" style="background:${color}"></span>`;
       html += escapeHtml(_tsShortChannelName(ch.channel));
@@ -320,21 +281,14 @@ export async function renderTimeseriesView(container, artifact) {
           visible.add(col);
           btn.classList.remove("ts-ch-off");
         }
-        // Keep the exposed state in step with the class (the refused-hide path
-        // above returns early, so neither is touched there).
+        // Keep the exposed state in step with the class.
         btn.setAttribute("aria-pressed", String(visible.has(col)));
         if (chartEl && /** @type {any} */ (chartEl).data) {
-          // `columns` is in the same order as `channels`, which is the same
-          // order traces were built in (renderTimeseriesChart), so this
-          // boolean array lines up positionally with Plotly's trace array
-          // even though visibility itself is tracked by channel name.
+          // `columns` matches the trace build order, so this boolean array
+          // lines up positionally with Plotly's trace array.
           const update = columns.map((/** @type {any} */ c) => visible.has(c));
-          // Hiding the last visible enum/status channel would otherwise leave an
-          // empty category `yaxis2` sitting on the right with nothing plotted
-          // against it; show it again once any non-numeric channel is visible
-          // again. Applied as one `update` rather than restyle-then-relayout so
-          // a toggle costs a single redraw instead of two, with no intermediate
-          // frame showing the traces already hidden but the axis still there.
+          // Hide `yaxis2` while no enum/status channel is visible; one
+          // Plotly.update keeps the toggle a single redraw.
           const layoutUpdate = hasNonNumeric
             ? {
                 "yaxis2.visible": channels.some(
@@ -351,11 +305,8 @@ export async function renderTimeseriesView(container, artifact) {
       btn.addEventListener("click", () => {
         const action = /** @type {HTMLElement} */ (btn).dataset.action;
         if (action === "zoom-reset" && chartEl) {
-          // `yaxis2` (the enum/status channels' secondary category axis, see
-          // renderTimeseriesChart) predates this handler and needs its own
-          // autorange key -- otherwise a user who zooms it and clicks Reset
-          // Zoom gets the numeric axis reset while the status trace stays
-          // clipped or off-screen, reading as "that channel has no data".
+          // yaxis2 needs its own autorange key; `yaxis.autorange` alone never
+          // touches it.
           const resetLayout = {
             "xaxis.autorange": true,
             "yaxis.autorange": true,
@@ -395,21 +346,12 @@ export function _tsChartTheme() {
 }
 
 /**
- * Builds one Plotly trace per channel, each with its own `x`/`y` (Plotly
- * supports per-trace `x` natively -- there is no shared axis to slice
- * multiple columns against any more, see app.py's `format=chart` branch and
- * `extract_channel_series`'s docstring).
+ * Builds one Plotly trace per channel, each with its own `x`/`y`.
  *
- * A non-numeric (enum/status) channel -- `numeric: false` -- can't share a
- * linear y-axis with a numeric signal like beam current, so it is never
- * silently dropped: it gets its own categorical trace on a secondary
- * right-hand y-axis (`yaxis2`, `type: "category"`, `overlaying: "y"`), drawn
- * with an `hv` step line (a status value holds until its next transition,
- * unlike a numeric signal that's meaningfully interpolated between samples).
- * This lets an operator read machine state time-aligned against a numeric
- * signal on the same plot, rather than losing the channel or corrupting the
- * numeric axis. The secondary axis is only added to the layout when at
- * least one channel actually needs it.
+ * A non-numeric (enum/status) channel gets a categorical trace on a secondary
+ * right-hand y-axis (`yaxis2`), drawn with an `hv` step line (a status value
+ * holds until its next transition). The secondary axis is only added to the
+ * layout when at least one channel needs it.
  * @param {any} el
  * @param {any} chartData
  * @returns {Promise<void>}
@@ -436,24 +378,12 @@ export async function renderTimeseriesChart(el, chartData) {
         : {
             yaxis: "y2",
             line: { shape: "hv" },
-            // Every enum channel shares one category axis, and Plotly builds
-            // that axis's rungs from the union of its traces in first-
-            // appearance order. Two status channels with different vocabularies
-            // therefore interleave: each one's step line crosses rungs that
-            // belong to the other, which reads as a state it was never in.
-            // Prefixing each value with its channel keeps every channel's rungs
-            // in its own contiguous block. `customdata` carries the unprefixed
-            // value so the hover label still shows the real state.
-            //
-            // A gap (`null` -- archiver_read.py's chart branch emits real
-            // `None`s for missing samples, and extract_channel_series passes
-            // them through) is deliberately NOT namespaced: prefixing it would
-            // register the literal rung "CH: null" on the category axis and
-            // step the line up to it, i.e. show a state the channel was never
-            // in -- the very failure this namespacing exists to prevent. Left
-            // as `null`, Plotly's category converter returns BADNUM instead of
-            // adding a category, and the step line breaks, matching how the
-            // numeric branch already renders the same gap.
+            // All enum channels share one category axis, so each value is
+            // prefixed with its channel to keep its rungs in a contiguous
+            // block; `customdata` carries the unprefixed value for the hover
+            // label. A `null` gap is NOT prefixed -- "CH: null" would become a
+            // real rung, while a bare null breaks the step line like a
+            // numeric-branch gap.
             y: (ch.values || []).map((/** @type {any} */ v) => (v == null ? null : `${ch.channel}: ${v}`)),
             customdata: ch.values,
           }),
@@ -481,17 +411,10 @@ export async function renderTimeseriesChart(el, chartData) {
             type: "category",
             linecolor: t.line,
             tickfont: { size: 10 },
-            // This axis's tick labels are the namespaced rungs -- "<full PV
-            // name>: <VALUE>" -- the longest strings in the figure, drawn on
-            // the right against a `margin.r` of 20. Plotly's `automargin`
-            // defaults to false for an x-anchored axis, and `margin.autoexpand`
-            // only reacts to components that push margin, so without this the
-            // labels are drawn past the paper edge and clipped.
+            // The namespaced rung labels are long and drawn on the right;
+            // without automargin they are clipped at the paper edge.
             automargin: true,
-            // ...and `showgrid` otherwise defaults to true with no `gridcolor`,
-            // adding one gridline per rung in Plotly's auto blend rather than
-            // the --chart-* token the other two axes use. The numeric `yaxis`
-            // grid is the one that carries meaning here.
+            // Only the numeric yaxis grid carries meaning.
             showgrid: false,
           },
         }
@@ -529,11 +452,8 @@ export async function renderTimeseriesTable(el, artifactId, offset) {
     const totalPages = Math.ceil(tableData.total_rows / TS_TABLE_PAGE_SIZE);
     const currentPage = Math.floor(offset / TS_TABLE_PAGE_SIZE) + 1;
 
-    // Header comes from THIS response and nowhere else. Taking it from the
-    // caller's channel list would mean the names came from a separate
-    // format=chart request, and for an artifact being written while it is viewed
-    // the two can disagree -- putting this page's cells under the other
-    // request's PV names.
+    // Header must come from THIS response: names from a separate format=chart
+    // request can disagree for an artifact being written while it is viewed.
     let html = '<div class="ts-data-table-wrapper"><table class="ts-data-table">';
     html += '<thead><tr><th>Index</th>';
     tableData.columns.forEach((/** @type {string} */ c) => { html += `<th>${escapeHtml(c)}</th>`; });

@@ -13,13 +13,7 @@ import pytest
 
 
 def _write_artifact(store, workspace_root, payload, filename, title):
-    """Write ``payload`` as an artifact's data file and register the entry.
-
-    The half every builder below shares: the entry itself is always the same
-    placeholder text file whose ``metadata.data_file`` points at the JSON the
-    endpoint actually reads. Only the payload shape differs between builders,
-    so only the payload is built by them.
-    """
+    """Write ``payload`` as an artifact's data file and register the entry."""
     data_dir = workspace_root / "data"
     data_dir.mkdir(exist_ok=True)
     data_file = data_dir / filename
@@ -67,10 +61,7 @@ def _make_new_format_artifact(store, workspace_root, series, filename="series_ar
     ``{"query": {...}, "series": {channel: {"timestamps": [...], "values": [...]}}}``.
 
     ``series`` maps channel name -> (timestamps, values); channels may have
-    independent lengths/cadences (unlike the legacy split-orient layout,
-    where every column shares one index). Pairs are always built well-formed
-    and equal-length -- see ``_make_raw_series_artifact`` for the deliberately
-    malformed cases this shape cannot express.
+    independent lengths/cadences.
     """
     payload = {
         "query": {"channels": list(series.keys())},
@@ -87,9 +78,7 @@ def _make_legacy_dataframe_artifact(store, workspace_root, columns, index, data)
     """Create an artifact using the legacy archiver split-orient wrapper layout:
 
     ``{"dataframe": {"columns": [...], "index": [...], "data": [...]}, "query": {...}}``
-    -- this is the exact wrapper shape ``archiver_read`` wrote to disk before the
-    long-format migration, and is exactly what is already on disk for artifacts
-    created before this task.
+    -- the shape ``archiver_read`` wrote to disk before the long-format migration.
     """
     payload = {
         "dataframe": {"columns": columns, "index": index, "data": data},
@@ -106,12 +95,9 @@ def _make_legacy_dataframe_artifact(store, workspace_root, columns, index, data)
 
 
 def _make_raw_series_artifact(store, workspace_root, series_payload, filename="raw_series.json"):
-    """Create an artifact from an already-built ``series`` dict, with no
-    coercion of the timestamps/values it's handed -- unlike
-    ``_make_new_format_artifact``, which always builds well-formed equal-length
-    (timestamps, values) pairs. Used to construct deliberately malformed
-    payloads (duplicate timestamps, mismatched lengths, mixed types) that a
-    tuple-based helper can't represent.
+    """Create an artifact from an already-built ``series`` dict with no coercion,
+    for deliberately malformed payloads (duplicate timestamps, mismatched
+    lengths, mixed types).
     """
     payload = {"query": {}, "series": series_payload}
     return _write_artifact(
@@ -174,8 +160,6 @@ class TestArtifactDataAPI:
             assert ch["returned_points"] <= 100
             assert len(ch["timestamps"]) == ch["returned_points"]
             assert len(ch["values"]) == ch["returned_points"]
-        # "Was anything reduced" is published once, on the summary, derived from
-        # the counts above rather than repeated as a per-channel flag.
         assert data["summary"]["downsampled"] is True
 
     @pytest.mark.unit
@@ -195,13 +179,7 @@ class TestArtifactDataAPI:
 
     @pytest.mark.unit
     def test_chart_format_new_layout_channels_have_independent_timestamps(self, app_client):
-        """A new-format archiver artifact renders per-channel series, not empty.
-
-        Reproduces + verifies the fix for the reported bug: the split-orient-only
-        extractor this endpoint used to call had no branch for the
-        ``{"query", "series"}`` payload, so it returned empty
-        ``columns``/``index``/``data`` for it.
-        """
+        """A new-format archiver artifact renders per-channel series, not empty."""
         client, workspace = app_client
         store = client.app.state.artifact_store
         entry, _ = _make_new_format_artifact(
@@ -239,19 +217,16 @@ class TestArtifactDataAPI:
         assert ch["channel"] == "T:MODE"
         assert len(ch["values"]) <= 20
         assert all(v in ("CW", "STANDBY") for v in ch["values"])
-        # Task 6 (front-end) needs this to pick a trace type/axis per channel --
-        # an enum channel cannot share a numeric y-axis with the others.
+        # The front-end needs this flag -- an enum channel cannot share the numeric y-axis.
         assert ch["numeric"] is False
 
     @pytest.mark.unit
     def test_chart_payload_carries_the_server_computed_info_bar_aggregates(self, app_client):
         """The chart response owns its own cross-channel aggregates.
 
-        The info bar needs three numbers the client would otherwise re-derive by
-        summing ``channels`` itself, plus one it *cannot* derive at all: the
-        unioned row count. Two channels on independent cadences make the two
-        quantities differ (5 samples across 3 distinct timestamps), so a
-        ``row_count`` that merely echoed the per-channel sum would fail here.
+        ``row_count`` counts the unioned timestamp axis and is not derivable
+        client-side: two channels on independent cadences give 5 samples
+        across 3 distinct timestamps.
         """
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -272,8 +247,7 @@ class TestArtifactDataAPI:
         assert summary["downsampled"] is False
         assert summary["row_count"] == 3  # union of t0, t1, t2 -- not 5
 
-        # The number the badge shows must be the one the table's pagination
-        # footer shows; that reconciliation is only possible server-side.
+        # The badge number must match the table's pagination total.
         table = client.get(f"/api/artifacts/{entry.id}/data?format=table").json()
         assert summary["row_count"] == table["total_rows"]
 
@@ -359,13 +333,8 @@ class TestArtifactDataAPI:
     def test_table_columns_are_the_columns_its_own_rows_were_built_from(self, app_client):
         """``format=table`` is a self-consistent payload: header *and* cells.
 
-        The table view's header used to be taken from the ``format=chart``
-        response while its cells came from ``format=table`` -- two separate
-        requests against a file the gallery treats as live, so a channel
-        appearing or disappearing between them silently shifts correct numbers
-        under the wrong PV names. The table response therefore carries the
-        column list the pivot actually indexed each row with: same length as
-        every row, same order as the values in it.
+        The table response carries the column list the pivot actually indexed
+        each row with -- same length as every row, same order as its values.
         """
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -373,9 +342,8 @@ class TestArtifactDataAPI:
             store,
             workspace,
             {
-                # Distinct value ranges per channel, and a series order that is
-                # NOT alphabetical, so a header built from anything but the
-                # rows' own column list is detectable from the cells alone.
+                # Non-alphabetical order and distinct value ranges per channel
+                # make a wrong header detectable from the cells alone.
                 "PV:C": (["t0", "t1"], [100.0, 200.0]),
                 "PV:A": (["t0", "t1"], [1.0, 2.0]),
                 "PV:B": (["t0", "t1"], [10.0, 20.0]),
@@ -394,10 +362,7 @@ class TestArtifactDataAPI:
 
     @pytest.mark.unit
     def test_legacy_dataframe_wrapper_layout_chart_and_table(self, app_client):
-        """The legacy archiver split-orient WRAPPER layout (``{"dataframe":
-        ..., "query": ...}``) is exactly what is already on disk for artifacts
-        written before this task -- both formats must still render it.
-        """
+        """The legacy wrapper layout already on disk must still render in both formats."""
         client, workspace = app_client
         store = client.app.state.artifact_store
         columns = ["PV:A", "PV:B"]
@@ -424,12 +389,8 @@ class TestArtifactDataAPI:
 
     @pytest.mark.unit
     def test_legacy_wide_layout_with_nulls_round_trips_through_table(self, app_client):
-        """A legacy wide layout with a null cell (channel had no sample at that
-        shared timestamp) drops the null while transposing
-        (``extract_channel_series``) and then re-inserts it while pivoting
-        back for display (``_pivot_channel_series_to_table``) -- the
-        drop-then-pivot round trip must reproduce the original wide frame
-        exactly, null for null.
+        """A null cell in a legacy wide layout survives the drop-then-pivot
+        round trip exactly, null for null.
         """
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -493,14 +454,6 @@ class TestArtifactDataAPI:
 class TestArtifactTablePivotRobustness:
     """Edge cases in ``_pivot_channel_series_to_table``, the union-and-fill
     pivot behind ``format=table``.
-
-    A columns/index/data table has exactly one cell per (timestamp, channel)
-    pair, so a channel with more than one sample at the same timestamp label
-    cannot be represented without silently discarding one of them -- that must
-    be a visible failure, not a quiet drop. A length mismatch between one
-    channel's own timestamps/values (a malformed artifact, not a shape
-    collision) must NOT crash the table path when the chart path tolerates it.
-    A union of mutually-incomparable timestamp types must not crash ``sorted()``.
     """
 
     @pytest.fixture
@@ -516,10 +469,8 @@ class TestArtifactTablePivotRobustness:
     def test_duplicate_timestamp_within_a_channel_is_a_visible_error_not_silent_loss(
         self, app_client
     ):
-        """Reproduces the reviewer's exact repro: a legacy shared index with a
-        duplicated label (``["t0", "t0", "t1"]``) used to silently collapse to
-        2 rows, discarding the first t0 sample (1.0) with no signal. It must
-        now fail loudly instead of returning a corrupted row count.
+        """A legacy shared index with a duplicated label must fail loudly, not
+        silently collapse rows and discard a sample.
         """
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -538,8 +489,7 @@ class TestArtifactTablePivotRobustness:
     @pytest.mark.unit
     def test_mismatched_channel_length_does_not_500_in_table(self, app_client):
         """A malformed channel (more timestamps than values) must not crash the
-        table path when the chart path already tolerates it -- table should be
-        at least as tolerant as chart on the same input.
+        table path when the chart path already tolerates it.
         """
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -563,12 +513,9 @@ class TestArtifactTablePivotRobustness:
     def test_duplicate_detection_names_the_first_repeat_by_position(self, app_client):
         """Which duplicate the 500 names is part of the contract.
 
-        ``["b", "a", "a", "b"]`` has two repeats: ``"a"`` at index 2 and ``"b"``
-        at index 3. The error must name ``"a"`` -- the first repeat reached
-        scanning left to right -- not ``"b"``, whose *first occurrence* comes
-        earlier. A rewrite that detects duplicates in bulk and then re-derives
-        the offender (e.g. from the first duplicated key by insertion order)
-        flips this.
+        ``["b", "a", "a", "b"]`` has two repeats; the error must name ``"a"``,
+        the first repeat reached scanning left to right -- not ``"b"``, whose
+        *first occurrence* comes earlier.
         """
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -588,12 +535,7 @@ class TestArtifactTablePivotRobustness:
 
     @pytest.mark.unit
     def test_duplicate_beyond_the_shorter_values_list_is_not_an_error(self, app_client):
-        """Pairs are zipped, so timestamps past the end of ``values`` don't exist.
-
-        ``timestamps`` repeats ``"t0"`` at index 3, but ``values`` has only 3
-        entries -- that pair is never formed, so there is no second cell to
-        collide with and the table must render.
-        """
+        """Pairs are zipped, so timestamps past the end of ``values`` don't exist."""
         client, workspace = app_client
         store = client.app.state.artifact_store
         entry, _ = _make_raw_series_artifact(
@@ -630,14 +572,8 @@ class TestArtifactTablePivotRobustness:
 
     @pytest.mark.unit
     def test_unhashable_timestamps_still_pivot_into_a_table(self, app_client):
-        """A timestamp that is itself a JSON array cannot key a dict, which is
-        how each channel's samples are looked up per row.
-
-        Nothing in this repo writes such an artifact, but the endpoint renders
-        whatever JSON an entry's ``data_file`` points at, and the cells are
-        perfectly displayable — the same reasoning that keeps the
-        incomparable-types sort fallback. Falls back to matching timestamps by
-        equality instead of by hash.
+        """A timestamp that is itself a JSON array cannot key a dict; the pivot
+        falls back to matching timestamps by equality instead of by hash.
         """
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -679,20 +615,11 @@ class TestArtifactTablePivotRobustness:
 
     @pytest.mark.unit
     def test_unhashable_timestamps_do_not_crash_the_chart_row_count(self, app_client):
-        """A timestamp that is itself a JSON array is unhashable, so the row axis
-        cannot be deduplicated through a ``set``.
+        """An unhashable timestamp cannot be deduplicated through a ``set``; the
+        chart's row count must not take down a chart that would otherwise draw.
 
-        ``format=chart`` renders such an artifact fine -- it draws each channel
-        on its own timestamps and never needs a shared axis. It only acquired a
-        row count (for the info bar) once both formats started sharing one
-        row-axis helper, and a number shown in a corner must not be able to take
-        down a chart that would otherwise draw. Same rule as the
-        incomparable-types case above.
-
-        ``format=table`` is deliberately NOT covered: a table has one cell per
-        (timestamp, channel) pair, so it must key a lookup by the timestamp
-        itself. An unhashable label cannot be represented at all, and that path
-        raised before this row-count work and still does.
+        ``format=table`` is deliberately NOT covered: a table must key a lookup
+        by the timestamp itself, so an unhashable label cannot be represented.
         """
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -767,12 +694,9 @@ class TestArtifactPinHighlightAPI:
 class TestTablePivotPagination:
     """``format=table`` must build only the requested page, not the whole file.
 
-    The pivot used to materialize one cell per (timestamp, channel) pair across
-    the entire artifact and slice afterwards -- redone from scratch on every
-    page click, with a 50-row default page and a 200 MB file cap. The shared
-    axis still has to be unioned and sorted in full to know where the page
-    starts, but that is one entry per timestamp rather than one per timestamp
-    *and* channel.
+    The shared axis still has to be unioned and sorted in full to know where
+    the page starts, but that is one entry per timestamp rather than one per
+    timestamp *and* channel.
     """
 
     @staticmethod
@@ -787,13 +711,8 @@ class TestTablePivotPagination:
     def test_only_the_requested_page_is_materialized(self):
         """Counts the actual row-building work rather than trusting the shape.
 
-        Every cell built does one ``value_by_channel[ch]`` lookup, i.e. one hash
-        of a channel name, so channel names that count their own hashing measure
-        cells materialized directly: ``n_channels`` for the one-time
-        ``value_by_channel`` insert, then ``n_channels`` per row built.
-        Asserting only ``len(rows) == limit`` would still pass a version that
-        builds every row and slices inside the function -- which is the
-        regression this guards.
+        Every cell built does one ``value_by_channel[ch]`` lookup, so channel
+        names that count their own hashing measure cells materialized directly.
         """
         from osprey.interfaces.artifacts.app import _pivot_channel_series_to_table
 
@@ -812,9 +731,8 @@ class TestTablePivotPagination:
 
         assert total == 1000
         assert len(page) == len(rows) == 10
-        # 3 inserts + 3 lookups x 10 rows == 33; a whole-file build would be
-        # 3 + 3 x 1000. Bounded rather than exact so an extra bookkeeping hash
-        # is not a test failure, while a full materialization still is.
+        # 3 inserts + 3 lookups x 10 rows == 33; bounded rather than exact so
+        # an extra bookkeeping hash is not a failure, but a whole-file build is.
         assert CountingName.hashes <= len(channels) * (10 + 5)
         assert list(columns) == list(channels)
 
@@ -840,14 +758,7 @@ class TestTablePivotPagination:
 
     @pytest.mark.unit
     def test_columns_are_derived_from_the_series_and_index_the_rows(self):
-        """The pivot reports the columns it built the rows against.
-
-        Nothing outside can hand it a column list any more, so the header the
-        endpoint returns cannot drift from the cells: the same list that indexes
-        each row is the one returned. Channels carry disjoint value ranges, so a
-        mutant returning e.g. ``sorted(series)`` while building rows in
-        insertion order is caught by the cells, not just by the header's order.
-        """
+        """The pivot reports the columns it built the rows against."""
         from osprey.interfaces.artifacts.app import _pivot_channel_series_to_table
 
         series = {

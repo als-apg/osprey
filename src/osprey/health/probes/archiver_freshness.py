@@ -192,25 +192,12 @@ def _archiver_block(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
 def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, Any] | None:
     """Return the ``(timestamp, value)`` of the newest non-null sample, or ``None``.
 
-    Filters the canonical long-format archiver frame (columns ``timestamp``,
-    ``channel``, ``value``) to rows for ``channel``, drops null values, and
-    returns the row with the maximum timestamp. ``None`` means "this channel has
-    no non-null samples in the window" — including the empty-result frame, and
-    including a frame carrying only *other* channels' samples.
-
-    The timestamp is returned as pandas hands it over: :meth:`get_data`
-    guarantees a ``datetime64[ns, UTC]`` column, so the row's value is a
-    UTC-aware :class:`pandas.Timestamp`, which *is* a
-    :class:`~datetime.datetime` — the caller's age arithmetic works directly on
-    it. It is deliberately **not** passed through ``to_pydatetime()``: that
-    discards the nanoseconds the EPICS connector really carries and warns while
-    doing it, to buy nothing the age comparison needs.
-
-    A frame that does not conform to the long-format contract (no ``channel``
-    column, no ``timestamp`` column) is a connector bug, not a quiet archiver,
-    and is left to raise. The health runner isolates it into one ``error`` row
-    naming the exception; degrading it here to "no samples" would report a
-    reachable-but-idle archiver, sending an operator after the wrong fault.
+    Filters the long-format archiver frame to rows for ``channel``, drops null
+    values, and returns the row with the maximum timestamp; ``None`` means the
+    channel has no non-null samples in the window. The timestamp is a UTC-aware
+    :class:`pandas.Timestamp` (itself a ``datetime``), deliberately not passed
+    through ``to_pydatetime()``, which discards nanoseconds and warns. A frame
+    missing the long-format columns is a connector bug and is left to raise.
     """
     sub = frame.loc[frame["channel"] == channel].dropna(subset=["value"])
     if sub.empty:

@@ -125,9 +125,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
-            The canonical long frame — see :meth:`ArchiverConnector.get_data`
-            for the full contract (columns, dtypes, ordering, and the rule that
-            nothing is ever manufactured).
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`.
 
         Raises:
             RuntimeError: If archiver not connected, or a DOOCS property's
@@ -135,44 +133,20 @@ class DOOCSArchiverConnector(ArchiverConnector):
             TypeError: If start_date or end_date are not datetime objects
             TimeoutError: If the request times out
             ValueError: If a non-raw processing mode is requested for a
-                channel that carries non-numeric values (see
-                :func:`~osprey.connectors.archiver._timerange.aggregate_series`)
+                channel that carries non-numeric values
         """
 
-        # An omitted timeout means "the connector's default", not "wait forever":
-        # asyncio.wait_for(timeout=None) blocks indefinitely, so an unresponsive
-        # ENS would hang the caller. Matches EPICS and MongoDB.
+        # asyncio.wait_for(timeout=None) would block indefinitely.
         timeout = timeout if timeout is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("DOOCS archiver not connected")
 
-        # A naive datetime's .timestamp() resolves against the *host* zone; convert
-        # explicitly so the window means the same thing on every deploy box. Deriving
-        # duration from the converted bounds (rather than the raw start_date/end_date)
-        # also tolerates a mixed naive/aware pair, which would otherwise raise TypeError
-        # on subtraction before either bound got a chance to be normalized.
+        # A naive datetime's .timestamp() resolves against the *host* zone;
+        # convert explicitly so the window means the same thing on every box.
         start_utc, end_utc = utc_window(start_date, end_date)
         resolved = resolve_processing(processing, precision_ms)
 
-        # Every real archived sample reaches aggregate_series below. It did not
-        # always: _read_history used to take a max_points parameter, and get_data
-        # used to pass one (derived from precision_ms) for every mode, "raw"
-        # included. _read_history then decimated onto a np.linspace grid with a
-        # nearest-sample-at-or-before zero-order hold -- a regular grid plus a
-        # forward-fill, both explicitly prohibited by this framework's "nothing
-        # is manufactured" contract. Measured against an 8h window holding
-        # 288,000 archived samples, only 2 of the 10,000 timestamps "raw"
-        # returned were real archived ones; the rest were grid positions
-        # carrying forward-filled values. The aggregate modes were starved the
-        # same way -- finding #1, the bug this whole fix pass exists for --
-        # because mean/count/std need the underlying raw samples to aggregate
-        # *over*, and the grid handed them a single held value per bin. "raw"
-        # needs those same real samples for the same reason: decimate_raw
-        # (inside aggregate_series) keeps each bin's own real last sample, at
-        # its own real timestamp, which requires the real samples in the first
-        # place. The parameter and its grid branch have since been removed
-        # outright -- the contract left them no way back.
         def fetch_all() -> dict[str, pd.Series]:
             data = {}
             for add in pv_list:
@@ -192,13 +166,6 @@ class DOOCSArchiverConnector(ArchiverConnector):
         try:
             series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
 
-            # Each channel is aggregated over its own real samples independently
-            # of every other requested channel -- aggregate_series drops any bin
-            # with no samples rather than emitting one, so no grid alignment or
-            # bin-width floor is needed regardless of how differently two
-            # channels are sampled. "raw" decimates via aggregate_series's
-            # decimate_raw path: one real sample per precision_ms bin, at its
-            # own real timestamp.
             data = aggregate_long_frame(series_dict, resolved)
 
             logger.debug(
@@ -255,10 +222,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             Time range in UNIX timestamps.
         avg_window:
             Length (in seconds) of a centered moving average over the archived
-            samples at their own irregular timestamps. The window is a real
-            duration, so it needs no constant dt: it never introduces a grid of
-            its own, and it returns exactly one value per input sample, at that
-            sample's own time.
+            samples at their own irregular timestamps.
 
         Returns
         -------
@@ -305,11 +269,6 @@ class DOOCSArchiverConnector(ArchiverConnector):
             if not all_data:
                 return None
 
-            # np.fromiter with an explicit count sizes the buffer once and fills
-            # it directly, skipping the intermediate Python list (measured 1.75x
-            # over 400k entries -- this is the chunked-fetch path, so all_data is
-            # the right shape for it). count must stay len(all_data): a short
-            # count would silently truncate real archived samples.
             n_entries = len(all_data)
             raw_time = np.fromiter(map(itemgetter(0), all_data), dtype=float, count=n_entries)
             raw_data = np.fromiter(map(itemgetter(3), all_data), dtype=float, count=n_entries)
@@ -319,24 +278,9 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raw_time, unique_indices = np.unique(raw_time, return_index=True)
             raw_data = raw_data[unique_indices]
 
-            # Optional centered moving average over the real samples. The window
-            # is a real duration, so irregular sample spacing is fine -- each
-            # output value averages the samples that actually fall within
-            # avg_window of its own timestamp, and every timestamp returned is
-            # one an archived sample really carries. A time-based rolling window
-            # also needs no constant dt, which is why smoothing no longer drags
-            # a uniform grid in behind it the way the old fixed-width
-            # convolution kernel did.
-            #
-            # An offset window also shrinks at the edges rather than zero-padding
-            # (no renormalization pass needed) and always returns exactly one
-            # value per input sample: np.convolve(mode="same") returned
-            # max(n_samples, window_width), so an avg_window wider than the
-            # queried span used to hand back `data` longer than `time` and blow
-            # up in get_data with a length mismatch.
-            #
-            # Smoothing keeps the real timestamps it operated on, so either way
-            # every timestamp returned is one an archived sample really carries.
+            # Optional centered moving average over the real samples. The
+            # time-based window handles irregular spacing and keeps the real
+            # timestamps, returning exactly one value per input sample.
             out_data = (
                 pd.Series(raw_data, index=pd.to_datetime(raw_time, unit="s"))
                 .rolling(pd.Timedelta(seconds=avg_window), center=True)

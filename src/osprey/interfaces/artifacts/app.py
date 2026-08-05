@@ -440,21 +440,14 @@ def _union_timestamp_axis(series: dict[str, dict]) -> Collection:
     """Every timestamp any channel carries, deduplicated — the table's row axis.
 
     Shared by both response formats so ``format=chart``'s ``summary.row_count``
-    is by construction the same number ``format=table`` paginates over
-    (``total_rows``). They are two separate requests whose numbers an operator
-    reads side by side in the same view, so they must not be computed twice.
+    always matches ``format=table``'s ``total_rows``.
     """
     stamps = chain.from_iterable(data.get("timestamps", []) for data in series.values())
     try:
         return set(stamps)
     except TypeError:
-        # An unhashable timestamp (a JSON array, say) cannot go in a set. Same
-        # reasoning as the incomparable-types fallback in the sort below: this
-        # endpoint renders whatever JSON an entry's `data_file` points at,
-        # including artifacts written by hand or by another facility's script,
-        # and such a file is still displayable. Dedupe by equality instead --
-        # quadratic, but only on this malformed-artifact path, and a slow render
-        # beats a 500. `stamps` is a one-shot iterator, so rebuild it.
+        # An unhashable timestamp (a JSON array, say) cannot go in a set;
+        # dedupe by equality instead. `stamps` is one-shot, so rebuild it.
         unique: list = []
         for stamp in chain.from_iterable(data.get("timestamps", []) for data in series.values()):
             if stamp not in unique:
@@ -463,13 +456,7 @@ def _union_timestamp_axis(series: dict[str, dict]) -> Collection:
 
 
 def _raise_duplicate_sample(channel: str, stamp: object) -> None:
-    """Reject two samples sharing one (timestamp, channel) cell.
-
-    Extracted so the hashable and unhashable lookups cannot drift into
-    reporting the same malformed artifact differently — the wording and the
-    choice of *which* repeat is named are both part of this endpoint's
-    contract, pinned by tests.
-    """
+    """Reject two samples sharing one (timestamp, channel) cell."""
     raise HTTPException(
         status_code=500,
         detail=(
@@ -483,22 +470,15 @@ def _raise_duplicate_sample(channel: str, stamp: object) -> None:
 class _EqualityMatchLookup:
     """A channel's ``timestamp -> value`` lookup for unhashable timestamps.
 
-    Stands in for the ``dict`` the fast path builds, matching by ``==`` rather
-    than by hash so a timestamp that is itself a JSON array still resolves. Only
-    a malformed artifact reaches this, so the linear scan per cell — and the
-    quadratic duplicate check below — are paid only there; the hashable path is
-    untouched.
-
-    Duplicates are detected eagerly, in the constructor, so that a repeated
-    label fails exactly as loudly here as it does on the hashable path instead
-    of silently resolving to whichever sample the scan happens to reach first.
+    Matches by ``==`` rather than by hash; duplicates are rejected eagerly in
+    the constructor, matching the hashable path.
     """
 
     __slots__ = ("_pairs",)
 
     def __init__(self, channel: str, timestamps: list, values: list) -> None:
-        # `strict=False` mirrors the fast path: a channel whose timestamps and
-        # values differ in length is tolerated, not an error.
+        # strict=False: a timestamps/values length mismatch is tolerated, as
+        # on the fast path.
         self._pairs = list(zip(timestamps, values, strict=False))
         for i, (stamp, _val) in enumerate(self._pairs):
             if any(stamp == earlier for earlier, _ in self._pairs[:i]):
@@ -519,41 +499,12 @@ def _pivot_channel_series_to_table(
 ) -> tuple[list[str], list, list[list], int]:
     """Pivot per-channel series into aligned rows for table display.
 
-    Channels are not aligned to a shared axis (see ``extract_channel_series``),
-    but the table view still needs one row per timestamp with one cell per
-    channel. This unions every channel's own timestamps into one sorted axis
-    and looks up each channel's value at each shared timestamp, leaving
-    ``None`` where that channel has no sample there.
-
-    This is presentation-only: a no-fill pivot computed fresh on every
-    request, never written back to storage, and independent of the
-    per-channel ``series`` a caller may also use for the chart path.
-
-    Two malformed-input cases are handled deliberately, not by accident:
-
-    - A channel with more than one sample at the *same* timestamp label
-      cannot be represented here -- a table has exactly one cell per
-      (timestamp, channel) pair. Silently keeping the last sample would
-      quietly discard the other(s), so this raises a clear error instead
-      (a visible failure beats a corrupted row count).
-    - A channel whose ``timestamps``/``values`` lengths differ (a malformed
-      artifact, not a shape collision) is tolerated the same way the chart
-      path already tolerates it -- pairs are built with ``zip(..., strict=
-      False)``, so the mismatch never crashes the endpoint.
-
-    Only the requested page's rows are materialized. Building every row and
-    slicing afterwards costs one cell per (timestamp, channel) pair across the
-    whole file — on every page click, against a file cap of
-    ``MAX_TIMESERIES_FILE_BYTES`` and a default page of 50 rows. The shared
-    axis still has to be unioned and sorted in full to know the row count and
-    where the page starts, but that is one entry per timestamp rather than one
-    per timestamp *and* channel.
-
-    The column order is the series' own channel order, derived here rather than
-    supplied: the returned ``columns`` is the very list each row was indexed
-    with, so a caller cannot pair these rows with a header from anywhere else
-    (the table view's header used to come from a *separate* ``format=chart``
-    request, which can disagree for an artifact being written while it is read).
+    Unions every channel's own timestamps into one sorted axis and looks up
+    each channel's value at each shared timestamp, leaving ``None`` where
+    that channel has no sample. Presentation-only; only the requested page's
+    rows are materialized. The returned ``columns`` is the very list each row
+    was indexed with — a header taken from any other response can disagree
+    with these rows.
 
     Args:
         series: Per-channel series as returned by ``extract_channel_series``.
@@ -571,29 +522,19 @@ def _pivot_channel_series_to_table(
             timestamp label.
     """
     columns = list(series.keys())
-    # Either lookup answers `.get(timestamp)`; which one a channel gets depends
-    # only on whether its timestamps are hashable.
     value_by_channel: dict[str, dict | _EqualityMatchLookup] = {}
     for ch, data in series.items():
         timestamps = data.get("timestamps", [])
         values = data.get("values", [])
-        # A dict of n pairs holds fewer than n entries iff a key repeated, so
-        # the length check detects duplicates exactly, while the build itself
-        # stays in C. Only malformed input pays for the re-walk below.
+        # A dict of n pairs holds fewer than n entries iff a key repeated.
         try:
             by_ts: dict = dict(zip(timestamps, values, strict=False))
         except TypeError:
-            # An unhashable timestamp (a JSON array, say) cannot key a dict at
-            # all. Same reasoning as the incomparable-types sort fallback below:
-            # the cells are still displayable, so match by equality instead of
-            # by hash rather than 500 on a renderable artifact.
+            # Unhashable timestamps can't key a dict; match by equality instead.
             value_by_channel[ch] = _EqualityMatchLookup(ch, timestamps, values)
             continue
         if len(by_ts) != min(len(timestamps), len(values)):
-            # Which duplicate is named is part of the error's contract: the
-            # first repeat reached scanning pairs left to right, not the first
-            # label that happens to repeat somewhere later. Re-walking the same
-            # zip the fast path collapsed is what keeps those identical.
+            # Re-walk the pairs to name the first repeated timestamp.
             seen: set = set()
             for ts, _val in zip(timestamps, values, strict=False):
                 if ts in seen:
@@ -605,15 +546,8 @@ def _pivot_channel_series_to_table(
     try:
         index = sorted(all_timestamps)
     except TypeError:
-        # Timestamps of mutually-incomparable types (e.g. int from one channel,
-        # str from another) can't be compared by `<`. No writer in this repo
-        # produces that -- but this endpoint renders whatever JSON an entry's
-        # `data_file` points at, including artifacts written by hand or by
-        # another facility's script, and every value in such a file is
-        # displayable. A deterministic (if not necessarily chronological) order
-        # beats a 500 on data that is otherwise perfectly renderable; contrast
-        # the duplicate-timestamp branch above, where the alternative to
-        # failing is silently dropping a real sample.
+        # Mutually-incomparable timestamp types (e.g. int vs str) can't sort
+        # by `<`; a deterministic string order beats a 500.
         index = sorted(all_timestamps, key=str)
 
     total_rows = len(index)
@@ -855,22 +789,15 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 }
                 for record in downsample_channel_map(series, max_points)
             ]
-            # Cross-channel aggregates belong to whoever knows all the
-            # channels. Every client would otherwise re-derive the three sums
-            # itself, and none of them can derive `row_count` at all: the
-            # unioned timestamp axis only exists on this side, so a client
-            # showing a per-channel point sum next to the table's `total_rows`
-            # shows two numbers that cannot be reconciled.
+            # Cross-channel totals are computed server-side: per-channel point
+            # sums disagree with the unioned row axis, and `row_count` is not
+            # derivable client-side at all.
             return {
                 "channels": channels_out,
                 "metadata": query_meta,
                 "summary": {
                     "total_points": sum(ch["total_points"] for ch in channels_out),
                     "returned_points": sum(ch["returned_points"] for ch in channels_out),
-                    # Whether a channel was reduced is exactly "it came back
-                    # shorter", so it is derived here rather than published
-                    # per-channel as a second field the client would have to
-                    # keep consistent with the two counts beside it.
                     "downsampled": any(
                         ch["returned_points"] < ch["total_points"] for ch in channels_out
                     ),
@@ -878,10 +805,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 },
             }
 
-        # format == "table": union every channel's own timestamps into one
-        # sorted axis and pivot to columns/index/data for display.
-        # Presentation-only -- a missing sample at a shared timestamp becomes
-        # `null`, never filled, and nothing here is written back to storage.
+        # format == "table": pivot per-channel series onto a unioned row axis.
         columns, sliced_index, sliced_data, total_rows = _pivot_channel_series_to_table(
             series, offset=offset, limit=limit
         )

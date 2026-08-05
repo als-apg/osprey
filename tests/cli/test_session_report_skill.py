@@ -190,16 +190,11 @@ class TestSessionReportReferenceStructure:
     def test_chart_recipe_uses_per_dataset_x_values(self, reference_text):
         """The line-chart recipe must not teach a shared `labels` axis.
 
-        ``archiver_downsample`` returns one ``timestamps`` array per channel —
-        channels are archived at independent cadences and are not aligned to a
-        shared axis. A ``data: { labels: timestamps, datasets: [...] }`` config
-        draws every series against the *first* channel's x-values, and the
-        rendered chart looks perfectly plausible while being wrong. The recipe
-        must give each dataset its own ``{x, y}`` points instead.
+        ``archiver_downsample`` returns one ``timestamps`` array per channel,
+        so each dataset needs its own ``{x, y}`` points.
         """
         assert "labels: timestamps" not in reference_text
         assert "x: Date.parse(" in reference_text
-        # Each dataset maps its own timestamps rather than sharing one array.
         assert "d.timestamps.map(" in reference_text
         # {x, y} point data requires parsing off and an explicit scale type.
         assert "parsing: false" in reference_text

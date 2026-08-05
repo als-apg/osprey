@@ -59,43 +59,21 @@ def build_data_reader(data_source: str) -> str:
 
     - CSV/Excel/Parquet → ``data`` is a pandas DataFrame
     - JSON with legacy OSPREY metadata envelope → unwrapped, then converted to DataFrame
-    - JSON with the long-format archiver ``series`` envelope (current
-      ``archiver_read`` output: ``{query: ..., series: {channel: {timestamps,
-      values}}}``) → pivoted to a wide DataFrame: one column per channel, a
-      ``DatetimeIndex`` that is the *union* of every channel's own real
-      timestamps. A channel with no sample at another channel's timestamp gets
-      ``NaN`` there — nothing is forward-filled or otherwise invented, it is
-      the ordinary consequence of aligning independently-timed columns for
-      plotting. A non-numeric (enum/status) channel's column keeps its own
-      dtype and does not raise. A channel with zero samples in range (an
-      empty ``timestamps``/``values`` pair — always present for every
-      *requested* channel, per ``archiver_read``'s contract) is tolerated:
-      its tz-naive empty index is built with ``utc=True`` so it can still be
-      concatenated against a populated channel's tz-aware index. A channel
-      whose ``timestamps`` and ``values`` differ in length (a malformed
-      artifact) is tolerated the same way
-      :func:`osprey.utils.timeseries.lttb_downsample_channel` and
-      :func:`osprey.interfaces.artifacts.app._pivot_channel_series_to_table`
-      already tolerate it. This branch only fires when ``series`` is
-      genuinely shaped like the archiver envelope (a dict of per-channel
-      dicts) — a coincidental top-level ``series`` key of some other shape
-      falls through to the generic dict/list handling below instead of
-      raising.
+    - JSON with the archiver ``series`` envelope (``{query: ..., series:
+      {channel: {timestamps, values}}}``) → pivoted to a wide DataFrame: one
+      column per channel, indexed by the union of all channels' timestamps
+      (``NaN`` where a channel has no sample; nothing is forward-filled).
     - JSON with the legacy split-orient archiver ``dataframe`` envelope
       (``{query: ..., dataframe: {columns, index, data}}``) → unwrapped, then
-      converted to DataFrame. Old artifacts on disk in this layout still load.
+      converted to DataFrame.
 
     After this code runs, **``data`` is always a pandas DataFrame** (for
     tabular sources) or a raw string (for unrecognized formats).
 
-    Note: this can't simply call
-    :func:`osprey.utils.timeseries.extract_channel_series` at runtime — the
-    generated code executes inside the visualization sandbox
-    (``osprey.mcp_server.workspace.execution.sandbox_executor``), whose
-    AST-level import whitelist does not include ``osprey`` itself, so an
-    ``import osprey...`` here would fail *every* JSON ``data_source`` load
-    with "Import not allowed", not just archiver ones. The ``series`` branch
-    below is a self-contained pivot instead.
+    Note: the generated code runs inside the visualization sandbox, whose
+    import whitelist excludes ``osprey`` itself, so the ``series`` branch is a
+    self-contained pivot rather than a call to
+    :func:`osprey.utils.timeseries.extract_channel_series`.
     """
     loading = build_data_loading_code(data_source)
     return (
@@ -110,18 +88,10 @@ elif _data_path.endswith('.json'):
     # Unwrap legacy OSPREY metadata envelope (if present)
     if isinstance(data, dict) and '_osprey_metadata' in data and 'data' in data:
         data = data['data']
-    # Handle the long-format archiver envelope: {query: ..., series: {channel:
-    # {timestamps, values}}}. Pivot to a wide DataFrame (one column per channel)
-    # for plotting; each channel keeps its own real samples and its own dtype
-    # (non-numeric/enum channels included) -- only the alignment for a shared
-    # x-axis is new here, nothing is forward-filled.
-    # Guarded on every entry carrying 'timestamps', so a coincidental top-level
-    # 'series' key of some other shape falls through to the generic dict/list
-    # handling below instead of being pivoted. A bare dict-of-dicts check is not
-    # enough: {'series': {'a': {'x': 1}, 'b': {'x': 2}}} is a dict of dicts and
-    # is not an archiver envelope -- it used to enter this branch and come out
-    # as an empty two-column frame, where the generic path below builds a usable
-    # one. Matches the guard in _build_oversize_preview.
+    # Archiver envelope: {query: ..., series: {channel: {timestamps, values}}}.
+    # Pivot to a wide DataFrame, one column per channel. Guarded on every entry
+    # carrying 'timestamps' so an unrelated top-level 'series' key falls
+    # through to the generic handling below (matches _build_oversize_preview).
     _series = data.get('series') if isinstance(data, dict) else None
     if isinstance(_series, dict) and all(
         isinstance(_v, dict) and 'timestamps' in _v for _v in _series.values()
@@ -130,23 +100,14 @@ elif _data_path.endswith('.json'):
         for _channel, _entry in _series.items():
             _timestamps = _entry.get('timestamps', [])
             _values = _entry.get('values', [])
-            # A channel whose timestamps/values differ in length (a malformed
-            # artifact) is tolerated the same way the chart downsampler and
-            # the artifacts-app table pivot already tolerate it.
+            # Tolerate a malformed artifact with mismatched lengths
             if len(_timestamps) != len(_values):
                 _shared = min(len(_timestamps), len(_values))
                 _timestamps, _values = _timestamps[:_shared], _values[:_shared]
-            # utc=True: an empty channel (always present for every requested
-            # channel per archiver_read's contract) yields a tz-naive empty
-            # index from pd.to_datetime([]), while a populated channel yields
-            # a tz-aware one -- concat below would raise "Cannot join
-            # tz-naive with tz-aware DatetimeIndex" without this.
-            # dtype float64 for the empty case: pd.Series([]) has no values to
-            # infer from and lands on object dtype, and Plotly Express refuses a
-            # wide frame whose columns differ in type. Without this, "plot beam
-            # current alongside a channel with no data in this window" raises
-            # instead of drawing the channel that does have data. An empty column
-            # carries no value whose real dtype this could contradict.
+            # utc=True: pd.to_datetime([]) yields a tz-naive empty index, which
+            # concat below cannot join with a populated channel's tz-aware one.
+            # dtype float64 for the empty case: an object-dtype empty column
+            # makes Plotly Express refuse the whole wide frame.
             _idx = pd.to_datetime(_timestamps, utc=True)
             _channel_cols[_channel] = pd.Series(
                 _values, index=_idx, dtype='float64' if not _values else None

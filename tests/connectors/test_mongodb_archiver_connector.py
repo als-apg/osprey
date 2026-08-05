@@ -320,11 +320,9 @@ class TestGetDataMethod:
 
         # Get first 6 hourly samples. The connector's range query is inclusive
         # on both ends ($gte/$lte), so end_date is the timestamp of the last
-        # sample we want, not the exclusive upper bound. precision_ms is set to
-        # match the seeded hourly cadence: binning now applies to every mode
-        # (including raw), and a finer default bin would reindex onto a much
-        # denser grid than the data actually has. Bounds are made tz-aware
-        # since the connector's returned index is UTC.
+        # sample we want, not the exclusive upper bound. precision_ms matches
+        # the seeded hourly cadence; bounds are tz-aware since the returned
+        # timestamps are UTC.
         start_date = mongodb_test_data["start_date"].replace(tzinfo=UTC)
         end_date = datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC)
 
@@ -581,10 +579,7 @@ class TestQueryShapeWithoutDocker:
                 {"date": 1, "BEAM:CURRENT": 1, "BEAM:LIFETIME": 1},
             ),
             # A PV literally named "date", and a repeated PV, both collapse
-            # into the single key the projection already has. Pinned because
-            # the projection is built by merging pv_list over a dict that
-            # already contains "date" -- the collapse is the merge's behaviour,
-            # not an accident of how the merge is spelled.
+            # into the single key the projection already has.
             (["date"], {"date": 1}),
             (["BEAM:CURRENT", "BEAM:CURRENT"], {"date": 1, "BEAM:CURRENT": 1}),
         ],
@@ -592,11 +587,8 @@ class TestQueryShapeWithoutDocker:
     async def test_projection_requests_date_plus_exactly_the_requested_pvs(self, pv_list, expected):
         """``date`` must be projected alongside the PVs, and nothing else.
 
-        Every sample's timestamp comes from ``date``; drop it from the
-        projection and each document is skipped as "missing 'date' field", so
-        the query returns an empty frame while the matching documents sit right
-        there in the cursor. Projecting more than the requested PVs is the
-        opposite failure -- it pulls whole documents over the wire.
+        Drop ``date`` and every document is skipped as missing it; projecting
+        more than the requested PVs pulls whole documents over the wire.
         """
         connector, captured = self._stub_connector([])
 
@@ -610,11 +602,7 @@ class TestQueryShapeWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_precision_ms_bins_a_non_raw_processing_mode(self):
-        """precision_ms must actually downsample a non-raw mode rather than being a no-op.
-
-        "raw" itself is never binned regardless of precision_ms — aggregate_series
-        returns it unchanged by contract — so this exercises "max" instead.
-        """
+        """precision_ms must actually downsample a non-raw mode rather than being a no-op."""
         documents = [
             {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
             for s in range(6)
@@ -634,10 +622,9 @@ class TestQueryShapeWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_raw_processing_decimates_to_last_real_sample_per_bin(self):
-        """ "raw" with a real precision_ms keeps one real sample per bin -- its own
-        real timestamp, never a bin-edge timestamp resample().agg("last") would
-        fabricate. Six 1s-apart documents at precision_ms=2000 -> three 2s bins.
-        """
+        """ "raw" with a real precision_ms keeps one real sample per bin, at its
+        own real timestamp. Six 1s-apart documents at precision_ms=2000 -> three
+        2s bins."""
         documents = [
             {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
             for s in range(6)
@@ -662,10 +649,8 @@ class TestQueryShapeWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_raw_processing_at_full_resolution_returns_every_sample(self):
-        """precision_ms <= 0 is "raw" processing's full-resolution case: every real
-        sample, unbinned -- distinct from a real precision_ms, which decimates
-        (see test_raw_processing_decimates_to_last_real_sample_per_bin above).
-        """
+        """precision_ms <= 0 is "raw" processing's full-resolution case: every
+        real sample, unbinned."""
         documents = [
             {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
             for s in range(6)
@@ -709,10 +694,8 @@ class TestQueryShapeWithoutDocker:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("processing", ["raw", "mean"])
     async def test_empty_window_returns_the_typed_empty_long_frame(self, processing):
-        # A non-raw mode must not choke on an empty channel: aggregate_series's
-        # non-numeric-dtype guard used to run before an emptiness check, so an
-        # empty (object-dtype) series raised a misleading "non-numeric" error
-        # instead of just contributing no rows (C1).
+        # Regression: the non-numeric guard ran before the emptiness check, so
+        # an empty (object-dtype) channel raised a misleading "non-numeric".
         connector, _ = self._stub_connector([])
 
         df = await connector.get_data(
@@ -757,10 +740,8 @@ class TestQueryShapeWithoutDocker:
             precision_ms=1000,
         )
 
-        # Documents are 1 hour apart; naively resampling at the requested 1 s
-        # precision would reindex onto an 18,001-row grid (5 h / 1 s + 1).
-        # aggregate_series drops every bin with no samples instead, so the
-        # frame stays bounded at one row per document with no floor needed.
+        # Documents are 1 hour apart; naive 1 s resampling would reindex onto
+        # an 18,001-row grid.
         values = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
         assert len(values) == 6
         assert values.tolist() == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
@@ -770,14 +751,8 @@ class TestQueryShapeWithoutDocker:
     async def test_absent_pv_contributes_no_rows_not_nan(self, processing):
         """A PV present in zero matched documents contributes no rows at all -- not a NaN row.
 
-        The old wide frame forced a NaN-filled column for a requested PV that
-        matched none of the documents pulled in by the ``$or``. The long
-        format has no shared index to pad, so that PV simply does not appear.
-
-        Parameterized over "mean" too (C1): one requested PV matching zero
-        documents used to raise "non-numeric" and kill the *whole* query --
-        including BEAM:CURRENT, which did return data -- exactly what the
-        ``$or`` and this test exist to prevent.
+        Regression: under "mean", one requested PV matching zero documents used
+        to raise "non-numeric" and kill the whole query.
         """
         documents = [
             {"date": datetime(2024, 1, 1, 0, 0, s, tzinfo=UTC), "BEAM:CURRENT": float(s)}
@@ -799,24 +774,10 @@ class TestQueryShapeWithoutDocker:
         """A 10 Hz and a much sparser channel queried together must each be
         aggregated over only their own samples.
 
-        This is the defect the long-format redesign eliminates: the deleted
-        median-gap floor picked ONE bin width from the *combined* timestamp
-        union of every requested PV, so a sparse channel whose own gaps
-        dominate that union would have widened the dense channel's bins too.
-
-        The fixture matters: a single sparse sample (or too few of them) never
-        drove the old median past precision_ms, so the dense channel came out
-        correct by accident regardless of the bug. Reconstructing the deleted
-        logic against 40 FAST samples (10 Hz, 4 true 1s bins) plus 1 SLOW
-        sample confirmed the median stayed at 100ms (no defect). This fixture
-        instead uses 50 SLOW samples spaced 1500ms apart -- enough of them,
-        each gap wider than precision_ms, to dominate the combined median (it
-        becomes 1500ms) -- and reconstructing the deleted logic against it
-        reproduces the real defect: FAST's reported counts come back
-        ``[15, 15, 10, 0, 0, ...]`` against precision_ms=1000, instead of the
-        true ``[10, 10, 10, 10]``. A shape-only bug (e.g. a bare KeyError) would
-        never have produced numbers like that -- this is a genuine aggregation
-        failure, confirmed against the deleted logic before it was deleted.
+        Regression: the deleted median-gap floor picked one bin width from the
+        combined timestamp union of every requested PV; the 50 SLOW samples
+        1500 ms apart dominate that median and corrupted FAST's bins (a single
+        sparse sample would not have).
         """
         base = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         fast_docs = [
@@ -841,9 +802,8 @@ class TestQueryShapeWithoutDocker:
         fast_values = df.loc[df["channel"] == "FAST", "value"].tolist()
         slow_values = df.loc[df["channel"] == "SLOW", "value"].tolist()
 
-        # FAST: the true per-1s-bin means, not corrupted by SLOW's much wider
-        # cadence dominating a shared bin width.
+        # FAST: the true per-1s-bin means.
         assert fast_values == pytest.approx([4.5, 14.5, 24.5, 34.5])
-        # SLOW: its own 50 real samples, each its own bin, unaffected by FAST.
+        # SLOW: its own 50 real samples, each its own bin.
         assert len(slow_values) == 50
         assert slow_values == pytest.approx([500.0 + i for i in range(50)])

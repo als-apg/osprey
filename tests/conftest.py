@@ -54,20 +54,10 @@ def reset_state_between_tests():
 def _no_host_timezone_leak():
     """Fail the test that leaves the process on a different host timezone.
 
-    Timezone correctness is what this framework's archiver layer exists to get
-    right, and several tests deliberately repoint the host zone with
-    ``monkeypatch.setenv("TZ", ...)`` + ``time.tzset()`` so a regression is red
-    on every machine rather than only on hosts whose zone happens to differ.
-
-    That pattern is easy to get subtly wrong. Finalizers run LIFO, so a bare
-    ``request.addfinalizer(time.tzset)`` runs *before* monkeypatch restores the
-    ``TZ`` env var — it re-reads the still-patched value and leaves every
-    later test in the session running on the wrong host zone. The symptom is a
-    failure somewhere else entirely, in a test that never mentions timezones,
-    and only when the suite runs in a particular order.
-
-    Declared before the test body via ``yield``, so its teardown runs after
-    monkeypatch's own — which is exactly the ordering the bug turns on.
+    Finalizers run LIFO: a bare ``request.addfinalizer(time.tzset)`` runs
+    *before* monkeypatch restores ``TZ``, leaving every later test on the
+    wrong host zone. This fixture's teardown runs after monkeypatch's own,
+    which is exactly the ordering the bug turns on.
     """
     import os as _os
     import time as _time

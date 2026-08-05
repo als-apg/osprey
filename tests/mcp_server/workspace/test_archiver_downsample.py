@@ -154,20 +154,13 @@ class TestArchiverDownsampleBasic:
 class TestArchiverDownsampleAggregates:
     """The top-level roll-ups: ``time_range`` and the two point totals.
 
-    ``time_range`` spans EVERY returned channel, so it is a min/max across
-    them, not the first channel's span -- channels have independent cadences
-    and independent coverage. A channel with no samples in the window
-    contributes nothing to the span (rather than making it ``None``), which is
-    the case the whole-payload ``default=None`` sentinel exists for.
+    ``time_range`` is a min/max across every returned channel, not the first
+    channel's span.
     """
 
     @pytest.fixture
     def staggered_entry(self, art_store):
-        """Three channels whose spans are deliberately out of declaration order.
-
-        Declared late/early/mid, so a roll-up that reads only the first or only
-        the last channel gets the wrong answer.
-        """
+        """Three channels whose spans are deliberately out of declaration order."""
         data = _make_new_format_series_data(
             {
                 "PV:LATE": ([f"2026-02-19T12:{i:02d}:00Z" for i in range(10)], list(range(10))),
@@ -208,12 +201,7 @@ class TestArchiverDownsampleAggregates:
 
     @pytest.mark.asyncio
     async def test_channel_with_no_samples_does_not_erase_the_span(self, art_store):
-        """A requested-but-dead channel is declared with empty arrays.
-
-        Its emptiness is diagnostic and must be reported, but it must not drag
-        the payload-level span to ``None`` -- the populated channel still has a
-        real one.
-        """
+        """A requested-but-dead channel must not drag the payload-level span to ``None``."""
         data = _make_new_format_series_data(
             {
                 "PV:DOWN": ([], []),
@@ -244,11 +232,8 @@ class TestArchiverDownsampleAggregates:
 
     @pytest.mark.asyncio
     async def test_all_none_channel_still_contributes_its_span(self, art_store):
-        """Gap values are not missing samples: the timestamps are real.
-
-        A channel that was disconnected for the whole window still has real
-        timestamps carrying ``None`` readings, so it counts toward the totals
-        and the span -- unlike a channel with no samples at all.
+        """Gap values are not missing samples: the timestamps are real, so they
+        count toward the totals and the span.
         """
         stamps = [f"2026-02-19T09:{i:02d}:00Z" for i in range(40)]
         data = _make_new_format_series_data({"PV:DEAD": (stamps, [None] * 40)})
@@ -334,10 +319,8 @@ class TestArchiverDownsampleChannelFilter:
 
     @pytest.mark.asyncio
     async def test_filter_preserves_the_callers_requested_order(self, multi_channel_entry):
-        """Deliberate design choice: ``datasets`` order follows the caller's
-        ``channels`` argument, not the artifact's original column order --
-        this reversed request would come back in artifact-column order
-        (CH0, CH1, CH2, CH3) if the tool preserved column order instead.
+        """``datasets`` order follows the caller's ``channels`` argument, not
+        the artifact's column order.
         """
         fn = _get_archiver_downsample()
         raw = await fn(entry_id=multi_channel_entry.id, channels=["PV:CH3", "PV:CH0", "PV:CH1"])
@@ -390,9 +373,7 @@ class TestArchiverDownsampleErrors:
 class TestArchiverDownsampleEmptyData:
     """Edge case: archiver_data entry with zero rows.
 
-    Every queried channel is still declared -- just with empty arrays
-    (matching archiver_read, which always emits an entry per requested
-    channel even when that channel returned zero samples).
+    Every queried channel is still declared, just with empty arrays.
     """
 
     @pytest.fixture
@@ -466,11 +447,7 @@ class TestArchiverDownsampleFlatFormat:
 
 
 class TestArchiverDownsampleNewSeriesFormat:
-    """The new long-format archiver_read payload: {"query", "series"}.
-
-    This is the layout this task fixes -- before the fix, the tool rendered
-    these entries as completely empty rather than erroring.
-    """
+    """The new long-format archiver_read payload: {"query", "series"}."""
 
     @pytest.fixture
     def new_format_entry(self, art_store):
@@ -560,16 +537,12 @@ class TestArchiverDownsampleNonNumericChannel:
         assert all(v in ("CW", "STANDBY") for v in ds["values"])
         # First and last real samples are preserved even for the even-subsample path.
         assert ds["values"][0] == "CW"
-        # Task 6 (front-end) needs a dtype signal to pick a trace type/axis per
-        # channel -- an enum channel cannot share a numeric y-axis.
+        # The front-end needs this flag -- an enum channel cannot share a numeric y-axis.
         assert ds["numeric"] is False
 
 
 class TestArchiverDownsampleNumericFlag:
-    """Every dataset carries a ``numeric`` flag derived from the same check
-    ``lttb_downsample_channel`` uses internally, so callers don't have to
-    re-scan values to know whether a channel is safe for a numeric y-axis.
-    """
+    """Every dataset carries a ``numeric`` flag so callers don't re-scan values."""
 
     @pytest.fixture
     def mixed_entry(self, art_store):

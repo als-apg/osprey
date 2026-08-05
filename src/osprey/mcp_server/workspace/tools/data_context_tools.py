@@ -112,12 +112,7 @@ def _build_oversize_preview(file_path, size: int) -> dict:
         preview["tail"] = text[-256:] if len(text) > 512 else ""
         return preview
 
-    # Unwrap the legacy OSPREY metadata envelope, the same way the viz reader
-    # and extract_channel_series do. Nothing writes it today, but files already
-    # on disk carry it, and without this an old archiver artifact over the cap
-    # gets a bare json_object preview instead of its channels. Guarded on the
-    # metadata key so an unrelated file with a top-level "data" key is left
-    # alone.
+    # Unwrap the legacy OSPREY metadata envelope (still present on old files).
     if isinstance(data, dict) and "_osprey_metadata" in data and "data" in data:
         data = data["data"]
 
@@ -145,13 +140,9 @@ def _build_oversize_preview(file_path, size: int) -> dict:
         ]
         return preview
 
-    # Long-format archiver payload: {"query": ..., "series": {channel:
-    # {timestamps, values}}}. This is what `archiver_read` writes, and an
-    # archiver artifact is the common case for exceeding the inline cap, so
-    # without this branch the preview that fires most often is the least
-    # informative one (`json_object` + `["query", "series"]`). Guarded on
-    # every entry carrying `timestamps` so an unrelated file with a
-    # top-level `series` key still falls through to the generic handling.
+    # Archiver payload from archiver_read: {"query": ..., "series": {channel:
+    # {timestamps, values}}}. Guarded on every entry carrying `timestamps` so
+    # an unrelated top-level `series` key falls through to generic handling.
     series = data.get("series") if isinstance(data, dict) else None
     if (
         isinstance(series, dict)
@@ -166,9 +157,6 @@ def _build_oversize_preview(file_path, size: int) -> dict:
             total += len(timestamps)
             per_channel[channel] = {
                 "points": len(timestamps),
-                # A channel with no data in range is reported as such rather
-                # than omitted -- its absence is itself the answer to "why is
-                # this channel missing from my plot".
                 "first": [timestamps[0], values[0]] if timestamps and values else None,
                 "last": [timestamps[-1], values[-1]] if timestamps and values else None,
             }

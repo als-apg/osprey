@@ -167,14 +167,7 @@ class TestGetDataValidation:
 
 class TestGetDataSinglePV:
     async def test_returns_dataframe(self, archiver):
-        """The canonical long frame, and a populated one.
-
-        ``isinstance(df, pd.DataFrame)`` alone passed even when ``get_data``
-        returned an empty frame for every query -- and an empty frame still
-        carries the three long-format columns, so the column check does not
-        rescue it either. The emptiness assertion is what makes this test able
-        to fail.
-        """
+        """The canonical long frame, and a populated one."""
         conn, _ = archiver
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
 
@@ -183,16 +176,7 @@ class TestGetDataSinglePV:
         assert not df.empty
 
     async def test_single_pv_channel_present(self, archiver):
-        """Exactly the requested channel comes back, and it carries rows.
-
-        Asserted as set equality rather than ``(df["channel"] == …).all()``:
-        over an empty selection ``.all()`` is vacuously True, so the original
-        form passed when ``get_data`` returned an empty frame for every query --
-        the same antipattern this branch calls out in
-        ``test_simulation_integration.py``. ``set(...) == {…}`` is empty-frame
-        sensitive in both directions: it fails on a missing channel and on a
-        stray extra one.
-        """
+        """Exactly the requested channel comes back, and it carries rows."""
         conn, _ = archiver
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
 
@@ -225,13 +209,8 @@ class TestGetDataTimeout:
     async def test_omitted_timeout_uses_configured_default(self, archiver, monkeypatch):
         """An omitted timeout must not mean "wait forever".
 
-        ``get_data`` passes its ``timeout`` straight to ``asyncio.wait_for``,
-        where ``None`` blocks indefinitely — so a caller that omitted the
-        argument would hang on an unresponsive ENS with no way out. EPICS and
-        MongoDB both fall back to a configured default; DOOCS had neither the
-        fallback nor the attribute to fall back to. Asserted at the value that
-        actually reaches ``wait_for``, so the default has to be *used*, not
-        merely stored on the connector.
+        Regression: DOOCS passed ``timeout=None`` straight to
+        ``asyncio.wait_for``, hanging indefinitely on an unresponsive ENS.
         """
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
@@ -241,12 +220,7 @@ class TestGetDataTimeout:
         assert seen["timeout"] == 60
 
     async def test_configured_default_is_honored(self, archiver, monkeypatch):
-        """A ``timeout`` in the connector config reaches ``wait_for``.
-
-        Configured through ``connect()`` rather than by assigning ``_timeout``
-        directly: that keeps the config key itself under test, so nothing is
-        left asserting only that a private attribute was stored.
-        """
+        """A ``timeout`` in the connector config reaches ``wait_for``."""
         conn, _ = archiver
         await conn.connect({"timeout": 7})
         seen = self._spy_wait_for(monkeypatch)
@@ -264,11 +238,7 @@ class TestGetDataTimeout:
         assert seen["timeout"] == 3
 
     async def test_explicit_zero_timeout_is_not_treated_as_unset(self, archiver, monkeypatch):
-        """``timeout=0`` is a real request, not a missing argument.
-
-        The same distinction the MongoDB connector was fixed for: a falsy check
-        here would silently substitute the 60-second default.
-        """
+        """``timeout=0`` is a real request; a falsy check would substitute the default."""
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
 
@@ -300,14 +270,9 @@ class TestReadHistory:
     def test_no_caller_can_request_a_manufactured_grid(self):
         """``_read_history`` has no grid knob left to turn on.
 
-        The removed ``max_points`` branch built an ``np.linspace`` grid and
-        forward-filled real samples onto it with a zero-order hold, so every
-        timestamp it returned was a grid position rather than an archived one --
-        measured over an 8h window, only 2 of the 10,000 returned timestamps
-        were real archived samples. That is exactly what this framework's
-        "nothing is manufactured" contract forbids, so the branch could never be
-        switched back on for ``get_data``; keeping the parameter only preserved
-        a way to violate the contract. Asking for it is now a TypeError.
+        Regression: the removed ``max_points`` branch zero-order-held real
+        samples onto an ``np.linspace`` grid of manufactured timestamps;
+        asking for it is now a TypeError.
         """
         chunk = _make_raw_chunk(n=100)
         mock_d4py = MagicMock()
@@ -342,14 +307,7 @@ class TestReadHistory:
         mock_d4py.get.return_value = r
 
     def test_raw_arrays_are_float64_built_from_the_time_and_value_fields(self):
-        """Positions 0 and 3 of a DOOCS TTII entry are the time and the value.
-
-        Pins the field selection, the float64 coercion and the sample order
-        independently of the construction used to extract them, so the
-        extraction can be rewritten (list comprehension, ``np.fromiter``, ...)
-        without silently sliding onto the wrong tuple positions, losing the
-        int→float coercion, or reordering the samples.
-        """
+        """Positions 0 and 3 of a DOOCS TTII entry are the time and the value."""
         # Positions 1 and 2 carry values that would be obvious if selected.
         chunk = [(10.5, 111.0, 222.0, 5.5), (20.25, 333.0, 444.0, 6.25), (30.0, 555.0, 666.0, 7)]
         mock_d4py = MagicMock()
@@ -366,13 +324,7 @@ class TestReadHistory:
         assert out["data"].tolist() == [5.5, 6.25, 7.0]
 
     def test_malformed_entry_is_reported_as_no_data(self):
-        """An entry too short to carry a value must not half-build a series.
-
-        The extraction raises ``IndexError`` on ``entry[3]``, which the method's
-        own ``except Exception`` turns into "no data retrieved". Pinned so a
-        rewritten extraction cannot substitute a different failure mode (a
-        truncated array, a ``ValueError`` from a mis-sized buffer, ...).
-        """
+        """An entry too short to carry a value must not half-build a series."""
         chunk = [(10.5, 111.0, 222.0, 5.5), (20.25, 333.0)]
         mock_d4py = MagicMock()
         self._mock_get(mock_d4py, chunk)
@@ -419,16 +371,10 @@ class TestReadHistory:
     def test_smoothing_keeps_real_irregular_timestamps(self):
         """avg_window must not resample onto a uniform grid.
 
-        The moving average used to require a constant dt, so supplying
-        avg_window forced a ``np.linspace`` grid plus a zero-order hold. Every
-        returned timestamp was then a grid position rather than an archived one,
-        and every value had been forward-filled onto it — precisely what this
-        framework's "nothing is manufactured" contract forbids, reintroduced
-        through a config knob. This is the path a real DOOCS deployment with
-        ``avg_window`` set actually takes.
+        Regression: the moving average forced an ``np.linspace`` grid plus a
+        zero-order hold, so no returned timestamp was a real archived one.
         """
         # Deliberately bursty sampling: three clusters with long gaps between.
-        # A uniform grid over this span looks nothing like the real timestamps.
         real_times = [
             _START_TS,
             _START_TS + 1,
@@ -447,20 +393,15 @@ class TestReadHistory:
         assert out is not None
         assert list(out["time"]) == [float(t) for t in real_times]
         assert len(out["data"]) == len(real_times)
-        # Smoothing still happened: the isolated first cluster averages its own
-        # three samples (0, 1, 2) rather than passing 0 through untouched.
+        # Smoothing still happened: the first cluster averages its own samples.
         assert out["data"][0] != 0.0
 
     def test_smoothing_window_wider_than_span_keeps_arrays_aligned(self):
         """An avg_window wider than the queried span must not desynchronize the arrays.
 
-        The moving average used ``np.convolve(..., mode="same")``, which returns
-        ``max(len(data), win)`` elements — not ``len(data)``. So whenever the
-        configured ``avg_window`` covered more samples than the query returned,
-        ``data`` came back longer than ``time`` and ``get_data`` died building
-        the per-channel Series ("Length of values does not match length of
-        index"). A one-hour ``avg_window`` on a connector queried for a few
-        minutes is an ordinary configuration, not a pathological one.
+        Regression: ``np.convolve(..., mode="same")`` returns
+        ``max(len(data), win)`` elements, so ``data`` came back longer than
+        ``time`` and ``get_data`` died building the per-channel Series.
         """
         n = 20
         chunk = _make_raw_chunk(n=n)
@@ -468,14 +409,12 @@ class TestReadHistory:
         self._mock_get(mock_d4py, chunk)
 
         conn = self._make_connector_with_d4py(mock_d4py)
-        # The 20 samples span a full hour, so avg_window=36000 s (10 h) is far
-        # wider than the queried span — every sample sees the whole series.
+        # avg_window=36000 s (10 h) is far wider than the 1 h data span.
         out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS, avg_window=36000.0)
 
         assert out is not None
         assert len(out["data"]) == len(out["time"]) == n
-        # min_periods=1 shrinks the window at the edges rather than padding with
-        # zeros, so every point is a real average of real samples.
+        # min_periods=1 shrinks the window at the edges rather than zero-padding.
         assert np.all(np.isfinite(out["data"]))
 
     def test_hist_suffix_appended(self):
@@ -501,13 +440,7 @@ class TestReadHistory:
         assert addr_arg.count(".HIST") == 1
 
     def test_returns_only_the_parallel_arrays_get_data_consumes(self):
-        """``_read_history`` hands back exactly ``time`` and ``data``, nothing else.
-
-        It used to also build a ``metadata`` dict (raw_count/avg_window/
-        start_iso/end_iso) that no caller ever read — ``get_data`` takes only
-        the two arrays — so every fetch paid for two ``np.datetime64``
-        conversions to populate a field that was dead on arrival.
-        """
+        """``_read_history`` hands back exactly ``time`` and ``data``, nothing else."""
         chunk = _make_raw_chunk(n=10)
         mock_d4py = MagicMock()
         self._mock_get(mock_d4py, chunk)
@@ -644,21 +577,15 @@ class TestQueryWindowTimezone:
     async def test_naive_bounds_use_the_facility_zone(self, archiver, monkeypatch, request):
         from zoneinfo import ZoneInfo
 
-        # Force the host zone to UTC so this test is RED on every machine if the
-        # fix regresses -- not only on hosts whose zone happens to differ from the
-        # facility zone patched below. This repo's users are largely at LBNL, in
-        # America/Los_Angeles -- exactly the zone patched here -- so without this
-        # a reintroduced host-zone .timestamp() bug would show green on a
-        # developer's own machine. Finalizers run LIFO, so a bare
-        # ``request.addfinalizer(time.tzset)`` would run *before*
-        # monkeypatch's own teardown restores the TZ env var, re-reading the
-        # still-patched "UTC" and leaving every later test in the session on
-        # a UTC host zone. Undo the monkeypatch first, then tzset(), so the
-        # C library re-reads the real, restored TZ.
+        # Force the host zone to UTC so a reintroduced host-zone .timestamp()
+        # bug fails on every machine, not only where the host zone differs
+        # from the patched facility zone.
         monkeypatch.setenv("TZ", "UTC")
         time.tzset()
 
         def _restore_tz():
+            # Undo the monkeypatch before tzset() so the C library re-reads
+            # the restored TZ, not the patched one.
             monkeypatch.undo()
             time.tzset()
 
@@ -694,13 +621,8 @@ class TestQueryWindowTimezone:
 class TestProcessingSparseData:
     """A non-raw processing mode must not manufacture samples DOOCS never recorded.
 
-    ``_read_history`` bounds "raw" by construction (it never returns more than
-    ``num_points`` samples), but when the archive itself is sparser than the
-    requested precision_ms, its fallback-to-full-resolution path returns however
-    many real samples exist, spaced however far apart they really are — which
-    can be much wider than precision_ms. Resampling that at the raw precision_ms
-    would upsample onto a much finer grid than the data has, the same exposure
-    fixed for the Mock and MongoDB archiver connectors.
+    An archive sparser than the requested precision_ms must not be upsampled
+    onto a finer grid than the data has.
     """
 
     async def test_sparse_history_is_not_upsampled(self):
@@ -728,10 +650,8 @@ class TestProcessingSparseData:
             )
             await conn.disconnect()
 
-        # Naively resampling at the requested 1 s precision against data
-        # actually spaced ~1 hour apart would inflate this to ~21,601 rows,
-        # almost entirely NaN. The row count must stay near the archived
-        # sample count instead, with no NaN rows.
+        # Naive 1 s resampling of ~1-hour-apart data would inflate this to
+        # ~21,601 mostly-NaN rows.
         values = df.loc[df["channel"] == "FAC/DEV/LOC/P", "value"]
         assert len(values) <= 10
         assert not values.isna().any()
@@ -741,11 +661,8 @@ class TestProcessingGenuineAggregation:
     """A non-raw processing mode must aggregate over the real archived samples,
     not a single zero-order-hold sample per bin.
 
-    Regression coverage for finding #2 reintroduced inside DOOCS: get_data used
-    to pass ``num_points`` (derived from precision_ms) into ``_read_history`` for
-    every processing mode, decimating to one zero-order-hold sample per bin
-    *before* the resampler ever saw the data. mean/count/std then degenerated
-    to a relabeled last-sample value instead of a genuine aggregate.
+    Regression: get_data passed ``num_points`` into ``_read_history`` for every
+    mode, decimating before the resampler ever saw the data.
     """
 
     @staticmethod
@@ -775,15 +692,7 @@ class TestProcessingGenuineAggregation:
         return mock_d4py
 
     async def test_multi_pv_mean_aggregates_true_within_bin_average_for_both_channels(self):
-        """Each channel must carry its own true within-bin means, independently.
-
-        Formerly a regression test for finding #1 reached via alignment:
-        align_to_grid forward-filled onto one value per grid point, so resampling
-        *after* alignment aggregated over an already-decimated series, same as the
-        single-PV bug. align_to_grid is gone entirely now -- long_frame just
-        assembles each channel's own aggregate_series output, so there is no
-        shared grid left to forward-fill onto.
-        """
+        """Each channel must carry its own true within-bin means, independently."""
         chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
         mock_d4py = self._two_pv_mock(chunk, chunk)
 
@@ -804,8 +713,6 @@ class TestProcessingGenuineAggregation:
             await conn.disconnect()
 
         # Bin 0: values 0..9 -> 4.5; bin 1: 10..19 -> 14.5; bin 2: 20..29 -> 24.5.
-        # No trailing duplicate: with align_to_grid gone there is no query-window
-        # grid point past the last real bin to forward-fill onto.
         expected = pytest.approx([4.5, 14.5, 24.5])
         assert df.loc[df["channel"] == "FAC/DEV/LOC/A", "value"].tolist() == expected
         assert df.loc[df["channel"] == "FAC/DEV/LOC/B", "value"].tolist() == expected
@@ -835,17 +742,8 @@ class TestProcessingGenuineAggregation:
         assert df.loc[df["channel"] == "FAC/DEV/LOC/B", "value"].tolist() == [10, 10, 10]
 
     async def test_multi_pv_raw_output_is_each_channels_own_decimated_series(self):
-        """ "raw" now reaches _read_history with max_points=None (I4), so every
-        real archived sample survives _read_history untouched; decimate_raw
-        (inside aggregate_series) then keeps each 1s bin's own last real
-        sample, at its own real timestamp. 30 real samples across 3 true 1s
-        bins (10 samples/bin) decimate to exactly 3 rows per channel: the
-        bin's last sample, value 9/19/29, each at its own real timestamp --
-        never a bin-edge timestamp resample().agg("last") would fabricate.
-        long_frame then just assembles each channel's own decimated series
-        with no shared grid, so with identical input chunks the two channels
-        must decimate identically.
-        """
+        """Raw keeps each 1s bin's own last real sample, at its own real
+        timestamp, identically for both channels."""
         chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
         mock_d4py = self._two_pv_mock(chunk, chunk)
 
@@ -880,13 +778,10 @@ class TestProcessingGenuineAggregation:
 
     async def test_raw_returns_only_real_archived_timestamps(self):
         """Every "raw"-mode timestamp must be a real archived sample, never a
-        manufactured grid point (I4). Before this fix, "raw" passed
-        ``max_points=num_points`` into ``_read_history``, which built a
-        ``np.linspace`` grid and zero-order-held onto it -- measured over
-        288,000 archived samples in an 8h window, only 2 of the 10,000
-        returned timestamps were real archived ones. ``max_points=None`` now
-        lets every real sample reach ``decimate_raw``, which only ever keeps
-        samples that were actually archived.
+        manufactured grid point.
+
+        Regression: "raw" passed ``max_points`` into ``_read_history``, which
+        zero-order-held onto an ``np.linspace`` grid of manufactured timestamps.
         """
         chunk = self._dense_chunk(n_bins=3, samples_per_bin=10)
         mock_d4py = _make_doocs4py(chunk=chunk)
@@ -915,14 +810,9 @@ class TestProcessingGenuineAggregation:
     def _mixed_cadence_mock(fast_chunk, slow_chunk):
         """A mock doocs4py wired for one dense and one sparse channel.
 
-        The dense channel's chunk spans the whole window (its oldest sample is
-        at ``start_ts``), so its single ``get()`` call terminates
-        ``_read_history``'s pagination loop immediately, per the convention
-        established for ``_two_pv_mock`` above. The sparse channel's one real
-        sample sits mid-window, so its oldest-in-chunk timestamp is still
-        *after* ``start_ts`` -- the loop does not yet know it has reached the
-        start of the range, and pages once more. A second, empty result
-        terminates it, matching real DOOCS pagination semantics.
+        The dense chunk spans the whole window, so one ``get()`` ends its
+        pagination; the sparse channel's sample sits mid-window, so it pages
+        once more and the empty result terminates it.
         """
         mock_d4py = MagicMock()
         mock_d4py.__version__ = "2.0.0"
@@ -937,11 +827,11 @@ class TestProcessingGenuineAggregation:
         return mock_d4py
 
     async def test_multi_pv_mixed_cadence_channels_aggregate_independently(self):
-        """A 10 Hz and a 0.1 Hz channel queried together must each be aggregated over
-        only their own samples -- the exact defect this redesign eliminates. Under
-        the old grid, the common bin width was floored at the *sparsest* channel's
-        own floor, so the dense channel's fine per-bin means got forward-filled
-        onto that coarse grid instead of keeping their true within-bin average.
+        """A 10 Hz and a 0.1 Hz channel queried together must each be aggregated
+        over only their own samples.
+
+        Regression: the old shared grid floored the bin width at the sparsest
+        channel's cadence and forward-filled the dense channel onto it.
         """
         fast_chunk = self._dense_chunk(n_bins=10, samples_per_bin=10)  # 10 Hz, 10 s
         slow_chunk = [(_START_TS + 5.0, 0, 0, 500.0)]  # 0.1 Hz: one real sample
@@ -966,17 +856,14 @@ class TestProcessingGenuineAggregation:
         fast_values = df.loc[df["channel"] == "FAC/DEV/LOC/FAST", "value"].tolist()
         slow_values = df.loc[df["channel"] == "FAC/DEV/LOC/SLOW", "value"].tolist()
 
-        # FAST: 10 true per-bin means over its own 10 samples/bin, not deflated
-        # to a single value borrowed via SLOW's 10 s cadence.
+        # FAST: 10 true per-bin means over its own samples.
         assert fast_values == pytest.approx([4.5 + 10 * b for b in range(10)])
-        # SLOW: its own single real sample, unaffected by FAST's cadence.
+        # SLOW: its own single real sample.
         assert slow_values == pytest.approx([500.0])
 
     async def test_multi_pv_mixed_cadence_dense_channel_count_not_deflated(self):
-        """Same mixed-cadence scenario via "count": the dense channel's true
-        per-bin sample count must not be deflated by the sparse channel's
-        coarser cadence (the "count came back 10x low" symptom of the old bug).
-        """
+        """The dense channel's per-bin count must not be deflated by the sparse
+        channel's coarser cadence ("count came back 10x low")."""
         fast_chunk = self._dense_chunk(n_bins=10, samples_per_bin=10)
         slow_chunk = [(_START_TS + 5.0, 0, 0, 500.0)]
         mock_d4py = self._mixed_cadence_mock(fast_chunk, slow_chunk)
@@ -1004,24 +891,10 @@ class TestProcessingGenuineAggregation:
         assert slow_counts == [1]
 
     async def test_multi_pv_sparse_dominated_mixed_cadence_defect_is_gone(self):
-        """Reproduces the real DOOCS defect the earlier mixed-cadence tests above
-        didn't actually exercise. A single SLOW sample never engaged
-        ``_floor_bin_ms``'s multi-sample branch (it needs ``len(series) > 1`` to
-        compute a gap at all), so the earlier fixture passed for the wrong
-        reason -- it never widened SLOW's own floor past ``precision_ms``.
+        """Mixed cadence with >=2 sparse samples spaced wider than precision_ms.
 
-        Reconstructing the deleted DOOCS logic (``_floor_bin_ms`` +
-        ``align_to_grid``) against a fixture with >=2 SLOW samples spaced wider
-        than ``precision_ms`` confirms a genuine aggregation-content defect: with
-        FAST truly at 10 Hz over 4 real 1s bins (count 10 each) and SLOW at just
-        2 samples 5 s apart, ``_floor_bin_ms(SLOW)`` computes 5000ms, so
-        ``grid_ms = max(1000, 5000) = 5000``. FAST's own correctly-resampled
-        4-bin series (``[10, 10, 10, 10]``) then gets forward-filled onto that
-        coarse shared grid and reindexed down to just 2 points, reproducing
-        ``FAST: [10.0, 10.0]`` -- 2 of FAST's 4 real bins vanish, and the second
-        surviving value is relabeled at t=5s, where FAST has zero real samples.
-        That is a real content defect (not a shape/KeyError failure), driven
-        entirely by SLOW's cadence dominating the shared bin width.
+        Regression: ``_floor_bin_ms(SLOW)`` widened the shared grid to 5000 ms,
+        so FAST's 4 real 1s bins were forward-filled down to 2 relabeled points.
         """
         base_ts = _START.timestamp()
         fast_chunk = [
@@ -1038,10 +911,8 @@ class TestProcessingGenuineAggregation:
         r_slow.value = slow_chunk
         r_slow_empty = MagicMock()
         r_slow_empty.value = []
-        # FAST's chunk spans the whole window -> 1 get() call. SLOW's first
-        # sample sits at start_ts too, so its oldest-in-chunk also reaches
-        # start_ts on the first call -> also 1 get() call; the spare empty
-        # result is unused but keeps this robust to either outcome.
+        # Both chunks reach start_ts on the first get(); the spare empty
+        # result keeps this robust to either pagination outcome.
         mock_d4py.get.side_effect = [r_fast, r_slow, r_slow_empty]
 
         with patch.dict(sys.modules, {"doocs4py": mock_d4py}):
@@ -1063,7 +934,6 @@ class TestProcessingGenuineAggregation:
         fast_counts = df.loc[df["channel"] == "FAST", "value"].tolist()
         slow_counts = df.loc[df["channel"] == "SLOW", "value"].tolist()
 
-        # All 4 of FAST's true 1s bins survive, each with its true count of 10
-        # -- not collapsed to 2 points by SLOW's much coarser cadence.
+        # All 4 of FAST's true 1s bins survive with their true counts.
         assert fast_counts == [10, 10, 10, 10]
         assert slow_counts == [1, 1]

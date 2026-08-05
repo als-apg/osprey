@@ -3,9 +3,8 @@
 Returns per-channel downsampled timeseries data from an artifact entry.
 Uses LTTB (Largest-Triangle-Three-Buckets) to preserve visual shape while
 keeping the payload small enough for inline report generation. Each channel
-carries its OWN timestamps -- channels have independent sample cadences and
-are not aligned to a shared axis, so this is no longer a shared-``labels``
-Chart.js config.
+carries its own timestamps -- channels have independent sample cadences and
+are not aligned to a shared axis.
 """
 
 import json
@@ -49,9 +48,8 @@ async def archiver_downsample(
         "original_points", "downsampled_points", "numeric"}``), plus top-level
         ``original_points``/``downsampled_points`` summed across channels
         and a ``time_range`` spanning all returned channels. Each dataset
-        carries its own timestamps -- this is no longer a shared-``labels``
-        Chart.js config. ``numeric`` is False for enum/status channels, which
-        cannot share a numeric axis with the others.
+        carries its own timestamps. ``numeric`` is False for enum/status
+        channels, which cannot share a numeric axis with the others.
     """
     from osprey.stores.artifact_store import get_artifact_store
 
@@ -110,12 +108,8 @@ async def archiver_downsample(
         for record in records
     ]
 
-    # A channel with no samples has no span to contribute -- but it must not
-    # erase the others', hence filtering it out here rather than letting an
-    # empty list into the min/max. `default=None` then covers the genuinely
-    # spanless payload (no channels, or every channel empty). Downsampling
-    # always keeps a channel's first and last point, so a dataset's own ends
-    # are still the channel's real ends.
+    # An empty channel must not erase the other channels' spans in the
+    # min/max; default=None covers the case where every channel is empty.
     spans = [d["timestamps"] for d in datasets if d["timestamps"]]
 
     result = {

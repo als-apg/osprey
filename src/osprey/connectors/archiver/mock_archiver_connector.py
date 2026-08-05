@@ -75,9 +75,8 @@ class MockArchiverConnector(ArchiverConnector):
                   the machine model; without it, every channel uses the generic
                   PV-type procedural synthesizer.
         """
-        # A zero or negative rate has no meaning and would divide by zero in
-        # get_data's full-resolution path and in get_metadata's sampling_period,
-        # so reject it at configuration time rather than at the first query.
+        # A zero or negative rate would divide by zero later; reject it at
+        # configuration time.
         sample_rate_hz = config.get("sample_rate_hz", 1.0)
         if sample_rate_hz <= 0:
             raise ValueError(f"sample_rate_hz must be > 0 (got {sample_rate_hz})")
@@ -116,60 +115,38 @@ class MockArchiverConnector(ArchiverConnector):
             end_date: End of time range
             precision_ms: Time precision (affects downsampling). ``<= 0`` means
                 full resolution: samples are generated at the connector's own
-                configured ``sample_rate_hz`` instead of a density derived from
-                ``precision_ms``, since the mock has no backing store of real
-                samples to return in full. Either way the generator is capped at
-                10,000 points, so a window longer than
-                ``10000 / sample_rate_hz`` seconds comes back sparser than the
-                configured rate.
+                configured ``sample_rate_hz``. Either way the generator is
+                capped at 10,000 points.
             timeout: Ignored for mock archiver
             processing: Aggregation applied within each precision_ms bin. One of
-                "raw", "mean", "min", "max", "median", "std", "count". Backends
-                that aggregate server-side (EPICS) push it down; the rest apply
-                it client-side. Anything else raises ValueError.
+                "raw", "mean", "min", "max", "median", "std", "count". Applied
+                client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
-            The canonical long frame — see :meth:`ArchiverConnector.get_data`
-            for the full contract (columns, dtypes, ordering, and the rule that
-            nothing is ever manufactured).
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`.
 
         Raises:
             ValueError: If ``processing`` other than ``"raw"`` is requested for
-                a channel that synthesizes non-numeric values — aggregation
-                over non-numeric samples is undefined (see
-                :func:`~osprey.connectors.archiver._timerange.aggregate_series`).
+                a channel that synthesizes non-numeric values.
         """
-        # long_frame requires a UTC-aware index on every per-channel series; a
-        # naive start/end (facility wall-clock, per the framework's convention)
-        # is normalized the same way every other archiver connector normalizes
-        # its query window, before any timestamps are generated from it.
+        # long_frame requires a UTC-aware index; a naive start/end means
+        # facility wall-clock, as in every other archiver connector.
         start_date, end_date = utc_window(start_date, end_date)
         duration = (end_date - start_date).total_seconds()
 
-        # Limit number of points for performance.
-        # Use precision_ms to determine sampling density. precision_ms <= 0
-        # means full resolution (the same convention resolve_processing and
-        # decimate_raw use), but unlike a real archiver the mock has no
-        # backing store of "real" samples to return in full — it synthesizes
-        # them. "Full resolution" here is therefore defined as generating at
-        # the connector's own configured native rate (sample_rate_hz) rather
-        # than deriving a density from a bin width that doesn't exist; this
-        # also keeps a precision_ms=0 request from dividing by zero.
+        # Limit number of points for performance. precision_ms <= 0 means full
+        # resolution, which for the mock (no backing store) means generating at
+        # the configured native rate; this also avoids dividing by zero.
         effective_precision_ms = precision_ms if precision_ms > 0 else 1000.0 / self._sample_rate_hz
         num_points = min(int(duration / (effective_precision_ms / 1000.0)), 10000)
         num_points = max(num_points, 10)  # At least 10 points
 
-        # Generate timestamps. date_range spaces the endpoints in integer
-        # nanoseconds rather than accumulating a float second step, so the
-        # lattice stays exact across a long window.
+        # Generate timestamps
         index = pd.date_range(start=start_date, end=end_date, periods=num_points)
 
         # Generate data for each PV. Channels known to the simulation engine
         # are synthesized from the machine model; everything else uses the
-        # generic procedural generation. Each channel is then aggregated on
-        # its own — aggregate_series drops any bin with no samples rather
-        # than emitting one, so no upsampling floor is needed here regardless
-        # of how much wider the real sample spacing is than precision_ms.
+        # generic procedural generation.
         resolved = resolve_processing(processing, precision_ms)
         series = {}
         for pv in pv_list:
@@ -177,10 +154,6 @@ class MockArchiverConnector(ArchiverConnector):
                 values = self._sim_engine.synthesize_series(pv, index)
             else:
                 values = self._generate_time_series(pv, num_points)
-            # No dtype is forced: a numeric series (list[float] or a float
-            # ndarray) infers float64 as always; an enum/status channel's
-            # list[str] is passed through untouched, per the long_frame
-            # contract that leaves `value` dtype-unconstrained.
             series[pv] = pd.Series(values, index=index, name=pv)
 
         data = aggregate_long_frame(series, resolved)
@@ -233,10 +206,8 @@ class MockArchiverConnector(ArchiverConnector):
         """
         t = np.linspace(0, 1, num_points)
         pv_lower = pv_name.lower()
-        # crc32, not hash(): Python salts str hashing per process (PYTHONHASHSEED),
-        # so a hash()-derived seed made this generator reproducible only *within*
-        # one run. Two processes asked for the same PV over the same window got
-        # different data, which defeats the point of seeding at all.
+        # crc32, not hash(): str hashing is salted per process, which would
+        # break cross-process reproducibility.
         rng = np.random.default_rng(seed=zlib.crc32(pv_name.encode()))
 
         # BPM channels — reproducible random offsets with slow oscillations
@@ -291,9 +262,7 @@ class MockArchiverConnector(ArchiverConnector):
             wave = 10 * np.sin(2 * np.pi * t * 2)
 
         noise_amplitude = abs(base) * self._noise_level
-        # rng, not the global np.random: the BPM branch above already uses the
-        # per-PV generator, and drawing this noise from the unseeded global made
-        # every non-BPM channel non-reproducible even inside a single process.
+        # Draw from the seeded per-PV rng, not the unseeded global np.random.
         noise = rng.normal(0, noise_amplitude, num_points)
 
         return trend + wave + noise

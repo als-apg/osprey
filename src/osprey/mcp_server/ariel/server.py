@@ -60,8 +60,6 @@ def parse_date_filters(
     """
     from osprey.utils.config import localize_facility
 
-    # Naive datetimes are read as facility-local wall-clock, the framework-wide
-    # convention localize_facility owns.
     return (
         localize_facility(datetime.fromisoformat(start_date) if start_date else None),
         localize_facility(datetime.fromisoformat(end_date) if end_date else None),

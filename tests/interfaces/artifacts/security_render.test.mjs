@@ -458,9 +458,7 @@ describe('TYPES path (types.js) — typeBadge / thumbnailHtml / id-encoding', ()
 describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
   /**
    * Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`) --
-   * one entry per channel, each with its own timestamps/values (see app.py's
-   * chart branch). `overrides.columns`, if given, replaces the one channel's
-   * name (mirrors this suite's other fixtures' `columns` override shape).
+   * one entry per channel. `overrides.columns` replaces the channel's name.
    */
   function makeChartData({ columns = [HOSTILE.DQ_IMG], ...overrides } = {}) {
     return {
@@ -558,10 +556,8 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       // markup above never contained the raw breakout.
       expect(toggle.dataset.chName).toBe(HOSTILE.DQ_IMG);
       expect(toggle.getAttribute('title')).toBe(HOSTILE.DQ_IMG);
-      // `aria-label` is a third sink for the same agent-supplied channel name
-      // (added so the decorative "R" glyph stays out of the accessible name),
-      // and it is double-quoted like the other two -- so the double-quote in
-      // DQ_IMG is the character that would break out of it.
+      // `aria-label` is a third double-quoted sink for the same agent-supplied
+      // channel name -- the double-quote in DQ_IMG is the breakout character.
       expect(toggle.getAttribute('aria-label')).toBe(HOSTILE.DQ_IMG);
     });
 

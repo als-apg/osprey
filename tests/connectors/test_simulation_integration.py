@@ -253,9 +253,7 @@ class TestMockArchiverSimulation:
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
         sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
-        # An empty selection would make .all() vacuously True; long_frame
-        # silently drops a channel whose series is empty, so "the channel
-        # vanished" must fail this test rather than pass it.
+        # Guard against an empty selection making .all() vacuously True.
         assert len(sp) > 0
         assert (sp == 42.0).all()
 
@@ -299,9 +297,7 @@ class TestMockArchiverSimulation:
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
         sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
-        # An empty selection would make .all() vacuously True; long_frame
-        # silently drops a channel whose series is empty, so "the channel
-        # vanished" must fail this test rather than pass it.
+        # Guard against an empty selection making .all() vacuously True.
         assert len(sp) > 0
         assert (sp == 42.0).all()
         current = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
@@ -312,13 +308,7 @@ class TestMockArchiverSimulation:
     @pytest.mark.asyncio
     async def test_mixed_numeric_and_string_channels_both_present(self, machine_file):
         """A single request mixing a numeric channel and a string (enum/status)
-        channel returns rows for both — neither is dropped or coerced to fit
-        the other's dtype.
-
-        Also covers the single-channel case: an enum/status channel's history
-        round-trips because the long-format ``value`` column is not
-        dtype-constrained. A standalone ``T:MODE``-only test asserted exactly
-        the two ``mode`` assertions below and nothing else."""
+        channel returns rows for both — neither is dropped or coerced."""
         connector = MockArchiverConnector()
         await connector.connect({"simulation_file": str(machine_file)})
 

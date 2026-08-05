@@ -93,13 +93,8 @@ def _frame(newest_age_s: float, value: float = 1.5) -> pd.DataFrame:
 
 
 def _empty_long_frame() -> pd.DataFrame:
-    """The contract's empty result: the long frame with its three columns.
-
-    Every in-tree connector returns through ``long_frame``, which builds exactly
-    this frame (``value`` defaulting to ``float64``) for a query that matched no
-    samples — see :meth:`ArchiverConnector.get_data`. A *column-less*
-    ``pd.DataFrame()`` is not that shape and no connector produces it.
-    """
+    """The contract's empty result: the three-column long frame every connector
+    returns for a query that matched no samples."""
     return pd.DataFrame(
         {
             "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
@@ -186,12 +181,7 @@ async def test_empty_window_is_warning() -> None:
 
 
 async def test_channel_absent_from_a_populated_frame_is_warning() -> None:
-    """A PV with no rows in a frame that carries other channels' samples.
-
-    This is the real "this channel had no data" case — the one the removed
-    ``"channel" not in frame.columns`` guard was mistakenly credited with
-    handling — and ``sub.empty`` is what catches it.
-    """
+    """A PV with no rows in a frame that carries other channels' samples."""
     frame = _frame(newest_age_s=10)
     ctx, _runtime = _ctx(_SpyArchiver(frame))
     result = await run({"channel": "OTHER:PV"}, ctx)
@@ -229,14 +219,9 @@ async def test_default_max_age_is_600() -> None:
 async def test_non_conforming_frame_is_not_laundered_into_a_staleness_warning() -> None:
     """A connector that breaks the long-format contract must not read as "no samples".
 
-    ``get_data`` is contracted to return the ``timestamp``/``channel``/``value``
-    long frame, and every in-tree connector returns through ``long_frame``,
-    which always emits those three columns. A frame without a ``channel``
-    column is therefore a *broken connector*, and the probe lets it raise: the
-    runner isolates it into one ``error`` row naming the exception
-    (``archiver_freshness raised KeyError`` + ``details``), which is the useful
-    diagnosis. Grading it ``warning`` instead — "No samples for X in the last
-    1200 s" — points the operator at a wedged ingester that is not the problem.
+    A frame without a ``channel`` column is a broken connector; the probe lets
+    it raise so the runner reports an error naming the exception, rather than
+    a misleading staleness warning.
     """
     ctx, _runtime = _ctx(_SpyArchiver(pd.DataFrame({"ts": [], "val": []})))
     with pytest.raises(KeyError):
@@ -246,10 +231,8 @@ async def test_non_conforming_frame_is_not_laundered_into_a_staleness_warning() 
 async def test_nanosecond_timestamps_are_not_truncated_with_a_warning() -> None:
     """The EPICS connector carries real nanoseconds into the ``timestamp`` column.
 
-    ``Timestamp.to_pydatetime()`` discards them and emits ``UserWarning:
-    Discarding nonzero nanoseconds in conversion`` on every such probe run. The
-    age comparison never needed that conversion — ``pd.Timestamp`` *is* a
-    ``datetime``, so the newest sample is returned as-is.
+    ``Timestamp.to_pydatetime()`` discards them with a UserWarning; the age
+    comparison never needed that conversion.
     """
     now = pd.Timestamp.now(tz=UTC).as_unit("ns")
     stamps = pd.DatetimeIndex(

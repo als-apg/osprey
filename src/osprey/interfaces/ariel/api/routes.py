@@ -53,9 +53,8 @@ def _parse_metadata_form(raw: str | None) -> dict[str, Any]:
 def _localize_facility(dt: datetime | None) -> datetime | None:
     """Attach the facility timezone to a naive operator-provided datetime.
 
-    The web UI must interpret operator-supplied dates as facility-local (not
-    box-local / UTC) before they drive a ``TIMESTAMPTZ`` query -- the framework's
-    one convention for naive input, which ``localize_facility`` owns.
+    Naive dates are facility-local wall-clock (never box-local / UTC) before
+    they drive a ``TIMESTAMPTZ`` query.
     """
     from osprey.utils.config import localize_facility
 

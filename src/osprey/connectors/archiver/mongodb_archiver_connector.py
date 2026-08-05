@@ -217,9 +217,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
-            The canonical long frame — see :meth:`ArchiverConnector.get_data`
-            for the full contract (columns, dtypes, ordering, and the rule that
-            nothing is ever manufactured).
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`.
 
         Raises:
             RuntimeError: If archiver not connected
@@ -228,16 +226,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
             TypeError: If start_date or end_date are not datetime objects
             ValueError: If pv_list is empty, data retrieval fails, or a
                 non-raw processing mode is requested for a channel that
-                carries non-numeric values (see
-                :func:`~osprey.connectors.archiver._timerange.aggregate_series`)
+                carries non-numeric values
         """
         timeout = timeout if timeout is not None else self._timeout
 
         self._require_connected()
 
-        # pymongo converts aware datetimes correctly but reads naive ones as UTC;
-        # normalizing here makes a bare wall-clock mean facility-local, matching
-        # every other connector.
+        # pymongo reads naive datetimes as UTC; normalize so a bare wall-clock
+        # means facility-local, as in every other connector.
         start_utc, end_utc = utc_window(start_date, end_date)
 
         if not pv_list:
@@ -247,9 +243,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         def fetch_data():
             """Synchronous data fetch function."""
-            # Match the window, then any document carrying at least one requested
-            # PV. ANDing existence per PV would require every PV in the same
-            # document and silently return nothing when they are archived apart.
+            # Match any document carrying at least one requested PV: ANDing
+            # existence would silently return nothing for PVs archived apart.
             query = {
                 "date": {"$gte": start_utc, "$lte": end_utc},
                 "$or": [{pv: {"$exists": True}} for pv in pv_list],
@@ -268,11 +263,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 logger.debug(f"No documents found in date range {start_date} to {end_date}")
 
             # Group documents into one series per requested PV. A PV absent
-            # from a given document contributes no sample for that channel —
-            # not a None placeholder and not a NaN row — so a PV archived at a
-            # different cadence (or living only in a sibling document the
-            # $or above also pulled in) never grows a padded column the way
-            # the old wide frame required.
+            # from a given document contributes no sample for that channel.
             timestamps: dict[str, list] = {pv: [] for pv in pv_list}
             values: dict[str, list] = {pv: [] for pv in pv_list}
             for doc in documents:
@@ -285,13 +276,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
                         timestamps[pv].append(doc_date)
                         values[pv].append(doc[pv])
 
-            # Documents arrive at whatever cadence the ingester wrote them, so
-            # every mode — including "raw" — needs binning here; there is no
-            # server-side aggregation to defer to. aggregate_series resamples
-            # each channel independently and drops any bin with no samples,
-            # so a fine precision_ms over a sparsely (or differently)
-            # archived PV can only return fewer rows than it has samples,
-            # never manufacture more — no bin-width floor is needed.
+            # No server-side aggregation to defer to, so every mode — including
+            # "raw" — is binned client-side here.
             return aggregate_long_frame(
                 {
                     pv: pd.Series(

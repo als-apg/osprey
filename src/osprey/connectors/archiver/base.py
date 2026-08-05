@@ -82,30 +82,21 @@ class ArchiverConnector(ABC):
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Bin width in milliseconds; ``<= 0`` means full
-                resolution. A backend that bins server-side may not be able to
-                express every width — the EPICS Archiver Appliance takes whole
-                seconds — and must raise ``ValueError`` rather than serve a
-                different width than was asked for.
+                resolution. A backend that cannot express the requested width
+                must raise ``ValueError`` rather than serve a different one.
             timeout: Optional timeout in seconds
             processing: Aggregation applied within each precision_ms bin. One of
-                "raw", "mean", "min", "max", "median", "std", "count". Backends
-                that aggregate server-side (EPICS) push it down; the rest apply
-                it client-side. Anything else raises ValueError.
+                "raw", "mean", "min", "max", "median", "std", "count". Anything
+                else raises ValueError.
 
         Returns:
-            A long-format DataFrame with columns ``timestamp`` (datetime64[ns, UTC]),
-            ``channel`` (str), and ``value`` — not dtype-constrained: ``float64``
-            when every requested channel's samples are numeric, or whatever
-            dtype pandas needs to hold the mix (typically ``object``) once any
-            channel is non-numeric (e.g. an enum/status PV archived as a
-            string). Sorted by channel then timestamp. Channels are never
-            placed on a shared index: each channel contributes only its own
-            real samples (or, when ``processing`` bins them, only its own real
-            per-bin aggregates), so nothing is ever manufactured — no
-            forward-fill, no reindex onto a regular grid, no bin for a period
-            with no samples. A PV with no data in range contributes no rows.
-            An empty result is an empty frame with these columns, ``value``
-            defaulting to ``float64``.
+            A long-format DataFrame with columns ``timestamp``
+            (datetime64[ns, UTC]), ``channel`` (str), and ``value`` (``float64``
+            unless a channel is non-numeric), sorted by channel then timestamp.
+            Each channel contributes only its own real samples or per-bin
+            aggregates — no forward-fill, no shared grid, no bin for a period
+            with no samples. A PV with no data in range contributes no rows; an
+            empty result is an empty frame with these columns.
 
         Raises:
             ConnectionError: If archiver cannot be reached

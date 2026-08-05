@@ -34,11 +34,6 @@ def _parse_time(time_str: str) -> datetime:
     if stripped.endswith(" ago"):
         amount_unit = stripped[:-4].strip()
         unit_map = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
-        # Every unit is a single character, so the suffix is just the last one
-        # — one lookup, not a five-way endswith scan. ``[-1:]`` rather than
-        # ``[-1]`` keeps it total; an empty ``amount_unit`` is in fact
-        # unreachable (``stripped`` has no leading whitespace, so it can never
-        # be exactly " ago"), so no test can tell the two apart.
         kwarg = unit_map.get(amount_unit[-1:])
         if kwarg is not None:
             try:
@@ -140,10 +135,7 @@ async def archiver_read(
         registry = get_server_context()
         connector = await registry.archiver()
 
-        # Deduplicate before querying: a caller-repeated channel name must not
-        # double-query the archiver, and every count derived below
-        # (channels_queried, per_channel, total_points) must describe exactly
-        # what was actually queried and returned — not the raw request list.
+        # Deduplicate: all counts below must describe what was actually queried.
         unique_channels = list(dict.fromkeys(channels))
 
         precision_ms = 1000 if bin_size is None else bin_size * 1000
@@ -155,32 +147,20 @@ async def archiver_read(
             processing=processing,
         )
 
-        # Each channel has its own independent samples — filter the long
-        # frame per channel rather than assuming a shared column/index.
         series: dict[str, dict[str, list[Any]]] = {}
         per_channel: dict[str, dict[str, Any]] = {}
         total_points = 0
 
-        # One hash pass over the frame instead of a full-column comparison per
-        # channel (measured 2.5-25x faster on the selection at 8-200 channels,
-        # and a *lower* peak RSS than the mask loop's per-iteration churn).
         by_channel = dict(tuple(df.groupby("channel", sort=False)))
         no_samples = df.iloc[:0]
 
-        # Iterate the caller's channels, not the groups: the payload's key
-        # order is the requested order, and a requested channel the archiver
-        # returned nothing for still gets an honest empty entry rather than
-        # being dropped. (Nothing reads the grouping order, so ``sort=False``
-        # above is a cost saving only — the order below is what is observable.)
+        # Iterate requested channels so key order matches the request and a
+        # channel with no data still gets an empty entry.
         for ch in unique_channels:
             sub = by_channel.get(ch, no_samples)
             timestamps = [ts.isoformat() for ts in sub["timestamp"]]
-            # NaN is not valid JSON, so a null sample has to marshal as None.
-            # ``.astype(object)`` first is load-bearing: on a float column
-            # ``where`` would otherwise put NaN back in place of the None.
-            # Vectorized rather than a per-element ``pd.isna`` dispatch (4-5x),
-            # and identical element-for-element including dtype — an int column
-            # stays int rather than being widened to float.
+            # NaN is not valid JSON; ``.astype(object)`` first is required or
+            # ``where`` puts NaN back in place of None on float columns.
             values = sub["value"].astype(object).where(sub["value"].notna(), None).tolist()
             series[ch] = {"timestamps": timestamps, "values": values}
 
@@ -188,11 +168,8 @@ async def archiver_read(
             total_points += points
 
             stats: dict[str, Any] = {"points": points}
-            # value may hold strings for enum/status channels; coerce before
-            # computing stats so a non-numeric channel never raises or
-            # reports NaN — it simply omits the numeric fields. "points"
-            # counts every sample (including ones that turn out non-numeric);
-            # min/max/mean below count only the numeric ones.
+            # Enum/status channels hold strings: "points" counts every sample,
+            # min/max/mean cover only the numeric ones.
             numeric = pd.to_numeric(sub["value"], errors="coerce")
             if numeric.notna().any():
                 stats["min"] = float(numeric.min())
@@ -218,10 +195,6 @@ async def archiver_read(
             "time_range": {"start": str(start_dt), "end": str(end_dt)},
             "per_channel": per_channel,
         }
-        # Rides inline on every response, so it says each thing once: the
-        # access rule is one rule with the channel name substituted (the names
-        # are already in summary.per_channel), and the counts and query
-        # parameters an agent might want are already in summary/query.
         access_details = {
             "data_file_structure": {
                 "root_keys": ["query", "series"],
