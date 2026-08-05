@@ -312,10 +312,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # have no token default (they fail closed), and `deploy up` would otherwise
     # auto-generate a random token; we write fixed tokens here so the bearer
     # below is predictable, and pass the provider secret through.
+    # The endpoint override rides the same .env: without it the container-side
+    # config expansion falls back to the provider's built-in default gateway.
+    base_url_line = (
+        f"ALS_APG_BASE_URL={os.environ['ALS_APG_BASE_URL']}\n"
+        if os.environ.get("ALS_APG_BASE_URL")
+        else ""
+    )
     (project_dir / ".env").write_text(
         "EVENT_DISPATCHER_TOKEN=dev-token\n"
         "DISPATCH_WORKER_TOKEN=dev-token\n"
-        f"ALS_APG_API_KEY={os.environ['ALS_APG_API_KEY']}\n",
+        f"ALS_APG_API_KEY={os.environ['ALS_APG_API_KEY']}\n" + base_url_line,
         encoding="utf-8",
     )
 

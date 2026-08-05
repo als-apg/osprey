@@ -294,6 +294,15 @@ def test_generated_image_serves_agent_over_http(built_image):
     api_key = os.environ["ALS_APG_API_KEY"]  # guaranteed present by requires_als_apg
     env_args = ["-e", f"ALS_APG_API_KEY={api_key}"]
 
+    # The endpoint override rides the same contract. It is deliberately absent
+    # from the image (build-time rendering never bakes the builder's
+    # environment), so a run pointed at a non-default gateway must pass it in
+    # here exactly as a deployment passes it via env_file — otherwise the
+    # container dials the provider's built-in default instead.
+    base_url = os.environ.get("ALS_APG_BASE_URL")
+    if base_url:
+        env_args += ["-e", f"ALS_APG_BASE_URL={base_url}"]
+
     run = subprocess.run(
         [
             "docker",
