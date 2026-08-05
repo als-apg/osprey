@@ -111,6 +111,101 @@ def test_removed_preset_is_silent_on_content_check(tmp_path, presets_dir, monkey
     assert staleness.staleness_reasons(tmp_path) == []
 
 
+def _write_profile_manifest(project_dir, build_args, preset_hash):
+    """Write a manifest for a *profile*-sourced build.
+
+    Not ``_write_manifest``: that one merges into a preset-sourced default, and a
+    leftover ``preset`` key would route the content check down the preset branch
+    instead of the profile branch under test.
+    """
+    (project_dir / ".osprey-manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.2.0",
+                "creation": {"osprey_version": "2026.7.0", "preset_hash": preset_hash},
+                "build_args": {"project_name": "proj", "source": "profile", **build_args},
+                "reproducible_command": "osprey build proj profile.yml",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_profile_project(tmp_path, *, absolute: bool):
+    """A project built from a positional profile, deployed from its own directory.
+
+    Mirrors the real shape: the profile and its ``data:`` tree live wherever the
+    facility keeps them, the user typed a path relative to *that* directory, and
+    ``osprey deploy`` later runs from the project directory instead.
+
+    Args:
+        absolute: Whether the manifest also carries ``profile_path_abs`` — the
+            difference between a manifest this build writes and a legacy one.
+    """
+    facility = tmp_path / "facility"
+    (facility / "data").mkdir(parents=True)
+    (facility / "data" / "channels.json").write_text('{"channels": []}\n', encoding="utf-8")
+    profile = facility / "profile.yml"
+    profile.write_text("name: Facility\ndata: data\n", encoding="utf-8")
+
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    build_args = {"profile_path": "profile.yml"}
+    if absolute:
+        build_args["profile_path_abs"] = str(profile)
+    _write_profile_manifest(project_dir, build_args, build_profile.compute_profile_hash(profile))
+    return profile, project_dir
+
+
+def test_relative_profile_build_still_sees_a_data_edit(tmp_path, monkeypatch):
+    """SC8: the advisory fires from the deploy directory, not just the build one.
+
+    The relative ``profile.yml`` in the manifest names nothing from the project
+    directory. Following it alone hashes to "cannot compare" and the project
+    deploys silently against data that has since changed.
+    """
+    profile, project_dir = _write_profile_project(tmp_path, absolute=True)
+    monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
+    monkeypatch.chdir(project_dir)
+
+    assert staleness.staleness_reasons(project_dir) == []
+
+    (profile.parent / "data" / "channels.json").write_text('{"channels": [1]}\n', encoding="utf-8")
+    reasons = staleness.staleness_reasons(project_dir)
+    assert len(reasons) == 1
+    assert "changed since this project was rendered" in reasons[0]
+
+
+def test_legacy_manifest_without_absolute_path_falls_back(tmp_path, monkeypatch):
+    """Manifests written before ``profile_path_abs`` keep their old behavior.
+
+    From the directory the build ran in the relative string still resolves, so
+    the fallback is a real comparison rather than a permanent blind spot.
+    """
+    profile, project_dir = _write_profile_project(tmp_path, absolute=False)
+    monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
+    monkeypatch.chdir(profile.parent)
+
+    assert staleness.staleness_reasons(project_dir) == []
+
+    (profile.parent / "data" / "channels.json").write_text('{"channels": [1]}\n', encoding="utf-8")
+    assert len(staleness.staleness_reasons(project_dir)) == 1
+
+
+def test_unresolvable_profile_path_is_silent(tmp_path, monkeypatch):
+    """A profile that has moved away is "cannot compare", never drift."""
+    monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
+    _write_profile_manifest(
+        tmp_path,
+        {
+            "profile_path": "profile.yml",
+            "profile_path_abs": str(tmp_path / "gone" / "profile.yml"),
+        },
+        "sha256:deadbeef",
+    )
+    assert staleness.staleness_reasons(tmp_path) == []
+
+
 @pytest.fixture
 def _captured_warnings(monkeypatch):
     warnings: list = []
