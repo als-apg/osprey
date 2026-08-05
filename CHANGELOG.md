@@ -41,6 +41,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The theme picker now labels the DESY family `DESY` rather than `Desy`.
 - Newly scaffolded projects set `web.theme: osprey`, a family that no longer
   exists; the terminal warned and fell back on every start. Now `main`.
+- HTML-to-image export no longer runs `playwright install chromium` on every
+  conversion. The browser availability check used Playwright's sync API, which
+  fails inside a running event loop; the failure was misread as "browser
+  missing", so an async caller (e.g. the dispatch artifact byte route) paid a
+  subprocess and a network round-trip per conversion — and on hosts that cannot
+  reach the browser CDN, every conversion failed even with Chromium installed.
+  The browser launch is now itself the availability check: Chromium is installed
+  only when a launch reports the binary is absent, at most once per process, and
+  a launch that fails for any other reason surfaces unchanged instead of being
+  reported as a missing browser.
 - `osprey build` now fails with an actionable error when
   `claude_code.default_model` (e.g. `--set model=...`) names a model the
   selected provider does not serve. Previously the build only warned and the
