@@ -17,8 +17,11 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-27T12:10:00.357213Z"
+exclude-newer = "2026-07-29T12:52:38.809173Z"
 exclude-newer-span = "P7D"
+
+[options.exclude-newer-package]
+lume-pyat = "2026-08-06T00:00:00Z"
 
 [[package]]
 name = "accelerator-toolbox"
@@ -2799,6 +2802,20 @@ wheels = [
 ]
 
 [[package]]
+name = "lume-pyat"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "accelerator-toolbox" },
+    { name = "lume-base" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/10/bb/8ca1d4949e4cf73561a283c8538ece7b3316f151e7d54efb61aa045fe72b/lume_pyat-0.1.0.tar.gz", hash = "sha256:1733240a8fc3b68ae3742e8d29f4b7dd093ff40c4abef856cef04d1c8d97b81a", size = 48599, upload-time = "2026-08-05T12:36:12.697Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/f5/3f689e586c2dfbbabe97116f8c480cf26e3b1ba6dd29d4c3b73473b28998/lume_pyat-0.1.0-py3-none-any.whl", hash = "sha256:a489b32a67b0a164b8f2c1112cd3a1186a3bb9b3b3adf369bf2d0ff4f3721f24", size = 49112, upload-time = "2026-08-05T12:36:11.226Z" },
+]
+
+[[package]]
 name = "lz4"
 version = "4.4.5"
 source = { registry = "https://pypi.org/simple" }
@@ -3867,6 +3884,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "litellm" },
     { name = "lume-base" },
+    { name = "lume-pyat" },
     { name = "markdown" },
     { name = "markupsafe" },
     { name = "matplotlib" },
@@ -4019,6 +4037,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "litellm", specifier = ">=1.56.0" },
     { name = "lume-base", specifier = "==0.5.0" },
+    { name = "lume-pyat", specifier = "==0.1.0" },
     { name = "markdown", specifier = ">=3.5" },
     { name = "markupsafe", specifier = ">=3.0.2" },
     { name = "matplotlib", specifier = ">=3.11.1" },
