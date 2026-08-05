@@ -72,10 +72,10 @@ from osprey.bridges.core import (
     InboundEvent,
     InputDownload,
     ReplyContext,
+    artifact_descriptors,
     ext_for_mime,
     fetch_artifact,
     safe_label,
-    split_artifacts,
 )
 
 from .client import MAX_DOWNLOAD_BYTES, REQUEST_TIMEOUT, DavTooLargeError, TalkClient, upload_dir
@@ -310,6 +310,13 @@ def _upload_name(label: Any, extension: str, fallback: Any) -> str:
     stem = _segment(label) or _segment(fallback) or "artifact"
     if extension and stem.lower().endswith(extension.lower()):
         return stem
+    # The worker's filename is predicted alongside delivered_mime, so a name carrying a
+    # DIFFERENT extension is a prediction the delivery contradicted ("data.png" for a
+    # render that never happened). Replace it rather than stack it — the extension still
+    # comes only from the mime.
+    root, dot, suffix = stem.rpartition(".")
+    if dot and root and len(suffix) <= 5 and suffix.isalnum():
+        stem = root
     return f"{stem}{extension}"
 
 
@@ -678,8 +685,8 @@ class NextcloudTalkOps:
             logger.debug("no room or run id to deliver artifacts for; text only")
             return {}
         artifacts = result.get("artifacts")
-        image_ids, docs = split_artifacts(artifacts if isinstance(artifacts, list) else None)
-        if not image_ids and not docs:
+        descriptors = artifact_descriptors(artifacts if isinstance(artifacts, list) else None)
+        if not descriptors:
             return {}
         try:
             directory = upload_dir(room, run_id)
@@ -691,36 +698,8 @@ class NextcloudTalkOps:
             )
             return {}
 
-        for artifact_id in image_ids:
-            # The image bucket is PNG by construction (that is what routes an artifact
-            # into it), so the magic-byte guard stays on and the extension is fixed.
-            self._deliver_one(
-                room,
-                directory,
-                run_id,
-                artifact_id,
-                name=_upload_name(artifact_id, ".png", artifact_id),
-                max_bytes=MAX_ARTIFACT_BYTES,
-                require_png=True,
-            )
-        for descriptor in docs:
-            doc_id = descriptor.get("artifact_id")
-            if not isinstance(doc_id, str) or not doc_id:
-                continue  # split_artifacts already drops these; belt for a future shape
-            mime = descriptor.get("delivered_mime")
-            self._deliver_one(
-                room,
-                directory,
-                run_id,
-                doc_id,
-                name=_upload_name(
-                    descriptor.get("filename"),
-                    ext_for_mime(mime if isinstance(mime, str) else None),
-                    doc_id,
-                ),
-                max_bytes=MAX_DOC_BYTES,
-                require_png=False,
-            )
+        for descriptor in descriptors:
+            self._deliver_one(room, directory, run_id, descriptor)
         return {}
 
     def _deliver_one(
@@ -728,36 +707,55 @@ class NextcloudTalkOps:
         room: str,
         directory: str,
         run_id: str,
-        artifact_id: str,
-        *,
-        name: str,
-        max_bytes: int,
-        require_png: bool,
+        descriptor: Mapping[str, Any],
     ) -> None:
         """Fetch, upload, and share one artifact. Never raises.
+
+        The descriptor only *names* the artifact: its ``delivered_mime`` is a
+        prediction made before anything was rendered, so an artifact whose
+        conversion failed arrives as its original bytes under a different
+        Content-Type. Routing on the prediction would drop exactly those
+        artifacts, silently (osprey #503) — so the delivered bytes decide the
+        path, and the descriptor only supplies a preferred name.
 
         Args:
             room: Destination room token.
             directory: DAV directory this run's artifacts go into.
             run_id: Run the artifact belongs to.
-            artifact_id: Worker artifact id to fetch.
-            name: Filename to write inside ``directory``.
-            max_bytes: Size ceiling for the fetch.
-            require_png: Whether the payload must carry PNG magic bytes.
+            descriptor: Normalized artifact descriptor — ``artifact_id`` plus any
+                ``filename`` / ``delivered_mime`` hints the worker sent.
         """
-        data = fetch_artifact(
+        artifact_id = descriptor["artifact_id"]
+        fetched = fetch_artifact(
             self._http,
             self._cfg.core,
             run_id,
             artifact_id,
-            max_bytes=max_bytes,
-            require_png=require_png,
+            max_bytes=MAX_DOC_BYTES,
         )
-        if data is None:
-            # fetch_artifact logged why (transport, oversize, or not a PNG).
+        if fetched is None:
+            # fetch_artifact logged why (transport or oversize).
             return
+        if fetched.is_png:
+            # Talk renders a PNG inline, and an oversize one renders broken —
+            # worse than not posting it. Documents get the larger budget.
+            if len(fetched.data) > MAX_ARTIFACT_BYTES:
+                logger.warning(
+                    "image artifact %s oversize (%d bytes), not delivered to room %s",
+                    artifact_id,
+                    len(fetched.data),
+                    room,
+                )
+                return
+            extension = ".png"
+        else:
+            predicted = descriptor.get("delivered_mime")
+            extension = ext_for_mime(
+                fetched.content_type or (predicted if isinstance(predicted, str) else None)
+            )
+        name = _upload_name(descriptor.get("filename"), extension, artifact_id)
         try:
-            path = self._client.dav_mkcol_put(directory, name, data)
+            path = self._client.dav_mkcol_put(directory, name, fetched.data)
             self._client.share_to_room(path, room)
         except Exception:
             # A file that uploaded but failed to share is left where it is on purpose:

@@ -23,8 +23,11 @@ retry policy reads it to force such a rejection non-retryable.
 a current worker returns a list of **descriptor dicts**
 (``{"artifact_id", "filename", "source_mime", "delivered_mime", "convertible"}``);
 an older worker (during the deploy window) returns bare id strings. Either shape
-is normalized to ids downstream by
-:func:`osprey.bridges.core.artifacts.artifact_ids`.
+is normalized downstream by :func:`osprey.bridges.core.artifacts.artifact_ids`
+(to ids) or :func:`osprey.bridges.core.artifacts.artifact_descriptors` (to whole
+descriptors). ``delivered_mime`` is what the worker *predicted* it would serve,
+not what a fetch returns — see that module on why delivery routes on the served
+Content-Type instead.
 ``[]`` when there are no artifacts or the worker predates the field.
 ``input_artifacts`` is the run-status body's list of inbound files the worker
 ingested for this run (``[{entry_id, filename, mime}]``), passed through

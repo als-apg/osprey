@@ -37,11 +37,12 @@ from .artifacts import (
     MAX_ARTIFACT_BYTES,
     MAX_DOC_BYTES,
     PNG_MAGIC,
+    FetchedArtifact,
+    artifact_descriptors,
     artifact_ids,
     ext_for_mime,
     fetch_artifact,
     safe_label,
-    split_artifacts,
 )
 from .capabilities import pair_supports
 from .config import TERMINAL_STATUSES, CoreConfig
@@ -83,13 +84,14 @@ __all__ = [
     "PNG_MAGIC",
     "DispatchClient",
     "DispatchError",
+    "FetchedArtifact",
+    "artifact_descriptors",
     "artifact_ids",
     "ext_for_mime",
     "fetch_artifact",
     "gate_open",
     "pair_supports",
     "safe_label",
-    "split_artifacts",
     # the seam adapters implement
     "RESERVED_ENTRY_KEYS",
     "ChannelOps",
