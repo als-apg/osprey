@@ -46,13 +46,18 @@ def test_lattice_import_is_plain_venv_clean():
 def test_va_model_import_is_softioc_clean():
     """The VA's LUME model layer must not drag in the EPICS IOC deps either.
 
-    ``model/`` is the in-tree seed of a standalone ``lume-pyat`` package, so
-    "softioc-free" is a shipping property, not a preference: the extraction in
-    a later phase lifts these modules out wholesale, and a stray ``softioc``
-    import would only surface once the package no longer had softioc to import.
-    Both the lazily-re-exporting package ``__init__`` and the module that owns
-    the ring are checked -- the first would pass trivially if the second were
-    never imported.
+    ``model/`` is the facility adapter over the ``lume-pyat`` package, and
+    "softioc-free" is a shipping property rather than a preference: the
+    package it binds to has no softioc to import, so a stray IOC import on
+    this side would make the adapter unloadable anywhere the serving layer
+    is not also installed. Both the lazily-re-exporting package ``__init__``
+    and the module that owns the ring are checked -- the first would pass
+    trivially if the second were never imported.
+
+    The ``__file__`` assertions still pin the checkout: the physics moved to
+    the installed package, but these two modules did not, so resolving them
+    to site-packages would mean the test is examining an installed OSPREY
+    instead of the tree under test.
     """
     assert CHECKOUT_SRC.is_dir(), f"checkout src/ not found at {CHECKOUT_SRC}"
     code = (

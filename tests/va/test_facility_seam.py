@@ -36,7 +36,6 @@ import pytest
 
 from osprey.interfaces._serving import free_port
 
-
 # Every root the no-lattice path must stay clear of. ``at`` is the original
 # seam: PyAT is what ``VA_LATTICE=none`` exists to avoid. ``lume`` and ``h5py``
 # joined it once the physics moved behind a LUMEModel -- ``import lume`` eagerly
@@ -44,8 +43,12 @@ from osprey.interfaces._serving import free_port
 # would quietly make the whole heavy stack a hard requirement of a boot mode
 # whose entire purpose is not needing one. h5py is listed separately rather than
 # left to arrive via ``lume`` so the guard still bites if some other module
-# reaches for it directly.
-_BLOCKED_ROOTS = ("at", "lume", "h5py")
+# reaches for it directly. ``lume_pyat`` joined once the physics moved into it:
+# its ``__init__`` is PEP 562 lazy, so importing it costs almost nothing and an
+# accidental import would NOT announce itself by dragging the heavy stack in --
+# which is exactly why the guard has to name it. The seam is about what this
+# boot path is allowed to depend on, not about what the dependency costs.
+_BLOCKED_ROOTS = ("at", "lume", "h5py", "lume_pyat")
 
 
 def _run_seam_ioc_subprocess() -> None:

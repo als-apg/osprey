@@ -1,15 +1,11 @@
-"""The bound catalog is the plain catalog, plus a binding -- and nothing else.
+"""The bound catalog addresses the ring it was baked against.
 
-Two independent properties are pinned here, with different lifetimes.
-
-**Catalog parity (scaffolding).** ``build_action_variables`` must produce
-exactly what ``build_variable_catalog`` produces -- same 492 address keys,
-same declared field values, same 348/144 split -- differing only in the
-class of each variable and the binding fields that class adds. This half
-exists to certify the migration to lattice-bound variables while both
-catalogs are still built the same way; it retires once the model is served
-from the bound catalog alone and the plain one is no longer a second
-derivation to compare against.
+The model is now served from the bound catalog alone. The field-for-field
+parity check against ``build_variable_catalog`` retired with the migration
+it certified: with no second derivation left to compare against, comparing
+the bound catalog to a plain one rebuilt beside it only asserted that one
+function calls another. What survives are the properties that hold on their
+own terms -- the catalog's shape, and the baselines below.
 
 **Baked baselines (standing).** Every setpoint's element must be the one
 ``StrengthMap`` snapshotted its baked strength from, bit-for-bit. This is
@@ -51,7 +47,6 @@ from osprey.services.virtual_accelerator.manifest import (
     build_manifest,
 )
 from osprey.services.virtual_accelerator.model.bindings import build_action_variables
-from osprey.services.virtual_accelerator.model.catalog import build_variable_catalog
 from osprey.services.virtual_accelerator.model.variables import (
     DECLARED_ATTRIBUTE,
     CurrentSetpointVariable,
@@ -62,11 +57,6 @@ from osprey.services.virtual_accelerator.model.variables import (
 EXPECTED_INPUTS = 348
 EXPECTED_OUTPUTS = 144
 EXPECTED_MONITORS = 72
-
-# The one dumped field the two catalogs are *expected* to differ in: lume
-# serializes the variable's own class name, and binding a variable is
-# precisely a change of class.
-CLASS_DISCRIMINATOR = "variable_class"
 
 # Amps for the corrector conversion witness. AMPS_PER_RADIAN_KICK is 1e6,
 # whose reciprocal is not exact in binary, so `2.5 / A` and `2.5 * (1 / A)`
@@ -96,11 +86,6 @@ def strength_map(ring) -> StrengthMap:
 @pytest.fixture(scope="module")
 def bound(channels, strength_map) -> dict[str, ScalarVariable]:
     return build_action_variables(channels, strength_map=strength_map)
-
-
-@pytest.fixture(scope="module")
-def plain(channels) -> dict[str, ScalarVariable]:
-    return build_variable_catalog(channels)
 
 
 @pytest.fixture(scope="module")
@@ -136,11 +121,8 @@ def live_baseline(element: at.Element, family: str) -> float:
     return float(element.KickAngle[_CORRECTOR_PLANE[family]])
 
 
-class TestCatalogParity:
-    """Scaffolding: retires with the plain catalog it compares against."""
-
-    def test_same_address_keys(self, bound, plain):
-        assert set(bound) == set(plain)
+class TestCatalogShape:
+    """What the bound catalog contains, independent of how it was derived."""
 
     def test_counts(self, setpoints, monitors):
         assert len(setpoints) == EXPECTED_INPUTS
@@ -153,42 +135,6 @@ class TestCatalogParity:
     def test_setpoint_echo_is_excluded(self, bound):
         """``:RB`` is the IOC mirroring a write back; not model state."""
         assert not [address for address in bound if address.endswith(":RB")]
-
-    def test_every_declared_field_matches(self, bound, plain):
-        """Field-for-field over all 492 -- nominals, units, ranges,
-        validation config, read-only flag and name."""
-        mismatched = []
-        for address, plain_variable in plain.items():
-            bound_dump = bound[address].model_dump()
-            for field, value in plain_variable.model_dump().items():
-                if field == CLASS_DISCRIMINATOR:
-                    continue
-                if bound_dump.get(field) != value:
-                    mismatched.append((address, field, value, bound_dump.get(field)))
-        assert mismatched == []
-
-    def test_the_compared_fields_are_the_ones_that_matter(self, plain):
-        """Guards the comparison above against passing vacuously: whatever
-        ``model_dump`` covers has to include every field the catalog derives."""
-        dumped = set(next(iter(plain.values())).model_dump())
-        assert {
-            "name",
-            "read_only",
-            "default_value",
-            "default_validation_config",
-            "value_range",
-            "unit",
-        } <= dumped
-
-    def test_only_the_class_discriminator_differs(self, bound, plain):
-        """The exemption above is exactly one field wide, and it is the one
-        that *must* differ -- otherwise a bound variable would deserialize as
-        an unbound one."""
-        assert all(
-            variable.model_dump()[CLASS_DISCRIMINATOR] == type(variable).__name__
-            for variable in (*bound.values(), *plain.values())
-        )
-        assert {type(variable) for variable in plain.values()} == {ScalarVariable}
 
     def test_variables_are_bound_action_classes(self, setpoints, monitors):
         assert {type(v) for v in setpoints.values()} == {CurrentSetpointVariable}
