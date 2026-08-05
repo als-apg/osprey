@@ -151,3 +151,67 @@ class TestEndToEndThroughLoadProviderSpec:
 
         spec = load_provider_spec(tmp_path, include_telemetry=False)
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+
+class TestEnvVarBreakGlassOverride:
+    """ALS_APG_BASE_URL beats both the config value and the built-in URL.
+
+    Config is often baked into container images at build time; the env var is
+    the runtime lever that redirects an already-deployed system at a fallback
+    gateway without a rebuild. Only providers that declare ``base_url_env_var``
+    in CLAUDE_CODE_PROVIDERS participate.
+    """
+
+    def test_env_var_wins_over_builtin_url(self, monkeypatch):
+        monkeypatch.setenv("ALS_APG_BASE_URL", f"{FACILITY_GATEWAY}/v1")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+    def test_env_var_wins_over_config_base_url(self, monkeypatch):
+        monkeypatch.setenv("ALS_APG_BASE_URL", f"{FACILITY_GATEWAY}/v1")
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            api_providers={"als-apg": {"base_url": "https://baked.example.org/v1"}},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+    def test_unset_env_var_preserves_existing_behavior(self, monkeypatch):
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+
+    def test_empty_env_var_is_ignored(self, monkeypatch):
+        monkeypatch.setenv("ALS_APG_BASE_URL", "")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+
+    def test_explicit_environ_mapping_beats_process_env(self, monkeypatch):
+        """resolve() honors a caller-supplied lookup, so load_provider_spec can
+        pass its os.environ + project-.env overlay (.env wins)."""
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            environ={"ALS_APG_BASE_URL": f"{FACILITY_GATEWAY}/v1"},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
+
+    def test_project_dotenv_reaches_the_override_via_load_provider_spec(
+        self, tmp_path, monkeypatch
+    ):
+        """The on-disk runtime path: ALS_APG_BASE_URL in the project .env
+        (not the process env) still redirects the agent."""
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        (tmp_path / "config.yml").write_text(
+            "api:\n"
+            "  providers:\n"
+            "    als-apg:\n"
+            "      base_url: https://baked.example.org/v1\n"
+            "claude_code:\n"
+            "  provider: als-apg\n"
+        )
+        (tmp_path / ".env").write_text(f"ALS_APG_BASE_URL={FACILITY_GATEWAY}/v1\n")
+
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY

@@ -498,7 +498,7 @@ api:
         opus: claudeopus41
     als-apg:
       api_key: ${ALS_APG_API_KEY}
-      base_url: https://llm.gianlucamartino.com/v1
+      base_url: ${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com/v1}
       models:
         haiku: claude-haiku-4-5-20251001
         sonnet: claude-sonnet-4-6

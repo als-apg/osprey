@@ -140,6 +140,58 @@ class TestALSAPGExecuteCompletion:
         assert mock_exec.call_args.kwargs["base_url"] == "https://llm.gianlucamartino.com"
 
 
+class TestALSAPGBaseURLEnvOverride:
+    """ALS_APG_BASE_URL redirects the adapter regardless of config.
+
+    The env var is the break-glass lever for pointing an already-deployed
+    system at a fallback gateway without rebuilding images: it must beat
+    both an explicit base_url argument and the built-in default.
+    """
+
+    def test_declares_the_env_var_name(self):
+        assert ALSAPGProviderAdapter.base_url_env_var == "ALS_APG_BASE_URL"
+
+    def test_env_var_wins_over_explicit_base_url(self, monkeypatch):
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://fallback.example.org/v1")
+        with patch(COMPLETION, return_value="ok") as mock_exec:
+            ALSAPGProviderAdapter().execute_completion(
+                message="hi", model_id="m", api_key="key", base_url="https://proxy"
+            )
+        assert mock_exec.call_args.kwargs["base_url"] == "https://fallback.example.org/v1"
+
+    def test_env_var_fills_missing_base_url(self, monkeypatch):
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://fallback.example.org/v1")
+        with patch(COMPLETION, return_value="ok") as mock_exec:
+            ALSAPGProviderAdapter().execute_completion(
+                message="hi", model_id="m", api_key="key", base_url=None
+            )
+        assert mock_exec.call_args.kwargs["base_url"] == "https://fallback.example.org/v1"
+
+    def test_empty_env_var_is_ignored(self, monkeypatch):
+        """An empty export must not blank the URL — fall through to the default."""
+        monkeypatch.setenv("ALS_APG_BASE_URL", "")
+        with patch(COMPLETION, return_value="ok") as mock_exec:
+            ALSAPGProviderAdapter().execute_completion(
+                message="hi", model_id="m", api_key="key", base_url=None
+            )
+        assert mock_exec.call_args.kwargs["base_url"] == "https://llm.gianlucamartino.com"
+
+    def test_env_var_redirects_check_health_too(self, monkeypatch):
+        """osprey health must probe the endpoint completions actually use."""
+        monkeypatch.setenv("ALS_APG_BASE_URL", "https://fallback.example.org/v1")
+        with patch(HEALTH, return_value=(True, "ok")) as mock_health:
+            ALSAPGProviderAdapter().check_health(api_key="key", base_url="https://proxy")
+        assert mock_health.call_args.kwargs["base_url"] == "https://fallback.example.org/v1"
+
+    def test_unset_env_var_preserves_existing_behavior(self, monkeypatch):
+        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        with patch(COMPLETION, return_value="ok") as mock_exec:
+            ALSAPGProviderAdapter().execute_completion(
+                message="hi", model_id="m", api_key="key", base_url="https://proxy"
+            )
+        assert mock_exec.call_args.kwargs["base_url"] == "https://proxy"
+
+
 class TestALSAPGCheckHealth:
     """check_health forwards to the litellm health helper with model fallback."""
 

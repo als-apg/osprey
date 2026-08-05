@@ -20,6 +20,7 @@ module), the lookup falls back to the real helpers imported here instead of
 failing with an AttributeError.
 """
 
+import os
 import sys
 from typing import Any
 
@@ -43,7 +44,18 @@ class LiteLLMDelegatingProvider(BaseProvider):
     apply_default_base_url_fallback: bool = False
 
     def _effective_base_url(self, base_url: str | None) -> str | None:
-        """Apply the Stanford-only default_base_url fallback when enabled."""
+        """Resolve the base_url: env override > caller value > default fallback.
+
+        A provider that declares :attr:`~BaseProvider.base_url_env_var` lets a
+        set (non-empty) env var beat every other source — the caller's value
+        usually comes from config baked into a deployment, and the env var is
+        the runtime lever that redirects it without a rebuild. The
+        ``apply_default_base_url_fallback`` behavior below is unchanged.
+        """
+        if self.base_url_env_var:
+            override = os.environ.get(self.base_url_env_var)
+            if override:
+                return override
         if self.apply_default_base_url_fallback:
             return base_url or self.default_base_url
         return base_url
