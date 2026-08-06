@@ -255,6 +255,9 @@ default:
    * - nextcloud_bridge
      - ``OSPREY_NEXTCLOUD_BRIDGE_IMAGE``
      - ``services.nextcloud_bridge.image``
+   * - gchat_bridge
+     - ``OSPREY_GCHAT_BRIDGE_IMAGE``
+     - ``services.gchat_bridge.image``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
