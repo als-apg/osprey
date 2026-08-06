@@ -306,24 +306,32 @@ def build(
 
             from osprey.version import get_release_version
 
+            from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
+
             # Compare the release lineage, not the running version: a development
             # build carries a post/local segment that no release specifier is
-            # written against. `prereleases=True` keeps a pre-release lineage from
-            # being excluded by PEP 440's default filtering.
+            # written against. But the lineage alone is not the whole capability:
+            # between releases a checkout ships the *next* release's profile
+            # schema (it stamps `_PROFILE_SCHEMA_MIN_OSPREY` into every profile
+            # it writes) while its tag still names the previous release, so
+            # judging it by tag alone would make it refuse profiles it just
+            # wrote. The schema floor this code carries is therefore also a
+            # floor on what it satisfies. `prereleases=True` keeps a pre-release
+            # lineage from being excluded by PEP 440's default filtering.
             release_version = get_release_version()
             spec = SpecifierSet(build_profile.requires_osprey_version, prereleases=True)
-            current = Version(release_version)
+            current = max(Version(release_version), Version(_PROFILE_SCHEMA_MIN_OSPREY))
             if current not in spec:
                 logger.error(
                     "  ✗ OSPREY %s does not satisfy requires_osprey_version: %s",
-                    release_version,
+                    current,
                     build_profile.requires_osprey_version,
                 )
                 logger.info("     Upgrade OSPREY or run: osprey --version")
                 raise click.Abort()
             logger.info(
                 "  ✓ OSPREY %s satisfies %s",
-                release_version,
+                current,
                 build_profile.requires_osprey_version,
             )
 
