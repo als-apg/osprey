@@ -83,3 +83,33 @@ def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     if not isinstance(raw, dict):
         raise BuildProfileError(f"Preset {name!r} must be a YAML mapping")
     return raw, target
+
+
+def _preset_extends_chain_reaches(child: str, ancestor: str) -> bool:
+    """Whether preset ``child``'s ``extends`` chain passes through ``ancestor``.
+
+    Walks bundled-preset names only: a chain hop that is missing, empty,
+    path-shaped, or otherwise not a bundled preset ends the walk with False —
+    such a chain cannot be rebased onto a profile materialized from
+    ``ancestor`` without changing what it resolves to. ``child == ancestor``
+    is also False: reaching requires at least one ``extends`` hop, because the
+    caller's delta emission rewrites an ``extends`` line that must exist.
+    A cycle returns False here and is rejected with a proper error by
+    :func:`~.build_profile_merge._resolve_extends` when the preset is used.
+    """
+    target = _normalize_preset_name(ancestor)
+    current = _normalize_preset_name(child)
+    seen: set[str] = set()
+    while current not in seen:
+        seen.add(current)
+        if _preset_exists(current) is None:
+            return False
+        raw, _path = _load_preset_raw(current)
+        parent = raw.get("extends")
+        if not isinstance(parent, str) or not parent or _preset_exists(parent) is None:
+            return False
+        parent = _normalize_preset_name(parent)
+        if parent == target:
+            return True
+        current = parent
+    return False

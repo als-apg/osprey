@@ -13,6 +13,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey profile new --force` replaces an existing profile directory, making
+  the materialize-and-build one-liner rerunnable. It only replaces a directory
+  that is a materialized profile (or empty), and deletes nothing until the new
+  profile has fully rendered — a failed run leaves the old directory intact.
+- The emitted `profile.yml` header now opens with a lifecycle diagram:
+  profile (edit) → build → project (regenerable) → deploy → running containers.
 - `archiver_read` gained `bin_size=0` for full resolution — every real
   archived sample in the requested range, with no per-bin decimation. Only
   valid with `processing="raw"` (an aggregate has no bin to aggregate
@@ -21,6 +27,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `osprey profile new` now writes persona profiles as small deltas
+  (`extends: ../profile.yml`) instead of full standalone copies: edit the host
+  profile once and every persona inherits the change, while each persona file
+  keeps its own capability posture (e.g. `control_system.writes_enabled:
+  false`) pinned explicitly. Model-selection choices baked at materialization
+  time — and `tier` — now reach personas through inheritance.
+- The shipped web-terminal rosters spell out `name`/`index`/`persona` on every
+  user entry instead of bare-string shorthand for the first user. Behavior is
+  unchanged; already-deployed projects will see a one-time profile-staleness
+  advisory from the preset content change.
 - The EPICS connector now rejects a `bin_size` the appliance cannot express
   rather than quietly serving a different resolution. Sub-second and
   non-whole-second widths used to be floored to the nearest second (500 ms

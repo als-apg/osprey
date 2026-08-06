@@ -342,6 +342,114 @@ def test_existing_target_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     assert not (target / "profile.yml").exists()
 
 
+def test_header_carries_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
+    """The top comment block shows profile -> build -> project -> deploy."""
+    target = tmp_path / "p"
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    text = (target / "profile.yml").read_text(encoding="utf-8")
+    head = "\n".join(text.splitlines()[:45])
+
+    assert "PROFILE" in head
+    assert "PROJECT" in head
+    assert "DEPLOYMENT" in head
+    assert "edit profile -> rebuild -> redeploy" in head
+    # Every diagram line is a YAML comment and fits a standard terminal.
+    for line in head.splitlines():
+        if "PROFILE" in line or "-->" in line:
+            assert line.startswith("#")
+            assert len(line) <= 80
+
+
+def test_persona_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "p"
+    assert _new(runner, target, "control-assistant").exit_code == 0
+
+    persona_files = sorted((target / "personas").glob("*.yml"))
+    assert persona_files, "control-assistant should emit persona siblings"
+    for persona_file in persona_files:
+        assert "edit profile -> rebuild -> redeploy" not in persona_file.read_text(encoding="utf-8")
+
+
+def test_existing_target_error_suggests_force(runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "p"
+    target.mkdir()
+    (target / "profile.yml").write_text("name: Old\n", encoding="utf-8")
+
+    result = _new(runner, target, "hello-world")
+
+    assert result.exit_code == 2
+    assert "--force" in result.output
+
+
+# ---------------------------------------------------------------------------
+# --force: replace an existing materialized profile
+# ---------------------------------------------------------------------------
+
+
+def test_force_replaces_existing_profile_directory(runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "p"
+    assert _new(runner, target, "hello-world").exit_code == 0
+    # User edits + stray files that a re-materialization must not keep.
+    (target / "profile.yml").write_text("name: Edited Away\n", encoding="utf-8")
+    (target / "data" / "stray.txt").write_text("stale\n", encoding="utf-8")
+
+    result = _new(runner, target, "hello-world", "--force")
+
+    assert result.exit_code == 0, result.output
+    profile_text = (target / "profile.yml").read_text(encoding="utf-8")
+    assert "Edited Away" not in profile_text
+    assert not (target / "data" / "stray.txt").exists(), "stale file survived --force"
+
+
+def test_force_bakes_new_set_pairs(runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "p"
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    result = _new(runner, target, "hello-world", "--force", "--set", "model=sonnet")
+
+    assert result.exit_code == 0, result.output
+    resolved, _ = resolve_build_profile(target / "profile.yml", None, (), ())
+    assert resolved.model == "sonnet"
+
+
+def test_force_refuses_directory_that_is_not_a_profile(runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "p"
+    target.mkdir()
+    (target / "keepme.txt").write_text("mine\n", encoding="utf-8")
+
+    result = _new(runner, target, "hello-world", "--force")
+
+    assert result.exit_code == 2
+    assert "profile.yml" in result.output
+    # Refused means untouched.
+    assert (target / "keepme.txt").read_text(encoding="utf-8") == "mine\n"
+
+
+def test_force_allows_replacing_an_empty_directory(runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "p"
+    target.mkdir()
+
+    result = _new(runner, target, "hello-world", "--force")
+
+    assert result.exit_code == 0, result.output
+    assert (target / "profile.yml").is_file()
+
+
+def test_force_with_bad_preset_leaves_existing_profile_untouched(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """--force must not delete anything before the new profile is fully rendered."""
+    target = tmp_path / "p"
+    assert _new(runner, target, "hello-world").exit_code == 0
+    original = (target / "profile.yml").read_text(encoding="utf-8")
+
+    result = _new(runner, target, "no-such-preset", "--force")
+
+    assert result.exit_code == 2
+    assert (target / "profile.yml").read_text(encoding="utf-8") == original
+
+
 def test_extends_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     override = tmp_path / "o.yml"
     override.write_text("extends: control-assistant\n", encoding="utf-8")

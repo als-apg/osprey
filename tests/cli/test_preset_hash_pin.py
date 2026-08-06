@@ -25,20 +25,24 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "channel-finder-standalone": (
         "sha256:03c3d35070730762db3d46ef88beabe3b0e0bf98abd5fff72d81a95d2b6fc918"
     ),
-    "control-assistant": "sha256:663c0bf96468bbb27fc6d654e450b55b7793e1a169b57c453080241c14882ab6",
+    # The six web-terminal presets were re-pinned when the shipped roster went
+    # from a bare-string first user to fully explicit name/index/persona
+    # entries — a resolved-content change (deploy-visible as staleness), made
+    # knowingly per the module docstring. The resolved *behavior* is identical.
+    "control-assistant": "sha256:807a488a6d709eb2caec040fcbee659dbf7521bd3033e43c8fb50b35c8f3af27",
     "control-assistant-readonly": (
-        "sha256:f37efc17138c93e526c82fa28f090c6b2e40c3fdfad37914a19e2e85d07124e7"
+        "sha256:40c52b45831c289a7c63702a58ac89112081649ab6d7d9d7c07dd7eb3c042a02"
     ),
     "control-assistant-readwrite": (
-        "sha256:dfdc843f4286c67e71292bbfe8f6eb7b7567823ad51ebf12dba12564c75b57f9"
+        "sha256:b281e2e1f0d294a3264424b50096663c51f041d17c0f7b20ae56ac4acc6413f6"
     ),
     "hello-world": "sha256:e1666b0b1a1d1232bc3aa9c32ccf11e3555a217162fda292f4240396ef19ec8a",
-    "multi-user-demo": "sha256:4176b9dbe5695042a380e5c505251bb1b5afce934717eb7b53aefc7ba13a7e90",
+    "multi-user-demo": "sha256:83fd981e71a1101faf7af8405eb05a9f9a60d26e7a78c34bc9d8157ac4395fbd",
     "multi-user-demo-readonly": (
-        "sha256:1cc708c17581447ad4295672bffb43545f08d56d8679c274713e53b037ebf537"
+        "sha256:0bb68c5f24a409b26575c43c40f6c9debbca4b3cccb51c36fe16082cb0a91d01"
     ),
     "multi-user-demo-readwrite": (
-        "sha256:e9b656144ac1e4419ccfbc931d669bc0f223f4e0397452a82af753a8e8c52615"
+        "sha256:81f6006d1b2f636be7fe4dc94eb747fb619d70944379c8e0d522591b1b5166d5"
     ),
 }
 
