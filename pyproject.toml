@@ -195,6 +195,19 @@ archiver-mongodb = [
     "pymongo>=4.0",
 ]
 
+# Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
+# Chat/Drive API access, and GCS artifact storage.
+gchat = [
+    "google-cloud-pubsub>=2.18",
+    "google-api-python-client>=2.100",
+    "google-auth>=2.23",
+    "google-cloud-storage>=2.10",
+    # Some deployment hosts only permit egress through a Squid proxy. httplib2
+    # (used by google-api-python-client) only honors HTTP(S)_PROXY env vars
+    # when PySocks is installed, so this is required, not optional, on those hosts.
+    "pysocks>=1.7",
+]
+
 # Facility knowledge / ontology support (OKF markdown bundles, RDF reasoning)
 knowledge = [
     "rdflib>=7.0",
@@ -215,7 +228,7 @@ virtual-accelerator = []
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge,gchat]"
 ]
 
 [project.urls]
@@ -282,6 +295,7 @@ module = [
     "openai.*",
     "anthropic.*",
     "google.*",
+    "googleapiclient.*",
     "ollama.*",
     "litellm.*",
     "pandas.*",

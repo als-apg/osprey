@@ -40,16 +40,32 @@ logger = logging.getLogger(__name__)
 # PNG magic bytes: any payload not starting with this is rejected.
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
-# Oversize guard: a large image renders as a *broken* widget in most chat
-# surfaces, which is strictly worse than posting no image at all. This is a
-# rendering bound, not a memory bound — the body is already fully read by the
-# time it is checked.
-MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
+# Oversize guard for the image path: a large image renders as a *broken* widget
+# in most chat surfaces, which is strictly worse than posting no image at all.
+# This is a rendering bound, not a memory bound — the body is already fully read
+# by the time it is checked. It plays TWO roles, and fetch_artifact itself owns
+# neither: a caller passes it as fetch_artifact's ``max_bytes`` so oversize bytes
+# are never fetched at all, and a caller that receives a PNG on the DOCUMENT
+# budget re-checks it against this bound before taking the image path.
+# fetch_artifact has no opinion about either; FetchedArtifact.is_png answers
+# only what the bytes ARE, never what they are big enough to be used for.
+#
+# DELIVERED, not ingested: these two bound what a bridge sends OUT to a chat
+# surface. The INBOUND direction has its own caps in
+# osprey.mcp_server.dispatch_worker.input_files_policy — including a
+# same-spirit-different-value MAX_IMAGE_BYTES (5 MiB, the per-file ingest cap).
+# Nothing reconciles these outbound constants with those: the pair that IS
+# reconciled is the inbound one (bridges.core.pipeline's file and re-injection
+# budgets against the worker's ceiling, in
+# tests/integration/test_input_files_cross_cutting.py). That is exactly why the
+# names must stay distinct — a shared name across two unreconciled domains is
+# the "grab the wrong constant" hazard, and no test would catch it.
+MAX_DELIVERED_IMAGE_BYTES = 2 * 1024 * 1024
 
-# Same kind of bound as MAX_ARTIFACT_BYTES, but for non-image documents: a
+# Same kind of bound as MAX_DELIVERED_IMAGE_BYTES, but for non-image documents: a
 # rendering/sanity bound, not a memory bound — fetch_artifact reads the full
 # body before the size check runs.
-MAX_DOC_BYTES = 10 * 1024 * 1024
+MAX_DELIVERED_DOC_BYTES = 10 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -73,8 +89,15 @@ class FetchedArtifact:
         return self.data.startswith(PNG_MAGIC)
 
 
-def _bare_mime(content_type: str | None) -> str | None:
-    """Strip parameters and case from a Content-Type; ``None`` stays ``None``."""
+def bare_mime(content_type: str | None) -> str | None:
+    """Strip parameters and case from a Content-Type; ``None`` stays ``None``.
+
+    Public because an adapter that fetches bytes from somewhere other than the
+    worker's byte route — a bridge re-reading a prior artifact off its own public
+    object store, say — has to normalize the served header the same way
+    :func:`fetch_artifact` does, or the two disagree about what ``image/png``
+    means. One implementation, not a copy per call site.
+    """
     if not content_type:
         return None
     return content_type.split(";", 1)[0].strip().lower() or None
@@ -145,6 +168,20 @@ _EXT_BY_MIME = {
     "image/svg+xml": ".svg",
 }
 
+KNOWN_EXTENSIONS = frozenset(_EXT_BY_MIME.values()) | {".bin"}
+"""Every extension :func:`ext_for_mime` can hand out — the allowlist's values plus
+the ``.bin`` fallback.
+
+Exported so a delivery path deciding whether two artifacts would land on ONE
+filename can strip the extensions it might itself append, rather than re-deriving
+the set and drifting from it. Strip in a LOOP, not once: ``report.v2.pdf`` has to
+lose ``.pdf`` before it can be compared against ``report.v2``, and a name can carry
+more than one — how many passes are possible depends on the stripping set, so a
+multi-pass example belongs with whichever set is in play, not here. A channel that
+appends an extension of its own unions it in on its side — the Talk bridge adds
+``.png``, which is deliberately absent here (see the ``ext_for_mime`` fallback in
+``nextcloud_talk.ops._deliver_one``)."""
+
 
 def ext_for_mime(mime: str | None) -> str:
     """Map a ``delivered_mime`` to a file extension via a fixed allowlist.
@@ -174,7 +211,7 @@ def fetch_artifact(
     run_id: str,
     artifact_id: str,
     *,
-    max_bytes: int = MAX_DOC_BYTES,
+    max_bytes: int = MAX_DELIVERED_DOC_BYTES,
 ) -> FetchedArtifact | None:
     """Fetch one artifact from the worker; ``None`` on any failure or a payload
     that fails the size guard.
@@ -185,9 +222,16 @@ def fetch_artifact(
     contradicting the run's ``delivered_mime`` prediction would make an artifact
     vanish with no error anywhere (osprey #503).
 
-    ``max_bytes`` defaults to the document ceiling; a caller that will only
-    accept an image applies :data:`MAX_ARTIFACT_BYTES` to the returned bytes,
-    which are read in full either way.
+    This function has no opinion about what a type is good for: the PNG-magic
+    check (:attr:`FetchedArtifact.is_png`) and the
+    :data:`MAX_DELIVERED_IMAGE_BYTES` image bound belong to whichever caller
+    decides to render an image. ``max_bytes`` defaults to the document ceiling
+    :data:`MAX_DELIVERED_DOC_BYTES`; a re-injection path passes whatever remains
+    of its own budget. A body over it is dropped whole rather than truncated.
+
+    Returns ``None`` on every failure — transport, HTTP status, or the size
+    guard — and raises nothing: a failed fetch must cost at most one artifact,
+    never the text answer.
 
     The caller owns the ``httpx.Client``; build it with
     ``httpx.Client(trust_env=cfg.trust_env)`` so proxy handling comes from
@@ -217,4 +261,4 @@ def fetch_artifact(
             max_bytes,
         )
         return None
-    return FetchedArtifact(data=data, content_type=_bare_mime(content_type))
+    return FetchedArtifact(data=data, content_type=bare_mime(content_type))
