@@ -478,6 +478,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   exactly where you drop it, or use the ⊞ "open in a new tile" corner on a rail
   entry's hover. Opening an already-open panel beside moves its tile instead of
   duplicating it.
+- A multi-user web-terminal deployment can now require a real login. Set
+  `modules.web_terminals.auth.method` to `password` (passwords OSPREY manages
+  and hashes for you) or `oidc` (your facility's single sign-on, mapped onto
+  roster entries by an `oidc_subject` field), and every request to a user's
+  terminal — pages, APIs and the live connection — is refused unless the
+  browser holds a valid session for that user. `osprey deploy up` provisions
+  each user's password hash into a `0600`, gitignored `.env.auth` that only the
+  login service can read, printing any password it has to generate exactly once;
+  `osprey deploy passwd <user>` rotates one later and ends that user's sessions.
+  It fails closed throughout: without `tls.enabled` the deployment refuses to
+  render rather than send session cookies in the clear (override with
+  `auth.allow_insecure_http` only behind a TLS-terminating proxy), and a deploy
+  aborts before starting anything if a password hash cannot be established. The
+  default stays `auth.method: none`, and no preset turns it on — see the
+  multi-user how-to for the full setup and how to roll it back.
 - Each user in a multi-user deployment can have their own default theme: set
   `theme:` on a roster entry in `modules.web_terminals.users` (a family such as
   `desy`, or a concrete id such as `desy-light` to also pin light/dark). It

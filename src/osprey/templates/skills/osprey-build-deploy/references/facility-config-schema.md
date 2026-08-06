@@ -310,12 +310,21 @@ modules:
               url: "https://elog.example.org"
             - label: "Status Page"
               url: "https://status.example.org"
-    auth:                                 # OPTIONAL — forward-looking, config-gated seam; INERT (see note below)
-      method: "none"                      # none (default); no other value is exercised in this schema revision
-    tls:                                  # OPTIONAL — forward-looking, config-gated seam; INERT (see note below)
-      enabled: false                      # default; v1 ships plain HTTP only
-      cert: "/etc/osprey/tls/facility.crt"  # only read when enabled: true
-      key: "/etc/osprey/tls/facility.key"   # only read when enabled: true
+    auth:                                 # OPTIONAL — off by default (see "Authentication" below)
+      method: "none"                      # none (default) | password | oidc
+      port: 9070                          # auth sidecar's listen port (default 9070)
+      session_lifetime: 43200             # seconds a session stays valid (default 43200 = 12h)
+      allow_insecure_http: false          # default; true renders auth without TLS — see below
+      image: "registry.example.com/osprey/web-terminal-auth:latest"  # REQUIRED in registry mode
+      oidc:                               # only read when method: oidc
+        issuer: "https://sso.example.org/realms/accelerator"
+        client_id_env: "OSPREY_AUTH_OIDC_CLIENT_ID"        # env var NAME (default shown)
+        client_secret_env: "OSPREY_AUTH_OIDC_CLIENT_SECRET"  # env var NAME (default shown)
+        claim: "sub"                      # ID-token claim matched against users[].oidc_subject
+    tls:                                  # OPTIONAL — required whenever auth.method != none
+      enabled: false                      # default; plain HTTP
+      cert: "/etc/osprey/tls/facility.crt"  # path INSIDE the nginx container; only read when enabled
+      key: "/etc/osprey/tls/facility.key"   # path INSIDE the nginx container; only read when enabled
 ```
 
 | Field | Type | Required | Notes |
@@ -336,10 +345,18 @@ modules:
 | `personas.<name>` | map of objects | no | Catalog of heterogeneous personas — own project, own image, own permissions. Omit entirely (no `personas:` block, no `persona:` keys anywhere) for exactly today's behavior. See "Personas" below |
 | `mcp.topology` | enum | no | `per_container_stdio` (default — today's behavior) is the only accepted value. `shared_http` is a recognized but rejected value — lint ERROR and render `ValueError`. See "MCP topology" below and `references/modules/web-terminals.md` for the deferral rationale |
 | `landing.groups` | list of group objects | no | Defaults to a single `type: "users"` group if omitted. `type: "users"` groups take no other fields and auto-populate from `users[]`; `type: "links"` groups require `label` and a `links` list of `{label, url}` objects |
-| `auth.method` | string | no | Defaults to `"none"` (no authentication). Forward-looking seam only — see note below |
-| `tls.enabled` | bool | no | Defaults to `false` (plain HTTP). Forward-looking seam only — see note below |
-| `tls.cert` | string | required if `tls.enabled: true` | Path to the TLS certificate file, mounted into the nginx container |
-| `tls.key` | string | required if `tls.enabled: true` | Path to the TLS private key file, mounted into the nginx container |
+| `auth.method` | enum | no | `"none"` (default — no login), `"password"` (OSPREY-managed scrypt hashes) or `"oidc"`. Any other value raises at render time. Anything but `none` brings up the auth sidecar and puts an `auth_request` in front of every `/u/<user>/` location. See "Authentication" below |
+| `auth.port` | int | no (default 9070) | The auth sidecar's listen port. The sidecar runs `network_mode: host` and binds `127.0.0.1:<port>` on the deploy host — it is NOT published through a compose `ports:` mapping and is NOT on an internal bridge network, so nginx (same netns) reaches it and nothing off-host does. Joined into the same port-collision check as the per-user families. **Must be a plain positive int**: any other value (string, float, bool, ≤ 0) is silently replaced by 9070 — there is no lint rule for it |
+| `auth.session_lifetime` | int **seconds** | no (default 43200 = 12h) | How long a session stays valid, in whole seconds. Also the bound on how long a captured cookie could be replayed after a sidecar restart (see "Authentication" below). **Must be a plain positive int**: a duration string (`"12h"`), a float, `0` or a negative value is silently replaced by 43200 — there is no lint rule for it, so a facility that meant 8h keeps 12h with no warning |
+| `auth.allow_insecure_http` | bool | no (default false) | Permits `auth.method != none` with `tls.enabled: false`, which otherwise refuses to render. Only defensible behind a TLS-terminating proxy or on an isolated network; lint warns |
+| `auth.image` | string | required if `image_source: registry` and `auth.method != none` | The sidecar's image reference. Publishing it is the facility CI's job, like the per-user images; deploy preflight fails when it is unset in registry mode. Ignored in `local` mode, where `deploy up` builds `<facility.prefix>-assistant-auth:local` itself |
+| `auth.oidc.issuer` | string | required if `auth.method: oidc` | OIDC issuer URL; the sidecar discovers endpoints from it |
+| `auth.oidc.client_id_env` | string | no (default `OSPREY_AUTH_OIDC_CLIENT_ID`) | Name of the env var holding the client id. A **variable name**, never the value — OIDC credentials live in `.env`, never in config |
+| `auth.oidc.client_secret_env` | string | no (default `OSPREY_AUTH_OIDC_CLIENT_SECRET`) | Name of the env var holding the client secret, same rule |
+| `auth.oidc.claim` | string | no (**sidecar** default `sub`) | Which ID-token claim carries the identity matched against a roster entry's `oidc_subject`. An identity that maps to no roster user is refused. Unset emits no env var at all and the sidecar's own `sub` default applies — the default lives there, not in the render, so don't document it as a config-layer default |
+| `tls.enabled` | bool | no | Defaults to `false` (plain HTTP). `true` makes the plain port a `301` redirect and serves all content on `listen 443 ssl` |
+| `tls.cert` | string | required if `tls.enabled: true` | Path to the TLS certificate **as seen inside the nginx container**. The rendered overlay mounts only nginx's own config files, so the certificate directory must be mounted into the `nginx` service by a facility-supplied compose file later in `runtime.compose_files` |
+| `tls.key` | string | required if `tls.enabled: true` | Path to the TLS private key, same rule. `tls.enabled: true` with either path unset refuses to render |
 
 Every port-valued field in the table above must be free of collisions with every
 other port allocation in the config: `nginx_port` against `ports.*` (its mirror is
@@ -373,6 +390,7 @@ users:
     persona: "analysis"                  # optional — key into personas.<name>
     display_name: "Operations"           # optional — window/tab title → OSPREY_WEB_APP_NAME
     theme: "desy-light"                  # optional — default web UI theme → OSPREY_WEB_THEME
+    oidc_subject: "8f4c1e02-..."         # optional — this user's identity at the IdP (auth.method: oidc)
 ```
 
 | Field | Type | Required | Notes |
@@ -381,6 +399,7 @@ users:
 | `index` | int (non-negative, non-bool) | yes, for an object-form entry | Explicit port-offset. A bare-string entry has no `index` field at all (its offset is inferred from list position); the moment an entry is written in object form, `index` must be present and a valid non-negative, non-bool int, or lint rejects it — there is no "infer it anyway" fallback for object-form entries. `osprey deploy decommission` freezes every *surviving* entry to this object form (assigning each its current positional index) before deleting the target user, so removing an earlier user from the list can never shift a later survivor's allocated ports; this is a tooling-managed migration, not something to hand-author in the interview |
 | `persona` | string | no | Key into `modules.web_terminals.personas`. Falls back to `default_persona` when absent; falls back further to "no persona in effect" (today's single-image, single-project behavior) when neither is set |
 | `display_name` | string | no | Human-facing window/tab title for this user's terminal. Emitted into the container as `OSPREY_WEB_APP_NAME`, which `osprey web` treats as authoritative over the per-image `web.app_name` in `config.yml` — the only way to vary the title per user, since every per-user container on a shared image otherwise reads the same baked `web.app_name`. Omit it (the default) to emit no env line at all and inherit `web.app_name`. Must be a string when present (a non-string is a lint ERROR); bare-string roster entries can't carry one |
+| `oidc_subject` | string | no | This user's identity at the identity provider — the value the `auth.oidc.claim` claim carries for them. Read only when `auth.method: oidc`; a login whose claim matches no roster entry is refused. Not a secret (it is an identifier the IdP already publishes), so it belongs in config rather than `.env`. Bare-string roster entries can't carry one |
 | `theme` | string | no | This user's default web UI theme. Emitted into the container as `OSPREY_WEB_THEME`, which `osprey web` treats as authoritative over the per-image `web.theme` in `config.yml` — the only way to vary the theme per user on a shared image. Either a theme **family** (`"main"`, `"desy"`, `"high-contrast"`, `"retro"`), which sets the palette and leaves light/dark to that user's OS preference, or a concrete theme **id** (`"desy-light"`), which also pins the mode. It is a *default*: the user's own pick in the display menu outranks it thereafter. Omit it (the default) to emit no env line at all and inherit `web.theme`. Must be a string when present (a non-string is a lint ERROR); the *value* is not validated here — the theme registry ships with the image, and an unknown value warns at container start and falls back to `main`. Bare-string roster entries can't carry one |
 
 ### Personas
@@ -439,18 +458,51 @@ e.g. a `claude_code.servers` custom `url` entry, is unaffected). See
 `references/modules/web-terminals.md` for why a shared HTTP tier is schema-only in this
 revision.
 
-> **`auth`/`tls` are forward-looking, config-gated seams — not an implemented
-> security feature.** With the defaults shown (`auth.method: none`,
-> `tls.enabled: false`), the rendered stack is functionally equivalent to Phase 1
-> (minus the port→path relocation): perimeter-trust, plain HTTP, open to anyone who
-> reaches the deploy host. OSPREY does not ship an auth backend or provision
-> certificates for you — these stanzas only exist so that a future phase can wire
-> a real `auth_request` backend and TLS termination as a config flip instead of a
-> template rewrite. The multi-user-support epic's two CRITICAL findings, **C1 (no
-> authentication)** and **C2 (all traffic is cleartext HTTP)**, remain **OPEN and
-> explicitly deferred** — defining this schema does not close them, and no
-> deployment should be treated as authenticated or encrypted on the strength of
-> these fields existing.
+### Authentication
+
+`auth.method: password` or `oidc` adds an **auth sidecar** to the stack — a small
+service in its own container that answers nginx's `auth_request` subrequest for every
+`/u/<user>/` request and serves the login flow at `/auth/*`. A request reaches a user's
+container only when the browser holds a valid, unrevoked session for **that** user;
+the username in each subrequest is a render-time literal, so nothing a client sends can
+redirect the check at another user's terminal. The landing page stays public (it is the
+identity chooser), and one browser may hold several unlocked users at once — the shared
+control-room case. This closes the multi-user-support epic's finding **C1 (no
+authentication)** for deployments that enable it; **C2 (cleartext HTTP)** closes with
+`tls.enabled: true`. Both remain open for a deployment left at the defaults, which is
+still the shipped posture of every preset.
+
+Everything about this configuration fails **closed**:
+
+- `auth.method != none` with `tls.enabled: false` **refuses to render** unless
+  `auth.allow_insecure_http: true` — session cookies never cross a cleartext network by
+  accident.
+- With auth on — **any** method, not just `password` — a roster name outside
+  `[a-z0-9][a-z0-9_-]*`, or two names colliding on one env-var suffix (`alice-b` and
+  `alice_b` both key `..._ALICE_B`), refuses to render. A collision would let one user's
+  password open the other's terminal. (The credential provisioner enforces the same rule
+  again, but only on the password-mode deploy path; lint reports the charset unscoped to
+  auth and never raises. Three checks, three different scopes — don't conflate them.)
+- `osprey deploy up` aborts **before any compose invocation** when a password-mode user's
+  hash cannot be established, **or** when a cookie-signing secret cannot be — so an OIDC
+  deployment, which provisions no hashes at all, can abort on the same gate.
+- Registry mode without `auth.image` fails the same preflight.
+
+**Credentials never live in this file.** Password hashes live in `.env.auth` (project
+root, `0600`, gitignored alongside `.env.production`), which only the sidecar's `env_file`
+references — no terminal container receives it. Per user, `osprey deploy up` keeps an
+existing hash, else hashes a plaintext `OSPREY_AUTH_PW_<USER>` from the project `.env`
+(the plaintext never reaches a container), else mints a password and prints it **once**.
+`osprey deploy passwd <user>` rotates one user's password and ends that user's sessions.
+`decommission`/`prune` purge the departing user's credential, so a later same-named user
+starts fresh — but a plain `deploy up` after a hand-edited roster does **not**, and a
+plaintext `OSPREY_AUTH_PW_<USER>` left in `.env` is re-hashed on the next deploy and
+survives both verbs. Operational detail lives in the multi-user how-to, not here.
+
+One honest limitation: the revoked-session list is held in the sidecar's memory, so
+restarting that container (including podman's image-drift reconcile) forgets it. A cookie
+captured before a logout could be replayed until it expires on its own — bounded by
+`auth.session_lifetime`.
 
 ### `modules.olog` — electronic logbook integration
 

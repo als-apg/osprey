@@ -184,7 +184,7 @@ Manage Docker/Podman services for Osprey projects.
    osprey deploy ACTION [OPTIONS]
 
 **Actions:** ``up``, ``down``, ``restart``, ``status``, ``build``, ``clean``, ``rebuild``,
-``decommission``, ``prune``, ``nuke``, ``seed``.
+``decommission``, ``prune``, ``nuke``, ``seed``, ``passwd``.
 
 - ``up`` -- Start all configured services.
 - ``down`` -- Stop all services.
@@ -198,6 +198,8 @@ Manage Docker/Podman services for Osprey projects.
 - ``nuke`` -- Tear down the entire multi-user web-terminal stack (destructive).
 - ``seed [USER]`` -- (Re)seed web-terminal workspaces from the user index;
   ``USER`` targets one user, omit to reseed all.
+- ``passwd USER`` -- Change one web-terminal user's login password (password
+  authentication only). Prompts without echoing, and ends that user's sessions.
 
 **Options (apply to all actions):**
 
