@@ -549,11 +549,17 @@ osprey<span class="w"> </span>profile<span class="w"> </span>presets
 <code class="docutils literal notranslate"><span class="pre">TARGET_DIR</span></code> is created and populated with a standalone <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
 (the preset’s full configuration written out explicitly, no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>),
 the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree copied verbatim, an <code class="docutils literal notranslate"><span class="pre">overlays/</span></code> seed, and a
-<code class="docutils literal notranslate"><span class="pre">README.md</span></code>. Refuses to overwrite an existing directory.</p>
+<code class="docutils literal notranslate"><span class="pre">README.md</span></code>. Refuses to overwrite an existing directory unless <code class="docutils literal notranslate"><span class="pre">--force</span></code>
+is given.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">PATH</span></code> — Layer a YAML file on top of the preset before
 writing (repeatable, in order).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code> — Inline override baked into the written profile
 (repeatable). RHS is parsed as YAML. Wins over <code class="docutils literal notranslate"><span class="pre">-O</span></code> at the same key.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> — Replace an existing profile directory, deleting its current
+contents including any edits you made there. Only a directory that is a
+materialized profile (contains <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>) or is empty is replaced;
+anything else is refused. Nothing is deleted until the replacement profile
+has fully rendered, so a failed run leaves the old directory untouched.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span> <span class="pre">TARGET</span></code></dt><dd><p>Check a profile without building anything. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> is a profile
 directory (its <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is used) or a path to a profile file.
