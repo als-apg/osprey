@@ -20,6 +20,19 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The emitted `profile.yml` header now opens with a lifecycle diagram:
   profile (edit) → build → project (regenerable) → deploy → running containers.
 
+### Changed
+
+- `osprey profile new` now writes persona profiles as small deltas
+  (`extends: ../profile.yml`) instead of full standalone copies: edit the host
+  profile once and every persona inherits the change, while each persona file
+  keeps its own capability posture (e.g. `control_system.writes_enabled:
+  false`) pinned explicitly. Model-selection choices baked at materialization
+  time — and `tier` — now reach personas through inheritance.
+- The shipped web-terminal rosters spell out `name`/`index`/`persona` on every
+  user entry instead of bare-string shorthand for the first user. Behavior is
+  unchanged; already-deployed projects will see a one-time profile-staleness
+  advisory from the preset content change.
+
 ### Fixed
 
 - Built projects' `config.yml` no longer misplaces section comments: entries

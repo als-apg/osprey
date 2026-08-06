@@ -132,14 +132,20 @@ directory alongside ``profile.yml``:
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
 
-Each persona profile carries ``data: ../data``, so the whole stack reads the
-single data tree above it — edit ``data/`` once and every persona picks the
-change up on its next build, with no per-persona copy to keep in sync. The
-host ``profile.yml`` points at these files by path, so keep the names in step
-if you rename one.
+Each persona profile is a small *delta* over the host: it begins with
+``extends: ../profile.yml``, so every setting in the host profile — including
+any edit you make there later — applies to the persona too, and the persona
+file lists only what makes it different (for the read-only persona, chiefly
+``control_system.writes_enabled: false``). It also carries ``data: ../data``,
+so the whole stack reads the single data tree above it — edit ``data/`` once
+and every persona picks the change up on its next build. The host
+``profile.yml`` points at these files by path, so keep the names in step if
+you rename one, and note that renaming or moving ``profile.yml`` itself breaks
+the personas' ``extends`` reference.
 
 They are ordinary profiles: edit one to change what that persona's terminal
-can do, validate it on its own, or build it directly.
+can do, validate it on its own to see the fully resolved result, or build it
+directly.
 
 .. code-block:: bash
 
