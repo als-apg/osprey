@@ -98,12 +98,12 @@ def model() -> PyATRingModel:
 def declared_storage(model: PyATRingModel, address: str) -> np.ndarray:
     """A copy of the array a rejected batch has to put back for ``address``.
 
-    Reaches into the lattice on purpose, through the model's own ring
+    Reaches into the lattice on purpose, through the model's own public ring
     accessors: a rolled-back write leaves no trace in the value API by
     design, so the element is the only place the evidence lives.
     """
     _ring, _system, family, device, _field, _subfield = address.split(":")
-    element = model._ring[model._element_index(f"{family}{device}")]
+    element = model.lattice[model.element_index(f"{family}{device}")]
     return np.array(getattr(element, DECLARED_ATTRIBUTE[family]), copy=True)
 
 

@@ -247,34 +247,6 @@ class PhysicsBridge:
 
     # -- internals ---------------------------------------------------------
 
-    # The three accessors below delegate to the model rather than duplicating
-    # any state. They exist because the physics is pinned white-box -- the
-    # strength-formula and rollback tests assert directly on element attributes
-    # (`_ring[idx].K`, `.PolynomB`) and on the baked nominal strengths -- and
-    # that is the right level for those assertions: they check the *lattice*,
-    # not this bridge's bookkeeping. They are only meaningful for the default
-    # pyAT backend; an injected model that owns no `at.Lattice` will raise
-    # AttributeError, which is the honest answer for a ring-level probe.
-
-    @property
-    def _ring(self) -> Any:
-        """The model's lattice."""
-        return self._model._ring
-
-    @property
-    def _strength_map(self) -> Any:
-        """The model's current->strength calibration map."""
-        return self._model._strength_map
-
-    def _element_index(self, fam_name: str) -> int:
-        """Index of `fam_name` in the model's lattice.
-
-        Raises:
-            UnknownDeviceError: no element with that name -- the same class the
-                model raises, since this bridge re-exports it.
-        """
-        return self._model._element_index(fam_name)
-
     def _refresh_bpm_positions(self) -> None:
         """Re-read the model's BPM truth into `_bpm_positions`.
 
