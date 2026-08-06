@@ -244,7 +244,15 @@ def _resolve_osprey_spec(osprey_install: str) -> tuple[str, str]:
             return src_path, f"editable: {src_path}"
 
         if dist is not None:
-            spec = f"osprey-framework=={dist.version}"
+            from osprey.version import get_release_version, is_release, unreleased_pin_reason
+
+            if not is_release():
+                raise BuildProfileError(
+                    f"Cannot pin osprey-framework: {unreleased_pin_reason()} "
+                    "Set `osprey_install` in your profile to a source path or an "
+                    "explicit PEP 508 spec, or build from a released osprey."
+                )
+            spec = f"osprey-framework=={get_release_version()}"
             return spec, spec
 
         # Metadata unavailable (rare: e.g. running osprey directly from a

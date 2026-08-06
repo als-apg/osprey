@@ -252,17 +252,44 @@ def get_tracked_files(
 
 
 def get_framework_version() -> str:
-    """Get current osprey version.
+    """Get the running osprey version, for display in generated projects.
+
+    This is the version a human reads — it carries distance past the last release
+    (``2026.6.2.post783+g83fda5e60``) so a project rendered from a development
+    checkout says so. Anything comparing versions wants
+    :func:`osprey.version.get_release_version` instead; see
+    :func:`get_framework_release_version`.
 
     Returns:
-        Version string (e.g., "0.7.0") or ``"unknown"`` if the version
-        symbol cannot be imported (broken environment / partial install).
-        Manifest readers can branch on the sentinel.
+        Version string, or ``"unknown"`` if the version module cannot be imported
+        (broken environment / partial install). Manifest readers branch on the
+        sentinel.
     """
     try:
-        from osprey import __version__
+        from osprey.version import get_running_version
 
-        return __version__
+        return get_running_version()
+    except (ImportError, AttributeError):
+        return "unknown"
+
+
+def get_framework_release_version() -> str:
+    """Get the release this osprey descends from, for version *comparisons*.
+
+    Stamped into the manifest's ``creation.osprey_version`` and read back by
+    :mod:`osprey.deployment.staleness`, which compares it by string equality. Using
+    the running version on either side would make every commit in a development
+    checkout register as drift — inverting the advisory's rule that "can't compare"
+    must never read as drift into "always reads as drift".
+
+    Returns:
+        Release version string (e.g. ``"2026.6.2"``), or ``"unknown"`` if the
+        version module cannot be imported.
+    """
+    try:
+        from osprey.version import get_release_version
+
+        return get_release_version()
     except (ImportError, AttributeError):
         return "unknown"
 
@@ -542,7 +569,9 @@ def generate_manifest(
     )
     reproducible_command = build_reproducible_command(build_args)
     file_checksums = calculate_file_checksums(project_dir)
-    framework_version = get_framework_version()
+    # The release lineage, not the running version — staleness compares this field
+    # by string equality, so a development build must not read as drift.
+    framework_version = get_framework_release_version()
     user_owned_manifest = build_user_owned_manifest(template_root, jinja_env, project_dir, context)
 
     # The 'template' field carries the original preset name (hyphenated) when

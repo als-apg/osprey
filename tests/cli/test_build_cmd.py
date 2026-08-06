@@ -1197,6 +1197,11 @@ class TestResolveOspreySpec:
         assert spec == "/abs/path/to/osprey"
         assert "editable" in label
 
+    def _pretend_release(self, monkeypatch, version="2026.5.0", released=True):
+        """Drive the version API, which is what the resolver now pins from."""
+        monkeypatch.setattr("osprey.version.get_release_version", lambda: version)
+        monkeypatch.setattr("osprey.version.is_release", lambda: released)
+
     def test_wheel_install_pins_to_version(self, monkeypatch):
         """uv tool / pip wheel install → pinned to ``osprey-framework==<version>``."""
         from osprey.cli.build_cmd import _resolve_osprey_spec
@@ -1206,6 +1211,7 @@ class TestResolveOspreySpec:
             direct_url={"url": "https://pypi/...", "archive_info": {"hash": "sha256=abc"}},
         )
         monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
+        self._pretend_release(monkeypatch)
 
         spec, label = _resolve_osprey_spec("local")
         assert spec == "osprey-framework==2026.5.0"
@@ -1217,9 +1223,32 @@ class TestResolveOspreySpec:
 
         fake = self._fake_dist(version="2026.5.0", direct_url=None)
         monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
+        self._pretend_release(monkeypatch)
 
         spec, _label = _resolve_osprey_spec("local")
         assert spec == "osprey-framework==2026.5.0"
+
+    def test_unreleased_build_refuses_to_pin(self, monkeypatch):
+        """A development build has no PyPI distribution — refuse rather than mislead.
+
+        Pinning to the nearest release would install code the operator never
+        wrote, with nothing saying the two differ.
+        """
+        from osprey.cli.build_cmd import _resolve_osprey_spec
+        from osprey.errors import BuildProfileError
+
+        fake = self._fake_dist(
+            version="2026.5.0.post783+g83fda5e60",
+            direct_url={"url": "https://pypi/...", "archive_info": {"hash": "sha256=abc"}},
+        )
+        monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
+        monkeypatch.setattr(
+            "osprey.version.get_running_version", lambda: "2026.5.0.post783+g83fda5e60"
+        )
+        self._pretend_release(monkeypatch, released=False)
+
+        with pytest.raises(BuildProfileError, match="not a released version"):
+            _resolve_osprey_spec("local")
 
     def test_pip_keyword_uses_unpinned_pypi(self, monkeypatch):
         """Explicit ``osprey_install: pip`` → unpinned ``osprey-framework``."""

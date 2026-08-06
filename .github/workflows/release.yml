@@ -26,21 +26,28 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
-    - name: Verify version matches tag
-      run: |
-        TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-        # Extract version from __init__.py without importing
-        PACKAGE_VERSION=$(grep '__version__ = ' src/osprey/__init__.py | cut -d'"' -f2)
-        echo "Tag version: $TAG_VERSION"
-        echo "Package version: $PACKAGE_VERSION"
-        if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
-          echo "❌ Version mismatch! Tag: $TAG_VERSION, Package: $PACKAGE_VERSION"
-          exit 1
-        fi
-        echo "✅ Version matches: $TAG_VERSION"
-
     - name: Build package
       run: uv build
+
+    - name: Verify built version matches tag
+      # The version is derived from the tag rather than a literal, so this checks
+      # the artifact that is actually about to be published. A shallow checkout or
+      # a missing tag does not fail the build — it silently yields 0.1.devN — so
+      # this gate is what catches that before it reaches PyPI.
+      run: |
+        TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+        WHEEL=$(ls dist/*.whl)
+        # Wheel filenames are <name>-<version>-<python tag>-...; field 2 is the version.
+        BUILT_VERSION=$(basename "$WHEEL" | cut -d'-' -f2)
+        echo "Tag version:   $TAG_VERSION"
+        echo "Built version: $BUILT_VERSION"
+        if [ "$TAG_VERSION" != "$BUILT_VERSION" ]; then
+          echo "❌ Version mismatch! Tag: $TAG_VERSION, Built: $BUILT_VERSION"
+          echo "   A clean checkout of tag v$TAG_VERSION must build exactly $TAG_VERSION."
+          echo "   A local segment or .postN means the tag is not what was built."
+          exit 1
+        fi
+        echo "✅ Built version matches tag: $TAG_VERSION"
 
     - name: Check package
       run: uvx twine check dist/*

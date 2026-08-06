@@ -48,6 +48,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   directory and rebuild; the project stays a regenerable artifact.
   `osprey profile validate DIR` checks a profile without building, and
   `osprey profile presets` lists the bundled presets.
+
+- The framework version is now derived from the git tag instead of a literal in
+  `src/osprey/__init__.py`. A build between releases reports its distance from
+  the last one (`2026.8.0.post12+g83fda5e60`) rather than claiming to be that
+  release, in `osprey --version`, the status line, the web terminal health
+  payload, and generated project READMEs. Cutting a release is now just tagging
+  — there is no version to bump.
+
+- `osprey deploy up` and `osprey build` now refuse to pin
+  `osprey-framework==<version>` when running from a development checkout, since
+  no published release corresponds to that code. Use `--dev` to build and stage
+  a local wheel, or set `OSPREY_PIP_SPEC` to pin explicitly. Previously this
+  emitted a pin for a version that was never published and failed later, inside
+  the image build, with an opaque pip error.
+
 - Web terminal header: the username badge and the logout button are now one
   identity chip on the right, whose menu holds the deployment name and Log out.
   The deployment name (`web.app_name`) moved to the left, beside "Web Terminal".

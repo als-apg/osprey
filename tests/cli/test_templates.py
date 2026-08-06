@@ -653,12 +653,13 @@ def test_get_framework_version_unknown_on_import_failure(monkeypatch):
     real_import = builtins.__import__
 
     def fake_import(name, *args, **kwargs):
-        if name == "osprey":
+        if name in ("osprey", "osprey.version"):
             raise ImportError("simulated failure")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     assert manifest_mod.get_framework_version() == "unknown"
+    assert manifest_mod.get_framework_release_version() == "unknown"
 
 
 def test_registry_style_parameter_is_gone():
