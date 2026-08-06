@@ -119,6 +119,14 @@
       "reason": "Virtual Accelerator + Bluesky bridge container substrate proofs (CA reads/writes, scan plans, fault divergence) — no LLM at all."
     },
     {
+      "path": "tests/e2e/test_gchat_bridge_e2e.py",
+      "reason": "Needs a container runtime, the Pub/Sub emulator image and the `gchat` extra, and skips outright without any of them, so on the bench box it contributes nothing but skips. Its substance is the two-party wire contract with a real Pub/Sub queue (space-type rules, mention filter, exactly-once claim, restart recovery), asserted through the dispatch engine's persisted run_id rather than through anything the model says; the agentic half runs against a build fixture pinned to als-apg/haiku that ignores OSPREY_E2E_FORCE_MODEL, the same fixture pattern as test_dispatch_tutorial.py."
+    },
+    {
+      "path": "tests/e2e/fixtures/test_gchat_fixture_smoke.py",
+      "reason": "Boot smoke for the Google Chat bridge's own test fixtures (loopback HTTP fakes and the Pub/Sub emulator container) — it asserts that the fixtures answer, never runs an agent, and contacts no model."
+    },
+    {
       "path": "tests/e2e/web_terminals/test_loopback_chokepoint.py",
       "reason": "No LLM anywhere: launches `osprey web` with --shell true (PTY runs /usr/bin/true, never spawns an agent) and asserts TCP bind behavior via raw socket connects."
     },

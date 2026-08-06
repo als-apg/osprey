@@ -103,11 +103,12 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "overlay",  # facility artifacts
         "mcp_servers",  # facility tool servers
         "artifact_server",  # gallery categories + host/port
-        "dispatch",  # the five optional feature blocks
+        "dispatch",  # the six optional feature blocks
         "bluesky",
         "virtual_accelerator",
         "bluesky_panels",
         "nextcloud_bridge",
+        "gchat_bridge",
     }
 )
 
@@ -341,6 +342,18 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # nextcloud_bridge:
 #   trigger: nextcloud-question
 """,
+    "gchat_bridge": """
+# --- Google Chat bridge ------------------------------------------------------
+# Answers questions asked from a Google Chat space or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Google credentials and destinations are runtime env, not profile keys:
+# declare GCHAT_SA_KEY, GCHAT_SUBSCRIPTION and GCHAT_APP_ID under `env.required`
+# (plus GCS_BUCKET / GCS_PROJECT to deliver plots and files as links).
+#
+# gchat_bridge:
+#   trigger: gchat-question
+""",
     # The three long-form blocks above this module's helpers, registered here so
     # the partition has a single template table to guard.
     "overlay": _OVERLAY_APPENDIX,
@@ -366,6 +379,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "virtual_accelerator",
     "bluesky_panels",
     "nextcloud_bridge",
+    "gchat_bridge",
 )
 
 

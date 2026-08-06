@@ -23,13 +23,19 @@ import httpx
 import pytest
 
 from osprey.bridges.core import (
-    MAX_ARTIFACT_BYTES,
+    MAX_DELIVERED_IMAGE_BYTES,
     PNG_MAGIC,
     CoreConfig,
 )
 from osprey.bridges.nextcloud_talk import NextcloudBridgeConfig, TalkClient
 from osprey.bridges.nextcloud_talk.client import UPLOAD_ROOT
-from osprey.bridges.nextcloud_talk.ops import NC_ROOM, NextcloudTalkOps, _upload_name
+from osprey.bridges.nextcloud_talk.ops import (
+    NC_ROOM,
+    NextcloudTalkOps,
+    _unique_stems,
+    _upload_name,
+    _upload_stem,
+)
 
 CFG = NextcloudBridgeConfig(
     base_url="https://cloud.example.org",
@@ -237,16 +243,20 @@ def test_a_document_without_a_filename_is_named_from_its_id_and_mime():
 
 
 def test_a_document_may_exceed_the_image_budget():
-    # Images are capped at MAX_ARTIFACT_BYTES; documents get the larger MAX_DOC_BYTES,
+    # Images are capped at MAX_DELIVERED_IMAGE_BYTES; documents get the larger MAX_DELIVERED_DOC_BYTES,
     # so a 3 MiB PDF is delivered where a 3 MiB image would be dropped.
-    big = b"%PDF" + b"x" * (MAX_ARTIFACT_BYTES + 1)
-    ops, _, nc = _ops(FakeWorker({"doc1": big}))
+    big = b"%PDF" + b"x" * (MAX_DELIVERED_IMAGE_BYTES + 1)
+    ops, _, nc = _ops(FakeWorker({"doc1": (big, "application/pdf")}))
     ops.deliver_files(ENTRY, result({"artifact_id": "doc1", "delivered_mime": "application/pdf"}))
     assert nc.of("PUT")[0].content == big
 
 
 def test_an_oversize_image_is_dropped_without_uploading():
-    ops, _, nc = _ops(FakeWorker({"plot": PNG_MAGIC + b"x" * MAX_ARTIFACT_BYTES}))
+    # Fetched under the document budget like everything else, so the payload does
+    # arrive; the image bound is applied after, once the bytes prove to be a PNG.
+    ops, _, nc = _ops(
+        FakeWorker({"plot": (PNG_MAGIC + b"x" * MAX_DELIVERED_IMAGE_BYTES, "image/png")})
+    )
     assert ops.deliver_files(ENTRY, result(png_descriptor("plot"))) == {}
     assert nc.of("PUT") == []
 
@@ -295,6 +305,16 @@ def test_png_bytes_are_delivered_as_an_image_whatever_the_descriptor_predicted()
     ops, _, nc = _ops(FakeWorker({"doc1": (PNG, "image/png")}))
     ops.deliver_files(ENTRY, result({"artifact_id": "doc1"}))
     assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/doc1.png")
+
+
+def test_a_payload_announced_as_a_png_without_the_magic_bytes_is_not_an_image():
+    # The magic-byte guard stays on — Talk renders a mislabelled .png as a broken image —
+    # but it costs the artifact its image path, not its delivery.
+    ops, _, nc = _ops(FakeWorker({"plot": (b"not-a-png", "image/png")}))
+    assert ops.deliver_files(ENTRY, result(png_descriptor("plot"))) == {}
+    put = nc.of("PUT")[0]
+    assert put.content == b"not-a-png"
+    assert put.url.path.endswith("/roomA/R1/plot.bin")
 
 
 # ==========================================================================
@@ -471,11 +491,209 @@ def test_delivery_touches_only_the_artifact_byte_route_and_the_dav_share_surface
     ],
 )
 def test_upload_names_are_a_single_safe_segment(label, extension, expected):
-    name = _upload_name(label, extension, "fallback")
+    name = _upload_name(_upload_stem(label, "fallback"), extension)
     assert name == expected
     assert "/" not in name
     assert name not in (".", "..")
 
 
 def test_upload_name_falls_back_twice_when_even_the_fallback_is_unusable():
-    assert _upload_name(None, ".png", "..") == "artifact.png"
+    assert _upload_name(_upload_stem(None, ".."), ".png") == "artifact.png"
+
+
+# ==========================================================================
+# Two artifacts never claim one upload name
+# ==========================================================================
+
+
+def test_same_named_artifacts_are_kept_apart():
+    # The worker names an artifact by basename, so a run whose steps each wrote their
+    # own plot.png sends two descriptors with one filename. They share a DAV directory,
+    # so an undisambiguated second upload would overwrite the first.
+    stems = _unique_stems(
+        [
+            {"artifact_id": "a1", "filename": "plot.png"},
+            {"artifact_id": "a2", "filename": "plot.png"},
+        ]
+    )
+    assert stems["a1"] == "plot.png"
+    # The id slice goes AHEAD of the trailing dot-suffix, so the name still reads as one.
+    assert stems["a2"] == "plot-a2.png"
+
+
+def test_documents_whose_names_differ_only_by_extension_are_kept_apart():
+    # The reachable shape of the stem-vs-name gap, and the reason deduping on the stem
+    # alone is not enough: _upload_name does not double an extension the stem already
+    # carries, so the DISTINCT stems "report" and "report.bin" both upload as report.bin
+    # once the bytes are served as application/octet-stream.
+    #
+    # octet-stream is what makes the pair reachable. _predicted_filename forces an
+    # extension only for image/png and otherwise passes the stored basename through, so
+    # a bare "report" survives exactly when its type was never pinned down by an
+    # extension — which is the same condition that types it octet-stream. A text/html
+    # pair could not arise: a stored file named "report" would not have been typed
+    # text/html in the first place.
+    opaque = b"\x00\x01opaque-bytes"
+    ops, _, nc = _ops(
+        FakeWorker(
+            {
+                "d1": (opaque, "application/octet-stream"),
+                "d2": (opaque + b"2", "application/octet-stream"),
+            }
+        ),
+    )
+    ops.deliver_files(
+        ENTRY,
+        result(
+            {
+                "artifact_id": "d1",
+                "delivered_mime": "application/octet-stream",
+                "filename": "report",
+            },
+            {
+                "artifact_id": "d2",
+                "delivered_mime": "application/octet-stream",
+                "filename": "report.bin",
+            },
+        ),
+    )
+    puts = nc.of("PUT")
+    assert [put.url.path.rsplit("/", 1)[-1] for put in puts] == ["report.bin", "report-d2.bin"]
+    assert [put.content for put in puts] == [opaque, opaque + b"2"]
+
+
+def test_stems_that_differ_but_name_one_file_are_kept_apart():
+    # The same gap at the unit level. This particular pair needs a cross-bucket route to
+    # occur for real (a doc-bucket artifact whose bytes serve as image/png, next to an
+    # image-bucket plot.png), so it pins the MECHANISM rather than a worker output shape.
+    stems = _unique_stems(
+        [
+            {"artifact_id": "a1", "filename": "plot.png"},
+            {"artifact_id": "a2", "filename": "plot"},
+        ]
+    )
+    names = [_upload_name(stems[aid], ".png") for aid in ("a1", "a2")]
+    assert names == ["plot.png", "plot-a2.png"]
+
+
+def test_a_disambiguated_truncated_stem_is_still_one_safe_segment():
+    # _segment strips its dot runs BEFORE truncating at 120, so a long name cut exactly
+    # at a dot ends in one and _disambiguate's partition yields an empty tail. The
+    # trailing dot is cosmetic; what must hold is that the name is still a single
+    # segment dav_mkcol_put accepts.
+    long_name = "a" * 119 + "." + "b" * 30
+    stems = _unique_stems(
+        [{"artifact_id": "a1", "filename": long_name}, {"artifact_id": "a2", "filename": long_name}]
+    )
+    for stem in stems.values():
+        name = _upload_name(stem, ".png")
+        assert "/" not in name
+        assert name not in (".", "..")
+        assert name.strip(".")
+    assert len(set(stems.values())) == 2
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "extension"),
+    [
+        # Only a KNOWN extension may be stripped when keying: treating ".v2" as one
+        # keys these apart, and they then collide on report.v2.pdf.
+        ("report.v2", "report.v2.pdf", ".pdf"),
+        # One strip is not enough — plot.png.pdf must lose both before the comparison.
+        ("plot.png", "plot.png.pdf", ".pdf"),
+        # _upload_name's already-suffixed check is case-insensitive, so the key must
+        # fold case too.
+        ("a.PDF", "a", ".pdf"),
+        ("report", "report.html", ".html"),
+    ],
+)
+def test_names_that_would_collide_after_the_extension_are_kept_apart(first, second, extension):
+    stems = _unique_stems(
+        [{"artifact_id": "d1", "filename": first}, {"artifact_id": "d2", "filename": second}]
+    )
+    names = [_upload_name(stems[aid], extension) for aid in ("d1", "d2")]
+    assert names[0] != names[1], f"{first!r} and {second!r} both upload as {names[0]!r}"
+
+
+def test_suffixes_that_are_not_extensions_are_not_disambiguated():
+    # The flip side of stripping only KNOWN extensions: these two never collide, so
+    # neither should be renamed.
+    stems = _unique_stems(
+        [
+            {"artifact_id": "d1", "filename": "report.draft"},
+            {"artifact_id": "d2", "filename": "report.final"},
+        ]
+    )
+    assert [_upload_name(stems[aid], ".pdf") for aid in ("d1", "d2")] == [
+        "report.draft.pdf",
+        "report.final.pdf",
+    ]
+
+
+def test_stems_that_differ_only_by_case_are_kept_apart():
+    # A case-insensitive DAV backend would treat these as one path.
+    stems = _unique_stems(
+        [{"artifact_id": "a1", "filename": "PLOT"}, {"artifact_id": "a2", "filename": "plot"}]
+    )
+    assert len({stem.lower() for stem in stems.values()}) == 2
+
+
+def test_stems_stay_unique_when_even_the_id_slice_collides():
+    # Distinct ids can sanitize to one slice, so the slice alone is not enough.
+    stems = _unique_stems(
+        [
+            {"artifact_id": "step/one", "filename": "plot"},
+            {"artifact_id": "step:one", "filename": "plot"},
+            {"artifact_id": "step one", "filename": "plot"},
+        ]
+    )
+    assert sorted(stems.values()) == ["plot", "plot-step_one", "plot-step_one-2"]
+
+
+def test_stems_are_assigned_across_both_buckets():
+    # Images and documents land in the same directory, so a collision between the two
+    # buckets is the same overwrite as one within either.
+    #
+    # Both descriptors are shapes the worker can actually emit: predict_delivery only
+    # ever reports a passthrough source mime or image/png, and _predicted_filename
+    # forces the .png suffix on the latter — so an image descriptor always carries a
+    # .png name, and application/pdf passes through keeping its own.
+    stems = _unique_stems(
+        [
+            png_descriptor("img", filename="report.png"),
+            {"artifact_id": "doc", "delivered_mime": "application/pdf", "filename": "report.pdf"},
+        ]
+    )
+    assert len(set(stems.values())) == 2
+
+
+def test_two_plots_with_one_name_are_both_delivered():
+    ops, _, nc = _ops(
+        FakeWorker({"a1": (PNG, "image/png"), "a2": (PNG + b"-second", "image/png")}),
+    )
+    assert (
+        ops.deliver_files(
+            ENTRY,
+            result(
+                png_descriptor("a1", filename="plot.png"),
+                png_descriptor("a2", filename="plot.png"),
+            ),
+        )
+        == {}
+    )
+    puts = nc.of("PUT")
+    # Two distinct paths, each carrying its own bytes: neither plot is lost.
+    assert [put.url.path.rsplit("/", 1)[-1] for put in puts] == ["plot.png", "plot-a2.png"]
+    assert [put.content for put in puts] == [PNG, PNG + b"-second"]
+
+
+def test_names_do_not_shift_when_an_earlier_fetch_fails():
+    # Stems are settled before any fetch, so a redelivery in which the first artifact
+    # now succeeds cannot rename the second and upload it twice.
+    descriptors = [
+        png_descriptor("a1", filename="plot.png"),
+        png_descriptor("a2", filename="plot.png"),
+    ]
+    ops, _, nc = _ops(FakeWorker(fail_ids=["a1"]))
+    ops.deliver_files(ENTRY, result(*descriptors))
+    assert [put.url.path.rsplit("/", 1)[-1] for put in nc.of("PUT")] == ["plot-a2.png"]

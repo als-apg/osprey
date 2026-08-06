@@ -26,6 +26,7 @@ from .build_profile_schema import (
     DispatchConfig,
     EnvConfig,
     EnvironmentConfig,
+    GChatBridgeProfileConfig,
     LifecycleConfig,
     LifecycleStep,
     McpServerDef,
@@ -120,6 +121,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "virtual_accelerator",
         "bluesky_panels",
         "nextcloud_bridge",
+        "gchat_bridge",
     }
 )
 
@@ -375,6 +377,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             trigger=nextcloud_bridge_raw.get("trigger", "nextcloud-question"),
         )
 
+    gchat_bridge_raw = raw.get("gchat_bridge")
+    gchat_bridge = None
+    if gchat_bridge_raw is not None:
+        if not isinstance(gchat_bridge_raw, dict):
+            raise BuildProfileError("Profile 'gchat_bridge' must be a mapping")
+        gchat_bridge = GChatBridgeProfileConfig(
+            trigger=gchat_bridge_raw.get("trigger", "gchat-question"),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
@@ -410,4 +421,5 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         virtual_accelerator=virtual_accelerator,
         bluesky_panels=bluesky_panels,
         nextcloud_bridge=nextcloud_bridge,
+        gchat_bridge=gchat_bridge,
     )

@@ -3,7 +3,7 @@
 The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-``bluesky_panels``, ``nextcloud_bridge``) plus the environment-variable name
+``bluesky_panels``, ``nextcloud_bridge``, ``gchat_bridge``) plus the environment-variable name
 pattern their validators share. Parsing, inheritance merging, and validation live in
 :mod:`osprey.cli.build_profile_load`, :mod:`osprey.cli.build_profile_merge`,
 and :mod:`osprey.cli.build_profile_model`, respectively; this module is a
@@ -264,6 +264,36 @@ class NextcloudBridgeProfileConfig:
     rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
 
     This default is the ONLY place the ``nextcloud-question`` name is defaulted:
+    the runtime config's ``from_env`` applies no trigger default, so a
+    hand-rolled (non-build) deployment still fails loudly on a missing trigger
+    rather than silently firing a name nobody declared. The value must name a
+    trigger declared in the ``dispatch.triggers`` file.
+    """
+
+
+@dataclass
+class GChatBridgeProfileConfig:
+    """Google Chat bridge configuration for a build profile (opt-in via the
+    ``gchat_bridge:`` key).
+
+    Consumed by the build pipeline's gchat-bridge-injection step
+    (``_inject_gchat_bridge`` in ``build_cmd.py``) to deploy the single
+    ``gchat_bridge`` service — a Pub/Sub subscriber that ingests Google Chat
+    messages and dispatches them through the event-dispatch pair, so the block
+    is only meaningful alongside a ``dispatch:`` block.
+
+    The Google credentials and destinations are deliberately *not* profile
+    fields: ``GCHAT_SA_KEY``, ``GCHAT_SUBSCRIPTION``, ``GCHAT_APP_ID`` and the
+    optional artifact-publishing pair ``GCS_BUCKET``/``GCS_PROJECT`` are
+    user-supplied runtime env (declared via ``env.required``), never baked into
+    a build. Validated by :meth:`BuildProfile.validate`.
+    """
+
+    trigger: str = "gchat-question"
+    """Dispatcher trigger the bridge fires (``POST /webhook/{trigger}``),
+    rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
+
+    This default is the ONLY place the ``gchat-question`` name is defaulted:
     the runtime config's ``from_env`` applies no trigger default, so a
     hand-rolled (non-build) deployment still fails loudly on a missing trigger
     rather than silently firing a name nobody declared. The value must name a

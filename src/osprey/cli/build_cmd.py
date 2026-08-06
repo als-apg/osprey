@@ -44,6 +44,7 @@ from .build_injectors import (
     _inject_bluesky,
     _inject_bluesky_panels,
     _inject_dispatch,
+    _inject_gchat_bridge,
     _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_va,
@@ -81,6 +82,7 @@ __all__ = [
     "_inject_bluesky",
     "_inject_bluesky_panels",
     "_inject_dispatch",
+    "_inject_gchat_bridge",
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_va",
@@ -539,6 +541,17 @@ def build(
             # bridge means step 10b ran.
             if build_profile.nextcloud_bridge is not None:
                 _inject_nextcloud_bridge(build_profile.nextcloud_bridge, project_path)
+
+            # 10b3. Inject the Google Chat bridge. Must follow step 10b for the
+            # same reason as 10b2: its compose template gates `depends_on` and
+            # the in-network DISPATCHER_URL/WORKER_URL on `event_dispatcher` /
+            # `dispatch_worker` being in `deployed_services`, which is what
+            # _inject_dispatch writes there. `validate()` already rejected a
+            # bridge declared without a `dispatch:` block, so by here a declared
+            # bridge means step 10b ran. The two chat bridges are independent —
+            # a project may deploy either, both, or neither.
+            if build_profile.gchat_bridge is not None:
+                _inject_gchat_bridge(build_profile.gchat_bridge, project_path)
 
             # 10c. Inject the Bluesky scan-bridge service
             if build_profile.bluesky is not None:
