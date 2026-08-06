@@ -399,6 +399,15 @@ jobs:
             - 'tests/interfaces/conftest.py'
             - 'tests/interfaces/_browser.py'
             - 'tests/interfaces/test_load_smokes.py'
+            # The multi-user login-flow browser test drives the composed
+            # perimeter — nginx's rendered config plus the auth sidecar — none
+            # of which lives under interfaces/. Without these four a change to
+            # the login page, the nginx template or the shared container
+            # fixture would leave this lane green by skipping it entirely.
+            - 'src/osprey/services/auth_sidecar/**'
+            - 'src/osprey/deployment/web_terminals/**'
+            - 'src/osprey/templates/modules/web_terminals/**'
+            - 'tests/deployment/web_terminals/test_auth_serving.py'
 
     - name: Install uv
       if: steps.changes.outputs.theming == 'true'
@@ -427,6 +436,7 @@ jobs:
           tests/interfaces/web_terminal/test_agent_activity_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
           tests/interfaces/web_terminal/test_logout_resume_browser.py \
+          tests/interfaces/web_terminal/test_auth_login_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
     - name: Run visual regression suite
