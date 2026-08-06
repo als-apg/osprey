@@ -228,6 +228,23 @@ class TestGitIsolation:
         assert ".claude/settings.local.json" in gitignore_content
         assert "CLAUDE.local.md" in gitignore_content
 
+    def test_gitignore_ignores_secret_env_files(self, tmp_path):
+        """Every secret env file is ignored by name.
+
+        ``.env.auth`` (the web-terminal password hashes) and ``.env.production``
+        (the provider secrets) each need their own entry: gitignore matches the
+        literal name, so the ``.env`` pattern does not cover them and their
+        contents would otherwise be committable.
+        """
+        runner = CliRunner()
+        result = runner.invoke(build, _build_args("secret-env-test", str(tmp_path)))
+
+        assert result.exit_code == 0, result.output
+        project_dir = tmp_path / "secret-env-test"
+        lines = [line.strip() for line in (project_dir / ".gitignore").read_text().splitlines()]
+        assert ".env" in lines
+        assert ".env.auth" in lines
+
     def test_claude_dir_in_initial_commit(self, tmp_path):
         """.claude/ artifacts are included in the initial commit."""
         import subprocess

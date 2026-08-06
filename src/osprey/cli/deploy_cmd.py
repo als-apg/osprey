@@ -35,6 +35,7 @@ from .project_utils import resolve_config_path, resolve_project_path
             "prune",
             "nuke",
             "seed",
+            "passwd",
         ]
     ),
 )
@@ -123,6 +124,8 @@ def deploy(
       nuke          - Tear down the entire multi-user web-terminal stack (WARNING: destructive)
       seed          - (Re)seed web-terminal workspaces from the user index; optional
                       USER targets one user, omit to reseed all
+      passwd        - Change one web-terminal user's login password (requires USER);
+                      prompts for the new password and ends that user's sessions
 
     The services to deploy are defined in your config.yml under
     the 'deployed_services' key.
@@ -191,11 +194,14 @@ def deploy(
 
       # Reseed every user's workspace from the user index
       $ osprey deploy seed
+
+      # Change alice's web-terminal login password (prompts, never echoes)
+      $ osprey deploy passwd alice
     """
     # Argument validation happens BEFORE any project/config resolution or
     # lazy import so it is exercised even when the lifecycle modules (or a
     # project directory) don't exist yet.
-    if action == "decommission" and not user:
+    if action in ("decommission", "passwd") and not user:
         raise click.UsageError(
             f"'{action}' requires a USER argument, e.g. osprey deploy {action} alice"
         )
@@ -213,9 +219,9 @@ def deploy(
         raise click.UsageError(f"--dry-run is only valid for 'prune', not '{action}'.")
 
     # A stray USER on an action that doesn't consume it is a typo, not a no-op:
-    # only decommission/seed take a target user (the require-USER guard above
-    # covers the missing-user case for those two).
-    if user and action not in ("decommission", "seed"):
+    # only decommission/seed/passwd take a target user (the require-USER guard
+    # above covers the missing-user case for decommission and passwd).
+    if user and action not in ("decommission", "seed", "passwd"):
         raise click.UsageError(f"'{action}' does not take a USER argument (got {user!r}).")
 
     if action != "status":
@@ -345,6 +351,32 @@ def deploy(
             from osprey.deployment.web_terminals.seeding import seed_web_terminals
 
             seed_web_terminals(config_path, user)
+
+        elif action == "passwd":
+            from osprey.deployment.web_terminals.lifecycle import rotate_user_password
+
+            assert user is not None  # narrows for type-checkers; guarded above
+
+            # hide_input: the password is never echoed to the terminal, never
+            # placed on the argv (where it would land in shell history and in
+            # every `ps` listing on the host), and never logged.
+            # confirmation_prompt: a mistyped password would otherwise lock the
+            # user out of a terminal that was working a moment ago.
+            password = click.prompt(
+                f"New web-terminal password for {user}",
+                hide_input=True,
+                confirmation_prompt=True,
+            )
+            rotate_user_password(config_path, user, password)
+            # Deliberately does not claim the old sessions are already dead:
+            # when nothing has been deployed from this root yet, the recreate
+            # is skipped (with its own warning) and the change takes effect at
+            # the next `deploy up`. Stating the consequence without asserting
+            # the timing keeps this true on both paths.
+            console.print(
+                f"\n✓ Password changed for [accent]{user}[/accent]. Any session they "
+                "still hold stops working as soon as the sidecar is running this change."
+            )
 
     except KeyboardInterrupt:
         console.print("\n!  Operation cancelled by user", style=Styles.WARNING)

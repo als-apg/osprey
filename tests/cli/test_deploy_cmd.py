@@ -461,3 +461,154 @@ class TestDeployCommandOutput:
                 assert (
                     "Building" in result.output or "built" in result.output or "✅" in result.output
                 )
+
+
+def _flat(output: str) -> str:
+    """`output` with every run of whitespace collapsed to one space.
+
+    Console output here is rich-rendered and click's help is width-wrapped, so a
+    phrase can be split across lines at any column. Collapsing whitespace lets a
+    test assert on the phrase rather than on where the renderer chose to break
+    it — a single word is never split, so `passwd` and `auth.method` survive.
+    """
+    return " ".join(output.split())
+
+
+class TestPasswdAction:
+    """`osprey deploy passwd <user>` — rotate one web-terminal login password.
+
+    The dispatch is deliberately thin (guards, a hidden prompt, one call), so
+    these tests pin the CLI's own contract: that the guards admit exactly the
+    right argv, that the typed password reaches the rotation verbatim, and that
+    it never reaches the terminal, the argv, or a refusal message. The rotation
+    itself is covered where it lives, in the lifecycle tests.
+    """
+
+    _ROTATE = "osprey.deployment.web_terminals.lifecycle.rotate_user_password"
+
+    def _config(self, tmp_path):
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("# test")
+        return config_file
+
+    def test_passwd_is_offered_in_the_command_help(self, cli_runner):
+        """The action is discoverable, and documented as requiring a USER."""
+        result = cli_runner.invoke(deploy, ["--help"])
+
+        assert result.exit_code == 0
+        assert "passwd" in _flat(result.output)
+
+    def test_passwd_requires_a_user_argument(self, cli_runner, tmp_path):
+        """`deploy passwd` with no USER is a usage error, and rotates nothing.
+
+        Silently doing nothing (or worse, prompting for a password with no
+        target) would be the failure mode of leaving `passwd` out of the
+        require-USER guard.
+        """
+        config_file = self._config(tmp_path)
+
+        with patch(self._ROTATE) as mock_rotate:
+            result = cli_runner.invoke(deploy, ["passwd", "--config", str(config_file)])
+
+        assert result.exit_code != 0
+        assert "requires a USER" in _flat(result.output)
+        assert not mock_rotate.called
+
+    def test_passwd_accepts_a_user_argument(self, cli_runner, tmp_path):
+        """`deploy passwd alice` is not rejected by the stray-USER guard.
+
+        That guard rejects a USER on any action not on its allowlist, so
+        omitting `passwd` from it would make the action unusable in its only
+        valid form.
+        """
+        config_file = self._config(tmp_path)
+
+        with patch(self._ROTATE) as mock_rotate:
+            with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                mock_resolve.return_value = config_file
+                result = cli_runner.invoke(
+                    deploy,
+                    ["passwd", "alice", "--config", str(config_file)],
+                    input="s3cr3t-pw\ns3cr3t-pw\n",
+                )
+
+        assert "does not take a USER argument" not in _flat(result.output)
+        assert mock_rotate.called
+        assert mock_rotate.call_args[0][1] == "alice"
+
+    def test_passwd_passes_the_prompted_password_through_verbatim(self, cli_runner, tmp_path):
+        """What the operator types is what gets hashed — no trimming, no
+        re-prompt loop, and the config path and user travel with it."""
+        config_file = self._config(tmp_path)
+
+        with patch(self._ROTATE) as mock_rotate:
+            with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                mock_resolve.return_value = config_file
+                cli_runner.invoke(
+                    deploy,
+                    ["passwd", "alice", "--config", str(config_file)],
+                    input="c0rrect horse\nc0rrect horse\n",
+                )
+
+        assert mock_rotate.call_args[0] == (config_file, "alice", "c0rrect horse")
+
+    def test_passwd_never_echoes_the_password(self, cli_runner, tmp_path):
+        """The typed password appears nowhere in the terminal output.
+
+        It is prompted with `hide_input`, never taken from the argv (where it
+        would land in shell history and in every `ps` listing on the host), and
+        never printed back in the success message.
+        """
+        config_file = self._config(tmp_path)
+        secret = "unmistakable-secret-42"  # gitleaks:allow -- fake, asserted NOT to leak
+
+        with patch(self._ROTATE):
+            with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                mock_resolve.return_value = config_file
+                result = cli_runner.invoke(
+                    deploy,
+                    ["passwd", "alice", "--config", str(config_file)],
+                    input=f"{secret}\n{secret}\n",
+                )
+
+        assert result.exit_code == 0
+        assert secret not in result.output
+
+    def test_passwd_requires_the_password_to_be_confirmed(self, cli_runner, tmp_path):
+        """A mistyped password must not be accepted on the strength of one
+        entry: it would lock the user out of a terminal that worked a moment
+        ago, and the operator would have no way to know what they typed."""
+        config_file = self._config(tmp_path)
+
+        with patch(self._ROTATE) as mock_rotate:
+            with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                mock_resolve.return_value = config_file
+                result = cli_runner.invoke(
+                    deploy,
+                    ["passwd", "alice", "--config", str(config_file)],
+                    input="typed-one-way\ntyped-another-way\n",
+                )
+
+        assert result.exit_code != 0
+        assert not mock_rotate.called
+
+    def test_passwd_refusal_exits_non_zero_with_the_reason(self, cli_runner, tmp_path):
+        """A refusal from the rotation verb (auth off, IdP-held credentials, or
+        an off-roster user) surfaces as a non-zero exit carrying its reason —
+        never as a success message over a password that did not change."""
+        config_file = self._config(tmp_path)
+        refusal = "modules.web_terminals.auth.method is 'none'"
+
+        with patch(self._ROTATE, side_effect=ValueError(refusal)):
+            with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                mock_resolve.return_value = config_file
+                result = cli_runner.invoke(
+                    deploy,
+                    ["passwd", "alice", "--config", str(config_file)],
+                    input="s3cr3t-pw\ns3cr3t-pw\n",
+                )
+
+        assert result.exit_code != 0
+        flat = _flat(result.output)
+        assert "auth.method" in flat
+        assert "Password changed" not in flat

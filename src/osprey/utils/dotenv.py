@@ -54,11 +54,27 @@ def parse_dotenv_text(text: str) -> dict[str, str]:
     return env
 
 
+def dotenv_line_var(line: str) -> str | None:
+    """The variable a raw ``.env`` line assigns, or ``None`` for a non-assignment.
+
+    Comments, blank lines, and anything without an ``=`` yield ``None``; an
+    optional ``export`` prefix is stripped, matching :func:`parse_dotenv_file`.
+    Callers that need to rewrite a ``.env`` line-by-line (rather than parse it
+    into a dict) use this so they classify lines exactly the way the parser
+    does — a divergence would let a rewrite keep a line the parser still reads.
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    candidate = stripped[7:] if stripped.startswith("export ") else stripped
+    return candidate.partition("=")[0].strip() or None
+
+
 def _dotenv_raw_lines(text: str) -> dict[str, str]:
     """Map ``KEY`` -> its raw ``KEY=VALUE`` line (quoting intact) from ``text``."""
     raw: dict[str, str] = {}
     for line in text.splitlines():
-        key = _line_key(line)
+        key = dotenv_line_var(line)
         if key:
             raw[key] = line.strip()
     return raw
@@ -208,7 +224,7 @@ def derive_project_env(
     consumed: set[str] = set()
     out_lines: list[str] = []
     for line in rendered_text.splitlines():
-        key = _line_key(line)
+        key = dotenv_line_var(line)
         if key is None:
             out_lines.append(line)
             continue
@@ -307,7 +323,7 @@ def _overlay_project_env(
     seen: set[str] = set()
     out_lines: list[str] = []
     for line in existing_text.splitlines():
-        key = _line_key(line)
+        key = dotenv_line_var(line)
         if key is None:
             out_lines.append(line)
             continue
@@ -479,16 +495,6 @@ def _format_env_line(key: str, value: str) -> str:
     )
 
 
-def _line_key(line: str) -> str | None:
-    """The ``KEY`` a raw ``.env`` line assigns, or ``None`` for comments/blanks."""
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#") or "=" not in stripped:
-        return None
-    candidate = stripped[7:] if stripped.startswith("export ") else stripped
-    key = candidate.partition("=")[0].strip()
-    return key or None
-
-
 def merge_env_preserving_existing(
     rendered_text: str,
     existing_text: str,
@@ -516,7 +522,7 @@ def merge_env_preserving_existing(
     consumed: set[str] = set()
     out_lines: list[str] = []
     for line in rendered_text.splitlines():
-        key = _line_key(line)
+        key = dotenv_line_var(line)
         if key is not None and key in existing:
             out_lines.append(existing[key])
             consumed.add(key)
