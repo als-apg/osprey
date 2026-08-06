@@ -7,9 +7,11 @@
 
 name: Control Assistant
 
-# The data bundle provides the project skeleton (config.yml, registry, data
-# files, benchmark datasets, etc.).  "control_assistant" is the standard full
-# bundle that includes channel databases, benchmarks, and a logbook seed.
+# Which packaged project skeleton `osprey build` renders (config.yml,
+# README, Dockerfile). "control_assistant" is the full skeleton. Its data
+# files (channel databases, benchmarks, facility knowledge, logbook seeds)
+# are copied into a materialized profile's data/ directory, and that copy
+# — not the packaged one — is what the build uses from then on.
 app_template: control_assistant
 
 # Default LLM provider and model. Override here or via `osprey build`'s
