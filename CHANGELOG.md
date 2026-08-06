@@ -17,6 +17,8 @@ Compatibility is documented in release notes, not encoded in the version string.
   the materialize-and-build one-liner rerunnable. It only replaces a directory
   that is a materialized profile (or empty), and deletes nothing until the new
   profile has fully rendered — a failed run leaves the old directory intact.
+- The emitted `profile.yml` header now opens with a lifecycle diagram:
+  profile (edit) → build → project (regenerable) → deploy → running containers.
 
 ### Fixed
 

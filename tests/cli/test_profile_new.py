@@ -342,6 +342,35 @@ def test_existing_target_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     assert not (target / "profile.yml").exists()
 
 
+def test_header_carries_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
+    """The top comment block shows profile -> build -> project -> deploy."""
+    target = tmp_path / "p"
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    text = (target / "profile.yml").read_text(encoding="utf-8")
+    head = "\n".join(text.splitlines()[:45])
+
+    assert "PROFILE" in head
+    assert "PROJECT" in head
+    assert "DEPLOYMENT" in head
+    assert "edit profile -> rebuild -> redeploy" in head
+    # Every diagram line is a YAML comment and fits a standard terminal.
+    for line in head.splitlines():
+        if "PROFILE" in line or "-->" in line:
+            assert line.startswith("#")
+            assert len(line) <= 80
+
+
+def test_persona_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
+    target = tmp_path / "p"
+    assert _new(runner, target, "control-assistant").exit_code == 0
+
+    persona_files = sorted((target / "personas").glob("*.yml"))
+    assert persona_files, "control-assistant should emit persona siblings"
+    for persona_file in persona_files:
+        assert "edit profile -> rebuild -> redeploy" not in persona_file.read_text(encoding="utf-8")
+
+
 def test_existing_target_error_suggests_force(runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / "p"
     target.mkdir()

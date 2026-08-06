@@ -571,6 +571,7 @@ def _materialize_profile_directory(
         profile_name=profile_name_default,
         profile_filename=profile_filename,
         extra_layers=(_persona_catalog_layer(persona_texts),) if persona_texts else (),
+        include_flow_diagram=True,
     )
 
     # The replacement happens here, after every input has resolved and the new

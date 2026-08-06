@@ -781,6 +781,31 @@ def _replace_header(text: str, header: str) -> str:
     return header.rstrip("\n") + "\n\n" + "\n".join(lines[body_start:]).rstrip("\n") + "\n"
 
 
+# The lifecycle picture at the top of a materialized profile: what the user
+# owns, what the build regenerates from it, and what deploy turns that into.
+# Plain ASCII (no box-drawing glyphs) and <= 80 columns, so it survives any
+# editor a facility opens config files in. Emitted only into the main
+# profile.yml — persona siblings share the mental model and repeating the
+# picture three times per profile directory would just be noise.
+_FLOW_DIAGRAM = """\
+#  YOU EDIT THIS                IS RENDERED INTO             WHICH RUNS AS
+#
+#  +----------------+  osprey   +----------------+  osprey   +-----------------+
+#  |    PROFILE     |  build    |    PROJECT     |  deploy   |   DEPLOYMENT    |
+#  |                |           |                |           |                 |
+#  |  profile.yml   +---------->|  config.yml    +---------->|  agent CLI/web  |
+#  |  data/         |           |  services/     |  up -d    |  + service      |
+#  |  overlays/     |           |  .mcp.json     |           |    containers   |
+#  |  personas/     |           |  .env  ...     |           | (docker/podman) |
+#  +----------------+           +----------------+           +-----------------+
+#   durable source of            regenerable — a              osprey deploy down
+#   truth; keep + edit           --force rebuild              stops it; deploy
+#                                overwrites it                up recreates it
+#
+#        ^                                                          |
+#        +--- the loop: edit profile -> rebuild -> redeploy --------+"""
+
+
 def emit_standalone_profile_yaml(
     preset_name: str,
     overrides: tuple[Path, ...],
@@ -788,6 +813,7 @@ def emit_standalone_profile_yaml(
     profile_name: str,
     profile_filename: str,
     extra_layers: tuple[Mapping[str, Any], ...] = (),
+    include_flow_diagram: bool = False,
 ) -> str:
     """Render the standalone ``profile.yml`` text for ``osprey profile new``.
 
@@ -805,6 +831,9 @@ def emit_standalone_profile_yaml(
             this to repoint the emitted persona catalog at the sibling profiles
             it is about to write: those values are derived from the resolved
             catalog, so they cannot come from a file the caller passes.
+        include_flow_diagram: Embed the profile → build → deploy lifecycle
+            diagram in the generated header. Set for the main ``profile.yml``
+            only; persona siblings keep the compact header.
 
     Returns:
         Complete ``profile.yml`` content: fully explicit (no ``extends:``),
@@ -879,6 +908,7 @@ def emit_standalone_profile_yaml(
 
     normalized = base_anchor.stem
     preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
+    flow_block = f"{_FLOW_DIAGRAM}\n#\n" if include_flow_diagram else ""
     header = (
         f"# {profile_name} — OSPREY build profile\n"
         f"#\n"
@@ -886,6 +916,7 @@ def emit_standalone_profile_yaml(
         f"# standalone profile: everything the preset configures is written out\n"
         f"# below and is yours to edit. Nothing is inherited at build time.\n"
         f"#\n"
+        f"{flow_block}"
         f"# Provenance — what this profile was materialized from:\n"
         f"#   source preset: {normalized}\n"
         f"#   preset content hash: {preset_hash}\n"
@@ -896,8 +927,9 @@ def emit_standalone_profile_yaml(
         f"# source preset set it:\n"
         f"#   {', '.join(sorted(_BUILD_MECHANICS_KEYS))}\n"
         f"#\n"
-        f"# Build a project from this profile with:\n"
-        f"#   osprey build <PROJECT_NAME> {profile_filename}"
+        f"# Build a project from this profile, then deploy it:\n"
+        f"#   osprey build <PROJECT_NAME> {profile_filename}\n"
+        f"#   cd <PROJECT_NAME> && osprey deploy up -d"
     )
     text = _replace_header(text, header)
 
