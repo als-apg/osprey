@@ -1,0 +1,22 @@
+# Build-context hygiene for the auth-sidecar image.
+#
+# The Dockerfile needs only the locally-built osprey wheel (*.whl) and, on dev
+# builds, the staged osprey-local-requirements.txt. It is also COPYed itself as
+# the guaranteed sibling that keeps those optional globs matching.
+#
+# Nothing else belongs in this context, and one exclusion is load-bearing rather
+# than cosmetic: the sidecar's credentials live in `.env.auth` at the project
+# root and are delivered at RUNTIME through compose `env_file`. A secret baked
+# into an image layer would survive every rotation and travel with the tag.
+**/__pycache__/
+*.pyc
+.git/
+.env
+.env.auth
+.env.production
+# Compose files + templates are runtime/deploy artifacts, not image inputs.
+docker-compose.yml
+docker-compose.web.yml
+*.j2
+# Bind-mounted or read at runtime; must not be baked into the image.
+config.yml

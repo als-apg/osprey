@@ -83,11 +83,83 @@
     nginx_image: str, optional, default "nginx:1.27-alpine"
     facility_timezone: str, optional, default "UTC" -> TZ
 
+    AUTH SIDECAR (all from render.py's `_auth_tls_context()`, the single parser
+    of `modules.web_terminals.auth`/`tls` — this template re-parses nothing):
+
+    auth_method: str, required ("none" | "password" | "oidc")
+      "none" (the default posture) renders NO `auth:` service at all — the
+      whole block below is suppressed, byte for byte, so every deployment that
+      has not opted into authentication keeps the compose overlay it has today.
+    auth_port: int, required
+      Host port the sidecar's uvicorn binds — on `bind_host` only, exactly like
+      the per-user apps. nginx (same host netns) is the only thing that reaches
+      it; `auth_request` subrequests and the `/auth/*` login flow both proxy
+      there. Joined into lint's port-collision check against the per-user
+      families, so this port is guaranteed not to be some user's panel port.
+    auth_session_lifetime: int, required (seconds) -> OSPREY_AUTH_SESSION_LIFETIME
+    auth_image: str | None
+      Registry-mode image for the sidecar. When unset, the local-build tag
+      `<facility_prefix>-assistant-auth:local` is referenced instead — the
+      persona-image pattern (`<project>-<persona>:local`, personas.py) applied
+      to the sidecar, whose `<project>` is resolve_personas()'s default
+      `<facility_prefix>-assistant`. Producing that image is the runtime build's
+      job; this template only names the tag.
+    auth_oidc_issuer: str | None, auth_oidc_client_id_env / auth_oidc_client_secret_env: str
+      Emitted only in `oidc` mode. The two `*_env` values are env-var NAMES, not
+      credentials: the sidecar reads the named variable out of its `.env.auth`
+      environment (one level of indirection, so a facility keeps its own
+      variable names). No credential is ever rendered here.
+    auth_oidc_claim: str | None
+      Which ID-token claim carries the identity to map onto a roster user.
+      `None` (the common case) emits NO env line, leaving the sidecar's own
+      documented default — so the default is defined once, in the sidecar,
+      rather than restated here.
+    services[].oidc_subject: str, optional — this user's expected IdP identity
+      (the non-secret half of the roster->identity mapping; the credential half
+      lives in `.env.auth`, keyed by the same suffix). Resolved from the roster
+      by resolve_personas() and carried through render.py's per-service dicts
+      like `display_name`/`theme`.
+    services[].oidc_subject_env: str — the env-var name the above is emitted
+      under, pre-resolved by render.py through personas.env_var_suffix(). Always
+      present; read only when `oidc_subject` is set. Pre-resolved on purpose:
+      the username->env-var mapping has exactly one definition, and a template
+      that re-derived it could key a subject differently from the password hash
+      keyed by the same user.
+    external_origin: str -> OSPREY_AUTH_EXTERNAL_ORIGIN
+      The one origin browsers reach nginx on; the OIDC `redirect_uri` is built
+      from it. Same derivation the landing link uses (render.py::_external_origin).
+    tls_enabled: bool -> OSPREY_AUTH_TLS_ENABLED
+      Whether that origin is HTTPS. The sidecar terminates no TLS itself (nginx
+      does) — this only decides the `Secure` attribute on the cookies it issues,
+      which is why no cert/key is mounted into this service.
+
     bind_host: str, required (Task 1.1)
       Loopback address (always "127.0.0.1") baked into every per-user
-      service's OSPREY_TERMINAL_BIND_HOST. Not sourced from facility-config
-      — see render.py's `_LOOPBACK_BIND_HOST` for why this is a constant,
-      not a knob.
+      service's OSPREY_TERMINAL_BIND_HOST — and into the auth sidecar's own
+      uvicorn bind. Not sourced from facility-config — see render.py's
+      `_LOOPBACK_BIND_HOST` for why this is a constant, not a knob.
+
+  ----------------------------------------------------------------------------
+  SECRETS ISOLATION (the reason for the auth service's env_file/environment split)
+
+  The sidecar's `env_file` is `.env.auth` (0600, project root, written by
+  auth_credentials.ensure_auth_credentials) and NOTHING ELSE. Two rules, both
+  load-bearing:
+
+  1. `.env.auth` is never given to a `web-*` service. Those containers run the
+     agent; the session signing key in `.env.auth` would let any user's agent
+     mint a valid cookie for every other user, which is precisely the isolation
+     this feature exists to establish. The inverse also holds: the sidecar never
+     reads `.env.production` — the per-user containers' shared env file — so no
+     provider key or facility credential is in reach of the login surface.
+  2. Secrets travel ONLY as `env_file` entries, never as `environment:` values.
+     Compose passes a service-level `env_file` value through literally, while
+     an `environment:` value goes through `${...}` interpolation — and a stored
+     scrypt hash (`scrypt$16384$8$1$salt$key`) is full of `$`, which
+     interpolation would eat. Non-secret settings (method, lifetime, roster,
+     origin, OIDC issuer and per-user subject mapping) come from the template
+     variables above and are safe in `environment:`; anything secret stays in
+     the file.
 
   ----------------------------------------------------------------------------
   NETWORKING
@@ -137,6 +209,86 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+{#- The auth sidecar. Whitespace control on this `if` (and its `endif`) is what
+   keeps the `auth.method: none` render byte-identical to the pre-auth overlay:
+   with the block suppressed, the `{%- if %}` swallows the newline it would
+   otherwise leave behind and the `endif` line's own newline restores the one
+   that ended `start_period: 10s`. Service key "auth" cannot collide with a
+   roster user — users render as `web-<user>` — nor with nginx or any base
+   docker-compose.yml service. #}
+{%- if auth_method != "none" %}
+
+  auth:
+    {#- Registry mode pins `auth.image`; local mode leaves it unset and the
+       runtime build produces this tag (see AUTH SIDECAR contract above). A
+       registry-mode deployment that forgot `auth.image` is caught by the
+       deploy preflight, not by silently building here. #}
+    image: {{ auth_image | default(facility_prefix ~ "-assistant-auth:local", true) }}
+    container_name: {{ facility_prefix }}-auth
+    restart: unless-stopped
+    network_mode: host
+    {#- Single process, deliberately: the revocation list and the brute-force
+       throttle are in-memory, so a second worker would answer with a different
+       view of both. Bound to `bind_host` for the same reason the per-user apps
+       are — nginx shares this host netns and is the only intended caller, and
+       the login surface must not be reachable off-host on its own port. `curl`
+       is not in an OSPREY service image, so the probe is the in-image python
+       one every other OSPREY service uses; /health answers 200 even when the
+       sidecar is unconfigured and refusing everything, so the container stays
+       up to explain itself rather than crash-looping. #}
+    command: ["uvicorn", "osprey.services.auth_sidecar.app:create_app", "--factory", "--host", "{{ bind_host }}", "--port", "{{ auth_port }}"]
+    env_file: .env.auth
+    environment:
+      - TZ={{ facility_timezone | default("UTC") }}
+      - OSPREY_AUTH_METHOD={{ auth_method }}
+      - OSPREY_AUTH_SESSION_LIFETIME={{ auth_session_lifetime }}
+      - OSPREY_AUTH_TLS_ENABLED={{ "true" if tls_enabled else "false" }}
+      - OSPREY_AUTH_EXTERNAL_ORIGIN={{ external_origin }}
+      {#- The roster the sidecar will answer for, in declaration order (the
+         login page reuses that order). Rendered from the same `services` list
+         the per-user containers and nginx locations come from, so a user can
+         never exist in one and be missing from the other. #}
+      - OSPREY_AUTH_USERS={{ services | map(attribute="user") | join(",") }}
+{#- Everything OIDC — issuer, credential-variable names, claim, and the per-user
+   subject mapping — is gated on the mode, so a `password` deployment carries no
+   OIDC settings at all even if a roster entry still declares an `oidc_subject`
+   from an earlier posture. #}
+{%- if auth_method == "oidc" %}
+{%- if auth_oidc_issuer %}
+      - OSPREY_AUTH_OIDC_ISSUER={{ auth_oidc_issuer }}
+{%- endif %}
+      {#- NAMES of the variables holding the client credentials, not the
+         credentials: the values themselves arrive from `.env.auth` under
+         whatever names a facility already keeps them under. #}
+      - OSPREY_AUTH_OIDC_CLIENT_ID_ENV={{ auth_oidc_client_id_env }}
+      - OSPREY_AUTH_OIDC_CLIENT_SECRET_ENV={{ auth_oidc_client_secret_env }}
+{%- if auth_oidc_claim %}
+      {#- Only when the facility names one: with no line here the sidecar
+         applies its own documented default (`sub`), so the default lives in
+         one place instead of being restated by the renderer. #}
+      - OSPREY_AUTH_OIDC_CLAIM={{ auth_oidc_claim }}
+{%- endif %}
+{%- for svc in services %}
+{%- if svc.oidc_subject %}
+      {#- This user's expected IdP identity — the non-secret half of the
+         roster→identity mapping. The variable NAME arrives pre-resolved as
+         `svc.oidc_subject_env` (render.py, via personas.env_var_suffix()) and
+         is emitted verbatim: deriving `upper|replace` here would be a second
+         copy of the username→env-var mapping, free to drift from the one that
+         keys this user's password hash in `.env.auth`. tojson quotes the WHOLE
+         `KEY=value` (see OSPREY_WEB_APP_NAME below) because a subject can be an
+         email or a DN containing `": "`, which would derail the YAML parse. #}
+      - {{ (svc.oidc_subject_env ~ "=" ~ svc.oidc_subject) | tojson }}
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://{{ bind_host }}:{{ auth_port }}/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+{%- endif %}
 {% for svc in services %}
 {% if svc.user == "nginx" %}
   {# HARD FAIL: a user literally named "nginx" would silently clobber the

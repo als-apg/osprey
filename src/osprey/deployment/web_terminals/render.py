@@ -17,8 +17,11 @@ from jinja2 import Environment, FileSystemLoader
 
 from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
+    USERNAME_CHARSET_RE,
     as_dict,
     effective_image_source,
+    env_var_suffix,
+    env_var_suffix_collisions,
     resolve_personas,
 )
 from osprey.deployment.web_terminals.ports import (
@@ -58,6 +61,30 @@ _LOOPBACK_BIND_HOST = "127.0.0.1"
 # an absent config value renders exactly as before this seam existed.
 _DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
 
+#: The authentication methods this deployment can actually serve: ``none`` (no
+#: auth at all), ``password`` (OSPREY-managed scrypt hashes) and ``oidc``
+#: (Authlib client against a facility IdP). Anything else is a hard config
+#: error rather than a forward-compatible passthrough — nginx would emit the
+#: ``auth_request`` seam against a sidecar that cannot answer for that method,
+#: which does fail closed but only as an unactionable 403 on every request.
+SUPPORTED_AUTH_METHODS = ("none", "password", "oidc")
+
+#: Port the auth sidecar listens on when ``auth.port`` is unset. Deliberately
+#: outside the per-user port families (which start at ``*_base_port`` and grow
+#: with the roster) so a default-port sidecar can't collide with user N's
+#: terminal; lint joins the effective value into its port-collision check.
+_DEFAULT_AUTH_PORT = 9070
+
+#: How long an unlocked-user entry stays valid when ``auth.session_lifetime``
+#: is unset, in seconds (12 hours — one operator shift plus slack).
+_DEFAULT_SESSION_LIFETIME = 12 * 60 * 60
+
+#: Env-var *names* (never values) the sidecar reads its OIDC client credentials
+#: from when the config doesn't name its own. The credentials themselves live
+#: in ``.env.auth`` and never enter config.yml.
+_DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
+_DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
+
 
 def render_web_terminals(config: Any) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
@@ -77,8 +104,13 @@ def render_web_terminals(config: Any) -> dict[str, str]:
     Raises:
         ValueError: If ``modules.web_terminals.nginx_port`` is missing/not an int,
             if a configured user can't resolve a full port-family set, if
-            ``deploy.fqdn`` is missing while at least one user is configured (the
-            landing-origin host baked into ``OSPREY_TERMINAL_LANDING_URL``), if
+            ``deploy.fqdn`` is missing while the deployment needs an external
+            origin — at least one user configured (the host baked into
+            ``OSPREY_TERMINAL_LANDING_URL``) or authentication enabled (see
+            :func:`_external_origin`), if the ``auth``/``tls`` stanzas are
+            incoherent (unknown ``auth.method``, ``tls.enabled`` without a
+            cert/key pair, or authentication over cleartext HTTP without
+            ``auth.allow_insecure_http``), if
             a roster entry's persona reference can't be resolved (see
             :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
             ``strict`` contract — render always resolves strictly), or if
@@ -117,6 +149,21 @@ def render_web_terminals(config: Any) -> dict[str, str]:
                 # the template's `{% if svc.theme %}` guard false, so no env
                 # line is emitted and the app falls back to config web.theme.
                 "theme": entry.get("theme"),
+                # Optional per-user OIDC identity -> the auth sidecar's
+                # OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>. Same shape again: absent
+                # leaves the compose template's `{% if svc.oidc_subject %}`
+                # guard false. Without this passthrough an `oidc` deployment
+                # would render no subject mapping at all and every IdP identity
+                # would be unmappable.
+                "oidc_subject": entry.get("oidc_subject"),
+                # The env-var name that subject is emitted under, resolved HERE
+                # through env_var_suffix() — the single definition of the
+                # username->env-var mapping, shared with credential
+                # provisioning, the sidecar's own lookup and lint. The template
+                # emits this verbatim rather than re-deriving `upper|replace`,
+                # which would be a second copy of the mapping free to drift from
+                # the one that keys the password hashes.
+                "oidc_subject_env": f"OSPREY_AUTH_OIDC_SUBJECT_{env_var_suffix(entry['name'])}",
                 **user_ports,
                 # One env line per companion family, derived from the web-server
                 # registry (PANEL_ENV_VARS) so a newly registered companion is
@@ -134,9 +181,41 @@ def render_web_terminals(config: Any) -> dict[str, str]:
     if not isinstance(nginx_port, int):
         raise ValueError("modules.web_terminals.nginx_port is required and must be an int")
 
-    landing_url = _landing_url(root, nginx_port) if services else ""
-
     image_source = effective_image_source(web_terminals)
+
+    auth_tls_ctx = _auth_tls_context(web_terminals)
+    if auth_tls_ctx["tls_enabled"] and not (auth_tls_ctx["tls_cert"] and auth_tls_ctx["tls_key"]):
+        raise ValueError(
+            "modules.web_terminals.tls.enabled is true but tls.cert/tls.key are not both "
+            "set — the gated `listen 443 ssl` seam needs both paths to emit a "
+            "coherent ssl_certificate/ssl_certificate_key pair"
+        )
+    if (
+        auth_tls_ctx["auth_method"] != "none"
+        and not auth_tls_ctx["tls_enabled"]
+        and not auth_tls_ctx["auth_allow_insecure_http"]
+    ):
+        raise ValueError(
+            f"modules.web_terminals.auth.method is {auth_tls_ctx['auth_method']!r} but "
+            "tls.enabled is false — session cookies would cross the network in "
+            "cleartext, so login is refused rather than rendered insecurely. Enable "
+            "tls, or set auth.allow_insecure_http: true to accept that risk (only "
+            "sensible behind a TLS-terminating proxy or on an isolated network)"
+        )
+    _check_roster_charset(services, auth_tls_ctx["auth_method"])
+    _check_roster_env_var_collisions(services, auth_tls_ctx["auth_method"])
+
+    tls_enabled = auth_tls_ctx["tls_enabled"]
+    # The one origin every absolute URL in this deployment is built from (see
+    # _external_origin). Derived only when something actually needs it: a
+    # roster-less config with no auth has no absolute URL to build, and must
+    # keep rendering without a deploy.fqdn.
+    external_origin = (
+        _external_origin(root, nginx_port, tls_enabled=tls_enabled)
+        if services or auth_tls_ctx["auth_method"] != "none"
+        else ""
+    )
+    landing_url = _landing_url(root, nginx_port, tls_enabled=tls_enabled) if services else ""
 
     compose_ctx = {
         "facility_prefix": facility_prefix,
@@ -152,19 +231,19 @@ def render_web_terminals(config: Any) -> dict[str, str]:
         # public tag. Facilities whose images all come from a private registry
         # override this so the nginx image is pullable too.
         "nginx_image": web_terminals.get("nginx_image") or _DEFAULT_NGINX_IMAGE,
+        # The auth sidecar's service (image, listen port, session lifetime, the
+        # env-var names its OIDC credentials arrive under) is rendered from the
+        # same parsed stanza the nginx seam reads, so the two ends of the
+        # auth_request contract can't drift apart.
+        "external_origin": external_origin,
+        **auth_tls_ctx,
     }
-    auth_tls_ctx = _auth_tls_context(web_terminals)
-    if auth_tls_ctx["tls_enabled"] and not (auth_tls_ctx["tls_cert"] and auth_tls_ctx["tls_key"]):
-        raise ValueError(
-            "modules.web_terminals.tls.enabled is true but tls.cert/tls.key are not both "
-            "set — the gated `listen 443 ssl` seam (Task 1.3) needs both paths to emit a "
-            "coherent ssl_certificate/ssl_certificate_key pair"
-        )
 
     nginx_ctx = {
         "nginx_port": nginx_port,
         "services": services,
         "bind_host": _LOOPBACK_BIND_HOST,
+        "external_origin": external_origin,
         **auth_tls_ctx,
     }
     landing_ctx = {
@@ -297,25 +376,56 @@ def _landing_theme_blocks(root: dict[str, Any]) -> list[dict[str, Any]]:
     return blocks
 
 
-def _landing_url(root: dict[str, Any], nginx_port: int) -> str:
-    """Build the absolute origin baked into every service's ``OSPREY_TERMINAL_LANDING_URL``.
+def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool) -> str:
+    """Build the one origin every absolute URL this deployment emits is derived from.
 
-    Per-user containers only get this value once, at container start (env vars, not
-    request time) — unlike nginx.conf.j2's per-request ``$host`` redirect target,
-    resolving it can't be deferred to the browser. It comes from ``deploy.fqdn``:
-    the schema documents that field as reachable from developers' laptops (used in
-    client-mode profiles), whereas ``deploy.host`` is only guaranteed
-    SSH-resolvable (may be a bare `~/.ssh/config` alias, not a browser-reachable
-    hostname).
+    Two consumers need an absolute URL that a browser will actually resolve: the
+    landing link baked into each container (:func:`_landing_url`) and the auth
+    sidecar's OIDC ``redirect_uri``. Those two must agree exactly — an IdP
+    rejects a ``redirect_uri`` that isn't character-for-character the registered
+    one, and a landing link on a different origin would drop the session cookie
+    — so both come from here rather than being assembled twice.
+
+    Scheme and port follow ``tls.enabled``: with TLS on, the 443 server is the
+    sole content server (the plain listener only redirects to it), and 443 is
+    left implicit, which is both the canonical origin serialization and the form
+    an IdP client registration is normally written in. With TLS off the origin
+    is plain HTTP on the published ``nginx_port``.
+
+    The host comes from ``deploy.fqdn``: the schema documents that field as
+    reachable from developers' laptops (used in client-mode profiles), whereas
+    ``deploy.host`` is only guaranteed SSH-resolvable (may be a bare
+    `~/.ssh/config` alias, not a browser-reachable hostname).
+
+    Args:
+        root: The parsed facility config (only ``deploy.fqdn`` is read).
+        nginx_port: The published plain-HTTP port, used only when TLS is off.
+        tls_enabled: The parsed ``tls.enabled`` (see :func:`_auth_tls_context`).
+
+    Raises:
+        ValueError: If ``deploy.fqdn`` is missing or blank.
     """
     deploy = as_dict(root.get("deploy"))
     host = str(deploy.get("fqdn") or "").strip()
     if not host:
         raise ValueError(
             "deploy.fqdn is required to render modules.web_terminals landing_url "
-            "(OSPREY_TERMINAL_LANDING_URL) when at least one user is configured"
+            "(OSPREY_TERMINAL_LANDING_URL) when at least one user is configured "
+            "or authentication is enabled"
         )
-    return f"http://{host}:{nginx_port}"
+    return f"https://{host}" if tls_enabled else f"http://{host}:{nginx_port}"
+
+
+def _landing_url(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool = False) -> str:
+    """The absolute origin baked into every service's ``OSPREY_TERMINAL_LANDING_URL``.
+
+    Per-user containers only get this value once, at container start (env vars, not
+    request time) — unlike nginx.conf.j2's per-request ``$host`` redirect target,
+    resolving it can't be deferred to the browser. It is the deployment's external
+    origin verbatim (:func:`_external_origin`), which is what keeps a "back to
+    landing" link and an OIDC ``redirect_uri`` on the same origin by construction.
+    """
+    return _external_origin(root, nginx_port, tls_enabled=tls_enabled)
 
 
 def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
@@ -390,36 +500,187 @@ def _build_groups(
 
 
 def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
-    """Read the optional, forward-looking ``web_terminals.auth``/``web_terminals.tls``
-    stanzas (Task 1.4's config contract) into the context keys the gated nginx seam
-    render (Task 1.3) consumes.
+    """Read the ``web_terminals.auth``/``web_terminals.tls`` stanzas into the context
+    keys the nginx seam and the auth sidecar's compose service consume.
 
-    Both stanzas are entirely optional and default to the inert v1 posture: no
-    authentication, no TLS — identical trust model to Phase 1, only the access
-    boundary moves from host-port to URL-path. **This function does not render any
-    nginx seam block itself** — it only derives the defensively-read values; Task
-    1.3 is responsible for turning ``tls_enabled``/``auth_method`` into actual
-    `listen 443 ssl` / `auth_request` directives.
+    This is the single place ``modules.web_terminals.auth`` is parsed: the nginx
+    template, the compose overlay and the lint rules all read the keys returned
+    here rather than the raw config, so there is one definition of what an
+    ``auth`` stanza means. **This function renders nothing** — it derives values;
+    the templates turn ``tls_enabled``/``auth_method`` into actual `listen 443
+    ssl` / `auth_request` directives.
+
+    Both stanzas remain entirely optional and default to the inert posture: no
+    authentication, no TLS. Every value is read defensively (wrong-typed entries
+    fall back to their default, as everywhere else in this module — lint is the
+    authoritative gate on schema well-formedness) with one exception: an
+    ``auth.method`` string naming a method that does not exist raises, because
+    the resulting deployment would emit an auth seam nothing can answer.
 
     Args:
         web_terminals: The already-unwrapped ``modules.web_terminals`` dict (as
             passed to :func:`render_web_terminals`'s Jinja contexts).
 
     Returns:
-        A dict with exactly four keys: ``auth_method`` (str, defaults to
-        ``"none"``), ``tls_enabled`` (bool, defaults to ``False``), and
-        ``tls_cert``/``tls_key`` (str path or ``None``, present only to be read
-        when ``tls_enabled`` is true).
+        A dict with the auth keys ``auth_method`` (one of
+        :data:`SUPPORTED_AUTH_METHODS`, defaults to ``"none"``), ``auth_port``
+        (int, the sidecar's listen port), ``auth_session_lifetime`` (int
+        seconds), ``auth_allow_insecure_http`` (bool), ``auth_image`` (str or
+        ``None`` — required only in registry image-source mode),
+        ``auth_oidc_issuer`` (str or ``None``),
+        ``auth_oidc_client_id_env``/``auth_oidc_client_secret_env`` (the env-var
+        *names* the sidecar reads its OIDC client credentials from — never the
+        credentials themselves) and ``auth_oidc_claim`` (str or ``None``, the
+        ID-token claim carrying the identity to map onto a roster user); plus
+        the TLS keys ``tls_enabled`` (bool) and
+        ``tls_cert``/``tls_key`` (str path or ``None``, read only when
+        ``tls_enabled``).
+
+    Raises:
+        ValueError: If ``auth.method`` is a non-empty string outside
+            :data:`SUPPORTED_AUTH_METHODS`.
     """
     auth = as_dict(web_terminals.get("auth"))
     tls = as_dict(web_terminals.get("tls"))
-    auth_method = auth.get("method")
+    oidc = as_dict(auth.get("oidc"))
+
+    method = auth.get("method")
+    auth_method = method if isinstance(method, str) and method else "none"
+    if auth_method not in SUPPORTED_AUTH_METHODS:
+        raise ValueError(
+            f"modules.web_terminals.auth.method {auth_method!r} is not a supported "
+            f"authentication method; expected one of {', '.join(SUPPORTED_AUTH_METHODS)}"
+        )
+
     return {
-        "auth_method": auth_method if isinstance(auth_method, str) and auth_method else "none",
+        "auth_method": auth_method,
+        "auth_port": _positive_int(auth.get("port"), _DEFAULT_AUTH_PORT),
+        "auth_session_lifetime": _positive_int(
+            auth.get("session_lifetime"), _DEFAULT_SESSION_LIFETIME
+        ),
+        "auth_allow_insecure_http": bool(auth.get("allow_insecure_http", False)),
+        "auth_image": auth.get("image") or None,
+        "auth_oidc_issuer": oidc.get("issuer") or None,
+        "auth_oidc_client_id_env": _non_empty_str(
+            oidc.get("client_id_env"), _DEFAULT_OIDC_CLIENT_ID_ENV
+        ),
+        "auth_oidc_client_secret_env": _non_empty_str(
+            oidc.get("client_secret_env"), _DEFAULT_OIDC_CLIENT_SECRET_ENV
+        ),
+        # Which ID-token claim carries the identity that maps onto a roster
+        # user. Left as None when unset (rather than defaulted here) so the
+        # compose service emits no OSPREY_AUTH_OIDC_CLAIM at all and the
+        # sidecar's own documented default applies — one default, in one place.
+        "auth_oidc_claim": _non_empty_str(oidc.get("claim"), "") or None,
         "tls_enabled": bool(tls.get("enabled", False)),
         "tls_cert": tls.get("cert"),
         "tls_key": tls.get("key"),
     }
+
+
+def _positive_int(value: Any, default: int) -> int:
+    """A config value read as a positive int, falling back to ``default``.
+
+    ``bool`` is excluded explicitly: it passes ``isinstance(..., int)``, and
+    ``auth.port: true`` becoming port 1 would be a baffling deployment.
+    """
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return default
+
+
+def _non_empty_str(value: Any, default: str) -> str:
+    """A config value read as a non-empty string, falling back to ``default``."""
+    return value if isinstance(value, str) and value.strip() else default
+
+
+def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> None:
+    """Fail-closed render gate: with authentication on, every roster name must
+    match the username charset.
+
+    The charset is enforced in two other places, and a deployment can miss both:
+    lint is skippable (``--no-lint``), and ``auth_credentials`` only runs on the
+    password-mode deploy path. Nothing on the render path itself checked, so a
+    name carrying ``&`` or ``?`` rendered an nginx auth location whose verify
+    query held *two* user parameters
+    (``/_osprey_auth/bob&user=alice`` -> ``...verify?user=bob&user=alice``) —
+    the exact ambiguity per-user internal locations exist to prevent. Since the
+    username is the authorization identity, an unusable one must stop the render
+    rather than produce a seam whose meaning depends on how the sidecar's query
+    parser breaks a tie.
+
+    Scoped to authentication being on, deliberately: with ``auth.method: none``
+    the username is a routing label, not an identity, and raising here would
+    break renders that work today. Lint still reports it in that case.
+
+    Args:
+        services: The resolved per-user service entries (each with a ``user``).
+        auth_method: The parsed ``auth.method`` (see :func:`_auth_tls_context`).
+
+    Raises:
+        ValueError: If authentication is on and any roster name is outside the
+            charset. The message names every offender.
+    """
+    if auth_method == "none":
+        return
+    # fullmatch, not match: `$` also matches *before* a trailing newline, so
+    # `match` would accept "alice\n" — a name that then renders into an nginx
+    # location key mid-directive.
+    offenders = [
+        service["user"]
+        for service in services
+        if not USERNAME_CHARSET_RE.fullmatch(service["user"])
+    ]
+    if offenders:
+        raise ValueError(
+            f"modules.web_terminals.users {', '.join(repr(name) for name in offenders)} "
+            f"must match {USERNAME_CHARSET_RE.pattern!r} because "
+            f"modules.web_terminals.auth.method is {auth_method!r}: an authenticated "
+            "deployment makes the username the authorization identity, and it is "
+            "rendered literally into an nginx location key and into the auth "
+            "subrequest's ?user= value, where a name containing '&' or '?' would "
+            "silently authorize a different user"
+        )
+
+
+def _check_roster_env_var_collisions(services: list[dict[str, Any]], auth_method: str) -> None:
+    """Fail-closed render gate: with authentication on, no two roster names may
+    share one per-user env-var suffix.
+
+    :func:`~osprey.deployment.web_terminals.personas.env_var_suffix` is total and
+    lossy — ``alice-b`` and ``alice_b`` both key ``..._ALICE_B`` — so a colliding
+    pair would share a single ``OSPREY_AUTH_PW_HASH_ALICE_B``: one user's
+    password would open the other's terminal, which is the precise isolation
+    this feature exists to establish.
+
+    Caught here rather than only downstream because the downstream signals are
+    both poor. Credential provisioning raises on the password-mode deploy path
+    only, and in ``oidc`` mode the collision surfaces (if at all) as a
+    whole-deployment 503 from the sidecar — an outage whose message says nothing
+    about which two roster names caused it. Render time knows both names.
+
+    Args:
+        services: The resolved per-user service entries (each with a ``user``).
+        auth_method: The parsed ``auth.method`` (see :func:`_auth_tls_context`).
+
+    Raises:
+        ValueError: If authentication is on and two or more names collide. The
+            message names each colliding group and the suffix they share.
+    """
+    if auth_method == "none":
+        return
+    collisions = env_var_suffix_collisions([service["user"] for service in services])
+    if collisions:
+        detail = "; ".join(
+            f"{', '.join(repr(name) for name in names)} all key {suffix!r}"
+            for suffix, names in collisions.items()
+        )
+        raise ValueError(
+            f"modules.web_terminals.users collide on their per-user env-var suffix "
+            f"({detail}) and modules.web_terminals.auth.method is {auth_method!r}: "
+            "colliding names would share one OSPREY_AUTH_PW_HASH_* entry, so one "
+            "user's password would open the other's terminal. Rename one of them"
+        )
 
 
 def _check_mcp_topology(web_terminals: dict[str, Any]) -> None:

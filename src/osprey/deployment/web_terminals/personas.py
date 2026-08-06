@@ -3,12 +3,16 @@
 Turns the raw ``modules.web_terminals`` roster into explicit per-user identity:
 normalized ``{"name", "index"}`` entries (:func:`normalize_users`) and fully
 resolved image/project/container-dir identity per user
-(:func:`resolve_personas`). Port arithmetic lives separately in
-:mod:`osprey.deployment.web_terminals.ports`.
+(:func:`resolve_personas`). Also home to the username→env-var-suffix mapping
+(:func:`env_var_suffix`) and its collision detector
+(:func:`env_var_suffix_collisions`), which credential provisioning, the auth
+sidecar and lint share so a user's credentials are keyed identically everywhere.
+Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`.
 """
 
 import os
 import re
+from collections.abc import Iterable
 from typing import Any
 
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
@@ -23,6 +27,18 @@ _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9
 # `claude_code.servers` custom entries (those render through the unrelated
 # per-project `.mcp.json` pipeline, untouched by this module).
 SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
+
+# Usernames become nginx `location` keys and URL path segments (`/<user>/...`), so
+# they're held to a stricter charset than a bare "no reserved collision" check.
+# Public and defined here, alongside `env_var_suffix`, because this module owns
+# what a roster username *is*: lint's scaffold-time rule, render's fail-closed
+# gate and `auth_credentials`' deploy-time gate all import it from here, so the
+# three cannot drift apart.
+#
+# Apply it with `.fullmatch()`, never `.match()`: Python's `$` also matches
+# *before* a trailing newline, so `.match()` accepts "alice\n" — a name that
+# goes on to render into an nginx location key mid-directive.
+USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 def as_dict(value: Any) -> dict[str, Any]:
@@ -65,6 +81,17 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     web terminal resolves it at startup and warns+falls back on an unknown one,
     and lint reports a non-string separately.
 
+    An object entry's optional ``oidc_subject`` (the value of the configured OIDC
+    claim -- ``sub`` by default -- that identifies this roster user at the IdP) is
+    carried through on the same terms, with one deliberate difference: an *empty*
+    string is dropped along with every non-string, where ``display_name`` and
+    ``theme`` would keep it. This field is an authorization mapping, not a
+    cosmetic one -- carrying ``""`` through would let an identity whose claim is
+    missing or empty match a roster user. Dropping it instead leaves that user
+    with no mapping at all, which the callback answers with 403. Only the
+    *non-secret* side of the mapping ever lives in config.yml; password hashes
+    never do (they live in ``.env.auth``, keyed by :func:`env_var_suffix`).
+
     Malformed entries — anything that isn't a string, and any dict missing a
     string ``name`` or an int ``index`` — are dropped rather than raising
     (well-formedness is lint.py's job). ``bool`` is a subclass of ``int`` in
@@ -80,10 +107,10 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
             than a list (including ``None``) is treated as an empty roster.
 
     Returns:
-        New ``{"name": str, "index": int}`` dicts (plus an optional
-        ``"display_name": str`` key when the entry carried a string one) in
-        config-declaration order. Input dicts are never mutated or returned by
-        reference.
+        New ``{"name": str, "index": int}`` dicts (plus optional
+        ``"display_name"``, ``"theme"`` and ``"oidc_subject"`` string keys when
+        the entry carried them) in config-declaration order. Input dicts are
+        never mutated or returned by reference.
     """
     if not isinstance(users_raw, list):
         return []
@@ -102,8 +129,60 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 theme = entry.get("theme")
                 if isinstance(theme, str):
                     normalized_entry["theme"] = theme
+                oidc_subject = entry.get("oidc_subject")
+                if isinstance(oidc_subject, str) and oidc_subject:
+                    normalized_entry["oidc_subject"] = oidc_subject
                 normalized.append(normalized_entry)
     return normalized
+
+
+def env_var_suffix(username: str) -> str:
+    """Map a roster username to the suffix its per-user env vars are keyed by.
+
+    Uppercase, with ``-`` replaced by ``_`` — so ``alice-b`` keys
+    ``OSPREY_AUTH_PW_HASH_ALICE_B``. This is the single definition of that
+    mapping; credential provisioning, the sidecar's env lookup, and lint all
+    route through it so a username can never be keyed one way at mint time and
+    another at verify time.
+
+    The mapping is intentionally total and lossy: it neither validates the
+    username charset nor rejects anything. Two distinct usernames can therefore
+    collide onto one suffix (``alice-b`` and ``alice_b``), which is exactly what
+    :func:`env_var_suffix_collisions` exists to detect — enforcement is the
+    caller's (a hard raise on the deploy preflight path, an ERROR in lint), not
+    this function's.
+    """
+    return username.upper().replace("-", "_")
+
+
+def env_var_suffix_collisions(usernames: Iterable[str]) -> dict[str, list[str]]:
+    """Find roster usernames that :func:`env_var_suffix` maps onto one suffix.
+
+    Without this check ``alice-b`` and ``alice_b`` would silently share a single
+    ``OSPREY_AUTH_PW_HASH_ALICE_B`` entry — one user's password would open the
+    other's terminal, which is precisely the isolation the auth feature exists to
+    establish.
+
+    A username repeated verbatim in the roster is *not* a collision here: it is
+    one user listed twice (a duplicate-name config error reported separately),
+    not two users sharing a credential. Only distinct names count.
+
+    Args:
+        usernames: Roster usernames — typically ``entry["name"]`` for each
+            :func:`normalize_users` entry. Non-string items are ignored, matching
+            this module's drop-don't-raise convention.
+
+    Returns:
+        ``{suffix: [colliding usernames]}`` for suffixes claimed by two or more
+        distinct usernames; empty when the roster is unambiguous. Suffix keys and
+        the names under each are sorted, so a lint or preflight message built
+        from this is byte-stable across runs.
+    """
+    by_suffix: dict[str, set[str]] = {}
+    for username in usernames:
+        if isinstance(username, str):
+            by_suffix.setdefault(env_var_suffix(username), set()).add(username)
+    return {suffix: sorted(names) for suffix, names in sorted(by_suffix.items()) if len(names) > 1}
 
 
 def effective_image_source(web_terminals: dict[str, Any]) -> str:
@@ -240,7 +319,10 @@ def resolve_personas(
         one (render emits them as ``OSPREY_WEB_APP_NAME`` and
         ``OSPREY_WEB_THEME``); each is omitted entirely otherwise, so a roster
         declaring neither resolves byte-identically to before these fields
-        existed.
+        existed. An optional ``"oidc_subject"`` key rides through on the same
+        terms, so the auth sidecar's roster→identity mapping is read off the same
+        resolved entry as everything else rather than re-derived from the raw
+        roster.
 
     Raises:
         ValueError: See ``strict`` above.
@@ -285,7 +367,7 @@ def resolve_personas(
         render.py's conditional-``sublabel`` convention: a key is present only
         for a non-empty string, so a roster declaring none leaves the entry
         byte-identical to a resolution from before these fields existed."""
-        for field in ("display_name", "theme"):
+        for field in ("display_name", "theme", "oidc_subject"):
             value = source.get(field)
             if isinstance(value, str) and value:
                 entry[field] = value
