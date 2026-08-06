@@ -251,6 +251,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   Appended entries now render inside their own section, with the banner kept
   at the section boundary.
 
+- The test suite no longer inherits a `TZ` supplied by a `.env` file, which made
+  `tests/connectors/test_archiver_timezone.py` error on any machine whose system
+  timezone differs from the one in `.env`. CI has no `.env`, so it never saw it.
+
 ## [2026.8.0]
 
 ### Removed
