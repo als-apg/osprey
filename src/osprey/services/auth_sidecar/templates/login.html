@@ -1,0 +1,186 @@
+{#
+  login.html — password prompt for one roster user.
+
+  Rendered by routes/login.py (Jinja2, autoescape ON) and served through nginx's
+  public `/auth/` location. Self-contained by necessity: the sidecar is its own
+  container with no static-asset mount and no stylesheet to link, and this page
+  must render on a deployment whose every other URL is behind the session it
+  exists to create. So the CSS is inline and the palette is baked in.
+
+  Template variables (contract with routes/login.py):
+
+    user: str, required
+      The roster user whose card was clicked. Shown in the prompt and carried in
+      a hidden field — there is NO username input on this page, because the page
+      is addressed per user and typing a different name here would only produce
+      a login the server refuses.
+
+    next: str, required
+      The validated same-origin return-to. Already checked by
+      `_safe_return_to()`; re-checked on POST, since a hidden field is client
+      input like any other.
+
+    error: str | None
+      A message to show above the form. One fixed string for every refusal — an
+      unknown user and a wrong password produce the identical page.
+
+    login_path: str, required
+      Where the form posts. Comes from the route module's own constant so the
+      path is defined once.
+
+    theme_blocks: list[dict], possibly empty
+      Design-system token values to bake into the stylesheet, in the same shape
+      the landing page uses: {"media": str | None, "color_scheme": str,
+      "variables": [(name, value), ...]}. NOT `|e`-escaped — these are CSS, not
+      HTML, and escaping would corrupt values (`rgba(0, 0, 0, .4)`) while doing
+      nothing about the only real hazard in a <style>, which the route guards
+      against by pattern-checking every value instead.
+
+      The list may be empty when the token tree cannot be read. Every `var()`
+      below therefore carries a literal fallback, so a page with no token block
+      still renders in the framework's default dark palette rather than
+      unstyled.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Sign in &mdash; {{ user|e }}</title>
+  <style>
+    {%- for block in theme_blocks %}
+    {%- set pad = "  " if block["media"] else "" %}
+    {%- if block["media"] %}
+    @media {{ block["media"] }} {
+    {%- endif %}
+    {{ pad }}:root {
+    {{ pad }}  color-scheme: {{ block["color_scheme"] }};
+    {%- for name, value in block["variables"] %}
+    {{ pad }}  {{ name }}: {{ value }};
+    {%- endfor %}
+    {{ pad }}}
+    {%- if block["media"] %}
+    }
+    {%- endif %}
+    {%- endfor %}
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: var(--bg-primary, #111217);
+      color: var(--text-primary, #ccccdc);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 26rem;
+      padding: 2rem;
+      border: 1px solid var(--border-default, #2c3235);
+      border-radius: 10px;
+      background: var(--bg-panel, #181b1f);
+      box-shadow: var(--shadow-dropdown, 0 8px 24px rgba(0, 0, 0, 0.4));
+    }
+    .login-mark {
+      margin: 0 0 1.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-muted, #6e6e77);
+    }
+    .login-prompt {
+      margin: 0 0 0.35rem;
+      font-size: 1.25rem;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+    .login-user {
+      color: var(--color-accent, #6e9fff);
+      overflow-wrap: anywhere;
+    }
+    .login-hint {
+      margin: 0 0 1.5rem;
+      font-size: 0.875rem;
+      color: var(--text-secondary, #8e8e9a);
+    }
+    .login-error {
+      margin: 0 0 1.25rem;
+      padding: 0.7rem 0.85rem;
+      border: 1px solid var(--color-error, #e05454);
+      border-radius: 6px;
+      font-size: 0.875rem;
+      color: var(--color-error, #e05454);
+      background: var(--bg-elevated, #22252b);
+    }
+    .login-label {
+      display: block;
+      margin-bottom: 0.4rem;
+      font-size: 0.8125rem;
+      color: var(--text-secondary, #8e8e9a);
+    }
+    .login-input {
+      width: 100%;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--border-default, #2c3235);
+      border-radius: 6px;
+      background: var(--bg-elevated, #22252b);
+      color: var(--text-primary, #ccccdc);
+      font-family: inherit;
+      font-size: 1rem;
+    }
+    .login-input:focus {
+      outline: none;
+      border-color: var(--color-accent, #6e9fff);
+      box-shadow: 0 0 0 3px var(--border-accent, rgba(110, 159, 255, 0.15));
+    }
+    .login-submit {
+      width: 100%;
+      margin-top: 1.25rem;
+      padding: 0.7rem 1rem;
+      border: 1px solid var(--color-accent, #6e9fff);
+      border-radius: 6px;
+      background: var(--color-accent, #6e9fff);
+      color: var(--bg-primary, #111217);
+      font-family: inherit;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .login-submit:hover { filter: brightness(1.08); }
+    .login-back {
+      display: block;
+      margin-top: 1.5rem;
+      font-size: 0.8125rem;
+      color: var(--text-muted, #6e6e77);
+    }
+    .login-back:hover { color: var(--color-accent, #6e9fff); }
+  </style>
+</head>
+<body>
+  <main class="login-card">
+    <p class="login-mark">OSPREY</p>
+    {#- The acceptance gate: the username is stated, never asked for. #}
+    <h1 class="login-prompt">Enter password for <span class="login-user">{{ user|e }}</span></h1>
+    <p class="login-hint">You are signing in to this terminal only.</p>
+    {%- if error %}
+    <p class="login-error" role="alert">{{ error|e }}</p>
+    {%- endif %}
+    <form method="post" action="{{ login_path|e }}">
+      {#- Hidden, not editable: the page is addressed per user, and the server
+          re-validates both values on arrival. #}
+      <input type="hidden" name="user" value="{{ user|e }}">
+      <input type="hidden" name="next" value="{{ next|e }}">
+      <label class="login-label" for="password">Password</label>
+      <input class="login-input" id="password" name="password" type="password"
+             autocomplete="current-password" autofocus required>
+      <button class="login-submit" type="submit">Unlock terminal</button>
+    </form>
+    <a class="login-back" href="/">&larr; Choose a different user</a>
+  </main>
+</body>
+</html>
