@@ -750,13 +750,14 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 /* Per-entry corner affordances — decorative, revealed on hover. The rail owns
-   a panel's whole lifecycle, so both the close "×" and the popout "↗" live
-   here; the tile's own header bar is a bare drag grip with no controls on it.
-   They take mirrored top corners, clear of the centred icon + label stack. */
+   a panel's MEMBERSHIP lifecycle: close "×" (remove from rail, top-left),
+   popout "↗" (top-right), and open-beside "⊞" (open as a new tile,
+   bottom-right); closing an OPEN tile is the tile header's own "×". The
+   corners sit clear of the centred icon + label stack. */
 .panel-rail-close,
-.panel-rail-popout {
+.panel-rail-popout,
+.panel-rail-beside {
   position: absolute;
-  top: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -772,6 +773,7 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 .panel-rail-close {
+  top: 4px;
   left: 4px;
   font-size: var(--text-lg);
 }
@@ -779,6 +781,16 @@ html[data-ui-mode="simple"] .session-selector {
 /* The arrow is a smaller glyph than the "×" at the same nominal size, so it
    rides one step up the scale to read as the "×"'s equal weight. */
 .panel-rail-popout {
+  top: 4px;
+  right: 4px;
+  font-size: var(--text-base);
+}
+
+/* Open-beside takes the bottom-right corner, below the popout: both "take
+   this panel somewhere" verbs share the right edge, membership removal keeps
+   the left. Same step-up sizing rationale as the popout glyph. */
+.panel-rail-beside {
+  bottom: 4px;
   right: 4px;
   font-size: var(--text-base);
 }
@@ -786,7 +798,8 @@ html[data-ui-mode="simple"] .session-selector {
 /* Revealed on hover only — the active cell stays clean (close via hover or the
    keyboard Delete/Backspace shortcut). */
 .panel-rail-button:hover .panel-rail-close,
-.panel-rail-button:hover .panel-rail-popout { opacity: 0.7; }
+.panel-rail-button:hover .panel-rail-popout,
+.panel-rail-button:hover .panel-rail-beside { opacity: 0.7; }
 
 .panel-rail-close:hover {
   opacity: 1;
@@ -794,12 +807,27 @@ html[data-ui-mode="simple"] .session-selector {
   background: var(--accent-tint-08);
 }
 
-/* Popout is non-destructive, so it lights accent rather than the close's error
-   red — the colour is the only cue distinguishing the two corners on hover. */
-.panel-rail-popout:hover {
+/* Popout and open-beside are non-destructive, so they light accent rather
+   than the close's error red — the colour is the cue distinguishing the
+   corners on hover. */
+.panel-rail-popout:hover,
+.panel-rail-beside:hover {
   opacity: 1;
   color: var(--color-accent-light);
   background: var(--accent-tint-08);
+}
+
+/* The drag source dims while its ghost travels, so "this entry is being
+   dragged" reads at a glance. */
+.panel-rail-button.dragging {
+  opacity: 0.4;
+}
+
+/* Simple mode is a locked layout: growing it is not a simple-mode gesture, so
+   the open-beside corner disappears entirely (rail-drag.js cancels the drag
+   half in JS — CSS cannot suppress draggable). */
+html[data-ui-mode="simple"] .panel-rail-beside {
+  display: none;
 }
 
 /* The design system's `.agent-attention` badge is pinned to the same top-right
@@ -819,19 +847,22 @@ html[data-ui-mode="simple"] .session-selector {
   opacity: 0.6;
 }
 
-/* Popout is the opposite case: a panel whose backend has not come up has no
-   resolved standalone URL yet, so the affordance is hidden rather than offered
-   as a dead click (panel-manager's handler no-ops on a null URL regardless). */
-.panel-rail-button.disabled .panel-rail-popout {
+/* Popout and open-beside are the opposite case: a panel whose backend has not
+   come up has nothing useful to open, so the affordances are hidden rather
+   than offered as a dead click (the JS handlers guard regardless). */
+.panel-rail-button.disabled .panel-rail-popout,
+.panel-rail-button.disabled .panel-rail-beside {
   display: none;
 }
 
 /* The SESSION (terminal) entry is the rail's permanent anchor: it never has a
    membership "×" — its tile is closed/reopened through its own header bar and
    the Delete-key shortcut instead (dock-workspace.js guards the JS paths too).
-   It has no standalone page either, so no "↗". */
+   It has no standalone page either, so no "↗"; its tile reopens via a plain
+   click, so no "⊞" (and panel-manager cancels its drag). */
 .panel-rail-button[data-panel-id="terminal"] .panel-rail-close,
-.panel-rail-button[data-panel-id="terminal"] .panel-rail-popout {
+.panel-rail-button[data-panel-id="terminal"] .panel-rail-popout,
+.panel-rail-button[data-panel-id="terminal"] .panel-rail-beside {
   display: none;
 }
 
@@ -1043,6 +1074,11 @@ html[data-rail-position="top"] .panel-rail-popout {
 
 html[data-rail-position="top"] .panel-rail-close {
   left: 2px;
+}
+
+html[data-rail-position="top"] .panel-rail-beside {
+  bottom: 2px;
+  right: 2px;
 }
 
 html[data-rail-position="top"] .panel-rail-popout {

@@ -103,6 +103,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Web terminal workspace: every panel tile now has the same header bar — six-dot
+  drag grip, panel name, and a close button that closes just that tile (the
+  panel stays on the rail; one click reopens it). Panels can be opened side by
+  side as first-class gestures: drag a rail icon into the workspace to split
+  exactly where you drop it, or use the ⊞ "open in a new tile" corner on a rail
+  entry's hover. Opening an already-open panel beside moves its tile instead of
+  duplicating it.
 - Each user in a multi-user deployment can have their own default theme: set
   `theme:` on a roster entry in `modules.web_terminals.users` (a family such as
   `desy`, or a concrete id such as `desy-light` to also pin light/dark). It
