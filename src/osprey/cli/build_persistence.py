@@ -14,9 +14,16 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
 logger = get_logger("build")
+
+# Every build installs the framework's web-terminal persona baseline
+# (``base.md``) into this directory. A directory overlay landing on the
+# directory itself would rmtree that baseline; per-user subdirectories below
+# it are the supported mapping.
+_PERSONA_CONTEXT_DIR = Path("docker") / "web-terminal-context"
 
 
 def _clear_rendered_project_dir(project_path: Path) -> list[str]:
@@ -85,6 +92,20 @@ def _copy_overlay_files(
             if not dst.is_relative_to(project_path.resolve()):
                 raise ValueError(f"Overlay destination escapes project root: {dst_rel}")
 
+            # A directory overlay replaces its destination wholesale, so one
+            # aimed at the persona context root would delete the baseline the
+            # build just installed there. Point it at a per-user subdirectory.
+            if src.is_dir() and dst == (project_path / _PERSONA_CONTEXT_DIR).resolve():
+                raise BuildProfileError(
+                    f"Overlay destination {dst_rel!r} would replace the whole "
+                    f"{_PERSONA_CONTEXT_DIR.as_posix()}/ directory, removing the "
+                    "web-terminal persona baseline (base.md) the build installs "
+                    "there.\nMap each user's context directory instead, e.g.:\n"
+                    f"  overlay:\n"
+                    f"    {src_rel.rstrip('/')}/alice: "
+                    f"{_PERSONA_CONTEXT_DIR.as_posix()}/alice"
+                )
+
             dst.parent.mkdir(parents=True, exist_ok=True)
 
             if src.is_dir():
@@ -151,25 +172,18 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
     ``.mcp.json`` and ``settings.json``.  Placeholders like ``{project_root}``
     are preserved as-is — resolution happens during regen.
     """
-    from osprey.utils.config_writer import _load, _save
+    from osprey.utils.config_writer import _load, _save, anchored_put
 
     from .build_profile import McpServerDef
 
     config_path = project_path / "config.yml"
     data = _load(config_path)
 
-    # Ensure claude_code.servers section exists
-    if "claude_code" not in data:
-        from ruamel.yaml import CommentedMap
-
-        data["claude_code"] = CommentedMap()
-    cc = data["claude_code"]
-    if "servers" not in cc:
-        from ruamel.yaml import CommentedMap
-
-        cc["servers"] = CommentedMap()
-    servers_section = cc["servers"]
-
+    # Collect the server specs first, then register them via anchored_put:
+    # writing an empty ``servers:`` map and filling it afterwards would leave
+    # any section comment trailing ``claude_code:`` anchored above the new
+    # entries (rendering them under the next section's banner).
+    specs: dict[str, dict[str, Any]] = {}
     for name, server in mcp_servers.items():
         if not isinstance(server, McpServerDef):
             continue
@@ -209,7 +223,19 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
         if server.permissions:
             spec["permissions"] = dict(server.permissions)
 
-        servers_section[name] = spec
+        specs[name] = spec
+
+    if specs:
+        if "claude_code" not in data:
+            from ruamel.yaml import CommentedMap
+
+            data["claude_code"] = CommentedMap()
+        cc = data["claude_code"]
+        if "servers" in cc:
+            for name, spec in specs.items():
+                anchored_put(cc["servers"], name, spec)
+        else:
+            anchored_put(cc, "servers", specs)
 
     _save(config_path, data)
 
@@ -223,25 +249,30 @@ def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> N
     """
     from ruamel.yaml import CommentedMap
 
-    from osprey.utils.config_writer import _load, _save
+    from osprey.utils.config_writer import _load, _save, anchored_put
 
     config_path = project_path / "config.yml"
     data = _load(config_path)
 
     if "artifact_server" not in data:
+        # Root-level append: new top-level sections land at the file tail
+        # by design (the template documents appended sections there).
         data["artifact_server"] = CommentedMap()
     block = data["artifact_server"]
 
     for key, value in overrides.items():
         if key != "categories":
-            block[key] = value
-    for key, spec in overrides.get("categories", {}).items():
-        if "categories" not in block:
-            block["categories"] = CommentedMap()
-        entry = CommentedMap()
-        entry["label"] = spec["label"]
-        entry["color"] = spec["color"]
-        block["categories"][key] = entry
+            anchored_put(block, key, value)
+    categories = {
+        key: {"label": spec["label"], "color": spec["color"]}
+        for key, spec in overrides.get("categories", {}).items()
+    }
+    if categories:
+        if "categories" in block:
+            for key, entry in categories.items():
+                anchored_put(block["categories"], key, entry)
+        else:
+            anchored_put(block, "categories", categories)
 
     _save(config_path, data)
 

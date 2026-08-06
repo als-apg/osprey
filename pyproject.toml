@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
@@ -71,6 +71,11 @@ dependencies = [
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
     "numpy>=2.2.6",  # Required by pandas
+    # archiver_read imports dateutil.parser directly to accept ISO/human start
+    # and end times. It resolves today only because pandas happens to depend on
+    # it; declare it so a future pandas that drops the dependency cannot break
+    # the tool silently.
+    "python-dateutil>=2.9.0",
     "matplotlib>=3.11.1",  # Required for Python capability visualization (core use case)
     # Networking and protocols
     "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
@@ -207,6 +212,19 @@ archiver-mongodb = [
     "pymongo>=4.0",
 ]
 
+# Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
+# Chat/Drive API access, and GCS artifact storage.
+gchat = [
+    "google-cloud-pubsub>=2.18",
+    "google-api-python-client>=2.100",
+    "google-auth>=2.23",
+    "google-cloud-storage>=2.10",
+    # Some deployment hosts only permit egress through a Squid proxy. httplib2
+    # (used by google-api-python-client) only honors HTTP(S)_PROXY env vars
+    # when PySocks is installed, so this is required, not optional, on those hosts.
+    "pysocks>=1.7",
+]
+
 # Facility knowledge / ontology support (OKF markdown bundles, RDF reasoning)
 knowledge = [
     "rdflib>=7.0",
@@ -227,7 +245,7 @@ virtual-accelerator = []
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge,gchat]"
 ]
 
 [project.urls]
@@ -251,8 +269,18 @@ cron = "osprey.dispatch.sources.cron:CronSource"
 epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
 # Hatchling build configuration
+# The version comes from the git tag, not a literal — a release is cut by tagging.
+# `post-release` keeps the base version on the *last* tag (2026.6.2.post783+g83fda5e60),
+# where the default `guess-next-dev` would invent an unreleased 2026.6.3. CalVer cannot
+# predict its own next number, so guessing is worse than not guessing.
 [tool.hatch.version]
-path = "src/osprey/__init__.py"
+source = "vcs"
+raw-options = { version_scheme = "post-release" }
+
+# Stamps the resolved version into the built artifact, which is the only way a wheel
+# (and any container built from one) can report its version without git present.
+[tool.hatch.build.hooks.vcs]
+version-file = "src/osprey/_version.py"
 
 [tool.hatch.build]
 # Never package benchmark results produced by running the channel-finder
@@ -284,6 +312,7 @@ module = [
     "openai.*",
     "anthropic.*",
     "google.*",
+    "googleapiclient.*",
     "ollama.*",
     "litellm.*",
     "pandas.*",
@@ -355,6 +384,9 @@ markers = [
 line-length = 100
 target-version = "py311"
 src = ["src", "interfaces", "deployment"]
+# Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
+# enforce, and it is present in any built or editable-installed tree.
+extend-exclude = ["src/osprey/_version.py"]
 
 [tool.ruff.lint]
 select = [

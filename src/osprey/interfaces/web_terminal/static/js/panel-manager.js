@@ -32,7 +32,11 @@ import { createPanelIframe } from './panel-iframe-factory.js';
 import {
   PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL, DEFAULT_PANEL_FALLBACK,
 } from './panel-catalog.js';
-import { initDockSync, withEchoSuppressed, setTileCloseHandler } from './dock-sync.js';
+import {
+  initDockSync, withEchoSuppressed, setTileCloseHandler,
+  dockPanelBesideActive, dockPanelAt,
+} from './dock-sync.js';
+import { initRailDrag, railDragStart, railDragEnd } from './rail-drag.js';
 import { startHealthPolling as startPolling } from './panel-health.js';
 import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
 import { initRailThemeCoupling } from './rail-position.js';
@@ -172,6 +176,17 @@ export async function initPanelManager(panelId) {
   // tab focus / close POSTs the same setPanelFocus / setPanelVisibility the rail
   // and agent use. Wires lazily once the dockview shell is up; no-ops without it.
   initDockSync();
+
+  // Rail drag-and-drop: a rail entry dropped on a tile edge opens (or moves)
+  // that panel as a new tile at the drop position, then reveals it through the
+  // same activate/show tail every other open path uses. Wires lazily like
+  // initDockSync; no-ops without a dock shell.
+  initRailDrag({
+    onDropPanel: (id, position) => {
+      dockPanelAt(id, labelOf(id), position);
+      revealOpenedPanel(id);
+    },
+  });
 
   // Fetch panel config and filter PANELS before rendering
   let panelConfig = null;
@@ -465,12 +480,11 @@ function railOptions() {
   return {
     onActivate: (/** @type {string} */ id) => {
       if (id === TERMINAL_RAIL_ID) { openTerminalPanel(); return; }
-      // Clicking the entry whose tile is ALREADY surfaced retires that tile.
-      // This is the local vacate that used to sit on the tile's own "×" — a
-      // service tile's strip is now a bare drag grip, so the gesture moved to
-      // the rail rather than disappearing. It stays a LOCAL layout change:
-      // rail membership survives, so a second click brings the tile back.
-      // Membership removal remains the separate "×" corner.
+      // Clicking the entry whose tile is ALREADY surfaced retires that tile —
+      // a toggle shortcut equivalent to the tile header's own "×". It stays a
+      // LOCAL layout change: rail membership survives, so a second click
+      // brings the tile back. Membership removal remains the separate "×"
+      // corner.
       if (visiblePanels.has(id)) {
         if (activeTabId === id) { retireTile(id); return; }
         activateTab(id, { userInitiated: true });
@@ -480,16 +494,59 @@ function railOptions() {
       if (id === TERMINAL_RAIL_ID) { closeTerminalPanel(); return; }
       setPanelVisibility(id, false);
     },
-    // The rail owns the whole panel lifecycle, popout included — a tile's
-    // header bar is a bare drag grip. No-ops before the panel's config fetch
-    // has resolved a URL; the rail also hides the affordance while the entry
-    // is `.disabled`, so this guard is the backstop, not the only gate.
+    // Popout stays rail-only (a tile has no standalone-URL affordance).
+    // No-ops before the panel's config fetch has resolved a URL; the rail
+    // also hides the affordance while the entry is `.disabled`, so this
+    // guard is the backstop, not the only gate.
     onPopout: (/** @type {string} */ id) => {
       if (id === TERMINAL_RAIL_ID) return;
       const url = getPanelStandaloneUrl(id);
       if (url) window.open(url, '_blank', 'noopener');
     },
+    // "⊞" — open this panel as a NEW tile beside the active one, the
+    // discoverable half of the open-beside verb (rail drag is the precise
+    // half). The terminal entry routes to its own reopen path; CSS hides its
+    // corner regardless.
+    onOpenBeside: (/** @type {string} */ id) => openPanelBeside(id),
+    // Rail drag source: the terminal entry never drags (its tile moves by its
+    // own header bar); everything else defers to rail-drag's policy (simple
+    // mode and fallback mode cancel there).
+    onDragStart: (/** @type {string} */ id, /** @type {DataTransfer | null} */ dt) =>
+      id === TERMINAL_RAIL_ID ? false : railDragStart(id, dt),
+    onDragEnd: () => railDragEnd(),
   };
+}
+
+/** The catalog label for a panel id (falls back to the id itself).
+ *  @param {string} id @returns {string} */
+function labelOf(id) {
+  return PANELS.find((p) => p.id === id)?.label ?? id;
+}
+
+/**
+ * Shared reveal tail for every "open as a new tile" path (rail ⊞, rail drop):
+ * a member panel is focused locally + reported (activateTab no-ops while the
+ * panel is unhealthy — the placeholder tile still appears and fills on the
+ * next health settle); a non-member is revealed through the same
+ * visibility-POST path the "+" menu uses.
+ * @param {string} panelId
+ */
+function revealOpenedPanel(panelId) {
+  if (visiblePanels.has(panelId)) activateTab(panelId, { userInitiated: true });
+  else showPanel(panelId);
+}
+
+/**
+ * Open a panel as a NEW tile beside the active group — the rail ⊞ corner's
+ * action. An already-open panel is MOVED beside the active tile (dockPanelAt's
+ * move semantics), never duplicated. In simple mode the placement no-ops in
+ * dock-sync and the reveal tail takes the single tile over like a rail click.
+ * @param {string} panelId
+ */
+function openPanelBeside(panelId) {
+  if (panelId === TERMINAL_RAIL_ID) { openTerminalPanel(); return; }
+  dockPanelBesideActive(panelId, labelOf(panelId));
+  revealOpenedPanel(panelId);
 }
 
 /**

@@ -28,7 +28,7 @@ Overview
 The ``osprey build`` command takes a YAML profile and produces a standalone Osprey agent
 project. The profile declares:
 
-- **Data bundle** to start from (``control_assistant``, ``hello_world``, or ``ariel_standalone``)
+- **App template** to start from (``control_assistant``, ``hello_world``, or ``ariel_standalone``)
 - **Config overrides** for the generated ``config.yml`` (dot-notation)
 - **File overlays** that copy facility data into the project
 - **MCP server definitions** to inject custom tools
@@ -66,50 +66,92 @@ OSPREY's build inputs form a three-layer hierarchy:
 - **Project** — the rendered output of ``osprey build``. Derived; regenerable;
   treat it as a build artifact and avoid editing it in place.
 
-You can drive ``osprey build`` in three modes:
+The three steps that move between those layers:
 
 .. list-table::
    :header-rows: 1
    :widths: 22 38 40
 
-   * - Mode
+   * - Step
      - Command
      - When to use
    * - Quick start
      - ``osprey build my-project --preset X``
      - Trying a preset; no customizations needed.
-   * - Scaffold profile
-     - ``osprey build --emit-profile my-profile --preset X``
+   * - Materialize a profile
+     - ``osprey profile new my-profile --preset X``
      - Starting facility-specific customization. Writes an editable,
-       **standalone** profile directory and exits — no project rendered
-       yet. The preset's full configuration is materialized into
-       ``profile.yml`` (comments preserved, no ``extends:``), and any
-       ``--set`` / ``-O`` values are applied in place, so a validated
-       build one-liner carries straight into the profile.
+       **standalone** profile directory — no project rendered yet. The
+       preset's full configuration is materialized into ``profile.yml``
+       (comments preserved, no ``extends:``) alongside a copy of the
+       preset's data tree, and any ``--set`` / ``-O`` values are applied
+       in place, so a validated build one-liner carries straight into
+       the profile.
    * - Build from profile
      - ``osprey build my-project my-profile/profile.yml``
      - Rendering a project from your profile (the everyday command after
        the profile exists).
 
-The scaffold mode writes:
+``osprey profile new`` writes:
 
 .. code-block:: text
 
    my-profile/
      profile.yml          # the preset's full configuration, materialized — edit freely
+     data/                # the preset's data tree, copied verbatim — edit freely
      overlays/
-       rules/   .gitkeep  # drop facility-specific rule .md files here
-       skills/  .gitkeep  # drop custom skill directories here
-       agents/  .gitkeep  # drop custom subagent .md files here
+       rules/                 .gitkeep  # drop facility-specific rule .md files here
+       skills/                .gitkeep  # drop custom skill directories here
+       agents/                .gitkeep  # drop custom subagent .md files here
+       web-terminal-context/  .gitkeep  # drop per-user web-terminal content here
      README.md            # explains the layout
 
-The emitted ``profile.yml`` is fully self-sufficient: every section the preset
+The materialized ``profile.yml`` is fully self-sufficient: every section the preset
 configures (artifact lists, ``config:`` overrides, service blocks like
 ``bluesky:`` / ``virtual_accelerator:`` / ``dispatch:``, ``env:`` wiring) is
 written out explicitly with the preset's own comments, and nothing is
 inherited at build time. Upstream preset improvements in later OSPREY releases
-do **not** flow in automatically — emit a fresh profile into a scratch
+do **not** flow in automatically — materialize a fresh profile into a scratch
 directory and diff to pick them up.
+
+Persona profiles
+----------------
+
+Some presets give each operator their own web terminal, and each terminal runs
+with a persona — a capability posture, such as read-only versus write-capable.
+For those presets (``control-assistant`` and ``multi-user-demo``),
+``osprey profile new`` writes one profile per persona into a ``personas/``
+directory alongside ``profile.yml``:
+
+.. code-block:: text
+
+   my-profile/
+     profile.yml
+     data/
+     personas/
+       readonly.yml       # a read-only terminal
+       readwrite.yml      # a write-capable terminal
+
+Each persona profile is a small *delta* over the host: it begins with
+``extends: ../profile.yml``, so every setting in the host profile — including
+any edit you make there later — applies to the persona too, and the persona
+file lists only what makes it different (for the read-only persona, chiefly
+``control_system.writes_enabled: false``). It also carries ``data: ../data``,
+so the whole stack reads the single data tree above it — edit ``data/`` once
+and every persona picks the change up on its next build. The host
+``profile.yml`` points at these files by path, so keep the names in step if
+you rename one, and note that renaming or moving ``profile.yml`` itself breaks
+the personas' ``extends`` reference.
+
+They are ordinary profiles: edit one to change what that persona's terminal
+can do, validate it on its own to see the fully resolved result, or build it
+directly.
+
+.. code-block:: bash
+
+   osprey profile validate my-profile/personas/readonly.yml
+
+At deployment time, the persona projects are rendered from these files.
 
 Inheriting from a preset
 ------------------------
@@ -224,7 +266,7 @@ Create a minimal profile and build:
 
    # my-facility-dev.yml
    name: "My Facility (Dev)"
-   data_bundle: control_assistant
+   app_template: control_assistant
    provider: anthropic
    model: sonnet
    channel_finder_mode: in_context
@@ -257,7 +299,7 @@ Profile YAML Schema
      - string
      - *required*
      - Human-readable profile name.
-   * - ``data_bundle``
+   * - ``app_template``
      - string
      - ``control_assistant``
      - App template (data bundle) to use. Valid: ``control_assistant``,
@@ -838,12 +880,6 @@ CLI Reference
        points at. Advanced — overrides the default derived from the channel
        finder paradigm (``in_context`` → tier 1, ``hierarchical`` /
        ``middle_layer`` → tier 3). Tier 1 is ``in_context``-only.
-   * - ``--emit-profile DIR``
-     - Scaffold an editable, standalone profile directory at ``DIR``
-       materializing ``--preset``'s full configuration (comments
-       preserved, no ``extends:``), then exit without rendering a
-       project. ``--set`` / ``-O`` values are applied in place. Build
-       from it with ``osprey build <PROJECT_NAME> DIR/profile.yml``.
    * - ``-s, --stream``
      - Stream lifecycle step output in real time.
    * - ``--skip-lifecycle``
@@ -875,8 +911,8 @@ declaration order → ``--set`` pairs.
        -O als-overrides.yml \
        --set model=claude-sonnet-4-6
 
-   # Scaffold a facility profile with those same overrides baked in
-   osprey build --emit-profile als-profile --preset control-assistant \
+   # Materialize a facility profile with those same overrides baked in
+   osprey profile new als-profile --preset control-assistant \
        --set provider=als-apg --set model=opus
 
 

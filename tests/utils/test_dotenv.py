@@ -9,7 +9,8 @@ server launch. Narrowing the parser to "known" keys would silently break those
 references, so the full-passthrough contract is tested explicitly here.
 
 ``merge_env_preserving_existing`` is the write side of ``osprey build --force``
-and template ``.env`` shipping: rendered structure, existing values win.
+and template ``.env`` shipping: rendered structure, existing values win — with
+one exception, ``BUILD_DERIVED_KEYS``, which the build owns outright.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.utils.dotenv import (
+    BUILD_DERIVED_KEYS,
     _dotenv_raw_lines,
     merge_env_preserving_existing,
     parse_dotenv_file,
@@ -226,3 +228,47 @@ class TestMergeEnvPreservingExisting:
         out.write_text(merged, encoding="utf-8")
         parsed = parse_dotenv_file(out)
         assert parsed == {"A": "user_a", "B": "r", "C": "r", "D": "user_d"}
+
+
+class TestBuildDerivedKeys:
+    """The exemption: keys the build derives from project content, not the user.
+
+    ``VA_CHANNELS_FILE`` names a manifest ``osprey build`` generates from the
+    project's own channel databases. Preserving it like a user secret would
+    latch it on: a rebuild that can no longer generate the manifest (the data
+    tree changed, the databases now disagree) would leave the virtual
+    accelerator pointed at a file with no drive limits beside it.
+    """
+
+    def test_the_keys_are_the_va_wiring(self):
+        assert BUILD_DERIVED_KEYS == {"VA_CHANNELS_FILE", "VA_LATTICE"}
+
+    def test_rendered_value_wins_over_existing(self):
+        rendered = "VA_CHANNELS_FILE=channel_manifest.json\n"
+        existing = "VA_CHANNELS_FILE=stale_manifest.json\n"
+        merged = merge_env_preserving_existing(rendered, existing)
+        assert "VA_CHANNELS_FILE=channel_manifest.json" in merged
+        assert "stale_manifest.json" not in merged
+
+    def test_key_absent_from_render_is_dropped_not_preserved(self):
+        """The un-write: a build that skipped generation clears the wiring."""
+        rendered = "API_KEY=k\n"
+        existing = "API_KEY=k\nVA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=builtin\n"
+        merged = merge_env_preserving_existing(rendered, existing)
+        assert "VA_CHANNELS_FILE" not in merged
+        assert "VA_LATTICE" not in merged
+        assert "# Preserved from existing .env" not in merged
+
+    def test_user_keys_are_still_preserved_alongside(self):
+        rendered = "VA_LATTICE=builtin\n"
+        existing = "VA_LATTICE=none\nMY_SECRET=keep-me\n"
+        merged = merge_env_preserving_existing(rendered, existing)
+        assert "VA_LATTICE=builtin" in merged
+        assert "MY_SECRET=keep-me" in merged
+
+    def test_empty_exemption_restores_preserving_behavior(self):
+        """For a merge whose rendered side is a fragment, not the full render."""
+        rendered = "API_KEY=k\n"
+        existing = "VA_CHANNELS_FILE=channel_manifest.json\n"
+        merged = merge_env_preserving_existing(rendered, existing, build_derived_keys=frozenset())
+        assert "VA_CHANNELS_FILE=channel_manifest.json" in merged

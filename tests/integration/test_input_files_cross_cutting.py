@@ -6,7 +6,9 @@ belong to neither single unit's test module:
 1. **Combined-cap arithmetic** — the caller-file cap, the follow-up re-injection
    cap, and a folded-history budget are sized so a worst-case request body still
    fits the 32 MB request-body limit with roughly a quarter to spare. A change to
-   any one constant that eroded that headroom is caught here.
+   any one constant that eroded that headroom is caught here. Both sides are
+   imported — the bridge budgets from ``osprey.bridges.core.pipeline``, the worker
+   caps from ``input_files_policy`` — so this catches either side moving alone.
 2. **No base64 payload leak, end to end** — a file's ``content_b64`` bytes ride
    only an image content block; they must never reach the assembled prompt text,
    the persisted run record, the dispatcher's recorded history, or any log sink.
@@ -37,6 +39,12 @@ from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 from pydantic import BaseModel
 from starlette.testclient import TestClient
 
+from osprey.bridges.core.pipeline import (
+    MAX_FILES,
+    MAX_TOTAL_BYTES,
+    REINJECT_MAX_IMAGES,
+    REINJECT_MAX_TOTAL_BYTES,
+)
 from osprey.dispatch import server
 from osprey.dispatch.sources.webhook import _MAX_WEBHOOK_BYTES, WebhookSource
 from osprey.dispatch.trigger_config import TriggerConfig
@@ -60,18 +68,19 @@ _MiB = 1024 * 1024
 # 1. Combined-cap arithmetic pin
 # ===========================================================================
 
-# Bridge-side inbound caps, mirrored here as documented literals because the
-# bridge lives in a separate repository and cannot be imported. A follow-up
+# Bridge-side inbound caps, IMPORTED from the engine that enforces them. They were
+# once mirrored here as literals, on the premise that the bridge lived in a separate
+# repository — it does not, so the mirror only ever compared one literal against
+# another and would not have noticed the bridge raising its own budget. A follow-up
 # request may carry, at most, a batch of newly-attached caller files PLUS a
-# re-injection of a few recent prior images:
-#   * new caller files: at most 5 files, 10 MiB decoded in total (inbound);
-#   * re-injected prior images: at most 3 images, 8 MiB decoded in total.
-# The worker's own ceiling (MAX_TOTAL_DECODED_BYTES) is what actually bounds the
-# sum; these two caps are sized so their sum lands exactly on it.
-_BRIDGE_NEW_FILES_MAX_DECODED = 10 * _MiB
-_BRIDGE_REINJECT_MAX_DECODED = 8 * _MiB
-_BRIDGE_NEW_FILES_MAX_COUNT = 5
-_BRIDGE_REINJECT_MAX_COUNT = 3
+# re-injection of a few recent prior images. The worker's own ceiling
+# (MAX_TOTAL_DECODED_BYTES) is what actually bounds the sum; the bridge caps are
+# sized so their sum lands exactly on it, and importing them is what makes the
+# assertions below fail if either side moves alone.
+_BRIDGE_NEW_FILES_MAX_DECODED = MAX_TOTAL_BYTES
+_BRIDGE_REINJECT_MAX_DECODED = REINJECT_MAX_TOTAL_BYTES
+_BRIDGE_NEW_FILES_MAX_COUNT = MAX_FILES
+_BRIDGE_REINJECT_MAX_COUNT = REINJECT_MAX_IMAGES
 
 # Prior-turn conversation history folded into the prompt on a follow-up dispatch.
 _HISTORY_BUDGET_BYTES = 40 * 1024

@@ -196,10 +196,17 @@ def _inject_project_metadata(config):
     # Resolve the running framework version so service Dockerfiles can pin the
     # PyPI install (`pip install osprey-framework==<version>`) for production
     # builds. Dev builds install a locally-built wheel instead (see --dev).
-    try:
-        from osprey import __version__ as osprey_version
-    except Exception:
-        osprey_version = ""
+    #
+    # This is deliberately the *running* version rather than the release lineage,
+    # and deliberately ungated. The service Dockerfiles hard-fail on an empty
+    # OSPREY_VERSION but tolerate an unreleased one under OSPREY_DEV=1, priming
+    # the layer with the latest release and warning that the pin was unreleased.
+    # Substituting the base release here would silently prime with released code
+    # and suppress that warning. A production build from a development checkout is
+    # refused earlier and more clearly by `_resolve_pip_spec`.
+    from osprey.version import get_running_version
+
+    osprey_version = get_running_version()
 
     # Create enhanced config with label metadata
     config_with_labels = config.copy()

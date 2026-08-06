@@ -1,0 +1,15 @@
+# Build-context hygiene for the gchat-bridge image.
+#
+# The Dockerfile only needs the locally-built osprey wheel (*.whl) from this
+# context; everything else here is either build metadata or not needed at
+# image-build time. Keeping them out of the build context speeds the build
+# and avoids baking a stale .env — or a Google service-account key — into the
+# image. The key is mounted read-only at runtime, never copied in.
+**/__pycache__/
+*.pyc
+.git/
+.env
+*.json
+# Compose files + templates are runtime/deploy artifacts, not image inputs.
+docker-compose.yml
+*.j2

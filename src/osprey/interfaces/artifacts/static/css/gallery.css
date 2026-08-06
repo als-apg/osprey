@@ -2325,6 +2325,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   background: color-mix(in srgb, var(--color-info) 8%, transparent);
 }
 
+.ts-info-bar .ts-badge.ts-badge-points,
 .ts-info-bar .ts-badge.ts-badge-rows {
   color: var(--text-secondary);
 }
@@ -2396,6 +2397,18 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 
 .ts-ch-toggle.ts-ch-off .ts-ch-dot {
   background: var(--text-muted) !important;
+}
+
+/* Marks a non-numeric (enum/status) channel plotted on the chart's
+   secondary right-hand category axis, so it reads as distinct from a
+   numeric channel rather than being silently indistinguishable. */
+.ts-ch-toggle .ts-ch-axis-tag {
+  font-size: 8px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: var(--art-radius-sm);
+  color: var(--text-muted);
+  border: 1px solid var(--neutral-tint-10);
 }
 
 .ts-action-btn {

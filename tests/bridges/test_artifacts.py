@@ -7,9 +7,10 @@ origin and would otherwise shadow each other in a single module namespace).
 
 Sections:
 
-* ``TestFetchArtifact``  — worker byte fetch + size/PNG guards
+* ``TestFetchArtifact``  — worker byte fetch, size guard, and the served
+  Content-Type that is authoritative over any prediction
 * ``TestArtifactIds``    — run-status ``artifacts`` field -> id strings
-* ``TestSplitArtifacts`` — mime-routed split into image ids / doc descriptors
+* ``TestArtifactDescriptors`` — run-status ``artifacts`` field -> descriptors
 * ``TestExtForMime``     — mime -> extension allowlist
 * ``TestSafeLabel``      — CR/LF stripping + length bound
 * ``TestNeverRaiseContract`` — new here: pins the "a fetch failure never
@@ -21,64 +22,104 @@ import pytest
 
 from osprey.bridges.core.artifacts import (
     PNG_MAGIC,
+    artifact_descriptors,
     artifact_ids,
     ext_for_mime,
     fetch_artifact,
     safe_label,
-    split_artifacts,
 )
 from osprey.bridges.core.config import CoreConfig
 
 # ---------------------------------------------------------------------------
-# fetch_artifact: worker byte fetch + size/PNG guards, incl. the non-PNG path
-# a document-delivering channel relies on (require_png=False) and a custom
-# max_bytes.
+# fetch_artifact: worker byte fetch + size guard, and the two facts a consumer
+# routes on — the bytes themselves (is_png) and the Content-Type the worker
+# served them under. Neither is a prediction, so neither can disagree with what
+# was actually delivered.
 # ---------------------------------------------------------------------------
 
 PNG = PNG_MAGIC + b"body"
 PDF = b"%PDF-1.7\n...."
+CSV = b"x,sin_x\n0,0\n"
 
 CFG = CoreConfig(worker_url="http://work:9190", dispatch_worker_token="work-token")
 
 
 def _http(payloads):
-    """payloads: artifact_id -> bytes (200) or None (404)."""
+    """payloads: artifact_id -> bytes, or (bytes, content_type), or None (404)."""
 
     def handler(request):
         aid = str(request.url).rsplit("/", 1)[-1]
-        data = payloads.get(aid)
-        if data is None:
+        payload = payloads.get(aid)
+        if payload is None:
             return httpx.Response(404)
         assert request.headers["Authorization"] == "Bearer work-token"
-        return httpx.Response(200, content=data)
+        data, content_type = payload if isinstance(payload, tuple) else (payload, None)
+        headers = {"Content-Type": content_type} if content_type else {}
+        return httpx.Response(200, content=data, headers=headers)
 
     return httpx.Client(transport=httpx.MockTransport(handler), trust_env=CFG.trust_env)
 
 
 class TestFetchArtifact:
-    def test_png_default_accepts_png(self):
-        assert fetch_artifact(_http({"a": PNG}), CFG, "R1", "a") == PNG
+    def test_returns_the_bytes_and_the_served_content_type(self):
+        fetched = fetch_artifact(_http({"a": (PNG, "image/png")}), CFG, "R1", "a")
+        assert fetched.data == PNG
+        assert fetched.content_type == "image/png"
 
-    def test_png_default_rejects_non_png(self):
-        assert fetch_artifact(_http({"a": PDF}), CFG, "R1", "a") is None
+    def test_a_non_image_payload_is_returned_not_dropped(self):
+        # osprey #503: the byte route serving CSV where the descriptor predicted a
+        # PNG must not make the artifact vanish — the caller re-routes it.
+        fetched = fetch_artifact(_http({"a": (CSV, "text/csv")}), CFG, "R1", "a")
+        assert fetched.data == CSV
+        assert fetched.content_type == "text/csv"
+        assert fetched.is_png is False
 
-    def test_require_png_false_accepts_non_png(self):
-        # document path: attach delivered_mime bytes verbatim, no PNG requirement.
-        assert fetch_artifact(_http({"a": PDF}), CFG, "R1", "a", require_png=False) == PDF
+    def test_is_png_reads_the_magic_bytes_not_the_header(self):
+        # A header claiming PNG over text bytes is exactly the #503 failure; the
+        # magic bytes are the unforgeable half.
+        assert fetch_artifact(_http({"a": (CSV, "image/png")}), CFG, "R1", "a").is_png is False
+        assert fetch_artifact(_http({"a": (PNG, "text/csv")}), CFG, "R1", "a").is_png is True
+
+    def test_content_type_parameters_are_stripped(self):
+        # Starlette appends "; charset=utf-8" to any text/* media type.
+        fetched = fetch_artifact(_http({"a": (CSV, "text/csv; charset=utf-8")}), CFG, "R1", "a")
+        assert fetched.content_type == "text/csv"
+
+    def test_a_missing_content_type_is_none_not_a_guess(self):
+        assert fetch_artifact(_http({"a": PDF}), CFG, "R1", "a").content_type is None
 
     def test_custom_max_bytes_enforced(self):
         big = PNG_MAGIC + b"x" * 100
         assert fetch_artifact(_http({"a": big}), CFG, "R1", "a", max_bytes=10) is None
-        assert fetch_artifact(_http({"a": big}), CFG, "R1", "a", max_bytes=1000) == big
+        assert fetch_artifact(_http({"a": big}), CFG, "R1", "a", max_bytes=1000).data == big
 
     def test_404_returns_none(self):
         assert fetch_artifact(_http({}), CFG, "R1", "missing") is None
 
-    def test_size_guard_applies_even_when_png_not_required(self):
-        assert (
-            fetch_artifact(_http({"a": PDF}), CFG, "R1", "a", require_png=False, max_bytes=2)
-            is None
-        )
+    def test_max_bytes_boundary_is_inclusive(self):
+        # The guard rejects strictly-greater, so a body exactly at the budget
+        # is delivered. An off-by-one here silently drops artifacts sitting on
+        # the boundary, which is precisely the size a caller tunes toward.
+        http = _http({"a": (PNG, "image/png")})
+        assert fetch_artifact(http, CFG, "R1", "a", max_bytes=len(PNG)).data == PNG
+        assert fetch_artifact(http, CFG, "R1", "a", max_bytes=len(PNG) - 1) is None
+
+    def test_served_type_case_is_folded(self):
+        # Compared against bare literals like "image/png" downstream, so a
+        # worker (or proxy) that upper-cases the header must not change routing.
+        fetched = fetch_artifact(_http({"a": (PNG, "Image/PNG")}), CFG, "R1", "a")
+        assert fetched.content_type == "image/png"
+
+    def test_served_type_whitespace_is_trimmed(self):
+        fetched = fetch_artifact(_http({"a": (PNG, "  image/png ; charset=utf-8")}), CFG, "R1", "a")
+        assert fetched.content_type == "image/png"
+
+    def test_empty_or_parameters_only_served_type_becomes_none(self):
+        # An absent type is reported as absent, never guessed — a header that
+        # normalizes to nothing must not become a routable empty string.
+        for raw in ("", "  ", "; charset=utf-8"):
+            fetched = fetch_artifact(_http({"a": (PNG, raw)}), CFG, "R1", "a")
+            assert fetched.content_type is None, raw
 
 
 # ---------------------------------------------------------------------------
@@ -133,16 +174,17 @@ class TestArtifactIds:
 
 
 # ---------------------------------------------------------------------------
-# split_artifacts: route the run-status ``artifacts`` field into an image-id
-# bucket (PNG, inline-image path) and a doc-descriptor bucket (everything else).
+# artifact_descriptors: normalize the run-status ``artifacts`` field to
+# descriptor dicts, keeping every hint (filename, delivered_mime) a delivery
+# path can use to NAME an artifact. It deliberately does not route: what an
+# artifact turns out to be is only knowable once its bytes have been served.
 #
-# Covers the same input shapes as ``artifact_ids`` (osprey #363 descriptor
-# dicts, bare id strings from an older worker, a mix, malformed shapes to skip)
-# plus the mime-based routing split_artifacts adds on top.
+# Covers the same input shapes as ``artifact_ids`` — osprey #363 descriptor
+# dicts, bare id strings from an older worker, a mix, malformed shapes to skip.
 # ---------------------------------------------------------------------------
 
 
-class TestSplitArtifacts:
+class TestArtifactDescriptors:
     @staticmethod
     def _descriptor(aid, mime="image/png", **overrides):
         """A realistic #363 descriptor dict."""
@@ -156,84 +198,47 @@ class TestSplitArtifacts:
         d.update(overrides)
         return d
 
-    def test_png_descriptor_goes_to_image_bucket_by_id(self):
-        image_ids, doc_descriptors = split_artifacts([self._descriptor("art-1", "image/png")])
-        assert image_ids == ["art-1"]
-        assert doc_descriptors == []
+    def test_descriptor_dicts_pass_through_whole(self):
+        desc = self._descriptor("art-1")
+        assert artifact_descriptors([desc]) == [desc]
 
-    def test_bare_string_goes_to_image_bucket(self):
-        # Back-compat: an older worker with no mime at all -> existing PNG path.
-        image_ids, doc_descriptors = split_artifacts(["art-1"])
-        assert image_ids == ["art-1"]
-        assert doc_descriptors == []
+    def test_a_bare_string_becomes_a_descriptor_with_no_hints(self):
+        # Back-compat: an older worker still answering with id strings mid-deploy.
+        assert artifact_descriptors(["art-1"]) == [{"artifact_id": "art-1"}]
 
-    def test_image_jpeg_goes_to_doc_bucket_as_whole_dict(self):
-        desc = self._descriptor("art-2", "image/jpeg")
-        image_ids, doc_descriptors = split_artifacts([desc])
-        assert image_ids == []
-        assert doc_descriptors == [desc]
+    def test_every_mime_is_kept_in_one_list(self):
+        # No mime-based routing here: a PNG prediction and a markdown prediction
+        # are the same kind of hint, and either can be wrong.
+        png = self._descriptor("keep-png", "image/png")
+        md = self._descriptor("keep-md", "text/markdown")
+        assert artifact_descriptors([png, md]) == [png, md]
 
-    def test_image_svg_goes_to_doc_bucket(self):
-        desc = self._descriptor("art-3", "image/svg+xml")
-        image_ids, doc_descriptors = split_artifacts([desc])
-        assert image_ids == []
-        assert doc_descriptors == [desc]
-
-    def test_document_mime_goes_to_doc_bucket(self):
-        desc = self._descriptor("art-4", "text/markdown")
-        image_ids, doc_descriptors = split_artifacts([desc])
-        assert image_ids == []
-        assert doc_descriptors == [desc]
-
-    def test_missing_delivered_mime_key_goes_to_doc_bucket(self):
+    def test_a_descriptor_without_a_mime_is_kept(self):
         desc = {"artifact_id": "art-5", "filename": "art-5.bin"}
-        assert "delivered_mime" not in desc
-        image_ids, doc_descriptors = split_artifacts([desc])
-        assert image_ids == []
-        assert doc_descriptors == [desc]
+        assert artifact_descriptors([desc]) == [desc]
 
-    def test_malformed_entries_are_skipped_from_both_buckets(self):
+    def test_malformed_entries_are_skipped_not_raised_on(self):
         artifacts = [
             {"filename": "no-id.png"},  # dict without artifact_id
             {"artifact_id": None},  # null id
             {"artifact_id": ""},  # empty id
-            {"artifact_id": 123},  # non-str id
+            {"artifact_id": 123},  # non-str id (must not leak an int into a URL)
             "",  # empty string
             123,  # wrong type entirely
             None,  # bare None element
         ]
-        image_ids, doc_descriptors = split_artifacts(artifacts)
-        assert image_ids == []
-        assert doc_descriptors == []
+        assert artifact_descriptors(artifacts) == []
 
-    def test_mixed_input_keeps_each_id_in_exactly_one_bucket(self):
-        png = self._descriptor("keep-png", "image/png")
-        jpeg = self._descriptor("keep-jpeg", "image/jpeg")
-        md = self._descriptor("keep-md", "text/markdown")
-        no_mime = {"artifact_id": "keep-no-mime", "filename": "x.bin"}
-        bare = "keep-bare"
-        artifacts = [
-            png,
-            {"filename": "no-id.png"},
-            jpeg,
-            "",
-            md,
-            None,
-            no_mime,
-            bare,
-            {"artifact_id": None},
+    def test_a_malformed_entry_does_not_cost_its_valid_siblings(self):
+        keep = self._descriptor("keep")
+        assert artifact_descriptors([{"filename": "no-id.png"}, keep, None, "bare"]) == [
+            keep,
+            {"artifact_id": "bare"},
         ]
-        image_ids, doc_descriptors = split_artifacts(artifacts)
-
-        all_doc_ids = {d["artifact_id"] for d in doc_descriptors}
-        assert set(image_ids) & all_doc_ids == set()
-
-        assert image_ids == ["keep-png", "keep-bare"]
-        assert doc_descriptors == [jpeg, md, no_mime]
 
     def test_empty_and_none_are_safe(self):
-        assert split_artifacts([]) == ([], [])
-        assert split_artifacts(None) == ([], [])
+        assert artifact_descriptors([]) == []
+        assert artifact_descriptors(None) == []
 
 
 # ---------------------------------------------------------------------------

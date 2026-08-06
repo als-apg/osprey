@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 
 from osprey.bridges.core import pipeline
+from osprey.bridges.core.artifacts import FetchedArtifact
 from osprey.bridges.core.config import CoreConfig
 from osprey.bridges.core.dedup import DedupStore
 from osprey.bridges.core.history import HistoryStore
@@ -150,6 +151,11 @@ class CountingProbe:
         assert capability == "input_files"
         self.calls += 1
         return self.verdicts[min(self.calls - 1, len(self.verdicts) - 1)]
+
+
+def _prior(data: bytes, content_type: str | None = None):
+    """A ``fetch_prior_artifact`` seam serving *data* under *content_type*."""
+    return lambda cfg, rid, desc, mb: FetchedArtifact(data=data, content_type=content_type)
 
 
 def make_deps(
@@ -465,7 +471,7 @@ def test_capability_probe_runs_once_for_all_three_consumers(tmp_path):
     inputs = InputDownload(files=(make_file("own.png", b"OWN"), make_file("quoted.png", b"QUOTED")))
     ops = RecordingChannelOps(parse_result=make_event(), inputs=inputs)
     probe = CountingProbe(True)
-    deps = make_deps(tmp_path, ops, probe=probe, fetch_prior=lambda cfg, rid, d, mb: b"PRIOR")
+    deps = make_deps(tmp_path, ops, probe=probe, fetch_prior=_prior(b"PRIOR"))
     deps.history.append(
         HISTORY_KEY,
         "plot it",
@@ -795,10 +801,52 @@ def test_reinjected_prior_dedupes_against_own_attachment(tmp_path):
     # returns identical bytes, which must not ship twice.
     inputs = InputDownload(files=(make_file("own-copy.png", b"SAME-BYTES"),))
     ops = RecordingChannelOps(parse_result=make_event(), inputs=inputs)
-    deps = make_deps(tmp_path, ops, fetch_prior=lambda cfg, rid, d, mb: b"SAME-BYTES")
+    deps = make_deps(tmp_path, ops, fetch_prior=_prior(b"SAME-BYTES"))
     _seed_prior_image(deps)
 
     handle_event({}, deps)
 
     files = deps.dispatcher.calls[0]["extra"]["input_files"]
     assert [f["filename"] for f in files] == ["own-copy.png"]
+
+
+def test_a_prior_whose_bytes_are_not_an_image_is_not_reinjected(tmp_path):
+    # osprey #503: the descriptor predicted image/png, but the render failed and
+    # the byte route served the original CSV. Shipping those bytes labelled
+    # image/png would hand the model a file that is not the image it is told to
+    # look at; the descriptor still rides conversation_so_far either way.
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, fetch_prior=_prior(b"x,sin_x\n0,0\n", "text/csv"))
+    _seed_prior_image(deps)
+
+    assert handle_event({}, deps) == "handled"
+
+    extra = deps.dispatcher.calls[0]["extra"]
+    assert "input_files" not in extra
+    (turn,) = extra["conversation_so_far"]
+    assert turn["artifacts"][0]["delivered_mime"] == "image/png"
+
+
+def test_a_reinjected_prior_is_labelled_with_the_served_type(tmp_path):
+    # The prediction said PNG, the byte route served JPEG: the model is told what
+    # it actually got.
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, fetch_prior=_prior(b"JPEG-BYTES", "image/jpeg"))
+    _seed_prior_image(deps)
+
+    handle_event({}, deps)
+
+    (file,) = deps.dispatcher.calls[0]["extra"]["input_files"]
+    assert file["mime"] == "image/jpeg"
+
+
+def test_a_prior_served_without_a_content_type_keeps_the_predicted_mime(tmp_path):
+    # An older worker sends no Content-Type; the prediction is all there is.
+    ops = RecordingChannelOps(parse_result=make_event())
+    deps = make_deps(tmp_path, ops, fetch_prior=_prior(b"PRIOR"))
+    _seed_prior_image(deps)
+
+    handle_event({}, deps)
+
+    (file,) = deps.dispatcher.calls[0]["extra"]["input_files"]
+    assert file["mime"] == "image/png"

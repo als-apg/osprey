@@ -60,6 +60,9 @@ jobs:
     steps:
     - name: Check out the fixture sources
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Verify the dispatched tag matches the Dockerfile pins
       # Publishing a tag that disagrees with what the image actually contains is

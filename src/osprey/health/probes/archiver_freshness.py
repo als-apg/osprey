@@ -39,9 +39,8 @@ the runner), and this probe invents no staleness-specific severity param.
 ``wait_for`` allows a small margin so the connector's own timeout fires first.
 The trailing window is derived from ``max_age_s`` to be comfortably wider than
 the threshold, so a moderately stale sample's true age is still observable rather
-than collapsing to an empty-window warning. Archiver timestamps that arrive
-timezone-naive are read as UTC (the EPICS Archiver Appliance returns UTC-aware
-timestamps; the age comparison is done entirely in UTC).
+than collapsing to an empty-window warning. The age comparison is done entirely
+in UTC, which ``get_data``'s ``datetime64[ns, UTC]`` timestamp column guarantees.
 """
 
 from __future__ import annotations
@@ -193,28 +192,15 @@ def _archiver_block(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
 def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, Any] | None:
     """Return the ``(timestamp, value)`` of the newest non-null sample, or ``None``.
 
-    Reads the ``channel`` column of the archiver DataFrame (a datetime-indexed
-    frame with one column per queried PV), drops nulls, and picks the row with
-    the latest index. Returns ``None`` when the column is absent or holds no
-    non-null samples in the window. The returned timestamp is normalized to a
-    timezone-aware UTC :class:`~datetime.datetime`: a naive index timestamp is
-    read as UTC, so the caller's age arithmetic never hits a naive/aware
-    ``TypeError``.
+    Filters the long-format archiver frame to rows for ``channel``, drops null
+    values, and returns the row with the maximum timestamp; ``None`` means the
+    channel has no non-null samples in the window. The timestamp is a UTC-aware
+    :class:`pandas.Timestamp` (itself a ``datetime``), deliberately not passed
+    through ``to_pydatetime()``, which discards nanoseconds and warns. A frame
+    missing the long-format columns is a connector bug and is left to raise.
     """
-    if channel not in frame.columns:
+    sub = frame.loc[frame["channel"] == channel].dropna(subset=["value"])
+    if sub.empty:
         return None
-    series = frame[channel].dropna()
-    if series.empty:
-        return None
-    series = series.sort_index()
-    raw_ts = series.index[-1]
-    value = series.iloc[-1]
-
-    stamp = raw_ts.to_pydatetime() if hasattr(raw_ts, "to_pydatetime") else raw_ts
-    if not isinstance(stamp, datetime):
-        return None
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=UTC)
-    else:
-        stamp = stamp.astimezone(UTC)
-    return stamp, value
+    row = sub.loc[sub["timestamp"].idxmax()]
+    return row["timestamp"], row["value"]

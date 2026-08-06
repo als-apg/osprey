@@ -40,12 +40,12 @@ osprey web                # Open the web terminal — ARIEL panel + agent chat
    your facility's logbook system.
 
 For deeper customization — adding custom skills/rules/agents, overriding
-config, wiring real ingestion — scaffold an editable build profile that
-extends this preset and rebuild from it:
+config, wiring real ingestion — materialize an editable build profile from
+this preset and rebuild from it:
 
 ```
-osprey build --emit-profile my-ariel-profile --preset ariel-standalone
-# edit my-ariel-profile/profile.yml + drop files under overlays/
+osprey profile new my-ariel-profile --preset ariel-standalone
+# edit my-ariel-profile/profile.yml, its data/ tree, and overlays/
 osprey build my-ariel ./my-ariel-profile/profile.yml
 ```
 

@@ -133,6 +133,57 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  dependency-floor:
+    name: Archiver suite at the declared dependency floor
+    runs-on: ubuntu-latest
+    # pyproject declares `pandas>=2.2.3` / `numpy>=2.2.6`, but every other lane
+    # resolves to the newest release, so nothing ever ran the floor and the
+    # declaration was an unverified claim. It is not a formality: pandas 3
+    # changed two things the archiver code touches — the default string dtype
+    # (object -> str) and non-nanosecond datetime resolution (coerced -> kept) —
+    # so "green on latest" does not imply "works at the floor". This lane pins
+    # the declared minimums so the floor either holds or fails here, rather than
+    # at an operator's site running an older pandas.
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Pin pandas and numpy to the declared floor
+      # Must come after `uv sync`, which would otherwise resolve them back up.
+      run: uv pip install "pandas==2.2.3" "numpy==2.2.6"
+
+    - name: Show resolved versions
+      # Printed so a failure here is immediately attributable to the pin rather
+      # than mistaken for a normal test regression.
+      run: uv run --no-sync python -c "import pandas, numpy; print('pandas', pandas.__version__, 'numpy', numpy.__version__)"
+
+    - name: Run the archiver suite
+      # `--no-sync` keeps the pin: a bare `uv run` re-syncs and silently undoes
+      # the downgrade, which would make this lane a duplicate of `test`.
+      # Scoped to the pandas-dependent surface — this lane exists to check the
+      # dependency floor, not to re-run the whole suite a second time.
+      run: |
+        uv run --no-sync pytest \
+          tests/connectors/test_archiver_timerange.py \
+          tests/connectors/test_epics_archiver_connector.py \
+          tests/connectors/test_doocs_archiver_connector.py \
+          tests/connectors/test_mock_connector.py \
+          tests/connectors/test_archiver_timezone.py \
+          tests/connectors/test_simulation_integration.py \
+          tests/utils/test_timeseries.py \
+          -v --tb=short
+
   lint:
     name: Lint and Code Quality
     runs-on: ubuntu-latest
@@ -140,6 +191,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -212,6 +266,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -241,6 +298,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -406,6 +466,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Set up Node
       uses: actions/setup-node@v7
@@ -444,6 +507,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -485,6 +551,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
       uses: docker/login-action@v4
@@ -647,6 +716,18 @@ jobs:
           # dispatch input (channel-finder-benchmarks): they are a
           # statistical quality score with flaky reruns, not a per-PR
           # correctness gate.
+          # The two Google Chat files leave this lane for a different reason
+          # than everything above: neither builds an image, but both drive the
+          # SAME fixed-name Pub/Sub emulator container
+          # (osprey-e2e-gchat-pubsub), and PubSubEmulator.start() pre-cleans by
+          # `rm -f`-ing that exact name before it starts its own. Under the
+          # -n 4 --dist loadfile below two FILES run concurrently on different
+          # workers — loadfile keeps a file's tests together, it does not
+          # serialize files — so one file's pre-clean would kill the other's
+          # live emulator mid-test and surface as an unreadable flake. They
+          # therefore leave together and run in gchat-bridge-e2e as two
+          # separate, sequential pytest steps; ignoring only the bridge module
+          # would leave the hazard armed for the next file to use the fixture.
           # -n 4 --dist loadfile (pytest-xdist): this lane is ~18 min of
           # real-LLM round-trips at near-zero CPU, so four workers cut it to
           # roughly the slowest single file. loadfile (not load) keeps every
@@ -671,6 +752,8 @@ jobs:
             --ignore=tests/e2e/test_multi_user_demo.py \
             --ignore=tests/e2e/test_deploy_lifecycle.py \
             --ignore=tests/e2e/test_nextcloud_talk_bridge_e2e.py \
+            --ignore=tests/e2e/test_gchat_bridge_e2e.py \
+            --ignore=tests/e2e/fixtures/test_gchat_fixture_smoke.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py
         fi
 
@@ -1403,6 +1486,153 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_nextcloud_talk_bridge_e2e.py -v --tb=short
 
+  gchat-bridge-e2e:
+    name: Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (same house policy as every other
+    # container-stack lane: secrets are unavailable on forks).
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # A job-level `permissions:` block REPLACES the default token scopes rather
+    # than extending them, so the one scope this lane needs is stated in full.
+    # Unlike nextcloud-talk-bridge-e2e there is no `packages: read` here: the
+    # only image is Google's PUBLIC cloud-sdk emulator, pulled anonymously from
+    # gcr.io, so nothing in this job ever authenticates to ghcr.
+    permissions:
+      contents: read
+    # Sized for a COLD run. Nothing caches the emulator image — this repo has no
+    # docker-image cache idiom (the one actions/cache use is uv's download
+    # cache), and a ~1 GB layer set is not worth round-tripping through it — so
+    # the pull is paid in full on a runner that has never seen it, and the
+    # fixture's own budget for that is 900s. Each pytest invocation then starts
+    # its own emulator behind a 180s readiness wait, and this job runs two. On
+    # top of that the module-scoped `osprey build` is capped at 600s, the
+    # deterministic dispatch proofs poll to 90-300s each, and the agentic tier
+    # adds real model round-trips. Warm, the deterministic tier is well under a
+    # minute; 45 covers a cold pull without letting a wedged poll burn an hour
+    # of runner time.
+    timeout-minutes: 45
+    env:
+      # ubuntu-latest runners ship docker; the podman counterpart exists only
+      # for the deploy-lifecycle pair. Both the fixture module and the e2e
+      # module read this one variable and raise at import on any other value,
+      # so setting it at job level keeps every step below on one runtime.
+      OSPREY_E2E_RUNTIME: docker
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install osprey
+      # `--extra gchat` is load-bearing, not tidiness: the e2e module drives a
+      # REAL google-cloud-pubsub client against the emulator and skips its
+      # entire pytestmark when that stack is missing — a green check over zero
+      # executed tests. The zero-skip gate at the bottom of this job is the
+      # backstop; this is the fix.
+      run: uv sync --extra dev --extra gchat
+
+    - name: Pull the Pub/Sub emulator image
+      run: |
+        # The fixture pulls this itself when absent, but a FAILED pull there is
+        # a pytest.skip, not an error — so the pull happens here, where its
+        # failure is the job's failure. The reference is read out of the
+        # fixture's own constant rather than restated, so this step and the
+        # fixture can never disagree about WHICH image the lane runs. It does
+        # not make the lane reproducible: the tag is floating (`:emulators`),
+        # and pinning it is the fixture's call to make — via its
+        # OSPREY_E2E_GCHAT_PUBSUB_IMAGE override, which this step would then
+        # follow for free.
+        IMAGE=$(uv run python -c 'from tests.e2e.fixtures.gchat_pubsub_emulator import IMAGE; print(IMAGE)')
+        echo "Pulling emulator image: $IMAGE"
+        docker pull "$IMAGE"
+
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as e2e-tests. The deterministic tier of this module needs
+        # no provider key (a dispatch is observed as "the dedup entry carries a
+        # run_id", which the engine persists before any agent work), but the
+        # agentic tier in the same file reads real model output — so a dead
+        # endpoint should fail here, not after the emulator pull and a build.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    # The two pytest runs below are deliberately SEPARATE steps, and neither
+    # uses xdist. Both files reach the same fixed-name emulator container
+    # (osprey-e2e-gchat-pubsub) whose start pre-cleans that exact name, so they
+    # must never overlap; separate steps are separate processes that Actions
+    # runs strictly in order, which makes that a property of the job rather
+    # than a property of pytest's collection order. Fixtures go first so a
+    # broken fake fails before the full stack is provisioned.
+    - name: Run Google Chat fixture smoke tests
+      run: |
+        uv run pytest tests/e2e/fixtures/test_gchat_fixture_smoke.py -v --tb=short \
+          --junitxml=junit-gchat-fixture-smoke.xml
+
+    - name: Run Google Chat bridge E2E
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        uv run pytest tests/e2e/test_gchat_bridge_e2e.py -v --tb=short \
+          --junitxml=junit-gchat-bridge-e2e.xml
+
+    - name: Fail the lane on any skipped test
+      run: |
+        # Every way this lane can skip is a CI misconfiguration, not a
+        # legitimate environment gap: no container runtime, no emulator image,
+        # no `gchat` extra, no provider key. Each of those turns the job into a
+        # green check that executed nothing, and pytest's exit code cannot
+        # express the difference. So the junit XML both runs above wrote is
+        # read here: zero skips, and a non-zero test count so an empty
+        # selection cannot pass either.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        failed = False
+        for report in ("junit-gchat-fixture-smoke.xml", "junit-gchat-bridge-e2e.xml"):
+            total = skipped = 0
+            for suite in ET.parse(report).getroot().iter("testsuite"):
+                total += int(suite.get("tests", 0))
+                skipped += int(suite.get("skipped", 0))
+            print(f"{report}: {total} test(s), {skipped} skipped")
+            if total == 0:
+                print(f"::error::{report} collected no tests")
+                failed = True
+            if skipped:
+                print(f"::error::{report} reports {skipped} skipped test(s)")
+                failed = True
+        if failed:
+            sys.exit(1)
+        print("✅ every Google Chat test ran; none skipped")
+        PY
+
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
     runs-on: ubuntu-latest
@@ -1616,7 +1846,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
     runs-on: ubuntu-latest
     if: always()
 
@@ -1637,6 +1867,10 @@ jobs:
       run: |
         if [[ "${{ needs.test.result }}" != "success" ]]; then
           echo "❌ Tests failed"
+          exit 1
+        fi
+        if [[ "${{ needs.dependency-floor.result }}" != "success" ]]; then
+          echo "❌ Archiver suite failed at the declared dependency floor"
           exit 1
         fi
         if [[ "${{ needs.lint.result }}" != "success" ]]; then
@@ -1696,6 +1930,7 @@ jobs:
         check_pr_lane "Bluesky catalog E2E"          "${{ needs.bluesky-catalog-e2e.result }}"
         check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"
         check_pr_lane "Nextcloud Talk bridge E2E"    "${{ needs.nextcloud-talk-bridge-e2e.result }}"
+        check_pr_lane "Google Chat bridge E2E"       "${{ needs.gchat-bridge-e2e.result }}"
         check_pr_lane "Dockerfile E2E"               "${{ needs.dockerfile-e2e.result }}"
         check_pr_lane "Execution env parity E2E"     "${{ needs.execution-environment-parity-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"

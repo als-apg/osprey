@@ -43,6 +43,202 @@ class TestBuildDataReaderJSON:
         assert list(data.index) == [1000, 2000, 3000]
         assert data["SR:C01-MG:G01"].tolist() == pytest.approx([1.1, 2.2, 3.3])
 
+    def test_archiver_series_format_produces_wide_dataframe(self, tmp_path: Path):
+        """Current archiver_read on-disk shape: bare {query, series} -- no envelope."""
+        series_json = {
+            "query": {"channels": ["A", "B"], "start_time": "2026-07-30T00:00:00-07:00"},
+            "series": {
+                "A": {
+                    "timestamps": [
+                        "2026-07-30T12:00:00+00:00",
+                        "2026-07-30T12:01:00+00:00",
+                    ],
+                    "values": [1.1, 2.2],
+                },
+                "B": {
+                    "timestamps": ["2026-07-30T12:00:30+00:00"],
+                    "values": [9.9],
+                },
+            },
+        }
+        fp = tmp_path / "series.json"
+        fp.write_text(json.dumps(series_json))
+
+        data = _exec_data_reader(str(fp))
+
+        assert isinstance(data, pd.DataFrame)
+        assert list(data.columns) == ["A", "B"]
+        assert isinstance(data.index, pd.DatetimeIndex)
+        # Union of both channels' own real timestamps -- three distinct instants.
+        assert len(data) == 3
+        assert data["A"].dropna().tolist() == pytest.approx([1.1, 2.2])
+        assert data["B"].dropna().tolist() == pytest.approx([9.9])
+        # A has no sample at B's timestamp and vice versa -- NaN, not fabricated.
+        assert data["A"].isna().sum() == 1
+        assert data["B"].isna().sum() == 2
+
+    def test_archiver_series_non_numeric_channel_does_not_crash(self, tmp_path: Path):
+        """An enum/status channel (archived as strings) must round-trip, not crash."""
+        series_json = {
+            "query": {"channels": ["SR:MODE", "SR:DCCT"]},
+            "series": {
+                "SR:MODE": {
+                    "timestamps": ["2026-07-30T12:00:00+00:00"],
+                    "values": ["DECAY"],
+                },
+                "SR:DCCT": {
+                    "timestamps": ["2026-07-30T12:00:00+00:00"],
+                    "values": [500.0],
+                },
+            },
+        }
+        fp = tmp_path / "series_enum.json"
+        fp.write_text(json.dumps(series_json))
+
+        data = _exec_data_reader(str(fp))
+
+        assert isinstance(data, pd.DataFrame)
+        assert data["SR:MODE"].tolist() == ["DECAY"]
+        assert data["SR:DCCT"].tolist() == pytest.approx([500.0])
+
+    def test_archiver_series_empty_yields_empty_dataframe(self, tmp_path: Path):
+        """A query that matched zero channels/samples must not crash the pivot."""
+        series_json = {"query": {"channels": []}, "series": {}}
+        fp = tmp_path / "series_empty.json"
+        fp.write_text(json.dumps(series_json))
+
+        data = _exec_data_reader(str(fp))
+
+        assert isinstance(data, pd.DataFrame)
+        assert data.empty
+
+    @pytest.mark.parametrize("order", ["populated_first", "empty_first"])
+    def test_archiver_series_populated_and_empty_channel_concat(self, tmp_path: Path, order: str):
+        """A channel with zero samples in range must not crash the pivot's concat.
+
+        ``pd.to_datetime([])`` yields a tz-naive empty index while a populated
+        channel's is tz-aware, so ``pd.concat`` raises unless the empty index
+        is built with ``utc=True`` too. Parametrized on dict order since either
+        channel could be the one ``pd.concat`` sees first.
+        """
+        populated = {
+            "A": {
+                "timestamps": ["2026-07-30T12:00:00+00:00"],
+                "values": [1.1],
+            }
+        }
+        empty = {"B": {"timestamps": [], "values": []}}
+        series = {**populated, **empty} if order == "populated_first" else {**empty, **populated}
+        series_json = {"query": {"channels": ["A", "B"]}, "series": series}
+        fp = tmp_path / f"series_mixed_{order}.json"
+        fp.write_text(json.dumps(series_json))
+
+        data = _exec_data_reader(str(fp))
+
+        assert isinstance(data, pd.DataFrame)
+        assert list(data.columns) == (["A", "B"] if order == "populated_first" else ["B", "A"])
+        assert data["A"].dropna().tolist() == pytest.approx([1.1])
+        assert data["B"].isna().all()
+        # An empty channel left to pandas' inference lands on object dtype,
+        # which breaks Plotly Express one layer later -- see the px.line test.
+        assert data["A"].dtype == "float64"
+        assert data["B"].dtype == "float64"
+
+    @pytest.mark.parametrize("order", ["populated_first", "empty_first"])
+    def test_archiver_series_populated_and_empty_channel_plots(self, tmp_path: Path, order: str):
+        """The mixed populated/empty frame must survive Plotly Express, not just concat.
+
+        Plotly Express rejects a wide frame "with columns of different type",
+        so an object-dtype empty channel beside a float64 populated one raises
+        even though the concat succeeded.
+        """
+        px = pytest.importorskip("plotly.express")
+
+        populated = {"A": {"timestamps": ["2026-07-30T12:00:00+00:00"], "values": [1.1]}}
+        empty = {"B": {"timestamps": [], "values": []}}
+        series = {**populated, **empty} if order == "populated_first" else {**empty, **populated}
+        fp = tmp_path / f"series_plot_{order}.json"
+        fp.write_text(json.dumps({"query": {"channels": ["A", "B"]}, "series": series}))
+
+        data = _exec_data_reader(str(fp))
+
+        assert isinstance(data, pd.DataFrame)
+        # Both the bare-frame and explicit-y forms.
+        px.line(data)
+        px.line(data, y=list(data.columns))
+
+    def test_archiver_series_ragged_lengths_tolerated(self, tmp_path: Path):
+        """A channel whose timestamps/values differ in length must not raise.
+
+        Matches the sibling implementations' ``zip(..., strict=False)`` tolerance.
+        """
+        series_json = {
+            "query": {"channels": ["A"]},
+            "series": {
+                "A": {
+                    "timestamps": [
+                        "2026-07-30T12:00:00+00:00",
+                        "2026-07-30T12:01:00+00:00",
+                    ],
+                    "values": [1.1],  # one shorter than timestamps
+                }
+            },
+        }
+        fp = tmp_path / "series_ragged.json"
+        fp.write_text(json.dumps(series_json))
+
+        data = _exec_data_reader(str(fp))
+
+        assert isinstance(data, pd.DataFrame)
+        assert data["A"].dropna().tolist() == pytest.approx([1.1])
+
+    @pytest.mark.parametrize(
+        ("payload", "expected_values"),
+        [
+            # Dict of dicts, no 'timestamps' anywhere. Pins the
+            # `'timestamps' in _v` requirement.
+            pytest.param(
+                {"series": {"a": {"x": 1}, "b": {"x": 2}}},
+                None,
+                id="dict_of_dicts_without_timestamps",
+            ),
+            # One entry carries 'timestamps', the other does not. Pins
+            # `all(...)` against `any(...)`.
+            pytest.param(
+                {
+                    "series": {
+                        "a": {"timestamps": ["2026-07-30T12:00:00+00:00"], "values": [1.0]},
+                        "b": {"x": 2},
+                    }
+                },
+                None,
+                id="partial_timestamps",
+            ),
+            # 'series' is a list, not a dict. Pins the outer
+            # `isinstance(_series, dict)`.
+            pytest.param({"series": [1, 2, 3]}, [1, 2, 3], id="list"),
+            # 'series' entries are bare lists rather than per-channel dicts.
+            # Pins the `isinstance(_v, dict)` half of the entry predicate.
+            pytest.param({"series": {"a": [1, 2]}}, None, id="bare_lists"),
+        ],
+    )
+    def test_non_archiver_series_key_falls_through_to_generic_dict(
+        self, tmp_path: Path, payload: dict, expected_values: list | None
+    ):
+        """A top-level ``series`` key that is not an archiver envelope must not
+        be pivoted -- it falls through to the generic dict/list branch.
+        """
+        fp = tmp_path / "series_collision.json"
+        fp.write_text(json.dumps(payload))
+
+        data = _exec_data_reader(str(fp))
+
+        assert isinstance(data, pd.DataFrame)
+        assert not data.empty
+        assert list(data.columns) == ["series"]
+        if expected_values is not None:
+            assert data["series"].tolist() == expected_values
+
     def test_flat_split_orient_json(self, tmp_path: Path):
         """Flat split-orient: {_osprey_metadata, data: {columns, index, data}}."""
         flat_json = {
@@ -89,6 +285,25 @@ class TestBuildDataReaderJSON:
         assert isinstance(data, pd.DataFrame)
         assert list(data.columns) == ["col_a", "col_b"]
         assert len(data) == 3
+
+
+class TestBuildDataReaderSandboxSafety:
+    """The generated reader code must clear the viz sandbox's import whitelist.
+
+    The AST-level whitelist does not include ``osprey`` itself, so any runtime
+    ``import osprey...`` would fail every JSON ``data_source`` load.
+    """
+
+    def test_generated_code_has_no_disallowed_imports(self):
+        from osprey.mcp_server.workspace.execution.sandbox_executor import (
+            validate_sandbox_code,
+        )
+        from osprey.mcp_server.workspace.tools._viz_common import build_data_reader
+
+        code = build_data_reader("/tmp/whatever.json")
+        is_safe, violations = validate_sandbox_code(code)
+
+        assert is_safe, violations
 
 
 class TestBuildDataReaderCSV:

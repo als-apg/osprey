@@ -1,9 +1,8 @@
 /**
  * Contract tests for the tile-tab renderer (dock-tab.js): the custom dockview
- * tab that IS each tile's header bar. Service tiles render a bare drag grip —
- * their name is on the rail entry and their close/popout controls are that
- * entry's hover corners. The terminal tile keeps a populated bar: grip +
- * adopted .terminal-header + close. Run:
+ * tab that IS each tile's header bar. Every tile gets the same bar — drag
+ * grip, identity, close. Service tiles carry a visible `.tile-tab-title`;
+ * the terminal tile adopts the live .terminal-header instead. Run:
  *   npx vitest run tests/interfaces/web_terminal/tile-tab.test.mjs
  */
 import { test, expect, describe, beforeEach, vi } from 'vitest';
@@ -25,19 +24,39 @@ describe('tile-tab renderer', () => {
     vi.restoreAllMocks();
   });
 
-  test('service tab renders the grip and nothing else', async () => {
+  test('service tab renders grip, visible title, and close', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
 
     expect(tab.element.classList.contains('tile-tab')).toBe(true);
     expect(tab.element.querySelector('.tile-tab-grip')).toBeTruthy();
-    // The affordances that used to live here now belong to the rail entry.
-    expect(tab.element.querySelector('.tile-tab-title')).toBeNull();
+    // One header grammar for every tile: name on the bar, close on the bar.
+    expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('ARIEL');
+    expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
+    expect(tab.element.querySelector('.tile-tab-actions')).toBeTruthy();
+    // Popout stays a rail-entry affordance — never on the tile.
     expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
-    expect(tab.element.querySelector('.tile-tab-close')).toBeNull();
-    expect(tab.element.querySelector('.tile-tab-actions')).toBeNull();
-    expect(tab.element.textContent).toBe(''); // no visible text at all
+  });
+
+  test('service close click calls api.close()', async () => {
+    const { createTileTab } = await import(MOD);
+    const api = fakeApi();
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api });
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'))
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(api.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('service close pointerdown is prevented so it cannot start a tile drag', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'))
+      .dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
   });
 
   test('the strip carries the dockview panel id as a stable handle', async () => {
@@ -47,7 +66,7 @@ describe('tile-tab renderer', () => {
     expect(tab.element.dataset.panelId).toBe('iframe:ariel');
   });
 
-  test('the title becomes the strip\'s accessible name, not visible text', async () => {
+  test('the title is visible text AND the accessible name, kept live on rename', async () => {
     const { createTileTab } = await import(MOD);
     const api = fakeApi();
     /** @type {(e: {title: string}) => void} */ let onTitle = () => {};
@@ -56,9 +75,10 @@ describe('tile-tab renderer', () => {
     tab.init({ title: 'KNOWLEDGE', params: {}, api });
 
     expect(tab.element.getAttribute('aria-label')).toBe('KNOWLEDGE');
-    expect(tab.element.textContent).toBe('');
+    expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('KNOWLEDGE');
     onTitle({ title: 'RENAMED' });
     expect(tab.element.getAttribute('aria-label')).toBe('RENAMED');
+    expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('RENAMED');
   });
 
   test('the terminal bar takes no aria-label — its adopted header names it', async () => {

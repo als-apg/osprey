@@ -47,7 +47,7 @@ from urllib.parse import quote
 
 import httpx
 
-from osprey.bridges.core import MAX_DOC_BYTES
+from osprey.bridges.core import MAX_DELIVERED_DOC_BYTES
 
 from .config import NextcloudBridgeConfig
 
@@ -96,7 +96,7 @@ in the Nextcloud web UI should see what this folder is without decoding it. The
 space is why every DAV path here is assembled from percent-encoded *segments*
 rather than interpolated into a URL string."""
 
-MAX_DOWNLOAD_BYTES = MAX_DOC_BYTES
+MAX_DOWNLOAD_BYTES = MAX_DELIVERED_DOC_BYTES
 """Cap on a single :meth:`TalkClient.dav_download`, taken from the core budget.
 
 Two reasons to inherit it rather than pick a number: the engine's own fresh-file

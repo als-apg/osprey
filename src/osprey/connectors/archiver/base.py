@@ -72,6 +72,7 @@ class ArchiverConnector(ABC):
         end_date: datetime,
         precision_ms: int = 1000,
         timeout: int | None = None,
+        processing: str = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data for PVs.
@@ -80,17 +81,29 @@ class ArchiverConnector(ABC):
             pv_list: List of PV names to retrieve
             start_date: Start of time range
             end_date: End of time range
-            precision_ms: Time precision in milliseconds (for downsampling)
+            precision_ms: Bin width in milliseconds; ``<= 0`` means full
+                resolution. A backend that cannot express the requested width
+                must raise ``ValueError`` rather than serve a different one.
             timeout: Optional timeout in seconds
+            processing: Aggregation applied within each precision_ms bin. One of
+                "raw", "mean", "min", "max", "median", "std", "count". Anything
+                else raises ValueError.
 
         Returns:
-            DataFrame with datetime index and PV columns
-            Each column contains the time series for one PV
+            A long-format DataFrame with columns ``timestamp``
+            (datetime64[ns, UTC]), ``channel`` (str), and ``value`` (``float64``
+            unless a channel is non-numeric), sorted by channel then timestamp.
+            Each channel contributes only its own real samples or per-bin
+            aggregates — no forward-fill, no shared grid, no bin for a period
+            with no samples. A PV with no data in range contributes no rows; an
+            empty result is an empty frame with these columns.
 
         Raises:
             ConnectionError: If archiver cannot be reached
             TimeoutError: If operation times out
-            ValueError: If time range or PV names are invalid
+            ValueError: If time range, PV names, or processing mode are
+                invalid, or if a non-"raw" processing mode is requested for a
+                channel whose values are non-numeric
         """
         pass
 

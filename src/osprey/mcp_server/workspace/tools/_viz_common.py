@@ -59,10 +59,21 @@ def build_data_reader(data_source: str) -> str:
 
     - CSV/Excel/Parquet → ``data`` is a pandas DataFrame
     - JSON with legacy OSPREY metadata envelope → unwrapped, then converted to DataFrame
-    - JSON with archiver nested format → unwrapped, then converted to DataFrame
+    - JSON with the archiver ``series`` envelope (``{query: ..., series:
+      {channel: {timestamps, values}}}``) → pivoted to a wide DataFrame: one
+      column per channel, indexed by the union of all channels' timestamps
+      (``NaN`` where a channel has no sample; nothing is forward-filled).
+    - JSON with the legacy split-orient archiver ``dataframe`` envelope
+      (``{query: ..., dataframe: {columns, index, data}}``) → unwrapped, then
+      converted to DataFrame.
 
     After this code runs, **``data`` is always a pandas DataFrame** (for
     tabular sources) or a raw string (for unrecognized formats).
+
+    Note: the generated code runs inside the visualization sandbox, whose
+    import whitelist excludes ``osprey`` itself, so the ``series`` branch is a
+    self-contained pivot rather than a call to
+    :func:`osprey.utils.timeseries.extract_channel_series`.
     """
     loading = build_data_loading_code(data_source)
     return (
@@ -77,7 +88,32 @@ elif _data_path.endswith('.json'):
     # Unwrap legacy OSPREY metadata envelope (if present)
     if isinstance(data, dict) and '_osprey_metadata' in data and 'data' in data:
         data = data['data']
-    # Handle archiver nested format: {query: ..., dataframe: {columns, index, data}}
+    # Archiver envelope: {query: ..., series: {channel: {timestamps, values}}}.
+    # Pivot to a wide DataFrame, one column per channel. Guarded on every entry
+    # carrying 'timestamps' so an unrelated top-level 'series' key falls
+    # through to the generic handling below (matches _build_oversize_preview).
+    _series = data.get('series') if isinstance(data, dict) else None
+    if isinstance(_series, dict) and all(
+        isinstance(_v, dict) and 'timestamps' in _v for _v in _series.values()
+    ):
+        _channel_cols = {}
+        for _channel, _entry in _series.items():
+            _timestamps = _entry.get('timestamps', [])
+            _values = _entry.get('values', [])
+            # Tolerate a malformed artifact with mismatched lengths
+            if len(_timestamps) != len(_values):
+                _shared = min(len(_timestamps), len(_values))
+                _timestamps, _values = _timestamps[:_shared], _values[:_shared]
+            # utc=True: pd.to_datetime([]) yields a tz-naive empty index, which
+            # concat below cannot join with a populated channel's tz-aware one.
+            # dtype float64 for the empty case: an object-dtype empty column
+            # makes Plotly Express refuse the whole wide frame.
+            _idx = pd.to_datetime(_timestamps, utc=True)
+            _channel_cols[_channel] = pd.Series(
+                _values, index=_idx, dtype='float64' if not _values else None
+            )
+        data = pd.concat(_channel_cols, axis=1, sort=True) if _channel_cols else pd.DataFrame()
+    # Handle the legacy split-orient archiver envelope: {query: ..., dataframe: {columns, index, data}}
     if isinstance(data, dict) and 'dataframe' in data:
         data = data['dataframe']
     # Handle split-orient format: {columns, index, data}

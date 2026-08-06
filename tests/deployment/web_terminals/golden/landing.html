@@ -8,30 +8,30 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg-primary: #0a0f1a;
-      --bg-panel: #0e1525;
-      --bg-elevated: #1a2332;
-      --text-primary: #f1f5f9;
-      --text-secondary: #8b9ab5;
-      --text-muted: #64748b;
-      --color-accent: #4fd1c5;
-      --border-default: rgba(148, 163, 184, 0.16);
-      --border-accent: rgba(79, 209, 197, 0.35);
-      --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
+      --bg-primary: #111217;
+      --bg-panel: #181b1f;
+      --bg-elevated: #22252b;
+      --text-primary: #ccccdc;
+      --text-secondary: #8e8e9a;
+      --text-muted: #6e6e77;
+      --color-accent: #6e9fff;
+      --border-default: #2c3235;
+      --border-accent: rgba(110, 159, 255, 0.15);
+      --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.4);
     }
     @media (prefers-color-scheme: light) {
       :root {
         color-scheme: light;
-        --bg-primary: #f7f9fc;
-        --bg-panel: #ffffff;
-        --bg-elevated: #eef2f7;
-        --text-primary: #0c1322;
-        --text-secondary: #45526b;
-        --text-muted: #64748b;
-        --color-accent: #0a8f8c;
-        --border-default: #d9dfe8;
-        --border-accent: rgba(10, 143, 140, 0.35);
-        --shadow-card: 0 4px 16px rgba(15, 23, 42, 0.08);
+        --bg-primary: #f4f5f5;
+        --bg-panel: #fafbfc;
+        --bg-elevated: #ecedef;
+        --text-primary: #24292e;
+        --text-secondary: #6e6e77;
+        --text-muted: #86878f;
+        --color-accent: #1f62c4;
+        --border-default: #d8d9da;
+        --border-accent: rgba(31, 98, 196, 0.25);
+        --shadow-dropdown: 0 4px 12px rgba(0, 0, 0, 0.1);
       }
     }
     * { box-sizing: border-box; }
@@ -105,7 +105,7 @@
       background: var(--bg-panel);
       border: 1px solid var(--border-default);
       border-radius: 10px;
-      box-shadow: var(--shadow-card);
+      box-shadow: var(--shadow-dropdown);
       text-decoration: none;
       color: inherit;
       transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;

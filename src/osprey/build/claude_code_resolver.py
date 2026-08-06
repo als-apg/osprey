@@ -428,6 +428,7 @@ def load_provider_spec(
     *,
     provider: str | None = None,
     include_telemetry: bool = True,
+    defer_unresolved_telemetry_creds: bool = False,
 ) -> ClaudeCodeModelSpec | None:
     """Read ``config.yml``, expand ``${VAR}`` placeholders, and resolve the spec.
 
@@ -478,6 +479,7 @@ def load_provider_spec(
         cc_config,
         cfg.get("api", {}).get("providers", {}),
         include_telemetry=include_telemetry,
+        defer_unresolved_telemetry_creds=defer_unresolved_telemetry_creds,
         environ=lookup,
     )
 
@@ -605,6 +607,7 @@ class ClaudeCodeModelResolver:
         api_providers: dict | None = None,
         *,
         include_telemetry: bool = True,
+        defer_unresolved_telemetry_creds: bool = False,
         environ: Mapping[str, str] | None = None,
     ) -> ClaudeCodeModelSpec | None:
         """Build a ``ClaudeCodeModelSpec`` from config.
@@ -831,6 +834,7 @@ class ClaudeCodeModelResolver:
                     telemetry_cfg,
                     in_container=_running_in_container(),
                     openobserve_host=_openobserve_host_override(),
+                    defer_unresolved_creds=defer_unresolved_telemetry_creds,
                 )
             )
 

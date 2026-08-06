@@ -27,8 +27,7 @@
  * resize — and, between settles, via a ResizeObserver on each managed
  * placeholder's group content container. dockview emits no per-frame layout
  * event during a live sash drag, but the drag resizes those containers every
- * frame, so the observer follows the sash continuously (same for the
- * single-tab strip's hover expand — see dockview-overrides.css) instead of the
+ * frame, so the observer follows the sash continuously instead of the
  * iframe freezing and snapping at mouseup. Settle events additionally REWIRE
  * the observed set (groups are created/destroyed as panels move); the observer
  * callback only re-applies geometry, never rewires, so it cannot recurse.
@@ -161,16 +160,26 @@ function ensureOverlay() {
 }
 
 /**
- * Re-apply dock-workspace.js's pointer shield to the overlay iframes. The shared
- * `.main-container.dock-dragging iframe { pointer-events:none }` rule can't win
- * against the inline `pointer-events:auto` these iframes carry, so we toggle it
- * inline across the whole drag gesture (start → any natural terminator).
+ * Toggle the inline pointer shield over every managed overlay iframe. The
+ * shared `.main-container.dock-dragging iframe { pointer-events:none }` rule
+ * can't win against the inline `pointer-events:auto` these iframes carry, so
+ * the toggle must be inline. Exported for rail-drag.js, whose HTML5 drags
+ * start outside dockview and therefore outside onDragGesture's coverage.
+ * @param {boolean} on
+ */
+export function setIframePointerShield(on) {
+  for (const e of managed.values()) e.iframe.style.pointerEvents = on ? 'none' : 'auto';
+}
+
+/**
+ * Re-apply dock-workspace.js's pointer shield to the overlay iframes across
+ * every dockview-initiated drag gesture (start → any natural terminator).
  * @param {any} api
  */
 function wireDragShield(api) {
   disposers.push(...onDragGesture(api, {
-    onStart: () => { for (const e of managed.values()) e.iframe.style.pointerEvents = 'none'; },
-    onEnd: () => { for (const e of managed.values()) e.iframe.style.pointerEvents = 'auto'; },
+    onStart: () => setIframePointerShield(true),
+    onEnd: () => setIframePointerShield(false),
   }));
 }
 
@@ -462,7 +471,7 @@ function dispatchResize(iframe) {
 /**
  * Live follower for the stretch between dockview settle events: observes each
  * managed placeholder's group content container, whose per-frame resize during
- * a sash drag (or the single-tab strip's hover expand) has no dockview event.
+ * a sash drag has no dockview event.
  * Rewired by syncGeometry() on every settle — groups come and go as panels
  * move. The callback re-applies geometry only; it never rewires, so the
  * initial fire observe() triggers cannot recurse into another rewire.

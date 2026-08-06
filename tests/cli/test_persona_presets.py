@@ -291,7 +291,7 @@ class TestBaseWebTerminals:
         """The rendered ``modules.web_terminals`` subtree matches the two-persona
         demo shape: local image source, readonly default, a readonly/readwrite
         catalog whose ``project`` equals its ``project_path`` basename, and a
-        roster mapping alice→readonly (via default) and bob→readwrite."""
+        roster mapping alice→readonly and bob→readwrite, both explicit."""
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         wt = rendered["modules"]["web_terminals"]
 
@@ -305,9 +305,9 @@ class TestBaseWebTerminals:
         assert wt["lattice_base_port"] == 9491
         assert wt["channel_finder_base_port"] == 9591
 
-        # Roster: alice is a bare string (inherits default_persona: readonly);
-        # bob is object-form with an explicit index and the readwrite persona.
-        assert wt["users"][0] == "alice"
+        # Roster: both entries ship fully explicit — name, index, persona —
+        # so the config states outright what normalization would derive.
+        assert wt["users"][0] == {"name": "alice", "index": 0, "persona": "readonly"}
         assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "readwrite"}
 
         personas = wt["personas"]
@@ -447,10 +447,12 @@ class TestDeployFqdn:
 
 
 class TestWebTerminalContextShipped:
-    """A project built from the ``control_assistant`` bundle carries the
-    ``docker/web-terminal-context/base.md`` that seeding requires — without
-    it, ``osprey deploy up`` brings up the whole stack and then aborts at the
-    seed step."""
+    """Every built project — not just the ``control_assistant`` bundle —
+    carries the ``docker/web-terminal-context/base.md`` that seeding
+    requires. base.md is framework-layer: any project that seeds a web
+    terminal user needs it, so it ships from the framework template root
+    rather than from one bundle. Without it, ``osprey deploy up`` brings up
+    the whole stack and then aborts at the seed step."""
 
     def test_built_project_ships_base_md(self, tmp_path: Path) -> None:
         from osprey.cli.templates.manager import TemplateManager
@@ -465,6 +467,80 @@ class TestWebTerminalContextShipped:
         base_md = project_dir / seeding._CONTEXT_DIR / "base.md"
         assert base_md.is_file()
         assert base_md.read_text(encoding="utf-8").strip() != ""
+
+    def test_base_md_is_package_data(self) -> None:
+        """The template source is reachable through ``importlib.resources``, so
+        it is packaged rather than only present in a source checkout — a build
+        from an installed wheel has nothing to copy otherwise."""
+        from importlib.resources import files
+
+        base_md = files("osprey.templates").joinpath("claude_code/web-terminal-context/base.md")
+        assert base_md.is_file()
+        assert base_md.read_text(encoding="utf-8").strip() != ""
+
+    def test_non_control_assistant_bundle_ships_base_md(self, tmp_path: Path) -> None:
+        """A bundle that ships no persona content of its own still gets the
+        framework baseline."""
+        from osprey.cli.templates.manager import TemplateManager
+        from osprey.deployment.web_terminals import seeding
+
+        project_dir = TemplateManager().create_project(
+            project_name="ctx-ship-hello",
+            output_dir=tmp_path,
+            data_bundle="hello_world",
+        )
+        base_md = project_dir / seeding._CONTEXT_DIR / "base.md"
+        assert base_md.is_file()
+        assert base_md.read_text(encoding="utf-8").strip() != ""
+
+    def test_non_control_assistant_bundle_seeds_successfully(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A seeded roster on a non-control_assistant bundle reaches the
+        CLAUDE.md write instead of aborting on a missing base.md — the
+        pre-flight ``RuntimeError`` such a project hit before base.md became
+        framework-layer."""
+        import subprocess
+
+        from osprey.cli.templates.manager import TemplateManager
+        from osprey.deployment.web_terminals import seeding
+
+        project_dir = TemplateManager().create_project(
+            project_name="ctx-seed-hello",
+            output_dir=tmp_path,
+            data_bundle="hello_world",
+        )
+        base_content = (project_dir / seeding._CONTEXT_DIR / "base.md").read_text(encoding="utf-8")
+
+        container = "dls-web-alice"
+        seeded: list[bytes | None] = []
+
+        def _fake_run(argv, capture_output=True, text=False, env=None, check=False, input=None):
+            if argv[1] == "inspect":
+                rc = 0 if argv[-1] == container else 1
+                return subprocess.CompletedProcess(argv, returncode=rc, stdout="", stderr="")
+            if argv[1] == "exec" and "id -u" in argv[-1]:
+                return subprocess.CompletedProcess(
+                    argv, returncode=0, stdout="1000:1000\n", stderr=""
+                )
+            if len(argv) >= 9 and "cat >" in argv[8]:
+                seeded.append(input)
+            return subprocess.CompletedProcess(argv, returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(seeding.subprocess, "run", _fake_run)
+        monkeypatch.setattr(seeding, "get_runtime_command", lambda config=None: ["docker"])
+        monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None: {})
+        monkeypatch.chdir(project_dir)
+
+        seeding.seed_user_containers(
+            {
+                "project_name": "ctx-seed-hello",
+                "facility": {"name": "Demo", "prefix": "dls", "timezone": "UTC"},
+                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+            }
+        )
+
+        assert seeded == [base_content.encode("utf-8")]
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +579,7 @@ class TestControlAssistantWebTier:
         assert wt["default_persona"] == "readonly"
         assert wt["nginx_port"] == 9080
 
-        assert wt["users"][0] == "alice"
+        assert wt["users"][0] == {"name": "alice", "index": 0, "persona": "readonly"}
         assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "readwrite"}
 
         personas = wt["personas"]
