@@ -142,19 +142,15 @@
 /* ---- Tile header bar: the single tab IS the host chrome ----
  * One panel per tile is a workspace invariant (both modes), so a tile's "tab"
  * can never have siblings; dock-tab.js renders it as the tile's header bar.
- * The two tile kinds get very different amounts of it:
+ * EVERY tile carries the same 36px bar with the same grammar — six-dot drag
+ * grip on the left, the tile's identity beside it, close on the right — so
+ * grabbing, naming and closing a tile is one gesture learned once:
  *
- *   SERVICE tiles get an 8px grip strip and nothing more. The panel's name is
- *     already on its rail entry and its lifecycle controls (close, popout)
- *     live on that entry's hover corners, so a 36px bar per tile was chrome
- *     charged against every panel for affordances reached rarely. What is left
- *     is the one thing that must be ON the tile: something to grab it by.
- *   The TERMINAL tile keeps a real 36px bar, because its content earns the
- *     height — session LED, session id, selector and "+ New" are frequent,
- *     stateful controls, and its close is the terminal's only pointer close
- *     path (its rail entry deliberately has no "×").
+ *   SERVICE tiles show grip + the panel's name (.tile-tab-title) + close.
+ *   The TERMINAL tile shows grip + the adopted .terminal-header (session LED,
+ *     session id, selector, "+ New") + close.
  *
- * Fixed heights, no hover reveal: a strip never changes size, so tile content
+ * Fixed height, no hover reveal: the bar never changes size, so tile content
  * never reflows on pointer movement.
  *
  * Height is set on the container DIRECTLY rather than through dockview's
@@ -164,17 +160,8 @@
  * ties with the stock `.dockview-theme-*` blocks and loses the order
  * tiebreak — the same trap the selector note at the top of this file
  * describes. Compounding onto the container is (0,2,0) and wins on
- * specificity, deterministically, in either theme.
- *
- * The terminal is selected with `:has()` rather than a JS-stamped class
- * deliberately: a tile's group element changes when it is dragged elsewhere,
- * so a class would need re-stamping on every move, while this re-evaluates
- * itself. */
+ * specificity, deterministically, in either theme. */
 .dock-root .dv-tabs-and-actions-container {
-  height: 8px;
-}
-
-.dock-root .dv-tabs-and-actions-container:has(.tile-tab-terminal) {
   height: 36px;
 }
 
@@ -189,53 +176,49 @@
 .dock-root .tile-tab {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 6px 0 10px;
   width: 100%;
   height: 100%;
   min-width: 0;
   cursor: grab;
 }
 
-/* Service tile grip: the grip-pill idiom shared with the resize sashes above
- * and the design system's `.osprey-splitter` — same 28×3 geometry and muted →
- * accent treatment as a horizontal divider's grip, so "grab the pill to move
- * this" is one gesture learned once and true everywhere in the product. */
+/* The drag grip: an upright 2×3 dot grid on every tile — the one mark that
+ * means "grab here to move this tile", muted at rest and accent under the
+ * pointer, matching the sash/splitter grip treatment above. */
 .dock-root .tile-tab-grip {
   flex: 0 0 auto;
-  width: 28px;
-  height: 3px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-  opacity: 0.55;
-  transition: background var(--duration-fast) ease, opacity var(--duration-fast) ease;
-}
-
-.dock-root .dv-tab:hover .tile-tab-grip,
-.dock-root .dv-tab:active .tile-tab-grip {
-  background: var(--color-accent);
-  opacity: 1;
-}
-
-/* Terminal tile: the adopted .terminal-header supplies the bar's content, so
- * the layout goes back to a left-anchored row and the grip reverts to the
- * upright 2×3 dot grid that reads as a handle beside populated content (a
- * centred pill would collide with the header it sits next to). */
-.dock-root .tile-tab-terminal {
-  justify-content: flex-start;
-  gap: 8px;
-  padding: 0 6px 0 10px;
-}
-
-.dock-root .tile-tab-terminal .tile-tab-grip {
   width: 10px;
   height: 14px;
-  border-radius: 0;
-  background: none;
   background-image:
     radial-gradient(circle, var(--text-muted) 1.5px, transparent 1.6px);
   background-size: 5px 5px;
   background-position: 0 0;
   opacity: 0.6;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.dock-root .dv-tab:hover .tile-tab-grip,
+.dock-root .dv-tab:active .tile-tab-grip {
+  background-image:
+    radial-gradient(circle, var(--color-accent) 1.5px, transparent 1.6px);
+  opacity: 1;
+}
+
+/* Service tile name: display type at rail-label weight, ellipsized so a long
+ * runtime-panel label can never push the close control off the bar. */
+.dock-root .tile-tab-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
 }
 
 .dock-root .tile-tab-actions {
@@ -264,10 +247,11 @@
 
 /* Simple mode is a locked layout. dock-workspace.js disables drag/float
  * (disableDnd) and sash resize (api.locked) at runtime, so a service tile's
- * grip strip is dead chrome there — it collapses away entirely and the panel
- * gets those pixels back. The terminal's strip is exempt by the :has() rule
- * above (it is content, not a handle), but its close is suppressed: closing
- * the session tile is not a simple-mode gesture.
+ * header bar is dead chrome there — it collapses away entirely and the panel
+ * gets those pixels back. The terminal's bar stays (`:not(:has(...))` — it
+ * carries live session controls, content rather than chrome), but its grip
+ * and close are suppressed: moving or closing tiles is not a simple-mode
+ * gesture.
  * display:none overrides dockview's own visibility toggle on the active tab.
  *
  * A zero-height flex container does not clip its children on its own, and
