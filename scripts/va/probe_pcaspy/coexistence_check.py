@@ -358,9 +358,31 @@ def describe_failure(name: str, result: subprocess.CompletedProcess | None, time
     return f"SILENT (exit {result.returncode} with no verdict line)"
 
 
+def probed_environment() -> str:
+    """Which platform this verdict is about.
+
+    The answer is not portable: the same pcaspy and pyepics coexist happily on
+    linux/amd64 and crash on macOS arm64. A verdict quoted without its platform
+    is therefore worse than no verdict, because the deployment target (linux CI)
+    and the development host disagree.
+    """
+    import platform  # noqa: PLC0415
+
+    bits = f"{platform.system().lower()}/{platform.machine()} python {platform.python_version()}"
+    try:
+        import pcaspy  # noqa: PLC0415
+
+        bits += f", pcaspy {pcaspy.__version__}"
+    except Exception:  # noqa: BLE001 - reported as absent rather than fatal here
+        bits += ", pcaspy unavailable"
+    return bits
+
+
 def orchestrate() -> int:
     sentinel = 7.25
+    environment = probed_environment()
     print(f"orchestrator interpreter: {sys.executable}", flush=True)
+    print(f"ENVIRONMENT UNDER TEST: {environment}", flush=True)
     print(f"probe server expected at localhost:{CA_PORT}; sentinel={sentinel}", flush=True)
 
     outcomes: dict[str, tuple[bool, str]] = {}
@@ -474,7 +496,13 @@ def orchestrate() -> int:
         ),
         flush=True,
     )
-    print(f"COEXISTS={'yes' if coexists else 'no'}", flush=True)
+    print(f"COEXISTS={'yes' if coexists else 'no'}  [{environment}]", flush=True)
+    print(
+        "SCOPE: this verdict describes the environment named above and no other. "
+        "Re-run it under linux/amd64 before letting it decide anything that ships "
+        "to CI.",
+        flush=True,
+    )
     return 0
 
 
