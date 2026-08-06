@@ -855,7 +855,8 @@ def emit_persona_delta_yaml(
         f"#\n"
         f"# Provenance — what this persona was materialized from:\n"
         f"#   source preset: {preset_name}\n"
-        f"#   preset content hash: {preset_hash}"
+        f"#   preset content hash: {preset_hash}\n"
+        f"#   emitted by OSPREY {__version__}"
     )
     text = _replace_header(text, header)
 
