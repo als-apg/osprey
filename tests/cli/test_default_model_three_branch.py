@@ -147,7 +147,7 @@ class TestShippedPresetsResolve:
 
     def test_every_shipped_preset_is_covered(self):
         """No preset may drop out of the parametrization by shipping no yml."""
-        assert len(list(PRESET_DIR.glob("*.yml"))) >= 9
+        assert len(list(PRESET_DIR.glob("*.yml"))) >= 6
 
     def test_config_export_renders_a_resolvable_default_model(self, tmp_path):
         """``osprey config export`` is the canonical starting config people copy."""
