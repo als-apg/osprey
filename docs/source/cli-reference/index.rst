@@ -84,13 +84,20 @@ durable, facility-owned input to ``osprey build`` — see
    ``TARGET_DIR`` is created and populated with a standalone ``profile.yml``
    (the preset's full configuration written out explicitly, no ``extends:``),
    the preset's ``data/`` tree copied verbatim, an ``overlays/`` seed, and a
-   ``README.md``. Refuses to overwrite an existing directory.
+   ``README.md``. Refuses to overwrite an existing directory unless ``--force``
+   is given.
 
    ``-O, --override PATH`` — Layer a YAML file on top of the preset before
    writing (repeatable, in order).
 
    ``--set KEY.PATH=VALUE`` — Inline override baked into the written profile
    (repeatable). RHS is parsed as YAML. Wins over ``-O`` at the same key.
+
+   ``--force`` — Replace an existing profile directory, deleting its current
+   contents including any edits you made there. Only a directory that is a
+   materialized profile (contains ``profile.yml``) or is empty is replaced;
+   anything else is refused. Nothing is deleted until the replacement profile
+   has fully rendered, so a failed run leaves the old directory untouched.
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a profile

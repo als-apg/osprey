@@ -134,11 +134,19 @@ def validate(target: Path) -> None:
     help="Inline scalar/list override baked into the emitted profile (repeatable). "
     "RHS parsed as YAML.",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace an existing profile directory, deleting its current contents "
+    "(including any edits). Refuses a target that is not a materialized "
+    "profile (no profile.yml) and not empty.",
+)
 def new(
     target_dir: Path,
     preset: str,
     overrides: tuple[Path, ...],
     set_pairs: tuple[str, ...],
+    force: bool,
 ) -> None:
     """Materialize an editable profile directory from a bundled preset.
 
@@ -154,7 +162,9 @@ def new(
       $ osprey profile new my-profile --preset hello-world --set model=sonnet
     """
     try:
-        target = _materialize_profile_directory(target_dir, preset, overrides, set_pairs)
+        target = _materialize_profile_directory(
+            target_dir, preset, overrides, set_pairs, force=force
+        )
     except BuildProfileError as e:
         # Reaching here means a packaging problem, not a user mistake — the
         # helper raises UsageError for everything the caller could have got
@@ -201,7 +211,16 @@ _PERSONA_DATA_REF = f"../{_PROFILE_DATA_DIRNAME}"
 # elsewhere in the tree is untouched.
 _EXCLUDED_DATA_SUBTREES: tuple[tuple[str, ...], ...] = (("benchmarks", "results"),)
 
-_ALREADY_EXISTS = "Target directory already exists: {target}. Remove it or choose a different path."
+_ALREADY_EXISTS = (
+    "Target directory already exists: {target}. Remove it, choose a different "
+    "path, or re-run with --force to replace it."
+)
+
+_NOT_REPLACEABLE = (
+    "Refusing --force: {target} is not a materialized profile directory (no "
+    "profile.yml) and not empty. Remove it yourself if you really mean to "
+    "replace it."
+)
 
 # Build-time staging directories a bundle may ship inside its data tree, paired
 # with what the README should say about each. Data-driven rather than
@@ -451,6 +470,8 @@ def _materialize_profile_directory(
     preset_name: str,
     overrides: tuple[Path, ...] = (),
     set_pairs: tuple[str, ...] = (),
+    *,
+    force: bool = False,
 ) -> Path:
     """Materialize an editable, standalone profile directory from ``preset_name``.
 
@@ -464,6 +485,10 @@ def _materialize_profile_directory(
     Fail-before-mutating: the preset, its layers, and the rendered profile text
     are all produced before the first ``mkdir``, and anything that fails after
     it removes the target rather than leaving a half-materialized directory.
+    With ``force``, an existing target is deleted at that same point — never
+    earlier — and only when it is a materialized profile (has ``profile.yml``)
+    or an empty directory, so a failed run or a mistyped target never costs an
+    unrelated directory.
 
     Returns:
         The resolved target directory.
@@ -503,8 +528,19 @@ def _materialize_profile_directory(
     name_override = baked.get("name")
 
     target = target_dir.resolve()
+    replacing = False
     if target.exists():
-        raise click.UsageError(_ALREADY_EXISTS.format(target=target))
+        if not force:
+            raise click.UsageError(_ALREADY_EXISTS.format(target=target))
+        # --force only replaces what this command itself produces: a
+        # materialized profile (profile.yml present) or an empty directory.
+        # Anything else could be an arbitrary directory named by mistake —
+        # refuse rather than delete it.
+        if not (
+            target.is_dir() and ((target / "profile.yml").is_file() or not any(target.iterdir()))
+        ):
+            raise click.UsageError(_NOT_REPLACEABLE.format(target=target))
+        replacing = True
 
     normalized_preset = _normalize_preset_name(preset_name)
     # `target.name` is the user-chosen directory name (e.g. "my-profile") —
@@ -536,6 +572,12 @@ def _materialize_profile_directory(
         profile_filename=profile_filename,
         extra_layers=(_persona_catalog_layer(persona_texts),) if persona_texts else (),
     )
+
+    # The replacement happens here, after every input has resolved and the new
+    # profile text is fully rendered — a failure above (bad preset, invalid
+    # override) leaves the existing directory exactly as it was.
+    if replacing:
+        shutil.rmtree(target)
 
     try:
         target.mkdir(parents=True)

@@ -11,6 +11,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- `osprey profile new --force` replaces an existing profile directory, making
+  the materialize-and-build one-liner rerunnable. It only replaces a directory
+  that is a materialized profile (or empty), and deletes nothing until the new
+  profile has fully rendered — a failed run leaves the old directory intact.
+
 ### Fixed
 
 - Built projects' `config.yml` no longer misplaces section comments: entries
