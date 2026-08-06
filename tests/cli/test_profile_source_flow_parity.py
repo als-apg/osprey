@@ -439,8 +439,10 @@ def test_no_config_key_in_the_materialized_profile_prefixes_another(pair: Pair) 
 
 @pytest.mark.parametrize("preset", PERSONA_PRESETS)
 def test_emitted_persona_profiles_carry_the_guards_too(preset: str, tmp_path: Path) -> None:
-    """The siblings are profiles a facility builds from as well, so they owe the
-    same partition, prefix and provenance guarantees as the host profile."""
+    """The siblings are profiles a facility builds from as well — but they are
+    DELTAS, so the standalone guarantees hold at the resolved layer, not in the
+    raw text: every EXPLICIT field arrives through ``extends: ../profile.yml``,
+    while the file itself owes only prefix cleanliness and provenance."""
     runner = CliRunner()
     target = tmp_path / "profile"
     _materialize(runner, target, preset)
@@ -449,9 +451,11 @@ def test_emitted_persona_profiles_carry_the_guards_too(preset: str, tmp_path: Pa
     assert siblings, f"{preset}: no persona profiles were emitted"
     for sibling in siblings:
         text = sibling.read_text()
-        active, commented = _active_and_commented(text)
-        missing = {_FIELD_TO_YAML.get(field, field) for field in _EXPLICIT_KEYS} - active
-        assert not missing, f"{sibling.name}: EXPLICIT keys missing: {sorted(missing)}"
-        assert not active & commented, f"{sibling.name}: both active and templated"
+        resolved, _dir = resolve_build_profile(sibling.resolve(), None)
+        for field in _EXPLICIT_KEYS:
+            key = _FIELD_TO_YAML.get(field, field)
+            assert getattr(resolved, field, None) is not None, (
+                f"{sibling.name}: EXPLICIT key {key!r} does not survive resolution"
+            )
         assert _prefix_pairs(yaml.safe_load(text).get("config") or {}) == []
         assert "emitted by OSPREY" in text.split("\nname:")[0]

@@ -134,11 +134,19 @@ def validate(target: Path) -> None:
     help="Inline scalar/list override baked into the emitted profile (repeatable). "
     "RHS parsed as YAML.",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace an existing profile directory, deleting its current contents "
+    "(including any edits). Refuses a target that is not a materialized "
+    "profile (no profile.yml) and not empty.",
+)
 def new(
     target_dir: Path,
     preset: str,
     overrides: tuple[Path, ...],
     set_pairs: tuple[str, ...],
+    force: bool,
 ) -> None:
     """Materialize an editable profile directory from a bundled preset.
 
@@ -154,7 +162,9 @@ def new(
       $ osprey profile new my-profile --preset hello-world --set model=sonnet
     """
     try:
-        target = _materialize_profile_directory(target_dir, preset, overrides, set_pairs)
+        target = _materialize_profile_directory(
+            target_dir, preset, overrides, set_pairs, force=force
+        )
     except BuildProfileError as e:
         # Reaching here means a packaging problem, not a user mistake — the
         # helper raises UsageError for everything the caller could have got
@@ -201,7 +211,16 @@ _PERSONA_DATA_REF = f"../{_PROFILE_DATA_DIRNAME}"
 # elsewhere in the tree is untouched.
 _EXCLUDED_DATA_SUBTREES: tuple[tuple[str, ...], ...] = (("benchmarks", "results"),)
 
-_ALREADY_EXISTS = "Target directory already exists: {target}. Remove it or choose a different path."
+_ALREADY_EXISTS = (
+    "Target directory already exists: {target}. Remove it, choose a different "
+    "path, or re-run with --force to replace it."
+)
+
+_NOT_REPLACEABLE = (
+    "Refusing --force: {target} is not a materialized profile directory (no "
+    "profile.yml) and not empty. Remove it yourself if you really mean to "
+    "replace it."
+)
 
 # Build-time staging directories a bundle may ship inside its data tree, paired
 # with what the README should say about each. Data-driven rather than
@@ -278,6 +297,10 @@ def _persona_catalog_layer(persona_names: Iterable[str]) -> dict[str, Any]:
 def _replayed_model_selection(baked: dict[str, Any]) -> tuple[str, ...]:
     """``--set`` pairs re-applying the caller's baked model selection to a persona.
 
+    Only the flattened fallback emission needs this: a delta persona inherits
+    the host profile wholesale, baked model selection included, through its
+    ``extends: ../profile.yml``.
+
     Mirrors :func:`osprey.deployment.web_terminals.persona_images._parent_set_override_args`
     exactly — the same key set (:data:`MODEL_SELECTION_OVERRIDE_KEYS`) and the
     same ``str | int`` value filter — because the two are the SAME guarantee at
@@ -305,38 +328,38 @@ def _persona_profile_texts(
     profile_name: str,
     profile_dirname: str,
     baked: dict[str, Any],
+    host_preset: str,
 ) -> dict[str, str]:
-    """Emit one standalone profile text per persona the profile deploys.
+    """Emit one sibling profile text per persona the profile deploys.
 
     Empty unless the profile stands up a persona stack of its own (see
     :func:`~osprey.cli.build_profile_emit.emits_persona_profiles`) — a persona
     preset inherits the catalog but disables the module, and emitting from one
     of those would produce personas-of-a-persona.
 
-    Each persona profile is materialized from its catalog entry's own
-    ``build_profile`` preset with ``data: ../data`` injected through the same
-    ``--set`` layering the host profile's ``data: data`` uses, so no second path
-    into the emitted content exists.
-
-    The caller's ``-O``/``--set`` layers are NOT replayed wholesale: they are
-    authored against the host preset and may not even be valid against a
-    persona one. The model-selection subset IS replayed
-    (:func:`_replayed_model_selection`), because those keys carry whole-stack
-    intent — without it, ``profile new --set provider=X`` would emit a host
-    profile on provider X and persona profiles still on the preset's provider,
-    and every persona terminal would run against credentials the facility may
-    not even hold. The deploy-time counterpart
-    (:func:`osprey.deployment.web_terminals.persona_images._parent_set_override_args`)
-    covers only a choice made at ``osprey build`` time, so it cannot stand in
-    for this one: a profile baked here and then built with no flags records no
-    explicit override in the project manifest and forwards nothing.
+    A persona whose preset ``extends``-chains through ``host_preset`` (the
+    bundled shape: ``control-assistant-readonly`` over ``control-assistant``)
+    is emitted as a DELTA — ``extends: ../profile.yml`` plus the preset's own
+    few overrides (:func:`~.build_profile_emit.emit_persona_delta_yaml`) — so
+    the host profile stays the single source of truth: edits there, and the
+    caller's baked ``-O``/``--set`` layers with them, reach every persona
+    through resolution instead of being copied around. A catalog entry whose
+    preset sits outside that chain cannot be rebased without changing what it
+    resolves to; it falls back to the flattened standalone emission, with the
+    model-selection subset of the caller's overrides replayed into it
+    (:func:`_replayed_model_selection`) so a whole-stack provider choice still
+    reaches it.
 
     Raises:
         click.UsageError: With every unusable catalog entry named at once.
     """
     from .build_profile import resolve_build_profile
-    from .build_profile_emit import emit_standalone_profile_yaml, persona_catalog
-    from .build_profile_presets import _normalize_preset_name
+    from .build_profile_emit import (
+        emit_persona_delta_yaml,
+        emit_standalone_profile_yaml,
+        persona_catalog,
+    )
+    from .build_profile_presets import _normalize_preset_name, _preset_extends_chain_reaches
 
     catalog = persona_catalog(resolved.config)
     model_selection = _replayed_model_selection(baked)
@@ -380,13 +403,22 @@ def _persona_profile_texts(
                 f"{resolved.data_bundle!r} — one shared data tree cannot serve both"
             )
             continue
-        texts[persona_name] = emit_standalone_profile_yaml(
-            preset_name=_normalize_preset_name(preset_ref),
-            overrides=(),
-            set_pairs=(f"data={_PERSONA_DATA_REF}", *model_selection),
-            profile_name=f"{profile_name} ({persona_name})",
-            profile_filename=f"{profile_dirname}/{_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml",
-        )
+        persona_preset = _normalize_preset_name(preset_ref)
+        persona_filename = f"{profile_dirname}/{_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml"
+        if _preset_extends_chain_reaches(persona_preset, host_preset):
+            texts[persona_name] = emit_persona_delta_yaml(
+                preset_name=persona_preset,
+                profile_name=f"{profile_name} ({persona_name})",
+                profile_filename=persona_filename,
+            )
+        else:
+            texts[persona_name] = emit_standalone_profile_yaml(
+                preset_name=persona_preset,
+                overrides=(),
+                set_pairs=(f"data={_PERSONA_DATA_REF}", *model_selection),
+                profile_name=f"{profile_name} ({persona_name})",
+                profile_filename=persona_filename,
+            )
     if problems:
         raise click.UsageError(
             "Cannot materialize the persona profiles this profile's web-terminal "
@@ -451,6 +483,8 @@ def _materialize_profile_directory(
     preset_name: str,
     overrides: tuple[Path, ...] = (),
     set_pairs: tuple[str, ...] = (),
+    *,
+    force: bool = False,
 ) -> Path:
     """Materialize an editable, standalone profile directory from ``preset_name``.
 
@@ -464,6 +498,10 @@ def _materialize_profile_directory(
     Fail-before-mutating: the preset, its layers, and the rendered profile text
     are all produced before the first ``mkdir``, and anything that fails after
     it removes the target rather than leaving a half-materialized directory.
+    With ``force``, an existing target is deleted at that same point — never
+    earlier — and only when it is a materialized profile (has ``profile.yml``)
+    or an empty directory, so a failed run or a mistyped target never costs an
+    unrelated directory.
 
     Returns:
         The resolved target directory.
@@ -503,8 +541,19 @@ def _materialize_profile_directory(
     name_override = baked.get("name")
 
     target = target_dir.resolve()
+    replacing = False
     if target.exists():
-        raise click.UsageError(_ALREADY_EXISTS.format(target=target))
+        if not force:
+            raise click.UsageError(_ALREADY_EXISTS.format(target=target))
+        # --force only replaces what this command itself produces: a
+        # materialized profile (profile.yml present) or an empty directory.
+        # Anything else could be an arbitrary directory named by mistake —
+        # refuse rather than delete it.
+        if not (
+            target.is_dir() and ((target / "profile.yml").is_file() or not any(target.iterdir()))
+        ):
+            raise click.UsageError(_NOT_REPLACEABLE.format(target=target))
+        replacing = True
 
     normalized_preset = _normalize_preset_name(preset_name)
     # `target.name` is the user-chosen directory name (e.g. "my-profile") —
@@ -523,7 +572,9 @@ def _materialize_profile_directory(
     # repointed at them, so the whole stack reads this profile's data tree
     # rather than the bundled preset's (D7a). Emitted before the first mkdir,
     # like everything else here, so a bad catalog entry fails before mutating.
-    persona_texts = _persona_profile_texts(resolved, profile_name_default, target.name, baked)
+    persona_texts = _persona_profile_texts(
+        resolved, profile_name_default, target.name, baked, normalized_preset
+    )
 
     # The materialized tree is what the build must read, so `data:` is emitted
     # as an active key — injected through the same --set layering a user would
@@ -535,7 +586,14 @@ def _materialize_profile_directory(
         profile_name=profile_name_default,
         profile_filename=profile_filename,
         extra_layers=(_persona_catalog_layer(persona_texts),) if persona_texts else (),
+        include_flow_diagram=True,
     )
+
+    # The replacement happens here, after every input has resolved and the new
+    # profile text is fully rendered — a failure above (bad preset, invalid
+    # override) leaves the existing directory exactly as it was.
+    if replacing:
+        shutil.rmtree(target)
 
     try:
         target.mkdir(parents=True)

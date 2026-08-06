@@ -781,6 +781,122 @@ def _replace_header(text: str, header: str) -> str:
     return header.rstrip("\n") + "\n\n" + "\n".join(lines[body_start:]).rstrip("\n") + "\n"
 
 
+def emit_persona_delta_yaml(
+    preset_name: str,
+    profile_name: str,
+    profile_filename: str,
+    host_filename: str = "profile.yml",
+) -> str:
+    """Render a persona sibling as a DELTA over the materialized host profile.
+
+    The bundled persona presets are already deltas — a handful of keys over
+    their base preset, each carrying its own explanatory comment. This
+    emission keeps that shape and rebases it: the preset's raw text is reused
+    comments-and-all, with ``extends`` repointed from the bundled base preset
+    at the host ``profile.yml`` one directory up, the display ``name``
+    retitled, and ``data`` re-anchored on the host's tree (relative paths
+    resolve against the file that names them, so the inherited ``data: data``
+    would otherwise look inside ``personas/``).
+
+    Callers must only pass a ``preset_name`` whose ``extends`` chain reaches
+    the host profile's source preset
+    (:func:`~.build_profile_presets._preset_extends_chain_reaches`); rebasing
+    any other preset onto the host would change what it resolves to. Presets
+    off that chain keep the flattened :func:`emit_standalone_profile_yaml`
+    path.
+
+    Args:
+        preset_name: Bundled persona preset whose raw text is the delta body.
+        profile_name: Display name for the emitted persona profile.
+        profile_filename: Display path (``my-profile/personas/readonly.yml``)
+            for the header's validate hint.
+        host_filename: The host profile's file name one directory up.
+
+    Returns:
+        Complete persona profile text: ``extends: ../<host_filename>``, the
+        preset's own commented overrides, and the shared-tree ``data`` anchor.
+
+    Raises:
+        BuildProfileError: If the preset is unknown or declares no ``extends``
+            line to rebase.
+    """
+    raw, preset_path = _load_preset_raw(preset_name)
+    if not isinstance(raw.get("extends"), str) or not raw["extends"]:
+        raise BuildProfileError(
+            f"Preset {preset_name!r} declares no extends chain — it cannot be "
+            f"emitted as a delta over a host profile."
+        )
+    host_ref = f"../{host_filename}"
+
+    body: list[str] = []
+    titled = False
+    for line in preset_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("extends:"):
+            body.append(f"extends: {host_ref}")
+        elif line.startswith("name:"):
+            body.append(f"name: {profile_name}")
+            titled = True
+        elif line.startswith("data:"):
+            # The shared-tree anchor is appended below with its own comment; a
+            # second top-level ``data`` key would be invalid YAML.
+            continue
+        else:
+            body.append(line)
+    text = "\n".join(body).rstrip("\n") + "\n"
+
+    preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
+    header = (
+        f"# {profile_name} — persona profile, a delta over {host_ref}\n"
+        f"#\n"
+        f"# `extends: {host_ref}` inherits every setting from the host profile —\n"
+        f"# including any edit you make there — and the keys below are this\n"
+        f"# persona's only differences. See the resolved whole with:\n"
+        f"#   osprey profile validate {profile_filename}\n"
+        f"#\n"
+        f"# Provenance — what this persona was materialized from:\n"
+        f"#   source preset: {preset_name}\n"
+        f"#   preset content hash: {preset_hash}\n"
+        f"#   emitted by OSPREY {__version__}"
+    )
+    text = _replace_header(text, header)
+
+    tail = [
+        "",
+        "# One facility data tree for the whole stack: the host profile's data/",
+        "# directory. Relative paths resolve against THIS file, so without this",
+        "# override the inherited `data: data` would look inside personas/.",
+        "data: ../data",
+    ]
+    if not titled:
+        tail = ["", f"name: {profile_name}", *tail]
+    return text.rstrip("\n") + "\n" + "\n".join(tail) + "\n"
+
+
+# The lifecycle picture at the top of a materialized profile: what the user
+# owns, what the build regenerates from it, and what deploy turns that into.
+# Plain ASCII (no box-drawing glyphs) and <= 80 columns, so it survives any
+# editor a facility opens config files in. Emitted only into the main
+# profile.yml — persona siblings share the mental model and repeating the
+# picture three times per profile directory would just be noise.
+_FLOW_DIAGRAM = """\
+#  YOU EDIT THIS                IS RENDERED INTO             WHICH RUNS AS
+#
+#  +----------------+  osprey   +----------------+  osprey   +-----------------+
+#  |    PROFILE     |  build    |    PROJECT     |  deploy   |   DEPLOYMENT    |
+#  |                |           |                |           |                 |
+#  |  profile.yml   +---------->|  config.yml    +---------->|  agent CLI/web  |
+#  |  data/         |           |  services/     |  up -d    |  + service      |
+#  |  overlays/     |           |  .mcp.json     |           |    containers   |
+#  |  personas/     |           |  .env  ...     |           | (docker/podman) |
+#  +----------------+           +----------------+           +-----------------+
+#   durable source of            regenerable — a              osprey deploy down
+#   truth; keep + edit           --force rebuild              stops it; deploy
+#                                overwrites it                up recreates it
+#
+#        ^                                                          |
+#        +--- the loop: edit profile -> rebuild -> redeploy --------+"""
+
+
 def emit_standalone_profile_yaml(
     preset_name: str,
     overrides: tuple[Path, ...],
@@ -788,6 +904,7 @@ def emit_standalone_profile_yaml(
     profile_name: str,
     profile_filename: str,
     extra_layers: tuple[Mapping[str, Any], ...] = (),
+    include_flow_diagram: bool = False,
 ) -> str:
     """Render the standalone ``profile.yml`` text for ``osprey profile new``.
 
@@ -805,6 +922,9 @@ def emit_standalone_profile_yaml(
             this to repoint the emitted persona catalog at the sibling profiles
             it is about to write: those values are derived from the resolved
             catalog, so they cannot come from a file the caller passes.
+        include_flow_diagram: Embed the profile → build → deploy lifecycle
+            diagram in the generated header. Set for the main ``profile.yml``
+            only; persona siblings keep the compact header.
 
     Returns:
         Complete ``profile.yml`` content: fully explicit (no ``extends:``),
@@ -879,6 +999,7 @@ def emit_standalone_profile_yaml(
 
     normalized = base_anchor.stem
     preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
+    flow_block = f"{_FLOW_DIAGRAM}\n#\n" if include_flow_diagram else ""
     header = (
         f"# {profile_name} — OSPREY build profile\n"
         f"#\n"
@@ -886,6 +1007,7 @@ def emit_standalone_profile_yaml(
         f"# standalone profile: everything the preset configures is written out\n"
         f"# below and is yours to edit. Nothing is inherited at build time.\n"
         f"#\n"
+        f"{flow_block}"
         f"# Provenance — what this profile was materialized from:\n"
         f"#   source preset: {normalized}\n"
         f"#   preset content hash: {preset_hash}\n"
@@ -896,8 +1018,9 @@ def emit_standalone_profile_yaml(
         f"# source preset set it:\n"
         f"#   {', '.join(sorted(_BUILD_MECHANICS_KEYS))}\n"
         f"#\n"
-        f"# Build a project from this profile with:\n"
-        f"#   osprey build <PROJECT_NAME> {profile_filename}"
+        f"# Build a project from this profile, then deploy it:\n"
+        f"#   osprey build <PROJECT_NAME> {profile_filename}\n"
+        f"#   cd <PROJECT_NAME> && osprey deploy up -d"
     )
     text = _replace_header(text, header)
 

@@ -206,22 +206,44 @@ def test_catalog_is_rewritten_to_point_at_the_sibling_profiles(
 
 
 @pytest.mark.parametrize("preset", TRIGGER_PRESETS)
-def test_persona_profiles_are_standalone_and_keep_their_posture(
+def test_persona_profiles_are_deltas_and_keep_their_posture(
     runner: CliRunner, tmp_path: Path, preset: str
 ):
-    """Emitted flat (no ``extends:``) and still carrying the one axis the
-    persona presets exist to differ on."""
+    """Emitted as a DELTA over the host profile (``extends: ../profile.yml``):
+    the host stays the single source of truth, and each persona file carries
+    only what makes it that persona — with the write posture pinned explicitly
+    in the delta, where no host edit can silently override it."""
     target = tmp_path / "my-profile"
 
     assert _new(runner, target, preset).exit_code == 0
 
     postures = {}
     for persona_file in sorted((target / "personas").iterdir()):
-        text = persona_file.read_text()
-        assert not any(line.startswith("extends:") for line in text.splitlines()), persona_file
-        parsed = yaml.safe_load(text)
+        parsed = yaml.safe_load(persona_file.read_text())
+        assert parsed["extends"] == "../profile.yml", persona_file.name
+        # The big sections are inherited, not restated.
+        for inherited_key in ("app_template", "provider", "model", "requires_osprey_version"):
+            assert inherited_key not in parsed, (persona_file.name, inherited_key)
         postures[persona_file.stem] = parsed["config"]["control_system.writes_enabled"]
     assert postures == {"readonly": False, "readwrite": True}
+
+
+@pytest.mark.parametrize("preset", TRIGGER_PRESETS)
+def test_host_profile_edits_propagate_to_personas(runner: CliRunner, tmp_path: Path, preset: str):
+    """The point of the delta shape: edit the host profile once and every
+    persona follows at its next resolution — no re-materialization, no
+    hand-mirroring into the persona files."""
+    target = tmp_path / "my-profile"
+    assert _new(runner, target, preset).exit_code == 0
+
+    host_file = target / "profile.yml"
+    text = host_file.read_text(encoding="utf-8")
+    assert "provider: anthropic" in text
+    host_file.write_text(text.replace("provider: anthropic", "provider: cborg"), encoding="utf-8")
+
+    for persona_file in sorted((target / "personas").iterdir()):
+        resolved, _dir = resolve_build_profile(persona_file.resolve(), None)
+        assert resolved.provider == "cborg", persona_file.name
 
 
 @pytest.mark.parametrize("preset", ("hello-world", "ariel-standalone", *CHILD_PRESETS))
@@ -280,18 +302,17 @@ def test_emitted_stack_builds_end_to_end(runner: CliRunner, tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("preset", TRIGGER_PRESETS)
-def test_baked_model_selection_is_replayed_into_every_persona(
+def test_baked_model_selection_reaches_every_persona_by_inheritance(
     runner: CliRunner, tmp_path: Path, preset: str
 ) -> None:
-    """A provider/model chosen at ``profile new`` time must retint the WHOLE
-    stack, not just the host.
+    """A provider/model chosen at ``profile new`` time retints the WHOLE stack:
+    baked once into the host profile and inherited by every persona through
+    ``extends: ../profile.yml``. Nothing is copied into the persona files —
+    the host is the single place the choice lives.
 
-    The canonical flow bakes the choice here and then builds with no flags, so
-    nothing is recorded as an explicit override in the project manifest and the
-    deploy-time forwarding path has nothing to forward. Without replay, persona
-    terminals would run against a provider the facility may hold no credentials
-    for while the host works — a failure that only shows up in a deployed
-    container.
+    ``tier`` travels too, unlike under the old replay allowlist: the stack
+    shares one data tree, so a persona materializing a different
+    channel-database tier than its host was an inconsistency, not a feature.
     """
     target = tmp_path / "my-profile"
 
@@ -312,24 +333,25 @@ def test_baked_model_selection_is_replayed_into_every_persona(
     assert result.exit_code == 0, result.output
     host = yaml.safe_load((target / "profile.yml").read_text())
     assert (host["provider"], host["model"]) == ("cborg", "opus")
+    assert host["tier"] == 1
     persona_files = sorted((target / "personas").iterdir())
     assert persona_files  # the assertions below must not pass vacuously
     for persona_file in persona_files:
         parsed = yaml.safe_load(persona_file.read_text())
-        assert parsed["provider"] == "cborg", persona_file.name
-        assert parsed["model"] == "opus", persona_file.name
-        assert parsed["channel_finder_mode"] == "in_context", persona_file.name
-        # Exactly the model-selection keys travel. `tier` is baked into the
-        # host but is not whole-stack intent, so it stays behind.
-        assert host["tier"] == 1
-        assert "tier" not in parsed, persona_file.name
+        for key in ("provider", "model", "channel_finder_mode", "tier"):
+            assert key not in parsed, (persona_file.name, key)
+        resolved, _dir = resolve_build_profile(persona_file.resolve(), None)
+        assert resolved.provider == "cborg", persona_file.name
+        assert resolved.model == "opus", persona_file.name
+        assert resolved.channel_finder_mode == "in_context", persona_file.name
+        assert resolved.tier == 1, persona_file.name
 
 
-def test_baked_override_file_model_selection_is_replayed_too(
+def test_baked_override_file_model_selection_is_inherited_too(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """The replay reads the merged ``-O`` + ``--set`` result, so a choice made
-    in an override file carries exactly as far as one made inline."""
+    """A choice made in an ``-O`` override file bakes into the host profile and
+    carries into every persona resolution exactly as far as an inline one."""
     override = tmp_path / "o.yml"
     override.write_text("provider: cborg\nmodel: opus\n", encoding="utf-8")
     target = tmp_path / "my-profile"
@@ -337,8 +359,40 @@ def test_baked_override_file_model_selection_is_replayed_too(
     assert _new(runner, target, "multi-user-demo", "-O", str(override)).exit_code == 0
 
     for persona_file in sorted((target / "personas").iterdir()):
-        parsed = yaml.safe_load(persona_file.read_text())
-        assert (parsed["provider"], parsed["model"]) == ("cborg", "opus"), persona_file.name
+        resolved, _dir = resolve_build_profile(persona_file.resolve(), None)
+        assert (resolved.provider, resolved.model) == ("cborg", "opus"), persona_file.name
+
+
+def test_persona_preset_outside_the_host_chain_falls_back_to_flat(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A catalog entry whose preset does not ``extends``-chain through the
+    host's preset cannot be expressed as a delta over the host profile —
+    resolving it through ``../profile.yml`` would change its meaning. It
+    materializes flattened, exactly as every persona did before deltas."""
+    override = _persona_override(
+        tmp_path,
+        {
+            "outsider": {
+                "project": "outsider",
+                "project_path": "../outsider",
+                # Same app template as control-assistant (passes the shared-
+                # data-tree check) but extends multi-user-demo, not the host.
+                "build_profile": "multi-user-demo-readonly",
+            }
+        },
+    )
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "control-assistant", "-O", str(override)).exit_code == 0
+
+    parsed = yaml.safe_load((target / "personas" / "outsider.yml").read_text())
+    assert "extends" not in parsed
+    assert parsed["data"] == "../data"
+    # The in-chain personas still emit as deltas alongside it.
+    for name in ("readonly", "readwrite"):
+        sibling = yaml.safe_load((target / "personas" / f"{name}.yml").read_text())
+        assert sibling["extends"] == "../profile.yml", name
 
 
 # ---------------------------------------------------------------------------

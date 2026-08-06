@@ -291,7 +291,7 @@ class TestBaseWebTerminals:
         """The rendered ``modules.web_terminals`` subtree matches the two-persona
         demo shape: local image source, readonly default, a readonly/readwrite
         catalog whose ``project`` equals its ``project_path`` basename, and a
-        roster mapping alice→readonly (via default) and bob→readwrite."""
+        roster mapping alice→readonly and bob→readwrite, both explicit."""
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         wt = rendered["modules"]["web_terminals"]
 
@@ -305,9 +305,9 @@ class TestBaseWebTerminals:
         assert wt["lattice_base_port"] == 9491
         assert wt["channel_finder_base_port"] == 9591
 
-        # Roster: alice is a bare string (inherits default_persona: readonly);
-        # bob is object-form with an explicit index and the readwrite persona.
-        assert wt["users"][0] == "alice"
+        # Roster: both entries ship fully explicit — name, index, persona —
+        # so the config states outright what normalization would derive.
+        assert wt["users"][0] == {"name": "alice", "index": 0, "persona": "readonly"}
         assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "readwrite"}
 
         personas = wt["personas"]
@@ -579,7 +579,7 @@ class TestControlAssistantWebTier:
         assert wt["default_persona"] == "readonly"
         assert wt["nginx_port"] == 9080
 
-        assert wt["users"][0] == "alice"
+        assert wt["users"][0] == {"name": "alice", "index": 0, "persona": "readonly"}
         assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "readwrite"}
 
         personas = wt["personas"]
