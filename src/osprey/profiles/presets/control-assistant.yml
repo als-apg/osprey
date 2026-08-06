@@ -200,7 +200,14 @@ config:
     channel_finder_base_port: 9591  # first per-user channel-finder panel port
     default_persona: readonly   # roster entries with no persona resolve here
     users:
-      - alice                   # bare string → default_persona (readonly)
+      # One web terminal per entry. `index` pins the user's port offsets
+      # (each `*_base_port` above + index), so removing an entry never shifts
+      # another user's ports; `persona` names a catalog entry below. A bare
+      # string (`- alice`) is also accepted: it takes its list position as
+      # index and falls back to `default_persona`.
+      - name: alice
+        index: 0
+        persona: readonly
       - name: bob
         index: 1
         persona: readwrite
