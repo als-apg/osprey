@@ -36,20 +36,37 @@ import pytest
 
 from osprey.interfaces._serving import free_port
 
+# Every root the no-lattice path must stay clear of. ``at`` is the original
+# seam: PyAT is what ``VA_LATTICE=none`` exists to avoid. ``lume`` and ``h5py``
+# joined it once the physics moved behind a LUMEModel -- ``import lume`` eagerly
+# pulls h5py (plus matplotlib and scipy), so a stray model import on this path
+# would quietly make the whole heavy stack a hard requirement of a boot mode
+# whose entire purpose is not needing one. h5py is listed separately rather than
+# left to arrive via ``lume`` so the guard still bites if some other module
+# reaches for it directly. ``lume_pyat`` joined once the physics moved into it:
+# its ``__init__`` is PEP 562 lazy, so importing it costs almost nothing and an
+# accidental import would NOT announce itself by dragging the heavy stack in --
+# which is exactly why the guard has to name it. The seam is about what this
+# boot path is allowed to depend on, not about what the dependency costs.
+_BLOCKED_ROOTS = ("at", "lume", "h5py", "lume_pyat")
+
 
 def _run_seam_ioc_subprocess() -> None:
-    """Subprocess entry point: make PyAT unimportable, then boot main().
+    """Subprocess entry point: make the heavy stack unimportable, then boot main().
 
     The blocker sits at the front of ``sys.meta_path``, so even an installed
-    PyAT cannot be imported in this process -- equivalent to (and stricter
-    than) running on a machine without PyAT.
+    PyAT (or lume, or h5py) cannot be imported in this process -- equivalent to
+    (and stricter than) running on a machine without them.
     """
     import importlib.abc
 
     class ATBlocker(importlib.abc.MetaPathFinder):
         def find_spec(self, fullname, path=None, target=None):
-            if fullname == "at" or fullname.startswith("at."):
-                raise ImportError("SEAM VIOLATION: PyAT imported on the no-lattice path")
+            root = fullname.split(".")[0]
+            if root in _BLOCKED_ROOTS:
+                raise ImportError(
+                    f"SEAM VIOLATION: {root} imported on the no-lattice path (via {fullname!r})"
+                )
             return None
 
     sys.meta_path.insert(0, ATBlocker())
@@ -257,7 +274,12 @@ class TestFileBackedBootWithoutPyat:
         return tmp_path
 
     def test_boots_serves_and_never_imports_pyat(self, seam_data_dir: Path):
-        env = dict(os.environ)
+        # Inherit the ambient environment MINUS the whole VA_ family, so this
+        # boot is configured by exactly what is set below. An inherited
+        # VA_BPM_ERRORS or VA_CORR_GAIN is a lattice-physics fault, and the
+        # entrypoint refuses to serve one unless VA_LATTICE='builtin' -- which
+        # a file-backed boot deliberately never sets.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("VA_")}
         env.update(
             VA_DATA_DIR=str(seam_data_dir),
             VA_CHANNELS_FILE="channels_manifest.json",
@@ -267,7 +289,6 @@ class TestFileBackedBootWithoutPyat:
             EPICS_CA_SERVER_PORT=str(free_port()),
             EPICS_CA_REPEATER_PORT=str(free_port()),
         )
-        env.pop("VA_LATTICE", None)
 
         proc = subprocess.Popen(
             [sys.executable, __file__, "--run-seam-ioc-subprocess"],

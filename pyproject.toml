@@ -120,6 +120,18 @@ dependencies = [
     # optional — the VA is exercised in almost all deployments, and PyAT
     # (accelerator-toolbox above) is already core, so the IOC toolkit joins it.
     "softioc",
+    # LUMEModel physics-backend contract for the VA (osprey.services.virtual_accelerator).
+    # Exact-pinned: young/fast-moving API (8 releases between 0.3.2 and 0.5.0) and the
+    # adapter code is written against the 0.5.0 contract specifically. Core, not optional —
+    # same reasoning as PyAT/softioc above.
+    "lume-base==0.5.0",
+    # pyAT physics backend implementing the LUMEModel contract above
+    # (osprey.services.virtual_accelerator.model). Exact-pinned for the same
+    # reason as lume-base: a young package whose surface is still settling, and
+    # the facility adapter is written against the 0.1.0 contract specifically —
+    # the persistent-lattice simulator, the atomic multi-variable set, and the
+    # rollback-on-lost-orbit guarantee the VA's write path depends on.
+    "lume-pyat==0.1.0",
     # Bluesky scan stack (osprey.services.bluesky_bridge): RunEngine, ophyd-async
     # devices, and the Tiled writer/reader. Core, not optional — Bluesky is a
     # core part of OSPREY, joining PyAT/softioc above. ophyd-async's [ca] brings

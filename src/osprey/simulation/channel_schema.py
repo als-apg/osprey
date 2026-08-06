@@ -22,7 +22,7 @@ NOT uniform across a family -- it is declared per FIELD:SUBFIELD:
 
 * Analog channels (``CURRENT:{SP,RB,GOLDEN}`` for magnets/correctors;
   ``POSITION``/``GOLDEN``/``OFFSET`` ``{X,Y}`` for BPM): ``DataType =
-  "double"``, ``HWUnits = "A"`` (magnet current) or ``"mm"`` (BPM position
+  "double"``, ``HWUnits = "A"`` (magnet current) or ``"m"`` (BPM position
   family), description = the SR DB's subfield prose (e.g. ``CURRENT:SP`` =
   "setpoint", ``POSITION:X`` = "horizontal").
 * ``STATUS`` channels: ``DataType = "enum"``, ``HWUnits = ""``, description
@@ -55,7 +55,7 @@ class SubfieldSchema:
     Attributes:
         data_type: ``middle_layer.json`` ``DataType`` (``"double"`` for
             analog measurements/setpoints, ``"enum"`` for status booleans).
-        hw_units: ``middle_layer.json`` ``HWUnits`` (e.g. ``"A"``, ``"mm"``,
+        hw_units: ``middle_layer.json`` ``HWUnits`` (e.g. ``"A"``, ``"m"``,
             or ``""`` for unitless status booleans).
         description: Subfield-level ``_description`` phrase as it appears in
             the shipped SR DBs (e.g. ``"setpoint"``, ``"horizontal"``,
@@ -139,8 +139,8 @@ _CORRECTOR_STATUS: dict[str, SubfieldSchema] = {
 # POSITION feeds the manifest's pyat-coupled partition; GOLDEN/OFFSET are
 # static-noisy.
 _BPM_XY: dict[str, SubfieldSchema] = {
-    "X": SubfieldSchema("double", "mm", "horizontal"),
-    "Y": SubfieldSchema("double", "mm", "vertical"),
+    "X": SubfieldSchema("double", "m", "horizontal"),
+    "Y": SubfieldSchema("double", "m", "vertical"),
 }
 _BPM_STATUS: dict[str, SubfieldSchema] = {
     "VALID": SubfieldSchema("enum", "", "valid"),

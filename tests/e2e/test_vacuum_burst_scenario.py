@@ -56,6 +56,7 @@ import pytest
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
+    SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     _default_opus_model,
     activate_scenarios,
     ariel_db_skip_reason,
@@ -160,6 +161,12 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
         max_turns=25,
         max_budget_usd=30.0,
         model=_default_opus_model(project),
+        # vacuum-burst's own scenario.json states the sector-7 burst and its
+        # 14:32:08 timestamp, and it sits in the agent's cwd. The bundle IS the
+        # live archiver overlay here, so it cannot be deleted; the
+        # filesystem-search surface is closed instead. See
+        # SCENARIO_INTEGRITY_DISALLOWED_TOOLS.
+        disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
 
     # --- Tool routing contract -------------------------------------------------

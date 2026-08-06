@@ -900,7 +900,7 @@
             "SR:DIAG:BPM:72:GOLDEN:X"
           ],
           "DataType": "double",
-          "HWUnits": "mm"
+          "HWUnits": "m"
         },
         "Y": {
           "_description": "vertical",
@@ -979,7 +979,7 @@
             "SR:DIAG:BPM:72:GOLDEN:Y"
           ],
           "DataType": "double",
-          "HWUnits": "mm"
+          "HWUnits": "m"
         }
       },
       "OFFSET": {
@@ -1061,7 +1061,7 @@
             "SR:DIAG:BPM:72:OFFSET:X"
           ],
           "DataType": "double",
-          "HWUnits": "mm"
+          "HWUnits": "m"
         },
         "Y": {
           "_description": "vertical",
@@ -1140,7 +1140,7 @@
             "SR:DIAG:BPM:72:OFFSET:Y"
           ],
           "DataType": "double",
-          "HWUnits": "mm"
+          "HWUnits": "m"
         }
       },
       "POSITION": {
@@ -1222,7 +1222,7 @@
             "SR:DIAG:BPM:72:POSITION:X"
           ],
           "DataType": "double",
-          "HWUnits": "mm"
+          "HWUnits": "m"
         },
         "Y": {
           "_description": "vertical",
@@ -1301,7 +1301,7 @@
             "SR:DIAG:BPM:72:POSITION:Y"
           ],
           "DataType": "double",
-          "HWUnits": "mm"
+          "HWUnits": "m"
         }
       },
       "STATUS": {

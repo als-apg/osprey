@@ -1,17 +1,24 @@
+"""Guard that importing the lattice modules does not drag in EPICS IOC deps.
+
+``softioc``/``cothread`` must stay behind the virtual-accelerator entry point:
+importing :mod:`osprey.simulation.lattice` in a plain venv has to work without
+them. The check runs in a subprocess on purpose — once a module is imported into
+the pytest host process the observation is worthless, so the target modules are
+never imported here.
+"""
+
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+CHECKOUT_SRC = Path(__file__).resolve().parents[2] / "src"
 
 
-def test_lattice_import_is_plain_venv_clean():
-    worktree_src = "/Users/thellert/LBL/ML/osprey/.claude/worktrees/one-facility/src"
-    code = (
-        "import osprey.simulation.lattice, osprey.simulation.facility_spec, sys;"
-        "bad=sorted(m for m in sys.modules if m.split('.')[0] in ('softioc','cothread'));"
-        "assert not bad, bad;"
-        "print('CLEAN')"
-    )
-    env = dict(os.environ, PYTHONPATH=worktree_src)
+def _assert_subprocess_clean(code: str) -> None:
+    """Run `code` in a fresh interpreter and require it to print CLEAN."""
+    pythonpath = os.pathsep.join(p for p in (str(CHECKOUT_SRC), os.environ.get("PYTHONPATH")) if p)
+    env = dict(os.environ, PYTHONPATH=pythonpath)
     r = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
@@ -20,3 +27,48 @@ def test_lattice_import_is_plain_venv_clean():
     )
     assert r.returncode == 0, r.stderr
     assert "CLEAN" in r.stdout
+
+
+def test_lattice_import_is_plain_venv_clean():
+    assert CHECKOUT_SRC.is_dir(), f"checkout src/ not found at {CHECKOUT_SRC}"
+    code = (
+        "import osprey.simulation.lattice, osprey.simulation.facility_spec, sys;"
+        f"src={str(CHECKOUT_SRC) + os.sep!r};"
+        "origin=osprey.simulation.lattice.__file__;"
+        "assert origin.startswith(src), (origin, src);"
+        "bad=sorted(m for m in sys.modules if m.split('.')[0] in ('softioc','cothread'));"
+        "assert not bad, bad;"
+        "print('CLEAN')"
+    )
+    _assert_subprocess_clean(code)
+
+
+def test_va_model_import_is_softioc_clean():
+    """The VA's LUME model layer must not drag in the EPICS IOC deps either.
+
+    ``model/`` is the facility adapter over the ``lume-pyat`` package, and
+    "softioc-free" is a shipping property rather than a preference: the
+    package it binds to has no softioc to import, so a stray IOC import on
+    this side would make the adapter unloadable anywhere the serving layer
+    is not also installed. Both the lazily-re-exporting package ``__init__``
+    and the module that owns the ring are checked -- the first would pass
+    trivially if the second were never imported.
+
+    The ``__file__`` assertions still pin the checkout: the physics moved to
+    the installed package, but these two modules did not, so resolving them
+    to site-packages would mean the test is examining an installed OSPREY
+    instead of the tree under test.
+    """
+    assert CHECKOUT_SRC.is_dir(), f"checkout src/ not found at {CHECKOUT_SRC}"
+    code = (
+        "import osprey.services.virtual_accelerator.model as pkg;"
+        "import osprey.services.virtual_accelerator.model.pyat as pyat;"
+        "import sys;"
+        f"src={str(CHECKOUT_SRC) + os.sep!r};"
+        "assert pkg.__file__.startswith(src), (pkg.__file__, src);"
+        "assert pyat.__file__.startswith(src), (pyat.__file__, src);"
+        "bad=sorted(m for m in sys.modules if m.split('.')[0] in ('softioc','cothread'));"
+        "assert not bad, bad;"
+        "print('CLEAN')"
+    )
+    _assert_subprocess_clean(code)

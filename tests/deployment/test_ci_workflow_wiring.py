@@ -342,6 +342,22 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
         )
 
 
+def test_lume_pyat_is_a_core_dependency() -> None:
+    """`model.pyat` imports lume_pyat at module level — PyATRingModel subclasses
+    LUMEPyATModel — so the VA cannot boot without it. Placement, not just
+    presence, is what this guards: the dev-wheel channel builds the VA image's
+    dependency manifest from the wheel's base `Requires-Dist` only
+    (`wheel_build._wheel_base_requirements` drops every entry gated behind an
+    extra). A pin parked in an optional extra would therefore vanish from
+    `osprey-local-requirements.txt` silently, and the image would build green
+    and fail at runtime on the first model import."""
+    pyproject = tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
+    core_deps = pyproject["project"]["dependencies"]
+    assert any(dep.startswith("lume-pyat") for dep in core_deps), (
+        "lume-pyat must be a core dependency, not an extra"
+    )
+
+
 # ---------------------------------------------------------------------------
 # The unit-test job runs in parallel, and the scheduler that makes it safe
 # still exists

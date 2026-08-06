@@ -6334,1587 +6334,1587 @@
     },
     "SR:DIAG:BPM:01:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 01 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 01 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:01:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 01 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 01 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:02:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 02 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 02 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:02:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 02 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 02 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:03:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 03 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 03 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:03:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 03 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 03 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:04:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 04 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 04 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:04:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 04 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 04 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:05:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 05 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 05 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:05:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 05 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 05 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:06:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 06 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 06 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:06:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 06 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 06 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:07:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 07 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 07 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:07:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 07 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 07 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:08:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 08 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 08 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:08:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 08 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 08 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:09:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 09 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 09 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:09:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 09 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 09 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:10:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 10 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 10 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:10:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 10 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 10 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:11:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 11 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 11 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:11:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 11 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 11 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:12:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 12 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 12 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:12:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 12 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 12 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:13:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 13 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 13 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:13:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 13 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 13 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:14:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 14 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 14 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:14:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 14 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 14 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:15:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 15 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 15 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:15:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 15 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 15 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:16:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 16 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 16 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:16:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 16 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 16 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:17:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 17 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 17 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:17:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 17 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 17 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:18:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 18 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 18 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:18:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 18 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 18 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:19:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 19 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 19 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:19:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 19 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 19 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:20:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 20 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 20 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:20:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 20 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 20 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:21:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 21 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 21 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:21:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 21 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 21 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:22:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 22 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 22 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:22:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 22 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 22 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:23:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 23 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 23 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:23:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 23 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 23 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:24:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 24 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 24 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:24:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 24 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 24 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:25:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 25 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 25 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:25:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 25 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 25 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:26:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 26 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 26 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:26:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 26 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 26 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:27:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 27 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 27 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:27:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 27 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 27 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:28:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 28 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 28 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:28:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 28 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 28 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:29:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 29 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 29 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:29:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 29 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 29 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:30:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 30 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 30 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:30:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 30 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 30 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:31:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 31 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 31 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:31:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 31 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 31 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:32:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 32 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 32 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:32:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 32 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 32 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:33:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 33 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 33 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:33:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 33 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 33 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:34:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 34 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 34 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:34:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 34 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 34 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:35:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 35 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 35 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:35:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 35 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 35 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:36:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 36 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 36 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:36:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 36 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 36 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:37:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 37 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 37 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:37:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 37 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 37 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:38:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 38 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 38 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:38:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 38 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 38 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:39:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 39 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 39 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:39:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 39 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 39 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:40:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 40 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 40 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:40:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 40 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 40 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:41:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 41 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 41 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:41:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 41 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 41 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:42:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 42 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 42 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:42:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 42 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 42 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:43:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 43 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 43 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:43:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 43 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 43 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:44:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 44 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 44 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:44:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 44 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 44 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:45:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 45 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 45 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:45:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 45 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 45 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:46:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 46 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 46 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:46:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 46 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 46 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:47:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 47 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 47 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:47:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 47 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 47 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:48:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 48 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 48 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:48:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 48 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 48 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:49:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 49 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 49 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:49:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 49 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 49 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:50:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 50 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 50 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:50:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 50 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 50 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:51:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 51 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 51 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:51:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 51 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 51 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:52:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 52 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 52 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:52:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 52 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 52 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:53:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 53 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 53 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:53:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 53 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 53 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:54:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 54 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 54 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:54:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 54 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 54 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:55:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 55 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 55 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:55:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 55 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 55 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:56:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 56 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 56 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:56:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 56 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 56 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:57:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 57 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 57 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:57:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 57 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 57 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:58:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 58 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 58 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:58:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 58 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 58 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:59:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 59 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 59 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:59:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 59 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 59 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:60:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 60 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 60 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:60:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 60 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 60 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:61:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 61 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 61 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:61:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 61 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 61 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:62:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 62 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 62 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:62:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 62 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 62 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:63:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 63 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 63 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:63:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 63 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 63 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:64:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 64 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 64 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:64:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 64 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 64 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:65:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 65 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 65 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:65:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 65 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 65 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:66:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 66 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 66 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:66:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 66 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 66 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:67:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 67 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 67 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:67:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 67 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 67 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:68:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 68 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 68 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:68:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 68 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 68 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:69:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 69 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 69 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:69:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 69 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 69 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:70:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 70 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 70 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:70:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 70 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 70 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:71:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 71 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 71 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:71:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 71 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 71 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:72:POSITION:X": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 72 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 72 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "SR:DIAG:BPM:72:POSITION:Y": {
       "value": 0.0,
-      "noise_abs": 0.001,
+      "noise_abs": 1e-06,
       "texture": {
         "kind": "wander",
-        "amplitude": 0.03,
+        "amplitude": 3e-05,
         "period_s": 43200.0
       },
-      "units": "mm",
-      "description": "Storage-ring BPM 72 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+      "units": "m",
+      "description": "Storage-ring BPM 72 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
     },
     "BR:MAG:DIPOLE:01:CURRENT:RB": {
       "value": 325.578,

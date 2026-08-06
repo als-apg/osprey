@@ -252,7 +252,7 @@ def full_manifest_records(manifest_channels):
 
     build_records() populates softioc's process-global builder registry, so
     every test that only needs to inspect the *result* shares this one
-    build rather than re-registering the same ~1,228 record names.
+    build rather than re-registering every record name in the manifest.
 
     Wired with the same derived ``drive_limits``/``boot_values`` maps
     entrypoint.main() passes in production (see ``_load_drive_limits``/
