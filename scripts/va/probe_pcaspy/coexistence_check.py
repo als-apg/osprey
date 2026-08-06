@@ -31,6 +31,17 @@ The local pvdb deliberately reuses the container's PV names with a sentinel-free
 default, so a caget that returned the local (unserved) copy instead of the
 container's would be caught by the value comparison, and the negative phases
 catch any other discovery path.
+
+Mechanism, for whoever has to act on the verdict: ``pcaspy/_cas...so`` links the
+EPICS libraries statically and globally exports ~59 ``ca_*`` symbols -- it embeds
+a complete second copy of the CA *client*, not just the portable server. Whichever
+EPICS stack binds first wins, so importing pcaspy before pyepics has initialised
+libca hands the client's ``ca_*`` calls to pcaspy's copy, whose context was never
+set up the way pyepics expects. That is why the ``libca-init-first`` phase, which
+inverts only the binding order, is the whole mitigation.
+
+The failure this produces depends on which libca pyepics loads, so the probe
+pins the production one (see ``use_production_libca``).
 """
 
 from __future__ import annotations
@@ -73,6 +84,24 @@ FALLBACK_PYTHON = os.environ.get(
 )
 
 
+def use_production_libca() -> str:
+    """Point pyepics at the same libca the connector uses in production.
+
+    ``epics_connector._configure_pyepics_libca`` sets ``PYEPICS_LIBCA`` to
+    ``epicscorelibs``' per-architecture libca, because pyepics' own bundled
+    ``clibs`` are x86_64-only. Which libca is loaded is not a detail here: it
+    changes the *failure mode* outright. Against pyepics' bundled libca a
+    poisoned client merely times out and returns ``None``; against the
+    epicscorelibs libca that production actually loads, the same caget
+    **segfaults**. Probing the bundled one would understate the risk.
+    """
+    from epicscorelibs.path import get_lib  # noqa: PLC0415
+
+    libca = get_lib("ca")
+    os.environ["PYEPICS_LIBCA"] = libca
+    return libca
+
+
 def ca_env(port: str) -> None:
     """Point the client at a name server and remove every other discovery path."""
     os.environ["EPICS_CA_NAME_SERVERS"] = f"localhost:{port}"
@@ -80,6 +109,7 @@ def ca_env(port: str) -> None:
     os.environ["EPICS_CA_ADDR_LIST"] = ""
     # Keep the in-process server off 5064 and off the probe container's port.
     os.environ["EPICS_CAS_SERVER_PORT"] = LOCAL_CAS_PORT
+    use_production_libca()
 
 
 LOCAL_PVDB = {
@@ -204,11 +234,15 @@ def phase_server_first_negative(_sentinel: float) -> int:
 
 
 def phase_libca_init_first(sentinel: float) -> int:
-    """Initialise libca (no connection), then import pcaspy, then caget.
+    """Initialise libca (no connection), then import pcaspy, then use the client.
 
     If a bare ``initialize_libca()`` is enough to survive the pcaspy import, the
     mitigation is trivial -- a conftest that touches pyepics before anything
     imports the server. If it takes a real connection, the fix is far uglier.
+
+    Reads alone would not settle it. Anything 4.3 builds on this also writes and
+    connects PVs it has never seen before, so the rescue is only worth reporting
+    if a caput with put-completion and a fresh channel both survive too.
     """
     import epics  # noqa: PLC0415
 
@@ -216,6 +250,13 @@ def phase_libca_init_first(sentinel: float) -> int:
     print("  called epics.ca.initialize_libca() (no PV connected yet)", flush=True)
     server, driver = build_unserved_server()
     ok, detail = do_caget(sentinel)
+    if ok:
+        wrote = epics.caput(SP, sentinel, wait=True, timeout=20) == 1
+        ok = ok and wrote
+        detail += f"; caput (put-completion) {'succeeded' if wrote else 'FAILED'}"
+        fresh_ok, fresh_detail = do_caget(float("nan"), PREFIX + "TELEM:COUNTER")
+        ok = ok and fresh_ok
+        detail += f"; NEW PV connected after the server: {fresh_detail}"
     print(f"PHASE libca-init-first {'PASS' if ok else 'FAIL'} -- {detail}", flush=True)
     del server, driver
     return 0 if ok else 1
@@ -404,6 +445,23 @@ def orchestrate() -> int:
             flush=True,
         )
         return 2
+
+    # When the poisoned direction dies the same way against a dead address as
+    # against the live one, its negative control has not detected a transport
+    # problem -- it has simply hit the same crash before any address mattered.
+    # Say so, or the bare FAIL reads as "the transport was misconfigured".
+    if (
+        not outcomes["server-first"][0]
+        and not outcomes["server-first-negative"][0]
+        and outcomes["server-first"][1] == outcomes["server-first-negative"][1]
+    ):
+        print(
+            "NOTE server-first-negative is moot, not contradictory: it failed "
+            f"identically to server-first ({outcomes['server-first'][1]}), i.e. the "
+            "client died before the name-server address could matter. The transport "
+            "claim rests on control-negative, which passed.",
+            flush=True,
+        )
 
     coexists = all(outcomes[name][0] for name in VERDICT_PHASES)
     print(
