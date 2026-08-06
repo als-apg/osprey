@@ -86,6 +86,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
+- Removed the `multi-user-demo`, `multi-user-demo-readonly`, and
+  `multi-user-demo-readwrite` presets. The `control-assistant` preset ships
+  the same two-persona multi-user web tier, so the demo family was a lighter
+  clone of it; build from `--preset control-assistant` instead. The multi-user
+  walkthrough now lives at How-To → Multi-User Support.
+
 - Removed the DOOCS connector's `max_points` history-decimation path. It built
   a fixed `np.linspace` grid and forward-filled onto it with a zero-order hold,
   which the "nothing is manufactured" contract forbids, and no production

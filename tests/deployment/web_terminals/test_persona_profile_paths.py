@@ -92,7 +92,7 @@ def _expect(project_path: Path, profile_args: list[str]) -> list[str]:
     [
         ("control-assistant", False),
         ("control_assistant", False),
-        ("multi-user-demo-readonly", False),
+        ("control-assistant-readonly", False),
         ("personas/readonly.yml", True),
         ("readonly.yml", True),
         ("readonly.yaml", True),

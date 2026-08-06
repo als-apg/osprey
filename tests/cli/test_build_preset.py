@@ -1277,7 +1277,7 @@ class TestDeployServicesKnob:
             [
                 "op",
                 "--preset",
-                "multi-user-demo-readonly",
+                "control-assistant-readonly",
                 "--skip-deps",
                 "--skip-lifecycle",
                 "--output-dir",
