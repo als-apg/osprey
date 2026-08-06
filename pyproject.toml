@@ -39,13 +39,13 @@ classifiers = [
 dependencies = [
     # Core framework dependencies
     "rich>=14.0.0",
-    "click>=8.1.0",
+    "click>=8.4.2",
     "questionary>=2.1.1",
     "python-dotenv>=1.1.0",
     "PyYAML>=6.0.2",
     "ruamel.yaml>=0.18.0",  # Comment-preserving YAML for config updates
     "Jinja2>=3.1.6",
-    "requests>=2.32.3",
+    "requests>=2.34.2",
     # Container runtime (Docker or Podman) must be installed separately via system package managers
     # Framework uses CLI tools (docker/podman commands), not Python packages
     # Install Docker Desktop 4.0+ OR Podman 4.0+:
@@ -71,7 +71,7 @@ dependencies = [
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
     "numpy>=2.2.6",  # Required by pandas
-    "matplotlib>=3.10.3",  # Required for Python capability visualization (core use case)
+    "matplotlib>=3.11.1",  # Required for Python capability visualization (core use case)
     # Networking and protocols
     "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
     "websocket-client>=1.7.0",
@@ -81,7 +81,7 @@ dependencies = [
     "idna>=3.18",
     "MarkupSafe>=3.0.2",
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
-    "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
+    "aiofiles>=25.1.0",  # Async file I/O for non-blocking Python executor
     # MCP server development (for building MCP servers)
     "fastmcp>=3.4.4",
     # Scientific computing stack - for Python execution capability
@@ -90,12 +90,12 @@ dependencies = [
     "scikit-learn",
     "plotly>=5.0.0",
     "bokeh>=3.9.1",  # Interactive dashboards (data-visualizer agent)
-    "playwright>=1.40.0",
+    "playwright>=1.61.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
     # Natural language processing
     "nltk>=3.10.0",
     # ARIEL Web Interface (FastAPI server)
-    "fastapi>=0.109.0",
+    "fastapi>=0.140.0",
     "uvicorn[standard]>=0.51.0",
     # Utilities
     "unique-namer>=0.1.0",
@@ -110,7 +110,7 @@ dependencies = [
     # File system monitoring for web terminal
     "watchdog>=6.0.0",
     # Async HTTP client for the web-terminal panel reverse proxy
-    "httpx>=0.27.0",
+    "httpx>=0.28.1",
     # Lattice physics (Accelerator Toolbox for lattice dashboard + shared ring).
     # Floor-pinned for the save_mat/load_mat(use='RING'), disable_6d, and
     # get_optics(get_chrom=) surface the shared ALS-U AR ring relies on.
@@ -125,6 +125,13 @@ dependencies = [
     # adapter code is written against the 0.5.0 contract specifically. Core, not optional —
     # same reasoning as PyAT/softioc above.
     "lume-base==0.5.0",
+    # pyAT physics backend implementing the LUMEModel contract above
+    # (osprey.services.virtual_accelerator.model). Exact-pinned for the same
+    # reason as lume-base: a young package whose surface is still settling, and
+    # the facility adapter is written against the 0.1.0 contract specifically —
+    # the persistent-lattice simulator, the atomic multi-variable set, and the
+    # rollback-on-lost-orbit guarantee the VA's write path depends on.
+    "lume-pyat==0.1.0",
     # Bluesky scan stack (osprey.services.bluesky_bridge): RunEngine, ophyd-async
     # devices, and the Tiled writer/reader. Core, not optional — Bluesky is a
     # core part of OSPREY, joining PyAT/softioc above. ophyd-async's [ca] brings
@@ -135,7 +142,7 @@ dependencies = [
     "duckdb>=1.5.4",
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
-    "typing_extensions>=4.12.0",
+    "typing_extensions>=4.16.0",
     # `osprey deploy up --dev` builds a wheel from the local checkout. A shipped
     # CLI flag must not depend on an optional extra: an editable install without
     # `--extra dev` would otherwise satisfy every other --dev precondition and
@@ -165,7 +172,7 @@ dev = [
     "pytest-order",  # Run flaky/in-debug e2e tests first via @pytest.mark.order
     "pytest-rerunfailures",  # Absorb rare LLM nondeterminism in agentic e2e via @pytest.mark.flaky
     "pytest-timeout",  # Deadlock-breaker for the model-matrix benchmark runner (--timeout)
-    "pytest-xdist",  # Parallel e2e lane in CI (-n 4 --dist loadfile; LLM-bound, file-isolated)
+    "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
     "mypy",
     "pre-commit",
     "ruff",
@@ -207,7 +214,7 @@ knowledge = [
 
 # Screen capture on Linux (X11) — not needed on macOS
 screen-capture-linux = [
-    "mss>=9.0.0",
+    "mss>=10.2.0",
     "python-xlib>=0.33",
 ]
 
@@ -337,9 +344,10 @@ markers = [
     "requires_als_apg: Tests that require ALS-APG API key (AWS Bedrock proxy; reachable from GitHub Actions runners)",
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
-    "flaky: Rerun on failure to absorb rare LLM nondeterminism (pytest-rerunfailures)",
+    "flaky: Rerun on failure to absorb nondeterminism outside the process — LLM sampling in e2e, OS event delivery in a couple of watcher tests (pytest-rerunfailures). Not for flaky unit tests; see tests/README.md",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
     "dockerbuild: E2E tests that run a real docker build (skipped when docker is unavailable)",
+    "real_workspace_watcher: Web-terminal app test that needs a live filesystem observer — opts out of the conftest stub that keeps broadcaster assertions deterministic",
 ]
 
 # Ruff configuration for modern Python linting
@@ -368,7 +376,6 @@ ignore = [
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "tests/*" = ["B011", "B017", "B018"]  # Allow assert False, useless attribute access, assert blind exception
 "tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
-"tests/registry/test_registry_isolation.py" = ["F401"]  # Intentional unused import for testing
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
@@ -380,6 +387,12 @@ known-first-party = ["osprey", "configs", "applications", "interfaces", "deploym
 # Coverage configuration (if using pytest-cov)
 [tool.coverage.run]
 source = ["src", "interfaces", "deployment"]
+# Hooks ship as standalone scripts and are exercised by spawning them, so most of
+# their code runs in child processes. The subprocess patcher makes those children
+# measure themselves. It force-enables parallel data files; the explicit entry
+# below documents that rather than leaving it implicit.
+patch = ["subprocess"]
+parallel = true
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

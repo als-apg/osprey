@@ -36,7 +36,6 @@ import { qs, byId } from '../_support/dom.mjs';
 import {
   setArtifacts,
   setSelectedArtifact,
-  setActiveFilter,
   setFocusedArtifact,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import {
@@ -130,21 +129,12 @@ async function resetTypeRegistry() {
 
 // =========================================================================
 // RENDER path — render.js's sidebar (tree / activity / gallery layouts) +
-// filter-bar chip labels.
+// tree-section header labels.
 // =========================================================================
 
 describe('RENDER path (render.js) — hostile metadata in sidebar renders', () => {
   function mountSidebarFixture() {
     document.body.innerHTML = `
-      <nav class="filter-bar" id="filter-bar">
-        <div class="filter-bar-inner">
-          <button class="filter-chip active" data-filter="all">ALL</button>
-          <button class="filter-chip" data-filter="pinned" title="Pinned items" hidden>
-            Pinned <span class="chip-count"></span>
-          </button>
-          <span class="filter-chip-separator" id="filter-type-chips"></span>
-        </div>
-      </nav>
       <input id="search" />
       <aside class="browse-sidebar" id="browse-sidebar">
         <div class="sidebar-body" id="sidebar-body"></div>
@@ -172,7 +162,6 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
 
   beforeEach(() => {
     mountSidebarFixture();
-    setActiveFilter('all');
     setSelectedArtifact(null);
   });
 
@@ -247,23 +236,23 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
     }
   );
 
-  test('initFilterBar: a hostile registry label is escaped as text in the chip innerHTML sink, typeIcon SVG survives', async () => {
+  test('a hostile registry label is escaped as text in the tree-section header innerHTML sink, typeIcon SVG survives', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ categories: { evilchip: { label: HOSTILE.DQ_ATTR } } }),
+      json: () => Promise.resolve({ categories: { evilcat: { label: HOSTILE.DQ_ATTR } } }),
     }));
     await initTypeRegistry();
 
     setArtifacts([
-      { id: 'c1', title: 'Chip Test', filename: 'c.png', artifact_type: 'evilchip', category: 'evilchip', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
+      { id: 'c1', title: 'Section Test', filename: 'c.png', artifact_type: 'evilcat', category: 'evilcat', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
     ]);
     const renderer = createSidebarRenderer(makeSidebarCallbacks());
-    renderer.initFilterBar();
+    renderer.renderSidebar();
 
-    const chip = document.querySelector('.filter-chip[data-filter="evilchip"]');
-    expect(chip).not.toBeNull();
-    if (chip === null) throw new Error('unreachable: chip asserted non-null above');
+    const header = document.querySelector('.tree-section-header[data-type="evilcat"]');
+    expect(header).not.toBeNull();
+    if (header === null) throw new Error('unreachable: header asserted non-null above');
     expectNoLiveInjection(document.body);
-    expect(chip.querySelector('.chip-icon svg')).not.toBeNull();
+    expect(header.querySelector('.tree-section-icon svg')).not.toBeNull();
   });
 });
 

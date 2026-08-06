@@ -4,7 +4,7 @@ Each injector copies a bundled compose template into ``<project>/services/``,
 writes the matching ``services.<name>`` block into ``config.yml`` (and
 registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
-:mod:`osprey.cli.build_profile` (``DispatchConfig``, ``BlueskyConfig``,
+:mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
 ``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``).
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
 and facility-declared service templates.

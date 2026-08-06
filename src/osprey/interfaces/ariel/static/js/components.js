@@ -10,6 +10,29 @@ import { parseEntryText } from './entries-helpers.js';
 import { messageOf } from './utils.js';
 
 /**
+ * Format a timestamp as a friendly, full-sentence date for Simple mode
+ * (frame 1b), e.g. "Tuesday, July 15 at 8:30 AM". Falls back to the raw
+ * string if the timestamp can't be parsed.
+ * @param {string} [timestamp] - ISO timestamp
+ * @returns {string} Humanized date/time
+ */
+export function formatHumanTimestamp(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  const day = date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+  const time = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `${day} at ${time}`;
+}
+
+/**
  * @typedef {Object} Entry
  * @property {string} entry_id
  * @property {string} [timestamp]
@@ -110,7 +133,7 @@ export function renderStatusIndicator(healthy, label) {
 /**
  * Render a tag list.
  * @param {string[]} tags - Tag values
- * @param {string} type - Tag type (default, accent, amber)
+ * @param {string} type - Tag type (default, accent, accent-secondary)
  * @returns {string} HTML string
  */
 export function renderTags(tags, type = '') {
@@ -186,6 +209,33 @@ export function renderEntryCard(entry, isCited = false) {
           `<span class="keyword-tag">${escapeHtml(kw)}</span>`
         ).join('')}</span>` : ''}
       </div>
+    </article>
+  `;
+}
+
+/**
+ * Render a plain-language result card for Simple mode (frame 1b): title,
+ * humanized date, author, and a plain-text summary — no relevance score,
+ * source chip, highlight markup, or keyword pills. The whole card and its
+ * footer link both carry data-entry-id, so the existing search-results
+ * delegation opens the same detail view as the Expert card.
+ * @param {Entry} entry - Entry data
+ * @returns {string} HTML string
+ */
+export function renderEntryCardSimple(entry) {
+  const { subject, details } = parseEntryText(entry.raw_text);
+  const preview = escapeHtml(details).slice(0, 240) + (details.length > 240 ? '…' : '');
+  const when = formatHumanTimestamp(entry.timestamp);
+  const author = escapeHtml(entry.author || 'Unknown');
+  const metaBits = [when, author].filter(Boolean).join(' · ');
+  const id = escapeHtml(entry.entry_id);
+
+  return `
+    <article class="entry-card-simple" data-entry-id="${id}">
+      <h3 class="entry-card-simple-title">${escapeHtml(subject)}</h3>
+      <div class="entry-card-simple-meta">${metaBits}</div>
+      <p class="entry-card-simple-summary">${preview}</p>
+      <a href="#" class="entry-card-simple-link" data-entry-id="${id}">Read the full entry &rarr;</a>
     </article>
   `;
 }
@@ -368,12 +418,14 @@ export function createElement(html) {
 export default {
   formatTimestamp,
   formatRelativeTime,
+  formatHumanTimestamp,
   getScoreClass,
   renderScoreBadge,
   renderStatusIndicator,
   renderTags,
   sanitizeHighlight,
   renderEntryCard,
+  renderEntryCardSimple,
   renderAnswerBox,
   renderDiagnosticsBar,
   renderLoading,

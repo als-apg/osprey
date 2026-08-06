@@ -193,7 +193,12 @@ function printImage(a) {
 
 /** @param {any} a */
 function printTimeseries(a) {
-  const chartEl = document.querySelector("#ts-viewport [data-ts-chart] .js-plotly-plot");
+  // Scoped to the Expert preview pane deliberately: the print button is
+  // injected into that pane's action bar and exists nowhere else, so its
+  // chart is the one to capture even when Simple's card holds one too.
+  const chartEl = document.querySelector(
+    "#preview-content .ts-viewport-container [data-ts-chart] .js-plotly-plot"
+  );
 
   if (!chartEl || typeof Plotly === "undefined") {
     alert("Chart not yet rendered. Please wait for it to load, then try again.");

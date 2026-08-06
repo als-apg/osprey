@@ -5,9 +5,10 @@ Covers the parts ``test_runtime_helper.py`` leaves untested: ``get_runtime_comma
 ``verify_runtime_is_running``, ``get_ps_command``, and the platform-specific
 "not running" help messages.
 
-The module caches the detected runtime in ``_cached_runtime_cmd``. Every test
-runs under the ``reset_runtime_cache`` fixture so the serial unit lane never
-leaks a cached decision (or the host's real docker/podman) between tests.
+The module memoizes the detected runtime per process. The suite-wide
+``reset_runtime_cache`` fixture in ``conftest.py`` clears that memo around every
+test, so the serial unit lane never leaks a cached decision (or the host's real
+docker/podman) between tests.
 """
 
 from __future__ import annotations
@@ -25,12 +26,9 @@ from osprey.deployment.runtime_helper import (
 
 
 @pytest.fixture(autouse=True)
-def reset_runtime_cache(monkeypatch):
-    """Clear the module-level runtime cache and env override around each test."""
-    monkeypatch.setattr(runtime_helper, "_cached_runtime_cmd", None)
+def clear_container_runtime_env(monkeypatch):
+    """Drop any host ``CONTAINER_RUNTIME`` override so detection is deterministic."""
     monkeypatch.delenv("CONTAINER_RUNTIME", raising=False)
-    yield
-    runtime_helper._cached_runtime_cmd = None
 
 
 def _make_run(exit_map):

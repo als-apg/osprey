@@ -97,9 +97,9 @@ describe('setTheme()', () => {
 
       // Task 1.7 (family model): the persisted preference is a
       // {family, mode} JSON pair, not a bare id -- setTheme('light')
-      // derives family 'osprey'/mode 'light' from THEMES itself.
+      // derives family 'main'/mode 'light' from THEMES itself.
       expect(window.localStorage.getItem('osprey-theme')).toBe(
-        JSON.stringify({ family: 'osprey', mode: 'light' })
+        JSON.stringify({ family: 'main', mode: 'light' })
       );
     });
 

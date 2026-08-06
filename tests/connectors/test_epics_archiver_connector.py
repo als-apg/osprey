@@ -11,7 +11,7 @@ import pytest
 
 from osprey.connectors.archiver.base import ArchiverMetadata
 from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
-from osprey.connectors.factory import ConnectorFactory
+from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 
 
 def _make_urlopen_response(payload: list) -> MagicMock:
@@ -602,10 +602,16 @@ class TestFactoryIntegration:
 
     @pytest.fixture(autouse=True)
     def setup_factory(self):
-        """Register EPICS archiver connector and clean up afterward."""
-        ConnectorFactory.register_archiver("epics_archiver", EPICSArchiverConnector)
-        yield
-        ConnectorFactory._archiver_connectors.clear()
+        """Register EPICS archiver connector and undo it afterward.
+
+        These tests only need their own registration present, so the
+        registries are bracketed rather than cleared: snapshot/restore drops
+        this registration on teardown while leaving registrations made
+        elsewhere in the process intact.
+        """
+        with isolated_connector_registries():
+            ConnectorFactory.register_archiver("epics_archiver", EPICSArchiverConnector)
+            yield
 
     @pytest.mark.asyncio
     async def test_factory_creates_epics_archiver_connector(self):

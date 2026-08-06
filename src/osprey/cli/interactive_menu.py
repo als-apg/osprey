@@ -12,6 +12,7 @@ The interactive menu is optional - users can still use direct commands like:
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -391,7 +392,6 @@ def check_directory_has_active_mounts(directory: Path) -> tuple[bool, list[str]]
         ...     print(f"Active mounts: {details}")
     """
     import json
-    import subprocess
 
     mount_details = []
 

@@ -46,6 +46,13 @@ _PANEL_MOUNTS: dict[str, str] = {
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    from osprey.utils.logger import configure_logging
+
+    # Launched as `uvicorn ...:app`, bypassing every Osprey entry point.
+    # Configuring on serve rather than on import keeps this module safe to
+    # import from a library path.
+    configure_logging()
+
     client = httpx.AsyncClient(timeout=15.0)
     _app.state.client = client
     # Resolved via the shared osprey.bluesky_bridge_connection helper so this

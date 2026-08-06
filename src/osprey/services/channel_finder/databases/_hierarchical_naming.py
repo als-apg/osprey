@@ -189,42 +189,6 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
 
         return channel
 
-    def _find_separator_between_levels(
-        self, start_idx: int, end_idx: int, pattern_levels: list[str]
-    ) -> str:
-        """
-        Find the appropriate separator between two non-consecutive pattern levels.
-
-        When optional levels are skipped, we need to find which separator to use.
-        We use the first separator encountered when walking from start to end.
-
-        Args:
-            start_idx: Index of the starting level (last non-empty)
-            end_idx: Index of the ending level (current non-empty)
-            pattern_levels: List of all pattern levels in order
-
-        Returns:
-            Separator string to use
-
-        Example:
-            Levels: [system, device, subdevice, signal]
-            Pattern: {system}-{device}:{subdevice}:{signal}
-            If subdevice is empty and we're connecting device (idx=1) to signal (idx=3):
-            - Check device→subdevice separator: ":"
-            - Return ":"
-        """
-        # Walk through levels from start to end and find first separator
-        for i in range(start_idx, end_idx):
-            current_level = pattern_levels[i]
-            next_level = pattern_levels[i + 1]
-            sep_key = (current_level, next_level)
-
-            if sep_key in self.default_separators:
-                return self.default_separators[sep_key]
-
-        # Fallback to colon if no separator found
-        return ":"
-
     def _build_channel_with_separators(
         self, path: dict[str, str], separator_overrides: dict[tuple[str, str], str]
     ) -> str:
@@ -262,7 +226,6 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
         import re
 
         pattern = self.naming_pattern
-        self._get_pattern_levels()
 
         # Parse the naming pattern to extract literal text and placeholders
         # Pattern: "S{sector}:{building}:F{floor}"
@@ -396,12 +359,9 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
             path: dict[str, str],
             node: dict,
             level_idx: int,
-            separator_overrides: dict[tuple[str, str], str] | None = None,
+            separator_overrides: dict[tuple[str, str], str],
         ):
             """Recursively expand tree with flexible level handling and custom separators."""
-            if separator_overrides is None:
-                separator_overrides = {}
-
             # Check if this node specifies a custom separator for its children
             # Create a NEW dict for this subtree to avoid polluting siblings
             local_overrides = separator_overrides.copy()

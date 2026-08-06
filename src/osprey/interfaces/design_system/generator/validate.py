@@ -22,16 +22,21 @@ system's actual contract is enforced:
   semantic token group name (``bg``, ``text``, ...).
 - **Promoted-primitive collisions** — no theme or interface extension
   token's emitted CSS name may collide with a promoted primitive scale
-  (``emit_css.py``'s ``_PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
+  (``naming.py``'s ``PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
   leading, space, radius, z, duration), which is theme-independent and
   cannot be overridden.
 - **Theme metadata** — every theme document's root ``$extensions`` must
   declare ``mode`` as ``"dark"`` or ``"light"`` (plus non-empty string
   ``id``/``label``/``family``). ``family`` groups a ``{light, dark}`` pair
-  (e.g. the built-in ``osprey`` family, or a future ``high-contrast``
+  (e.g. the built-in ``main`` family, or the ``high-contrast``
   family) and selects which :func:`gates_for_family` tuple applies.
+- **Default flag** — at most one theme may declare ``$extensions.default:
+  true``, it must be a boolean, and the flagged theme must be dark (it
+  pins both ``emit_css``'s ``:root`` fallback and the JS emitters'
+  ``DEFAULT_FAMILY`` via the shared
+  :func:`~.model.default_flagged_stem` — see :func:`check_default_flag`).
 - **WCAG contrast gates** — see :data:`WCAG_GATES` (AA, the default/
-  ``osprey``-family gates) and :data:`WCAG_GATES_AAA` (the ``high-contrast``
+  ``main``-family gates) and :data:`WCAG_GATES_AAA` (the ``high-contrast``
   family's gates), selected per theme by :func:`gates_for_family`; the
   relative-luminance and contrast-ratio functions here are also reused by
   the contract test suite (``tests/interfaces/design_system/test_contract.py``).
@@ -50,20 +55,22 @@ dot-path, per the generator's error-reporting contract.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from osprey.interfaces.design_system.generator.emit_css import (
-    _PROMOTED_PRIMITIVE_GROUPS,
-    css_variable_name,
-)
+from osprey.interfaces.design_system.errors import BundledValidationError
 from osprey.interfaces.design_system.generator.inherits import raw_inherits
 from osprey.interfaces.design_system.generator.model import (
     AliasStatus,
     ResolvedToken,
     TokenTree,
+)
+from osprey.interfaces.design_system.generator.naming import (
+    PROMOTED_PRIMITIVE_GROUPS,
+    css_variable_name,
+    promoted_css_name,
 )
 
 __all__ = [
@@ -85,6 +92,7 @@ __all__ = [
     "check_terminal_serialization",
     "check_theme_completeness",
     "check_theme_metadata",
+    "check_default_flag",
     "check_interface_mode_completeness",
     "check_namespace_collisions",
     "check_promoted_primitive_collisions",
@@ -114,11 +122,14 @@ class ValidationRule(StrEnum):
     #: An extension token's namespace collides with a semantic group name.
     NAMESPACE_COLLISION = "namespace_collision"
     #: A theme or interface extension token's emitted CSS name collides
-    #: with a promoted primitive scale (see :data:`_PROMOTED_PRIMITIVE_GROUPS`
-    #: in ``emit_css.py``).
+    #: with a promoted primitive scale (see :data:`PROMOTED_PRIMITIVE_GROUPS`
+    #: in ``naming.py``).
     PROMOTED_PRIMITIVE_COLLISION = "promoted_primitive_collision"
     #: A theme document's ``$extensions`` metadata is missing or invalid.
     INVALID_THEME_METADATA = "invalid_theme_metadata"
+    #: The ``$extensions.default`` flag is non-boolean, declared true by
+    #: more than one theme, or set on a non-dark theme.
+    INVALID_DEFAULT_FLAG = "invalid_default_flag"
     #: A ``terminal.*``/``terminal.ansi.*`` value isn't xterm-safe.
     TERMINAL_SERIALIZATION = "terminal_serialization"
     #: An interface extension document is missing a mode group a theme
@@ -150,16 +161,12 @@ class ValidationError:
         return f"{location}: {self.message}"
 
 
-class TokenValidationError(ValueError):
+class TokenValidationError(BundledValidationError[ValidationError]):
     """Raised by :func:`assert_valid` bundling every :class:`ValidationError`.
 
     Attributes:
         errors: Every validation failure, in the order they were found.
     """
-
-    def __init__(self, errors: Sequence[ValidationError]) -> None:
-        self.errors = list(errors)
-        super().__init__("\n".join(str(error) for error in self.errors))
 
 
 # --- Color parsing ------------------------------------------------------------
@@ -314,11 +321,12 @@ class WcagGate:
 
 
 #: Required contrast pairs, evaluated against ``bg.primary`` in every
-#: theme of the default/``osprey`` family (see :func:`gates_for_family`),
+#: theme of the default/``main`` family (see :func:`gates_for_family`),
 #: per the proposal's WCAG AA gates: text.primary/secondary >= 4.5:1 (body
 #: text), text.muted >= 3:1 (large/secondary text), accent.base >= 3:1
-#: (non-text UI). Never weakened to fit a value — a failing value gets
-#: nudged in the token source instead.
+#: (non-text UI), accent-secondary.light >= 4.5:1 (body text). Never
+#: weakened to fit a value — a failing value gets nudged in the token
+#: source instead.
 WCAG_GATES: tuple[WcagGate, ...] = (
     WcagGate(foreground="text.primary", background="bg.primary", minimum=4.5),
     WcagGate(foreground="text.secondary", background="bg.primary", minimum=4.5),
@@ -328,25 +336,57 @@ WCAG_GATES: tuple[WcagGate, ...] = (
     # is gated against accent.base, not bg.primary — the one consumer-color
     # pairing the fleet actually depends on that bg.primary gates never see.
     WcagGate(foreground="accent.on", background="accent.base", minimum=4.5),
+    # accent-secondary.light is the secondary accent's text-safe slot (the
+    # base is decorative-only). It carries body text fleet-wide —
+    # .text-accent-secondary, .tag-accent-secondary, inline code, and the
+    # shell's orientation labels — so it is gated as body text, not as the
+    # non-text UI tier its .base sibling would fall under.
+    WcagGate(foreground="accent-secondary.light", background="bg.primary", minimum=4.5),
 )
 
 #: Required contrast pairs for the ``high-contrast`` theme family (WCAG
 #: AAA), evaluated the same way as :data:`WCAG_GATES`: text.primary/
 #: secondary >= 7:1 (AAA normal/body text — both are treated as body-weight
 #: here, not the "large text" AAA exception, which permits 4.5:1),
-#: text.muted/accent.base >= 4.5:1 (AAA large-scale text / non-text UI).
+#: text.muted/accent.base >= 4.5:1 (AAA large-scale text / non-text UI),
+#: accent-secondary.light >= 7:1 (body text, same tier as text.primary).
 WCAG_GATES_AAA: tuple[WcagGate, ...] = (
     WcagGate(foreground="text.primary", background="bg.primary", minimum=7.0),
     WcagGate(foreground="text.secondary", background="bg.primary", minimum=7.0),
     WcagGate(foreground="text.muted", background="bg.primary", minimum=4.5),
     WcagGate(foreground="accent.base", background="bg.primary", minimum=4.5),
     WcagGate(foreground="accent.on", background="accent.base", minimum=7.0),
+    WcagGate(foreground="accent-secondary.light", background="bg.primary", minimum=7.0),
+)
+
+#: Required contrast pairs for the ``desy`` theme family: :data:`WCAG_GATES`
+#: minus the ``accent-secondary.light`` gate.
+#:
+#: The ``desy`` family is bound to the DESY Styleguide (06/24) palette and
+#: uses officially published hexes only — no interpolated brand shades. The
+#: styleguide publishes exactly two oranges and tunes the accessibility one,
+#: ``#eb6e0f``, to the **3:1 non-text floor** on white (3.10:1), not to the
+#: 4.5:1 text floor its cyan counterpart ``#007bc8`` hits (4.4995:1). DESY
+#: therefore treats orange as a graphics colour on light backgrounds, and
+#: publishes nothing darker. On ``desy-light``'s canvas the slot lands at
+#: 2.90:1, and the only way to clear AA would be to invent an off-styleguide
+#: shade — which is precisely what this family exists not to do.
+#:
+#: This is the single deliberate exemption in the system, scoped to one slot
+#: of one family and paid for in the theme's ``$description``. Every other
+#: gate — including ``accent.on``, which the family clears at 4.67:1 using
+#: DESY Black rather than white — is enforced at full AA. Do not widen this
+#: tuple to admit further failures: a new shortfall means the palette cannot
+#: carry the slot, and the slot's consumers should be rerouted instead.
+WCAG_GATES_DESY: tuple[WcagGate, ...] = tuple(
+    gate for gate in WCAG_GATES if gate.foreground != "accent-secondary.light"
 )
 
 #: Theme ``$extensions.family`` to its required WCAG gate tuple.
 _WCAG_GATES_BY_FAMILY: dict[str, tuple[WcagGate, ...]] = {
-    "osprey": WCAG_GATES,
+    "main": WCAG_GATES,
     "high-contrast": WCAG_GATES_AAA,
+    "desy": WCAG_GATES_DESY,
 }
 
 
@@ -358,7 +398,7 @@ def gates_for_family(family: str | None) -> tuple[WcagGate, ...]:
 
     Returns:
         :data:`WCAG_GATES_AAA` for the ``"high-contrast"`` family;
-        :data:`WCAG_GATES` (AA) for ``"osprey"`` and for every other value,
+        :data:`WCAG_GATES` (AA) for ``"main"`` and for every other value,
         including ``None`` and unrecognized families. Fail-closed: an
         unspecified or unknown family never silently loosens below AA.
     """
@@ -554,7 +594,7 @@ def check_theme_metadata(tree: TokenTree) -> list[ValidationError]:
     ``label``, and ``family`` must be present as non-empty strings.
     ``id``/``label`` are required per the design spec's theme registry
     metadata, consumed by the JS emitters; ``family`` groups a
-    ``{light, dark}`` pair (e.g. the built-in ``osprey`` family) and
+    ``{light, dark}`` pair (e.g. the built-in ``main`` family) and
     selects the theme's WCAG gate tuple (see :func:`gates_for_family`).
 
     Args:
@@ -680,6 +720,74 @@ def _interface_inherits(
     return valid
 
 
+def check_default_flag(tree: TokenTree) -> list[ValidationError]:
+    """Require a well-formed, unambiguous ``$extensions.default`` flag.
+
+    The flag selects the product-default theme via the shared
+    :func:`~.model.default_flagged_stem`, which both ``emit_css`` (the
+    ``:root`` fallback) and the JS emitters (``DEFAULT_FAMILY``) consume.
+    Ambiguity here would make the emitters' tiebreaks — not the author —
+    pick the default, so it is rejected outright: the flag must be a
+    boolean, at most one theme may set it true, and the flagged theme must
+    be dark (a light ``:root`` fallback is not emittable — ``emit_css``
+    would silently ignore the flag).
+
+    Args:
+        tree: The loaded token tree.
+
+    Returns:
+        One error per malformed flag, plus one for a duplicate
+        declaration.
+    """
+    errors: list[ValidationError] = []
+    flagged: list[str] = []
+    for stem, metadata in tree.theme_metadata.items():
+        if "default" not in metadata:
+            continue
+        source_file = _document_source_file(stem, tree.themes.get(stem, {}))
+        value = metadata["default"]
+        if not isinstance(value, bool):
+            errors.append(
+                ValidationError(
+                    rule=ValidationRule.INVALID_DEFAULT_FLAG,
+                    message=f"$extensions.default must be a boolean, got {value!r}",
+                    source_file=source_file,
+                    path="",
+                )
+            )
+            continue
+        if not value:
+            continue
+        if metadata.get("mode") != "dark":
+            errors.append(
+                ValidationError(
+                    rule=ValidationRule.INVALID_DEFAULT_FLAG,
+                    message=(
+                        "$extensions.default: true must be set on a dark theme — "
+                        "the flag pins emit_css's :root fallback, which is always dark"
+                    ),
+                    source_file=source_file,
+                    path="",
+                )
+            )
+        flagged.append(stem)
+
+    if len(flagged) > 1:
+        first = flagged[0]
+        errors.append(
+            ValidationError(
+                rule=ValidationRule.INVALID_DEFAULT_FLAG,
+                message=(
+                    "at most one theme may declare $extensions.default: true, "
+                    f"got {len(flagged)}: {', '.join(sorted(flagged))}"
+                ),
+                source_file=_document_source_file(first, tree.themes.get(first, {})),
+                path="",
+            )
+        )
+    return errors
+
+
 def check_interface_mode_completeness(tree: TokenTree) -> list[ValidationError]:
     """Require each interface extension document to cover every theme's mode.
 
@@ -791,8 +899,8 @@ def check_promoted_primitive_collisions(tree: TokenTree) -> list[ValidationError
     """Reject theme/interface tokens whose emitted CSS name collides with a promoted primitive.
 
     ``emit_css.py`` promotes an ordered tuple of core.json primitive groups
-    (``_PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight, leading, space,
-    radius, z, duration) directly to root-level CSS custom properties,
+    (``naming.py``'s ``PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
+    leading, space, radius, z, duration) directly to root-level CSS custom properties,
     emitted once in the default ``:root`` block and never per-theme. These
     scales are theme-independent by construction, so no theme's semantic
     token and no interface's extension token may emit the same CSS custom
@@ -806,9 +914,9 @@ def check_promoted_primitive_collisions(tree: TokenTree) -> list[ValidationError
         name collides with a promoted primitive.
     """
     promoted_names = {
-        f"--{path.replace('.', '-')}"
+        promoted_css_name(path)
         for path in tree.primitives
-        if path.split(".", 1)[0] in _PROMOTED_PRIMITIVE_GROUPS
+        if path.split(".", 1)[0] in PROMOTED_PRIMITIVE_GROUPS
     }
     if not promoted_names:
         return []
@@ -867,7 +975,7 @@ def check_wcag_gates(tree: TokenTree) -> list[ValidationError]:
     The gate tuple applied to each theme is selected by its
     ``$extensions.family`` via :func:`gates_for_family` — AAA
     (:data:`WCAG_GATES_AAA`) for the ``high-contrast`` family, AA
-    (:data:`WCAG_GATES`) for ``osprey`` and for every other/unspecified
+    (:data:`WCAG_GATES`) for ``main`` and for every other/unspecified
     family (fail-closed: nothing silently loosens below AA).
 
     Gates whose tokens are missing (already reported by
@@ -932,6 +1040,7 @@ def validate_token_tree(tree: TokenTree) -> list[ValidationError]:
     errors.extend(check_terminal_serialization(tree))
     errors.extend(check_theme_completeness(tree))
     errors.extend(check_theme_metadata(tree))
+    errors.extend(check_default_flag(tree))
     errors.extend(check_interface_mode_completeness(tree))
     errors.extend(check_namespace_collisions(tree))
     errors.extend(check_promoted_primitive_collisions(tree))

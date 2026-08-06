@@ -50,7 +50,15 @@ _ConfigLoader = Callable[[], "tuple[dict[str, Any] | None, dict[str, Any] | None
 # Core categories that read the loaded config and therefore degrade to a single
 # "config unavailable" skip row when the config could not be loaded/parsed.
 CONFIG_DEPENDENT = frozenset(
-    {"openobserve", "providers", "claude_cli_pinned", "model_chat", "ariel", "channel_finder"}
+    {
+        "openobserve",
+        "providers",
+        "claude_cli_pinned",
+        "model_chat",
+        "ariel",
+        "channel_finder",
+        "web_panels",
+    }
 )
 
 # Core categories in the on_demand cost class (gated behind ``--full``).

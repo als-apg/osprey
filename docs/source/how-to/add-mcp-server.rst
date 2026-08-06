@@ -158,6 +158,13 @@ Key points:
   the ``mcp`` instance.
 * Tool modules are imported inside ``create_server()`` so that
   ``@mcp.tool()`` decorators run after context is ready.
+* Log through the standard ``logging`` module and leave handler setup to
+  ``run_mcp_server()``, which calls ``osprey.configure_logging()`` on your
+  behalf.  Every log line goes to stderr; stdout belongs to the JSON-RPC
+  transport, so a ``print()`` there will break the client connection.  Anything
+  embedding Osprey outside an entry point — a notebook, a script — must call
+  ``osprey.configure_logging()`` itself to see log output; importing the
+  framework configures nothing.
 
 
 Step 3: Register Tools

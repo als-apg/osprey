@@ -1,8 +1,10 @@
 """Tests for mock connector."""
 
+from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
@@ -293,3 +295,127 @@ class TestMockArchiverConnector:
         assert values.std() > 0
 
         await connector.disconnect()
+
+
+@contextmanager
+def _captured_sigmas():
+    """Record the sigma of every Gaussian draw the mock connector makes.
+
+    Yields:
+        The list the recorder appends each draw's ``scale`` argument to, so a
+        test can assert on the exact sigma rather than on a sampled value.
+    """
+    sigmas: list[float] = []
+    real_normal = np.random.normal
+
+    def recorder(loc, scale, *args, **kwargs):
+        sigmas.append(scale)
+        return real_normal(loc, scale, *args, **kwargs)
+
+    with patch("osprey.connectors.control_system.mock_connector.np.random.normal", recorder):
+        yield sigmas
+
+
+class TestKindAwareNoiseFloor:
+    """The procedural fallback applies noise multiplicatively, so a channel
+    whose baseline is exactly ``0.0`` is immune to its own noise declaration.
+    Kinds whose base can legitimately be zero therefore carry an absolute sigma
+    floor (``PVKind.noise_scale``); every other kind's sigma is untouched.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pv_name", "base_value"),
+        [
+            ("SR:BEAM:CURRENT", 500.0),
+            ("PS:CURRENT", 150.0),
+            ("RF:VOLTAGE", 5000.0),
+            ("RF:POWER", 50.0),
+            ("VAC:PRESSURE", 1e-9),
+            ("CRYO:TEMP", 25.0),
+            ("SR:LIFETIME", 10.0),
+            ("SR:ENERGY", 1900.0),
+            ("SOME:RANDOM:PV", 100.0),
+        ],
+    )
+    async def test_non_position_kind_sigma_is_exactly_unchanged(self, pv_name, base_value):
+        """Regression guard: the floor must not perturb any kind with a non-zero base."""
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
+            with _captured_sigmas() as sigmas:
+                await connector.read_channel(pv_name)
+            await connector.disconnect()
+
+        assert sigmas == [abs(base_value) * 0.01]
+
+    @pytest.mark.asyncio
+    async def test_position_channel_sigma_at_zero_baseline_is_the_kind_floor(self):
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
+            with _captured_sigmas() as sigmas:
+                await connector.read_channel("BPM:POSITION:X")
+            await connector.disconnect()
+
+        assert sigmas == [0.005]
+
+    @pytest.mark.asyncio
+    async def test_position_channel_at_zero_baseline_varies_across_reads(self):
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
+
+            values = {(await connector.read_channel("BPM:POSITION:X")).value for _ in range(20)}
+
+            await connector.disconnect()
+
+        assert len(values) > 1, "a 0.0-baseline position channel must still carry noise"
+
+    @pytest.mark.asyncio
+    async def test_floor_stops_binding_once_the_channel_moves_off_zero(self):
+        """Above the floor the sigma is purely relative again -- the floor is a
+        minimum, not an added noise source."""
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_with_writes_enabled,
+        ):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
+            await connector.write_channel("BPM:POSITION:X", 5.0)
+
+            with _captured_sigmas() as sigmas:
+                await connector.read_channel("BPM:POSITION:X")
+
+            await connector.disconnect()
+
+        assert sigmas == [5.0 * 0.01]
+
+    @pytest.mark.asyncio
+    async def test_zero_noise_level_disables_the_floor(self):
+        """``noise_level: 0`` is an explicit request for determinism; the kind
+        floor exists to fix the zero-base degeneracy, not to override that
+        request, so it does not apply when the relative level is zero."""
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+            with _captured_sigmas() as sigmas:
+                await connector.read_channel("BPM:POSITION:X")
+                await connector.read_channel("SR:BEAM:CURRENT")
+            await connector.disconnect()
+
+        assert sigmas == [0.0, 0.0]
+
+    @pytest.mark.asyncio
+    async def test_position_channel_at_zero_noise_level_is_deterministic(self):
+        """True determinism, not merely small variance: repeated reads of a
+        0.0-baseline position channel must return the exact same value."""
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+
+            values = {(await connector.read_channel("BPM:POSITION:X")).value for _ in range(20)}
+
+            await connector.disconnect()
+
+        assert len(values) == 1, "noise_level 0.0 must produce identical reads, not just tight ones"

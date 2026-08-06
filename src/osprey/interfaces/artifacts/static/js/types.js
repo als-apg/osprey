@@ -291,21 +291,6 @@ export function isNewThisSession(a, sessionStart) {
   return !!(a.timestamp && a.timestamp >= sessionStart);
 }
 
-/**
- * Forward text to the parent embedder (e.g. a terminal panel) for paste,
- * via postMessage. No-op outside an embedded/iframed context.
- * @param {string} text
- * @returns {void}
- */
-export function sendToTerminal(text) {
-  try {
-    if (window.parent && window.parent !== window) {
-      // Intentional '*' (same-origin contract exception): parent embedder may be cross-origin.
-      window.parent.postMessage({ type: "osprey-paste-to-terminal", text }, "*");
-    }
-  } catch { /* cross-origin */ }
-}
-
 // ---- Color pass: color badges by type ---- //
 
 /**

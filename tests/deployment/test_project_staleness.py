@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from osprey.cli import build_profile
+from osprey.cli import build_profile, build_profile_presets
 from osprey.deployment import staleness
 
 
@@ -21,7 +21,7 @@ from osprey.deployment import staleness
 def presets_dir(tmp_path, monkeypatch):
     d = tmp_path / "presets"
     d.mkdir()
-    monkeypatch.setattr(build_profile, "_presets_dir", lambda: d)
+    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: d)
     return d
 
 

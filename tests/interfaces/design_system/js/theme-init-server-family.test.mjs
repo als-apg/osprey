@@ -46,7 +46,7 @@ describe('initTheme() first visit (hub)', () => {
     document.documentElement.setAttribute('data-theme', 'high-contrast-dark');
     window.localStorage.setItem(
       'osprey-theme',
-      JSON.stringify({ family: 'osprey', mode: 'light' })
+      JSON.stringify({ family: 'main', mode: 'light' })
     );
 
     ThemeManager.initTheme({ role: 'hub' });

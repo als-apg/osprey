@@ -106,13 +106,10 @@ P4_DETECTOR = "p4_det"
 P5_DETECTOR = "p5_det"
 
 # The bridge's launch route (POST /runs/{id}/launch) fails closed on an unset
-# BLUESKY_LAUNCH_TOKEN. `osprey deploy up` normally auto-mints one, but the
-# control-assistant preset deploys with control_system.writes_enabled: true AND
-# execution.execution_method: local, which deliberately gates auto-arming off
-# (container_lifecycle._local_exec_arming_unsafe — a local unsandboxed agent
-# could read the token and bypass the write gate). This e2e is a controlled
-# test, not agent code, so it supplies its own token explicitly (the supported
-# operator-provides-a-token path) rather than exercise that arming policy here.
+# BLUESKY_LAUNCH_TOKEN. `osprey deploy up` mints one for the deployed bluesky
+# service, but this e2e supplies its own explicitly (the supported
+# operator-provides-a-token path) so the test knows the token value up front
+# and never has to read it back out of the project .env.
 LAUNCH_TOKEN = "e2e-substrate-equivalence-launch-token"
 
 BUILD_TIMEOUT_SEC = 300

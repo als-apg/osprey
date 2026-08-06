@@ -10,14 +10,14 @@ import json
 
 import pytest
 
-from osprey.cli import build_profile
+from osprey.cli import build_profile, build_profile_presets
 
 
 @pytest.fixture
 def presets_dir(tmp_path, monkeypatch):
     d = tmp_path / "presets"
     d.mkdir()
-    monkeypatch.setattr(build_profile, "_presets_dir", lambda: d)
+    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: d)
     return d
 
 
@@ -60,6 +60,15 @@ def test_compute_preset_hash_unknown_preset_returns_none(presets_dir):
     assert build_profile.compute_preset_hash("no-such-preset") is None
 
 
+def test_compute_profile_hash_is_stable(tmp_path):
+    """Re-hashing unchanged content yields the same digest (the staleness no-drift case)."""
+    profile = tmp_path / "my-profile.yml"
+    profile.write_text("name: Custom\nskills: [a, b]\n", encoding="utf-8")
+    assert build_profile.compute_profile_hash(profile) == build_profile.compute_profile_hash(
+        profile
+    )
+
+
 def test_compute_profile_hash_tracks_content_change(tmp_path):
     profile = tmp_path / "my-profile.yml"
     profile.write_text("name: Custom\n", encoding="utf-8")
@@ -71,6 +80,13 @@ def test_compute_profile_hash_tracks_content_change(tmp_path):
 
 def test_compute_profile_hash_missing_file_returns_none(tmp_path):
     assert build_profile.compute_profile_hash(tmp_path / "gone.yml") is None
+
+
+def test_compute_profile_hash_non_mapping_yaml_returns_none(tmp_path):
+    """A profile file whose YAML parses to a list (not a mapping) is unhashable."""
+    profile = tmp_path / "list-profile.yml"
+    profile.write_text("- a\n- b\n", encoding="utf-8")
+    assert build_profile.compute_profile_hash(profile) is None
 
 
 def test_generate_manifest_stamps_preset_hash(presets_dir, tmp_path):

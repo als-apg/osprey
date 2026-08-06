@@ -88,6 +88,25 @@ def test_get_hook_input_malformed_stdin_returns_empty(monkeypatch):
     assert hook_log.get_hook_input() == {}
 
 
+@pytest.mark.parametrize("payload", ["[1, 2, 3]", '"str"', "42", "true"])
+def test_get_hook_input_truthy_non_dict_returns_empty(payload, monkeypatch):
+    """Valid JSON that parses to a truthy non-dict must still yield {}.
+
+    Consumers gate on ``if not hook_input`` and then call ``.get()``. A truthy
+    non-dict clears that gate and would raise ``AttributeError``, exiting
+    non-zero — which makes fail-open PreToolUse hooks block the tool call.
+    """
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+    assert hook_log.get_hook_input() == {}
+
+
+@pytest.mark.parametrize("payload", ["[]", "0"])
+def test_get_hook_input_falsy_non_dict_returns_empty(payload, monkeypatch):
+    """Falsy non-dicts already short-circuit in consumers; pin them anyway."""
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+    assert hook_log.get_hook_input() == {}
+
+
 # ---------------------------------------------------------------------------
 # get_project_dir
 # ---------------------------------------------------------------------------

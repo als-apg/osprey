@@ -24,6 +24,13 @@ class BaseProvider(ABC):
         requires_model_id: Whether provider requires model ID specification
         supports_proxy: Whether provider supports HTTP proxy configuration
         default_base_url: Default API endpoint URL if applicable
+        base_url_env_var: Name of an env var that, when set, overrides every
+            other base_url source (explicit argument, config, default) for this
+            provider — the runtime lever for redirecting an already-deployed
+            system at a different gateway without a rebuild. None disables the
+            override (the default; providers opt in explicitly so the name
+            never collides with an env var another layer owns, e.g.
+            ANTHROPIC_BASE_URL).
         default_model_id: Default model recommended for general use (used in templates)
         health_check_model_id: Cheapest/fastest model for health checks
         available_models: List of available model IDs for this provider
@@ -53,6 +60,7 @@ class BaseProvider(ABC):
     requires_model_id: bool = NotImplemented
     supports_proxy: bool = NotImplemented
     default_base_url: str | None = None
+    base_url_env_var: str | None = None  # Env var overriding all base_url sources (opt-in)
     default_model_id: str | None = None  # Default model for templates/general use
     health_check_model_id: str | None = None  # Cheapest model for health checks
     available_models: list[str] = []  # List of available models for this provider

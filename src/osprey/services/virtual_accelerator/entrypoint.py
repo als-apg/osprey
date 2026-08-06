@@ -255,6 +255,12 @@ def _load_boot_values(machine_path: Path | None = None) -> dict[str, float]:
 
 
 def main() -> None:
+    from osprey.utils.logger import configure_logging
+
+    # Container entry point: without this the softioc/PyAT/framework log records
+    # this process drives would have no handler. Records go to stderr.
+    configure_logging()
+
     data_dir = Path(os.environ.get("VA_DATA_DIR", DEFAULT_DATA_DIR))
     machine_path = data_dir / "machine.json"
     if not machine_path.is_file():

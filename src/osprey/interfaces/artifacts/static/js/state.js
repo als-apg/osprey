@@ -3,8 +3,8 @@
  * OSPREY Artifact Gallery — shared state, fetch layer, and filtering.
  *
  * Owns the gallery's core mutable state (the artifact list, the selected/
- * focused artifact, the active type filter, and the current-session
- * scoping) behind explicit get/set accessors, not raw exported `let`
+ * focused artifact, and the current-session scoping) behind explicit
+ * get/set accessors, not raw exported `let`
  * bindings — ES modules only give importers a read-only live view of an
  * exported binding, so reassignment has to go through a function here.
  * gallery.js and its sibling render/preview/timeseries modules call these
@@ -12,7 +12,7 @@
  * writes the same source of truth.
  *
  * Also owns the artifact-fetch API calls (fetchArtifacts/fetchFocus), the
- * error banner they drive, and getFilteredArtifacts() (filter+search+sort).
+ * error banner they drive, and getFilteredArtifacts() (search+sort).
  * Render effects (health indicator, header count, sidebar re-render) are
  * NOT triggered here — DOM rendering belongs to gallery.js and the renderer
  * modules, so fetchArtifacts() takes an optional callbacks object instead,
@@ -34,8 +34,6 @@ let artifacts = [];
 let selectedArtifact = null;
 /** @type {any|null} */
 let focusedArtifact = null;
-/** @type {string} "all" | "pinned" | a type/category string */
-let activeFilter = "all";
 /** @type {string|null} */
 let currentSessionId = null;
 let showAllSessions = false;
@@ -56,11 +54,6 @@ export function setSelectedArtifact(a) { selectedArtifact = a; }
 export function getFocusedArtifact() { return focusedArtifact; }
 /** @param {any|null} a */
 export function setFocusedArtifact(a) { focusedArtifact = a; }
-
-/** @returns {string} */
-export function getActiveFilter() { return activeFilter; }
-/** @param {string} f */
-export function setActiveFilter(f) { activeFilter = f; }
 
 /** @returns {string|null} */
 export function getCurrentSessionId() { return currentSessionId; }
@@ -173,20 +166,15 @@ export async function fetchFocus() {
 // ---- Filtering ---- //
 
 /**
- * Filter/search/sort the current artifact list for display: applies the
- * active type filter, then the (already-normalized) search query, then
- * sorts pinned-first / newest-first.
+ * Search/sort the current artifact list for display: applies the
+ * (already-normalized) search query, then sorts pinned-first /
+ * newest-first. (Type narrowing is the tree's job — its sections group by
+ * type — so there is no separate type filter.)
  * @param {string} [searchQuery] - already-trimmed, lowercased search text (the caller reads it from the DOM)
  * @returns {any[]}
  */
 export function getFilteredArtifacts(searchQuery = "") {
   let filtered = [...artifacts];
-
-  if (activeFilter === "pinned") {
-    filtered = filtered.filter((a) => a.pinned);
-  } else if (activeFilter !== "all") {
-    filtered = filtered.filter((a) => a.category === activeFilter || a.artifact_type === activeFilter);
-  }
 
   if (searchQuery) {
     filtered = filtered.filter(
@@ -205,4 +193,20 @@ export function getFilteredArtifacts(searchQuery = "") {
   });
 
   return filtered;
+}
+
+/**
+ * The full artifact list sorted newest-first, independent of the
+ * pinned-first ordering getFilteredArtifacts() applies.
+ * Simple mode's "latest result" + "Results from this session" list read this.
+ *
+ * Session scoping is unchanged: `artifacts` already holds exactly what the
+ * last fetch returned — the current session's artifacts when a session scope
+ * has been received, or (when none has) the most-recent set across sessions,
+ * because fetchArtifacts() adds no `session_id` filter without a
+ * currentSessionId. So this is never empty when any artifacts exist.
+ * @returns {any[]}
+ */
+export function getRecentArtifacts() {
+  return [...artifacts].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
 }

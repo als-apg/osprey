@@ -35,7 +35,8 @@ class TestConfigFields:
         cfg = ExecutionControlConfig()
         # Fail-safe default: writes disabled unless explicitly enabled.
         assert cfg.control_system_writes_enabled is False
-        assert cfg.control_system_type == "epics"
+        # Fail-closed default: an unspecified type is mock, never a live system.
+        assert cfg.control_system_type == "mock"
 
     def test_modern_field_is_honoured(self):
         cfg = ExecutionControlConfig(control_system_writes_enabled=True)
@@ -130,8 +131,8 @@ class TestGetExecutionControlConfigFactory:
         )
         cfg = get_execution_control_config()
         assert cfg.control_system_writes_enabled is False
-        # Type falls back to the EPICS default.
-        assert cfg.control_system_type == control_mod.EPICS
+        # Type falls back to mock, not to a live control system.
+        assert cfg.control_system_type == control_mod.MOCK
 
     def test_exception_falls_back_to_safe_defaults(self, monkeypatch):
         def boom(path, default=None, config_path=None):
@@ -139,8 +140,10 @@ class TestGetExecutionControlConfigFactory:
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", boom)
         cfg = get_execution_control_config()
-        # On any failure the factory must return a write-disabled config.
+        # On any failure the factory must return a write-disabled config on a
+        # non-live control system.
         assert cfg.control_system_writes_enabled is False
+        assert cfg.control_system_type == control_mod.MOCK
         assert (
             cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
             is ExecutionMode.READ_ONLY

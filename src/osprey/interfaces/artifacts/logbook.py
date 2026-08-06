@@ -1,8 +1,8 @@
 """Logbook Entry Composer — compose and submit ARIEL logbook entries from the gallery.
 
 Gathers metadata about artifacts/context entries + the session audit trail,
-calls Claude Haiku to compose a narrative logbook entry, then submits as an
-ARIEL draft for human review in the ARIEL web form.
+calls the configured composition model to write a narrative logbook entry,
+then submits as an ARIEL draft for human review in the ARIEL web form.
 """
 
 from __future__ import annotations
@@ -332,12 +332,10 @@ def _clean_llm_json(text: str) -> str:
     return text
 
 
-# Default composition config when logbook.composition is absent from config.yml
-_DEFAULT_COMPOSITION = {
-    "provider": "anthropic",
-    "model_id": "haiku",
-    "default_tier": "haiku",
-}
+# Tier used when logbook.composition names none. Provider and model ID have no
+# built-in default: a wrong provider silently bills the wrong account, and a
+# tier name is not a model ID, so both are resolved from config or fail loudly.
+_DEFAULT_COMPOSITION_TIER = "haiku"
 
 
 def _resolve_composition_model(
@@ -346,29 +344,42 @@ def _resolve_composition_model(
     """Resolve provider and model_id for logbook composition.
 
     Resolution order:
-    1. If *model* is a tier name (haiku/sonnet/opus), look up model_id
-       from ``api.providers[provider].models[tier]``.
-    2. Otherwise use ``logbook.composition.model_id`` from config.yml.
-    3. Falls back to built-in defaults (cborg / anthropic/claude-haiku).
+    1. Provider: ``logbook.composition.provider``, falling back to the
+       project's ``claude_code.provider``.
+    2. Tier: *model* when it names a tier (haiku/sonnet/opus), otherwise
+       ``logbook.composition.default_tier``.
+    3. Model ID: ``api.providers[provider].models[tier]``. A facility whose
+       provider has no entry for the tier can pin a literal ID with
+       ``logbook.composition.model_id``.
 
     Returns:
         (provider, model_id) tuple
+
+    Raises:
+        HTTPException: 503 when no provider is configured, the provider is
+            absent from ``api.providers``, or the tier maps to no model ID.
     """
     from osprey.models.config import get_provider_config
     from osprey.utils.config import get_config_value
 
-    # Read logbook.composition section (or fall back to defaults)
     comp = get_config_value("logbook.composition", {})
     if not isinstance(comp, dict):
         comp = {}
-    provider = comp.get("provider", _DEFAULT_COMPOSITION["provider"])
-    default_model_id = comp.get("model_id", _DEFAULT_COMPOSITION["model_id"])
-    default_tier = comp.get("default_tier", _DEFAULT_COMPOSITION["default_tier"])
 
-    # Determine which tier to use
+    provider = comp.get("provider") or get_config_value("claude_code.provider", "")
+    if not provider:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No provider configured for logbook composition. Set "
+                "logbook.composition.provider in config.yml (it falls back to "
+                "claude_code.provider) to a provider declared under api.providers."
+            ),
+        )
+
+    default_tier = comp.get("default_tier", _DEFAULT_COMPOSITION_TIER)
     tier = model if model and model in VALID_TIERS else default_tier
 
-    # Look up tier → model_id from the provider's models mapping
     provider_cfg = get_provider_config(provider)
     if not provider_cfg:
         raise HTTPException(
@@ -378,8 +389,17 @@ def _resolve_composition_model(
                 "Check logbook.composition.provider in config.yml."
             ),
         )
-    provider_models = provider_cfg.get("models", {})
-    model_id = provider_models.get(tier, default_model_id)
+
+    model_id = provider_cfg.get("models", {}).get(tier) or comp.get("model_id")
+    if not model_id:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Provider '{provider}' defines no '{tier}' model. Add it under "
+                f"api.providers.{provider}.models, or pin a literal model ID with "
+                "logbook.composition.model_id."
+            ),
+        )
 
     return provider, model_id
 
@@ -391,8 +411,9 @@ async def compose_entry(
 ) -> ComposeResponse:
     """Call the configured LLM provider to compose a logbook entry.
 
-    Uses ``aget_chat_completion()`` with provider + model_id resolved from
-    ``logbook.composition`` in config.yml and ``api.providers`` tier mappings.
+    Uses ``aget_chat_completion()`` with provider + model_id resolved by
+    :func:`_resolve_composition_model` from ``logbook.composition`` (or the
+    project's ``claude_code.provider``) and ``api.providers`` tier mappings.
 
     If *system_prompt* is provided it is used directly; otherwise the
     legacy ``SYSTEM_PROMPT`` is used for backward compatibility.

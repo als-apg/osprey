@@ -142,6 +142,7 @@ class TestAgentDelegation:
     # -------------------------------------------------------------------
 
     @pytest.mark.asyncio
+    @pytest.mark.flaky(reruns=2)
     async def test_logbook_search_delegation(self, delegation_project):
         """Logbook-search agent: delegation contract + (when ARIEL is up) retrieval.
 
@@ -228,6 +229,7 @@ class TestAgentDelegation:
     # -------------------------------------------------------------------
 
     @pytest.mark.asyncio
+    @pytest.mark.flaky(reruns=2)
     async def test_channel_finder_delegation(self, delegation_project):
         """Channel-finder agent: delegation contract for description-to-PV lookup.
 
@@ -302,6 +304,7 @@ class TestAgentDelegation:
     # -------------------------------------------------------------------
 
     @pytest.mark.asyncio
+    @pytest.mark.flaky(reruns=2)
     async def test_data_visualizer_delegation(self, delegation_project):
         """Data-visualizer agent: sandboxed plot creation via workspace MCP tools.
 

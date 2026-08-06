@@ -1,37 +1,18 @@
 """Tests for MCP server lifecycle helpers (``osprey.mcp_server.startup``).
 
-Covers the startup-timing context manager, the stderr logging redirect and its
-idempotence guard, config-builder priming (present/absent/failing OSPREY_CONFIG),
-workspace singleton init, and the shared ``run_mcp_server`` entry point wiring.
+Covers the startup-timing context manager, config-builder priming
+(present/absent/failing OSPREY_CONFIG), workspace singleton init, and the shared
+``run_mcp_server`` entry point wiring. Logging-mechanism behavior itself lives in
+``tests/utils/test_configure_logging.py``.
 """
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
-from rich.logging import RichHandler
 
 from osprey.mcp_server import startup
-
-
-@pytest.fixture
-def restore_root_logging():
-    """Snapshot and restore the root logger so redirect tests don't leak handlers."""
-    root = logging.getLogger()
-    saved_handlers = root.handlers[:]
-    saved_level = root.level
-    saved_lib_levels = {
-        lib: logging.getLogger(lib).level
-        for lib in ["httpx", "httpcore", "requests", "urllib3", "LiteLLM"]
-    }
-    yield
-    root.handlers[:] = saved_handlers
-    root.setLevel(saved_level)
-    for lib, lvl in saved_lib_levels.items():
-        logging.getLogger(lib).setLevel(lvl)
-
 
 # ---------------------------------------------------------------------------
 # startup_timer
@@ -56,34 +37,6 @@ def test_startup_timer_emits_on_exception(capsys, monkeypatch):
         with startup.startup_timer("boom"):
             raise ValueError("x")
     assert "[STARTUP-TIMING] svc | boom:" in capsys.readouterr().err
-
-
-# ---------------------------------------------------------------------------
-# redirect_logging_to_stderr
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_redirect_installs_stderr_rich_handler(restore_root_logging):
-    root = logging.getLogger()
-    root.handlers[:] = []  # start clean for a deterministic assertion
-    startup.redirect_logging_to_stderr()
-    rich_handlers = [h for h in root.handlers if isinstance(h, RichHandler)]
-    assert len(rich_handlers) == 1
-    assert rich_handlers[0].console.stderr is True
-    # Noisy third-party loggers are pinned to WARNING.
-    assert logging.getLogger("httpx").level == logging.WARNING
-
-
-@pytest.mark.unit
-def test_redirect_is_idempotent(restore_root_logging):
-    """A second call must not add a second RichHandler (stdout stays clean)."""
-    root = logging.getLogger()
-    root.handlers[:] = []
-    startup.redirect_logging_to_stderr()
-    startup.redirect_logging_to_stderr()
-    rich_handlers = [h for h in root.handlers if isinstance(h, RichHandler)]
-    assert len(rich_handlers) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -195,17 +148,25 @@ def test_run_mcp_server_wires_startup_sequence(monkeypatch):
     mod = MagicMock()
     mod.create_server.return_value = server
 
+    order = MagicMock()
+
     with (
         patch("osprey.mcp_env.load_dotenv_from_project") as load_dotenv,
-        patch.object(startup, "redirect_logging_to_stderr") as redirect,
+        patch("osprey.utils.logger.configure_logging") as configure,
         patch("importlib.import_module", return_value=mod) as import_module,
     ):
+        order.attach_mock(configure, "configure_logging")
+        order.attach_mock(import_module, "import_module")
         startup.run_mcp_server("osprey.mcp_server.workspace.server")
 
     load_dotenv.assert_called_once()
-    redirect.assert_called_once()
+    configure.assert_called_once()
     import_module.assert_called_once_with("osprey.mcp_server.workspace.server")
     mod.create_server.assert_called_once()
     server.run.assert_called_once()
+    # Logging must be configured BEFORE the server module is imported: anything
+    # it logs at import time would otherwise be dropped, or worse, land on the
+    # stdout the JSON-RPC transport owns.
+    assert [name for name, _, _ in order.mock_calls] == ["configure_logging", "import_module"]
     # Label is the second-to-last dotted segment.
     assert startup._server_label == "workspace"

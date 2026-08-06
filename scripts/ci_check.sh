@@ -85,7 +85,7 @@ fi
 echo ""
 
 echo "→ Running pytest with coverage..."
-if ! uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+if ! uv run pytest tests/ --ignore=tests/e2e -n 4 --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else

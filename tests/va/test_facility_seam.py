@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
@@ -35,12 +34,7 @@ from pathlib import Path
 
 import pytest
 
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
+from osprey.interfaces._serving import free_port
 
 # Every root the no-lattice path must stay clear of. ``at`` is the original
 # seam: PyAT is what ``VA_LATTICE=none`` exists to avoid. ``lume`` and ``h5py``
@@ -49,8 +43,12 @@ def _free_port() -> int:
 # would quietly make the whole heavy stack a hard requirement of a boot mode
 # whose entire purpose is not needing one. h5py is listed separately rather than
 # left to arrive via ``lume`` so the guard still bites if some other module
-# reaches for it directly.
-_BLOCKED_ROOTS = ("at", "lume", "h5py")
+# reaches for it directly. ``lume_pyat`` joined once the physics moved into it:
+# its ``__init__`` is PEP 562 lazy, so importing it costs almost nothing and an
+# accidental import would NOT announce itself by dragging the heavy stack in --
+# which is exactly why the guard has to name it. The seam is about what this
+# boot path is allowed to depend on, not about what the dependency costs.
+_BLOCKED_ROOTS = ("at", "lume", "h5py", "lume_pyat")
 
 
 def _run_seam_ioc_subprocess() -> None:
@@ -288,8 +286,8 @@ class TestFileBackedBootWithoutPyat:
             # VA_LATTICE deliberately unset: file-backed default must be "none".
             EPICS_CA_ADDR_LIST="127.0.0.1",
             EPICS_CA_AUTO_ADDR_LIST="NO",
-            EPICS_CA_SERVER_PORT=str(_free_port()),
-            EPICS_CA_REPEATER_PORT=str(_free_port()),
+            EPICS_CA_SERVER_PORT=str(free_port()),
+            EPICS_CA_REPEATER_PORT=str(free_port()),
         )
 
         proc = subprocess.Popen(

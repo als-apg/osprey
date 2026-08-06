@@ -113,25 +113,20 @@ async def test_unknown_provider_is_warning() -> None:
     assert result.message == "Unknown provider"
 
 
-async def test_env_var_resolution() -> None:
-    import os
-
-    os.environ["OSPREY_TEST_CANARY_KEY"] = "secret-123"
-    try:
-        captured: list[dict[str, Any]] = []
-        cls = _capturing_provider(captured, (True, "ok"))
-        result = await run(
-            {
-                "name": "cborg",
-                "api_key": "${OSPREY_TEST_CANARY_KEY}",
-                "base_url": "https://api.example/${OSPREY_TEST_CANARY_KEY}",
-                "model_id": "tiny",
-            },
-            _ctx(),
-            registry=_registry("cborg", cls),
-        )
-    finally:
-        del os.environ["OSPREY_TEST_CANARY_KEY"]
+async def test_env_var_resolution(monkeypatch: Any) -> None:
+    monkeypatch.setenv("OSPREY_TEST_CANARY_KEY", "secret-123")
+    captured: list[dict[str, Any]] = []
+    cls = _capturing_provider(captured, (True, "ok"))
+    result = await run(
+        {
+            "name": "cborg",
+            "api_key": "${OSPREY_TEST_CANARY_KEY}",
+            "base_url": "https://api.example/${OSPREY_TEST_CANARY_KEY}",
+            "model_id": "tiny",
+        },
+        _ctx(),
+        registry=_registry("cborg", cls),
+    )
 
     assert result.status is Status.OK
     assert captured[0]["api_key"] == "secret-123"
@@ -139,10 +134,8 @@ async def test_env_var_resolution() -> None:
     assert captured[0]["model_id"] == "tiny"
 
 
-async def test_missing_env_var_collapses_to_empty() -> None:
-    import os
-
-    os.environ.pop("OSPREY_TEST_CANARY_MISSING", None)
+async def test_missing_env_var_collapses_to_empty(monkeypatch: Any) -> None:
+    monkeypatch.delenv("OSPREY_TEST_CANARY_MISSING", raising=False)
     captured: list[dict[str, Any]] = []
     cls = _capturing_provider(captured, (False, "no key"))
     result = await run(
@@ -221,32 +214,27 @@ async def test_api_key_falls_back_to_config_block(monkeypatch: Any) -> None:
     assert captured[0]["base_url"] == "https://cfg"
 
 
-async def test_reads_block_from_ctx_config() -> None:
+async def test_reads_block_from_ctx_config(monkeypatch: Any) -> None:
     """When ``ctx.config`` is set, the canary reads ``api.providers.<name>`` from
     it (not the global singleton) for a spec that omits ``api_key``/``base_url``."""
-    import os
-
-    os.environ["OSPREY_TEST_CANARY_CTX"] = "ctx-secret"
-    try:
-        captured: list[dict[str, Any]] = []
-        cls = _capturing_provider(captured, (True, "ok"))
-        config = {
-            "api": {
-                "providers": {
-                    "cborg": {
-                        "api_key": "${OSPREY_TEST_CANARY_CTX}",
-                        "base_url": "https://ctx",
-                    }
+    monkeypatch.setenv("OSPREY_TEST_CANARY_CTX", "ctx-secret")
+    captured: list[dict[str, Any]] = []
+    cls = _capturing_provider(captured, (True, "ok"))
+    config = {
+        "api": {
+            "providers": {
+                "cborg": {
+                    "api_key": "${OSPREY_TEST_CANARY_CTX}",
+                    "base_url": "https://ctx",
                 }
             }
         }
-        result = await run(
-            {"name": "cborg"},  # no api_key/base_url → ctx.config block
-            _ctx(config),
-            registry=_registry("cborg", cls),
-        )
-    finally:
-        del os.environ["OSPREY_TEST_CANARY_CTX"]
+    }
+    result = await run(
+        {"name": "cborg"},  # no api_key/base_url → ctx.config block
+        _ctx(config),
+        registry=_registry("cborg", cls),
+    )
 
     assert result.status is Status.OK
     assert captured[0]["api_key"] == "ctx-secret"

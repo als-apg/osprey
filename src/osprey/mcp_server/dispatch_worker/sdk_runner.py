@@ -15,8 +15,10 @@ import time
 import uuid
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner.primitives import await_mcp_ready, expected_mcp_servers
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
@@ -53,6 +55,7 @@ try:
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
+        ClaudeSDKClient,
         HookMatcher,
         ResultMessage,
         SystemMessage,
@@ -60,7 +63,6 @@ try:
         ToolResultBlock,
         ToolUseBlock,
         UserMessage,
-        query,
     )
 
     HAS_SDK = True
@@ -241,6 +243,58 @@ def _assemble_user_content(
     return [*image_blocks, {"type": "text", "text": text}]
 
 
+async def _stream_with_ready_mcp(
+    options: Any,
+    project_dir: str,
+    prompt_stream: Any,
+) -> Any:
+    """Yield the run's messages, holding the first turn until MCP is registered.
+
+    The streaming ``ClaudeSDKClient`` rather than the one-shot ``query()``,
+    because only the client exposes ``get_mcp_status()``. MCP servers register
+    asynchronously (~1.5s for controls, longer on a loaded host), and a turn
+    that fires before then sees no OSPREY tools: the agent answers "I don't
+    have that tool" and the run is scored as a model give-up when it was a
+    cold start. Polling the status until the project's declared servers report
+    connected gives every dispatch a ready toolset, matching what
+    ``osprey.agent_runner.runner`` already does for interactive runs.
+
+    The barrier is bounded (see ``await_mcp_ready``) and returns the last
+    snapshot on timeout rather than raising, so a server that genuinely never
+    registers still runs — and is logged as such — instead of failing the
+    dispatch outright.
+
+    Written as an async generator so the caller keeps driving one object with
+    ``__anext__``/``aclose()``: the inactivity watchdog and the cancellation
+    path are unchanged, and ``aclose()`` unwinds the client's context manager.
+    """
+    async with ClaudeSDKClient(options=options) as client:
+        # No declared servers — nothing to wait for. Skipped explicitly because
+        # ``await_mcp_ready`` polls an empty expectation to its full deadline,
+        # which would add that delay to every run of a project whose .mcp.json
+        # declares nothing (or could not be read).
+        expected = expected_mcp_servers(Path(project_dir))
+        if expected:
+            servers = await await_mcp_ready(client, expected)
+            connected = {s.get("name") for s in servers if s.get("status") == "connected"}
+            missing = sorted(expected - connected)
+            if missing:
+                logger.warning(
+                    "MCP servers not connected before first turn: %s (expected %s) — "
+                    "the agent may not see their tools",
+                    missing,
+                    sorted(expected),
+                )
+            else:
+                logger.info("MCP ready before first turn: %s", sorted(connected))
+        else:
+            logger.debug("No MCP servers declared for %s; skipping readiness barrier", project_dir)
+
+        await client.query(prompt_stream)
+        async for message in client.receive_response():
+            yield message
+
+
 async def run_dispatch(
     prompt: str,
     allowed_tools: list[str],
@@ -326,6 +380,20 @@ async def run_dispatch(
     from osprey.utils.config import get_facility_timezone
 
     sdk_env = build_clean_env(project_cwd=project_dir)
+
+    # Keep subagent delegation in the foreground. Since CLI 2.1.x the Agent tool
+    # auto-backgrounds delegated subagents: it returns immediately, the turn
+    # ends, and the results arrive on a *later* turn as a task notification.
+    # ``_drain_response`` stops at the first ResultMessage, so the worker would
+    # answer "the agent is searching, I'll notify you when it completes" and
+    # silently drop the delegated work. Set explicitly rather than inherited —
+    # ``build_clean_env()`` strips every ``CLAUDE_CODE_*`` key by design.
+    #
+    # Deliberately NOT set in ``build_clean_env()`` itself: the interactive
+    # web-terminal sessions share that helper, and they converge on a later
+    # turn, so backgrounding is correct there. Only this single-drain path
+    # needs the guard. The cost is that parallel delegations run sequentially.
+    sdk_env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
 
     # Point OSPREY config resolution at the project explicitly. The worker
     # process CWD is the image WORKDIR (``/app`` in the container), not the
@@ -472,7 +540,7 @@ async def run_dispatch(
         yield {"type": "user", "message": {"role": "user", "content": user_content}}
 
     t0 = time.monotonic()
-    agen = query(prompt=_prompt_stream(), options=options)
+    agen = _stream_with_ready_mcp(options, project_dir, _prompt_stream())
     try:
         # Drive the generator manually (rather than ``async for``) so each
         # ``__anext__`` is bounded by the inactivity watchdog. A full-window

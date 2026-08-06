@@ -50,6 +50,20 @@ def _isolate_bind_and_port_env(monkeypatch):
         monkeypatch.delenv(_key)
 
 
+@pytest.fixture(autouse=True)
+def _project_config(tmp_path, monkeypatch):
+    """Satisfy `web()`'s project resolution for every launch-path test here.
+
+    `osprey web` refuses to start without a resolvable config.yml (a configless
+    launch silently serves a panel-less terminal). These tests exercise bind
+    and port resolution, not project resolution, so point OSPREY_CONFIG at a
+    minimal config to get past the launch gate.
+    """
+    cfg = tmp_path / "config.yml"
+    cfg.write_text("web: {}\n")
+    monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
+
+
 def _free_port() -> int:
     """Reserve then release an OS-assigned port so nothing is listening on it."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:

@@ -62,7 +62,11 @@ class TestClaudeCodeSDKIntegration:
             project_dir,
             prompt,
             max_turns=5,
-            max_budget_usd=0.25,
+            # 0.50 matches the suite's smoke-test tier (safety/feedback tests).
+            # The old 0.25 cap was tuned hair-thin: a normal run costs ~$0.25
+            # and gateway cost accounting varies a fraction of a cent, enough
+            # to hard-error the query on budget rather than fail an assertion.
+            max_budget_usd=0.50,
         )
 
         # -- Debug output --
@@ -95,7 +99,7 @@ class TestClaudeCodeSDKIntegration:
 
         # Cost should be reasonable for a simple query
         if result.cost_usd is not None:
-            budget = 0.25 * e2e_budget_scale()
+            budget = 0.50 * e2e_budget_scale()
             assert result.cost_usd < budget, (
                 f"Smoke test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )

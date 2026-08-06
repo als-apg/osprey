@@ -10,6 +10,7 @@ Commands:
 """
 
 import os
+import subprocess
 from pathlib import Path
 
 import click
@@ -84,11 +85,9 @@ def regen(project, dry_run, runtime_root):
 
     Prompt overrides (in ``overrides/``) are used instead of framework templates.
 
-    With ``--runtime-root``, recorded host paths are rewritten for the new
-    location: ``project_root`` is set to the given path, and a recorded
-    ``execution.python_env_path`` that does not exist on this filesystem is
-    replaced with the current interpreter. Use this after copying a built
-    project into a container image.
+    With ``--runtime-root``, the recorded ``project_root`` is rewritten to the
+    given path and artifacts are re-rendered against it. Use this after copying
+    a built project into a container image.
 
     Examples:
 
@@ -163,32 +162,21 @@ def regen(project, dry_run, runtime_root):
 
 
 def _rewrite_runtime_paths(project_dir: Path, runtime_root: str) -> None:
-    """Rewrite recorded host paths in config.yml for a relocated project.
+    """Rewrite the recorded ``project_root`` in config.yml for a relocated project.
 
-    Sets ``project_root`` to *runtime_root*. When the recorded
-    ``execution.python_env_path`` no longer exists on this filesystem
-    (typical after copying a host-built project into a container), it is
-    replaced with the current interpreter; a valid path is left untouched.
-    Comments in config.yml are preserved.
+    ``project_root`` is the only host path config.yml records, so relocation is
+    a single-key rewrite. No interpreter needs fixing up: the one MCP servers
+    launch with is derived from the filesystem as artifacts are re-rendered
+    (see ``_derive_runtime_interpreter``), and the one agent-authored code runs
+    under is resolved per call at run time. Comments in config.yml are preserved.
     """
-    import sys
-
     from osprey.utils.config_writer import config_update_fields
 
     config_file = project_dir / "config.yml"
     if not config_file.exists():
         raise FileNotFoundError(f"No config.yml found in {project_dir}")
 
-    updates: dict = {"project_root": str(runtime_root)}
-
-    config = yaml.safe_load(config_file.read_text()) or {}
-    env_path = (config.get("execution") or {}).get("python_env_path")
-    if env_path and not Path(env_path).exists():
-        console.print(f"[warning]⚠ Recorded python_env_path not found here: {env_path}[/warning]")
-        console.print(f"  [dim]Replacing with current interpreter: {sys.executable}[/dim]")
-        updates["execution.python_env_path"] = sys.executable
-
-    config_update_fields(config_file, updates)
+    config_update_fields(config_file, {"project_root": str(runtime_root)})
     console.print(f"[dim]Rewrote project_root → {runtime_root} in config.yml[/dim]")
 
 
@@ -538,6 +526,4 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
     # Launch claude CLI.  Companion servers and the translation proxy run in
     # daemon threads, so the parent process must stay alive — always use
     # subprocess.run (never os.execvp, which replaces the process).
-    import subprocess
-
     raise SystemExit(subprocess.run(args).returncode)

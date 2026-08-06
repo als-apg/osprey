@@ -22,7 +22,7 @@ from pathlib import Path
 from osprey.dispatch.trigger_config import DispatcherConfig, TriggerConfig, load_triggers
 
 # The package that holds the bundled trigger YAMLs (resolved the same way the
-# CLI does in ``osprey.cli.build_profile._triggers_dir``).
+# CLI does in ``osprey.cli.build_profile_presets._triggers_dir``).
 _TRIGGERS_PACKAGE = "osprey.profiles.triggers"
 
 # The exact contract the tutorial, docs, and e2e tests depend on. Keyed by

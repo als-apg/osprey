@@ -282,6 +282,54 @@ def test_dashboard_runs_with_auth(client):
     assert "status" in runs[0]
 
 
+def test_dashboard_runs_carries_the_telemetry_session_id(client, monkeypatch):
+    """The feed projects session_id, so a consumer can locate the run's telemetry.
+
+    This endpoint is a hand-written projection, not a dump of the stored run --
+    a field absent from the projection is silently unavailable downstream even
+    though the worker recorded it. The dispatcher's dashboard uses this id to
+    link a run to its own OTEL records, so its presence is a contract.
+    """
+    from osprey.mcp_server.dispatch_worker import dispatch_api
+
+    monkeypatch.setitem(
+        dispatch_api._runs,
+        "seeded-run",
+        {
+            "status": "completed",
+            "created_at": 1785744790.0,
+            "session_id": "3f8a1c02-0000-4000-8000-abcdefabcdef",
+            "text_output": "done",
+            "tool_calls": [],
+        },
+    )
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    assert resp.status_code == 200
+    seeded = next(r for r in resp.json() if r["run_id"] == "seeded-run")
+    assert seeded["session_id"] == "3f8a1c02-0000-4000-8000-abcdefabcdef"
+
+
+def test_dashboard_runs_session_id_is_none_when_unrecorded(client, monkeypatch):
+    """A run without a recorded session id projects None rather than omitting the key.
+
+    A missing key and a null value read differently downstream; the dashboard
+    hides its telemetry link on a falsy value, so the key must always be present.
+    """
+    from osprey.mcp_server.dispatch_worker import dispatch_api
+
+    monkeypatch.setitem(
+        dispatch_api._runs,
+        "legacy-run",
+        {"status": "completed", "created_at": 1785744790.0, "tool_calls": []},
+    )
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    legacy = next(r for r in resp.json() if r["run_id"] == "legacy-run")
+    assert "session_id" in legacy
+    assert legacy["session_id"] is None
+
+
 # ---------------------------------------------------------------------------
 # Startup lifecycle: provider-env injection, no artifact regeneration
 # ---------------------------------------------------------------------------
@@ -420,6 +468,10 @@ api:
   providers:
     argo:
       base_url: ${ARGO_PROD_URL}
+      models:
+        haiku: claudehaiku45
+        sonnet: claudesonnet45
+        opus: claudeopus41
 claude_code:
   provider: argo
 """

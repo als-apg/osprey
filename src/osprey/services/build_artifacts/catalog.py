@@ -246,7 +246,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/panels-context",
             template_path="claude/hooks/osprey_panels_context.py",
             output_path=".claude/hooks/osprey_panels_context.py",
-            description="SessionStart hook that injects the web terminal panel inventory into agent context",
+            description="SessionStart hook that injects the web surface (simple/expert) and panel inventory into agent context",
         ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
@@ -278,6 +278,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/skills/demo-gallery/SKILL.md",
             output_path=".claude/skills/demo-gallery/SKILL.md",
             description="Artifact Gallery demo showcase skill",
+        ),
+        BuildArtifact(
+            canonical_name="skills/demo-ui",
+            template_path="claude/skills/demo-ui/SKILL.md",
+            output_path=".claude/skills/demo-ui/SKILL.md",
+            description="Scripted web-workspace UI demonstration skill",
         ),
         BuildArtifact(
             canonical_name="skills/sim-scenarios",

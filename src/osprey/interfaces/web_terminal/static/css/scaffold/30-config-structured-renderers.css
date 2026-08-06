@@ -25,8 +25,8 @@
   font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--color-amber);
-  background: var(--amber-tint-04);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-04);
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-default);
 }
@@ -100,7 +100,7 @@
 
 .config-perm-ask .config-perm-header {
   color: var(--color-warning);
-  background: var(--amber-tint-04);
+  background: var(--accent-secondary-tint-04);
 }
 
 .config-perm-deny .config-perm-header {
@@ -238,7 +238,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  background: var(--amber-tint-04);
+  background: var(--accent-secondary-tint-04);
   border-bottom: 1px solid var(--border-default);
 }
 
@@ -246,7 +246,7 @@
   font-family: var(--font-mono);
   font-size: var(--text-md);
   font-weight: var(--weight-semibold);
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   flex: 1;
 }
 

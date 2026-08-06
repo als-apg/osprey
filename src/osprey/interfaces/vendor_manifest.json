@@ -23,6 +23,36 @@
       ]
     },
     {
+      "name": "DOMPurify",
+      "filename": "purify.min.js",
+      "version": "3.4.12",
+      "url": "https://cdn.jsdelivr.net/npm/dompurify@3.4.12/dist/purify.min.js",
+      "sha256": "c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce",
+      "targets": [
+        "web_terminal/static/vendor/"
+      ]
+    },
+    {
+      "name": "dockview-core",
+      "filename": "dockview-core.min.js",
+      "version": "7.0.2",
+      "url": "https://cdn.jsdelivr.net/npm/dockview-core@7.0.2/dist/dockview-core.min.js",
+      "sha256": "ac39da12d4280a2c61a55b98c66faa110ed3c2c93457e57f30d6e0e369e33eff",
+      "targets": [
+        "web_terminal/static/vendor/"
+      ]
+    },
+    {
+      "name": "dockview-core css",
+      "filename": "dockview.css",
+      "version": "7.0.2",
+      "url": "https://cdn.jsdelivr.net/npm/dockview-core@7.0.2/dist/styles/dockview.css",
+      "sha256": "4cc8d24e797c4a8505a11060094b01cbc27af685d3fdef9b04c7d8d5716468ac",
+      "targets": [
+        "web_terminal/static/vendor/"
+      ]
+    },
+    {
       "name": "KaTeX JS",
       "filename": "katex.min.js",
       "version": "0.16.11",

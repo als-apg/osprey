@@ -236,7 +236,7 @@ def test_notify_panel_visibility_posts_payload():
         http.notify_panel_visibility("errors", True)
     url, payload = post.call_args.args
     assert url == "http://wt/api/panel-visibility"
-    assert payload == {"panel": "errors", "visible": True}
+    assert payload == {"panel": "errors", "visible": True, "source": "agent"}
 
 
 @pytest.mark.unit
@@ -247,7 +247,7 @@ def test_notify_panel_focus_includes_url_when_given():
     ):
         http.notify_panel_focus("p1", url="http://up")
     _url, payload = post.call_args.args
-    assert payload == {"panel": "p1", "url": "http://up"}
+    assert payload == {"panel": "p1", "url": "http://up", "source": "agent"}
 
 
 @pytest.mark.unit
@@ -258,5 +258,5 @@ def test_notify_panel_focus_omits_url_when_none():
     ):
         http.notify_panel_focus("p1")
     _url, payload = post.call_args.args
-    assert payload == {"panel": "p1"}
+    assert payload == {"panel": "p1", "source": "agent"}
     assert "url" not in payload

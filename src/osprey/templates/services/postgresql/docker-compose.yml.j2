@@ -22,14 +22,18 @@ services:
       POSTGRES_DB: {{ services.postgresql.database_name | default('ariel') }}
       POSTGRES_USER: {{ services.postgresql.username | default('ariel') }}
       # Sourced from the project .env: `osprey deploy up` mints a strong
-      # ARIEL_DB_PASSWORD when unset, and the agent's DSN
-      # (`ariel.database.uri`) references the SAME env var — single source of
-      # truth, mirroring openobserve's ZO_ROOT_USER_PASSWORD convention. The
-      # services.postgresql.password config key is honored as a fallback for
-      # configs that predate the minted var. NOTE: Postgres reads
-      # POSTGRES_PASSWORD only when initializing a FRESH data volume; a
-      # pre-existing volume keeps its original password until recreated.
-      POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-{{ services.postgresql.password | default('ariel') }}}
+      # ARIEL_DB_PASSWORD when unset, and the agent's DSN — derived from this
+      # `services.postgresql` block by `resolve_ariel_dsn` unless an explicit
+      # `ariel.database.uri` overrides it — reads the SAME env var, so the
+      # container and the agent authenticate with one value. Mirrors
+      # openobserve's ZO_ROOT_USER_PASSWORD convention. The `services.postgresql`
+      # block in config.yml carries no `password:` key — one set there would be
+      # read by nothing and would silently lose to the minted variable. The `ariel` fallback
+      # applies only before the first deploy or on a bare `docker compose up`.
+      # NOTE: Postgres reads POSTGRES_PASSWORD only when
+      # initializing a FRESH data volume; a pre-existing volume keeps its
+      # original password until recreated.
+      POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-ariel}
       TZ: {{ system.timezone }}
     volumes:
       - ariel_postgres_data:/var/lib/postgresql/data

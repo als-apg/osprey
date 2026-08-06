@@ -14,7 +14,7 @@ name: Channel Finder Standalone
 data_bundle: channel_finder_standalone
 
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # Channel-finder pipeline. The bundle ships a demo hierarchical database, so
 # hierarchical is the out-of-the-box default. Override for your data via
@@ -39,6 +39,8 @@ hooks:
   - memory-guard      # Warn when context window approaches threshold
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Inject the web terminal panel inventory into agent context
 
 rules:
   - error-handling      # Standard error handling and retry guidance

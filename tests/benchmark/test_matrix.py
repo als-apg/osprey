@@ -14,8 +14,9 @@ from pathlib import Path
 
 import pytest
 
-# Import scripts/benchmark/matrix.py as a module (scripts/ is not a package).
-# Register in sys.modules before exec so @dataclass can resolve cls.__module__.
+# import-time required because scripts/ is not a package: matrix.py is loaded
+# by path and registered in sys.modules before exec so @dataclass can resolve
+# cls.__module__. The module object is what the tests below are written against.
 _MATRIX_PATH = Path(__file__).resolve().parents[2] / "scripts" / "benchmark" / "matrix.py"
 _spec = importlib.util.spec_from_file_location("benchmark_matrix", _MATRIX_PATH)
 matrix = importlib.util.module_from_spec(_spec)

@@ -14,7 +14,9 @@ import pytest
 # Sphinx is only required for documentation builds, not for general testing
 pytest.importorskip("sphinx", reason="Sphinx is required for workflow autodoc tests")
 
-# Add the docs/_ext directory to the path
+# import-time required because the extension under test lives in docs/_ext,
+# which is not an installed package: the path has to be in place before the
+# top-level `from workflow_autodoc import ...` below.
 docs_ext_path = Path(__file__).parent.parent.parent / "docs" / "source" / "_ext"
 sys.path.insert(0, str(docs_ext_path))
 

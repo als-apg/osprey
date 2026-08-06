@@ -1,13 +1,15 @@
 // @ts-check
 /**
- * OSPREY Artifact Gallery — markdown+KaTeX rendering and the JSON viewer.
+ * OSPREY Artifact Gallery — markdown+KaTeX view rendering and the JSON viewer.
  *
  * The "fetch an artifact's file, render its content into a given container"
  * half of the preview pane, kept separate from preview.js purely to stay
  * under the 450-line module cap — see that module's docstring for the
- * fuller picture of how the preview pane fits together. Both pieces here are
- * stateless aside from `configureMarked`'s one-time idempotency flag: no
- * shared mutable state with preview.js, just an artifact object and a
+ * fuller picture of how the preview pane fits together. The marked + hljs +
+ * KaTeX pipeline itself lives in md-render.js (shared with the standalone
+ * server-rendered markdown page); `renderMathInMarkdown` is re-exported
+ * here so existing importers keep one path. Both pieces here are stateless:
+ * no shared mutable state with preview.js, just an artifact object and a
  * container element passed in as args, mirroring how preview.js already
  * consumes escapeHtml/typeBadge from types.js.
  *
@@ -22,104 +24,13 @@
 
 import { fileUrl } from "./state.js";
 import { escapeHtml } from "./types.js";
+import { configureMarked, renderMathInMarkdown } from "./md-render.js";
 
 // ---- Markdown Rendering ---- //
 
-let _markedConfigured = false;
-
-/** @returns {void} */
-function configureMarked() {
-  if (_markedConfigured) return;
-  _markedConfigured = true;
-  if (typeof marked === "undefined") return;
-
-  const renderer = {
-    /** @param {{text: string, lang?: string}} tok */
-    code({ text, lang }) {
-      const src = text ?? "";
-      let highlighted = escapeHtml(src);
-      if (typeof hljs !== "undefined" && src) {
-        try {
-          if (lang && hljs.getLanguage(lang)) {
-            highlighted = hljs.highlight(src, { language: lang }).value;
-          } else {
-            highlighted = hljs.highlightAuto(src).value;
-          }
-        } catch { /* fallback to escaped */ }
-      }
-      return `<pre><code class="hljs${lang ? ` language-${lang}` : ""}">${highlighted}</code></pre>`;
-    },
-  };
-
-  marked.use({ gfm: true, breaks: false, renderer });
-}
-
-/**
- * Render LaTeX math in markdown text using KaTeX.
- *
- * Strategy: extract $$...$$ (display) and $...$ (inline) blocks BEFORE
- * marked.js parses the text (to prevent marked from mangling LaTeX
- * special characters like _ and ^).  Replace with placeholders, run
- * marked.parse(), then swap KaTeX-rendered HTML back in.
- * @param {string} text
- * @returns {string}
- */
-export function renderMathInMarkdown(text) {
-  if (typeof katex === "undefined") return marked.parse(text);
-
-  /** @type {{key: string, html: string}[]} */
-  const placeholders = [];
-  let idx = 0;
-
-  /** @param {string} html */
-  function placeholder(html) {
-    const key = `\x00MATH${idx++}\x00`;
-    placeholders.push({ key, html });
-    return key;
-  }
-
-  /**
-   * @param {string} expr
-   * @param {boolean} displayMode
-   */
-  function renderKatex(expr, displayMode) {
-    try {
-      return katex.renderToString(expr.trim(), {
-        displayMode,
-        throwOnError: false,
-        strict: false,
-      });
-    } catch {
-      const cls = displayMode ? "katex-error-display" : "katex-error-inline";
-      return `<span class="${cls}">${escapeHtml(expr)}</span>`;
-    }
-  }
-
-  // Pass 1: display math $$...$$ (must come before inline $...$)
-  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) =>
-    placeholder(renderKatex(expr, true))
-  );
-
-  // Pass 2: inline math $...$ (not preceded/followed by digit to avoid $5)
-  text = text.replace(/(?<!\$)(?<!\d)\$(?!\$)(.+?)(?<!\$)\$(?!\d)/g, (_, expr) =>
-    placeholder(renderKatex(expr, false))
-  );
-
-  // Run marked on the placeholder-injected text
-  let html;
-  try {
-    html = marked.parse(text);
-  } catch {
-    html = `<p>${escapeHtml(text)}</p>`;
-  }
-
-  // Swap placeholders back in (safe: KaTeX output is sanitized by the library)
-  for (const { key, html: mathHtml } of placeholders) {
-    html = html.replace(key, mathHtml);
-  }
-
-  return html;
-}
+// Re-exported so existing importers (and the tests pinning the pipeline)
+// keep the established path; the implementation lives in md-render.js.
+export { renderMathInMarkdown };
 
 /**
  * @param {HTMLElement} container

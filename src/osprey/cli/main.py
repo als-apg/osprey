@@ -53,6 +53,7 @@ class LazyGroup(click.Group):
             "sim": "osprey.cli.sim",  # Simulation scenarios
             "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
             "web": "osprey.cli.web_cmd",  # Web Terminal
+            "theme-lab": "osprey.cli.theme_lab_cmd",  # Design-system theme workbench
             "scaffold": "osprey.cli.scaffold_cmd",  # Build artifact overrides
             "audit": "osprey.cli.audit_cmd",  # Safety auditor
             "skills": "osprey.cli.skills_cmd",  # Bundled skill management
@@ -80,6 +81,8 @@ class LazyGroup(click.Group):
             cmd_func = mod.artifacts
         elif cmd_name == "web":
             cmd_func = mod.web
+        elif cmd_name == "theme-lab":
+            cmd_func = mod.theme_lab
         elif cmd_name == "scaffold":
             cmd_func = mod.scaffold
         else:
@@ -101,6 +104,7 @@ class LazyGroup(click.Group):
             "sim",
             "artifacts",
             "web",
+            "theme-lab",
             "scaffold",
             "audit",
             "skills",
@@ -131,10 +135,18 @@ def cli(ctx):
       osprey deploy up                Start services
       osprey claude regen             Regenerate Claude Code artifacts
       osprey web                      Launch web terminal
+      osprey theme-lab                Build and preview themes in the browser
       osprey health                   Check system health
       osprey channel-finder           Interactive channel search
     """
+    from osprey.utils.logger import configure_logging
+
     from .styles import initialize_theme_from_config
+
+    # The CLI is a process entry point: nothing else configures logging, and
+    # importing the framework deliberately does not. Records go to stderr, so
+    # `--json` subcommand output on stdout stays machine-readable.
+    configure_logging()
 
     initialize_theme_from_config()
 

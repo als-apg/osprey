@@ -365,9 +365,10 @@ The CI job that builds the project produces it at a CI-runner path like `/builds
 
 The Dockerfile's final stage fixes this with a post-COPY step:
 
-1. Clears `execution.python_env_path` from `config.yml` so OSPREY falls back to `sys.executable` (i.e., the venv's interpreter).
-2. Sets `project_root` to `/app/${OSPREY_PROJECT_NAME}`.
-3. Runs `osprey claude regen --project /app/${OSPREY_PROJECT_NAME}` to re-render `.mcp.json` and the `claude/` settings using the new paths.
+1. Sets `project_root` in `config.yml` to `/app/${OSPREY_PROJECT_NAME}`.
+2. Runs `osprey claude regen --project /app/${OSPREY_PROJECT_NAME} --runtime-root /app/${OSPREY_PROJECT_NAME}` to re-render `.mcp.json` and the `claude/` settings using the new path.
+
+`project_root` is the only host path `config.yml` records, so that single rewrite is the whole correction. The interpreter each MCP server launches with is resolved at run time — the project's own `.venv` if it has one, else the interpreter running OSPREY — and is never read from config.
 
 If MCP servers come up dead after a deploy and the dispatch logs show paths that look like CI runner paths, this regen step is the first place to look.
 

@@ -34,7 +34,7 @@ facility:
   name: "Advanced Light Source"          # full human-readable name
   prefix: "als"                           # short slug; used in profile filenames (als-prod.yml, als-client.yml)
                                           # and container names (als-mcp-matlab, als-web-thellert)
-  timezone: "America/Los_Angeles"         # facility timezone — drives container TZ and the agent's system.timezone
+  timezone: "America/Los_Angeles"         # facility timezone — drives container TZ only; mirror it manually into the profile's system.timezone
 ```
 
 | Field | Type | Required | Notes |
@@ -56,7 +56,7 @@ control_system:
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `type` | enum | yes | OSPREY ships connectors for `epics` and `mock` today. `doocs`, `tango`, and `custom` are **roadmap values only** — selecting one writes the value into config but NO connector is built, so the resulting assistant has no live control-system access. Use `mock` for development on non-EPICS facilities until a real connector lands. Any value other than `epics` disables the EPICS test IOC module. |
+| `type` | enum | yes | OSPREY ships connectors for `epics`, `doocs`, and `mock` today. `doocs` additionally needs `doocs4py`, which comes from the DOOCS environment rather than PyPI. `tango` and `custom` are **roadmap values only** — selecting one writes the value into config but NO connector is built, so the resulting assistant has no live control-system access. Use `mock` for development on facilities with no connector yet. Any value other than `epics` disables the EPICS test IOC module. |
 | `ca_addr_list` | string | EPICS only | Used in compose files that need EPICS broadcast |
 | `archiver_url` | URL | no | Used by integration tests and analytics agents |
 

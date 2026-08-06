@@ -2,7 +2,7 @@
 
 The web terminal (``interfaces/web_terminal/app.py``), the template manifest
 validator (``cli/templates/manifest.py``), and the preset profile validator
-(``cli/build_profile.py``) all gate on this set. Drift between them is what
+(``cli/build_profile_model.py``) all gate on this set. Drift between them is what
 let unknown panel IDs slip past for two registries simultaneously.
 """
 

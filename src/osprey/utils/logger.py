@@ -3,11 +3,19 @@ Component Logger Framework
 
 Provides colored logging for Osprey and application components with:
 - Unified API for all components (capabilities, infrastructure, pipelines)
-- Rich terminal output with component-specific colors
+- Rich terminal output on stderr with component-specific colors
 - Graceful fallbacks when configuration is unavailable
 - Simple, clear interface
 
+Handler setup is explicit and separate from logger lookup. Entry points — the
+CLI, service startups, the dispatch worker, MCP servers — call
+``configure_logging()`` once; everything else just calls ``get_logger()``, which
+has no global side effects.
+
 Usage:
+    # Entry point, once at startup
+    configure_logging()
+
     # Module-level
     logger = get_logger("orchestrator")
     logger.key_info("Starting orchestration")
@@ -146,42 +154,45 @@ class ComponentLogger:
         return self.base_logger.isEnabledFor(level)
 
 
-def _setup_rich_logging(level: int = logging.INFO) -> None:
-    """Configure Rich logging for the root logger (called once)."""
-    root_logger = logging.getLogger()
+#: Third-party loggers that ``configure_logging()`` raises to WARNING. They are
+#: chatty at INFO and their output is noise in an operator's terminal.
+QUIET_THIRD_PARTY_LOGGERS: tuple[str, ...] = (
+    "httpx",
+    "httpcore",
+    "requests",
+    "urllib3",
+    "LiteLLM",
+    "claude_agent_sdk",
+)
 
-    for handler in root_logger.handlers:
-        if isinstance(handler, RichHandler):
-            return
 
-    if root_logger.hasHandlers():
-        root_logger.handlers.clear()
+def _build_rich_handler() -> RichHandler:
+    """Build the Osprey ``RichHandler``, writing to **stderr**.
 
-    root_logger.setLevel(level)
-
-    # Load user-configurable display preferences from config
+    stdout is reserved for program output — MCP stdio JSON-RPC frames and
+    ``--json`` CLI payloads — so log records must never land there.
+    """
     try:
         # Security-conscious defaults: hide locals to prevent sensitive data exposure
         rich_tracebacks = get_config_value("logging.rich_tracebacks", True)
         show_traceback_locals = get_config_value("logging.show_traceback_locals", False)
         show_full_paths = get_config_value("logging.show_full_paths", False)
-
     except Exception:
-        # Config system unavailable; use secure defaults.
-        # Cannot log here: logging infrastructure is mid-configuration
-        # (handlers cleared but RichHandler not yet installed).
+        # Config system unavailable; use secure defaults. Cannot log here:
+        # the logging infrastructure is mid-configuration.
         rich_tracebacks = True
         show_traceback_locals = False
         show_full_paths = False
 
-    # Optimize console for containerized and CI/CD environments
+    # force_terminal keeps colors in containers and CI, where stderr is a pipe.
     console = Console(
+        stderr=True,
         force_terminal=True,
         width=120,
         color_system="truecolor",
     )
 
-    handler = RichHandler(
+    return RichHandler(
         console=console,
         rich_tracebacks=rich_tracebacks,
         markup=True,
@@ -191,14 +202,31 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
         tracebacks_show_locals=show_traceback_locals,
     )
 
-    root_logger.addHandler(handler)
 
-    # Quiet noisy third-party loggers. claude_agent_sdk emits an INFO
-    # "Using bundled Claude Code CLI: …" line on stdout (the RichHandler
-    # Console defaults to stdout), which would corrupt `osprey query --json`
-    # machine-readable output; raising it to WARNING keeps that contract clean
-    # while preserving genuine warnings/errors.
-    for lib in ["httpx", "httpcore", "requests", "urllib3", "LiteLLM", "claude_agent_sdk"]:
+def configure_logging(level: int = logging.INFO) -> None:
+    """Configure logging for an Osprey entry point.
+
+    Call this once, explicitly, from every entry point (CLI ``main``, service
+    startups, the dispatch worker, MCP server ``__main__``). Library and import
+    paths must never call it — importing Osprey leaves logging untouched.
+
+    The configuration is **strictly additive**: it installs the Osprey
+    ``RichHandler`` only if the root logger has no ``RichHandler`` yet, and it
+    never removes or clears handlers it did not install. Handlers owned by
+    someone else — ``caplog``'s capture handler, a host application's own
+    handlers — survive. Calling it repeatedly is a no-op beyond re-applying the
+    level.
+
+    Args:
+        level: Root logger level.
+    """
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+
+    if not any(isinstance(handler, RichHandler) for handler in root_logger.handlers):
+        root_logger.addHandler(_build_rich_handler())
+
+    for lib in QUIET_THIRD_PARTY_LOGGERS:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
@@ -213,15 +241,20 @@ def get_logger(
     """
     Get a unified logger for CLI logging.
 
+    This is a pure lookup: it mutates no global logging state. Handler and level
+    configuration belongs to :func:`configure_logging`, which entry points call
+    once at startup. A module that only imports Osprey therefore leaves the
+    host application's logging exactly as it found it.
+
     Primary API (recommended):
         component_name: Component name (e.g., 'orchestrator', 'data_analysis')
         state: Optional state for context
-        level: Logging level
+        level: Accepted for backwards compatibility and ignored — set levels
+            through :func:`configure_logging` or on the returned logger.
 
     Explicit API (for custom loggers or module-level usage):
         name: Direct logger name (keyword-only)
         color: Direct color specification (keyword-only)
-        level: Logging level
 
     Returns:
         ComponentLogger instance
@@ -234,7 +267,7 @@ def get_logger(
         # Custom logger
         logger = get_logger(name="test_logger", color="blue")
     """
-    _setup_rich_logging(level)
+    del level  # no longer configures anything; see configure_logging()
 
     if name is not None:
         base_logger = logging.getLogger(name)

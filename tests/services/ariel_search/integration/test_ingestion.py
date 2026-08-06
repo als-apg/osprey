@@ -11,7 +11,13 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+# xdist_group("docker"): pins every container-starting test file onto one worker, so
+# a run has a single testcontainers session and a single ryuk reaper -- concurrent
+# reaper starts race the Docker daemon's port mapper. It also serializes the shared
+# database: the session ``database_url`` fixture prefers a running dev Postgres with
+# ONE shared ``ariel_test`` database over a per-worker container, so parallel workers
+# would otherwise collide on migrations/seed/truncate.
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
 class TestIngestionPipeline:

@@ -224,7 +224,7 @@ class SDKWorkflowResult:
     system_messages: list[SystemMessage] = field(default_factory=list)
     result: ResultMessage | None = None
     # Authoritative MCP server snapshot from ``ClaudeSDKClient.get_mcp_status()``
-    # captured just before the prompt is sent (see ``_await_mcp_ready``). Each entry
+    # captured just before the prompt is sent (see ``await_mcp_ready``). Each entry
     # is an ``McpServerStatus`` object (SDK) or raw dict: {name, status, tools, ...}.
     # Empty when the runner used the one-shot ``query()`` path with no client to poll.
     # This is the ground-truth infra-vs-model discriminator: a failure where the
@@ -613,7 +613,7 @@ _MCP_READY_TIMEOUT_S = float(os.environ.get("OSPREY_E2E_MCP_READY_TIMEOUT", "20"
 _MCP_READY_POLL_S = 0.3
 
 
-def _expected_mcp_servers(project_dir: Path) -> set[str]:
+def expected_mcp_servers(project_dir: Path) -> set[str]:
     """The MCP server names a project declares in ``.mcp.json`` — the set the
     readiness barrier waits for. Returns an empty set if the file is unreadable."""
     try:
@@ -623,7 +623,7 @@ def _expected_mcp_servers(project_dir: Path) -> set[str]:
     return set(cfg.get("mcpServers", {}).keys())
 
 
-async def _await_mcp_ready(
+async def await_mcp_ready(
     client: ClaudeSDKClient,
     expected: set[str],
     *,

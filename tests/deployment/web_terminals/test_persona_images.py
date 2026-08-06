@@ -518,6 +518,34 @@ def test_auto_render_complete_render_is_noop(monkeypatch, tmp_path):
     assert calls == []
 
 
+def test_auto_render_existing_render_with_unservable_model_raises(monkeypatch, tmp_path):
+    """A complete persona render whose config names a model its provider cannot
+    serve must fail the deploy here, with the path and a remedy — not boot a
+    web-terminal container that crash-loops behind the reverse proxy (502).
+    An existing render is user-owned and never re-rendered, so a stale model
+    baked in by an earlier parent build would otherwise persist forever."""
+    project_path = tmp_path / "ops-app"
+    project_path.mkdir()
+    (project_path / "config.yml").write_text(
+        "project_name: ops-app\n"
+        "claude_code:\n"
+        "  provider: anthropic\n"
+        "  default_model: anthropic/claude-opus\n",
+        encoding="utf-8",
+    )
+    (project_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    config = _auto_render_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    with pytest.raises(ValueError, match="neither a model tier nor a model ID") as excinfo:
+        persona_images.auto_render_missing_personas(config, _AUTO_RENDER_USERS, {})
+
+    assert str(project_path) in str(excinfo.value)
+    assert "remove" in str(excinfo.value).lower()  # remedy: fix or remove the render
+    assert calls == []  # never rendered over the user-owned tree
+
+
 def test_auto_render_missing_build_profile_raises(monkeypatch, tmp_path):
     """project_path absent (a render IS needed) but the catalog entry has no
     build_profile -> raise, since there's nothing to render from."""
@@ -610,7 +638,7 @@ def test_auto_render_forwards_explicit_overrides_from_parent_manifest(monkeypatc
     assert len(calls) == 1
     cmd = calls[0]
     assert cmd[-4:] == ["--set", "provider=als-apg", "--set", "model=anthropic/claude-opus"]
-    assert "channel_finder_mode=hierarchical" not in " ".join(cmd)
+    assert not any(arg.startswith("channel_finder_mode=") for arg in cmd)
 
 
 def test_auto_render_without_project_root_forwards_nothing(monkeypatch, tmp_path):
@@ -678,4 +706,4 @@ def test_auto_render_forwards_only_keys_with_recorded_values(monkeypatch, tmp_pa
 
     cmd = calls[0]
     assert cmd[-2:] == ["--set", "provider=als-apg"]
-    assert "model" not in " ".join(cmd)
+    assert not any(arg.startswith("model=") for arg in cmd)

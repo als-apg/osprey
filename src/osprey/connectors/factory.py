@@ -8,6 +8,9 @@ system for unified component management and lazy loading.
 """
 
 import importlib
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from typing import Any
 
 from osprey.connectors import types
@@ -73,7 +76,9 @@ class ConnectorFactory:
 
         Args:
             config: Control system configuration dict with keys:
-                - type: Connector type (e.g., 'epics', 'mock')
+                - type: Connector type (e.g., 'epics', 'mock'). Defaults to
+                  'mock' with a warning when unset, so an under-specified
+                  config never reaches live hardware.
                 - connector: Dict with connector-specific configs
                 If None, loads from global config
 
@@ -106,7 +111,17 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type", types.EPICS)
+        connector_type = config.get("type")
+        if not connector_type:
+            # Fail closed: an under-specified config must never bring up a live
+            # control system. A blank value is treated as absent for the same
+            # reason.
+            logger.warning(
+                f"control_system.type is not set; defaulting to '{types.MOCK}'. "
+                f"Set control_system.type explicitly to select a connector."
+            )
+            connector_type = types.MOCK
+
         connector_class = cls._control_system_connectors.get(connector_type)
 
         if not connector_class:
@@ -150,7 +165,9 @@ class ConnectorFactory:
 
         Args:
             config: Archiver configuration dict with keys:
-                - type: Connector type (e.g., 'epics_archiver', 'mock_archiver')
+                - type: Connector type (e.g., 'epics_archiver', 'mock_archiver').
+                  Defaults to 'mock_archiver' with a warning when unset, so a
+                  config that omits the archiver section stays serviceable.
                 - [type]: Dict with type-specific configs
                 If None, loads from global config
 
@@ -181,7 +198,17 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type", types.EPICS_ARCHIVER)
+        connector_type = config.get("type")
+        if not connector_type:
+            # Fail closed: a config with no `archiver:` section is under-specified,
+            # not a declaration that a facility archiver exists. A blank value is
+            # treated as absent for the same reason.
+            logger.warning(
+                f"archiver.type is not set; defaulting to '{types.MOCK_ARCHIVER}'. "
+                f"Set archiver.type explicitly to select a connector."
+            )
+            connector_type = types.MOCK_ARCHIVER
+
         connector_class = cls._archiver_connectors.get(connector_type)
 
         if not connector_class:
@@ -228,34 +255,144 @@ class ConnectorFactory:
         return list(cls._archiver_connectors.keys())
 
 
+@dataclass(frozen=True)
+class ConnectorRegistrySnapshot:
+    """Captured contents of both :class:`ConnectorFactory` registries.
+
+    Treat the two dicts as read-only. They are the restore point, not a working
+    copy: mutating either one changes what
+    :func:`restore_connector_registries` puts back, so the registries would be
+    restored to a state the process was never in.
+    """
+
+    control_system: dict[str, type[ControlSystemConnector]] = field(default_factory=dict)
+    archiver: dict[str, type[ArchiverConnector]] = field(default_factory=dict)
+
+
+def snapshot_connector_registries() -> ConnectorRegistrySnapshot:
+    """Copy the current control system and archiver registrations.
+
+    Returns:
+        Snapshot that :func:`restore_connector_registries` can replay.
+    """
+    return ConnectorRegistrySnapshot(
+        control_system=dict(ConnectorFactory._control_system_connectors),
+        archiver=dict(ConnectorFactory._archiver_connectors),
+    )
+
+
+def restore_connector_registries(snapshot: ConnectorRegistrySnapshot) -> None:
+    """Replace both registries with the contents of ``snapshot``.
+
+    The restore is total: registrations added after the snapshot are dropped
+    and registrations removed after it are put back, so any mutation made in
+    between is undone.
+
+    Args:
+        snapshot: Value returned by :func:`snapshot_connector_registries`.
+    """
+    ConnectorFactory._control_system_connectors.clear()
+    ConnectorFactory._control_system_connectors.update(snapshot.control_system)
+    ConnectorFactory._archiver_connectors.clear()
+    ConnectorFactory._archiver_connectors.update(snapshot.archiver)
+
+
+@contextmanager
+def isolated_connector_registries(*, clear: bool = False) -> Iterator[ConnectorRegistrySnapshot]:
+    """Bracket registry mutations so the surrounding process state survives.
+
+    This is the sanctioned way for tests to mutate the factory registries.
+    Clearing them directly is destructive: registrations made elsewhere (by
+    ``initialize_registry()``, by another test module, by a facility preset)
+    are gone for the rest of the process, and
+    :func:`register_builtin_connectors` cannot tell a deliberately customized
+    registry from a truncated one.
+
+    Args:
+        clear: Empty both registries on entry, for code that needs to observe
+            registration from scratch. The clear is undone on exit like any
+            other mutation.
+
+    Yields:
+        The snapshot taken on entry, before any ``clear``. It is the restore
+        point for the ``finally`` below — read it, do not mutate it.
+
+    Example:
+        >>> with isolated_connector_registries(clear=True):
+        ...     register_builtin_connectors()
+    """
+    snapshot = snapshot_connector_registries()
+    if clear:
+        ConnectorFactory._control_system_connectors.clear()
+        ConnectorFactory._archiver_connectors.clear()
+    try:
+        yield snapshot
+    finally:
+        restore_connector_registries(snapshot)
+
+
+_BUILTIN_CONTROL_SYSTEMS = (types.MOCK, types.EPICS, types.VIRTUAL_ACCELERATOR, types.DOOCS)
+_BUILTIN_ARCHIVERS = (types.MOCK_ARCHIVER, types.EPICS_ARCHIVER, types.DOOCS_ARCHIVER)
+
+
 def register_builtin_connectors() -> None:
     """Register all built-in control system and archiver connectors.
 
-    Safe to call multiple times — skips registration if connectors are
-    already present (e.g., from ``initialize_registry()``).
+    Safe to call multiple times and convergent: every call ensures each
+    built-in name is registered, and an existing registration under one of
+    those names is never replaced. A registry holding only part of the
+    built-ins (e.g., one that was cleared and then partially repopulated)
+    therefore heals on the next call instead of keeping the truncated set.
     """
-    if ConnectorFactory._control_system_connectors:
-        return  # Already registered
+    missing_control_systems = [
+        name
+        for name in _BUILTIN_CONTROL_SYSTEMS
+        if name not in ConnectorFactory._control_system_connectors
+    ]
+    missing_archivers = [
+        name for name in _BUILTIN_ARCHIVERS if name not in ConnectorFactory._archiver_connectors
+    ]
+    if not missing_control_systems and not missing_archivers:
+        # The optional MongoDB archiver is only probed alongside the required
+        # built-ins, so a missing pymongo isn't re-imported on every call.
+        return
 
+    # The DOOCS connectors import doocs4py inside connect(), not at module
+    # scope, so they register unconditionally like any other built-in. A
+    # machine with no DOOCS environment only finds out when it tries to
+    # connect — which is the point at which it would have failed anyway.
+    from osprey.connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
     from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
     from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+    from osprey.connectors.control_system.doocs_connector import DOOCSConnector
     from osprey.connectors.control_system.epics_connector import EPICSConnector
     from osprey.connectors.control_system.mock_connector import MockConnector
     from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
+
+    control_systems: list[tuple[str, type[ControlSystemConnector]]] = [
+        (types.MOCK, MockConnector),
+        (types.EPICS, EPICSConnector),
+        (types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector),
+        (types.DOOCS, DOOCSConnector),
+    ]
+    archivers: list[tuple[str, type[ArchiverConnector]]] = [
+        (types.MOCK_ARCHIVER, MockArchiverConnector),
+        (types.EPICS_ARCHIVER, EPICSArchiverConnector),
+        (types.DOOCS_ARCHIVER, DOOCSArchiverConnector),
+    ]
 
     try:
         from osprey.connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 
-        _mongo_available = True
+        archivers.append((types.MONGODB_ARCHIVER, MongoDBArchiverConnector))
     except ImportError:
-        _mongo_available = False
+        pass
 
-    ConnectorFactory.register_control_system(types.MOCK, MockConnector)
-    ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
-    ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector)
-    ConnectorFactory.register_archiver(types.MOCK_ARCHIVER, MockArchiverConnector)
-    ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, EPICSArchiverConnector)
-    if _mongo_available:
-        ConnectorFactory.register_archiver(types.MONGODB_ARCHIVER, MongoDBArchiverConnector)
+    for name, connector_class in control_systems:
+        if name not in ConnectorFactory._control_system_connectors:
+            ConnectorFactory.register_control_system(name, connector_class)
+    for name, archiver_class in archivers:
+        if name not in ConnectorFactory._archiver_connectors:
+            ConnectorFactory.register_archiver(name, archiver_class)

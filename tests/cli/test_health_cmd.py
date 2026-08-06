@@ -100,36 +100,6 @@ def cli_runner() -> CliRunner:
     return CliRunner()
 
 
-@pytest.fixture(autouse=True)
-def _restore_environ():
-    """Snapshot and restore ``os.environ`` around every test.
-
-    The command loads the project's ``.env`` into ``os.environ`` with override
-    semantics; run in-process, that would otherwise leak canary variables into
-    sibling tests. This guarantees a pristine environment regardless.
-    """
-    saved = dict(os.environ)
-    try:
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
-
-
-@pytest.fixture(autouse=True)
-def _guard_os_exit():
-    """Force the CLI's normal ``sys.exit`` path for in-process invocations.
-
-    When a sync check is abandoned after a timeout, the command falls back to
-    ``os._exit`` — which, in an in-process ``CliRunner`` test, would terminate the
-    pytest process itself. The daemon-thread / ``os._exit`` guarantee is instead
-    pinned by the real-subprocess no-hang test; every in-process test pins
-    ``abandoned_count`` at 0 so the caught ``SystemExit`` carries the exit code.
-    """
-    with patch("osprey.health.offload.abandoned_count", return_value=0):
-        yield
-
-
 def _write_config(project: Path, body: str) -> Path:
     """Write ``config.yml`` into *project* (created if needed) and return its path."""
     project.mkdir(parents=True, exist_ok=True)
@@ -542,9 +512,9 @@ class TestJsonOutput:
         assert "\n" not in stripped  # a single compact line
 
     def test_json_clean_despite_config_load_error(self, cli_runner, tmp_path):
-        # Regression: the loader logs bad-YAML failures at ERROR through a
-        # stdout-bound handler. Under --json those logs must be silenced so stdout
-        # stays a single parseable JSON document.
+        # Regression: the loader reports bad-YAML failures at ERROR. Under --json
+        # that chatter must stay off stdout so it remains a single parseable JSON
+        # document, whichever stream the host has logging pointed at.
         project = tmp_path / "proj"
         _write_config(project, "invalid: yaml: content:\n")
         with _no_container_runtime():

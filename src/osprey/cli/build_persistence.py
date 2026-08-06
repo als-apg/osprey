@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from osprey.utils.logger import get_logger
 
@@ -175,10 +176,14 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
 
         spec: dict[str, Any] = {}
         if server.url:
-            spec["transport"] = "http"
+            # Written explicitly (even for the default) so the rendered
+            # config.yml states its wire transport instead of implying it —
+            # _custom_server_from_spec() reads this key back during regen.
+            spec["transport"] = server.transport
             spec["url"] = server.url
         else:
-            spec["transport"] = "stdio"
+            # Stdio servers get no transport key: launching via 'command' IS
+            # the transport, and load_profile rejects a declared one.
             if server.command:
                 spec["command"] = server.command
             if server.args:
@@ -188,16 +193,18 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
         if server.port is not None and server.url:
             # Emit a derived network block so non-Claude consumers
             # (compose-port checkers, integration-tests probes) can read
-            # host/docker URLs without re-deriving them.
+            # host/docker URLs without re-deriving them. The endpoint path
+            # follows the declared url (an SSE server's stream is not /mcp).
             # NOTE: docker_url uses the MCP server's YAML key (`name`) as the
             # container hostname. This assumes the operator names the
             # docker-compose service identically to the mcp_servers entry
             # (e.g. mcp_servers.matlab → service: matlab). If they diverge,
             # docker_url will point at a non-existent host.
+            path = urlparse(server.url).path or "/mcp"
             spec["network"] = {
                 "port": int(server.port),
-                "host_url": f"http://localhost:{server.port}/mcp",
-                "docker_url": f"http://{name}:{server.port}/mcp",
+                "host_url": f"http://localhost:{server.port}{path}",
+                "docker_url": f"http://{name}:{server.port}{path}",
             }
         if server.permissions:
             spec["permissions"] = dict(server.permissions)
@@ -207,26 +214,34 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
     _save(config_path, data)
 
 
-def _persist_categories(project_path: Path, categories: dict[str, dict[str, str]]) -> None:
-    """Persist custom artifact categories into config.yml's ``categories`` section."""
+def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> None:
+    """Merge profile ``artifact_server`` overrides into config.yml's block.
+
+    Scalar subkeys (``host``, ``port``, ``auto_launch``) replace the rendered
+    defaults; ``categories`` entries are written into the block's
+    ``categories`` submap.
+    """
+    from ruamel.yaml import CommentedMap
+
     from osprey.utils.config_writer import _load, _save
 
     config_path = project_path / "config.yml"
     data = _load(config_path)
 
-    if "categories" not in data:
-        from ruamel.yaml import CommentedMap
+    if "artifact_server" not in data:
+        data["artifact_server"] = CommentedMap()
+    block = data["artifact_server"]
 
-        data["categories"] = CommentedMap()
-    cat_section = data["categories"]
-
-    for key, spec in categories.items():
-        from ruamel.yaml import CommentedMap
-
+    for key, value in overrides.items():
+        if key != "categories":
+            block[key] = value
+    for key, spec in overrides.get("categories", {}).items():
+        if "categories" not in block:
+            block["categories"] = CommentedMap()
         entry = CommentedMap()
         entry["label"] = spec["label"]
         entry["color"] = spec["color"]
-        cat_section[key] = entry
+        block["categories"][key] = entry
 
     _save(config_path, data)
 

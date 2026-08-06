@@ -17,6 +17,7 @@ import sys
 import time
 from collections.abc import Mapping
 from pathlib import Path
+from typing import NoReturn
 
 import click
 
@@ -118,43 +119,89 @@ def _write_pid(project_dir: Path, pid: int) -> None:
     (project_dir / PID_FILE).write_text(str(pid))
 
 
-def _enter_project(project: str | None) -> None:
-    """Make ``--project`` authoritative, so it behaves like ``cd <project>``.
+def _resolve_project_config(project: str | None) -> tuple[Path, Path]:
+    """Resolve THE project this server serves, and make it authoritative.
 
-    Nearly everything the web terminal touches is resolved relative to the
-    process working directory — ``config.yml`` (:func:`resolve_config_path`),
-    the project ``.env``, ``.claude/``, and ``watch_dir``/``_agent_data``. The
-    ``--project`` flag previously only reached ``app.state.project_cwd``, so
-    launching from anywhere else left every one of those pointing at the
-    operator's shell directory: the project ``.env`` was never loaded, config
-    ``${VAR}`` placeholders (e.g. a provider ``api_key``) stayed unexpanded,
-    the project's ``web_terminal``/``claude_code`` settings were silently
-    replaced by built-in defaults, and ``_agent_data/`` was created in the
-    wrong place. Changing directory here fixes all of them at one point
-    instead of threading a project path through each resolver.
+    Single source of truth for the project identity of ``osprey web``.
+    Everything the server and its children resolve — config.yml (panels,
+    companion servers, providers), the project ``.env``, ``.claude/``, and
+    ``watch_dir``/``_agent_data`` — must derive from one decision made once,
+    up front. Resolution order:
 
-    Without ``--project`` only the ``.env`` load applies — a bare ``osprey web``
-    already runs in the project directory. That load happens here, rather than
-    just before the server starts as it used to, so the ``get_config_value``
-    reads below expand ``${VAR}`` against it and both entry paths stay
-    identical.
+      1. ``--project`` (explicit flag): behaves exactly like ``cd <project> &&
+         osprey web`` — the process chdirs into it so every cwd-relative
+         resolver agrees, and the flag outranks an ambient ``OSPREY_CONFIG``
+         export, which may still point at whichever project the operator last
+         worked in.
+      2. ``OSPREY_CONFIG`` env var: honored where it points, with NO chdir —
+         an explicit export is the operator's own pin on the config alone, so
+         cwd-relative state (``.claude/``, ``_agent_data``) deliberately stays
+         in the invoking directory. A dangling path is a launch error, not a
+         silent fallback.
+      3. ``<cwd>/config.yml``: the plain ``osprey web`` inside a project.
+
+    A launch with NO resolvable config is an error, not a degraded mode: the
+    panel set, companion servers, and provider wiring all come from
+    config.yml, so a configless launch comes up as a mystery terminal with
+    most of its rail missing ("my panels vanished") instead of pointing at
+    the actual problem (wrong directory).
+
+    On success, publishes the resolved path to ``OSPREY_CONFIG`` so this
+    process, every child (PTY shells and their MCP servers), and the
+    ``--reload`` worker (which re-imports ``create_app()`` with no arguments)
+    all resolve the SAME config, then loads the project ``.env``
+    (:func:`osprey.mcp_env.load_dotenv_from_project` keys off that same
+    publication) so the ``get_config_value`` reads that follow expand
+    ``${VAR}`` placeholders against it.
+
+    Returns:
+        ``(project_dir, config_path)``, both absolute.
     """
     if project:
         # Resolve against the invoking shell's cwd — before the chdir, or a
         # relative --project would be resolved against itself.
         project_dir = Path(project).resolve()
+        config_path = project_dir / "config.yml"
+        if not config_path.is_file():
+            _abort_no_project_config(project_dir)
         os.chdir(project_dir)
+    elif os.environ.get("OSPREY_CONFIG"):
+        # Same expansion as osprey.utils.workspace.resolve_config_path().
+        config_path = Path(os.path.expandvars(os.environ["OSPREY_CONFIG"])).expanduser()
+        if not config_path.is_file():
+            click.echo(
+                f"ERROR: OSPREY_CONFIG points to a missing config file: {config_path}",
+                err=True,
+            )
+            raise SystemExit(1)
+        config_path = config_path.resolve()
+        project_dir = config_path.parent
+    else:
+        project_dir = Path.cwd().resolve()
+        config_path = project_dir / "config.yml"
+        if not config_path.is_file():
+            _abort_no_project_config(project_dir)
 
-        # An explicit flag outranks an ambient OSPREY_CONFIG export, which may
-        # still point at whichever project the operator last worked in. Child
-        # PTY shells and their MCP servers inherit this to find the project.
-        project_config = project_dir / "config.yml"
-        if project_config.is_file():
-            os.environ["OSPREY_CONFIG"] = str(project_config)
+    os.environ["OSPREY_CONFIG"] = str(config_path)
 
     from osprey.mcp_env import load_dotenv_from_project
 
     load_dotenv_from_project()
+    return project_dir, config_path
+
+
+def _abort_no_project_config(project_dir: Path) -> NoReturn:
+    """Refuse the launch, naming the three ways to point at a project."""
+    click.echo(
+        f"ERROR: No OSPREY project found — config.yml missing in {project_dir}\n\n"
+        "The web terminal needs a project config to know which panels,\n"
+        "companion servers, and providers to serve. Either:\n"
+        "  - run from a project directory containing config.yml, or\n"
+        "  - pass --project /path/to/project, or\n"
+        "  - set OSPREY_CONFIG=/path/to/config.yml",
+        err=True,
+    )
+    raise SystemExit(1)
 
 
 def _preflight_vendor_check() -> None:
@@ -217,10 +264,9 @@ def _probe_companion_ports() -> list[str]:
     from osprey.infrastructure.server_launcher import (
         _launchers,
         _make_auto_launch_checker,
-        _make_config_reader,
     )
     from osprey.interfaces.web_terminal.app import _load_panel_config
-    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+    from osprey.registry.web import FRAMEWORK_WEB_SERVERS, resolve_web_server_address
 
     enabled_panels, _custom_panels, _default_panel = _load_panel_config()
 
@@ -230,7 +276,7 @@ def _probe_companion_ports() -> list[str]:
             continue  # panel disabled in web.panels — the lifespan never calls its launcher
         if not _make_auto_launch_checker(defn)():
             continue  # auto_launch off, or require_section unmet
-        host, port = _make_config_reader(defn)()
+        host, port = resolve_web_server_address(key)
         if _launchers[key]._port_has_listener(host, port):
             failures.append(
                 f"Companion panel '{key}' ({defn.name}) port {port} is already in use "
@@ -240,20 +286,7 @@ def _probe_companion_ports() -> list[str]:
     return failures
 
 
-def _resolve_project_config_path(project_dir: Path) -> Path:
-    """Resolve config.yml the same way ``resolve_config_path()`` does, for *project_dir*.
-
-    Mirrors ``osprey.utils.workspace.resolve_config_path()`` (``OSPREY_CONFIG``
-    env var first, else ``<dir>/config.yml``) but keyed off the pre-flight's
-    already-resolved ``project_dir`` instead of ``Path.cwd()`` — the two agree
-    whenever ``--project`` isn't passed, since ``project_dir`` defaults to cwd.
-    """
-    return Path(
-        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(project_dir / "config.yml")))
-    )
-
-
-def _probe_auth_secret(project_dir: Path | None) -> tuple[list[str], list[str]]:
+def _probe_auth_secret(project_dir: Path) -> tuple[list[str], list[str]]:
     """Probe 2: the resolved provider's auth secret must be resolvable before launch.
 
     A proxy provider (als-apg, cborg, a custom ``api.providers`` entry, ...)
@@ -263,20 +296,18 @@ def _probe_auth_secret(project_dir: Path | None) -> tuple[list[str], list[str]]:
     a warning, not an abort.
 
     Checks both ``os.environ`` and the project's ``.env`` (via
-    ``dotenv_values``, which reads without mutating ``os.environ``): the real
-    launch's ``load_dotenv_from_project()`` only runs after pre-flight on the
-    foreground path (see ``web()``), so a secret that lives only in ``.env``
-    must still count as present here — otherwise a healthy proxy launch would
-    false-fail.
+    ``dotenv_values``, which reads without mutating ``os.environ``).
+    ``_resolve_project_config()`` does load ``.env`` before pre-flight runs,
+    but this probe must not DEPEND on that side effect: reading ``.env``
+    directly keeps it correct on its own, so a secret that lives only in
+    ``.env`` counts as present regardless of load ordering — otherwise a
+    healthy proxy launch could false-fail.
 
     Zero network: ``load_provider_spec`` is a pure config read. A missing or
     malformed config.yml, or an unknown provider name, is left for Probe 3 (or
     the launch itself) to report — this probe just skips quietly rather than
     duplicating that diagnosis.
     """
-    if project_dir is None:
-        return [], []
-
     from osprey.build.claude_code_resolver import load_provider_spec
 
     try:
@@ -305,7 +336,7 @@ def _probe_auth_secret(project_dir: Path | None) -> tuple[list[str], list[str]]:
     )
 
 
-def _probe_config_validity(project_dir: Path | None) -> list[str]:
+def _probe_config_validity(project_dir: Path, config_path: Path) -> list[str]:
     """Probe 3: config.yml and .claude/settings.json must at least parse.
 
     ``load_osprey_config()`` swallows every exception and returns ``{}`` on
@@ -317,12 +348,12 @@ def _probe_config_validity(project_dir: Path | None) -> list[str]:
     does not call ``validate_agent_tools_against_permissions()`` — agent-tool
     / permission drift is a build-time concern, not a launch gate.
 
-    Both files are optional — a project without one is not a failure, just
-    nothing to validate.
+    ``config_path`` is the path ``_resolve_project_config()`` already settled
+    on — threaded through rather than re-derived, so pre-flight can never
+    parse a different file than the one the server will actually load.
+    ``settings.json`` is optional; a project without one is not a failure,
+    just nothing to validate.
     """
-    if project_dir is None:
-        return []
-
     failures: list[str] = []
 
     settings_path = project_dir / ".claude" / "settings.json"
@@ -334,7 +365,6 @@ def _probe_config_validity(project_dir: Path | None) -> list[str]:
         except json.JSONDecodeError as e:
             failures.append(f"{settings_path}: invalid JSON ({e})")
 
-    config_path = _resolve_project_config_path(project_dir)
     if config_path.exists():
         import yaml
 
@@ -347,7 +377,7 @@ def _probe_config_validity(project_dir: Path | None) -> list[str]:
 
 
 def _preflight(
-    config: dict, project_dir: Path | None, host: str, port: int
+    config: dict, project_dir: Path, config_path: Path, host: str, port: int
 ) -> tuple[list[str], list[str]]:
     """Run fast, synchronous, zero-network pre-flight probes before the server binds.
 
@@ -358,9 +388,11 @@ def _preflight(
     ``ANTHROPIC_API_KEY`` in env — subscription/OAuth login is still
     launchable).
 
+    ``project_dir``/``config_path`` are the pair ``_resolve_project_config()``
+    settled on — every probe sees the SAME project the server will serve.
     ``config``/``host``/``port`` are threaded through for probes that need
     them; none currently do. Probe 1 (companion port collisions) reads its own
-    panel/port config directly; Probes 2-3 use ``project_dir``.
+    panel/port config directly; Probes 2-3 use ``project_dir``/``config_path``.
     """
     failures: list[str] = []
     warnings: list[str] = []
@@ -368,7 +400,7 @@ def _preflight(
     auth_failures, auth_warnings = _probe_auth_secret(project_dir)
     failures.extend(auth_failures)
     warnings.extend(auth_warnings)
-    failures.extend(_probe_config_validity(project_dir))
+    failures.extend(_probe_config_validity(project_dir, config_path))
     return failures, warnings
 
 
@@ -480,6 +512,10 @@ def web(
     Starts a FastAPI server with a split-pane UI: a real terminal (PTY) on the
     left and a live workspace file viewer on the right.
 
+    The project is resolved once, up front: --project if given, else the
+    OSPREY_CONFIG environment variable, else ./config.yml. A launch without
+    a resolvable project config is refused.
+
     Example:
 
     \b
@@ -494,7 +530,14 @@ def web(
     if ctx.invoked_subcommand is not None:
         return
 
-    _enter_project(project)
+    # Resolve the project identity FIRST and fail loudly if there is none.
+    # Everything below — the vendor check's offline flag, host/port/shell
+    # resolution, pre-flight's probes, and the server itself — reads the
+    # project's config, so an unresolvable config must abort here rather than
+    # degrade into a mystery terminal serving another directory's defaults.
+    project_dir, project_config = _resolve_project_config(project)
+    project = str(project_dir)
+    click.echo(f"Project: {project_dir}")
 
     _preflight_vendor_check()
 
@@ -520,8 +563,9 @@ def web(
     if not skip_preflight:
         from osprey.utils.workspace import load_osprey_config
 
-        project_dir = Path(project).resolve() if project else Path.cwd()
-        failures, warnings = _preflight(load_osprey_config(), project_dir, host, port)
+        failures, warnings = _preflight(
+            load_osprey_config(), project_dir, project_config, host, port
+        )
         for warning in warnings:
             click.echo(f"WARNING: {warning}", err=True)
         if failures:
@@ -584,6 +628,9 @@ def web(
 
             _open_browser_when_ready(f"http://{host}:{port}")
 
+            # The reload worker re-imports create_app() with no arguments; it
+            # finds the project via the OSPREY_CONFIG publication made in
+            # _resolve_project_config().
             uvicorn.run(
                 "osprey.interfaces.web_terminal.app:create_app",
                 factory=True,
@@ -595,12 +642,18 @@ def web(
         else:
             from osprey.interfaces.web_terminal import run_web
 
-            run_web(host=host, port=port, shell_command=shell_command, project_dir=project)
+            run_web(
+                host=host,
+                port=port,
+                shell_command=shell_command,
+                config_path=str(project_config),
+                project_dir=project,
+            )
     except KeyboardInterrupt:
         click.echo("\nShutting down...")
 
 
-def _start_detached(host: str, port: int, shell: str | None, project: str | None) -> None:
+def _start_detached(host: str, port: int, shell: str | None, project: str) -> None:
     """Spawn the web server as a background process.
 
     ``shell`` is the raw user ``--shell`` flag (or None), NOT the resolved argv.
@@ -608,8 +661,11 @@ def _start_detached(host: str, port: int, shell: str | None, project: str | None
     pin remains honored from config; if we forwarded a resolved/pinned argv here,
     it would re-enter ``resolve_shell_command()`` in the child and fail for
     multi-word forms like ``npx -y @anthropic-ai/claude-code@<v>``.
+
+    ``project`` is the directory ``_resolve_project_config()`` settled on —
+    always present, never re-derived from cwd here.
     """
-    project_dir = Path(project).resolve() if project else Path.cwd()
+    project_dir = Path(project).resolve()
 
     # Idempotent: if already running, just report
     existing = _read_pid(project_dir)
@@ -635,8 +691,10 @@ def _start_detached(host: str, port: int, shell: str | None, project: str | None
     ]
     if shell:
         cmd += ["--shell", shell]
-    if project:
-        cmd += ["--project", str(Path(project).resolve())]
+    # Always name the project in the child argv: it's what `ps` shows and what
+    # humans and agents copy to restart the server. A restart from another
+    # directory must not silently lose the project identity.
+    cmd += ["--project", str(project_dir)]
 
     log_path = project_dir / LOG_FILE
     log_fh = open(log_path, "w")  # noqa: SIM115

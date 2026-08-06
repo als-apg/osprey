@@ -19,6 +19,7 @@ from osprey.cli.templates._rendering import render_template as _render_template
 from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
+from osprey.utils.facility import resolve_facility_name
 
 
 class TemplateManager:
@@ -271,7 +272,6 @@ class TemplateManager:
                     "channel_finder_tools": list(
                         CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(channel_finder_mode, [])
                     ),
-                    "facility_name": ctx.get("facility_name", project_name),
                 }
             )
 
@@ -396,9 +396,10 @@ class TemplateManager:
             system_config = rendered_config.get("system", {})
             ctx["system_timezone"] = system_config.get("timezone", "UTC")
 
-            # Facility name fallback (already set for control_assistant at line 284,
-            # but setdefault handles other templates)
-            ctx.setdefault("facility_name", rendered_config.get("facility_name", project_name))
+            # Facility identity: canonical `facility.name`, legacy top-level
+            # `facility_name` as fallback (see utils.facility.resolve_facility_name).
+            # setdefault so an explicit caller-supplied context value still wins.
+            ctx.setdefault("facility_name", resolve_facility_name(rendered_config, project_name))
 
             cf_config = rendered_config.get("channel_finder", {})
 
@@ -431,6 +432,10 @@ class TemplateManager:
                         exc_info=True,
                     )
             ctx.setdefault("channel_finder_hierarchy", None)
+
+        # A bundle that renders no config.yml still needs a facility name for the
+        # agent/CLAUDE.md prompts rendered below.
+        ctx.setdefault("facility_name", project_name)
 
         # Textbooks root -- resolve relative to project directory
         _textbooks_dir = project_dir.parent / "data" / "textbooks"

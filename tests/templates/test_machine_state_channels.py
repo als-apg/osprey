@@ -56,9 +56,7 @@ def _render_machine_state(**context) -> dict:
 
 
 def _channels(rendered: dict) -> dict:
-    """Rendered entries minus the underscore-prefixed metadata keys (the
-    real MachineStateReader skips these too; see
-    src/osprey/services/machine_state/reader.py)."""
+    """Rendered entries minus the underscore-prefixed metadata keys."""
     return {k: v for k, v in rendered.items() if not k.startswith("_")}
 
 

@@ -37,7 +37,7 @@ def project_dir(tmp_path):
             "writes_enabled": True,
             "limits_checking": {"enabled": False},
         },
-        "workspace": {"base_dir": "./_agent_data"},
+        "agent_data": {"base_dir": "./_agent_data"},
     }
     (tmp_path / "config.yml").write_text(yaml.dump(config))
 
@@ -371,14 +371,19 @@ async def test_patch_rejects_empty_key_path(project_dir):
 @pytest.mark.asyncio
 @pytest.mark.unit
 async def test_patch_hot_change_classification(project_dir):
-    """setup_patch classifies known hot paths correctly."""
+    """setup_patch classifies known hot paths correctly.
+
+    The limits hook runs as a fresh subprocess per call, so it really does
+    re-read config. `writes_enabled` does not qualify — see
+    tests/mcp_server/test_setup_patch_classification.py.
+    """
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
         result = extract_response_dict(
             await fn(
                 file="config.yml",
-                key_path="control_system.writes_enabled",
-                value="false",
+                key_path="control_system.limits_checking.enabled",
+                value="true",
             )
         )
 

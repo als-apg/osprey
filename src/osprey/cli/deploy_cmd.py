@@ -367,7 +367,3 @@ def deploy(
 
             console.print(traceback.format_exc(), style=Styles.DIM)
         raise click.Abort() from None
-
-
-if __name__ == "__main__":
-    deploy()

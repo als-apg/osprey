@@ -44,9 +44,10 @@ if TYPE_CHECKING:
     from osprey.health.config import CategoryRecord
     from osprey.health.models import CheckReport
 
-# Loggers that narrate config/registry loading. Osprey's root ``RichHandler``
-# writes to stdout, so their chatter (including config-load ERROR blocks) is
-# silenced during a run.
+# Loggers that narrate config/registry loading. Their chatter (including
+# config-load ERROR blocks) is silenced during a run: configure_logging() is
+# additive, so a host-installed stdout handler survives and would corrupt the
+# report.
 _NOISY_LOADER_LOGGERS = ("CONFIG", "registry")
 
 # A level above CRITICAL: nothing a logger or handler emits reaches it, so a

@@ -38,6 +38,7 @@ from osprey.simulation.machine import (
     Scenario,
     ScenarioLogEntry,
     SimChannel,
+    TextureSpec,
     parse_machine,
     resolve_active_scenario_names,
 )
@@ -45,8 +46,11 @@ from osprey.simulation.series import (
     apply_events,
     clamp,
     epoch_seconds_array,
+    keyed_normals,
+    pv_key_bytes,
     ref_value,
     string_series,
+    wander,
 )
 from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
@@ -65,6 +69,79 @@ class SimReading:
     value: float | str
     units: str
     description: str
+
+
+def _texture_offset(
+    pv_key: bytes, texture: TextureSpec, t_abs_s: "np.ndarray | float"
+) -> "np.ndarray":
+    """Texture contribution at absolute epoch time(s) — shared by both engine paths.
+
+    Synthesis passes the window's epoch-seconds array; live reads pass a scalar
+    wall-clock now (``wander`` is scalar/array bit-exact, so the two paths
+    agree exactly at a shared timestamp). That agreement holds only because
+    both callers route through this one implementation with UNMODIFIED
+    absolute epoch seconds — do not normalize, quantize, or re-derive the time
+    input on either side. ``kind`` needs no dispatch: ``parse_machine``
+    validates the vocabulary and ``"wander"`` is the only kind defined today.
+
+    Args:
+        pv_key: Channel key from :func:`osprey.simulation.series.pv_key_bytes`.
+        texture: The channel's declared texture parameters.
+        t_abs_s: Absolute epoch seconds — array (synthesis) or scalar (live).
+
+    Returns:
+        Texture offsets with the shape of ``t_abs_s`` (0-d for a scalar).
+    """
+    # asarray is the same first step wander performs — a bit-exact dtype wrap
+    # (never a rounding or rebasing), here only to satisfy the array annotation.
+    times = np.asarray(t_abs_s, dtype=np.float64)
+    return wander(pv_key, times, texture.amplitude, texture.period_s)
+
+
+def _apply_signal_model(
+    pv: str, channel: SimChannel, series: "np.ndarray", t_abs: "np.ndarray | None"
+) -> "np.ndarray":
+    """Add a channel's declared signal model to its post-event baseline series.
+
+    Texture rides *post-event* levels: step/ramp events hard-overwrite the
+    series, so folding it in earlier would leave every stepped plateau dead
+    flat. It needs absolute time (that is what makes overlapping windows agree),
+    so non-epoch timestamps skip it — same precedent as anchored events in
+    :func:`osprey.simulation.series.apply_events`.
+
+    Both noise terms are keyed draws addressed by (channel, epoch millisecond),
+    never by an RNG stream position, so any two windows agree pointwise on
+    shared timestamps. The sample-index fallback keeps non-epoch windows
+    deterministic (still per-channel via the key).
+
+    Args:
+        pv: Channel name; keys the draws and names the channel in the
+            skipped-texture debug log.
+        channel: Parsed channel supplying ``texture``/``noise``/``noise_abs``.
+        series: Post-event baseline series, one entry per sample. Not mutated.
+        t_abs: Absolute epoch seconds per sample, or ``None`` when the requested
+            timestamps were not convertible.
+
+    Returns:
+        The series with texture and both noise terms applied.
+    """
+    pv_key = pv_key_bytes(pv)
+    if channel.texture is not None:
+        if t_abs is not None:
+            series = series + _texture_offset(pv_key, channel.texture, t_abs)
+        else:
+            logger.debug(
+                f"Skipping texture for {pv!r}: timestamps not convertible to epoch seconds"
+            )
+    if channel.noise > 0.0 or channel.noise_abs > 0.0:
+        counters = t_abs * 1000.0 if t_abs is not None else np.arange(len(series), dtype=np.int64)
+        if channel.noise > 0.0:
+            relative = keyed_normals(pv_key + b":noise", counters)
+            series = series * (1.0 + channel.noise * relative)
+        if channel.noise_abs > 0.0:
+            absolute = keyed_normals(pv_key + b":noise_abs", counters)
+            series = series + channel.noise_abs * absolute
+    return series
 
 
 class SimulationEngine:
@@ -275,7 +352,19 @@ class SimulationEngine:
         return pv in self._channels
 
     def read(self, pv: str) -> SimReading:
-        """Read a channel's effective value with noise applied.
+        """Read a channel's effective value with the live signal model applied.
+
+        Numeric pipeline: effective value -> + texture at wall-clock now ->
+        relative ``noise`` (multiplicative) -> + ``noise_abs`` (additive) ->
+        clamp. Texture is the shared deterministic term (:func:`_texture_offset`,
+        the same implementation synthesis uses), so for a NON-OVERRIDDEN,
+        noise-free channel a live read equals the synthesized sample at the
+        same timestamp exactly. That agreement is scoped: the effective value
+        resolves write > override > baseline, while synthesized history builds
+        on ``channel.value`` plus archiver events — an override shifts the live
+        read but not the history (scenarios declare matching archiver events to
+        keep the two consistent). Both noise draws stay stochastic on the
+        engine's RNG, deliberately: only synthesis draws are counter-based.
 
         Args:
             pv: Channel name.
@@ -290,9 +379,14 @@ class SimulationEngine:
         channel = self._require_channel(pv)
         value = self._effective(pv)
         if not isinstance(value, str):
+            value = float(value)
+            if channel.texture is not None:
+                value += float(_texture_offset(pv_key_bytes(pv), channel.texture, time.time()))
             if channel.noise > 0.0:
-                value = float(value) * (1.0 + float(self._rng.normal(0.0, channel.noise)))
-            value = clamp(float(value), channel.min_value, channel.max_value)
+                value *= 1.0 + float(self._rng.normal(0.0, channel.noise))
+            if channel.noise_abs > 0.0:
+                value += float(self._rng.normal(0.0, channel.noise_abs))
+            value = clamp(value, channel.min_value, channel.max_value)
         return SimReading(value=value, units=channel.units, description=channel.description)
 
     def write(self, pv: str, value: Any) -> None:
@@ -322,11 +416,20 @@ class SimulationEngine:
     def synthesize_series(self, pv: str, timestamps: Sequence[Any]) -> list[Any]:
         """Synthesize an archiver time-series for a channel.
 
-        Baseline-value channels yield a constant baseline plus per-channel
-        noise, with the active scenario's archiver events (step/ramp/spike)
-        applied. Expression channels are evaluated pointwise over the
-        synthesized series of their referenced channels, so derived channels
-        show correlated history.
+        Baseline-value channels yield their baseline with the active scenario's
+        archiver events (step/ramp/spike) applied, then the channel's declared
+        signal model: ``texture`` (slow baseline wander, riding post-event
+        levels), relative ``noise`` (multiplicative sigma) and ``noise_abs``
+        (additive sigma). All stochastic terms are deterministic keyed draws
+        addressed by (channel, absolute timestamp), so repeated or overlapping
+        queries agree pointwise on shared timestamps — with two caveats: noise
+        counters are quantized to the nearest millisecond, so sub-millisecond
+        timestamps share draws; and when timestamps are not convertible to
+        epoch seconds, texture is skipped and noise falls back to sample-index
+        counters (deterministic for a given window shape, but without
+        cross-window agreement). Expression channels are evaluated pointwise
+        over the synthesized series of their referenced channels, so derived
+        channels show correlated history.
 
         Event positioning has three flavors: ``at`` places an event at a fixed
         fraction of whatever window is requested, while ``at_offset`` (with
@@ -503,6 +606,16 @@ class SimulationEngine:
         return channel.value
 
     def _numeric_effective(self, pv: str) -> float:
+        """Numeric effective value of a referenced channel — texture-free.
+
+        Live expression evaluation resolves references through the effective
+        value only: texture, like noise, is a top-level measurement effect,
+        applied solely to the channel actually being read. Synthesized derived
+        series differ — they inherit referenced channels' texture and noise
+        through the cached per-window series (:meth:`_synthesize`). This
+        existing live/archive asymmetry for derived channels is documented and
+        pinned (``TestExprRefTextureSemantics``), not silently widened.
+        """
         value = self._effective(pv)
         if isinstance(value, str):
             raise ExpressionError(
@@ -533,7 +646,13 @@ class SimulationEngine:
         anchor: float,
         tz: ZoneInfo,
     ) -> "np.ndarray | list[str]":
-        """Build one channel's series, memoized per synthesis pass."""
+        """Build one channel's series, memoized per synthesis pass.
+
+        Expression channels evaluate pointwise over their references'
+        *synthesized* series, so a derived series inherits referenced
+        channels' texture and noise — unlike live derived reads, which
+        resolve references texture-free via :meth:`_numeric_effective`.
+        """
         cached = cache.get(pv)
         if cached is not None:
             return cached
@@ -562,8 +681,7 @@ class SimulationEngine:
             series = np.full(n, float(channel.value))
 
         series = apply_events(series, events, n, t_abs, anchor, tz)
-        if channel.noise > 0.0:
-            series = series * (1.0 + self._rng.normal(0.0, channel.noise, n))
+        series = _apply_signal_model(pv, channel, series, t_abs)
         if channel.min_value is not None or channel.max_value is not None:
             series = np.clip(series, channel.min_value, channel.max_value)
         cache[pv] = series
