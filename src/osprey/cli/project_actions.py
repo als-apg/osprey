@@ -6,7 +6,9 @@ and configuration management actions invoked from the TUI menu.
 
 import os
 import socket
+import subprocess
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 from osprey.cli.styles import (
@@ -25,6 +27,37 @@ except ImportError:
 
 
 custom_style = get_questionary_style()
+
+# The MongoDB archiver connector imports pymongo lazily inside connect(), so an
+# ungated wizard choice writes a config that only fails at runtime.
+MONGODB_EXTRA = "archiver-mongodb"
+MONGODB_UNAVAILABLE_HINT = (
+    f"needs the {MONGODB_EXTRA} extra: pip install 'osprey-framework[{MONGODB_EXTRA}]'"
+)
+
+
+def mongodb_archiver_available() -> bool:
+    """Whether the ``archiver-mongodb`` extra (pymongo) is importable."""
+    return find_spec("pymongo") is not None
+
+
+def build_archiver_choices() -> list:
+    """Build the wizard's archiver choices, gating MongoDB on its extra.
+
+    MongoDB stays visible when the extra is missing but is disabled and
+    annotated with the install command, so the wizard cannot write an
+    ``archiver.type`` the installed environment can't construct.
+    """
+    mongodb_available = mongodb_archiver_available()
+    return [
+        Choice("EPICS Archiver Appliance", value=types.EPICS_ARCHIVER),
+        Choice(
+            "MongoDB",
+            value=types.MONGODB_ARCHIVER,
+            disabled=None if mongodb_available else MONGODB_UNAVAILABLE_HINT,
+        ),
+        Choice("Mock archiver (keep)", value=types.MOCK_ARCHIVER),
+    ]
 
 
 def handle_project_selection(project_path: Path):
@@ -118,9 +151,6 @@ def handle_deploy_action(project_path: Path | None = None):
         if action == "show_help":
             show_deploy_help()
             continue  # Return to menu after help
-
-        # Action selected - break out of menu loop and execute
-        import subprocess
 
         # Determine config path
         if project_path:
@@ -369,7 +399,7 @@ def handle_export_action(project_path: Path | None = None):
                     project_root="/path/to/example_project",
                     hostname="localhost",
                     default_provider="anthropic",
-                    default_model="anthropic/claude-haiku",
+                    default_model="haiku",
                 )
 
                 # Parse the rendered config as YAML
@@ -486,7 +516,9 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     current_archiver = get_control_system_type(config_path, key="archiver.type")
 
     console.print(f"[dim]Current control system: {current_type or 'mock'}[/dim]")
-    console.print(f"[dim]Current archiver: {current_archiver or 'mock_archiver'}[/dim]\n")
+    # Same constant the factory falls back to, so the displayed default cannot
+    # drift from the connector an unset archiver.type actually produces.
+    console.print(f"[dim]Current archiver: {current_archiver or types.MOCK_ARCHIVER}[/dim]\n")
 
     # Show choices
     choices = [
@@ -496,6 +528,7 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
             value=types.VIRTUAL_ACCELERATOR,
         ),
         Choice("EPICS - Production mode (connects to real control system)", value=types.EPICS),
+        Choice("DOOCS - Production mode (DESY / European XFEL)", value=types.DOOCS),
         Choice("─" * 60, value=None, disabled=True),
         Choice("[←] Back - Return to config menu", value="back"),
     ]
@@ -512,15 +545,19 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     # same gateway/archiver flow as EPICS rather than defaulting to mock.
     if control_type in (types.EPICS, types.VIRTUAL_ACCELERATOR):
         console.print("\n[bold]Archiver Configuration[/bold]\n")
+        if not mongodb_archiver_available():
+            console.print(f"[dim]MongoDB archiver unavailable — {MONGODB_UNAVAILABLE_HINT}[/dim]\n")
         archiver_type = questionary.select(
             "Which archiver?",
-            choices=[
-                Choice("EPICS Archiver Appliance", value=types.EPICS_ARCHIVER),
-                Choice("MongoDB", value=types.MONGODB_ARCHIVER),
-                Choice("Mock archiver (keep)", value=types.MOCK_ARCHIVER),
-            ],
+            choices=build_archiver_choices(),
             style=custom_style,
         ).ask()
+    elif control_type == types.DOOCS:
+        # The DOOCS archiver reads DOOCS local histories, so it is the only
+        # archiver that pairs with a DOOCS control system. Offering the
+        # EPICS/MongoDB menu here would only let the wizard write a
+        # combination no facility runs.
+        archiver_type = types.DOOCS_ARCHIVER
     else:
         archiver_type = types.MOCK_ARCHIVER
 

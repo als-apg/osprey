@@ -8,6 +8,7 @@ profile-dir-relative paths that would break when shipped in a wheel.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,8 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.build_profile import list_presets
+from osprey.cli.build_profile import list_presets, resolve_build_profile
+from osprey.errors import BuildProfileError
 
 
 @pytest.fixture
@@ -25,6 +27,23 @@ def runner() -> CliRunner:
 
 def _config_yaml(project_dir: Path) -> dict:
     return yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+
+
+def _assert_build_error_logged(caplog: pytest.LogCaptureFixture, *needles: str) -> None:
+    """Assert the build reported one of *needles* to the operator.
+
+    ``osprey build`` reports fatal user errors through ``logger.error()`` and
+    then aborts, so the message reaches the operator on stderr — never on
+    stdout, which is reserved for program output. click's ``Result.output``
+    folds both streams together and cannot tell the two apart, so these
+    assertions read the log record itself (house pattern, see
+    ``tests/cli/test_templates.py``).
+    """
+    text = caplog.text.lower()
+    assert any(needle.lower() in text for needle in needles), (
+        f"expected one of {needles} in the build log; got records: "
+        f"{[record.getMessage()[:80] for record in caplog.records]}"
+    )
 
 
 def test_list_presets_exits_zero(runner: CliRunner) -> None:
@@ -57,7 +76,7 @@ def test_preset_hello_world_creates_project(runner: CliRunner, tmp_path: Path) -
 
 def test_preset_with_override_file(runner: CliRunner, tmp_path: Path) -> None:
     override = tmp_path / "over.yml"
-    override.write_text("model: claude-opus-4-5\n")
+    override.write_text("model: opus\n")
     result = runner.invoke(
         build,
         [
@@ -74,7 +93,7 @@ def test_preset_with_override_file(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
-    assert config["claude_code"]["default_model"] == "claude-opus-4-5"
+    assert config["claude_code"]["default_model"] == "opus"
 
 
 def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
@@ -85,7 +104,7 @@ def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
             "--preset",
             "hello-world",
             "--set",
-            "model=claude-sonnet-4-6",
+            "model=sonnet",
             "--skip-deps",
             "--skip-lifecycle",
             "--output-dir",
@@ -94,7 +113,7 @@ def test_set_flag_overrides_scalar(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
-    assert config["claude_code"]["default_model"] == "claude-sonnet-4-6"
+    assert config["claude_code"]["default_model"] == "sonnet"
 
 
 def test_set_with_list_value_extends(runner: CliRunner, tmp_path: Path) -> None:
@@ -210,7 +229,7 @@ def test_positional_profile_still_works(runner: CliRunner, tmp_path: Path) -> No
     """Backward-compat: existing osprey build PROJECT PROFILE.yml flow."""
     profile = tmp_path / "p.yml"
     profile.write_text(
-        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: claude-haiku-4-5\n"
+        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: haiku\n"
     )
     result = runner.invoke(
         build,
@@ -236,7 +255,7 @@ def test_neither_profile_nor_preset_required(runner: CliRunner) -> None:
     """T6: no profile + no preset is a usage error -> exit 2 with a specific message."""
     result = runner.invoke(build, ["smoke"])
     assert result.exit_code == 2, result.output
-    # Pin the exact wording from build_profile.py
+    # Pin the exact wording from build_profile_resolve.py
     assert "Either a profile path or --preset is required" in result.output
 
 
@@ -320,8 +339,12 @@ def test_preset_drift_guard() -> None:
         )
 
 
-def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) -> None:
-    """C11: unknown top-level profile keys (e.g. typos) emit a warning, not silence."""
+def test_unknown_profile_key_fails_the_build(runner: CliRunner, tmp_path: Path, caplog) -> None:
+    """C11 promoted: unknown top-level keys now fail the build, naming each typo.
+
+    Previously they were warned about and ignored, which shipped a project
+    missing whatever the profile asked for.
+    """
     profile = tmp_path / "p.yml"
     profile.write_text(
         "name: TypoTest\n"
@@ -332,7 +355,7 @@ def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) ->
     )
     import logging
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.ERROR):
         result = runner.invoke(
             build,
             [
@@ -344,10 +367,11 @@ def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) ->
                 str(tmp_path),
             ],
         )
-    assert result.exit_code == 0, result.output
-    warnings = " ".join(r.message for r in caplog.records if r.levelno >= logging.WARNING)
-    assert "mcp_server" in warnings
-    assert "permission" in warnings
+
+    assert result.exit_code != 0
+    assert "mcp_server" in caplog.text
+    assert "permission" in caplog.text
+    assert not (tmp_path / "smoke").exists()
 
 
 def test_manifest_schema_version_bumped(runner: CliRunner, tmp_path: Path) -> None:
@@ -450,7 +474,7 @@ def test_reproducible_command_emits_positional_form_for_profile_build(
     """C12: positional-profile builds reproduce as 'osprey build NAME PROFILE.yml'."""
     profile = tmp_path / "p.yml"
     profile.write_text(
-        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: claude-haiku-4-5\n"
+        "name: PosTest\ndata_bundle: hello_world\nprovider: anthropic\nmodel: haiku\n"
     )
     result = runner.invoke(
         build,
@@ -529,9 +553,9 @@ def test_override_unions_string_list(runner: CliRunner, tmp_path: Path) -> None:
 def test_multiple_override_files_apply_in_order(runner: CliRunner, tmp_path: Path) -> None:
     """T2: -O is multiple=True; later files win at the same key."""
     a = tmp_path / "a.yml"
-    a.write_text("model: claude-sonnet-4-6\n")
+    a.write_text("model: sonnet\n")
     b = tmp_path / "b.yml"
-    b.write_text("model: claude-opus-4-5\n")
+    b.write_text("model: opus\n")
     result = runner.invoke(
         build,
         [
@@ -550,49 +574,55 @@ def test_multiple_override_files_apply_in_order(runner: CliRunner, tmp_path: Pat
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
-    assert config["claude_code"]["default_model"] == "claude-opus-4-5"
+    assert config["claude_code"]["default_model"] == "opus"
 
 
-def test_override_missing_file_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_override_missing_file_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T2: a missing -O file produces a clear non-zero exit, not a stack trace."""
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "-O",
-            str(tmp_path / "does-not-exist.yml"),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "-O",
+                str(tmp_path / "does-not-exist.yml"),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "not found" in result.output.lower() or "does-not-exist" in result.output
+    _assert_build_error_logged(caplog, "not found", "does-not-exist")
 
 
-def test_override_malformed_yaml_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_override_malformed_yaml_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T2: malformed YAML in an -O file aborts cleanly with a YAML-related message."""
     bad = tmp_path / "bad.yml"
     bad.write_text("model: : invalid:\n  - [unterminated\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "-O",
-            str(bad),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "-O",
+                str(bad),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "yaml" in result.output.lower() or "invalid" in result.output.lower()
+    _assert_build_error_logged(caplog, "yaml", "invalid")
 
 
 def test_override_empty_file_is_noop(runner: CliRunner, tmp_path: Path) -> None:
@@ -618,26 +648,29 @@ def test_override_empty_file_is_noop(runner: CliRunner, tmp_path: Path) -> None:
     assert (tmp_path / "smoke" / "config.yml").exists()
 
 
-def test_override_non_mapping_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_override_non_mapping_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T2: an -O file whose top-level body is a list (not a mapping) aborts."""
     bad = tmp_path / "list.yml"
     bad.write_text("- one\n- two\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "-O",
-            str(bad),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "-O",
+                str(bad),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "mapping" in result.output.lower()
+    _assert_build_error_logged(caplog, "mapping")
 
 
 def test_set_dotted_path_lands_in_config_yml(runner: CliRunner, tmp_path: Path) -> None:
@@ -700,7 +733,7 @@ def test_set_yaml_typed_values(runner: CliRunner, tmp_path: Path) -> None:
 def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
     """T3: --set wins over -O at the same key (per docstring precedence)."""
     over = tmp_path / "o.yml"
-    over.write_text("model: claude-sonnet-4-6\n")
+    over.write_text("model: sonnet\n")
     result = runner.invoke(
         build,
         [
@@ -710,7 +743,7 @@ def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
             "-O",
             str(over),
             "--set",
-            "model=claude-opus-4-5",
+            "model=opus",
             "--skip-deps",
             "--skip-lifecycle",
             "--output-dir",
@@ -719,67 +752,75 @@ def test_set_overrides_override_file(runner: CliRunner, tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     cfg = _config_yaml(tmp_path / "smoke")
-    assert cfg["claude_code"]["default_model"] == "claude-opus-4-5"
+    assert cfg["claude_code"]["default_model"] == "opus"
 
 
-def test_set_path_through_scalar_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_set_path_through_scalar_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T3: a --set key that descends through a scalar raises BuildProfileError."""
     # First --set sets a scalar, second tries to descend into it.
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "--set",
-            "model=claude-haiku-4-5",
-            "--set",
-            "model.flavor=fast",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "model=haiku",
+                "--set",
+                "model.flavor=fast",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "scalar" in result.output.lower() or "conflict" in result.output.lower()
+    _assert_build_error_logged(caplog, "scalar", "conflict")
 
 
-def test_set_malformed_pair_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_set_malformed_pair_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T3: --set without '=' or with empty key aborts cleanly."""
-    no_eq = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "--set",
-            "model",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        no_eq = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "model",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert no_eq.exit_code != 0
-    assert "=" in no_eq.output or "key=value" in no_eq.output.lower()
+    _assert_build_error_logged(caplog, "=", "key=value")
 
-    empty_key = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "hello-world",
-            "--set",
-            "=oops",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        empty_key = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "=oops",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert empty_key.exit_code != 0
-    assert "non-empty" in empty_key.output.lower() or "empty" in empty_key.output.lower()
+    _assert_build_error_logged(caplog, "non-empty", "empty")
 
 
 def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Path) -> None:
@@ -824,10 +865,11 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
         "name: CatTest\n"
         "data_bundle: hello_world\n"
         "provider: anthropic\n"
-        "categories:\n"
-        "  diagnostics:\n"
-        "    label: Diagnostics\n"
-        "    color: '#ff0066'\n"
+        "artifact_server:\n"
+        "  categories:\n"
+        "    diagnostics:\n"
+        "      label: Diagnostics\n"
+        "      color: '#ff0066'\n"
     )
     result = runner.invoke(
         build,
@@ -842,10 +884,12 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
     )
     assert result.exit_code == 0, result.output
     config = _config_yaml(tmp_path / "smoke")
-    cats = config.get("categories", {})
-    assert "diagnostics" in cats, f"categories in config: {list(cats.keys())}"
+    cats = config.get("artifact_server", {}).get("categories", {})
+    assert "diagnostics" in cats, f"artifact_server.categories in config: {list(cats.keys())}"
     assert cats["diagnostics"]["label"] == "Diagnostics"
     assert cats["diagnostics"]["color"].lower() == "#ff0066"
+    # Rendered defaults from the template survive the merge.
+    assert "port" in config.get("artifact_server", {})
 
 
 def test_overlay_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: Path) -> None:
@@ -888,44 +932,50 @@ def test_overlay_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     )
 
 
-def test_extends_missing_base_aborts(runner: CliRunner, tmp_path: Path) -> None:
+def test_extends_missing_base_aborts(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T5: extends pointing at a missing file produces a clear error, not a stack trace."""
     profile = tmp_path / "p.yml"
     profile.write_text("name: Orphan\nextends: ./does-not-exist.yml\ndata_bundle: hello_world\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            str(profile),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(profile),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "does-not-exist" in result.output or "not found" in result.output.lower()
+    _assert_build_error_logged(caplog, "does-not-exist", "not found")
 
 
-def test_extends_cycle_detected(runner: CliRunner, tmp_path: Path) -> None:
+def test_extends_cycle_detected(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """T5: circular extends: a -> b -> a is detected and aborted."""
     a = tmp_path / "a.yml"
     b = tmp_path / "b.yml"
     a.write_text("name: A\nextends: ./b.yml\ndata_bundle: hello_world\n")
     b.write_text("name: B\nextends: ./a.yml\ndata_bundle: hello_world\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            str(a),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(a),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "cycle" in result.output.lower() or "circular" in result.output.lower()
+    _assert_build_error_logged(caplog, "cycle", "circular")
 
 
 @pytest.mark.parametrize("preset", list_presets())
@@ -975,10 +1025,11 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
 
     Pins the wiring: the data bundle ships ``data/simulation/machine.json``
     (shared channels) plus a ``scenarios/`` tree of self-contained bundles and
-    the ``active_scenarios`` state file, and the rendered ``config.yml`` points
-    both mock connectors at the machine file via the exact key paths the
-    connector factory scopes (``control_system.connector.mock`` and
-    ``archiver.mock_archiver``).
+    the ``active_scenarios`` state file, and the rendered ``config.yml`` names
+    the machine file exactly once, under the key path the connector factory
+    scopes (``control_system.connector.mock``). The mock archiver derives its
+    own copy from there, so a second declaration would be a divergence waiting
+    to happen.
     """
     import json
 
@@ -1021,10 +1072,12 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
         config["control_system"]["connector"]["mock"]["simulation_file"]
         == "data/simulation/machine.json"
     )
-    assert config["archiver"]["mock_archiver"]["simulation_file"] == "data/simulation/machine.json"
+    assert "simulation_file" not in config["archiver"].get("mock_archiver", {}), (
+        "the archiver repeats the machine path; it derives it now"
+    )
 
 
-def test_preset_yaml_must_be_mapping(tmp_path: Path) -> None:
+def test_preset_yaml_must_be_mapping(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """T5: a preset YAML that parses to a list (not a mapping) raises BuildProfileError."""
     # We can't easily inject a malformed bundled preset, but we can verify the
     # _load_preset_raw branch directly via the public function used by the CLI.
@@ -1040,19 +1093,20 @@ def test_preset_yaml_must_be_mapping(tmp_path: Path) -> None:
     from osprey.cli.build_cmd import build
 
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            str(bad),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(bad),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
     assert result.exit_code != 0
-    assert "mapping" in result.output.lower()
+    _assert_build_error_logged(caplog, "mapping")
     # Keep _load_preset_raw imported so the symbol is referenced and a future
     # rename surfaces this test.
     assert callable(_load_preset_raw)
@@ -1126,7 +1180,7 @@ class TestOverlayLogbookSeedNotMutated:
             "name: SeedVerbatim\n"
             "data_bundle: hello_world\n"
             "provider: anthropic\n"
-            "model: claude-haiku-4-5\n"
+            "model: haiku\n"
             "overlay:\n"
             "  logbook/demo_logbook.json: data/logbook_seed/demo_logbook.json\n"
         )
@@ -1170,7 +1224,7 @@ class TestDeployServicesKnob:
         "name: Attachment Test\n"
         "data_bundle: control_assistant\n"
         "provider: anthropic\n"
-        "model: claude-haiku-4-5\n"
+        "model: haiku\n"
         "channel_finder_mode: hierarchical\n"
         "bluesky:\n"
         "  port: 8090\n"
@@ -1234,3 +1288,48 @@ class TestDeployServicesKnob:
         cfg = _config_yaml(tmp_path / "op")
         assert cfg["deployed_services"] == []
         assert not (tmp_path / "op" / "services").exists()
+
+
+def test_set_unservable_model_fails_build(
+    runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A model the selected provider cannot serve must fail the build itself.
+
+    The web-terminal container runs the same resolver strict at startup, so a
+    build that merely warns here ships a deploy whose per-user terminals
+    crash-loop behind the reverse proxy (502). The build is the checkpoint the
+    operator actually watches — it must stop the `build && deploy` chain.
+    """
+    with caplog.at_level(logging.ERROR):
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                "--preset",
+                "hello-world",
+                "--set",
+                "provider=als-apg",
+                "--set",
+                "model=anthropic/claude-opus",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+    assert result.exit_code != 0, result.output
+    _assert_build_error_logged(caplog, "neither a model tier nor a model id")
+
+
+def test_set_value_invalid_yaml_raises() -> None:
+    """A --set value that isn't valid YAML raises BuildProfileError, not a YAMLError."""
+    with pytest.raises(BuildProfileError, match="is not valid YAML"):
+        resolve_build_profile(None, preset="hello-world", set_pairs=("foo=[unterminated",))
+
+
+def test_override_file_invalid_yaml_raises(tmp_path: Path) -> None:
+    """An -O override file with invalid YAML raises BuildProfileError, not a YAMLError."""
+    bad = tmp_path / "bad.yml"
+    bad.write_text("model: : invalid:\n  - [unterminated\n")
+    with pytest.raises(BuildProfileError, match="Invalid YAML"):
+        resolve_build_profile(None, preset="hello-world", overrides=(bad,))

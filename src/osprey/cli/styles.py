@@ -49,12 +49,12 @@ class ColorTheme:
 
     # === CONFIGURABLE THEME COLORS ===
     # These define your visual identity and can be customized
-    primary: str = "#C75F71"  # Main brand color (medium purple)
+    primary: str = "#C75F71"  # Main brand color
     success: str = "#9988A1"  # Success indicator
-    accent: str = "#F0B8B8"  # Interactive elements & highlights (teal)
-    command: str = "#9988A1"  # Shell commands & actions (orange)
-    path: str = "#A2AE9D"  # File paths & locations (gray)
-    info: str = "#9988A1"  # Informational messages (cyan)
+    accent: str = "#F0B8B8"  # Interactive elements & highlights
+    command: str = "#9988A1"  # Shell commands & actions
+    path: str = "#A2AE9D"  # File paths & locations
+    info: str = "#9988A1"  # Informational messages
 
     # === NEUTRAL COLORS (Dark Theme Infrastructure) ===
     # These provide contrast and structure - less important to customize
@@ -105,10 +105,11 @@ class ColorTheme:
         return f"#{r:02x}{g:02x}{b:02x}"
 
 
-# Default Osprey theme (purple-teal)
+# Default Osprey theme
 OSPREY_THEME = ColorTheme()
 
-# Vulcan theme (default Osprey theme - branded name)
+# Back-compat alias: "vulcan" was never a distinct theme, only another name for
+# the default. Kept so existing configs keep loading; not offered as a choice.
 VULCAN_THEME = OSPREY_THEME
 
 # Theme registry for easy lookup

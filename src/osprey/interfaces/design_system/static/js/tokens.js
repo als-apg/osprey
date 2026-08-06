@@ -7,22 +7,22 @@
 // tokens.css via theme-manager.js's computed-style bridges.
 export const THEMES = [
   {
-    "id": "apex-dark",
-    "label": "Apex Dark",
-    "mode": "dark",
-    "family": "apex"
-  },
-  {
-    "id": "apex-light",
-    "label": "Apex Light",
-    "mode": "light",
-    "family": "apex"
-  },
-  {
     "id": "dark",
     "label": "Dark",
     "mode": "dark",
-    "family": "osprey"
+    "family": "main"
+  },
+  {
+    "id": "desy-dark",
+    "label": "DESY Dark",
+    "mode": "dark",
+    "family": "desy"
+  },
+  {
+    "id": "desy-light",
+    "label": "DESY Light",
+    "mode": "light",
+    "family": "desy"
   },
   {
     "id": "high-contrast-dark",
@@ -40,26 +40,50 @@ export const THEMES = [
     "id": "light",
     "label": "Light",
     "mode": "light",
-    "family": "osprey"
+    "family": "main"
+  },
+  {
+    "id": "retro-dark",
+    "label": "Retro Dark",
+    "mode": "dark",
+    "family": "retro"
+  },
+  {
+    "id": "retro-light",
+    "label": "Retro Light",
+    "mode": "light",
+    "family": "retro"
   }
 ];
 
 export const DEFAULTS = {
-  "apex": {
-    "dark": "apex-dark",
-    "light": "apex-light"
-  },
-  "osprey": {
+  "main": {
     "dark": "dark",
     "light": "light"
+  },
+  "desy": {
+    "dark": "desy-dark",
+    "light": "desy-light"
   },
   "high-contrast": {
     "dark": "high-contrast-dark",
     "light": "high-contrast-light"
+  },
+  "retro": {
+    "dark": "retro-dark",
+    "light": "retro-light"
   }
 };
 
 // The explicit-default family ($extensions.default), else the first
 // declared -- the single fallback
 // theme-manager.js reads instead of re-deriving it from DEFAULTS.
-export const DEFAULT_FAMILY = "osprey";
+export const DEFAULT_FAMILY = "main";
+
+// Display names for families whose id does not title-case correctly
+// ('desy' -> 'DESY'). Sparse BY DESIGN: a family that declares no
+// $extensions.family_label is absent here, and consumers derive its
+// label from the family id instead.
+export const FAMILY_LABELS = {
+  "desy": "DESY"
+};

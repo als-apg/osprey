@@ -375,6 +375,28 @@ def _describe_launch_run(tool_input: dict, config: dict) -> list[str]:
     return lines
 
 
+def _gallery_base_url(config: dict) -> str:
+    """Resolve the artifact gallery's base URL from *config* and the environment.
+
+    Prefers the framework's shared derivation so the per-user
+    ``OSPREY_ARTIFACT_SERVER_PORT`` override multi-user deployments export is
+    honoured here exactly as it is by the launcher that binds the port.
+
+    This hook is rendered into projects that may run against a different osprey
+    install than the one it shipped with, so the import is lazy and a failure
+    falls back to the same resolution order done inline. Never raises.
+    """
+    try:
+        from osprey.registry.web import resolve_web_server_base_url
+
+        return resolve_web_server_base_url("artifact", config)
+    except Exception:
+        art_config = config.get("artifact_server") or {}
+        host = art_config.get("host") or "127.0.0.1"
+        port = os.environ.get("OSPREY_ARTIFACT_SERVER_PORT") or art_config.get("port") or 8086
+        return f"http://{host}:{port}"
+
+
 def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> str | None:
     """Create a pre-execution notebook artifact for code review.
 
@@ -413,10 +435,7 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
         )
 
         # Build gallery URL and bring the notebook into focus
-        art_config = config.get("artifact_server", {})
-        host = art_config.get("host", "127.0.0.1")
-        port = art_config.get("port", 8086)
-        base_url = f"http://{host}:{port}"
+        base_url = _gallery_base_url(config)
 
         # Fire-and-forget POST to switch gallery focus to this notebook
         _focus_artifact(base_url, entry.id)

@@ -10,7 +10,11 @@ import pytest
 
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
-from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey.connectors.factory import (
+    ConnectorFactory,
+    isolated_connector_registries,
+    register_builtin_connectors,
+)
 from osprey.connectors.types import VIRTUAL_ACCELERATOR
 from osprey.registry.base import ConnectorRegistration, RegistryConfig
 from osprey.registry.initializers import initialize_connectors
@@ -18,12 +22,14 @@ from osprey.registry.initializers import initialize_connectors
 
 @pytest.fixture(autouse=True)
 def clean_connector_factory():
-    """Isolate ConnectorFactory global state across tests."""
-    ConnectorFactory._control_system_connectors.clear()
-    ConnectorFactory._archiver_connectors.clear()
-    yield
-    ConnectorFactory._control_system_connectors.clear()
-    ConnectorFactory._archiver_connectors.clear()
+    """Isolate ConnectorFactory global state across tests.
+
+    The registries start empty so ``register_builtin_connectors()`` is
+    observed doing the registration; snapshot/restore brackets the clear so
+    registrations made elsewhere in the process survive teardown.
+    """
+    with isolated_connector_registries(clear=True):
+        yield
 
 
 class TestVirtualAcceleratorConnectorClass:

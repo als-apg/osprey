@@ -688,7 +688,7 @@ class TestBuildHelpers:
             load_profile(p)
 
     def test_persist_mcp_servers_port_emits_network_block(self, tmp_path: Path):
-        """_persist_mcp_servers emits transport=http + network block when port is set."""
+        """_persist_mcp_servers emits transport + url + network block when port is set."""
         from osprey.cli.build_cmd import _persist_mcp_servers
 
         project_path = tmp_path / "project"
@@ -706,14 +706,16 @@ class TestBuildHelpers:
 
         config = yaml.safe_load((project_path / "config.yml").read_text())
         entry = config["claude_code"]["servers"]["matlab"]
+        # The default is written explicitly — the rendered config states its
+        # wire transport instead of implying it from the url's presence.
         assert entry["transport"] == "http"
         assert entry["url"] == "http://localhost:8008/mcp"
         assert entry["network"]["port"] == 8008
         assert entry["network"]["host_url"] == "http://localhost:8008/mcp"
         assert entry["network"]["docker_url"] == "http://matlab:8008/mcp"
 
-    def test_persist_mcp_servers_stdio_emits_transport_stdio(self, tmp_path: Path):
-        """Stdio servers get transport=stdio and no network block."""
+    def test_persist_mcp_servers_stdio_emits_command_only(self, tmp_path: Path):
+        """Stdio servers get command/args and no network block."""
         from osprey.cli.build_cmd import _persist_mcp_servers
 
         project_path = tmp_path / "project"
@@ -730,12 +732,13 @@ class TestBuildHelpers:
 
         config = yaml.safe_load((project_path / "config.yml").read_text())
         entry = config["claude_code"]["servers"]["confluence"]
-        assert entry["transport"] == "stdio"
+        # Stdio has no transport choice — the key must not appear.
+        assert "transport" not in entry
         assert entry["command"] == "uvx"
         assert "network" not in entry
 
     def test_persist_mcp_servers_url_without_port_no_network_block(self, tmp_path: Path):
-        """A url-only server (no port hint) gets transport=http but no network block."""
+        """A url-only server (no port hint) gets no network block."""
         from osprey.cli.build_cmd import _persist_mcp_servers
 
         project_path = tmp_path / "project"
@@ -752,6 +755,30 @@ class TestBuildHelpers:
         assert entry["transport"] == "http"
         assert entry["url"] == "http://appsdev2:8008/mcp"
         assert "network" not in entry
+
+    def test_persist_mcp_servers_sse_transport_and_network_path(self, tmp_path: Path):
+        """An SSE server persists transport=sse; network URLs follow the url's path."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("facility_name: test\n")
+
+        servers = {
+            "legacy": McpServerDef(
+                url="http://localhost:9000/sse",
+                transport="sse",
+                port=9000,
+            ),
+        }
+        _persist_mcp_servers(project_path, servers)
+
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        entry = config["claude_code"]["servers"]["legacy"]
+        assert entry["transport"] == "sse"
+        assert entry["url"] == "http://localhost:9000/sse"
+        assert entry["network"]["host_url"] == "http://localhost:9000/sse"
+        assert entry["network"]["docker_url"] == "http://legacy:9000/sse"
 
     def test_apply_config_overrides(self, tmp_path: Path):
         """_apply_config_overrides should update config.yml fields."""
@@ -1170,6 +1197,11 @@ class TestResolveOspreySpec:
         assert spec == "/abs/path/to/osprey"
         assert "editable" in label
 
+    def _pretend_release(self, monkeypatch, version="2026.5.0", released=True):
+        """Drive the version API, which is what the resolver now pins from."""
+        monkeypatch.setattr("osprey.version.get_release_version", lambda: version)
+        monkeypatch.setattr("osprey.version.is_release", lambda: released)
+
     def test_wheel_install_pins_to_version(self, monkeypatch):
         """uv tool / pip wheel install → pinned to ``osprey-framework==<version>``."""
         from osprey.cli.build_cmd import _resolve_osprey_spec
@@ -1179,6 +1211,7 @@ class TestResolveOspreySpec:
             direct_url={"url": "https://pypi/...", "archive_info": {"hash": "sha256=abc"}},
         )
         monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
+        self._pretend_release(monkeypatch)
 
         spec, label = _resolve_osprey_spec("local")
         assert spec == "osprey-framework==2026.5.0"
@@ -1190,9 +1223,32 @@ class TestResolveOspreySpec:
 
         fake = self._fake_dist(version="2026.5.0", direct_url=None)
         monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
+        self._pretend_release(monkeypatch)
 
         spec, _label = _resolve_osprey_spec("local")
         assert spec == "osprey-framework==2026.5.0"
+
+    def test_unreleased_build_refuses_to_pin(self, monkeypatch):
+        """A development build has no PyPI distribution — refuse rather than mislead.
+
+        Pinning to the nearest release would install code the operator never
+        wrote, with nothing saying the two differ.
+        """
+        from osprey.cli.build_cmd import _resolve_osprey_spec
+        from osprey.errors import BuildProfileError
+
+        fake = self._fake_dist(
+            version="2026.5.0.post783+g83fda5e60",
+            direct_url={"url": "https://pypi/...", "archive_info": {"hash": "sha256=abc"}},
+        )
+        monkeypatch.setattr("osprey.cli.build_environment.distribution", lambda _name: fake)
+        monkeypatch.setattr(
+            "osprey.version.get_running_version", lambda: "2026.5.0.post783+g83fda5e60"
+        )
+        self._pretend_release(monkeypatch, released=False)
+
+        with pytest.raises(BuildProfileError, match="not a released version"):
+            _resolve_osprey_spec("local")
 
     def test_pip_keyword_uses_unpinned_pypi(self, monkeypatch):
         """Explicit ``osprey_install: pip`` → unpinned ``osprey-framework``."""
@@ -2085,9 +2141,11 @@ class TestEventsPanelUrlDerivation:
         assert "path" not in events
 
 
-def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
+def test_build_channel_finder_agent_requires_mode(tmp_path: Path, caplog) -> None:
     """A profile that selects the channel-finder agent but omits
     channel_finder_mode must fail with a clear BuildProfileError."""
+    import logging
+
     from click.testing import CliRunner
 
     from osprey.cli.main import cli
@@ -2106,22 +2164,26 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
     output_dir.mkdir()
 
     runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        [
-            "build",
-            "no-mode-proj",
-            str(profile_path),
-            "--output-dir",
-            str(output_dir),
-            "--skip-deps",
-            "--skip-lifecycle",
-        ],
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            cli,
+            [
+                "build",
+                "no-mode-proj",
+                str(profile_path),
+                "--output-dir",
+                str(output_dir),
+                "--skip-deps",
+                "--skip-lifecycle",
+            ],
+        )
     assert result.exit_code != 0, f"build should have failed; output:\n{result.output}"
-    combined = result.output + (str(result.exception) if result.exception else "")
-    assert "channel_finder_mode" in combined
-    assert "required" in combined.lower()
+    # The diagnostic is logged (stderr in a real terminal), not written to
+    # stdout; click's Result.output folds the two streams together and cannot
+    # tell them apart, so read the record itself.
+    reported = caplog.text + (str(result.exception) if result.exception else "")
+    assert "channel_finder_mode" in reported
+    assert "required" in reported.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -2322,3 +2384,111 @@ class TestCopyServiceTemplates:
         assert any("typesense" in r.getMessage() for r in caplog.records), (
             "a deployed service without a template must warn"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tier selection rules
+# ---------------------------------------------------------------------------
+
+
+class TestTierSelectionRules:
+    """Tier selection is restricted to {1, 3} on every configuration path, and
+    tier 1 is in_context-only. These rejected-combo cases pin the rule so a
+    tier-2 (retired) or tier1+non-in_context request fails with a rule-naming
+    error rather than an opaque downstream scaffolding FileNotFoundError.
+    """
+
+    @pytest.fixture()
+    def runner(self):
+        from click.testing import CliRunner
+
+        return CliRunner()
+
+    def test_cli_tier_2_rejected_by_choice(self, runner, tmp_path: Path) -> None:
+        """``--tier 2`` is no longer a valid choice — click rejects it at parse time."""
+        from osprey.cli.build_cmd import build
+
+        out = tmp_path / "out"
+        out.mkdir()
+        result = runner.invoke(
+            build,
+            [
+                "proj",
+                "--preset",
+                "hello-world",
+                "--tier",
+                "2",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "--tier" in result.output
+        # click's invalid-choice message names the rejected value against {1,3}.
+        assert "'2' is not one of" in result.output
+
+    def test_profile_tier_2_rejected(self, tmp_path: Path) -> None:
+        """A profile YAML with ``tier: 2`` fails validation naming the {1,3} rule."""
+        from osprey.cli.build_profile import resolve_build_profile
+
+        prof = tmp_path / "profile.yml"
+        prof.write_text("name: t\nchannel_finder_mode: in_context\ntier: 2\n")
+        with pytest.raises(BuildProfileError, match="tier must be 1 or 3"):
+            resolve_build_profile(prof.resolve(), preset=None)
+
+    def test_profile_tier1_hierarchical_rejected(self, tmp_path: Path) -> None:
+        """tier 1 paired with a non-in_context paradigm fails at validation with
+        the tier rule — not later as a scaffolding FileNotFoundError."""
+        from osprey.cli.build_profile import resolve_build_profile
+
+        prof = tmp_path / "profile.yml"
+        prof.write_text("name: t\nchannel_finder_mode: hierarchical\ntier: 1\n")
+        with pytest.raises(
+            BuildProfileError, match="tier 1 requires channel_finder_mode: in_context"
+        ):
+            resolve_build_profile(prof.resolve(), preset=None)
+
+    def test_profile_tier1_in_context_accepted(self, tmp_path: Path) -> None:
+        """The valid tier-1 combo (in_context) resolves cleanly."""
+        from osprey.cli.build_profile import resolve_build_profile
+
+        prof = tmp_path / "profile.yml"
+        prof.write_text("name: t\nchannel_finder_mode: in_context\ntier: 1\n")
+        resolved, _ = resolve_build_profile(prof.resolve(), preset=None)
+        assert resolved.tier == 1
+        assert resolved.resolved_tier() == 1
+
+    def test_cli_tier1_override_on_hierarchical_rejected(self, runner, tmp_path: Path) -> None:
+        """A CLI ``--tier 1`` override applied over a hierarchical profile is
+        caught by the post-override re-validation, so the build aborts on the
+        tier rule instead of reaching (and FileNotFound-ing in) scaffolding."""
+        from osprey.cli.build_cmd import build
+
+        prof = tmp_path / "profile.yml"
+        prof.write_text(
+            "name: t\n"
+            "data_bundle: hello_world\n"
+            "provider: anthropic\n"
+            "channel_finder_mode: hierarchical\n"
+        )
+        out = tmp_path / "out"
+        out.mkdir()
+        result = runner.invoke(
+            build,
+            [
+                "proj",
+                str(prof),
+                "--tier",
+                "1",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(out),
+            ],
+        )
+        # Aborts (exit 1) at validation; must not surface as an uncaught
+        # FileNotFoundError from materialize_tier_artifacts.
+        assert result.exit_code == 1, result.output
+        assert not isinstance(result.exception, FileNotFoundError)

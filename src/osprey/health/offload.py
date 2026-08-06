@@ -68,6 +68,22 @@ def abandoned_alive_count() -> int:
         return len(_abandoned_threads)
 
 
+def reset_abandoned_state() -> None:
+    """Zero the abandoned-thread accounting. Primarily for test isolation.
+
+    The counter is cumulative for the life of the process, which is the right
+    semantics for a real run but makes it shared state across tests: once one
+    test abandons a thread, every later in-process ``osprey health`` invocation
+    takes the :func:`os._exit` fallback.
+
+    Already-abandoned daemon threads keep running; this only forgets them.
+    """
+    global _abandoned
+    with _abandoned_lock:
+        _abandoned = 0
+        _abandoned_threads.clear()
+
+
 def _mark_abandoned(thread: threading.Thread) -> None:
     """Record that a worker thread was abandoned after a timeout or cancellation."""
     global _abandoned

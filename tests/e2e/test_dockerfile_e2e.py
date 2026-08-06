@@ -267,9 +267,11 @@ def _wait_for_health(base_url: str, cid: str, timeout: float) -> None:
 
 def _post_chat(base_url: str, prompt: str, timeout: float) -> dict:
     """POST a prompt to the buffered chat endpoint, return the JSON body."""
+    # chat_id is a required field — it keys the server-side ChatSessionPool.
+    # A single fixed id is enough for this one-turn smoke test.
     req = urllib.request.Request(
         f"{base_url}/api/chat?stream=false",
-        data=json.dumps({"prompt": prompt}).encode(),
+        data=json.dumps({"prompt": prompt, "chat_id": "e2e"}).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -291,6 +293,15 @@ def test_generated_image_serves_agent_over_http(built_image):
     # resolution (and the proxy) without the key.
     api_key = os.environ["ALS_APG_API_KEY"]  # guaranteed present by requires_als_apg
     env_args = ["-e", f"ALS_APG_API_KEY={api_key}"]
+
+    # The endpoint override rides the same contract. It is deliberately absent
+    # from the image (build-time rendering never bakes the builder's
+    # environment), so a run pointed at a non-default gateway must pass it in
+    # here exactly as a deployment passes it via env_file — otherwise the
+    # container dials the provider's built-in default instead.
+    base_url = os.environ.get("ALS_APG_BASE_URL")
+    if base_url:
+        env_args += ["-e", f"ALS_APG_BASE_URL={base_url}"]
 
     run = subprocess.run(
         [
@@ -327,7 +338,13 @@ def test_generated_image_serves_agent_over_http(built_image):
         assert CHAT_MARKER in text, (
             f"expected marker {CHAT_MARKER!r} in agent reply, got: {text[:500]!r}"
         )
-        assert (data.get("num_turns") or 0) >= 1, "expected at least one agent turn"
+        # The buffered chat payload is reduced to {text, events, is_error} —
+        # turn counts are deliberately withheld from the chat client — so a
+        # completed turn is evidenced by its terminal result event.
+        events = data.get("events") or []
+        assert any(e.get("type") == "result" for e in events), (
+            f"expected a completed agent turn, got events: {events}"
+        )
     finally:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
 
@@ -389,9 +406,15 @@ def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
     """Build a local osprey wheel pinned to ``version`` containing a sentinel module.
 
     Copies the minimal build inputs (``pyproject.toml``, ``README.md``,
-    ``src/osprey``) to a scratch tree, stamps ``__version__`` to ``version``,
-    injects ``osprey/_e2e_sentinel.py``, and runs ``python -m build --wheel``.
-    Returns the built wheel path (inside ``work_dir``).
+    ``src/osprey``) to a scratch tree, injects ``osprey/_e2e_sentinel.py``, and
+    runs ``python -m build --wheel``. Returns the built wheel path (inside
+    ``work_dir``).
+
+    The scratch tree has no ``.git``, and the version is derived from git rather
+    than from a literal, so the build is pinned with
+    ``SETUPTOOLS_SCM_PRETEND_VERSION``. The per-package
+    ``SETUPTOOLS_SCM_PRETEND_VERSION_FOR_*`` form does not take here — do not
+    substitute it without re-verifying against the ``osprey-framework`` dist name.
     """
     import osprey as _osprey
 
@@ -406,14 +429,6 @@ def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
     for name in ("pyproject.toml", "README.md"):
         shutil.copy2(source_root / name, wheel_src / name)
 
-    # Stamp the version hatchling reads ([tool.hatch.version] -> __init__.py).
-    init_path = wheel_src / "src" / "osprey" / "__init__.py"
-    stamped, n = re.subn(
-        r'__version__ = "[^"]+"', f'__version__ = "{version}"', init_path.read_text(), count=1
-    )
-    assert n == 1, "could not stamp __version__ in the wheel source copy"
-    init_path.write_text(stamped)
-
     (wheel_src / "src" / "osprey" / "_e2e_sentinel.py").write_text(
         f'SENTINEL = "{SENTINEL_MARKER}"\n'
     )
@@ -424,6 +439,7 @@ def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
         capture_output=True,
         text=True,
         timeout=600,
+        env={**os.environ, "SETUPTOOLS_SCM_PRETEND_VERSION": version},
     )
     assert build.returncode == 0, (
         f"sentinel wheel build failed:\n--- stdout ---\n{build.stdout[-3000:]}"

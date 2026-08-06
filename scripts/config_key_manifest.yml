@@ -1,0 +1,911 @@
+# Config-key resurrection guard manifest (ledger P7).
+#
+# Consumed by the guard tool (task 7.2). Four required top-level sections —
+# `keys`, `deleted`, `orphan_sites`, `render_contexts` — plus three advisory
+# ones (`governed_sets`, `keeps`, `notes`).
+#
+# Parity marks (`all-templates: true`) come from scripts/config_key_parity.md.
+# READ THAT DOCUMENT'S SCOPE CAVEAT BEFORE ADDING RULES: presence in all five
+# templates and value-equality across them are separate properties, and neither
+# may be inferred from the other.
+#
+# Each key carries exactly one disposition:
+#
+#   evidence: <regex>   A regex that MUST match at least once under src/osprey/.
+#                       Every one was verified against the tree while authoring;
+#                       the guard re-verifies on every run (failure mode 2).
+#   covered-by: <path>  This leaf has NO independent reader — it is consumed by
+#                       unpacking its parent block, so the parent carries the
+#                       real anchored evidence. See the note below.
+#   data-map: true      The key's leaves are user-extensible data, not a fixed
+#                       schema — the guard checks shape, not membership.
+#   forward-declared    Written by the templates, read by nothing today, and
+#                       deliberately so (documented hidden-key stanzas).
+#
+# WHY `covered-by` EXISTS — this matters for anyone extending the manifest.
+# A first draft gave every key an `evidence` regex, and every regex "passed".
+# Measuring them exposed the problem: 62 of them were bare words like `port`
+# (840 files), `path` (519), `type` (475) or `enabled` (169). Those match
+# whether or not the key is still read, so they prove nothing — a passing guard
+# built on them is theatre. Nested leaves genuinely have no per-leaf reader to
+# cite: code does `services.get("openobserve")` and then `.get("port")`, so the
+# only honest citation is at the parent. `covered-by` records that structural
+# fact instead of manufacturing evidence. Do NOT "improve" a `covered-by` entry
+# into a bare-word `evidence` regex; if you add one, it must be an anchored
+# fragment of a real reader.
+#
+# Distinctive leaf names (`retention_days`, `port_host`, `subagent_model`,
+# `allow_unlisted_channels`, …) DO keep a bare-name `evidence` regex: those
+# identifiers exist nowhere else, so their disappearance is a real signal.
+#
+# THE THRESHOLD, and what is left under it. A bare-name `evidence` regex is
+# accepted only if it appears in <= 25 files under src/osprey (check B3 fails
+# the manifest otherwise). 57 entries sit under that line, topping out at
+# `postgresql` (25 files); they are domain identifiers, not English words, so
+# deleting the reader really would drop the count toward zero. Where an obvious
+# anchored form existed it was preferred instead — e.g.
+# claude_code.telemetry.backend cites `telemetry_cfg.get("backend") ==
+# "openobserve"` rather than the bare word. The rest have no clean single reader
+# to anchor on (the value is unpacked from a block, or read in several places
+# with different shapes), and forcing an anchor would mean inventing one.
+
+# ---------------------------------------------------------------------------
+# keys — every dotted path the five templates render, with its evidence
+# ---------------------------------------------------------------------------
+keys:
+  # ── Identity / roots ────────────────────────────────────────────────
+  project_name:
+    all-templates: true
+    evidence: 'config\.get\("project_name", project_dir\.name\)'
+  build_dir:
+    all-templates: true
+    evidence: 'config\.get\("build_dir", "\./build"\)'
+  project_root:
+    all-templates: true
+    evidence: 'config\.get\("project_root"\)'
+  facility:
+    evidence: 'config\.get\("facility"\)'
+    note: >-
+      Live (name only) in ariel_standalone and channel_finder_standalone;
+      commented in the other three. Canonical spelling.
+  facility.name:
+    evidence: 'facility\.get\("name"\)'
+  facility.prefix:
+    rendered: false
+    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("prefix"\)'
+    note: >-
+      Commented in all five — only the multi-user web-terminal stack reads it.
+      The ONLY enforcement anywhere is a non-emptiness lint
+      (deployment/web_terminals/lint.py `_check_empty_facility_prefix`); no
+      charset or length rule exists in code. See notes.prefix_rule_drift.
+
+  # ── Container runtime / deployment ──────────────────────────────────
+  container_runtime:
+    all-templates: true
+    evidence: 'config\.get\("container_runtime", "auto"\) if config else None'
+    note: >-
+      An absent key behaves identically to "auto" (runtime_helper `_runtimes_to_try`),
+      so parity here is a documentation guarantee, not a behavioural one.
+  deployed_services:
+    all-templates: true
+    evidence: 'config\.get\("deployed_services", \[\]\)'
+    note: >-
+      PRESENCE is all-templates; VALUES deliberately diverge ([] /
+      [openobserve] / [postgresql, openobserve]). The guard must not assert
+      value equality here.
+  services:
+    evidence: 'get_config_value\("services\.postgresql", \{\}\)'
+  services.openobserve: {evidence: 'openobserve'}
+  services.openobserve.path: {evidence: 'openobserve'}
+  services.openobserve.port: {evidence: 'openobserve'}
+  services.openobserve.retention_days: {evidence: 'retention_days'}
+  services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)'}
+  services.postgresql.path: {evidence: 'postgresql'}
+  services.postgresql.database_name: {evidence: 'database_name'}
+  services.postgresql.username: {covered-by: services.postgresql}
+  services.postgresql.port_host: {evidence: 'port_host'}
+
+  # ── Safety / approval ───────────────────────────────────────────────
+  approval:
+    all-templates: true
+    evidence: 'config\.get\("approval", \{\}\)'
+  approval.enabled:
+    all-templates: true
+    covered-by: approval
+  approval.default_policy:
+    all-templates: true
+    evidence: 'default_policy'
+  approval.tools:
+    covered-by: approval
+    note: >-
+      Absent from channel_finder_standalone by design — its only
+      approval-governed tool (setup_patch) is covered by default_policy.
+      See governed_sets.
+  approval.tools.channel_write: {evidence: 'channel_write'}
+  approval.tools.channel_read: {evidence: 'channel_read'}
+  approval.tools.archiver_read: {evidence: 'archiver_read'}
+  approval.tools.execute: {covered-by: approval.tools}
+  approval.tools.setup_patch: {evidence: 'setup_patch'}
+  approval.tools.entry_create:
+    evidence: 'entry_create'
+    note: >-
+      Inert in hello_world: that template disables the ariel server, so the
+      tool never exists. Harmless (fail-closed either way); recorded so it is
+      not mistaken for drift.
+  hooks:
+    evidence: 'full_config\.get\("hooks", \{\}\)'
+  hooks.debug:
+    evidence: 'cfg\.get\("hooks", \{\}\)\.get\("debug"\)'
+    note: >-
+      Live true in control_assistant / ariel_standalone /
+      channel_finder_standalone; commented (absent reads as false) in project
+      and hello_world. Deliberate.
+
+  # ── Control system ──────────────────────────────────────────────────
+  control_system: {evidence: 'get_config_value\("control_system", \{\}\)'}
+  control_system.type: {evidence: 'get_config_value\("control_system\.type", "mock"\)'}
+  control_system.writes_enabled:
+    evidence: 'get_config_value\("control_system\.writes_enabled", False\)'
+  control_system.limits_checking: {evidence: 'limits_checking'}
+  control_system.limits_checking.enabled:
+    evidence: 'get_config_value\("control_system\.limits_checking\.enabled", False\)'
+  control_system.limits_checking.database_path:
+    evidence: 'get_config_value\("control_system\.limits_checking\.database_path", None\)'
+  control_system.limits_checking.allow_unlisted_channels:
+    evidence: 'allow_unlisted_channels'
+  control_system.write_verification:
+    evidence: 'get_config_value\("control_system\.write_verification", \{\}\)'
+  control_system.write_verification.default_level:
+    evidence: 'get_config_value\("control_system\.write_verification\.default_level", "callback"\)'
+  control_system.write_verification.default_tolerance_percent:
+    evidence: 'default_tolerance_percent'
+  control_system.connector: {covered-by: control_system}
+  control_system.connector.mock: {covered-by: control_system.connector}
+  control_system.connector.mock.simulation_file: {evidence: 'simulation_file'}
+  control_system.connector.mock.response_delay_ms: {evidence: 'response_delay_ms'}
+  control_system.connector.mock.noise_level: {evidence: 'noise_level'}
+  control_system.connector.epics: {covered-by: control_system.connector}
+  control_system.connector.epics.timeout: {covered-by: control_system.connector.epics}
+  control_system.connector.epics.gateways: {evidence: 'gateways'}
+  control_system.connector.epics.gateways.read_only: {evidence: 'read_only'}
+  control_system.connector.epics.gateways.read_only.address: {covered-by: control_system.connector.epics.gateways.read_only}
+  control_system.connector.epics.gateways.read_only.port: {covered-by: control_system.connector.epics.gateways.read_only}
+  control_system.connector.epics.gateways.read_only.use_name_server: {evidence: 'use_name_server'}
+  control_system.connector.epics.gateways.write_access: {evidence: 'write_access'}
+  control_system.connector.epics.gateways.write_access.address: {covered-by: control_system.connector.epics.gateways.write_access}
+  control_system.connector.epics.gateways.write_access.port: {covered-by: control_system.connector.epics.gateways.write_access}
+  control_system.connector.epics.gateways.write_access.use_name_server: {evidence: 'use_name_server'}
+  control_system.connector.virtual_accelerator: {covered-by: control_system.connector}
+  control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator}
+  control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file'}
+  control_system.connector.virtual_accelerator.gateways: {evidence: 'gateways'}
+  control_system.connector.virtual_accelerator.gateways.read_only: {evidence: 'read_only'}
+  control_system.connector.virtual_accelerator.gateways.read_only.address: {covered-by: control_system.connector.virtual_accelerator.gateways.read_only}
+  control_system.connector.virtual_accelerator.gateways.read_only.use_name_server:
+    evidence: 'use_name_server'
+  control_system.connector.virtual_accelerator.gateways.write_access: {evidence: 'write_access'}
+  control_system.connector.virtual_accelerator.gateways.write_access.address: {covered-by: control_system.connector.virtual_accelerator.gateways.write_access}
+  control_system.connector.virtual_accelerator.gateways.write_access.use_name_server:
+    evidence: 'use_name_server'
+
+  # ── Archiver ────────────────────────────────────────────────────────
+  archiver: {evidence: 'get_config_value\("archiver", \{\}\)'}
+  archiver.type: {evidence: 'mock_archiver'}
+  archiver.epics_archiver: {evidence: 'epics_archiver'}
+  archiver.epics_archiver.url: {covered-by: archiver.epics_archiver}
+  archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver}
+
+  # ── Execution ───────────────────────────────────────────────────────
+  execution: {evidence: 'execution = config\.get\("execution"\) if isinstance\(config, dict\) else None'}
+  execution.execution_method:
+    evidence: 'execution\.get\("execution_method"\) if isinstance\(execution, dict\) else None'
+  execution.environment:
+    forward-declared: true
+    note: >-
+      Build provenance. Nothing reads it at run time by design — the template
+      comment says so explicitly. Recorded so the guard does not demand a reader.
+  execution.environment.python: {forward-declared: true}
+  execution.environment.packages: {forward-declared: true}
+  execution.environment.inherit_exclude: {forward-declared: true}
+
+  # ── System / paths ──────────────────────────────────────────────────
+  system:
+    all-templates: true
+    evidence: 'config\.get\("system", \{\}\)\.get\("timezone", "UTC"\)'
+  system.timezone:
+    all-templates: true
+    evidence: 'get_config_value\("system\.timezone", None\)'
+  agent_data:
+    all-templates: true
+    evidence: '\(config or \{\}\)\.get\("agent_data"\) or \{\}'
+  agent_data.base_dir:
+    all-templates: true
+    evidence: 'section\.get\("base_dir"\) or DEFAULT_AGENT_DATA_BASE_DIR'
+    note: >-
+      The only key naming this directory. Anchored on the resolver's return
+      expression (utils/workspace.agent_data_base_dir); the previous
+      'agent_data\.base_dir' regex matched only PROSE — docstrings and comments —
+      so it would have stayed green if the reader itself were deleted.
+  file_paths:
+    all-templates: true
+    evidence: 'config\.get\("file_paths", \{\}\)'
+  file_paths.api_calls_dir:
+    all-templates: true
+    evidence: 'get_agent_dir\("api_calls_dir"\)'
+    note: >-
+      Absent from file_paths, the subdirectory falls back to the KEY'S OWN NAME
+      (utils/config.get_agent_dir), so a missing entry silently renames the
+      directory rather than failing.
+  file_paths.registry_exports_dir:
+    all-templates: true
+    evidence: 'get_agent_dir\("registry_exports_dir"\)'
+
+  # ── API providers ───────────────────────────────────────────────────
+  api:
+    all-templates: true
+    evidence: 'api_providers'
+  api.providers:
+    all-templates: true
+    data-map: true
+    key-shape:
+      required: [base_url, models]
+      models-tiers: [haiku, sonnet, opus]
+    evidence: 'defines no models mapping'
+    note: >-
+      Provider NAMES are user-extensible data, not schema — membership
+      deliberately differs (10 providers in project/control_assistant/
+      hello_world, a 6-provider subset in the two standalone bundles). The
+      guard checks SHAPE per provider (base_url present, all three tiers
+      mapped), never membership. A provider with no models map hard-errors in
+      build/claude_code_resolver.py, which is the quoted evidence.
+
+  # ── Claude Code ─────────────────────────────────────────────────────
+  claude_code:
+    all-templates: true
+    evidence: 'get_config_value\("claude_code", \{\}\)'
+  claude_code.provider:
+    all-templates: true
+    evidence: 'get_config_value\("claude_code\.provider", ""\)'
+  claude_code.default_model:
+    all-templates: true
+    evidence: 'claude_code_config\.get\("default_model"\)'
+  claude_code.servers:
+    evidence: 'claude_code_config\.get\("servers", \{\}\)'
+    note: >-
+      Server enable/disable overrides, consumed by registry.mcp.resolve_servers.
+      Anchored because EIGHT covered-by children terminate here — a weak regex
+      at this node would silently hollow out all of them.
+  claude_code.servers.controls: {covered-by: claude_code.servers}
+  claude_code.servers.controls.enabled: {covered-by: claude_code.servers.controls}
+  claude_code.servers.python: {covered-by: claude_code.servers}
+  claude_code.servers.python.enabled: {covered-by: claude_code.servers.python}
+  claude_code.servers.ariel: {covered-by: claude_code.servers}
+  claude_code.servers.ariel.enabled: {covered-by: claude_code.servers.ariel}
+  claude_code.servers.channel-finder: {covered-by: claude_code.servers}
+  claude_code.servers.channel-finder.enabled: {covered-by: claude_code.servers.channel-finder}
+  claude_code.servers.osprey_facility_knowledge: {evidence: 'osprey_facility_knowledge'}
+  claude_code.servers.osprey_facility_knowledge.enabled: {covered-by: claude_code.servers.osprey_facility_knowledge}
+  claude_code.agents: {evidence: 'resolve_agents'}
+  claude_code.agents.logbook-search: {evidence: 'logbook-search'}
+  claude_code.agents.logbook-search.enabled: {covered-by: claude_code.agents.logbook-search}
+  claude_code.agents.logbook-deep-research: {evidence: 'logbook-deep-research'}
+  claude_code.agents.logbook-deep-research.enabled: {covered-by: claude_code.agents.logbook-deep-research}
+  claude_code.telemetry:
+    all-templates: true
+    covered-by: claude_code
+  claude_code.telemetry.enabled:
+    all-templates: true
+    covered-by: claude_code.telemetry
+  claude_code.telemetry.backend:
+    evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
+  claude_code.telemetry.protocol: {evidence: 'http/protobuf'}
+  claude_code.telemetry.openobserve: {evidence: 'openobserve'}
+  claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve}
+  claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve}
+  claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve}
+  claude_code.telemetry.log_user_prompts: {evidence: 'log_user_prompts'}
+  claude_code.telemetry.log_assistant_responses: {evidence: 'log_assistant_responses'}
+  claude_code.telemetry.log_tool_details: {evidence: 'log_tool_details'}
+  claude_code.telemetry.log_raw_api_bodies: {evidence: 'log_raw_api_bodies'}
+
+  # ── Channel finder ──────────────────────────────────────────────────
+  channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"'}
+  channel_finder.pipeline_mode: {evidence: 'pipeline_mode'}
+  channel_finder.pipelines: {covered-by: channel_finder}
+  channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines}
+  channel_finder.pipelines.in_context.database: {covered-by: channel_finder.pipelines.in_context}
+  channel_finder.pipelines.in_context.database.type: {covered-by: channel_finder.pipelines.in_context.database}
+  channel_finder.pipelines.in_context.database.path: {covered-by: channel_finder.pipelines.in_context.database}
+  channel_finder.pipelines.in_context.database.presentation_mode:
+    evidence: 'presentation_mode'
+    note: >-
+      Preview rendering only — honoured by the preview/validate paths; the MCP
+      server and web UI build their own prompt text and never consult it.
+  channel_finder.pipelines.in_context.subagent_model: {evidence: 'subagent_model'}
+  channel_finder.pipelines.hierarchical: {covered-by: channel_finder.pipelines}
+  channel_finder.pipelines.hierarchical.database: {covered-by: channel_finder.pipelines.hierarchical}
+  channel_finder.pipelines.hierarchical.database.type: {covered-by: channel_finder.pipelines.hierarchical.database}
+  channel_finder.pipelines.hierarchical.database.path: {covered-by: channel_finder.pipelines.hierarchical.database}
+  channel_finder.pipelines.hierarchical.feedback: {covered-by: channel_finder.pipelines.hierarchical}
+  channel_finder.pipelines.hierarchical.feedback.enabled: {covered-by: channel_finder.pipelines.hierarchical.feedback}
+  channel_finder.pipelines.hierarchical.feedback.store_path: {evidence: 'store_path'}
+  channel_finder.pipelines.middle_layer: {covered-by: channel_finder.pipelines}
+  channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer}
+  channel_finder.pipelines.middle_layer.database.type: {covered-by: channel_finder.pipelines.middle_layer.database}
+  channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database}
+  channel_finder.benchmark:
+    evidence: 'channel_finder\.benchmark\.dataset_path'
+    note: >-
+      control_assistant ONLY, deliberately. It is the only bundle shipping the
+      query corpus; materialize_tier_artifacts no-ops for bundles with no
+      data/channel_databases/tiers/ subtree, so a dataset_path in the other
+      templates would name a phantom. The channel-finder app runs the command
+      via --queries-path instead.
+  channel_finder.benchmark.dataset_path:
+    evidence: 'No benchmark query set configured'
+
+  # ── ARIEL ───────────────────────────────────────────────────────────
+  ariel: {evidence: 'get_config_value\("ariel", \{\}\)'}
+  ariel.ingestion: {covered-by: ariel}
+  ariel.ingestion.adapter: {covered-by: ariel.ingestion}
+  ariel.ingestion.source_url: {evidence: 'source_url'}
+  ariel.search_modules: {evidence: 'search_modules'}
+  ariel.search_modules.keyword: {covered-by: ariel.search_modules}
+  ariel.search_modules.keyword.enabled: {covered-by: ariel.search_modules.keyword}
+  ariel.search_modules.semantic: {covered-by: ariel.search_modules}
+  ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic}
+  ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic}
+  ariel.search_modules.semantic.model: {covered-by: ariel.search_modules.semantic}
+  ariel.enhancement_modules: {evidence: 'enhancement_modules'}
+  ariel.enhancement_modules.semantic_processor: {evidence: 'semantic_processor'}
+  ariel.enhancement_modules.semantic_processor.enabled: {covered-by: ariel.enhancement_modules.semantic_processor}
+  ariel.enhancement_modules.semantic_processor.provider: {covered-by: ariel.enhancement_modules.semantic_processor}
+  ariel.enhancement_modules.semantic_processor.model: {covered-by: ariel.enhancement_modules.semantic_processor}
+  ariel.enhancement_modules.semantic_processor.model.model_id: {covered-by: ariel.enhancement_modules.semantic_processor.model}
+  ariel.enhancement_modules.semantic_processor.model.max_tokens: {evidence: 'max_tokens'}
+  ariel.enhancement_modules.text_embedding: {evidence: 'text_embedding'}
+  ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding}
+  ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding}
+  ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding}
+  ariel.embedding: {covered-by: ariel}
+  ariel.embedding.provider: {covered-by: ariel.embedding}
+
+  # ── Logbook / facility knowledge / panels ───────────────────────────
+  logbook: {evidence: 'get_config_value\("logbook\.composition", \{\}\)'}
+  logbook.composition: {evidence: 'get_config_value\("logbook\.composition", \{\}\)'}
+  logbook.composition.provider: {covered-by: logbook.composition}
+  logbook.composition.default_tier: {evidence: 'default_tier'}
+  facility_knowledge: {evidence: 'config\.get\("facility_knowledge", \{\}\)'}
+  facility_knowledge.bundle_path:
+    evidence: 'get_config_value\("facility_knowledge\.bundle_path", None\)'
+  artifact_server: {evidence: 'config\.get\("artifact_server"\) or \{\}'}
+  artifact_server.host: {covered-by: artifact_server}
+  artifact_server.port: {covered-by: artifact_server}
+  artifact_server.auto_launch: {evidence: 'auto_launch'}
+
+  # ── Web UI / CLI ────────────────────────────────────────────────────
+  web: {evidence: 'config\.get\("web", \{\}\)'}
+  web.theme:
+    evidence: 'get_config_value\("web\.theme", "main"\)'
+    note: >-
+      Live in project only; commented in control_assistant; absent from the
+      three others. The default is "main" whether the key is live or absent,
+      so no behaviour depends on the form. Deliberately per-template.
+      The shipped default family was renamed from "osprey" to "main"; the
+      evidence tracks the default in app.py, so it moves with that rename.
+  web.panels: {evidence: 'web\.panels'}
+  web.panels.ariel: {covered-by: web.panels}
+  web.panels.ariel.enabled: {covered-by: web.panels.ariel}
+  web.panels.channel-finder: {covered-by: web.panels}
+  web.panels.channel-finder.enabled: {covered-by: web.panels.channel-finder}
+  cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
+  cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)'}
+
+# ---------------------------------------------------------------------------
+# deleted — resurrection list. None of these may appear in the rendered union,
+# in any preset `config:` dotted key, or in the loader's synthesized defaults.
+# ---------------------------------------------------------------------------
+deleted:
+  # Ledger 1 / 5 / — : the write_verification triple (ADDENDUM 1)
+  - control_system.write_verification.enabled
+  - control_system.write_verification.fail_on_mismatch
+  - control_system.write_verification.timeout
+  # Ledger 33
+  - approval.tools.channel_limits
+  # Ledger 7 / 9 / 10 / 11 / 15
+  - channel_finder.pipelines.in_context.processing
+  - channel_finder.explicit_validation_mode
+  - channel_finder.pipelines.hierarchical.tree_preview
+  - channel_finder.benchmark.execution
+  - channel_finder.benchmark.output
+  - channel_finder.benchmark.evaluation
+  # Ledger 12
+  - machine_state
+  # Ledger 13 / — : file_paths sweep
+  - file_paths.user_memory_dir
+  - file_paths.execution_plans_dir
+  - file_paths.prompts_dir
+  - file_paths.agent_data_dir
+  # Ledger 16
+  - workspace.base_dir
+  - workspace
+  # Ledger 18
+  - control_system.connector.timeout
+  # Ledger 29
+  - api.providers.ollama.host
+  - api.providers.ollama.port
+  # Ledger 57 / 59 / 60
+  - ariel.reasoning
+  - ariel.default_max_results
+  - ariel.cache_embeddings
+  # Ledger 79 / 80 — loader identity blocks
+  - applications
+  - current_application
+  - configurable
+  # Task 6.3 — retired facility spelling. The READER fallback in
+  # utils/facility.resolve_facility_name stays deliberately; no TEMPLATE may
+  # ship this key again.
+  - facility_name
+  # ── Leaves removed by derive / consolidate / replace items ──────────
+  # These have NO deleted ancestor: the parent block legitimately survives (or
+  # survives as a commented override stanza), so only the LEAF is banned. Each
+  # was verified present at merge-base ccf324d7 and absent on the branch.
+  # Ledger 39 — the mock_archiver simulation_file is now DERIVED from
+  # control_system.connector.<type>.simulation_file. The `mock_archiver:` block
+  # itself stays as a commented override example, so only the leaf is listed.
+  - archiver.mock_archiver.simulation_file
+  # Ledger 24+35 — the ARIEL DSN is derived from services.postgresql. An
+  # explicit `uri` still WINS when set, and the commented external-DB override
+  # example stays, so `ariel.database` is deliberately NOT listed as deleted.
+  - ariel.database.uri
+  # Ledger 27 — semantic_processor takes its provider at the module level; the
+  # nested provider under `model:` was a second, ignored spelling.
+  - ariel.enhancement_modules.semantic_processor.model.provider
+  # Ledger 26 — mock connector knob nothing read (project template only).
+  - control_system.connector.mock.simulate_delays
+  # Ledger 56 — VA gateway ports are default-filled from
+  # services.virtual_accelerator.port. The commented override example stays; the
+  # EPICS gateway ports are untouched and remain live.
+  - control_system.connector.virtual_accelerator.gateways.read_only.port
+  - control_system.connector.virtual_accelerator.gateways.write_access.port
+  # Ledger 31 — composition resolves a tier through
+  # api.providers[provider].models; there is no model_id key here.
+  - logbook.composition.model_id
+  # Preset-config surface: a commented `# system.facility_name: My Facility`
+  # dotted override in profiles/presets/control-assistant.yml at merge-base,
+  # removed by this branch. Distinct from the dispatch-profile `facility_name`
+  # field (build_profile_schema.py:166), which is a different surface and stays.
+  - system.facility_name
+
+# ---------------------------------------------------------------------------
+# orphan_sites — per deleted key, regexes for its removed code sites. Every
+# regex here must match ZERO times under the listed root (failure mode 4).
+# ---------------------------------------------------------------------------
+orphan_sites:
+  # NOTE — the three deleted `control_system.write_verification` keys have NO
+  # orphan_sites entry ON PURPOSE. Each has a DELIBERATE surviving reader in
+  # src/osprey/connectors/control_system/base.py, so any regex on their names
+  # would make the guard permanently red against intended code. See
+  # kept_readers.write_verification_legacy_tolerance. They remain guarded by
+  # the `deleted` list (failure mode 3: must not reappear in the rendered
+  # union), which is the check that actually matters for them.
+
+  # ADDENDUM 1 — the settings-drawer literal. The OLD key was the bare
+  # 'control_system.write_verification'; the LIVE re-keyed leaf is
+  # 'control_system.write_verification.default_level'. This regex requires the
+  # closing quote immediately after `write_verification`, so it matches the old
+  # literal and NOT the live one.
+  control_system.write_verification__ui_literal:
+    - root: src/osprey/interfaces/web_terminal/static/js
+      regex: "'control_system\\.write_verification'"
+      why: >-
+        settings.js old bare key literal. Verified NOT to match the live
+        're-keyed leaf at settings.js:51
+        ('control_system.write_verification.default_level').
+  approval.tools.channel_limits:
+    - root: src/osprey/templates
+      regex: '^\s+channel_limits:\s'
+      back_test: {base_matches: 3, branch_matches: 0}
+      why: >-
+        the deleted approval policy entry. The removed sites were UNQUOTED YAML
+        mapping keys in the templates, so the earlier quoted-key regex could
+        never fire — it matched 0 even at merge-base. Anchored to the YAML
+        mapping-key form and rooted at templates, which also keeps the
+        LimitsValidator, channel_limits.json and the osprey_limits hook (all
+        legitimate bare-word users) out of scope.
+  file_paths.user_memory_dir:
+    - root: src/osprey
+      regex: 'user_memory_dir'
+      why: compose_generator mkdir list, scaffolding mkdir/README, Dockerfile.j2, config.py docstring
+  file_paths.execution_plans_dir:
+    - root: src/osprey
+      regex: 'execution_plans_dir'
+      why: compose mkdir list + docstring
+  file_paths.prompts_dir:
+    - root: src/osprey
+      regex: 'prompts_dir'
+      why: compose mkdir list + docstring
+  workspace.base_dir:
+    - root: src/osprey/interfaces/web_terminal/routes
+      regex: '^\s*"workspace",'
+      why: >-
+        the "workspace" entry in config.py `_AGENT_CONFIG_SECTIONS`. Anchored to
+        the list-item form so the many legitimate uses of the word (the
+        osprey_workspace MCP server, utils/workspace.py) do not trip it.
+  ariel.reasoning:
+    - root: src/osprey
+      regex: 'ReasoningConfig|reasoning_config'
+      why: deleted config class/field/parse + capabilities() echo
+  ariel.default_max_results:
+    - root: src/osprey
+      regex: 'default_max_results'
+      why: ARIELConfig field + capabilities payload
+  ariel.cache_embeddings:
+    - root: src/osprey
+      regex: 'cache_embeddings'
+      why: deleted field/parse/assertions
+  channel_finder.explicit_validation_mode:
+    - root: src/osprey
+      regex: 'explicit_validation_mode'
+      why: deleted from 2 templates + propagated copy
+  channel_finder.pipelines.hierarchical.tree_preview:
+    - root: src/osprey/templates
+      regex: '^\s+tree_preview:\s*$'
+      back_test: {base_matches: 2, branch_matches: 0}
+      why: >-
+        the deleted CONFIG BLOCK only, which was a bare YAML block header. The
+        earlier dict/quoted-key regex matched 0 even at merge-base. Rooted at
+        templates so the kept, tested `generate_tree_preview` utility stays out
+        of scope.
+  channel_finder.pipelines.in_context.processing:
+    - root: src/osprey
+      regex: 'chunk_dictionary|max_correction_iterations'
+      why: >-
+        the deleted processing block's own leaf names — `processing` alone is
+        far too common to anchor on.
+  channel_finder.benchmark.execution:
+    - root: src/osprey
+      regex: 'runs_per_query.*delay_between_runs|continue_on_error'
+      why: deleted benchmark execution block leaves
+  channel_finder.benchmark.output:
+    - root: src/osprey
+      regex: 'save_incremental|include_detailed_metrics'
+      why: deleted benchmark output block leaves
+  channel_finder.benchmark.evaluation:
+    - root: src/osprey
+      regex: 'exact_match_weight|partial_match_weight'
+      why: deleted benchmark evaluation block leaves
+  machine_state:
+    # The deleted services/machine_state module has NO content-grep site: it had
+    # zero importers, so nothing anywhere ever spelled its import path. A regex
+    # for it could not fire even at merge-base. Its deletion is asserted by
+    # path ABSENCE below (the mirror of `keeps`), not by grep.
+    - root: src/osprey/templates
+      regex: '^machine_state:'
+      back_test: {base_matches: 1, branch_matches: 0}
+      why: the deleted top-level config block in the templates — a genuine, fireable site
+  api.providers.ollama.host:
+    - root: src/osprey/templates
+      regex: '^\s+host:\s*localhost'
+      why: the deleted ollama host/port pair (replaced by a single base_url)
+  api.providers.ollama.port:
+    - root: src/osprey/templates
+      regex: '^\s+port:\s*11434'
+      why: the deleted ollama port line
+  applications:
+    - root: src/osprey/utils
+      regex: 'current_application'
+      why: deleted loader identity block (config.py)
+  control_system.connector.timeout:
+    - root: src/osprey/templates
+      regex: '^  connector:\n    timeout:'
+      multiline: true
+      back_test: {base_matches: 2, branch_matches: 0, engine: 'python re.M over whole-file text'}
+      why: >-
+        the connector-level timeout that sat outside any connector type. The
+        pattern SPANS TWO LINES, so a line-based engine (grep, or a per-line
+        Python loop) finds 0 matches at merge-base as well as now — a check that
+        cannot fail. `multiline: true` obliges the guard to read the whole file
+        and match with re.M; see scan_rules.multiline_entries.
+  facility_name:
+    - root: src/osprey/templates
+      regex: '^facility_name:'
+      why: >-
+        the retired top-level spelling, now migrated to the canonical
+        `facility:` block in every template. The READER fallback in
+        utils/facility.py is deliberate and must NOT be removed — this regex is
+        scoped to templates only for exactly that reason.
+
+# ---------------------------------------------------------------------------
+# render_contexts — the matrix the guard renders every template under, then
+# UNIONS the walked key sets. Jinja conditionals gate audited blocks, so a
+# single context would under-report.
+# ---------------------------------------------------------------------------
+render_contexts:
+  undefined: ChainableUndefined
+  note: >-
+    StrictUndefined fails on project_root / selected_web_panels / the panel
+    machinery, so ChainableUndefined is required for one context to serve all
+    five templates.
+  base:
+    project_name: demo
+    project_root: /tmp/demo
+    default_provider: anthropic
+    default_model: haiku
+    environment_python: null
+    environment_packages: []
+    environment_inherit_exclude: []
+    builtin_panels: [ariel, channel-finder]
+    default_panel: null
+    panel_presets: null
+  matrix:
+    channel_finder_mode:
+      - mode: in_context
+        flags: {enable_in_context: true, enable_hierarchical: false, enable_middle_layer: false}
+      - mode: hierarchical
+        flags: {enable_in_context: false, enable_hierarchical: true, enable_middle_layer: false}
+      - mode: middle_layer
+        flags: {enable_in_context: false, enable_hierarchical: false, enable_middle_layer: true}
+    deploy_services: [true, false]
+    selected_web_panels:
+      - [ariel, channel-finder]
+      - []
+  templates:
+    - src/osprey/templates/project/config.yml.j2
+    - src/osprey/templates/apps/control_assistant/config.yml.j2
+    - src/osprey/templates/apps/hello_world/config.yml.j2
+    - src/osprey/templates/apps/ariel_standalone/config.yml.j2
+    - src/osprey/templates/apps/channel_finder_standalone/config.yml.j2
+  # Guard self-test: one key from inside each conditional branch must appear in
+  # the union, otherwise the matrix has silently stopped covering that branch.
+  self_test_keys:
+    enable_in_context: channel_finder.pipelines.in_context.subagent_model
+    enable_hierarchical: channel_finder.pipelines.hierarchical.feedback.store_path
+    enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
+    deploy_services_true: services.openobserve.retention_days
+    panels_on: web.panels.channel-finder.enabled
+  expected_union_size: 251
+  note_union_size: >-
+    Informational, not an assertion — it moves whenever a template gains or
+    loses a key. The guard should report a diff against this number, not fail on
+    it.
+
+# ---------------------------------------------------------------------------
+# governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no
+# test protects. The guard must render the template, run
+# osprey.registry.mcp.resolve_servers, collect every tool whose PreToolUse
+# matcher runs osprey_approval.py, and assert set equality with the enumeration
+# below. A future default-enabled server carrying an approval hook then turns
+# the guard red instead of silently falsifying the shipped comment.
+# ---------------------------------------------------------------------------
+governed_sets:
+  method:
+    description: >-
+      Render the template (render_contexts.base + any matrix cell),
+      yaml.safe_load, pass the `claude_code` section to resolve_servers with a
+      ctx carrying channel_finder_pipeline when the config has a
+      channel_finder section. For every ENABLED server, walk hooks_pre; a rule
+      counts when any of its hooks' `command` contains osprey_approval.py.
+      Extract the tool short-name from each matcher.
+    matcher_shape: 'mcp__<server>__<tool>'
+    matcher_parse_warning: >-
+      Matchers are SINGLE tokens and underscores are word characters, so a
+      naive `[A-Za-z_][A-Za-z0-9_]*` findall returns the whole matcher as one
+      token. Parse with `mcp__[A-Za-z0-9_-]+?__([A-Za-z0-9_]+)`. An extractor
+      that returns an empty governed set for every template is broken, not a
+      finding.
+    approval_hook_marker: osprey_approval.py
+  claims:
+    ariel_standalone:
+      template: src/osprey/templates/apps/ariel_standalone/config.yml.j2
+      comment_claim: 'in this app exactly three'
+      exhaustive: true
+      tools: [entry_create, setup_patch, draft_concept]
+    channel_finder_standalone:
+      template: src/osprey/templates/apps/channel_finder_standalone/config.yml.j2
+      comment_claim: 'the only tool it governs is the workspace setup_patch tool'
+      exhaustive: true
+      tools: [setup_patch]
+  reference_counts:
+    note: >-
+      Not exhaustive claims in any shipped comment — recorded so a future
+      change to the default-enabled server set is visible. Re-derived
+      2026-08-02 with the method above.
+    project: [channel_write, channel_read, archiver_read, execute, setup_patch, entry_create, draft_concept]
+    control_assistant: [channel_write, channel_read, archiver_read, execute, setup_patch, entry_create, draft_concept]
+    hello_world: [channel_write, channel_read, archiver_read, execute, setup_patch, draft_concept]
+  draft_concept_note: >-
+    draft_concept is approval-governed in project, control_assistant and
+    hello_world (osprey_facility_knowledge is enabled by default and carries the
+    hook) but appears in NO approval.tools block, so it falls to
+    default_policy: always. Fail-closed and correctly described by the shipped
+    comment. This is the reason the governed set is 7/7/6 while the
+    approval.tools LISTS are 6/6/6 — do not "fix" one to match the other.
+
+# ---------------------------------------------------------------------------
+# kept_readers — code that legitimately still mentions a DELETED key. These are
+# deliberate legacy-tolerance paths, not orphans. A guard that greps deleted key
+# names across src/ without this exclusion list goes red against intended code.
+# ---------------------------------------------------------------------------
+kept_readers:
+  write_verification_legacy_tolerance:
+    site: src/osprey/connectors/control_system/base.py
+    covers:
+      - control_system.write_verification.fail_on_mismatch
+      - control_system.write_verification.enabled
+      - control_system.write_verification.timeout
+    detail: >-
+      `_warn_once_if_fail_on_mismatch_set` deliberately still READS
+      `fail_on_mismatch` so a legacy project carrying it at true is told once,
+      at the first write, which path actually enforces verification. Its
+      docstring also names `enabled` and `timeout` to explain why those two stay
+      silent (they were inert at every value). All three names therefore appear
+      in src/ BY DESIGN. Guard them via the `deleted` list only.
+  facility_name_reader:
+    site: src/osprey/utils/facility.py
+    covers: [facility_name]
+    detail: >-
+      resolve_facility_name still honours the retired top-level `facility_name`
+      as a fallback so pre-consolidation configs keep working. The key is banned
+      from TEMPLATES, not from readers — which is why that orphan regex is
+      scoped to src/osprey/templates.
+  tree_preview_util:
+    site: src/osprey/services/channel_finder
+    covers: [channel_finder.pipelines.hierarchical.tree_preview]
+    detail: >-
+      `generate_tree_preview` is a kept, tested utility. Only the CONFIG BLOCK
+      was deleted, which is why that orphan regex anchors on the mapping-key
+      form rather than the bare word.
+
+# ---------------------------------------------------------------------------
+# scan_rules — how the guard must walk the tree.
+# ---------------------------------------------------------------------------
+scan_rules:
+  exclude_dirs: ['__pycache__', '.venv', 'node_modules', '.git', '.mypy_cache', '.pytest_cache', '.ruff_cache']
+  regex_engine: >-
+    EVERY regex in this file is written against LINE STARTS, because they were
+    authored and verified with grep, which is inherently line-based. A Python
+    implementation MUST therefore pass `re.M` on every match — not only on
+    `multiline: true` entries. Without it, `^` anchors at the start of the whole
+    file and every `^`-anchored regex silently reports 0 matches, manufacturing
+    the exact cannot-fail class this manifest's back-test exists to detect. Cost
+    of learning this: the first back-test implementation applied re.M only to
+    flagged entries and reported 7 false cannot-fail failures, including two
+    regexes that had already been hand-verified as matching at merge-base.
+  multiline_entries: >-
+    An entry carrying `multiline: true` additionally SPANS newlines, so it can
+    never be matched by a line-based tool at all — the guard must read whole
+    files for it. (With `re.M` + whole-file text, both kinds work uniformly.)
+    Only `control_system.connector.timeout` needs this today.
+  back_test_required: >-
+    Every `orphan_sites` regex MUST be back-tested against the merge-base commit
+    recorded in back_test_baseline: it has to match at least once THERE and zero
+    times on the branch. A regex that matches 0 in both places proves nothing —
+    it is a green light wired to nothing. Four of the original 22 were exactly
+    that (see back_test_baseline.history). Entries carry their verified counts
+    in a `back_test:` block; the guard should re-derive them rather than trust
+    the recorded numbers.
+  absence_is_git_tracked: >-
+    An `absent_paths` entry is satisfied when the path has NO git-tracked files
+    (`git ls-files <path>` is empty) — never by filesystem existence
+    (`Path.exists()` / `os.path.isdir`). A deleted Python package leaves a
+    populated `__pycache__/` behind in any working tree it was ever imported in,
+    so a filesystem check goes red on developer worktrees while CI stays green.
+    Measure the base side the same way, with `git ls-tree -r --name-only
+    <commit> -- <path>`. This is the same stale-.pyc trap as
+    `exclude_dirs`, reached from the other direction.
+  back_test_baseline:
+    commit: ccf324d7
+    extraction: 'git show <commit>:<path>'
+    history: >-
+      Found by back-testing during task 7.1 review: channel_limits used a
+      quoted-key regex where the real sites were unquoted YAML; tree_preview
+      used a dict/quoted form where the real site was a bare block header;
+      machine_state's services-module regex could never fire because the module
+      had zero importers; connector.timeout's pattern is multiline. All four
+      matched 0 at merge-base as well as on the branch.
+  exclude_note: >-
+    MUST exclude __pycache__. Compiled .pyc files retain the string constants of
+    deleted modules, so a grep that counts them reports orphan sites that no
+    longer exist in source — observed while authoring this manifest: the
+    machine_state orphan regex appeared to match 3 times, entirely from stale
+    .pyc artifacts, and 0 times in real source.
+  test_tree: >-
+    The guard scans src/osprey only. If it is ever pointed at tests/, the
+    deliberate legacy fixture (see notes.legacy_fixture_out_of_scope) MUST be
+    allowlisted first — it holds every deleted key on purpose.
+
+# ---------------------------------------------------------------------------
+# absent_paths — the mirror of `keeps`. Deletions whose only honest assertion is
+# that a PATH no longer exists, because no content grep can ever fire for them.
+# ---------------------------------------------------------------------------
+absent_paths:
+  - path: src/osprey/services/machine_state
+    assert: absent
+    back_test:
+      base_tracked_files: 3   # __init__.py, models.py, reader.py at ccf324d7
+      branch_tracked_files: 0
+    why: >-
+      The module had ZERO importers, so no file anywhere ever spelled
+      `from osprey.services.machine_state` or the module path. A content regex
+      for it therefore matches 0 both before and after the deletion — it cannot
+      distinguish success from failure. Path absence is the only assertion that
+      actually tests this deletion. Note the deliberate asymmetry with
+      `keeps`: the same ledger item both DELETES this module and KEEPS the
+      control_assistant machine_state_channels.json asset, so the two
+      sections guard opposite halves of one change.
+
+# ---------------------------------------------------------------------------
+# keeps — ADDENDUM 3. Assets whose CONTINUED EXISTENCE is load-bearing but
+# which no grep gate protects, because the asset does not contain the string
+# that would be searched for.
+# ---------------------------------------------------------------------------
+keeps:
+  - path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json
+    assert: exists
+    why: >-
+      Feeds VA manifest reconciliation via
+      services/virtual_accelerator/manifest/loaders.load_machine_state_candidate_addresses,
+      surfacing as _metadata.machine_state_reconciliation. The machine_state
+      DELETION's grep gate passes partly for the wrong reason: this file never
+      contains the string `machine_state` in its CONTENT, only in its filename,
+      so a content grep can never protect it. Today only
+      tests/templates/test_machine_state_channels.py and tests/va/test_manifest.py
+      fail on its deletion. An explicit existence assertion makes the dependency
+      visible in the manifest rather than implicit in two test files.
+
+# ---------------------------------------------------------------------------
+# notes — carried forward from tasks 3.2, 5.1 and 6.3. Not guard rules.
+# ---------------------------------------------------------------------------
+notes:
+  hardcoded_agent_data_site:
+    site: src/osprey/cli/templates/scaffolding.py
+    detail: >-
+      `agent_data_dir = project_dir / "_agent_data"` hardcodes the literal and
+      does not read agent_data.base_dir; its subdirs list is ["api_calls"]
+      alone, so registry_exports/ is not created here. Harmless today — the
+      registry and the compose generator mkdir their own directories — but it
+      is a literal-_agent_data site that will drift if anyone moves the root.
+      Recorded, not guarded.
+  manifest_fixture_provider_shape:
+    site: tests/cli/test_manifest_build_args.py
+    detail: >-
+      Carries 'anthropic/claude-opus' as fixture data. It never reaches the
+      resolver, so it is harmless and was left alone. If cheap, the guard could
+      flag provider/model-SHAPED default_model values (a '/' in a value that
+      should be a bare tier: haiku | sonnet | opus), since claude_code.default_model
+      takes a tier, not a wire id.
+  prefix_rule_drift:
+    detail: >-
+      src/osprey/templates/skills/osprey-build-deploy/references/facility-config-schema.md
+      (lines 43, 609) states facility.prefix must be lowercase alnum plus
+      hyphens, 2-6 chars, as a hard requirement. Nothing enforces that: the only
+      validation in the tree is a non-emptiness lint at
+      deployment/web_terminals/lint.py `_check_empty_facility_prefix`. The same
+      module DOES define `_USERNAME_CHARSET_RE` and enforce it for usernames and
+      persona names, so the absence for prefix is real rather than an oversight.
+    inert: >-
+      Stronger than unenforced. facility.prefix reaches only two container-name
+      interpolations and the personas path — never an nginx location key or a
+      URL segment, which is the specific reason usernames and persona names do
+      get the charset regex. There is NO sink at which violating the
+      2-6/lowercase rule breaks anything.
+    remedy_direction: >-
+      Soften the schema doc to a convention. Do NOT add a validator, and do NOT
+      let this manifest grow a charset rule for facility.prefix: a new check
+      would reject configurations that work correctly today, converting a
+      cosmetic doc inconsistency into a breaking change. All five templates and
+      both presets already state the enforced rule alongside the Docker
+      constraint. The schema doc is the only outlier and needs an owner.
+  legacy_fixture_out_of_scope:
+    path: tests/utils/fixtures/legacy_config_all_deleted_keys.yml
+    detail: >-
+      Deliberately holds every retired key so the loader's tolerance stays
+      tested. If the guard is ever pointed at tests/, this file MUST be
+      allowlisted or every `deleted` entry will fire on it.
+  facility_timezone_unshipped:
+    detail: >-
+      facility.timezone is READ (deployment/web_terminals/env_production.py,
+      deployment/web_terminals/render.py) but shipped by no template, and is
+      distinct from system.timezone. A hidden-key stanza candidate for phase 6,
+      not a guard rule.

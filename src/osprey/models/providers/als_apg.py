@@ -22,6 +22,10 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "https://llm.gianlucamartino.com"
+    # Break-glass redirect: a set ALS_APG_BASE_URL beats config and the default,
+    # so deployments with a baked-in URL can be pointed at a fallback gateway
+    # at runtime (accepts the URL with or without a trailing /v1).
+    base_url_env_var = "ALS_APG_BASE_URL"
     # als-apg routes openai-compatible; without a base_url litellm would fall
     # through to api.openai.com, so a missing base_url resolves to the default.
     apply_default_base_url_fallback = True

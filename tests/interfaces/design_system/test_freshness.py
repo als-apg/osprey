@@ -12,7 +12,7 @@ This module also carries the two other things Task 1.7 is responsible
 for finalizing, now that the real build has actually run against the
 real token tree:
 
-- the five CSS custom property names ``base.css`` (hand-written, a
+- the CSS custom property names ``base.css`` (hand-written, a
   different task's file) hard-depends on existing;
 - the rename-mapping table from every name the web-terminal
   ``variables.css``/``theme-light.css`` vocabulary defines to whatever
@@ -104,15 +104,27 @@ _DOCUMENTED_RENAMES: dict[str, str] = {
 }
 
 #: CSS custom property names ``design_system/static/css/base.css``
-#: (a different task's hand-written file) references directly. A hard
-#: constraint: whatever token sources/emitter changes happen, these five
-#: names must keep existing in the emitted CSS.
+#: (a hand-written file) references directly. A hard constraint: whatever
+#: token sources/emitter changes happen, every one of these names must keep
+#: existing in the emitted CSS, or the hand-written file silently renders
+#: with unresolved variables.
+#:
+#: Keep this list equal to the file's actual ``var(--…)`` references:
+#:     grep -o 'var(--[a-zA-Z0-9-]*' base.css | sed 's/var(--//' | sort -u
 _BASE_CSS_HARD_DEPENDENCIES: tuple[str, ...] = (
     "bg-primary",
-    "text-primary",
+    "color-accent",
+    "duration-base",
+    "duration-instant",
     "font-display",
+    "leading-normal",
     "neutral-tint-20",
     "neutral-tint-35",
+    "radius-full",
+    "radius-sm",
+    "text-muted",
+    "text-primary",
+    "text-xl",
 )
 
 _VAR_DECLARATION_PATTERN = re.compile(r"--([a-zA-Z0-9-]+)\s*:")
@@ -188,6 +200,23 @@ def test_base_css_hard_dependencies_are_emitted() -> None:
 
     missing = [name for name in _BASE_CSS_HARD_DEPENDENCIES if name not in names]
     assert missing == [], f"base.css depends on --{{{', '.join(missing)}}}, not emitted"
+
+
+def test_base_css_hard_dependency_list_matches_the_file() -> None:
+    """The pinned list above must BE base.css's references, not a subset of them.
+
+    Without this, the gate rots the moment someone adds a ``var(--…)`` to
+    base.css without touching this file — and an unpinned token can then be
+    renamed away, leaving the hand-written stylesheet quietly unresolved.
+    """
+    base_css = (DEFAULT_STATIC_DIR / "css" / "base.css").read_text(encoding="utf-8")
+    referenced = set(re.findall(r"var\(--([a-zA-Z0-9-]+)", base_css))
+
+    assert referenced == set(_BASE_CSS_HARD_DEPENDENCIES), (
+        "_BASE_CSS_HARD_DEPENDENCIES is out of sync with base.css: "
+        f"unpinned={sorted(referenced - set(_BASE_CSS_HARD_DEPENDENCIES))}, "
+        f"stale={sorted(set(_BASE_CSS_HARD_DEPENDENCIES) - referenced)}"
+    )
 
 
 # --- The rename-mapping table: every old variables.css name is accounted for -------

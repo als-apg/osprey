@@ -116,6 +116,109 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
     return resolved
 
 
+# OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
+# ``local`` is the historical name for that same backend; ``container`` named a
+# Jupyter kernel gateway OSPREY never shipped.
+EXECUTION_METHOD_SUBPROCESS = "subprocess"
+
+# Module-level latch so the ``container`` deprecation is logged once per process
+# rather than on every config read (the executor resolves per tool call).
+# Tests reset it via ``osprey.utils.config._container_method_warned = False``.
+_container_method_warned = False
+
+
+def _describe_config_source(source: str | None) -> str:
+    """Describe where an execution method came from, for log messages.
+
+    Args:
+        source: Caller-supplied description (usually a config file path). When
+            ``None``, the active config path is resolved on a best-effort basis.
+
+    Returns:
+        str: A human-readable config source, never empty.
+    """
+    if source:
+        return str(source)
+    try:
+        from osprey.utils.workspace import resolve_config_path
+
+        return str(resolve_config_path())
+    except Exception:  # pragma: no cover - defensive: never fail a config read
+        return "config.yml"
+
+
+def resolve_execution_method(
+    config: "Mapping[str, Any] | None", *, source: str | None = None
+) -> str:
+    """Normalize ``execution.execution_method`` to the backend that actually runs.
+
+    This is the single choke point for the execution vocabulary. Every reader of
+    ``execution.execution_method`` goes through it so legacy configs keep loading
+    while the config file stops claiming a backend OSPREY does not ship:
+
+    - ``subprocess`` — the honest name; returned as-is.
+    - ``local`` — historical name for the same subprocess backend; mapped silently.
+    - ``container`` — named a Jupyter kernel gateway that was never shipped, so it
+      failed outright at execution time. Mapped to ``subprocess`` with a one-time
+      deprecation warning, because that value's behavior genuinely changes.
+    - unset (missing, ``None``, or blank) — defaults to ``subprocess``.
+
+    Args:
+        config: Full configuration mapping (the one containing the ``execution``
+            section), or ``None``. Anything without a usable ``execution`` section
+            resolves to the default.
+        source: Optional description of where the config came from (typically the
+            config file path), used in the deprecation warning. Defaults to the
+            active config path.
+
+    Returns:
+        str: Always ``"subprocess"`` — the only execution backend OSPREY ships.
+
+    Raises:
+        ValueError: If ``execution.execution_method`` is set to any other value.
+
+    Example:
+        >>> resolve_execution_method({"execution": {"execution_method": "local"}})
+        'subprocess'
+    """
+    global _container_method_warned
+
+    execution = config.get("execution") if isinstance(config, dict) else None
+    raw = execution.get("execution_method") if isinstance(execution, dict) else None
+
+    if raw is None:
+        return EXECUTION_METHOD_SUBPROCESS
+
+    if not isinstance(raw, str):
+        raise ValueError(
+            f"Invalid execution.execution_method: {raw!r} "
+            f"(in {_describe_config_source(source)}). Expected 'subprocess'."
+        )
+
+    method = raw.strip().lower()
+
+    if method in ("", EXECUTION_METHOD_SUBPROCESS, "local"):
+        return EXECUTION_METHOD_SUBPROCESS
+
+    if method == "container":
+        if not _container_method_warned:
+            _container_method_warned = True
+            logger.warning(
+                "execution.execution_method: 'container' is deprecated (in %s). "
+                "OSPREY ships no containerized Python backend, so this value never "
+                "worked; agent Python code now runs via the subprocess backend. "
+                "Set execution.execution_method: subprocess.",
+                _describe_config_source(source),
+            )
+        return EXECUTION_METHOD_SUBPROCESS
+
+    raise ValueError(
+        f"Invalid execution.execution_method: {raw!r} "
+        f"(in {_describe_config_source(source)}). Expected 'subprocess' "
+        f"(legacy 'local' and 'container' are also accepted)."
+    )
+
+
 class ConfigBuilder:
     """Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and
     pre-computes a ``configurable`` dict for framework and standalone use.
@@ -289,62 +392,57 @@ class ConfigBuilder:
 
         return copy.deepcopy(self._unexpanded_config)
 
+    #: Keys older deployed configs may still carry but nothing honours any more:
+    #: ``python_env_path`` (the agent interpreter is resolved at run time) and
+    #: ``modes`` (Jupyter-era kernel/gateway descriptions with no reader).
+    _RETIRED_EXECUTION_KEYS = ("python_env_path", "modes")
+
     def _get_execution_config(self) -> dict[str, Any]:
         """Get execution configuration with sensible defaults.
 
-        Returns execution configuration from config.yml if present, otherwise provides
-        defaults suitable for local Python execution in tutorial environments.
+        Retired keys (:attr:`_RETIRED_EXECUTION_KEYS`) are dropped here if an
+        older config still carries them, so already-deployed projects keep
+        loading unchanged instead of failing on keys nothing honours any more.
 
         Returns:
-            dict: Execution configuration including method, python_env_path, and modes
+            dict: Execution configuration including the execution method.
         """
         # Try to get execution config from file
         execution_config = self.get("execution", None)
 
         # If execution section exists and has content, use it
         if execution_config:
+            if isinstance(execution_config, dict):
+                for key in self._RETIRED_EXECUTION_KEYS:
+                    if key in execution_config:
+                        logger.debug(
+                            "Ignoring retired 'execution.%s' (%s) in %s; the key has "
+                            "no effect on the subprocess execution backend.",
+                            key,
+                            execution_config[key],
+                            self.config_path,
+                        )
+                execution_config = {
+                    key: value
+                    for key, value in execution_config.items()
+                    if key not in self._RETIRED_EXECUTION_KEYS
+                }
             return execution_config
 
-        logger.warning(
-            "'execution' section missing from config.yml; defaulting to local Python execution"
+        logger.debug(
+            "'execution' section missing from config.yml; defaulting to subprocess Python execution"
         )
 
-        return {
-            "execution_method": "local",
-            "python_env_path": sys.executable,
-            "modes": {
-                "read_only": {
-                    "kernel_name": "python3-readonly",
-                    "gateway": "read_only",
-                    "allows_writes": False,
-                    "environment": {},
-                },
-                "write_access": {
-                    "kernel_name": "python3-write",
-                    "gateway": "write_access",
-                    "allows_writes": True,
-                    "requires_approval": True,
-                    "environment": {},
-                },
-            },
-        }
-
-    def _get_writes_enabled_with_fallback(self) -> bool:
-        """Get control system writes_enabled setting.
-
-        Returns:
-            bool: Whether control system writes are enabled
-        """
-        return self.get("control_system.writes_enabled", False)
+        return {"execution_method": EXECUTION_METHOD_SUBPROCESS}
 
     def _get_python_executor_config(self) -> dict[str, Any]:
         """Get python executor configuration with sensible defaults.
 
         Returns python_executor configuration from config.yml if present, otherwise
-        provides reasonable defaults for retry and timeout settings.
+        provides a reasonable default for the execution timeout.
 
         Returns:
-            dict: Python executor configuration with retry and timeout settings
+            dict: Python executor configuration with timeout settings
         """
         # Try to get python_executor config from file
         python_executor_config = self.get("python_executor", None)
@@ -355,20 +453,12 @@ class ConfigBuilder:
 
         # Otherwise, provide sensible defaults
         return {
-            "max_generation_retries": 3,
-            "max_execution_retries": 3,
             "execution_timeout_seconds": 600,
         }
 
     def _build_configurable(self) -> dict[str, Any]:
         """Build the configurable dictionary with pre-computed nested structures."""
         configurable = {
-            "user_id": None,
-            "chat_id": None,
-            "session_id": None,
-            "thread_id": None,
-            "session_url": None,
-            "agent_control_defaults": self._build_agent_control_defaults(),
             "model_configs": self._build_model_configs(),
             "provider_configs": self._build_provider_configs(),
             "service_configs": self._build_service_configs(),
@@ -377,8 +467,6 @@ class ConfigBuilder:
             "logging": self.get("logging", {}),
             "development": self.get("development", {}),
             "project_root": self.get("project_root"),
-            "applications": self.get("applications", []),
-            "current_application": self._get_current_application(),
             "registry_path": self.get("registry_path"),
             "facility_timezone": self.get("system.timezone", "UTC"),
         }
@@ -396,23 +484,6 @@ class ConfigBuilder:
     def _build_service_configs(self) -> dict[str, Any]:
         """Get service configs from flat structure."""
         return self.get("services", {})
-
-    def _build_agent_control_defaults(self) -> dict[str, Any]:
-        """Build agent control defaults with explicit configuration control."""
-
-        return {
-            # Control system writes control
-            "control_system_writes_enabled": self._get_writes_enabled_with_fallback(),
-        }
-
-    def _get_current_application(self) -> str | None:
-        """Get the current/primary application name."""
-        applications = self.get("applications", [])
-        if isinstance(applications, dict) and applications:
-            return list(applications.keys())[0]
-        elif isinstance(applications, list) and applications:
-            return applications[0]
-        return None
 
     def get(self, path: str, default: Any = None) -> Any:
         """Get configuration value using dot notation path."""
@@ -477,7 +548,13 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     resolved_path = str(Path(config_path).resolve())
 
     if resolved_path not in _config_cache:
-        logger.info(f"Loading configuration from explicit path: {resolved_path}")
+        # Log honestly: a missing file is about to raise in ConfigBuilder, and
+        # many callers swallow that — a cheerful "Loading configuration from
+        # explicit path" would then be the only (misleading) trace in the log.
+        if Path(resolved_path).is_file():
+            logger.info(f"Loading configuration from explicit path: {resolved_path}")
+        else:
+            logger.warning(f"Config file not found: {resolved_path} — load will fail")
         _config_cache[resolved_path] = ConfigBuilder(resolved_path)
 
     if set_as_default:
@@ -593,43 +670,33 @@ def get_framework_service_config(
     return service_configs.get(service_name, {})
 
 
-def get_current_application() -> str | None:
-    """Get current application with automatic context detection."""
-    configurable = _get_configurable()
-    return configurable.get("current_application")
-
-
 def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     """
     Get the target directory path within the agent data directory using absolute paths.
 
+    The root comes from ``agent_data.base_dir`` — the single key naming this
+    directory — while ``file_paths`` supplies the subdirectory names. A
+    subdirectory key absent from ``file_paths`` falls back to its own name.
+
     Args:
-        sub_dir: Subdirectory name (e.g., 'user_memory_dir', 'execution_plans_dir')
+        sub_dir: Subdirectory name (e.g., 'api_calls_dir', 'registry_exports_dir')
         host_path: If True, force return of host filesystem path even when running in container
 
     Returns:
         Absolute path to the target directory
     """
+    from osprey.utils.workspace import agent_data_base_dir
+
     config = _get_config()
 
     project_root = config.get("project_root")
     main_file_paths = config.get("file_paths", {})
-    agent_data_dir = main_file_paths.get("agent_data_dir", "_agent_data")
-
-    current_app = get_current_application()
-    sub_dir_path = None
+    agent_data_root = agent_data_base_dir(config.raw_config)
 
     if sub_dir in main_file_paths:
         sub_dir_path = main_file_paths[sub_dir]
-        logger.debug(f"Found {sub_dir} in main file_paths: {sub_dir_path}")
-
-    if current_app:
-        app_file_paths = config.get(f"applications.{current_app}.file_paths", {})
-        if sub_dir in app_file_paths:
-            sub_dir_path = app_file_paths[sub_dir]
-            logger.debug(f"Found {sub_dir} in {current_app} file_paths: {sub_dir_path}")
-
-    if sub_dir_path is None:
+        logger.debug(f"Found {sub_dir} in file_paths: {sub_dir_path}")
+    else:
         sub_dir_path = sub_dir
         logger.debug(f"Using fallback path for {sub_dir}: {sub_dir_path}")
 
@@ -638,7 +705,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
 
         if host_path:
             logger.debug(f"Forcing host path resolution for: {sub_dir}")
-            path = project_root_path / agent_data_dir / sub_dir_path
+            path = project_root_path / agent_data_root / sub_dir_path
         else:
             if not project_root_path.exists():
                 container_project_roots = ["/app", "/pipelines", "/jupyter"]
@@ -646,7 +713,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
 
                 for container_root in container_project_roots:
                     container_path = Path(container_root)
-                    if container_path.exists() and (container_path / agent_data_dir).exists():
+                    if container_path.exists() and (container_path / agent_data_root).exists():
                         detected_container_root = container_path
                         break
 
@@ -654,17 +721,17 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
                     logger.debug(
                         f"Container environment detected: using {detected_container_root} instead of {project_root}"
                     )
-                    path = detected_container_root / agent_data_dir / sub_dir_path
+                    path = detected_container_root / agent_data_root / sub_dir_path
                 else:
                     logger.warning(f"Configured project root does not exist: {project_root}")
                     logger.warning("Falling back to relative path resolution")
-                    path = Path(agent_data_dir) / sub_dir_path
+                    path = Path(agent_data_root) / sub_dir_path
                     path = path.resolve()
             else:
-                path = project_root_path / agent_data_dir / sub_dir_path
+                path = project_root_path / agent_data_root / sub_dir_path
     else:
         logger.warning("No project root configured, using relative path for agent data directory")
-        path = Path(agent_data_dir) / sub_dir_path
+        path = Path(agent_data_root) / sub_dir_path
         path = path.resolve()
 
     return str(path)
@@ -837,7 +904,7 @@ def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
     Examples:
         >>> # Default configuration (backward compatible)
         >>> config = get_full_configuration()
-        >>> user_id = config.get("user_id")
+        >>> project_root = config.get("project_root")
         >>> models = config.get("model_configs", {})
 
         >>> # Explicit configuration path (also becomes default)

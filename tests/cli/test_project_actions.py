@@ -28,6 +28,7 @@ import pytest
 import osprey.cli.health_cmd as health_cmd
 from osprey.cli import project_actions
 from osprey.connectors import types
+from tests.cli._scoped_subprocess import patch_subprocess
 
 
 @pytest.fixture(autouse=True)
@@ -94,9 +95,9 @@ class TestHandleDeployAction:
         q = _fake_questionary(select=["back"])
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console"):
-                with patch("subprocess.run") as run:
+                with patch_subprocess("osprey.cli.project_actions") as fake_subprocess:
                     project_actions.handle_deploy_action()
-        run.assert_not_called()
+        fake_subprocess.run.assert_not_called()
 
     def test_up_builds_module_invocation_command(self):
         q = _fake_questionary(select=["up"])
@@ -110,7 +111,7 @@ class TestHandleDeployAction:
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console"):
                 with patch("builtins.input"):
-                    with patch("subprocess.run", side_effect=_run):
+                    with patch_subprocess("osprey.cli.project_actions", side_effect=_run):
                         project_actions.handle_deploy_action()
 
         # Re-enters the CLI through the running interpreter, detached, with config.
@@ -133,8 +134,8 @@ class TestHandleDeployAction:
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console"):
                 with patch("builtins.input"):
-                    with patch(
-                        "subprocess.run",
+                    with patch_subprocess(
+                        "osprey.cli.project_actions",
                         side_effect=lambda cmd, **k: (
                             captured.update(cmd=cmd) or MagicMock(returncode=0)
                         ),
@@ -149,20 +150,20 @@ class TestHandleDeployAction:
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console"):
                 with patch("osprey.cli.menu_display.show_deploy_help") as help_fn:
-                    with patch("subprocess.run") as run:
+                    with patch_subprocess("osprey.cli.project_actions") as fake_subprocess:
                         project_actions.handle_deploy_action()
         help_fn.assert_called_once()
-        run.assert_not_called()
+        fake_subprocess.run.assert_not_called()
 
     def test_clean_cancelled_when_not_confirmed(self):
         q = _fake_questionary(select=["clean", "back"], confirm=[False])
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console"):
                 with patch("builtins.input"):
-                    with patch("subprocess.run") as run:
+                    with patch_subprocess("osprey.cli.project_actions") as fake_subprocess:
                         project_actions.handle_deploy_action()
         # Declined destructive confirm → no subprocess, loops back to menu.
-        run.assert_not_called()
+        fake_subprocess.run.assert_not_called()
 
     def test_clean_runs_when_confirmed(self):
         q = _fake_questionary(select=["clean"], confirm=[True])
@@ -170,8 +171,8 @@ class TestHandleDeployAction:
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console"):
                 with patch("builtins.input"):
-                    with patch(
-                        "subprocess.run",
+                    with patch_subprocess(
+                        "osprey.cli.project_actions",
                         side_effect=lambda cmd, **k: (
                             captured.update(cmd=cmd) or MagicMock(returncode=0)
                         ),
@@ -188,8 +189,8 @@ class TestHandleDeployAction:
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console") as console:
                 with patch("builtins.input"):
-                    with patch(
-                        "subprocess.run",
+                    with patch_subprocess(
+                        "osprey.cli.project_actions",
                         side_effect=subprocess.TimeoutExpired(cmd="x", timeout=300),
                     ):
                         # Must not propagate — reported to the console instead.
@@ -201,7 +202,10 @@ class TestHandleDeployAction:
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console") as console:
                 with patch("builtins.input"):
-                    with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+                    with patch_subprocess(
+                        "osprey.cli.project_actions",
+                        return_value=MagicMock(returncode=0),
+                    ):
                         project_actions.handle_deploy_action()
         printed = " ".join(str(c.args[0]) for c in console.print.call_args_list if c.args)
         assert "stopped" in printed.lower()
@@ -211,7 +215,10 @@ class TestHandleDeployAction:
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console") as console:
                 with patch("builtins.input"):
-                    with patch("subprocess.run", return_value=MagicMock(returncode=3)):
+                    with patch_subprocess(
+                        "osprey.cli.project_actions",
+                        return_value=MagicMock(returncode=3),
+                    ):
                         project_actions.handle_deploy_action()
         printed = " ".join(str(c.args[0]) for c in console.print.call_args_list if c.args)
         assert "exited with code 3" in printed
@@ -224,7 +231,10 @@ class TestHandleDeployAction:
         with patch.object(project_actions, "questionary", q):
             with patch.object(project_actions, "console"):
                 with patch("builtins.input"):
-                    with patch("subprocess.run", return_value=MagicMock(returncode=0)):
+                    with patch_subprocess(
+                        "osprey.cli.project_actions",
+                        return_value=MagicMock(returncode=0),
+                    ):
                         project_actions.handle_deploy_action(project_path=tmp_path)
         # cwd restored after the action completes.
         assert Path.cwd() == original

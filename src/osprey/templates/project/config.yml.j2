@@ -7,6 +7,17 @@
 # Project identity
 project_name: "{{ project_name }}"
 
+# Facility identity — one block, two keys:
+#   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
+#            and the web-terminal landing page. Falls back to the older
+#            top-level `facility_name`, then to the project name.
+#   prefix — short abbreviation the deployed web stack uses for container
+#            names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
+#            non-empty valid Docker name start ([a-zA-Z0-9]).
+# facility:
+#   name: "Example Research Facility"
+#   prefix: ex
+
 build_dir: ./build
 
 # Root directory (absolute path)
@@ -60,18 +71,36 @@ deployed_services: []
 # ============================================================
 
 # Approval workflow for sensitive operations
-# Policies: always (prompt every time), selective (content-aware), skip (no approval)
+# Policies: always (prompt every time), selective (content-aware for `execute`
+#   only — under `selective` every other tool is treated as `always`), skip (no
+#   approval).
+# Scope: applied by the osprey_approval PreToolUse hook, so these policies reach
+# only tools whose matcher runs that hook. Tools with no approval hook (the
+# health check, channel-finder queries, most workspace tools) are gated by the
+# rendered settings.json permissions instead.
 approval:
   enabled: true
-  default_policy: "always"        # Fail-closed: unknown tools require approval
+  default_policy: "always"        # Fail-closed for hook-wired tools not listed below
   tools:
     channel_write: always          # Always prompt for hardware writes
     channel_read: skip             # Read-only, no approval needed
-    channel_limits: skip           # Read-only safety metadata, no approval needed
     archiver_read: skip            # Historical data, no approval needed
     execute: selective             # Content-aware: checks write patterns + exec mode
     setup_patch: always            # Config mutation needs approval
     entry_create: always           # ARIEL logbook write
+
+# ── Hook observability ──────────────────────────────────────────────
+# Shipped OFF here (the readers default to false when the section is absent).
+# Turning it on drives three things, not just a debug print: one line per hook
+# call to stderr; an append-only <project>/.claude/hooks/hook_debug.jsonl that
+# is never rotated or size-capped (prune it yourself on a long-lived
+# deployment); and the web terminal's Safety-panel hook-activity feed, which
+# reads that file and shows nothing new while this is false. The
+# OSPREY_HOOK_DEBUG environment variable forces it on regardless of this key,
+# and the Safety panel's own toggle writes this key back into config.yml —
+# creating the section even though the template ships none.
+# hooks:
+#   debug: true
 
 # ============================================================
 # SYSTEM CONFIGURATION
@@ -85,12 +114,42 @@ system:
   # host $TZ makes archiver queries and simulated events non-deterministic.
   timezone: UTC
 
-# File paths - Data storage organization
+# Working directory for artifacts, data context, screenshots, etc.
+# Resolved relative to this config file's directory (project root).
+agent_data:
+  base_dir: "./_agent_data"
+
+# Subdirectory names within the agent data directory above.
 file_paths:
-  agent_data_dir: _agent_data
-  executed_python_scripts_dir: executed_scripts
-  user_memory_dir: user_memory
   api_calls_dir: api_calls
+  registry_exports_dir: registry_exports
+
+# Raw provider request/response dumps, written into the api_calls_dir above.
+# Off unless `save_all` is true; a debugging aid, not the telemetry pipeline
+# (that is claude_code.telemetry). The files are unrotated and contain full
+# request bodies, so turn it off again when you are done.
+# development:
+#   api_calls:
+#     save_all: true             # default false — nothing is written without this
+#     latest_only: false         # DEFAULT true: one `<caller>_latest.txt` per call
+#                                # site, overwritten each time. false keeps every
+#                                # call under a timestamped name instead.
+#     include_stack_trace: true  # default false — record the full call stack
+
+# osprey:panel-port artifact
+# WORKSPACE tab of `osprey web` — the artifact gallery, served by its own web
+# server. No section ships here, so it runs at its defaults: it is a universal
+# panel — launched at `osprey web` startup whatever panels are configured, and
+# on the first artifact save in headless runs — and it binds 127.0.0.1:8086.
+# Port resolution is the one shared function every launcher and URL builder
+# uses: OSPREY_ARTIFACT_SERVER_PORT wins (multi-user deployments
+# export it per user), then `port` below, then the built-in 8086. `host` has no
+# env override. Uncomment to move it, or set `auto_launch: false` to switch it
+# off — the tab is then reported unavailable rather than serving a dead iframe.
+# artifact_server:
+#   host: "127.0.0.1"
+#   port: 8086
+#   auto_launch: true
 
 # ============================================================
 # EXECUTION INFRASTRUCTURE
@@ -98,8 +157,22 @@ file_paths:
 
 # Python execution configuration
 execution:
-  execution_method: "local"              # Options: local | container
-  python_env_path: {{ current_python_env }}  # Path to Python with dependencies
+  execution_method: "subprocess"         # Agent Python runs as a host subprocess
+
+  # The environment declaration this project was built from, recorded so the
+  # build can be reproduced. Nothing reads it at run time, and editing it here
+  # changes nothing — rebuild the project to change the environment.
+  #   python           base interpreter the build profile declared. null means
+  #                    the build used its own interpreter; its installed
+  #                    packages are deliberately not carried over.
+  #   packages         extra requirements installed on top of the base.
+  #   inherit_exclude  distributions left out when a declared venv base is frozen.
+  # No interpreter path is recorded: agent Python runs in this project's own
+  # .venv when it has one, resolved at run time.
+  environment:
+    python: {{ environment_python | default(none) | tojson }}
+    packages: {{ environment_packages | default([]) | tojson }}
+    inherit_exclude: {{ environment_inherit_exclude | default([]) | tojson }}
 
 
 # ============================================================
@@ -125,17 +198,26 @@ control_system:
     allow_unlisted_channels: true
 
   # Write Verification Configuration
+  # How the connector confirms a write took effect. Applies only when the caller does
+  # not name a level: osprey.runtime.write_channel scripts and direct connector calls.
+  # The channel_write MCP tool, multi-channel writes, and Bluesky device writes pass an
+  # explicit level ("callback"); for those, only a per-channel "verification" entry in
+  # channel_limits.json changes the level, and only on single-channel tool writes.
+  # A failed verification is not a hard stop: the channel_write MCP tool reports it
+  # (verification.verified: false), osprey.runtime.write_channel discards it (a readback
+  # mismatch is logged at debug level only), and only write_channel_checked raises (scan
+  # plans, which write through the Bluesky bridge's connector-backed devices). A write
+  # the CA layer could not deliver at all - for example a PV that never connects -
+  # sets success: false, which does raise from osprey.runtime.write_channel.
   write_verification:
-    enabled: false  # Enable verification for production
-    default_level: "callback"  # Options: none | callback | readback
-    default_tolerance_percent: 0.1
-    timeout: 5.0
-    fail_on_mismatch: false
+    default_level: "callback"  # Options: none | callback | readback ("none" = no verification)
+    default_tolerance_percent: 0.1  # "readback" only; per-channel override in channel_limits.json
 
   # Connector-specific configuration
   connector:
     mock:
-      simulate_delays: false
+      response_delay_ms: 10   # Simulated per-operation response delay
+      noise_level: 0.01       # Relative noise on generated values (0-1)
     epics:
       timeout: 5.0
       gateways:
@@ -162,6 +244,21 @@ control_system:
   # Runtime Connectors
   # Used by: Capabilities and osprey.runtime API
   # Purpose: Actual I/O operations with built-in safety features
+
+# ============================================================
+# ARCHIVER CONFIGURATION
+# ============================================================
+# Backs the archiver_read tool with historical channel data.
+
+archiver:
+  # Archiver type determines which connector to use
+  # Options:
+  #   - mock_archiver: Development mode (generates synthetic data)
+  #   - epics_archiver: EPICS Archiver Appliance (add an `epics_archiver.url`)
+  type: mock_archiver  # Change to 'epics_archiver' for production
+  # epics_archiver:
+  #   url: https://archiver.example.com  # Replace with your archiver address
+  #   timeout: 60
 
 # ============================================================
 # CLAUDE CODE CONFIGURATION
@@ -205,9 +302,10 @@ claude_code:
   #
   # ── Model Provider ──────────────────────────────────────────
   # Which provider serves Claude models. Must support Anthropic Messages API.
-  # Built-in: anthropic (direct), cborg (LBNL proxy)
+  # Built-in: anthropic (direct), cborg (LBNL proxy), als-apg (ALS AWS proxy)
   # Custom proxy: any name defined under api.providers below
-  #   (must have base_url set; uses ANTHROPIC_AUTH_TOKEN + cborg-style model IDs)
+  #   (must have base_url set; uses ANTHROPIC_AUTH_TOKEN + the provider's own
+  #   model IDs from api.providers[name].models)
   # When set, `osprey claude regen` injects env vars into .claude/settings.json.
   provider: {{ default_provider }}
   default_model: {{ default_model | default("haiku") }}   # Options: haiku, sonnet, opus
@@ -232,7 +330,7 @@ claude_code:
   telemetry:
     enabled: true                        # Master switch
     backend: openobserve                 # openobserve | generic
-    protocol: http/protobuf              # http/protobuf | grpc
+    protocol: http/protobuf              # http/protobuf | grpc — grpc requires an explicit `endpoint:` below; it is refused against the auto-derived openobserve endpoint (HTTP only)
     # backend: openobserve auto-derives the endpoint per network context —
     # http://localhost:5080/api/<org> on the host, http://openobserve:5080/api/<org>
     # inside the deploy network — so `endpoint` is intentionally OMITTED here.
@@ -261,15 +359,43 @@ claude_code:
 # ============================================================
 # WEB TERMINAL CONFIGURATION
 # ============================================================
+# Two sections, both read, easy to confuse: `web_terminal:` is the terminal
+# PROCESS (bind address, shell, watcher), `web:` is the browser UI it renders
+# (theme, panel tabs). `web_terminal:` has never shipped in a template, so
+# every key below is at its default.
+# web_terminal:
+#   host: "127.0.0.1"    # Bind address. A deployment that DECLARES
+#                        # OSPREY_TERMINAL_BIND_HOST — the multi-user compose
+#                        # sets it on every per-user container so nginx is the
+#                        # only off-host path — overrides both this key and
+#                        # --host, so this cannot punch through that chokepoint.
+#   port: 8087           # Likewise outranked by OSPREY_TERMINAL_WEB_PORT.
+#   shell: /path/to/claude
+#                        # argv spawned in every PTY. Setting it REPLACES the
+#                        # launcher, so it also defeats the
+#                        # claude_code.cli_version pin above.
+#   max_background_sessions: 5
+#   watch_dir: ./_agent_data
+#                        # Directory the Workspace file watcher follows. Unset,
+#                        # it falls back to ./_agent_data relative to the
+#                        # launch directory — it does NOT read
+#                        # agent_data.base_dir, so if you moved that, set this
+#                        # to match.
+
 # Browser-based Web Terminal UI. Independent of the CLI's `cli.theme` below
 # (console-only) — the two never share a value.
 
 web:
-  # Default web UI theme: a theme FAMILY (e.g. "osprey", "high-contrast") or
-  # a concrete theme id (e.g. "high-contrast-light") to pin a specific mode.
-  # A user's in-browser choice (switcher selection, ?theme=, localStorage)
-  # always overrides this default. An unknown value falls back to "osprey".
-  theme: osprey
+  # Default web UI theme. Two forms, and the difference matters:
+  #   - a theme FAMILY ("main", "desy", "high-contrast", "retro") sets the
+  #     palette and leaves light/dark to each viewer's OS preference;
+  #   - a concrete theme id ("desy-light", "high-contrast-light") additionally
+  #     PINS light or dark as this deployment's default.
+  # A user's in-browser choice (display menu, ?theme=, localStorage) always
+  # overrides this default. An unknown value warns and falls back to "main".
+  # In a multi-user deployment, a roster entry's `theme:` (rendered as
+  # OSPREY_WEB_THEME) overrides this per user.
+  theme: main
 
 # ============================================================
 # CLI CONFIGURATION
@@ -277,7 +403,7 @@ web:
 # Customize the command-line interface appearance
 
 cli:
-  # Theme selection - Options: default | vulcan | custom
+  # Theme selection - Options: default | custom
   theme: "default"
 
   # Custom theme colors (only used when theme: custom)
@@ -296,11 +422,26 @@ cli:
   #   Your custom ASCII art here
 
 
-# Note: Theme system logging uses the existing 'base' logger color
-# No additional logging configuration needed
 # ============================================================
 # API PROVIDERS
 # ============================================================
+# Each entry takes `api_key`, `base_url`, and a `models` tier map (haiku /
+# sonnet / opus -> the model IDs that provider serves).
+#
+# `base_url` is the endpoint the agent itself uses. For the built-in
+# claude_code.provider names (anthropic, cborg, als-apg) a value set here
+# overrides the URL the framework ships; omit it to keep the built-in one. A
+# trailing `/v1` is stripped for the agent (it appends `/v1/messages`) but kept
+# for the OpenAI translation proxy, so leave it on gateways that need it.
+#
+# A fourth key is read but shipped by no template:
+#
+#   api.providers.<name>.default_model_id: <a model ID that provider serves>
+#
+# It is consulted only when framework code calls the completion API with
+# neither a model config nor an explicit model_id; without it, such a call
+# fails with "Model ID required". It does not pick the agent's model (that is
+# claude_code.default_model) and it never overrides the tier map above.
 
 api:
   providers:
@@ -321,9 +462,17 @@ api:
     stanford:
       api_key: ${STANFORD_API_KEY}
       base_url: https://aiapi-prod.stanford.edu/v1
+      models:                        # Gateway serves no Opus-class model; o3-mini is the strongest
+        haiku: gpt-4o-mini
+        sonnet: gpt-4o
+        opus: o3-mini
     openai:
       api_key: ${OPENAI_API_KEY}
       base_url: https://api.openai.com/v1
+      models:                        # GPT-5 sizes mapped onto the standard tiers
+        haiku: gpt-5-nano
+        sonnet: gpt-5-mini
+        opus: gpt-5
     anthropic:
       api_key: ${ANTHROPIC_API_KEY}
       base_url: https://api.anthropic.com
@@ -334,17 +483,27 @@ api:
     google:
       api_key: ${GOOGLE_API_KEY}
       base_url: https://generativelanguage.googleapis.com/v1beta
+      models:                        # Gemini 2.5 sizes mapped onto the standard tiers
+        haiku: gemini-2.5-flash-lite
+        sonnet: gemini-2.5-flash
+        opus: gemini-2.5-pro
     ollama:
       api_key: ollama
-      base_url: http://localhost:11434
-      host: localhost
-      port: 11434
+      base_url: ${OLLAMA_HOST:-http://localhost:11434}
+      models:                        # Local models — `ollama pull` each one before use
+        haiku: mistral:7b
+        sonnet: gpt-oss:20b
+        opus: gpt-oss:120b
     argo:
       api_key: ${ARGO_API_KEY}
       base_url: https://argo-bridge.cels.anl.gov
+      models:                        # Argo spells its model IDs without punctuation
+        haiku: claudehaiku45
+        sonnet: claudesonnet45
+        opus: claudeopus41
     als-apg:
       api_key: ${ALS_APG_API_KEY}
-      base_url: https://llm.gianlucamartino.com/v1
+      base_url: ${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com/v1}
       models:
         haiku: claude-haiku-4-5-20251001
         sonnet: claude-sonnet-4-6
@@ -365,6 +524,14 @@ api:
     # my-proxy:
     #   api_key: ${MY_PROXY_API_KEY}   # Set ANTHROPIC_AUTH_TOKEN to this in your shell
     #   base_url: https://your-proxy.example.com
+    #   api_protocol: anthropic        # Keep this line for an Anthropic-native
+    #                                  # gateway. Only anthropic, cborg and
+    #                                  # als-apg are recognised natively by
+    #                                  # name; every other provider is assumed
+    #                                  # to speak OpenAI protocol and is routed
+    #                                  # through the translation proxy to
+    #                                  # /chat/completions. Copying this block
+    #                                  # without it silently adds that hop.
     # Then set claude_code.provider: my-proxy above.
 
 # ============================================================
@@ -381,4 +548,3 @@ api:
 #   GOOGLE_API_KEY=...
 #   PROJECT_ROOT={{ project_root | default("/path/to/project") }}
 #   LOCAL_PYTHON_VENV=/path/to/venv/bin/python
-#   TZ=UTC

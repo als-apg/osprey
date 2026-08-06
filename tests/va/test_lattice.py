@@ -7,6 +7,7 @@ none of it is copied from the retired 24-cell toy-ring test suite.
 
 from __future__ import annotations
 
+import statistics
 import time
 
 import at
@@ -16,7 +17,7 @@ from osprey.services.virtual_accelerator.lattice import build_ring, orbit_respon
 from osprey.services.virtual_accelerator.lattice.inventory import pyat_coupled_device_ids
 from osprey.simulation.facility_spec import ALS_U_AR
 
-# Measured mean/max solve time for one orbit_response() call on the dev
+# Measured mean/median solve time for one orbit_response() call on the dev
 # machine this suite was written on was ~9.5-10.2 ms (10 warm samples, see
 # TestSolveTimeBudget). CI hardware can be substantially slower, so the
 # budget below is kept at roughly 10x that measurement rather than tightened
@@ -195,6 +196,17 @@ class TestOrbitResponse:
 
 class TestSolveTimeBudget:
     def test_solve_time_under_budget(self):
+        """The solve stays interactive -- guards against an algorithmic regression.
+
+        Asserted on the median rather than the slowest sample. A shared CI
+        runner descheduling this process mid-sample says nothing about the
+        solver: on macos-latest the same ten samples ranged 24-134 ms around a
+        median of 43 ms, so the slowest one alone exceeded a budget the typical
+        one cleared twice over. ``max()`` also only drifts upward as the sample
+        count grows, which makes the guard fail more often the longer it runs
+        while the code under test is unchanged. The median moves only when the
+        solve genuinely gets slower, which is the regression this guards.
+        """
         # Warm up (first call includes one-time import/JIT overhead).
         orbit_response("HCM01", 1.0)
 
@@ -205,4 +217,4 @@ class TestSolveTimeBudget:
             t1 = time.perf_counter()
             samples.append((t1 - t0) * 1000.0)
 
-        assert max(samples) < SOLVE_TIME_BUDGET_MS, samples
+        assert statistics.median(samples) < SOLVE_TIME_BUDGET_MS, samples

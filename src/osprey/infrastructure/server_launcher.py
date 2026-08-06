@@ -15,9 +15,14 @@ import threading
 import time
 import urllib.request
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
-from osprey.registry.web import FRAMEWORK_WEB_SERVERS, WebServerDefinition
+from osprey.registry.web import (
+    FRAMEWORK_WEB_SERVERS,
+    WebServerDefinition,
+    resolve_web_server_address,
+)
 from osprey.utils.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.infrastructure.server_launcher")
@@ -249,37 +254,6 @@ class ServerLauncher:
 # ---------------------------------------------------------------------------
 
 
-def _make_config_reader(defn: WebServerDefinition) -> Callable[[], tuple[str, int]]:
-    """Return a callable that reads (host, port) from config for *defn*.
-
-    Port can be overridden via the environment variable
-    ``defn.port_env_var`` (``OSPREY_{CONFIG_KEY}_PORT``), e.g.
-    ``OSPREY_ARTIFACT_SERVER_PORT=8186``.  This is needed for
-    ``--network host`` deployments where multiple containers share the
-    host network and must avoid port collisions — the multi-user compose
-    render sets these per user from the same ``port_env_var`` derivation.
-    """
-
-    def _reader() -> tuple[str, int]:
-        import os
-
-        config = load_osprey_config()
-        section = config.get(defn.config_key, {})
-        if defn.config_web_subkey:
-            section = section.get(defn.config_web_subkey, {})
-        host = section.get("host", defn.host_default)
-        port = section.get("port", defn.port_default)
-
-        # Environment override — useful for host-network multi-container deploys
-        env_val = os.environ.get(defn.port_env_var)
-        if env_val:
-            port = int(env_val)
-
-        return host, port
-
-    return _reader
-
-
 def _make_auto_launch_checker(defn: WebServerDefinition) -> Callable[[], bool]:
     """Return a callable that checks whether auto-launch is enabled."""
 
@@ -333,11 +307,19 @@ def _make_app_factory(defn: WebServerDefinition) -> Callable[..., object]:
 # Build launchers from the catalog
 # ---------------------------------------------------------------------------
 
+_auto_launch_checkers: dict[str, Callable[[], bool]] = {
+    key: _make_auto_launch_checker(defn) for key, defn in FRAMEWORK_WEB_SERVERS.items()
+}
+
 _launchers: dict[str, ServerLauncher] = {
     key: ServerLauncher(
         name=defn.name,
-        config_reader=_make_config_reader(defn),
-        auto_launch_checker=_make_auto_launch_checker(defn),
+        # One derivation of (host, port) for every producer and consumer of a
+        # companion server's address — see registry.web.resolve_web_server_address.
+        # The launcher must not resolve it differently from the callers that
+        # publish the URL, or a panel points at a port nothing listens on.
+        config_reader=partial(resolve_web_server_address, key),
+        auto_launch_checker=_auto_launch_checkers[key],
         app_factory=_make_app_factory(defn),
         pass_workspace=defn.pass_workspace,
     )
@@ -348,6 +330,19 @@ _launchers: dict[str, ServerLauncher] = {
 def ensure_web_server(key: str) -> None:
     """Ensure the web server identified by *key* is running."""
     _launchers[key].ensure_running()
+
+
+def is_auto_launch_enabled(key: str) -> bool:
+    """Return True if the web server identified by *key* is configured to auto-launch.
+
+    ``ensure_web_server`` already applies this check, but it applies it silently:
+    a caller cannot tell a skipped launch from a completed one. Callers that
+    advertise a server to the outside world — the web terminal publishes each
+    panel's URL, and panel availability is computed from that URL alone — must
+    ask first, so a suppressed server is presented as unavailable rather than as
+    a live panel that 502s.
+    """
+    return _auto_launch_checkers[key]()
 
 
 # Backward-compatible named aliases (used by web_terminal/app.py, artifact_store.py)

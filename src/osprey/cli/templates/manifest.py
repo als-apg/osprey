@@ -60,6 +60,7 @@ REGEN_TRACKED_FILES = [
     ".claude/hooks/osprey_memory_guard.py",
     ".claude/hooks/osprey_focus_validate.py",
     ".claude/hooks/osprey_config_drift.py",
+    ".claude/hooks/osprey_panels_context.py",
     ".claude/rules/python-execution.md",
     ".claude/rules/control-system-safety.md",
     ".claude/skills/diagnose/SKILL.md",
@@ -67,6 +68,7 @@ REGEN_TRACKED_FILES = [
     ".claude/skills/session-report/reference.md",
     ".claude/skills/setup-mode/SKILL.md",
     ".claude/skills/demo-gallery/SKILL.md",
+    ".claude/skills/demo-ui/SKILL.md",
     ".claude/skills/writing-bluesky-plans/SKILL.md",
     ".claude/skills/operating-bluesky-scans/SKILL.md",
     ".claude/rules/timezone.md",
@@ -250,17 +252,44 @@ def get_tracked_files(
 
 
 def get_framework_version() -> str:
-    """Get current osprey version.
+    """Get the running osprey version, for display in generated projects.
+
+    This is the version a human reads — it carries distance past the last release
+    (``2026.6.2.post783+g83fda5e60``) so a project rendered from a development
+    checkout says so. Anything comparing versions wants
+    :func:`osprey.version.get_release_version` instead; see
+    :func:`get_framework_release_version`.
 
     Returns:
-        Version string (e.g., "0.7.0") or ``"unknown"`` if the version
-        symbol cannot be imported (broken environment / partial install).
-        Manifest readers can branch on the sentinel.
+        Version string, or ``"unknown"`` if the version module cannot be imported
+        (broken environment / partial install). Manifest readers branch on the
+        sentinel.
     """
     try:
-        from osprey import __version__
+        from osprey.version import get_running_version
 
-        return __version__
+        return get_running_version()
+    except (ImportError, AttributeError):
+        return "unknown"
+
+
+def get_framework_release_version() -> str:
+    """Get the release this osprey descends from, for version *comparisons*.
+
+    Stamped into the manifest's ``creation.osprey_version`` and read back by
+    :mod:`osprey.deployment.staleness`, which compares it by string equality. Using
+    the running version on either side would make every commit in a development
+    checkout register as drift — inverting the advisory's rule that "can't compare"
+    must never read as drift into "always reads as drift".
+
+    Returns:
+        Release version string (e.g. ``"2026.6.2"``), or ``"unknown"`` if the
+        version module cannot be imported.
+    """
+    try:
+        from osprey.version import get_release_version
+
+        return get_release_version()
     except (ImportError, AttributeError):
         return "unknown"
 
@@ -279,6 +308,13 @@ def extract_build_args(
     ``build_reproducible_command`` can render the matching CLI form.
 
     Exactly one of ``preset_name`` and ``profile_path`` must be set.
+
+    ``profile_path`` stays the string the user typed — it is what
+    ``reproducible_command`` shows them — so when ``context`` carries a
+    ``profile_path_abs`` (stamped by ``osprey build`` from the path it actually
+    resolved) it is recorded alongside. A relative CLI string re-resolves
+    against whatever directory the *deploy* runs from, which silently turns the
+    staleness advisory off; the absolute form is what readers should follow.
 
     Args:
         project_name: Name of the project.
@@ -302,6 +338,9 @@ def extract_build_args(
         build_args["preset"] = preset_name
     if profile_path:
         build_args["profile_path"] = profile_path
+        profile_path_abs = context.get("profile_path_abs")
+        if profile_path_abs:
+            build_args["profile_path_abs"] = str(profile_path_abs)
 
     optional_keys = [
         ("default_provider", "provider"),
@@ -530,7 +569,9 @@ def generate_manifest(
     )
     reproducible_command = build_reproducible_command(build_args)
     file_checksums = calculate_file_checksums(project_dir)
-    framework_version = get_framework_version()
+    # The release lineage, not the running version — staleness compares this field
+    # by string equality, so a development build must not read as drift.
+    framework_version = get_framework_release_version()
     user_owned_manifest = build_user_owned_manifest(template_root, jinja_env, project_dir, context)
 
     # The 'template' field carries the original preset name (hyphenated) when
@@ -557,7 +598,12 @@ def generate_manifest(
         if preset_name:
             preset_hash = _build_profile.compute_preset_hash(preset_name)
         elif profile_path:
-            preset_hash = _build_profile.compute_profile_hash(Path(profile_path))
+            # Hash the path the build resolved, not the string the user typed:
+            # the two only agree while the process stays in the invocation
+            # directory, and a profile's data/overlay trees are anchored on it.
+            preset_hash = _build_profile.compute_profile_hash(
+                Path(build_args.get("profile_path_abs") or profile_path)
+            )
         else:
             preset_hash = None
     except Exception:

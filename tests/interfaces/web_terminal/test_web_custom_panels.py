@@ -16,6 +16,8 @@ from osprey.interfaces.web_terminal.app import (
 )
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
 
+from .conftest import StubWorkspaceWatcher
+
 
 @pytest.fixture
 def workspace_dir(tmp_path):
@@ -619,6 +621,36 @@ class TestHiddenPanels:
 
 
 # ---- POST /api/panel-visibility ----
+
+
+class TestBroadcastAssertionsAreDeterministic:
+    """The broadcast assertions below must not share a counter with a live thread.
+
+    ``create_app``'s lifespan wires a ``WorkspaceWatcher`` to the same
+    broadcaster object these tests mock, so a filesystem event delivered on the
+    observer thread lands on the mock the route assertions count. On macOS
+    watchdog replays events from up to 30 s before the watch started — including
+    this fixture's own ``tmp_path`` creation — so the extra call arrives on a
+    timing that no test controls.
+
+    The directory conftest stubs the observer out. This guard fails if that stub
+    is removed, rather than leaving the broadcast assertions below to misfire
+    intermittently on a slow runner.
+    """
+
+    def test_lifespan_wires_a_watcher_that_starts_no_observer(self, client_all_panels):
+        # Arrange — fixture has run the full lifespan
+
+        # Act
+        watcher = client_all_panels.app.state.watcher
+
+        # Assert — stubbed, but still wired exactly as production wires it
+        assert isinstance(watcher, StubWorkspaceWatcher), (
+            "app tests must not start a real filesystem observer; "
+            "it broadcasts onto the mock these tests assert on"
+        )
+        assert watcher.started is True, "lifespan must still start the watcher it wires"
+        assert watcher.broadcaster is client_all_panels.app.state.broadcaster
 
 
 class TestPanelVisibilityAPI:

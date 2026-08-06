@@ -30,6 +30,7 @@ _CANONICAL_NAMES = (
     "model_chat",
     "ariel",
     "channel_finder",
+    "web_panels",
 )
 
 
@@ -63,7 +64,7 @@ class TestCoreRegistry:
     def test_canonical_names_present_without_import(self):
         assert set(CORE_CATEGORY_NAMES) == set(_CANONICAL_NAMES)
         assert set(CORE_CATEGORIES) == set(_CANONICAL_NAMES)
-        assert len(CORE_CATEGORIES) == 11
+        assert len(CORE_CATEGORIES) == 12
 
     def test_contains(self):
         assert "configuration" in CORE_CATEGORIES
@@ -203,7 +204,7 @@ class TestStructure:
 
     def test_no_deployed_services(self):
         results = _by_name(_run(_loaded_state({})))
-        assert results["deployed_services"].status == Status.WARNING
+        assert results["deployed_services"].status == Status.SKIP
 
     def test_deployed_services_present(self):
         config = {"deployed_services": ["svc"], "services": {"svc": {}}}

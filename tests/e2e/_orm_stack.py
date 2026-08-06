@@ -2,11 +2,11 @@
 
 Builds the shipped deploy config that brings up the Virtual Accelerator +
 Bluesky bridge + co-deployed Tiled catalog with
-``control_system.type=virtual_accelerator``, ``execution.execution_method=
-container`` (so ``BLUESKY_LAUNCH_TOKEN`` mints safely and the agent can arm
--- see ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``), and the
-``scan`` MCP server enabled (``default_enabled=False`` in the framework
-registry; opted in here via ``claude_code.servers.bluesky.enabled``). Corrector
+``control_system.type=virtual_accelerator`` and the ``scan`` MCP server
+enabled (``default_enabled=False`` in the framework registry; opted in here
+via ``claude_code.servers.bluesky.enabled``). ``BLUESKY_LAUNCH_TOKEN`` is
+minted unconditionally by ``osprey deploy up``, so no execution-method
+override is needed to get the agent armed. Corrector
 setpoints and BPM readbacks are wired into ``BLUESKY_EPICS_MOTORS``/
 ``_DETECTORS`` from the *built* project's own ``channel_limits.json`` --
 never a hardcoded preset channel (mirrors
@@ -115,8 +115,8 @@ DEFAULT_BPM_COUNT = 4
 
 
 def override_yaml() -> str:
-    """FR11's ``--override`` YAML content: VA control system + container
-    exec (arming-safe) + the scan MCP server.
+    """FR11's ``--override`` YAML content: VA control system + the scan MCP
+    server.
 
     ``dispatch: null`` drops control-assistant's default event-dispatcher
     stack (Node + Claude CLI image) -- irrelevant to the scan stack and far
@@ -143,7 +143,6 @@ def override_yaml() -> str:
     return (
         "config:\n"
         "  control_system.type: virtual_accelerator\n"
-        "  execution.execution_method: container\n"
         "  claude_code.servers.bluesky.enabled: true\n"
         "  modules.web_terminals.enabled: false\n"
         "dispatch: null\n"

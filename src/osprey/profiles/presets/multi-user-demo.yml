@@ -24,10 +24,10 @@ name: Multi-User Demo
 # The standard full bundle (channel databases, simulation data, logbook seed) —
 # the demo needs real channels to read, and a channel_limits.json for the
 # write-capable tier's limits checking to bite on.
-data_bundle: control_assistant
+app_template: control_assistant
 
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
 channel_finder_mode: hierarchical
@@ -44,6 +44,8 @@ hooks:
   - memory-guard      # Warn when context window approaches threshold
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Inject the web terminal panel inventory into agent context
 
 rules:
   - safety              # Core safety rules: never write without approval

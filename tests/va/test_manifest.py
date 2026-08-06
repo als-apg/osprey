@@ -208,9 +208,9 @@ class TestStructuralIntegrity:
 
 
 class TestMachineStateReconciliation:
-    """machine_state_channels.json.j2's branches are known-broken/fictional
-    (a separate task fixes the template against this manifest); the manifest
-    still reports what it checked so that follow-up work has ground truth.
+    """machine_state_channels.json's addresses are reconciled against this
+    manifest (tests/templates/test_machine_state_channels.py asserts every one
+    is real); the manifest reports what it checked so drift stays visible.
     """
 
     def test_reconciliation_report_present(self, manifest):

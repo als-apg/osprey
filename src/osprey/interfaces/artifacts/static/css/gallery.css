@@ -2,13 +2,13 @@
  * OSPREY Artifact Gallery — Styles
  *
  * "Precision Instrumentation" aesthetic — an industrial control-room feel
- * with monospace readouts, teal instrument indicators, amber warnings,
+ * with monospace readouts, teal instrument indicators, a warm secondary accent,
  * and deep-blue panel backgrounds. Split-pane browse view with file tree
  * and activity timeline modes.
  *
  * Color/font tokens come from the shared design system
  * (/design-system/css/tokens.css, linked in index.html's <head> before
- * this file) — --bg-*, --text-*, --color-accent*, --color-amber*,
+ * this file) — --bg-*, --text-*, --color-accent*, --color-accent-secondary*,
  * --color-success/warning/error, --border-default/accent, --font-display,
  * --font-mono, --accent-tint-10, and the artifacts-only --art-violet-*
  * extensions. Only concepts with no fleet-wide equivalent (a few extra
@@ -22,12 +22,12 @@
 
 :root {
   /* === Local-only color shades ===
-     No canonical "-dark" accent/amber step exists; both are close to a
+     No canonical "-dark" accent/accent-secondary step exists; both are close to a
      70-80% mix toward black of the canonical base, so they're expressed
      that way instead of a hand-picked literal — same result, and it
      tracks the canonical color automatically if that ever moves. */
   --color-accent-dark: color-mix(in srgb, var(--color-accent) 70%, black);
-  --color-amber-dark: color-mix(in srgb, var(--color-amber) 80%, black);
+  --color-accent-secondary-dark: color-mix(in srgb, var(--color-accent-secondary) 80%, black);
   /* No canonical generic "info" status token, but this gallery's info
      blue has always been exactly --ansi-blue in both themes. */
   --color-info: var(--ansi-blue);
@@ -94,10 +94,21 @@
   /* === Layout === */
   --container-max: 1600px;
   --header-height: 52px;
-  --sidebar-width: 320px;
+  /* Browse-view shell constants live in the shared token pipeline
+     (--art-panel-radius/-gap and --art-browser-band-height, artifacts.json):
+     the card radius, the canvas gutter, and the browser band's list-strip
+     height. */
 }
 
-/* When embedded in web terminal, hide logo (tab bar shows module name) */
+/* In the web-terminal shell the host chrome supplies the wordmark, theme
+   toggle and status (and the rail names the active module), so the whole
+   app header is hidden and the browse view's two cards fill the panel
+   (frame 2a). Standalone, the header stays as a slim wordmark + theme +
+   status bar above the cards. */
+body.embedded .header { display: none; }
+/* Explicit branding rule alongside the whole-header hide: display does not
+   inherit, so the D15 embedded contract (computed display:none on .logo)
+   needs the logo named directly, not just its hidden ancestor. */
 body.embedded .logo { display: none; }
 
 /* ================================================================
@@ -161,7 +172,7 @@ code {
   padding: 0.15em 0.4em;
   background: var(--bg-elevated);
   border-radius: var(--art-radius-sm);
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   border: 1px solid var(--neutral-tint-10);
 }
 
@@ -198,7 +209,7 @@ code {
 .text-muted { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
 .text-accent { color: var(--color-accent-light); }
-.text-amber { color: var(--color-amber-light); }
+.text-accent-secondary { color: var(--color-accent-secondary-light); }
 .text-sm { font-size: var(--art-text-sm); }
 .text-xs { font-size: var(--art-text-xs); }
 .font-mono { font-family: var(--font-mono); }
@@ -402,228 +413,299 @@ code {
 }
 
 /* ================================================================
-   Filter Bar
+   Browser-column card header (title + count + All Sessions + refresh)
    ================================================================ */
 
-.filter-bar {
+/* ================================================================
+   Sidebar overflow menu (⋯) — scope / refresh / layout
+   ================================================================ */
+
+.sidebar-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
-  flex-wrap: wrap;
-  flex-shrink: 0;
+  align-items: stretch;
 }
 
-.filter-chip {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.sidebar-menu-btn {
+  width: 28px;
+  height: auto;
+  padding: 0;
+  background: var(--bg-primary);
   color: var(--text-muted);
-  background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 3px;
-  padding: 3px 8px;
+  border-radius: var(--art-radius-md);
   cursor: pointer;
-  transition: all 0.15s;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
+  transition: all var(--transition-fast);
 }
 
-.filter-chip:hover {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-}
-
-.filter-chip.active {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-  background: var(--accent-tint-10);
-}
-
-.filter-chip .chip-icon {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-
-.filter-chip.active .chip-icon {
-  opacity: 1;
-}
-
-/* Type chips — dynamically added for artifact/data types */
-.type-chip {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--neutral-tint-10);
-  border-radius: 3px;
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.type-chip:hover {
+.sidebar-menu-btn:hover,
+.sidebar-menu-btn[aria-expanded="true"] {
   color: var(--text-secondary);
-  border-color: var(--neutral-tint-35);
   background: var(--surface-hover);
 }
 
-.type-chip.active {
-  color: var(--type-color, var(--color-accent-light));
-  border-color: var(--type-color, var(--color-accent));
-  background: var(--type-bg, var(--accent-tint-10));
+.sidebar-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 170px;
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--art-radius-md);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 0.25)); /* hygiene-allow-color: shadow fallback only */
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.type-chip .chip-icon {
-  width: 12px;
-  height: 12px;
+.sidebar-menu[hidden] {
+  display: none;
+}
+
+.sidebar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-2);
+  width: 100%;
+  padding: 6px var(--art-space-2);
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  letter-spacing: var(--tracking-normal);
+  text-align: left;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--art-radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.sidebar-menu-item:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.sidebar-menu-item svg {
   flex-shrink: 0;
   opacity: 0.7;
 }
 
-.type-chip.active .chip-icon {
+/* All-sessions checkmark: reserved gutter, visible only while checked. */
+.sidebar-menu-item .menu-item-check {
+  visibility: hidden;
+  color: var(--color-accent-light);
   opacity: 1;
 }
 
-.chip-count {
-  font-size: 9px;
-  font-weight: 600;
-  opacity: 0.55;
-  margin-left: 2px;
+.sidebar-menu-item[aria-checked="true"] {
+  color: var(--color-accent-light);
 }
 
-.type-chip.active .chip-count {
-  opacity: 0.8;
+.sidebar-menu-item[aria-checked="true"] .menu-item-check {
+  visibility: visible;
 }
 
-/* Separator between filter chip groups */
-.filter-bar-separator {
-  width: 1px;
-  height: 16px;
-  background: var(--border-default);
+.sidebar-menu-item.refreshing .refresh-icon {
+  animation: spin 0.8s linear infinite;
+  color: var(--color-accent-light);
+}
+
+/* Layout item shows a mini-diagram of the layout a click switches TO
+   (browse-layout.js keeps the title/aria-label/.orient-label in step). */
+.sidebar-menu-item .orient-icon-column { display: block; }
+.sidebar-menu-item .orient-icon-row { display: none; }
+
+html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-column { display: none; }
+html[data-browse-orient="column"] .sidebar-menu-item .orient-icon-row { display: block; }
+
+/* Below the width where side-by-side is forced off, the layout item would
+   be a dead control. */
+@media (max-width: 560px) {
+  #orient-toggle-btn { display: none; }
+}
+
+/* ================================================================
+   Scope pill — loud non-default state for the all-sessions scope
+   ================================================================ */
+
+.scope-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-1);
+  align-self: flex-start;
+  margin: var(--art-space-2) var(--art-space-3) 0;
+  padding: 2px var(--art-space-1) 2px var(--art-space-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-accent-light);
+  background: var(--accent-tint-10);
+  border: 1px solid var(--accent-tint-12);
+  border-radius: var(--art-radius-full);
   flex-shrink: 0;
+}
+
+.scope-pill[hidden] {
+  display: none;
+}
+
+.scope-pill-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: var(--art-radius-full);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.scope-pill-clear:hover {
+  background: var(--accent-tint-12);
 }
 
 /* ================================================================
    Browse View — Split Pane Layout
    ================================================================ */
 
+/* Two cards floating on the neutral canvas: 8px gutter around the pair
+   (padding) and between them (gap). The axis is chosen by
+   html[data-browse-orient] (browse-layout.js, persisted per origin):
+
+   - row (default): browser column on the left, artifact detail card
+     dominant on the right, divided by a live splitter — the OKF panel's
+     sidebar/reader arrangement.
+   - column: a compact full-width browser band on top — toolbar row plus a
+     short scrollable list — detail card below.
+
+   The two panes sit flush, edge to edge, divided only by the splitter — the
+   OKF panel's arrangement, and now the product-wide one. There is no gutter:
+   the grip pill belongs to the browser's edge rather than floating in a gap
+   between two detached cards. */
 .browse-layout {
   display: flex;
+  flex-direction: row;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  background: var(--bg-primary);
 }
 
-/* ---- Sidebar ---- */
+/* ---- Browser pane (left column / top band) ---- */
 
 .browse-sidebar {
-  width: var(--sidebar-width);
-  min-width: 48px;
-  max-width: calc(100vw - 48px);
   background: var(--bg-panel);
-  border-right: none;
+  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   flex-shrink: 0;
+  /* Side-by-side: a fixed-basis column; flex-basis/max-width are overridden
+     inline by browse-layout.js when the operator drags the splitter. */
+  flex-basis: 280px;
+  max-width: 560px;
 }
 
-/* ---- Resize Handle ---- */
+/* The splitter's look and drag behaviour are the design system's shared
+   `.osprey-splitter` (base.css + js/splitter.js) — identical to the OKF and
+   PLAN panels, the LATTICE sidebar, the settings drawer, the event dashboard
+   and the hub's dockview sashes. Nothing gallery-specific remains except which
+   of the two axis handles is showing. */
 
-.resize-handle {
-  width: 5px;
-  cursor: col-resize;
-  background: var(--border-default);
-  position: relative;
-  flex-shrink: 0;
-  z-index: 10;
-  transition: background var(--transition-fast);
+/* ---- Stacked variant (explicit choice, or forced when the panel is too
+   narrow for a side-by-side split) ----
+
+   The two handles swap: only the one matching the effective orientation is
+   displayed, and browse-layout.js parks the other via `isEnabled`. */
+
+#resize-handle-y {
+  display: none;
 }
 
-.resize-handle:hover,
-.resize-handle.dragging {
-  background: var(--color-accent-dark);
-}
-
-.resize-handle-grip {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 3px;
-  height: 32px;
-  display: flex;
+html[data-browse-orient="column"] .browse-layout {
   flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  opacity: 0;
-  transition: opacity var(--transition-fast);
 }
 
-.resize-handle:hover .resize-handle-grip,
-.resize-handle.dragging .resize-handle-grip {
-  opacity: 1;
+html[data-browse-orient="column"] .browse-sidebar {
+  flex-basis: auto;
+  max-width: none;
+  border-right: none;
+  border-bottom: 1px solid var(--border-default);
 }
 
-.resize-handle-grip::before,
-.resize-handle-grip::after {
-  content: '';
-  width: 3px;
-  height: 3px;
-  border-radius: var(--art-radius-full);
-  background: var(--color-accent-light);
+html[data-browse-orient="column"] #resize-handle {
+  display: none;
 }
 
-/* Prevent text selection and iframe pointer capture while dragging */
-body.resizing {
-  cursor: col-resize !important;
-  user-select: none !important;
-  -webkit-user-select: none !important;
+html[data-browse-orient="column"] #resize-handle-y {
+  display: block;
 }
 
-body.resizing iframe {
-  pointer-events: none !important;
+/* Below 560px the split is forced onto the y axis regardless of the persisted
+   choice. browse-layout.js consults the same query through `effectiveOrient()`,
+   so the handle that is showing is also the one that is live — and the sizes
+   here stay un-`!important` so the splitter's inline height still wins. */
+@media (max-width: 560px) {
+  .browse-layout { flex-direction: column; }
+  .browse-sidebar {
+    flex-basis: auto;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-default);
+  }
+  #resize-handle { display: none; }
+  #resize-handle-y { display: block; }
 }
 
+/* The browser card's only bar: filter input + mode pair + ⋯ menu. */
 .sidebar-header {
-  padding: var(--art-space-3) var(--art-space-3) 0;
+  padding: var(--art-space-2) var(--art-space-3);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   gap: var(--art-space-2);
   flex-shrink: 0;
 }
 
-/* Controls row: mode toggle + layout toggle */
+/* Controls row: filter input + mode toggle + overflow menu */
 .sidebar-controls-row {
   display: flex;
   gap: var(--art-space-2);
   align-items: stretch;
 }
 
-/* Mode toggle (Types / Activity) */
+/* Mode toggle (Types / Activity) — icon-only pair at its natural width, so
+   the inline filter before it takes the rest of the row. */
 .sidebar-mode-toggle {
   display: flex;
+  flex: 0 0 auto;
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--art-radius-md);
   padding: 2px;
   gap: 2px;
+}
+
+/* Compact icon-only squares so the inline filter keeps usable width in the
+   ~220px browser column; the title/aria-label carry the words. */
+.sidebar-controls-row .mode-btn {
+  width: 26px;
+  padding: 5px 0;
+}
+
+.sidebar-controls-row .mode-btn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .mode-btn {
@@ -675,6 +757,11 @@ body.resizing iframe {
   flex-shrink: 0;
 }
 
+/* Explicit — a `display: flex` rule outranks the UA `[hidden]` default. */
+.sidebar-layout-toggle[hidden] {
+  display: none;
+}
+
 .layout-btn {
   display: inline-flex;
   align-items: center;
@@ -700,9 +787,12 @@ body.resizing iframe {
   background: var(--accent-tint-08);
 }
 
-/* Sidebar search */
+/* Sidebar search — sits inline beside the mode toggle (frame 2a), taking
+   the remaining row width. */
 .sidebar-search {
   position: relative;
+  flex: 1;
+  min-width: 0;
 }
 
 .sidebar-search-icon {
@@ -737,11 +827,27 @@ body.resizing iframe {
   border-color: var(--color-accent-dark);
 }
 
-/* Sidebar body */
+/* Sidebar body — the scrollable artifact list. Side-by-side: fills the
+   browser column's remaining height. Stacked: a short, bounded strip with a
+   fixed height so the artifact detail card below stays dominant; the list
+   scrolls within this height rather than growing the band. */
 .sidebar-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--art-space-2) 0;
+}
+
+html[data-browse-orient="column"] .sidebar-body {
+  flex: 0 0 auto;
+  height: var(--art-browser-band-height);
+}
+
+@media (max-width: 560px) {
+  .sidebar-body {
+    flex: 0 0 auto;
+    height: var(--art-browser-band-height);
+  }
 }
 
 /* ---- File Tree (Types mode) ---- */
@@ -879,9 +985,9 @@ body.resizing iframe {
 }
 
 .tree-item-badge.mod {
-  color: var(--color-amber);
-  background: var(--amber-tint-08);
-  border: 1px solid var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border: 1px solid var(--accent-secondary-tint-15);
 }
 
 .tree-item-size {
@@ -1216,7 +1322,8 @@ body.resizing iframe {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--bg-primary);
+  background: var(--bg-panel);
+  overflow: hidden;
   position: relative;
 }
 
@@ -1397,6 +1504,239 @@ body.resizing iframe {
 }
 
 /* ================================================================
+   Simple Mode — latest-result card + session-results list (frame 2b)
+   ================================================================ */
+
+/* Mode gating: the browse (Expert) view is the default; the Simple view is
+   shown only under html[data-ui-mode="simple"]. The id+attribute selectors
+   outrank .view.active without needing !important. */
+#view-artifacts-simple {
+  display: none;
+}
+
+:root[data-ui-mode="simple"] #view-artifacts-browse {
+  display: none;
+}
+
+:root[data-ui-mode="simple"] #view-artifacts-simple {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  animation: fadeIn var(--transition-base);
+}
+
+/* Vertical stack of two cards on the neutral canvas, same gutter/card
+   treatment as the Expert two-card layout. */
+.simple-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: var(--art-panel-gap);
+  padding: var(--art-panel-gap);
+  background: var(--bg-primary);
+}
+
+.simple-result-card,
+.simple-list-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--art-panel-radius);
+  overflow: hidden;
+}
+
+/* Latest result fills; the session list takes its natural height (capped). */
+.simple-result-card {
+  flex: 1;
+  min-height: 0;
+}
+
+.simple-list-card {
+  flex-shrink: 0;
+  max-height: 40%;
+}
+
+/* ---- Latest-result card ---- */
+
+.simple-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.simple-result {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.simple-result-header {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-3);
+  padding: var(--art-space-3) var(--art-space-4);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.simple-result-title {
+  font-family: var(--font-display);
+  font-size: var(--art-text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.simple-result-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--art-space-2);
+  flex-shrink: 0;
+}
+
+/* Simple's result slot also carries .preview-viewport (see index.html), which
+   supplies the shared box + the per-element sizing for every viewport the
+   dispatch can produce — iframe, img, download fallback — and the
+   absolutely-positioned .md-preview-container / .json-viewer /
+   .ts-viewport-container size themselves against it. All that is left here is
+   the one property the card's flex column needs and the preview pane does
+   not. */
+.simple-result-preview {
+  min-height: 0;
+}
+
+.simple-result-caption {
+  flex-shrink: 0;
+  padding: var(--art-space-3) var(--art-space-4);
+  font-size: var(--art-text-sm);
+  color: var(--text-secondary);
+  line-height: var(--art-leading-normal);
+  border-top: 1px solid var(--neutral-tint-10);
+}
+
+/* ---- Session-results list card ---- */
+
+.simple-list-header {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-2);
+  padding: var(--art-space-2) var(--art-space-4);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.simple-list-title {
+  font-family: var(--font-display);
+  font-size: var(--art-text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.simple-list-count {
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  color: var(--text-muted);
+}
+
+.simple-show-all {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  color: var(--color-accent-light);
+  padding: 0;
+}
+
+.simple-show-all:hover {
+  color: var(--color-accent);
+}
+
+.simple-list-body {
+  overflow-y: auto;
+  padding: var(--art-space-1) 0;
+}
+
+.simple-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--art-space-2);
+  padding: var(--art-space-2) var(--art-space-4);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background var(--transition-fast);
+}
+
+.simple-list-item:hover {
+  background: var(--surface-hover);
+}
+
+.simple-list-item.selected {
+  background: var(--accent-tint-08);
+  border-left-color: var(--color-accent);
+}
+
+.simple-list-item-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.simple-list-item-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.simple-list-item.selected .simple-list-item-icon {
+  color: var(--color-accent-light);
+}
+
+.simple-list-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--art-text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.simple-list-item.selected .simple-list-item-name {
+  color: var(--text-primary);
+}
+
+.simple-list-item-time {
+  font-family: var(--font-mono);
+  font-size: var(--art-text-xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* NEW badge — tinted-green pill, matching the Expert tree's "new" badge
+   treatment (theme-safe in both light and dark, unlike a filled pill). */
+.simple-badge-new {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border: 1px solid color-mix(in srgb, var(--color-success) 20%, transparent);
+  border-radius: 2px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+/* ================================================================
    Buttons
    ================================================================ */
 
@@ -1480,45 +1820,6 @@ body.resizing iframe {
   height: 28px;
 }
 
-.btn-session-toggle {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border-default);
-  border-radius: var(--art-radius-sm);
-  padding: 3px 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
-}
-.btn-session-toggle:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-.btn-session-toggle.active {
-  background: var(--accent-tint-12);
-  color: var(--color-accent-light);
-  border-color: var(--color-accent-light);
-}
-
-.btn-header-refresh {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid transparent;
-  border-radius: var(--art-radius-sm);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.btn-header-refresh:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--color-accent-light);
-  border-color: var(--border-default);
-}
-.btn-header-refresh.refreshing .refresh-icon {
-  animation: spin 0.8s linear infinite;
-  color: var(--color-accent-light);
-}
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 /* ================================================================
@@ -1553,8 +1854,10 @@ body.resizing iframe {
   border: 1px solid color-mix(in srgb, var(--art-violet-base) 15%, transparent);
 }
 
+/* An importance star rates a memory; it does not report a fault. Decorative
+   emphasis is the secondary accent's job, not --color-warning's. */
 .mem-importance-star {
-  color: var(--color-warning);
+  color: var(--color-accent-secondary-light);
   font-size: var(--art-text-sm);
 }
 
@@ -1627,9 +1930,9 @@ body.resizing iframe {
 }
 
 .logo-count.context-count {
-  color: var(--color-amber);
-  background: var(--amber-tint-15);
-  border-color: var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-15);
+  border-color: var(--accent-secondary-tint-15);
 }
 
 /* ================================================================
@@ -1659,7 +1962,7 @@ body.resizing iframe {
 }
 
 .json-string {
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 .json-number {
@@ -1708,38 +2011,7 @@ body.resizing iframe {
    ================================================================ */
 
 @media (max-width: 768px) {
-  .browse-layout {
-    flex-direction: column;
-  }
-
-  .browse-sidebar {
-    width: 100% !important;
-    min-width: unset;
-    max-width: unset;
-    max-height: 40vh;
-    border-bottom: 1px solid var(--border-default);
-  }
-
-  .resize-handle {
-    display: none;
-  }
-
-  .browse-preview-pane {
-    min-height: 50vh;
-  }
-
   .nav { display: none; }
-
-  .filter-bar {
-    padding: 6px 8px;
-    gap: 4px;
-  }
-
-  .filter-chip,
-  .type-chip {
-    font-size: 9px;
-    padding: 2px 6px;
-  }
 
   .timeline-thumb {
     height: 60px;
@@ -1747,11 +2019,6 @@ body.resizing iframe {
 
   .context-info-cards {
     grid-template-columns: 1fr;
-  }
-
-  body.fullscreen-mode .browse-sidebar {
-    display: none;
-    max-height: 0;
   }
 }
 
@@ -1761,7 +2028,6 @@ body.resizing iframe {
 
 /* Hide chrome when fullscreen */
 body.fullscreen-mode .header,
-body.fullscreen-mode .filter-bar,
 body.fullscreen-mode .browse-sidebar,
 body.fullscreen-mode .resize-handle {
   display: none;
@@ -1820,7 +2086,7 @@ body.fullscreen-mode .fullscreen-enter-btn {
   display: none;
 }
 
-/* New artifact badge — amber pill, hidden by default */
+/* New artifact badge — secondary-accent pill, hidden by default */
 .fullscreen-new-badge {
   display: none;
   align-items: center;
@@ -1828,9 +2094,9 @@ body.fullscreen-mode .fullscreen-enter-btn {
   font-size: 10px;
   font-weight: 500;
   letter-spacing: var(--tracking-wide);
-  color: var(--color-amber);
-  background: var(--amber-tint-15);
-  border: 1px solid var(--amber-tint-25);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-15);
+  border: 1px solid var(--accent-secondary-tint-25);
   border-radius: var(--art-radius-full);
   padding: 2px 8px;
   cursor: pointer;
@@ -1839,7 +2105,7 @@ body.fullscreen-mode .fullscreen-enter-btn {
 }
 
 .fullscreen-new-badge:hover {
-  background: var(--amber-tint-25);
+  background: var(--accent-secondary-tint-25);
 }
 
 body.fullscreen-mode .fullscreen-new-badge[data-count]:not([data-count="0"]) {
@@ -1933,9 +2199,9 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .ts-query-badge.downsampled {
-  color: var(--color-amber-light);
-  border-color: var(--amber-tint-25);
-  background: var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  border-color: var(--accent-secondary-tint-25);
+  background: var(--accent-secondary-tint-15);
 }
 
 .ts-chart-container {
@@ -2065,9 +2331,9 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .ts-info-bar .ts-badge.ts-badge-downsampled {
-  color: var(--color-amber-light);
-  border-color: var(--amber-tint-25);
-  background: var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  border-color: var(--accent-secondary-tint-25);
+  background: var(--accent-secondary-tint-15);
 }
 
 /* ---- Toolbar (channel toggles + action buttons) ---- */
@@ -2410,9 +2676,9 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   gap: var(--art-space-1);
   font-family: var(--font-mono);
   font-size: var(--art-text-xs);
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   background: transparent;
-  border: 1px solid var(--color-amber-dark);
+  border: 1px solid var(--color-accent-secondary-dark);
   border-radius: var(--art-radius-sm);
   padding: 3px 8px;
   cursor: pointer;
@@ -2422,9 +2688,9 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
 }
 
 .logbook-action-btn:hover {
-  background: var(--amber-tint-15);
-  border-color: var(--color-amber);
-  color: var(--color-amber-light);
+  background: var(--accent-secondary-tint-15);
+  border-color: var(--color-accent-secondary);
+  color: var(--color-accent-secondary-light);
 }
 
 .logbook-action-btn svg {
@@ -2730,7 +2996,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   border: 1px solid var(--border-default);
   border-radius: 3px;
   padding: 1px 4px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 .osprey-md-rendered pre {
@@ -2785,16 +3051,16 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   margin: 0.8em 0;
   padding: 8px 12px;
   background: var(--bg-secondary);
-  border-left: 3px solid var(--color-amber);
+  border-left: 3px solid var(--color-accent-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   white-space: pre-wrap;
 }
 .osprey-md-rendered .katex-error-inline {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   background: var(--bg-elevated);
   padding: 1px 4px;
   border-radius: 3px;
@@ -2861,7 +3127,7 @@ body.fullscreen-entering[data-theme="light"] .browse-preview-pane::before,
   border-color: var(--error-tint-40);
 }
 
-/* Logbook button — override to icon-only 28x28, keep amber identity */
+/* Logbook button — override to icon-only 28x28, keep secondary-accent identity */
 .preview-header-actions .logbook-action-btn {
   width: 28px;
   height: 28px;

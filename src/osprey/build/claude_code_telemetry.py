@@ -39,9 +39,9 @@ TELEMETRY_ENV_VARS: frozenset[str] = frozenset(
 )
 
 # Content-capture gates: OTEL env var → config key that suppresses it.
-# Each defaults ON (emitted as "1") and is dropped only when its config key is
-# explicitly ``false``. ``OTEL_LOG_TOOL_CONTENT`` is intentionally absent — it
-# requires tracing, which is out of scope for this metrics/logs pipeline.
+# Each defaults ON (emitted as "1") and is emitted as an explicit "0" when its
+# config key is ``false``. ``OTEL_LOG_TOOL_CONTENT`` is intentionally absent —
+# it requires tracing, which is out of scope for this metrics/logs pipeline.
 _TELEMETRY_CONTENT_GATES: dict[str, str] = {
     "OTEL_LOG_USER_PROMPTS": "log_user_prompts",
     "OTEL_LOG_ASSISTANT_RESPONSES": "log_assistant_responses",
@@ -153,15 +153,30 @@ def _resolve_telemetry_endpoint(
     Any other enabled-but-unaddressed config is a misconfiguration and raises.
 
     Raises:
-        ValueError: If no endpoint can be resolved, or if the resolved endpoint
-            still carries a literal ``${VAR}`` — an unresolved placeholder whose
-            referenced env var was unset. An unresolved var keeps the literal
-            ``${VAR}`` (it does not become empty), so shipping it would point the
-            exporter at a nonsense URL; refuse instead.
+        ValueError: If no endpoint can be resolved; if ``protocol`` is ``grpc``
+            while the endpoint would be derived from the OpenObserve backend
+            (which serves HTTP only); or if the resolved endpoint still carries a
+            literal ``${VAR}`` — an unresolved placeholder whose referenced env
+            var was unset. An unresolved var keeps the literal ``${VAR}`` (it does
+            not become empty), so shipping it would point the exporter at a
+            nonsense URL; refuse instead.
     """
     endpoint = telemetry_cfg.get("endpoint")
     if not endpoint:
         if telemetry_cfg.get("backend") == "openobserve":
+            # The derived URL below is the OpenObserve HTTP ingest API — the only
+            # port that service publishes. A gRPC exporter aimed there connects to
+            # nothing and drops every metric and log without an error, so refuse
+            # the combination rather than emit a silently-dead exporter.
+            if str(telemetry_cfg.get("protocol", "http/protobuf")).strip().lower() == "grpc":
+                raise TelemetryConfigError(
+                    "claude_code.telemetry.protocol is 'grpc' but the OTLP endpoint "
+                    "is auto-derived from backend: openobserve, which serves HTTP "
+                    "only (port 5080) — a gRPC exporter aimed there would drop every "
+                    "metric and log silently. Use protocol: http/protobuf, or set an "
+                    "explicit claude_code.telemetry.endpoint pointing at a collector "
+                    "that speaks gRPC."
+                )
             # An explicit host from the deploy env wins (the compose author knows
             # the network topology); otherwise derive from container context.
             host = openobserve_host or ("openobserve" if in_container else "localhost")
@@ -183,7 +198,9 @@ def _resolve_telemetry_endpoint(
     return endpoint
 
 
-def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
+def _openobserve_auth_header(
+    telemetry_cfg: dict, *, defer_unresolved: bool = False
+) -> tuple[str, str] | None:
     """Compute the HTTP Basic auth header for an OpenObserve backend.
 
     Both credentials arrive already ``${VAR}``-expanded in the config (the
@@ -191,15 +208,25 @@ def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
     so this reads them straight from the config — never ``os.environ``. The
     base64 header value cannot be expressed as ``${VAR}``; it is computed here.
 
+    Args:
+        telemetry_cfg: The ``claude_code.telemetry`` config section.
+        defer_unresolved: When True, an unresolved ``${VAR}`` credential returns
+            ``None`` (with a warning) instead of raising. Build-time callers set
+            this: they render a scaffold whose credentials belong to the
+            *deployment*, and the runtime re-resolves them at agent-spawn. A
+            missing or blank credential still raises — no later step can fill
+            that in.
+
     Returns:
-        ``("Authorization", "Basic <base64(user:password)>")``.
+        ``("Authorization", "Basic <base64(user:password)>")``, or ``None`` when
+        a credential is deferred.
 
     Raises:
         ValueError: If either credential is missing or blank — an
             unauthenticated exporter to an auth-gated store would silently drop
             every span, so refuse to emit one — or if either credential still
             carries a literal ``${VAR}`` (an unresolved placeholder whose env
-            var is unset).
+            var is unset) and ``defer_unresolved`` is False.
     """
     oo = telemetry_cfg.get("openobserve") or {}
     user = oo.get("user")
@@ -217,6 +244,14 @@ def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
     # instead of failing clearly here at resolve() time.
     for field_name, cred in (("openobserve.user", user), ("openobserve.password", password)):
         if "${" in str(cred):
+            if defer_unresolved:
+                warnings.warn(
+                    f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
+                    "Omitting the OpenObserve auth header from the rendered "
+                    "scaffold; the runtime must resolve it at agent-spawn.",
+                    stacklevel=2,
+                )
+                return None
             raise TelemetryConfigError(
                 f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
                 "The referenced environment variable is unset — refusing to "
@@ -231,6 +266,7 @@ def _build_telemetry_env(
     *,
     in_container: bool = False,
     openobserve_host: str | None = None,
+    defer_unresolved_creds: bool = False,
 ) -> dict[str, str]:
     """Build the OTEL/telemetry env block from the ``claude_code.telemetry`` config.
 
@@ -254,8 +290,9 @@ def _build_telemetry_env(
         are a subset of :data:`TELEMETRY_ENV_VARS`.
 
     Raises:
-        ValueError: On an unresolvable endpoint, a leaked ``${VAR}`` in the
-            endpoint, or an ``openobserve`` backend with missing/blank creds.
+        ValueError: On an unresolvable endpoint, ``protocol: grpc`` against an
+            auto-derived (HTTP-only) OpenObserve endpoint, a leaked ``${VAR}`` in
+            the endpoint, or an ``openobserve`` backend with missing/blank creds.
     """
     if not telemetry_cfg or not telemetry_cfg.get("enabled"):
         return {}
@@ -277,8 +314,9 @@ def _build_telemetry_env(
     if configured:
         headers.update(_parse_header_map(configured))
     if telemetry_cfg.get("backend") == "openobserve":
-        key, value = _openobserve_auth_header(telemetry_cfg)
-        headers[key] = value
+        auth = _openobserve_auth_header(telemetry_cfg, defer_unresolved=defer_unresolved_creds)
+        if auth is not None:
+            headers[auth[0]] = auth[1]
     if headers:
         env["OTEL_EXPORTER_OTLP_HEADERS"] = _render_kv_map(headers)
 
@@ -286,15 +324,19 @@ def _build_telemetry_env(
     if resource_attrs:
         env["OTEL_RESOURCE_ATTRIBUTES"] = _render_kv_map(resource_attrs)
 
-    # Content-capture gates default ON; each is dropped only on an explicit
+    # Content-capture gates default ON; each turns off only on an explicit
     # false-y value (bool False, or a false-y string from ${VAR:-false}).
+    # A disabled gate must be emitted as an explicit "0", never omitted: the
+    # CLI resolves an absent var through its own fallback chain (e.g.
+    # OTEL_LOG_ASSISTANT_RESPONSES ?? OTEL_LOG_USER_PROMPTS), which would
+    # silently re-enable capture the config turned off.
     on_gates = [
         env_var
         for env_var, cfg_key in _TELEMETRY_CONTENT_GATES.items()
         if _gate_is_on(telemetry_cfg.get(cfg_key))
     ]
-    for env_var in on_gates:
-        env[env_var] = "1"
+    for env_var in _TELEMETRY_CONTENT_GATES:
+        env[env_var] = "1" if env_var in on_gates else "0"
 
     # Safe-state advisory: full-fidelity content capture is the default only
     # because the openobserve backend is local and air-gapped. On any other

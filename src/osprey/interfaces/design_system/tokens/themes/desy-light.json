@@ -1,0 +1,159 @@
+{
+  "$description": "DESY light theme — the DESY corporate palette (DESY Styleguide 06/24) using officially published hexes only, on a white-forward canvas per the styleguide's external-communications rule ('higher proportion of white with the DESY branding elements in their standard colours'). The terminal surface is DESY White; page backgrounds are the light end of the interpolated `petrol` neutral ramp (derived from DESY dark blue #004a6e — the canvas is the one non-published element, since four official neutrals cannot express five surface tiers plus three text tiers). Because the styleguide's palette is print-derived, its bright half (yellow, olive, light-green, turquoise, orange, brand cyan) is not AA-legible on a near-white page, so every text-bearing slot here draws from the dark half: Black, Dark blue, Purple, Aubergine, Petrol, Dark red, Magenta. accent.base is the official accessibility cyan #007bc8 with DESY Black as accent.on — black clears 4.67:1 on it where white scores 4.4995:1, which is what previously forced an off-styleguide nudge; the nudge is now gone. KNOWN AA SHORTFALL: accent-secondary resolves to DESY accessibility orange #eb6e0f at 2.90:1 on bg.primary, below all three WCAG tiers. This is a deliberate brand constraint, not an oversight — DESY publishes no darker orange, and engineers #eb6e0f to the 3:1 non-text floor on pure white (3.10:1) rather than the 4.5:1 text floor its cyan counterpart hits, i.e. the styleguide treats orange as a graphics colour on light backgrounds. accent-secondary.light collapses onto its base for the same reason. The desy family therefore drops the accent-secondary.light gate in gates_for_family(); every other AA gate passes vs bg.primary (#f3f8fc): text.primary 9.02:1, text.secondary 5.61:1, text.muted 3.40:1, accent 4.21:1, accent.on (black on cyan) 4.67:1.",
+  "$extensions": { "mode": "light", "id": "desy-light", "label": "DESY Light", "family": "desy",
+    "family_label": "DESY" },
+  "bg": {
+    "terminal": { "$value": "{color.desy.white}", "$type": "color", "$description": "DESY White terminal surface — the styleguide's 'higher proportion of white'." },
+    "primary": { "$value": "{color.petrol.50}", "$type": "color" },
+    "secondary": { "$value": "{color.petrol.150}", "$type": "color" },
+    "panel": { "$value": "{color.petrol.100}", "$type": "color" },
+    "elevated": { "$value": "{color.petrol.200}", "$type": "color" }
+  },
+  "text": {
+    "primary": { "$value": "{color.petrol.700}", "$type": "color" },
+    "secondary": { "$value": "{color.petrol.600}", "$type": "color" },
+    "muted": { "$value": "{color.petrol.500}", "$type": "color" }
+  },
+  "accent": {
+    "base": { "$value": "{color.cyan.400}", "$type": "color", "$description": "DESY accessibility cyan #007bc8, the official styleguide hex — 4.21:1 on bg.primary, clearing the 3:1 non-text gate this slot is held to." },
+    "light": { "$value": "{color.cyan.400}", "$type": "color", "$description": "Collapsed onto accent.base. The styleguide's other cyan is the brand #009fdf, which is *lighter* (2.80:1 here) and so cannot serve as a higher-contrast emphasis slot on a light canvas. Under the official-hexes-only rule there is no third cyan to interpolate." },
+    "on": { "$value": "{color.desy.black}", "$type": "color", "$description": "DESY Black on accent.base fills — 4.67:1, clearing the 4.5:1 gate. White would score 4.4995:1 and fail; using the styleguide's own black instead of a nudged cyan keeps every brand hex intact." }
+  },
+  "accent-secondary": {
+    "base": { "$value": "{color.orange.500}", "$type": "color", "$description": "DESY accessibility orange #eb6e0f — the styleguide's prescribed on-screen orange for light backgrounds, at 2.90:1 on this canvas." },
+    "light": { "$value": "{color.orange.500}", "$type": "color", "$description": "Collapsed onto accent-secondary.base, and the theme's one accepted AA shortfall. The only other published orange (#f18f1f) is lighter still at 2.26:1, and DESY publishes no darker orange at all — the styleguide tunes this hex to the 3:1 non-text floor on white, so it is a graphics colour by design, not a text colour. Consumers that need legible secondary-accent text on this theme should use text.primary and reserve orange for fills, borders and markers." },
+    "hover": { "$value": "{color.orange.300}", "$type": "color", "$description": "DESY brand orange #f18f1f as the brighter hover, mirroring the main light theme's lighter-than-base hover." }
+  },
+  "status": {
+    "success": { "$value": "{color.desy.green}", "$type": "color", "$description": "DESY Green #00a54b — 3.03:1, the non-text tier; the palette has no darker green." },
+    "warning": { "$value": "{color.orange.500}", "$type": "color", "$description": "DESY accessibility orange #eb6e0f at 2.90:1. DESY Yellow (1.47:1) and Olive (1.91:1) are far worse on a near-white canvas, and Dark olive (3.61:1) reads as green rather than as a warning, so the accessibility orange remains the best-semantics official choice here." },
+    "error": { "$value": "{color.desy.dark-red}", "$type": "color", "$description": "DESY Dark red #b92d41 — 5.59:1, the palette's strongest true red on light." },
+    "error-hover": { "$value": "{color.desy.red}", "$type": "color", "$description": "DESY Red #eb5a2d at 3.26:1. The palette has no red deeper than Dark red, so the hover brightens rather than deepens here." }
+  },
+  "border": {
+    "default": { "$value": "{color.petrol.300}", "$type": "color" },
+    "accent": { "$value": "rgba(0, 123, 200, 0.25)", "$type": "color", "$description": "Alpha composite of the accessibility cyan (#007bc8)." }
+  },
+  "tint": {
+    "accent": {
+      "$description": "Base rgb(0,123,200) = accent.base (DESY accessibility cyan #007bc8).",
+      "04": { "$value": "rgba(0, 123, 200, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(0, 123, 200, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(0, 123, 200, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(0, 123, 200, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(0, 123, 200, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(0, 123, 200, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(0, 123, 200, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(0, 123, 200, 0.30)", "$type": "color" }
+    },
+    "accent-secondary": {
+      "$description": "Base rgb(235,110,15) = accent-secondary.base (DESY accessibility orange #eb6e0f).",
+      "04": { "$value": "rgba(235, 110, 15, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(235, 110, 15, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(235, 110, 15, 0.08)", "$type": "color" },
+      "12": { "$value": "rgba(235, 110, 15, 0.12)", "$type": "color" },
+      "15": { "$value": "rgba(235, 110, 15, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(235, 110, 15, 0.25)", "$type": "color" }
+    },
+    "error": {
+      "$description": "Base rgb(185,45,65) = status.error (DESY Dark red #b92d41).",
+      "04": { "$value": "rgba(185, 45, 65, 0.04)", "$type": "color" },
+      "08": { "$value": "rgba(185, 45, 65, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(185, 45, 65, 0.10)", "$type": "color" },
+      "15": { "$value": "rgba(185, 45, 65, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(185, 45, 65, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(185, 45, 65, 0.30)", "$type": "color" },
+      "40": { "$value": "rgba(185, 45, 65, 0.40)", "$type": "color" }
+    },
+    "success": {
+      "$description": "Base rgb(0,165,75) = status.success (DESY Green #00a54b).",
+      "08": { "$value": "rgba(0, 165, 75, 0.08)", "$type": "color" },
+      "40": { "$value": "rgba(0, 165, 75, 0.40)", "$type": "color" },
+      "50": { "$value": "rgba(0, 165, 75, 0.50)", "$type": "color" }
+    },
+    "neutral": {
+      "$description": "Base rgb(111,138,155) = color.petrol.500 = text.muted's exact color — the petrol step at ~the same relative lightness as the main light theme's gray.500 neutral-tint base.",
+      "03": { "$value": "rgba(111, 138, 155, 0.03)", "$type": "color" },
+      "06": { "$value": "rgba(111, 138, 155, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(111, 138, 155, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(111, 138, 155, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(111, 138, 155, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(111, 138, 155, 0.20)", "$type": "color" },
+      "35": { "$value": "rgba(111, 138, 155, 0.35)", "$type": "color" }
+    }
+  },
+  "overlay": {
+    "$description": "Same hand-tuned light-mode overlay alphas as the main light theme (non-monotonic values preserved there for fidelity; kept identical here for cross-theme consistency).",
+    "black-20": { "$value": "rgba(0, 0, 0, 0.06)", "$type": "color" },
+    "black-30": { "$value": "rgba(0, 0, 0, 0.05)", "$type": "color" },
+    "black-40": { "$value": "rgba(0, 0, 0, 0.08)", "$type": "color" },
+    "black-50": { "$value": "rgba(0, 0, 0, 0.15)", "$type": "color" },
+    "black-60": { "$value": "rgba(0, 0, 0, 0.10)", "$type": "color" },
+    "black-70": { "$value": "rgba(0, 0, 0, 0.25)", "$type": "color" },
+    "white-03": { "$value": "rgba(255, 255, 255, 0.5)", "$type": "color" }
+  },
+  "shadow": {
+    "panel": { "$value": "-2px 0 8px rgba(0, 0, 0, 0.08)", "$type": "shadow" },
+    "dropdown": { "$value": "0 4px 12px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+    "dialog": { "$value": "0 4px 16px rgba(0, 0, 0, 0.12)", "$type": "shadow" },
+    "error-dialog": { "$value": "0 4px 16px rgba(185, 45, 65, 0.1), 0 4px 16px rgba(0, 0, 0, 0.1)", "$type": "shadow", "$description": "Error glow recomputed from DESY Dark red." }
+  },
+  "diff": {
+    "$description": "Add/delete washes and text recomputed from the DESY Green/Dark red pair rather than the main light theme's generic green/red.",
+    "add-bg": { "$value": "rgba(0, 165, 75, 0.1)", "$type": "color" },
+    "add-text": { "$value": "{color.desy.green}", "$type": "color" },
+    "del-bg": { "$value": "rgba(185, 45, 65, 0.1)", "$type": "color" },
+    "del-text": { "$value": "{color.desy.dark-red}", "$type": "color" },
+    "word-del-bg": { "$value": "rgba(185, 45, 65, 0.20)", "$type": "color" },
+    "word-del-text": { "$value": "{color.desy.dark-red}", "$type": "color" },
+    "word-add-bg": { "$value": "rgba(0, 165, 75, 0.20)", "$type": "color" },
+    "word-add-text": { "$value": "{color.desy.green}", "$type": "color" }
+  },
+  "terminal": {
+    "cursor": { "$value": "{color.cyan.400}", "$type": "color" },
+    "text": { "$value": "{color.petrol.700}", "$type": "color" },
+    "selection": { "$value": "rgba(0, 123, 200, 0.15)", "$type": "color", "$description": "Alpha composite of the accessibility cyan. The previous solid pale-cyan #d6effa was an interpolated tint and is not a published hex, so the selection is now an alpha wash of the official colour instead." },
+    "ansi": {
+      "$description": "ANSI slots drawn from the DESY secondary palette's dark half, which is the only half legible on a near-white canvas. Normal/bright pairs run dark -> light here, the inverse of the dark theme (dark-red 5.59 -> red 3.26; green 3.03 -> light-green 2.27; dark-olive 3.61 -> olive 1.91; dark-blue 8.91 -> petrol 5.83; aubergine 6.42 -> magenta 4.95; accessibility cyan 4.21 -> brand cyan 2.80). The bright variants of the warm/green slots are weak by construction — DESY's bright graphic colours are built for white paper as fills, not as foreground text.",
+      "background": { "$value": "{color.desy.white}", "$type": "color" },
+      "foreground": { "$value": "{color.petrol.700}", "$type": "color" },
+      "cursor": { "$value": "{color.cyan.400}", "$type": "color" },
+      "cursor-accent": { "$value": "{color.desy.white}", "$type": "color" },
+      "selection": { "$value": "rgba(0, 123, 200, 0.15)", "$type": "color" },
+      "black": { "$value": "{color.petrol.200}", "$type": "color" },
+      "red": { "$value": "{color.desy.dark-red}", "$type": "color" },
+      "green": { "$value": "{color.desy.green}", "$type": "color" },
+      "yellow": { "$value": "{color.desy.dark-olive}", "$type": "color" },
+      "blue": { "$value": "{color.desy.dark-blue}", "$type": "color" },
+      "magenta": { "$value": "{color.desy.aubergine}", "$type": "color" },
+      "cyan": { "$value": "{color.cyan.400}", "$type": "color", "$description": "The official DESY accessibility cyan #007bc8." },
+      "white": { "$value": "{color.petrol.700}", "$type": "color" },
+      "bright-black": { "$value": "{color.petrol.400}", "$type": "color" },
+      "bright-red": { "$value": "{color.desy.red}", "$type": "color" },
+      "bright-green": { "$value": "{color.desy.light-green}", "$type": "color" },
+      "bright-yellow": { "$value": "{color.desy.olive}", "$type": "color" },
+      "bright-blue": { "$value": "{color.desy.petrol}", "$type": "color" },
+      "bright-magenta": { "$value": "{color.desy.magenta}", "$type": "color" },
+      "bright-cyan": { "$value": "{color.cyan.300}", "$type": "color", "$description": "The brand cyan #009fdf as the bright variant." },
+      "bright-white": { "$value": "{color.petrol.900}", "$type": "color" }
+    }
+  },
+  "chart": {
+    "$description": "Paper/plot = bg.primary and grid/axis = the text.secondary family, mirroring the main light theme's formula. All six series slots are official DESY colours drawn from the palette's dark half so they stay legible against a near-white plot area (cyan 4.21, orange 2.90, green 3.03, dark-red 5.59, aubergine 6.42, purple 6.63). Series 2 inherits the accent-secondary shortfall — as a line/marker colour it is held to the 3:1 non-text tier and sits just under it.",
+    "paper-bg": { "$value": "{color.petrol.50}", "$type": "color" },
+    "plot-bg": { "$value": "{color.petrol.50}", "$type": "color" },
+    "grid": { "$value": "rgba(73, 103, 121, 0.1)", "$type": "color", "$description": "text.secondary base (#496779) at 10% alpha." },
+    "axis-text": { "$value": "{color.petrol.600}", "$type": "color" },
+    "series": {
+      "1": { "$value": "{color.cyan.400}", "$type": "color" },
+      "2": { "$value": "{color.orange.500}", "$type": "color" },
+      "3": { "$value": "{color.desy.green}", "$type": "color" },
+      "4": { "$value": "{color.desy.dark-red}", "$type": "color" },
+      "5": { "$value": "{color.desy.aubergine}", "$type": "color" },
+      "6": { "$value": "{color.desy.purple}", "$type": "color" }
+    }
+  },
+  "code": {
+    "theme": { "$value": "highlight.js atom-one-light theme", "$type": "string", "$description": "Must exactly match an asset 'name' in src/osprey/interfaces/vendor_manifest.json (contract-tested)." }
+  }
+}

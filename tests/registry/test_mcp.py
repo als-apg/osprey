@@ -77,13 +77,13 @@ class TestResolveServers:
         assert s["permissions_ask"] == ["write_data"]
         assert s["is_custom"] is True
 
-    def test_resolve_custom_server_url_transport(self):
-        """Custom URL/SSE server resolves with url field, empty command."""
+    def test_resolve_custom_server_url_defaults_to_http_transport(self):
+        """A URL server without a transport key resolves as streamable-HTTP."""
         ctx = _base_ctx()
         cfg = {
             "servers": {
                 "remote-api": {
-                    "url": "http://remote:8001/sse",
+                    "url": "http://remote:8001/mcp",
                     "permissions": {"allow": ["search"], "ask": []},
                 }
             }
@@ -92,11 +92,70 @@ class TestResolveServers:
         remote = [s for s in servers if s["name"] == "remote-api"]
         assert len(remote) == 1
         s = remote[0]
-        assert s["url"] == "http://remote:8001/sse"
+        assert s["url"] == "http://remote:8001/mcp"
+        assert s["transport"] == "http"
         assert s["command"] == ""
         assert s["args"] == []
         assert s["permissions_allow"] == ["search"]
         assert s["is_custom"] is True
+
+    def test_resolve_custom_server_sse_transport(self):
+        """transport: sse on a URL server carries through to the resolved dict."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "legacy-api": {
+                    "transport": "sse",
+                    "url": "http://remote:8001/sse",
+                }
+            }
+        }
+        servers = resolve_servers(cfg, ctx)
+        (s,) = [s for s in servers if s["name"] == "legacy-api"]
+        assert s["transport"] == "sse"
+        assert s["url"] == "http://remote:8001/sse"
+
+    def test_resolve_custom_server_invalid_transport_skipped(self, caplog):
+        """An invalid transport value rejects the server loudly (no silent http)."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "typo-api": {
+                    "transport": "ssse",
+                    "url": "http://remote:8001/mcp",
+                }
+            }
+        }
+        with caplog.at_level("WARNING"):
+            servers = resolve_servers(cfg, ctx)
+        assert not [s for s in servers if s["name"] == "typo-api"]
+        assert "invalid transport" in caplog.text
+
+    def test_resolve_custom_server_transport_on_stdio_ignored(self, caplog):
+        """A command server declaring transport keeps working; the key is ignored loudly."""
+        ctx = _base_ctx()
+        cfg = {
+            "servers": {
+                "my-server": {
+                    "transport": "sse",
+                    "command": "node",
+                    "args": ["server.js"],
+                }
+            }
+        }
+        with caplog.at_level("WARNING"):
+            servers = resolve_servers(cfg, ctx)
+        (s,) = [s for s in servers if s["name"] == "my-server"]
+        assert s["command"] == "node"
+        assert s["transport"] is None
+        assert "no transport choice" in caplog.text
+
+    def test_resolve_stdio_servers_have_no_transport(self):
+        """Framework (stdio) servers resolve with transport None, never 'http'."""
+        servers = resolve_servers({}, _base_ctx())
+        for s in servers:
+            if not s["url"]:
+                assert s["transport"] is None
 
     def test_resolve_conditional_server_enabled(self):
         """channel_finder_pipeline in ctx → channel-finder server enabled."""

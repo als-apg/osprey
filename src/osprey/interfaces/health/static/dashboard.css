@@ -37,7 +37,7 @@
   --ok: var(--color-success);
   --ok-glow: var(--success-tint-40);
   --warn: var(--color-warning);
-  --warn-glow: var(--amber-tint-25);
+  --warn-glow: var(--accent-secondary-tint-25);
   --err: var(--color-error);
   --err-glow: var(--error-tint-30);
   --skip: var(--text-muted);
@@ -51,10 +51,21 @@
 
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
+/* BODY IS THE SCROLL CONTAINER.
+
+   The shared design-system base.css sets `html, body { height: 100%;
+   overflow: hidden }` — an app-shell reset that assumes each interface manages
+   its own inner scroll regions. This dashboard does not: header / hero / grid /
+   footer flow directly on <body>, and a real facility easily reports 40+ checks
+   across a dozen categories, which is several screens tall. Without restoring
+   overflow-y here the surplus is silently clipped with no scrollbar — so this
+   declaration is load-bearing, not cosmetic. The `.sweep` and `.ftr` bars are
+   position:fixed and therefore stay pinned to the frame while this scrolls. */
 body {
   font-family: var(--font-m); font-size: 12px;
   background: radial-gradient(ellipse at 50% 12%, var(--accent-tint-04) 0%, transparent 50%), var(--bg-0);
-  color: var(--text-0); min-height: 100vh; overflow-x: hidden; line-height: 1.6;
+  color: var(--text-0); min-height: 100vh;
+  overflow-y: auto; overflow-x: hidden; line-height: 1.6;
   display: flex; flex-direction: column;
 }
 
@@ -67,10 +78,16 @@ body {
 }
 @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
-/* ---- Header ---- */
+/* ---- Header ----
+   Sticky: now that <body> scrolls, a non-sticky header would carry the refresh
+   control and the last-scan timestamp off-screen exactly when the report is
+   long enough to need them. Opaque background (not the body's gradient) so
+   rows cannot show through as they pass underneath. */
 .hdr {
+  position: sticky; top: 0; z-index: 50;
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 20px 10px; border-bottom: 1px solid var(--border-0);
+  background: var(--bg-0);
 }
 .hdr-t { display: flex; align-items: baseline; gap: 10px; }
 .hdr-t h1 { font-family: var(--font-d); font-size: 22px; font-weight: 800; letter-spacing: 1px; }
@@ -85,6 +102,15 @@ body {
 .btn-ref:hover { border-color: var(--beam); color: var(--beam); background: var(--accent-tint-08); }
 .btn-ref.spin svg { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Embedded in the web-terminal hub the host tile bar names this panel
+ * (SYSTEM), so the standalone identity block is hidden; the timestamp and
+ * refresh control stay, right-aligned. .hdr has two children (.hdr-t, .hdr-r)
+ * with justify-content:space-between, so when .hdr-t is hidden, .hdr-r would
+ * sit at flex-start (left edge). justify-content:flex-end is required to
+ * move it to the right. */
+body.embedded .hdr-t { display: none; }
+body.embedded .hdr { justify-content: flex-end; }
 
 /* ---- Hero: ring + summary ---- */
 .hero { display: flex; flex-direction: column; align-items: center; padding: 24px 16px 16px; gap: 16px; }
@@ -158,7 +184,7 @@ body {
 }
 .card:hover { border-color: var(--border-1); transform: translateY(-1px); }
 .card.c-err { border-color: var(--error-tint-25); box-shadow: 0 0 20px var(--error-tint-08); }
-.card.c-wrn { border-color: var(--amber-tint-15); }
+.card.c-wrn { border-color: var(--accent-secondary-tint-15); }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 .c-hd {

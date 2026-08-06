@@ -46,10 +46,10 @@ def _reset_all_config_caches(monkeypatch):
     _cfg._config_cache.update(saved_cache)
 
 
-def _write_local_config(tmp_path):
+def _write_subprocess_config(tmp_path):
     config = {
         "control_system": {"type": "mock", "limits_checking": {"enabled": False}},
-        "execution": {"execution_method": "local"},
+        "execution": {"execution_method": "subprocess"},
         "python_executor": {"execution_timeout_seconds": 60},
     }
     (tmp_path / "config.yml").write_text(yaml.dump(config))
@@ -74,7 +74,7 @@ async def test_sandbox_code_cannot_see_bluesky_launch_token(tmp_path, monkeypatc
     """Real sandboxed execution: BLUESKY_LAUNCH_TOKEN is absent from os.environ."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-promote-value")
-    _write_local_config(tmp_path)
+    _write_subprocess_config(tmp_path)
 
     result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
 
@@ -90,7 +90,7 @@ async def test_sandbox_code_cannot_see_event_dispatcher_token(tmp_path, monkeypa
     """Real sandboxed execution: EVENT_DISPATCHER_TOKEN is absent from os.environ."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "super-secret-dispatch-value")
-    _write_local_config(tmp_path)
+    _write_subprocess_config(tmp_path)
 
     result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
 
@@ -107,7 +107,7 @@ async def test_sandbox_code_cannot_see_either_token_simultaneously(tmp_path, mon
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "promote-secret")
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatch-secret")
-    _write_local_config(tmp_path)
+    _write_subprocess_config(tmp_path)
 
     result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
 
@@ -129,7 +129,7 @@ async def test_sandbox_still_has_a_usable_environment(tmp_path, monkeypatch):
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "promote-secret")
-    _write_local_config(tmp_path)
+    _write_subprocess_config(tmp_path)
 
     result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
 
@@ -145,7 +145,7 @@ async def test_sandbox_code_cannot_reach_launch_endpoint_via_env_token(tmp_path,
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "promote-secret")
-    _write_local_config(tmp_path)
+    _write_subprocess_config(tmp_path)
 
     attack_code = (
         "import os\n"

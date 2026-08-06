@@ -154,12 +154,15 @@ def _launch_side_port(monkeypatch, fake_config, env_value):
 
 def _launcher_side_port(monkeypatch, fake_config, env_value):
     """Port that ServerLauncher's config reader resolves (the port uvicorn binds)."""
-    monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: fake_config)
+    import osprey.utils.workspace as workspace
+
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: fake_config)
     if env_value is None:
         monkeypatch.delenv("OSPREY_HEALTH_PORT", raising=False)
     else:
         monkeypatch.setenv("OSPREY_HEALTH_PORT", env_value)
-    _host, port = server_launcher._make_config_reader(FRAMEWORK_WEB_SERVERS[REGISTRY_KEY])()
+    # The wired launcher's own reader, so this compares what uvicorn actually binds.
+    _host, port = server_launcher._launchers[REGISTRY_KEY]._config_reader()
     return port
 
 
@@ -220,12 +223,13 @@ async def test_system_health_server_config_endpoint_returns_proxy_path():
 
 
 def test_frontend_panel_manager_registers_system_health_tab():
+    """The PANELS array lives in panel-catalog.js; panel-manager.js imports it."""
     import os
 
-    pm_path = os.path.join(
-        os.path.dirname(inspect.getfile(web_terminal_app)), "static", "js", "panel-manager.js"
+    catalog_path = os.path.join(
+        os.path.dirname(inspect.getfile(web_terminal_app)), "static", "js", "panel-catalog.js"
     )
-    with open(pm_path, encoding="utf-8") as fh:
+    with open(catalog_path, encoding="utf-8") as fh:
         js = fh.read()
     assert "id: 'system-health'" in js
     assert "/api/system-health-server" in js
@@ -236,10 +240,10 @@ def test_frontend_panel_manager_registers_system_health_tab():
 
 
 def test_build_chain_reads_builtins_dynamically():
-    from osprey.cli import build_profile
+    from osprey.cli import build_profile_model
     from osprey.cli.templates import manifest
 
-    assert "BUILTIN_PANELS" in _fresh_source(build_profile)
+    assert "BUILTIN_PANELS" in _fresh_source(build_profile_model)
     assert "BUILTIN_PANELS" in _fresh_source(manifest)
 
 

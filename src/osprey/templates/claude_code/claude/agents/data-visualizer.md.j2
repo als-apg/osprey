@@ -40,7 +40,7 @@ in your code to produce output. If you don't call it, no artifact is created.
 
 `create_static_plot`, `create_interactive_plot`, and `create_dashboard` run your code in a **sandboxed subprocess** with restricted imports and filesystem access.
 
-- **Allowed libraries**: numpy, pandas, scipy, sklearn, statsmodels, matplotlib, plotly, bokeh, seaborn, altair, PIL/Pillow, plus safe stdlib (json, datetime, math, pathlib, collections, itertools, re, etc.)
+- **Allowed imports**: an allowlist covering the data-science, plotting, and image-processing stack, plus safe stdlib (json, datetime, math, pathlib, collections, itertools, re, etc.). The allowlist is a policy gate, not an inventory — a library it admits may still be absent from this deployment. Each `create_*_plot` tool description names the packages the sandbox can actually import; read it before planning imports rather than assuming a package is installed.
 - **Blocked**: subprocess, network access (requests, urllib, socket, http), EPICS (epics, caput), dynamic execution (eval, exec, compile, \_\_import\_\_), ctypes/cffi, shutil.rmtree
 - **Filesystem**: `open()` is restricted to the workspace and execution directories only
 - If a task requires unavailable libraries or network access, clearly communicate this limitation rather than attempting workarounds

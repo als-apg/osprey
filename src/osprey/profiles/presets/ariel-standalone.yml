@@ -10,10 +10,10 @@ name: ARIEL Standalone
 
 # Data bundle: ariel-only project skeleton (Postgres+pgvector services block,
 # ARIEL config, no channel/benchmark databases).
-data_bundle: ariel_standalone
+app_template: ariel_standalone
 
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # Selects an alternate CLAUDE.md persona — "logbook research assistant"
 # instead of the default control-system operator. See
@@ -31,6 +31,8 @@ hooks:
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - memory-guard      # Warn when context window approaches threshold
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Inject the web terminal panel inventory into agent context
 
 rules:
   - error-handling      # Standard error handling and retry guidance

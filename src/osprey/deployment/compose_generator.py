@@ -196,10 +196,17 @@ def _inject_project_metadata(config):
     # Resolve the running framework version so service Dockerfiles can pin the
     # PyPI install (`pip install osprey-framework==<version>`) for production
     # builds. Dev builds install a locally-built wheel instead (see --dev).
-    try:
-        from osprey import __version__ as osprey_version
-    except Exception:
-        osprey_version = ""
+    #
+    # This is deliberately the *running* version rather than the release lineage,
+    # and deliberately ungated. The service Dockerfiles hard-fail on an empty
+    # OSPREY_VERSION but tolerate an unreleased one under OSPREY_DEV=1, priming
+    # the layer with the latest release and warning that the pin was unreleased.
+    # Substituting the base release here would silently prime with released code
+    # and suppress that warning. A production build from a development checkout is
+    # refused earlier and more clearly by `_resolve_pip_spec`.
+    from osprey.version import get_running_version
+
+    osprey_version = get_running_version()
 
     # Create enhanced config with label metadata
     config_with_labels = config.copy()
@@ -428,27 +435,26 @@ def _ensure_agent_data_structure(config):
 
     This function creates the agent data directory structure based on the configuration
     to prevent Docker/Podman mount failures when containers try to mount non-existent
-    directories. It creates both the main agent_data_dir and all configured subdirectories.
+    directories. The root comes from ``agent_data.base_dir``; each subdirectory below
+    is created only when ``file_paths`` declares its name, so the created structure
+    matches what :func:`osprey.utils.config.get_agent_dir` resolves at runtime.
 
-    :param config: Configuration dictionary containing file_paths settings
+    :param config: Configuration dictionary containing agent_data and file_paths settings
     :type config: dict
     """
+    from osprey.utils.workspace import agent_data_base_dir
+
     # Get file paths configuration
     file_paths = config.get("file_paths", {})
     project_root = config.get("project_root", ".")
-    agent_data_dir = file_paths.get("agent_data_dir", "_agent_data")
 
     # Create main agent data directory
-    agent_data_path = Path(project_root) / agent_data_dir
+    agent_data_path = Path(project_root) / agent_data_base_dir(config)
     agent_data_path.mkdir(parents=True, exist_ok=True)
 
     # Create all configured subdirectories
     subdirs = [
-        "executed_python_scripts_dir",
-        "execution_plans_dir",
-        "user_memory_dir",
         "registry_exports_dir",
-        "prompts_dir",
     ]
 
     for subdir_key in subdirs:
@@ -693,34 +699,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
             # Recursively adjust all src/ paths in the config
             adjust_src_paths_recursive(flattened_config)
-
-            # Drop the host interpreter path: execution.python_env_path is the
-            # build machine's venv (e.g. /Users/.../.venv/bin/python3), which does
-            # not exist in the container. Claude Code MCP-server generation prefers
-            # python_env_path over sys.executable, so leaving it baked the host
-            # interpreter into the container's .mcp.json — every MCP server then
-            # failed to launch. Removing it makes generation fall back to the
-            # container's own sys.executable (/usr/local/bin/python).
-            exec_cfg = flattened_config.get("execution")
-            if isinstance(exec_cfg, dict) and "python_env_path" in exec_cfg:
-                removed = exec_cfg.pop("python_env_path")
-                logger.debug(f"Dropped host python_env_path for container config: {removed}")
-
-            # Handle claude_config_path: copy the file and adjust path
-            # The config explicitly specifies which file to use, so we copy exactly that
-            # and update the reference to match where we put it
-            claude_generators = (
-                flattened_config.get("execution", {}).get("generators", {}).get("claude_code", {})
-            )
-            claude_config_path = claude_generators.get("claude_config_path")
-            if claude_config_path and os.path.exists(claude_config_path):
-                # Copy the config file to build directory
-                filename = os.path.basename(claude_config_path)
-                dst_path = os.path.join(out_dir, filename)
-                shutil.copy2(claude_config_path, dst_path)
-                logger.debug(f"Copied {claude_config_path} to {dst_path}")
-
-                claude_generators["claude_config_path"] = filename
 
             config_yml_dst = os.path.join(out_dir, "config.yml")
             with open(config_yml_dst, "w") as f:

@@ -32,7 +32,10 @@ if sys.platform == "win32":
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "2026.6.2"
+    # Only reachable from a broken/partial install. A sentinel rather than a
+    # release number: any literal release named here is stale the moment the
+    # next version ships, and `osprey --version` would report it as fact.
+    __version__ = "0.0.0+unknown"
 
 
 class LazyGroup(click.Group):
@@ -43,6 +46,7 @@ class LazyGroup(click.Group):
         # Map command names to their module paths
         commands = {
             "build": "osprey.cli.build_cmd",
+            "profile": "osprey.cli.profile_cmd",  # Build-profile authoring
             "deploy": "osprey.cli.deploy_cmd",
             "config": "osprey.cli.config_cmd",
             "health": "osprey.cli.health_cmd",
@@ -53,6 +57,7 @@ class LazyGroup(click.Group):
             "sim": "osprey.cli.sim",  # Simulation scenarios
             "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
             "web": "osprey.cli.web_cmd",  # Web Terminal
+            "theme-lab": "osprey.cli.theme_lab_cmd",  # Design-system theme workbench
             "scaffold": "osprey.cli.scaffold_cmd",  # Build artifact overrides
             "audit": "osprey.cli.audit_cmd",  # Safety auditor
             "skills": "osprey.cli.skills_cmd",  # Bundled skill management
@@ -80,8 +85,12 @@ class LazyGroup(click.Group):
             cmd_func = mod.artifacts
         elif cmd_name == "web":
             cmd_func = mod.web
+        elif cmd_name == "theme-lab":
+            cmd_func = mod.theme_lab
         elif cmd_name == "scaffold":
             cmd_func = mod.scaffold
+        elif cmd_name == "profile":
+            cmd_func = mod.profile
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -91,6 +100,7 @@ class LazyGroup(click.Group):
         """Return list of available commands (for --help)."""
         return [
             "build",
+            "profile",
             "config",
             "deploy",
             "health",
@@ -101,6 +111,7 @@ class LazyGroup(click.Group):
             "sim",
             "artifacts",
             "web",
+            "theme-lab",
             "scaffold",
             "audit",
             "skills",
@@ -131,10 +142,18 @@ def cli(ctx):
       osprey deploy up                Start services
       osprey claude regen             Regenerate Claude Code artifacts
       osprey web                      Launch web terminal
+      osprey theme-lab                Build and preview themes in the browser
       osprey health                   Check system health
       osprey channel-finder           Interactive channel search
     """
+    from osprey.utils.logger import configure_logging
+
     from .styles import initialize_theme_from_config
+
+    # The CLI is a process entry point: nothing else configures logging, and
+    # importing the framework deliberately does not. Records go to stderr, so
+    # `--json` subcommand output on stdout stays machine-readable.
+    configure_logging()
 
     initialize_theme_from_config()
 

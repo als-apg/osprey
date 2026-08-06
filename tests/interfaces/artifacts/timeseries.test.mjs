@@ -65,6 +65,8 @@ function makeChartChannel(overrides = {}) {
  * The `summary` block app.py's chart branch derives from its channels.
  * `row_count` counts the *unioned* timestamp axis and is not derivable
  * client-side; it defaults to the fixture's shared two-timestamp axis.
+ * @param {ReturnType<typeof makeChartChannel>[]} channels
+ * @param {Record<string, any>} [overrides]
  */
 function makeChartSummary(channels, overrides = {}) {
   return {
@@ -76,7 +78,10 @@ function makeChartSummary(channels, overrides = {}) {
   };
 }
 
-/** Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`). */
+/**
+ * Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`).
+ * @param {Record<string, any>} [overrides]
+ */
 function makeChartData(overrides = {}) {
   const channels = overrides.channels ?? [
     makeChartChannel({ channel: 'SR:MAG:QF1:I', values: [1.0, 1.5] }),
@@ -1211,7 +1216,7 @@ describe('renderTimeseriesTable', () => {
   });
 
   test('is a no-op when the target element is falsy', async () => {
-    await expect(renderTimeseriesTable(null, 'ts1', ['a'], 0)).resolves.toBeUndefined();
+    await expect(renderTimeseriesTable(null, 'ts1', 0)).resolves.toBeUndefined();
   });
 });
 

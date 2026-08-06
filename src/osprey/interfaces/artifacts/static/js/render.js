@@ -2,16 +2,17 @@
 /**
  * OSPREY Artifact Gallery — sidebar rendering layer.
  *
- * Owns the filter bar, the shared gallery-card template, the sidebar
- * dispatcher (tree/activity mode renderers + their shared item handlers),
- * and the split-pane resize handle. Everything here reads/writes the
- * shared artifact list via state.js and formats via types.js.
+ * Owns the shared gallery-card template and the sidebar dispatcher
+ * (tree/activity mode renderers + their shared item handlers). Tree mode
+ * promotes pinned artifacts into a "Pinned" section at the top of the
+ * tree — a promotion, not a filter, so the rest of the collection stays
+ * in view. Everything here reads/writes the shared artifact list via
+ * state.js and formats via types.js. (The browse split's orientation and
+ * divider live in browse-layout.js.)
  *
- * The split-pane resize handler has no dependency on anything outside its
- * own arguments, so it's a plain/pure export (`initSplitPaneResize`). The
- * rest needs two effects this module doesn't own — setting agent focus and
- * (re)rendering the preview pane / entering fullscreen, owned by preview.js's
- * preview renderer and wired through gallery.js — so
+ * Rendering needs two effects this module doesn't own — setting agent focus
+ * and (re)rendering the preview pane / entering fullscreen, owned by
+ * preview.js's preview renderer and wired through gallery.js — so
  * `createSidebarRenderer(callbacks)` injects them, mirroring
  * lattice_dashboard/render.js's createRenderer(callbacks) pattern.
  *
@@ -22,12 +23,9 @@ import {
   getArtifacts,
   getSelectedArtifact,
   setSelectedArtifact,
-  getActiveFilter,
-  setActiveFilter,
   getFilteredArtifacts,
 } from "./state.js";
 import {
-  getTypeRegistry,
   typeBadge,
   typeIcon,
   thumbnailHtml,
@@ -38,39 +36,6 @@ import {
   isNewThisSession,
   requestColorPass,
 } from "./types.js";
-
-// ---- Split-Pane Resize ----
-
-/**
- * Wire the sidebar/preview split-pane drag handle.
- * @param {HTMLElement|null} handle
- * @param {HTMLElement|null} sidebarEl
- * @returns {void}
- */
-export function initSplitPaneResize(handle, sidebarEl) {
-  if (!handle || !sidebarEl) return;
-  /** @type {number} */
-  let startX;
-  /** @type {number} */
-  let startWidth;
-  handle.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    startX = e.clientX;
-    startWidth = sidebarEl.offsetWidth;
-    /** @param {MouseEvent} ev */
-    const onMove = (ev) => {
-      const delta = ev.clientX - startX;
-      const newW = Math.max(180, Math.min(startWidth + delta, window.innerWidth * 0.6));
-      sidebarEl.style.width = newW + "px";
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  });
-}
 
 // ---- Gallery Card HTML (shared by both sidebar modes in gallery layout) ----
 
@@ -120,9 +85,9 @@ const _sessionStart = new Date().toISOString();
  */
 
 /**
- * Create the gallery's sidebar renderer: filter bar, tree/activity mode
- * dispatch, and the drag-to-terminal/click/dblclick item handlers. Bound to
- * a small set of injected callbacks for the two effects (agent focus,
+ * Create the gallery's sidebar renderer: tree/activity mode dispatch and
+ * the drag-to-terminal/click/dblclick item handlers. Bound to a small set
+ * of injected callbacks for the two effects (agent focus,
  * preview/fullscreen) still owned by gallery.js's not-yet-extracted Preview
  * Pane section.
  * @param {SidebarRenderCallbacks} callbacks
@@ -132,10 +97,6 @@ export function createSidebarRenderer(callbacks) {
   let browseMode = "tree";
   /** @type {"list"|"gallery"} */
   let sidebarLayout = "list";
-  // Guards wireFilterChips so the delegated #filter-bar click listener is
-  // registered exactly once per renderer instance, no matter how many times
-  // initFilterBar/rebuildTypeChips run over the page lifetime (refetch, SSE).
-  let filterBarWired = false;
 
   /** @returns {"tree"|"activity"} */
   function getBrowseMode() { return browseMode; }
@@ -145,92 +106,6 @@ export function createSidebarRenderer(callbacks) {
   function getSidebarLayout() { return sidebarLayout; }
   /** @param {"list"|"gallery"} layout */
   function setSidebarLayout(layout) { sidebarLayout = layout; }
-
-  // ---- Filter Bar ----
-
-  function initFilterBar() {
-    const filterBar = document.getElementById("filter-bar");
-    if (!filterBar) return;
-    rebuildTypeChips();
-    wireFilterChips();
-  }
-
-  /** Rebuild all conditional filter chips based on current artifacts. */
-  function rebuildTypeChips() {
-    const filterBar = document.getElementById("filter-bar");
-    if (!filterBar) return;
-
-    // --- Pinned chip: show only when count > 0 ---
-    const pinnedCount = getArtifacts().filter((a) => a.pinned).length;
-
-    const pinnedChip = /** @type {HTMLElement|null} */ (filterBar.querySelector('[data-filter="pinned"]'));
-
-    if (pinnedChip) {
-      /** @type {any} */ (pinnedChip).hidden = pinnedCount === 0;
-      const countEl = pinnedChip.querySelector(".chip-count");
-      if (countEl) countEl.textContent = String(pinnedCount || "");
-    }
-
-    // --- Type chips: show only types that have artifacts ---
-    const typesContainer = document.getElementById("filter-type-chips");
-    if (!typesContainer) return;
-
-    const presentTypes = new Set(getArtifacts().map((a) => a.category || a.artifact_type));
-
-    // If current filter no longer has artifacts, reset to "all"
-    if (getActiveFilter() === "pinned" && pinnedCount === 0) {
-      setActiveFilter("all");
-    } else if (getActiveFilter() !== "all"
-        && getActiveFilter() !== "pinned" && !presentTypes.has(getActiveFilter())) {
-      setActiveFilter("all");
-    }
-
-    typesContainer.innerHTML = "";
-    // Prefer category-based chips when registry provides categories
-    const chipSource = getTypeRegistry().categories || getTypeRegistry().artifact_types;
-    if (chipSource) {
-      Object.entries(chipSource).forEach(([type, info]) => {
-        if (!presentTypes.has(type)) return;
-        const count = getArtifacts().filter((a) => (a.category || a.artifact_type) === type).length;
-        const chip = document.createElement("button");
-        chip.className = "filter-chip type-chip";
-        chip.dataset.filter = type;
-        // typeIcon(type) is intentionally NOT escaped here: it returns
-        // hardcoded SVG markup from an internal map keyed by `icons[type] ||
-        // icons.text` — the `type` argument never reaches the output, so
-        // there is nothing agent-controlled in its return value (audited
-        // 2026-07-07). The label text below IS agent-controlled (registry
-        // label or the raw category/artifact_type) and must be escaped.
-        chip.innerHTML = `<span class="chip-icon">${typeIcon(type)}</span>${escapeHtml((/** @type {any} */ (info)).label || type)} <span class="chip-count">${count}</span>`;
-        typesContainer.appendChild(chip);
-      });
-    }
-
-    updateFilterBarActive();
-  }
-
-  /** Wire a single delegated click listener on #filter-bar (registered once). */
-  function wireFilterChips() {
-    if (filterBarWired) return;
-    const filterBar = document.getElementById("filter-bar");
-    if (!filterBar) return;
-    filterBar.addEventListener("click", (e) => {
-      const chip = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest(".filter-chip"));
-      if (!chip) return;
-      setActiveFilter(chip.dataset.filter || "all");
-      updateFilterBarActive();
-      renderSidebar();
-    });
-    filterBarWired = true;
-  }
-
-  function updateFilterBarActive() {
-    const filterBar = document.getElementById("filter-bar");
-    if (!filterBar) return;
-    filterBar.querySelectorAll(".filter-chip").forEach((chip) => {
-      chip.classList.toggle("active", getActiveFilter() === /** @type {HTMLElement} */ (chip).dataset.filter);
-    });
-  }
 
   // ---- Sidebar Rendering (dispatcher + tree/activity renderers) ----
 
@@ -250,7 +125,7 @@ export function createSidebarRenderer(callbacks) {
             <rect x="3" y="14" width="7" height="7" rx="1"/>
             <rect x="14" y="14" width="7" height="7" rx="1"/>
           </svg>
-          <span>${(searchInput && searchInput.value) || getActiveFilter() !== "all" ? "No matches" : "No artifacts yet"}</span>
+          <span>${searchInput && searchInput.value ? "No matches" : "No artifacts yet"}</span>
         </div>
       `;
       return;
@@ -264,16 +139,70 @@ export function createSidebarRenderer(callbacks) {
     requestColorPass();
   }
 
-  // ---- Tree Mode (group by type) ----
+  // ---- Tree Mode (group by type, pinned promoted to the top) ----
+
+  /**
+   * @param {any} a
+   * @param {number} i
+   * @returns {string}
+   */
+  function treeItemHtml(a, i) {
+    return `
+                <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? " selected" : ""}${a.pinned ? " pinned" : ""}"
+                     data-id="${a.id}"
+                     style="animation-delay: ${i * 30}ms">
+                  ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ""}
+                  <span class="tree-item-icon">${typeIcon(a.artifact_type)}</span>
+                  <span class="tree-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
+                  ${isNewThisSession(a, _sessionStart) ? '<span class="tree-item-badge new">new</span>' : ""}
+                  <span class="tree-item-size">${formatSize(a.size_bytes)}</span>
+                </div>`;
+  }
+
+  const pinSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 17v5"/><path d="M9 10.76V7a2 2 0 00-1-1.73l-.5-.27A2 2 0 016.5 3.27V3h11v.27a2 2 0 01-1 1.73l-.5.27A2 2 0 0015 7v3.76a2 2 0 001 1.74l.5.27a2 2 0 011 1.73V15H6.5v-.5a2 2 0 011-1.73l.5-.27a2 2 0 001-1.74z"/></svg>';
+
+  /**
+   * A collapsible tree/gallery section. `label`/`icon` arrive as prebuilt
+   * markup (typeBadge output or the fixed pin icon), never raw agent data.
+   * @param {object} spec
+   * @param {string} spec.type       section key for data-type (escaped here)
+   * @param {string} spec.icon       icon markup
+   * @param {string} spec.label      label markup
+   * @param {any[]} spec.items       artifacts in the section
+   * @param {boolean} spec.isGallery gallery layout?
+   * @param {(a: any) => string} spec.itemHtml
+   * @returns {string}
+   */
+  function treeSectionHtml({ type, icon, label, items, isGallery, itemHtml }) {
+    const headerCls = isGallery ? "gallery-section-header" : "tree-section-header";
+    const itemsCls = isGallery ? "tree-section-items sidebar-gallery" : "tree-section-items";
+    return `
+          <div class="tree-section" data-type="${escapeHtml(type)}">
+            <div class="${headerCls}" data-type="${escapeHtml(type)}">
+              ${chevronSvg}
+              <span class="tree-section-icon">${icon}</span>
+              <span>${label}</span>
+              <span class="tree-section-count">${items.length}</span>
+            </div>
+            <div class="${itemsCls}">
+              ${items.map((a) => itemHtml(a)).join("")}
+            </div>
+          </div>`;
+  }
 
   /** @param {any[]} items */
   function renderTreeMode(items) {
     const sidebarBody = document.getElementById("sidebar-body");
     if (!sidebarBody) return;
 
+    // Pinned artifacts are PROMOTED into their own top section (they do not
+    // repeat inside their type groups) — the type groups hold the rest.
+    const pinnedItems = items.filter((a) => a.pinned);
+    const unpinned = items.filter((a) => !a.pinned);
+
     /** @type {Record<string, any[]>} */
     const groups = {};
-    items.forEach((a) => {
+    unpinned.forEach((a) => {
       const groupKey = a.category || a.artifact_type;
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push(a);
@@ -287,50 +216,21 @@ export function createSidebarRenderer(callbacks) {
     const isGallery = sidebarLayout === "gallery";
     let html = "";
     let globalIdx = 0;
+    /** @param {any} a @returns {string} */
+    const itemHtml = (a) => (isGallery ? galleryCardHtml(a, globalIdx++) : treeItemHtml(a, globalIdx++));
+
+    if (pinnedItems.length > 0) {
+      html += treeSectionHtml({
+        type: "pinned", icon: pinSvg, label: "Pinned",
+        items: pinnedItems, isGallery, itemHtml,
+      });
+    }
 
     sortedTypes.forEach((type) => {
-      const typeArtifacts = groups[type];
-
-      if (isGallery) {
-        html += `
-          <div class="tree-section" data-type="${escapeHtml(type)}">
-            <div class="gallery-section-header" data-type="${escapeHtml(type)}">
-              ${chevronSvg}
-              <span class="tree-section-icon">${typeIcon(type)}</span>
-              <span>${typeBadge(type)}</span>
-              <span class="tree-section-count">${typeArtifacts.length}</span>
-            </div>
-            <div class="tree-section-items sidebar-gallery">
-              ${typeArtifacts.map((a) => galleryCardHtml(a, globalIdx++)).join("")}
-            </div>
-          </div>`;
-      } else {
-        html += `
-          <div class="tree-section" data-type="${escapeHtml(type)}">
-            <div class="tree-section-header" data-type="${escapeHtml(type)}">
-              ${chevronSvg}
-              <span class="tree-section-icon">${typeIcon(type)}</span>
-              <span>${typeBadge(type)}</span>
-              <span class="tree-section-count">${typeArtifacts.length}</span>
-            </div>
-            <div class="tree-section-items">
-              ${typeArtifacts
-                .map(
-                  (a, i) => `
-                <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? " selected" : ""}${a.pinned ? " pinned" : ""}"
-                     data-id="${a.id}"
-                     style="animation-delay: ${i * 30}ms">
-                  ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ""}
-                  <span class="tree-item-icon">${typeIcon(a.artifact_type)}</span>
-                  <span class="tree-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
-                  ${isNewThisSession(a, _sessionStart) ? '<span class="tree-item-badge new">new</span>' : ""}
-                  <span class="tree-item-size">${formatSize(a.size_bytes)}</span>
-                </div>`
-                )
-                .join("")}
-            </div>
-          </div>`;
-      }
+      html += treeSectionHtml({
+        type, icon: typeIcon(type), label: typeBadge(type),
+        items: groups[type], isGallery, itemHtml,
+      });
     });
 
     sidebarBody.innerHTML = html;
@@ -449,8 +349,6 @@ export function createSidebarRenderer(callbacks) {
   }
 
   return {
-    initFilterBar,
-    rebuildTypeChips,
     renderSidebar,
     getBrowseMode,
     setBrowseMode,

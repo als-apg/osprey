@@ -179,9 +179,9 @@ not at the menu.
 Logging out and switching users
 ================================
 
-Every session's header carries a logout button. It POSTs to the terminal's
-logout route, clears the local session pointer, and returns you to the landing
-page. From there, pick another card to open a different user. Logging out
+Every session's header carries a chip naming the signed-in user; clicking it
+opens a small menu with **Log out**. That POSTs to the terminal's logout route,
+clears the local session pointer, and returns you to the landing page. From there, pick another card to open a different user. Logging out
 ends the session for real — the terminal drops its running processes, so the
 next login starts **fresh**. Simply navigating away (without logout) keeps
 the session warm, and returning to the same user reconnects to it.

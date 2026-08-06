@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 from typing import cast
 
+from osprey.build.claude_code_resolver import load_provider_spec
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
     resolve_project_name,
@@ -115,7 +116,7 @@ def _persona_image_build_cmd(
     cli_version = _resolve_persona_claude_cli_version(project_path)
     if cli_version:
         cmd.extend(["--build-arg", f"CLAUDE_CLI_VERSION={cli_version}"])
-    cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec()}"])
+    cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec(dev_mode=dev_mode)}"])
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.append(project_path)
@@ -232,6 +233,90 @@ def _parent_set_override_args(project_root: Path) -> list[str]:
     return args
 
 
+# A catalog `build_profile` is either a bundled preset NAME or a path to a
+# profile FILE. The two are told apart from the STRING alone — never by probing
+# the filesystem — so a mistyped path is reported as a missing file rather than
+# silently retried as a preset name (and vice versa).
+_PROFILE_FILE_SUFFIXES = (".yml", ".yaml")
+
+
+def _is_profile_file_reference(build_profile: str) -> bool:
+    """Whether ``build_profile`` names a profile file rather than a bundled preset.
+
+    Bundled preset names are bare slugs (``control-assistant``), so any ``/``
+    or any ``.yml``/``.yaml`` suffix means a file. Only ``/`` counts as a
+    separator: catalog values are configuration, written posix-style, and are
+    read on the same machine that renders the personas.
+    """
+    return "/" in build_profile or build_profile.endswith(_PROFILE_FILE_SUFFIXES)
+
+
+def _manifest_profile_dir(project_root: Path | None) -> Path | None:
+    """The directory of the profile the parent project was actually built from.
+
+    Read from the parent's ``.osprey-manifest.json`` ``build_args``, where
+    ``osprey build`` records the absolute path it resolved (``profile_path_abs``
+    — the relative spelling beside it is for display and may no longer resolve
+    from the deploy's cwd). ``None`` when the parent was built from a preset,
+    when the manifest predates the key, or when it cannot be read: a render must
+    never fail over provenance metadata, it just falls back to the next anchor.
+    """
+    if project_root is None:
+        return None
+    try:
+        manifest = json.loads((project_root / ".osprey-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    build_args = manifest.get("build_args") if isinstance(manifest, dict) else None
+    if not isinstance(build_args, dict):
+        return None
+    profile_path = build_args.get("profile_path_abs")
+    if not isinstance(profile_path, str) or not profile_path:
+        return None
+    return Path(profile_path).parent
+
+
+def _resolve_persona_profile(
+    build_profile: str, persona_name: str, project_root: Path | None
+) -> Path:
+    """Resolve a file-valued ``build_profile`` to an existing profile file.
+
+    A relative value (``personas/readonly.yml``, what ``osprey profile new``
+    writes) is anchored on the directory of the profile the parent project was
+    built from, so a persona profile sitting beside its host profile resolves
+    wherever the operator runs ``osprey deploy up`` from. Two fallbacks follow —
+    the project root, then the current directory — for catalogs that were
+    hand-written against either.
+
+    :raises ValueError: When no anchor yields an existing file, naming every
+        location tried so the operator can see which anchor they meant.
+    """
+    reference = Path(build_profile)
+    if reference.is_absolute():
+        if reference.is_file():
+            return reference
+        tried: list[tuple[str, Path]] = [("the path itself", reference)]
+    else:
+        anchors: list[tuple[str, Path | None]] = [
+            ("the profile this project was built from", _manifest_profile_dir(project_root)),
+            ("the project root", project_root),
+            ("the current directory", Path.cwd()),
+        ]
+        tried = [(why, anchor / reference) for why, anchor in anchors if anchor is not None]
+        for _why, candidate in tried:
+            if candidate.is_file():
+                return candidate.resolve()
+
+    locations = "\n".join(f"  - {why}: {path}" for why, path in tried)
+    raise ValueError(
+        f"Persona {persona_name!r} names the build profile {build_profile!r}, but no "
+        f"profile file exists there. Tried:\n{locations}\n"
+        f"Set modules.web_terminals.personas.{persona_name}.build_profile to an "
+        "existing profile file (relative paths resolve against the profile "
+        "directory first) or to a bundled preset name."
+    )
+
+
 def auto_render_missing_personas(
     config: dict,
     resolved_users: list[dict],
@@ -251,14 +336,21 @@ def auto_render_missing_personas(
     Operates on exactly :func:`_referenced_personas`'s distinct set — the same
     personas that will be built — so render and build never diverge. For each:
 
-    * **Directory absent**: render it with ``osprey build <project> --preset
-      <build_profile> -o <parent(project_path)> --skip-deps``. ``osprey build``
-      writes ``<output_dir>/<project_name>``, so rendering ``<project>`` into
-      ``project_path``'s PARENT lands it exactly at ``project_path`` (the demo
-      keeps ``project_path``'s basename equal to the catalog ``project``).
-      ``--skip-deps`` keeps the render network-free — the persona image installs
-      dependencies itself via ``OSPREY_PIP_SPEC`` at build time. A catalog entry
-      with no usable ``build_profile`` cannot be rendered and raises here.
+    * **Directory absent**: render it with ``osprey build <project>
+      <build_profile> -o <parent(project_path)> --skip-deps``, where
+      ``build_profile`` is passed as ``--preset <name>`` for a bundled preset
+      and positionally for a profile FILE (see
+      :func:`_is_profile_file_reference` for how the two are told apart, and
+      :func:`_resolve_persona_profile` for where a relative path is anchored).
+      A facility that owns its profile deploys the file form: ``osprey profile
+      new`` emits a sibling profile per persona, each reading the one facility
+      data tree. ``osprey build`` writes ``<output_dir>/<project_name>``, so
+      rendering ``<project>`` into ``project_path``'s PARENT lands it exactly at
+      ``project_path`` (the demo keeps ``project_path``'s basename equal to the
+      catalog ``project``). ``--skip-deps`` keeps the render network-free — the
+      persona image installs dependencies itself via ``OSPREY_PIP_SPEC`` at
+      build time. A catalog entry with no usable ``build_profile`` cannot be
+      rendered and raises here.
     * **Directory present but incomplete** (missing ``config.yml`` OR
       ``Dockerfile``): a partial/aborted render. Raise rather than silently
       rebuild over it — the operator must remove it (or finish it) so an
@@ -276,10 +368,13 @@ def auto_render_missing_personas(
         parent's explicit ``--set`` model-selection overrides — recorded in
         its ``.osprey-manifest.json`` — are forwarded to every persona render
         (see :func:`_parent_set_override_args`), so one parent-build override
-        retints the whole stack. ``None`` forwards nothing.
+        retints the whole stack. That same manifest also anchors a relative
+        file-valued ``build_profile`` (:func:`_manifest_profile_dir`). ``None``
+        forwards nothing and falls back to the current directory.
     :raises ValueError: A referenced persona whose project_path is a partial
-        render, or one that must be rendered but whose catalog entry lacks a
-        usable ``build_profile``.
+        render, one that must be rendered but whose catalog entry lacks a
+        usable ``build_profile``, or one whose file-valued ``build_profile``
+        resolves to no existing file.
     """
     forwarded_set_args = _parent_set_override_args(project_root) if project_root is not None else []
     for unit in _referenced_personas(config, resolved_users):
@@ -298,7 +393,22 @@ def auto_render_missing_personas(
                     "directory and re-run `osprey deploy up` to re-render it, or "
                     "rebuild it with `osprey build`."
                 )
-            # Complete render is user-owned -- never overwrite it.
+            # Complete render is user-owned -- never overwrite it. But do
+            # validate that its model selection still resolves: the web
+            # terminal runs the same resolver strict at startup, so a stale
+            # model baked in by an earlier parent build (existing renders
+            # never inherit new `--set` overrides) would otherwise ship a
+            # container that crash-loops behind the reverse proxy (502).
+            try:
+                load_provider_spec(project_path)
+            except ValueError as e:
+                raise ValueError(
+                    f"Persona {persona_name!r} render at {project_path} has a "
+                    f"model configuration its provider cannot serve:\n  {e}\n"
+                    f"Fix {project_path / 'config.yml'}, or remove that "
+                    "directory and re-run `osprey deploy up` to re-render it "
+                    "from the parent build's settings."
+                ) from e
             continue
 
         build_profile = unit["build_profile"]
@@ -312,6 +422,15 @@ def auto_render_missing_personas(
                 "`osprey build`."
             )
 
+        # A file-valued build_profile is passed POSITIONALLY (`osprey build
+        # <project> <profile>`); a bundled preset name keeps `--preset`.
+        if _is_profile_file_reference(build_profile):
+            profile_args = [
+                str(_resolve_persona_profile(build_profile, persona_name, project_root))
+            ]
+        else:
+            profile_args = ["--preset", build_profile]
+
         # Re-enter the CLI through the RUNNING interpreter, never a bare
         # "osprey": PATH may resolve to a different install whose bundled
         # presets diverge from (or predate) this one's.
@@ -321,8 +440,7 @@ def auto_render_missing_personas(
             "osprey",
             "build",
             project,
-            "--preset",
-            build_profile,
+            *profile_args,
             "-o",
             str(project_path.parent),
             "--skip-deps",

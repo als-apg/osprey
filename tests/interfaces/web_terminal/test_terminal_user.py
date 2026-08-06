@@ -132,3 +132,70 @@ class TestRootContext:
         assert resp.status_code == 200
         assert captured["terminal_user"] == ""
         assert captured["landing_url"] == ""
+
+
+class TestIdentityChip:
+    """The header identity chip: who you are, and the logout control it holds."""
+
+    def _body(self, workspace_dir, env):
+        cfg = {"watch_dir": str(workspace_dir)}
+        with (
+            patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
+            patch.dict("os.environ", env),
+        ):
+            with TestClient(create_app(shell_command="echo")) as c:
+                return c.get("/").text
+
+    def test_chip_renders_the_user_and_holds_the_logout_control(self, workspace_dir):
+        body = self._body(
+            workspace_dir,
+            {
+                "OSPREY_TERMINAL_USER": "alice",
+                "OSPREY_TERMINAL_LANDING_URL": "https://facility.example/portal",
+            },
+        )
+
+        assert 'id="identity-menu"' in body
+        assert 'id="identity-menu-btn"' in body
+        assert 'class="identity-name">alice<' in body
+        # The avatar shows the initial, upper-cased.
+        assert 'class="identity-avatar" aria-hidden="true">A<' in body
+        # The logout control keeps its id + data-landing-url contract; app.js's
+        # initLogoutButton() and the command palette both find it by id.
+        assert 'id="logout-btn"' in body
+        assert 'data-landing-url="https://facility.example/portal"' in body
+
+    def test_chip_is_absent_for_a_single_user_deployment(self, client):
+        """No OSPREY_TERMINAL_USER: no chip, and with it no logout control."""
+        body = client.get("/").text
+
+        assert 'id="identity-menu"' not in body
+        assert 'id="logout-btn"' not in body
+
+    def test_chip_renders_without_a_landing_url_but_offers_no_logout(self, workspace_dir):
+        """A user with nowhere to log out TO still gets identified — the chip
+        states a fact, and only the action depends on landing_url."""
+        body = self._body(workspace_dir, {"OSPREY_TERMINAL_USER": "alice"})
+
+        assert 'id="identity-menu"' in body
+        assert 'id="logout-btn"' not in body
+
+    def test_deployment_name_moved_out_of_the_action_cluster(self, workspace_dir):
+        """app_name renders once, on the left beside the product name, and once
+        more as the popover's context line — never as a chip in the right-hand
+        action cluster where it read as a second user badge."""
+        cfg = {"watch_dir": str(workspace_dir)}
+        with (
+            patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_ui_config",
+                return_value={"app_name": "Control Assistant"},
+            ),
+            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
+        ):
+            with TestClient(create_app(shell_command="echo")) as c:
+                body = c.get("/").text
+
+        assert 'class="header-deployment"' in body
+        assert 'class="identity-card-sub">Control Assistant<' in body
+        assert "header-app-name" not in body

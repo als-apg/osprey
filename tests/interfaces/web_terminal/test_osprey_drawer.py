@@ -39,6 +39,7 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
+import re
 import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
@@ -71,7 +72,13 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # on initSettingsWarningGate: this keeps the component's delegated handler
 # from ever matching (and toggling) this button directly, so the warning
 # gate below is the sole open path with no propagation tampering.
+#
+# It is the System Settings row at the bottom of the header display-menu
+# popover (expert mode only), so every click on it goes through
+# `_click_settings_trigger` below, which opens the popover first.
 TRIGGER_SELECTOR = '[data-drawer-trigger="settings-drawer"]'
+DISPLAY_MENU_BTN_SELECTOR = "#display-menu-btn"
+DISPLAY_MENU_CARD_SELECTOR = "#display-menu-card"
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
 CLOSE_BTN_SELECTOR = ".drawer-close-btn"
@@ -118,7 +125,7 @@ def _goto(page: Page, base_url: str) -> None:
 
     ``app.js``'s ``initWelcomeModal()`` shows a full-screen overlay on every
     fresh (no prior localStorage ack) session that otherwise intercepts every
-    click, including the settings gear -- unrelated to the drawer itself, but
+    click, including the display menu -- unrelated to the drawer itself, but
     every test needs it out of the way first. Its Enter-to-dismiss keydown
     listener is only attached after its own internal ``await fetchJSON('/health')``
     resolves, so a single blind keypress races that attachment (it can lose,
@@ -136,6 +143,23 @@ def _goto(page: Page, base_url: str) -> None:
     expect(overlay).to_have_count(0, timeout=5_000)
 
 
+def _click_settings_trigger(page: Page) -> None:
+    """Open the header display menu and click its System Settings row.
+
+    The settings trigger lives at the bottom of the display-menu popover, so
+    the menu has to be opened first -- the real operator path, and the only one
+    Playwright's actionability checks accept (the row is not visible while the
+    card is closed). display-menu.js closes the card on that click, so callers
+    that reopen the drawer later must call this again rather than reuse a
+    still-open popover.
+    """
+    page.click(DISPLAY_MENU_BTN_SELECTOR)
+    expect(page.locator(DISPLAY_MENU_CARD_SELECTOR)).to_have_class(
+        re.compile(r"\bopen\b"), timeout=2_000
+    )
+    page.click(TRIGGER_SELECTOR)
+
+
 def _open_settings_drawer(page: Page) -> None:
     """Click the real header trigger, proceeding past the first-time warning
     dialog if it appears (already-acked sessions skip straight to open) --
@@ -147,7 +171,7 @@ def _open_settings_drawer(page: Page) -> None:
     a resize drag started mid-transition targets a handle that has already
     moved by the time the drag's mousemove events fire.
     """
-    page.click(TRIGGER_SELECTOR)
+    _click_settings_trigger(page)
     proceed = page.locator(WARNING_PROCEED_SELECTOR)
     try:
         expect(proceed).to_be_visible(timeout=2_000)
@@ -163,9 +187,9 @@ def _drag_resize_handle(page: Page, dx: int) -> None:
     """Drag ``.drawer-resize-handle`` horizontally by ``dx`` pixels.
 
     The drawer is right-anchored, so dragging left (negative dx) grows it and
-    dragging right (positive dx) shrinks it -- matching osprey-drawer.js's
-    ``_beginResizeDrag`` (``dx = startX - moveEvent.clientX``), so a caller
-    passing a *negative* dx here should widen the drawer.
+    dragging right (positive dx) shrinks it -- which is what the shared
+    splitter's ``anchor: 'end'`` means, so a caller passing a *negative* dx
+    here should widen the drawer.
     """
     handle = page.locator(RESIZE_HANDLE_SELECTOR)
     box = handle.bounding_box()
@@ -251,8 +275,10 @@ def test_resize_persists_width_across_reload(tmp_path, monkeypatch, chromium_bro
         assert widened_width == pytest.approx(initial_width + 100, abs=2), (
             f"expected ~{initial_width + 100}px after the drag, got {widened_width}"
         )
-        persisted = page.evaluate("localStorage.getItem('osprey-drawer-width')")
-        assert persisted == str(round(widened_width)), (
+        # The shared splitter persists a {size, collapsed} record under the same
+        # legacy key -- a collapse has to remember what width to restore to.
+        persisted = page.evaluate("JSON.parse(localStorage.getItem('osprey-drawer-width')).size")
+        assert persisted == pytest.approx(round(widened_width), abs=1), (
             f"expected the drag to persist under the legacy 'osprey-drawer-width' key, "
             f"got {persisted!r}"
         )
@@ -457,25 +483,27 @@ def test_tab_activate_and_close_reach_memory_gallery(tmp_path, monkeypatch, chro
 
 
 def test_active_trigger_highlight_tracks_open_close(tmp_path, monkeypatch, chromium_browser):
-    """The gear button gains ``.active`` on open and loses it on close.
+    """The System Settings row gains ``.active`` on open, loses it on close.
 
     app.js's initDrawerTriggerHighlight() wires this via the drawer:open/
     close events (osprey-drawer.js itself deliberately doesn't manage a
-    trigger's .active state -- see its module docstring).
+    trigger's .active state -- see its module docstring). The highlight
+    survived the trigger's move into the display-menu popover because that
+    wiring matches on `[data-drawer-trigger]`, not on where the button sits.
     """
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
 
         trigger = page.locator(TRIGGER_SELECTOR)
-        expect(trigger).to_have_class("header-icon-btn")
+        expect(trigger).to_have_class("display-menu-settings")
 
         _open_settings_drawer(page)
-        expect(trigger).to_have_class("header-icon-btn active")
+        expect(trigger).to_have_class("display-menu-settings active")
 
         page.click(CLOSE_BTN_SELECTOR)
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=5_000)
-        expect(trigger).to_have_class("header-icon-btn")
+        expect(trigger).to_have_class("display-menu-settings")
         page.close()
 
 
@@ -534,7 +562,7 @@ def test_settings_warning_gates_first_open_and_acks_for_session(
         _goto(page, base_url)
 
         # First click: the warning dialog appears, drawer stays closed.
-        page.click(TRIGGER_SELECTOR)
+        _click_settings_trigger(page)
         overlay = page.locator(WARNING_OVERLAY_SELECTOR)
         expect(overlay).to_be_visible(timeout=5_000)
         expect(page.locator(".settings-warning-title")).to_have_text("Expert Configuration Area")
@@ -546,7 +574,7 @@ def test_settings_warning_gates_first_open_and_acks_for_session(
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=2_000)
 
         # Click again, this time Proceed: dialog dismissed, drawer opens, ack persisted.
-        page.click(TRIGGER_SELECTOR)
+        _click_settings_trigger(page)
         expect(overlay).to_be_visible(timeout=5_000)
         page.click(WARNING_PROCEED_SELECTOR)
         expect(page.locator(DRAWER_SELECTOR)).to_have_attribute("open", "", timeout=5_000)
@@ -555,7 +583,7 @@ def test_settings_warning_gates_first_open_and_acks_for_session(
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=5_000)
 
         # Same server session, reopen: no warning dialog this time.
-        page.click(TRIGGER_SELECTOR)
+        _click_settings_trigger(page)
         expect(page.locator(DRAWER_SELECTOR)).to_have_attribute("open", "", timeout=5_000)
         expect(overlay).not_to_be_visible()
         page.close()
@@ -598,7 +626,7 @@ def test_settings_warning_gate_installs_without_tab_config(tmp_path, monkeypatch
             "test setup broken -- #tab-config should be absent from the served page"
         )
 
-        page.click(TRIGGER_SELECTOR)
+        _click_settings_trigger(page)
         expect(page.locator(WARNING_OVERLAY_SELECTOR)).to_be_visible(timeout=5_000)
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=2_000)
         page.close()
@@ -610,8 +638,8 @@ def test_settings_warning_gate_installs_without_tab_config(tmp_path, monkeypatch
 
 
 def test_settings_warning_double_click_yields_one_dialog(tmp_path, monkeypatch, chromium_browser):
-    """Two rapid gear clicks must show exactly one warning dialog -- pins the
-    B.2 review's M1 fix (`warningGatePending`).
+    """Two rapid trigger clicks must show exactly one warning dialog -- pins
+    the B.2 review's M1 fix (`warningGatePending`).
 
     Dispatches both clicks via a single ``page.evaluate()`` (two synchronous
     ``.click()`` calls in one JS turn) rather than two separate Playwright
@@ -629,6 +657,10 @@ def test_settings_warning_double_click_yields_one_dialog(tmp_path, monkeypatch, 
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
 
+        # Open the display-menu popover first so the row starts from its real
+        # visible state; the two native clicks then fire back-to-back in one JS
+        # turn, before display-menu.js's own close can matter to the gate.
+        page.click(DISPLAY_MENU_BTN_SELECTOR)
         page.evaluate(
             f"""() => {{
                 const trigger = document.querySelector('{TRIGGER_SELECTOR}');

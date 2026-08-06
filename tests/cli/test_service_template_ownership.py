@@ -142,6 +142,116 @@ class TestInjectorsHonorClaims:
         assert "bluesky" in config["deployed_services"]
 
 
+class TestProfileServiceTemplateResolution:
+    """_inject_profile_services resolves ``osprey.<name>`` to the bundled template.
+
+    A profile may declare a service whose template is the framework's own
+    (``template: osprey.openobserve``) rather than a directory shipped in the
+    profile — the same form ``_copy_service_templates`` and
+    ``BuildProfile.validate`` already accept.
+    """
+
+    def _project(self, tmp_path: Path) -> Path:
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("project_name: test\n", encoding="utf-8")
+        return project_path
+
+    def test_bundled_prefix_resolves_to_package_template(self, tmp_path: Path) -> None:
+        from osprey.cli.build_injectors import _inject_profile_services
+        from osprey.cli.build_profile import ServiceDef
+
+        project_path = self._project(tmp_path)
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+
+        count = _inject_profile_services(
+            profile_dir,
+            project_path,
+            {"openobserve": ServiceDef(template="osprey.openobserve")},
+        )
+
+        assert count == 1
+        compose = project_path / "services" / "openobserve" / "docker-compose.yml.j2"
+        assert compose.is_file(), "bundled template was not copied into the project"
+        config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
+        assert config["services"]["openobserve"]["path"] == "./services/openobserve"
+        assert "openobserve" in config["deployed_services"]
+
+    def test_profile_relative_template_still_resolves(self, tmp_path: Path) -> None:
+        from osprey.cli.build_injectors import _inject_profile_services
+        from osprey.cli.build_profile import ServiceDef
+
+        project_path = self._project(tmp_path)
+        profile_dir = tmp_path / "profile"
+        (profile_dir / "svc" / "typesense").mkdir(parents=True)
+        (profile_dir / "svc" / "typesense" / "docker-compose.yml.j2").write_text(
+            "# facility template\n", encoding="utf-8"
+        )
+
+        count = _inject_profile_services(
+            profile_dir,
+            project_path,
+            {"typesense": ServiceDef(template="svc/typesense", config={"port": 8108})},
+        )
+
+        assert count == 1
+        copied = project_path / "services" / "typesense" / "docker-compose.yml.j2"
+        assert copied.read_text(encoding="utf-8") == "# facility template\n"
+        config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
+        assert config["services"]["typesense"]["port"] == 8108
+
+    def test_missing_bundled_template_warns_and_skips(self, tmp_path: Path) -> None:
+        """An unknown ``osprey.<name>`` is skipped, not raised — as in _copy_service_templates."""
+        from osprey.cli.build_injectors import _inject_profile_services
+        from osprey.cli.build_profile import ServiceDef
+
+        project_path = self._project(tmp_path)
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+
+        count = _inject_profile_services(
+            profile_dir,
+            project_path,
+            {"nope": ServiceDef(template="osprey.no_such_service")},
+        )
+
+        assert count == 0
+        assert not (project_path / "services" / "nope").exists()
+        config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
+        assert "nope" not in (config.get("services") or {})
+        assert "nope" not in (config.get("deployed_services") or [])
+
+    def test_claimed_bundled_service_is_left_untouched(self, tmp_path: Path) -> None:
+        from osprey.cli.build_injectors import _inject_profile_services
+        from osprey.cli.build_profile import ServiceDef
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text(
+            yaml.dump({"scaffold": {"user_owned": ["services/openobserve"]}}),
+            encoding="utf-8",
+        )
+        claimed = project_path / "services" / "openobserve" / "docker-compose.yml.j2"
+        claimed.parent.mkdir(parents=True)
+        claimed.write_text("# locally edited\n", encoding="utf-8")
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+
+        count = _inject_profile_services(
+            profile_dir,
+            project_path,
+            {"openobserve": ServiceDef(template="osprey.openobserve")},
+        )
+
+        # Template untouched; config registration still happens.
+        assert count == 1
+        assert claimed.read_text(encoding="utf-8") == "# locally edited\n"
+        config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
+        assert "openobserve" in config["services"]
+        assert "openobserve" in config["deployed_services"]
+
+
 class TestScaffoldCliDirectoryArtifacts:
     """scaffold claim/diff/unclaim work on directory (service) artifacts."""
 

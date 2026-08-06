@@ -74,17 +74,11 @@ BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-
 DEMO_DETECTOR = "det1"
 
 # The bridge's launch route (POST /runs/{id}/launch) fails closed on an
-# unset BLUESKY_LAUNCH_TOKEN. The control-assistant preset deploys with
-# control_system.writes_enabled: true AND execution.execution_method: local,
-# which deliberately gates auto-arming off for that token
-# (container_lifecycle._local_exec_arming_unsafe) — a local unsandboxed agent
-# could otherwise read the token straight out of .env and bypass the write
-# gate. This e2e is a controlled test, not agent code, so it supplies its own
-# token explicitly (the supported operator-provides-a-token path) rather than
-# exercise that arming policy here. BLUESKY_TILED_API_KEY, by contrast, is on
-# the local-exec-safe allowlist (it grants catalog access only, no
-# write-capable bridge route) and auto-mints regardless — no need to supply
-# it ourselves.
+# unset BLUESKY_LAUNCH_TOKEN. `osprey deploy up` mints one for the deployed
+# bluesky service, but this e2e supplies its own explicitly (the supported
+# operator-provides-a-token path) so the test knows the token value up front
+# and never has to read it back out of the project .env. BLUESKY_TILED_API_KEY
+# is left to the minting path — nothing here needs to know its value.
 LAUNCH_TOKEN = "e2e-tiled-roundtrip-launch-token"
 
 BUILD_TIMEOUT_SEC = 300

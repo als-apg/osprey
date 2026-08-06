@@ -18,9 +18,11 @@ from osprey.cli.templates.manager import TemplateManager
 
 TEMPLATE_PATH = "apps/control_assistant/config.yml.j2"
 
+# No `port`: it is derived from services.virtual_accelerator.port at
+# config-load time rather than rendered out (see
+# tests/connectors/test_va_gateway_port_fill.py).
 PROBE_PROVEN_GATEWAY_SHAPE = {
     "address": "localhost",
-    "port": 5064,
     "use_name_server": True,
 }
 

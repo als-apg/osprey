@@ -76,6 +76,7 @@ modules:
       - name: "bob"                     # object form — needed to set per-user fields
         index: 1
         display_name: "Operations"      # optional window/tab title → OSPREY_WEB_APP_NAME
+        theme: "desy-light"             # optional default theme    → OSPREY_WEB_THEME
       - carol
     landing:                            # grouped landing page served at nginx_port
       groups:
@@ -98,6 +99,22 @@ user can carry a distinct title (e.g. `"Operations"` vs `"Physics"`) without a
 per-user image. Omitting it emits no env line and inherits `web.app_name`. See the
 full field reference in `references/facility-config-schema.md` § "User roster
 entries".
+
+**Per-user default theme** (`theme`, optional). The same shape, for the same
+reason: `config.yml`'s `web.theme` is baked into the shared image, so an
+object-form entry's `theme` emits `OSPREY_WEB_THEME=<value>` into just that
+user's container, which `osprey web` treats as authoritative over `web.theme`.
+The value is either a theme **family** (`"main"`, `"desy"`, `"high-contrast"`,
+`"retro"`) — setting the palette while leaving light/dark to that user's OS
+preference — or a concrete theme **id** (`"desy-light"`), which additionally pins
+the mode. Either way it is a *default*: the user's own pick in the display menu
+outranks it from then on. An unknown value warns at container start and falls
+back to `main`, so lint checks only that the value is a string (the theme
+registry ships with the image, not with this config).
+
+The landing page in front of these terminals is themed from the deployment-level
+`web.theme` only — it is shown before anyone has identified themselves, so there
+is no per-user theme to apply yet.
 
 **The per-user list is durable**. Adding a user appends to the list (re-run the interview, or hand-edit then re-scaffold) without disturbing existing users' state. Removing a user from the list does **not** delete their named volume by default — the volume sticks around and can be reattached if the user comes back. To actually wipe a user's state, use `osprey deploy decommission <user> --purge` (see "Operating the module" below), or run `${config.runtime.engine} volume rm ${config.facility.prefix}-${user}-claude-config` by hand.
 
@@ -333,7 +350,7 @@ No new entries are required by this module on its own — web terminals reuse th
 
 - `nginx/nginx.conf` — generated; routes `/u/<user>/` to the matching upstream and serves the landing page at `/`.
 - `nginx/landing.html` — rendered from `modules.web_terminals.landing.groups` (see Configuration above): a `type: "users"` group auto-populates one card per entry in `users:`, and any `type: "links"` groups render as static link lists (e.g. facility tools). There is no `landing_page_template` field anymore — the landing page is fully data-driven from `landing.groups`.
-- `docker/web-terminal-context/base.md` — generated empty stub; intended to hold guidance every user sees.
+- `docker/web-terminal-context/base.md` — the framework-installed persona baseline, copied into every build; holds the guidance every user sees and is meant to be edited in place by the facility.
 - `docker/web-terminal-context/<user>/extra.md` — one empty stub per user; intended for per-user nicknames, working preferences, etc. The legacy flat `docker/web-terminal-context/<user>.md` is still read as a fallback when this file doesn't exist (see `osprey deploy` (up / seed) above).
 - `docker/web-terminal-context/<user>/skills/` — optional per-user skill overlay, deploy-managed and sentinel-tracked (see `osprey deploy` (up / seed) above); never touches user-authored skills already present in the running container. Seeded to the container's **project-scope** `.claude/skills/`, not `CLAUDE_CONFIG_DIR` — see `osprey deploy` (up / seed) above for why.
 
@@ -365,9 +382,10 @@ The CI job that builds the project produces it at a CI-runner path like `/builds
 
 The Dockerfile's final stage fixes this with a post-COPY step:
 
-1. Clears `execution.python_env_path` from `config.yml` so OSPREY falls back to `sys.executable` (i.e., the venv's interpreter).
-2. Sets `project_root` to `/app/${OSPREY_PROJECT_NAME}`.
-3. Runs `osprey claude regen --project /app/${OSPREY_PROJECT_NAME}` to re-render `.mcp.json` and the `claude/` settings using the new paths.
+1. Sets `project_root` in `config.yml` to `/app/${OSPREY_PROJECT_NAME}`.
+2. Runs `osprey claude regen --project /app/${OSPREY_PROJECT_NAME} --runtime-root /app/${OSPREY_PROJECT_NAME}` to re-render `.mcp.json` and the `claude/` settings using the new path.
+
+`project_root` is the only host path `config.yml` records, so that single rewrite is the whole correction. The interpreter each MCP server launches with is resolved at run time — the project's own `.venv` if it has one, else the interpreter running OSPREY — and is never read from config.
 
 If MCP servers come up dead after a deploy and the dispatch logs show paths that look like CI runner paths, this regen step is the first place to look.
 

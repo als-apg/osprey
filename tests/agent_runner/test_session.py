@@ -209,8 +209,8 @@ async def test_run_turns_stops_early_when_budget_exhausted(tmp_path: Path) -> No
     with (
         patch("osprey.agent_runner.session.build_agent_options", return_value=MagicMock()),
         patch("osprey.agent_runner.session.ClaudeSDKClient", return_value=async_cm),
-        patch("osprey.agent_runner.session._await_mcp_ready", new=AsyncMock(return_value=[])),
-        patch("osprey.agent_runner.session._expected_mcp_servers", return_value=set()),
+        patch("osprey.agent_runner.session.await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.session.expected_mcp_servers", return_value=set()),
     ):
         results = await run_turns(
             tmp_path, ["p0", "p1", "p2"], disallowed_tools=[], max_budget_usd=0.004
@@ -232,8 +232,8 @@ async def test_run_turns_runs_fixed_script(tmp_path: Path) -> None:
     with (
         patch("osprey.agent_runner.session.build_agent_options", return_value=MagicMock()),
         patch("osprey.agent_runner.session.ClaudeSDKClient", return_value=async_cm),
-        patch("osprey.agent_runner.session._await_mcp_ready", new=AsyncMock(return_value=[])),
-        patch("osprey.agent_runner.session._expected_mcp_servers", return_value=set()),
+        patch("osprey.agent_runner.session.await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.session.expected_mcp_servers", return_value=set()),
     ):
         results = await run_turns(tmp_path, ["p0", "p1"], disallowed_tools=[])
 

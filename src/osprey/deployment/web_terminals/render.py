@@ -9,6 +9,7 @@ All port arithmetic is delegated to :func:`osprey.deployment.web_terminals.ports
 
 from __future__ import annotations
 
+import re
 from importlib.resources import as_file, files
 from typing import Any
 
@@ -25,6 +26,7 @@ from osprey.deployment.web_terminals.ports import (
     allocate_ports,
     base_ports_from_config,
 )
+from osprey.utils.facility import resolve_facility_name
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -110,6 +112,11 @@ def render_web_terminals(config: Any) -> dict[str, str]:
                 # svc.display_name %}` guard false, so no env line is emitted and
                 # the app falls back to config web.app_name.
                 "display_name": entry.get("display_name"),
+                # Optional per-user default theme -> OSPREY_WEB_THEME. Same
+                # shape as display_name above: absent (the common case) leaves
+                # the template's `{% if svc.theme %}` guard false, so no env
+                # line is emitted and the app falls back to config web.theme.
+                "theme": entry.get("theme"),
                 **user_ports,
                 # One env line per companion family, derived from the web-server
                 # registry (PANEL_ENV_VARS) so a newly registered companion is
@@ -161,8 +168,9 @@ def render_web_terminals(config: Any) -> dict[str, str]:
         **auth_tls_ctx,
     }
     landing_ctx = {
-        "facility_name": facility.get("name") or "",
+        "facility_name": resolve_facility_name(root, ""),
         "groups": _build_groups(as_dict(web_terminals.get("landing")), resolved_users),
+        "theme_blocks": _landing_theme_blocks(root),
     }
 
     template_dir = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH)
@@ -183,6 +191,110 @@ def render_web_terminals(config: Any) -> dict[str, str]:
         _NGINX_OUTPUT: rendered_nginx,
         _LANDING_OUTPUT: rendered_landing,
     }
+
+
+#: The design-system custom properties the landing page's inline stylesheet
+#: uses. Read by name out of the resolved theme rather than copied as a whole
+#: emitted block: the landing page is a standalone file with no stylesheet to
+#: fall back on, so it wants only what it uses — and a rename must fail the
+#: render loudly (see ``theme_css_variables``) instead of leaving a deployed
+#: page quietly off-palette.
+_LANDING_THEME_VARIABLES = (
+    "--bg-primary",
+    "--bg-panel",
+    "--bg-elevated",
+    "--text-primary",
+    "--text-secondary",
+    "--text-muted",
+    "--color-accent",
+    "--border-default",
+    "--border-accent",
+    # The downward card shadow, not --shadow-panel: that one is a drawer edge
+    # shadow (`-4px 0 ...`), which reads as a left-hand glow on a card.
+    "--shadow-dropdown",
+)
+
+#: What a baked custom-property value is allowed to look like. Values come from
+#: the framework's own token tree rather than from operator config, so this is a
+#: belt-and-braces guard on a string that lands inside a ``<style>`` element,
+#: where HTML escaping would not save us from a ``</style>`` sequence.
+_SAFE_CSS_VALUE_RE = re.compile(r"^[#A-Za-z0-9 ,.()%/_-]+$")
+
+
+def _landing_theme_blocks(root: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build the landing page's inline theme blocks from the deployment's ``web.theme``.
+
+    The landing page is served by nginx as a flat file with no application
+    behind it — it cannot link ``tokens.css``, and it has no theme picker and no
+    ``localStorage``. So its palette is resolved here, at render time, and baked
+    into the page:
+
+    - ``web.theme`` naming a **family** (``"desy"``) yields TWO blocks: that
+      family's dark values under ``:root``, and its light values under a
+      ``prefers-color-scheme: light`` media query. Light/dark then follows each
+      viewer's OS, which is the same thing the terminals behind this page do
+      when configured with a bare family.
+    - ``web.theme`` naming a **concrete id** (``"desy-light"``) yields ONE
+      block and no media query — the deployment pinned a mode, and the landing
+      page honors that pin exactly as the terminals do.
+
+    The landing page deliberately uses the deployment-level theme and never a
+    per-user one: it is shown before anyone has identified themselves.
+
+    Args:
+        root: The parsed facility config.
+
+    Returns:
+        Block dicts for ``landing.html.j2``: ``{"media": str|None,
+        "color_scheme": str, "variables": [(name, value), ...]}``.
+
+    Raises:
+        ValueError: If a resolved value fails :data:`_SAFE_CSS_VALUE_RE`.
+        MissingThemeVariableError: If the resolved theme does not define one of
+            :data:`_LANDING_THEME_VARIABLES`.
+    """
+    from osprey.interfaces.design_system.theme_config import (
+        family_of,
+        load_theme_registry,
+        resolve_pinned_mode,
+        resolve_theme_id,
+        theme_css_variables,
+    )
+
+    configured = str(as_dict(root.get("web")).get("theme") or "main")
+    entries, defaults = load_theme_registry()
+    resolved_id = resolve_theme_id(configured, entries, defaults, config_key="web.theme")
+    pinned_mode = resolve_pinned_mode(configured, entries)
+
+    #: (media query or None, color-scheme, theme id) per block to emit.
+    wanted: list[tuple[str | None, str, str]]
+    if pinned_mode is not None:
+        wanted = [(None, pinned_mode, resolved_id)]
+    else:
+        family = family_of(resolved_id, entries) or "main"
+        family_modes = defaults[family]
+        wanted = [
+            (None, "dark", family_modes["dark"]),
+            ("(prefers-color-scheme: light)", "light", family_modes["light"]),
+        ]
+
+    blocks: list[dict[str, Any]] = []
+    for media, color_scheme, theme_id in wanted:
+        variables = theme_css_variables(theme_id, _LANDING_THEME_VARIABLES)
+        for name, value in variables.items():
+            if not _SAFE_CSS_VALUE_RE.match(value):
+                raise ValueError(
+                    f"theme {theme_id!r} value for {name!r} is not safe to inline "
+                    f"into the landing page's <style>: {value!r}"
+                )
+        blocks.append(
+            {
+                "media": media,
+                "color_scheme": color_scheme,
+                "variables": list(variables.items()),
+            }
+        )
+    return blocks
 
 
 def _landing_url(root: dict[str, Any], nginx_port: int) -> str:

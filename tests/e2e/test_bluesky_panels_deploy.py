@@ -7,10 +7,8 @@ real containers and drives a real scan end to end through the sidecar.
 Reuses ``tests/e2e/_orm_stack.py`` (the single source for FR11's VA-backed
 turn-key deploy config): ``override_yaml()`` flips the tutorial's default
 ``control_system.type: mock`` to ``virtual_accelerator`` (a connector-mediated
-scan only runs against a setpoint-tracking control system) and sets
-``execution.execution_method: container`` (so ``BLUESKY_LAUNCH_TOKEN`` mints
-safely on ``osprey deploy up`` -- see ``container_lifecycle.py``'s
-``_local_exec_arming_unsafe``); ``build_args``/``find_osprey_console_script``
+scan only runs against a setpoint-tracking control system);
+``build_args``/``find_osprey_console_script``
 build the real project; ``select_correctors``/``select_bpms``/
 ``write_scan_env`` wire the substrate device env from the *built* project's
 own ``data/channel_limits.json`` -- never a hardcoded preset channel. The one
@@ -392,11 +390,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     limits = _channel_limits(project_dir)
     correctors = _orm_stack.select_correctors(limits, count=1)
     bpms = _orm_stack.select_bpms(limits, count=2)
-    # launch_token left unset: execution.execution_method=container (from
-    # override_yaml()) makes _local_exec_arming_unsafe False, so `osprey
-    # deploy up` auto-mints BLUESKY_LAUNCH_TOKEN safely -- no need to supply
-    # one ourselves (unlike test_va_substrate_equivalence.py's local-exec
-    # posture, which deliberately gates auto-minting off).
+    # launch_token left unset: `osprey deploy up` mints BLUESKY_LAUNCH_TOKEN
+    # for every deployed service that declares it, so there is nothing to
+    # supply ourselves here.
     _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source

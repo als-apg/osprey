@@ -1,0 +1,106 @@
+"""Honesty guards for the two ``configuration`` rows that scolded shipped defaults.
+
+Both rows used to make ``osprey health`` exit non-zero on a project that was
+configured exactly as OSPREY ships it:
+
+* ``deployed_services`` warned unconditionally on an empty list, even though the
+  attach-to-an-existing-stack presets and the standalone templates ship it empty
+  on purpose — and the sibling ``containers`` category already treats the same
+  empty list as normal;
+* ``timezone`` handed out remediation advice ("set ``TZ`` in ``.env``") that no
+  longer clears the warning, because the shipped templates pin a literal
+  ``system.timezone: UTC`` that no environment variable feeds.
+
+These tests pin the corrected behaviour: the empty-services case must not raise
+the report's exit code, and the timezone advice must name the key that actually
+drives the value.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from osprey.health.core.configuration import ConfigState, configuration
+from osprey.health.models import CheckReport, CheckResult, Status
+
+
+def _rows(config: dict) -> dict[str, CheckResult]:
+    """Run the category over a cleanly parsed config and index rows by name."""
+    state = ConfigState(
+        config_path=Path("/proj/config.yml"),
+        exists=True,
+        cwd=Path("/proj"),
+        config=config,
+    )
+    return {r.name: r for r in configuration(state)()}
+
+
+def _shipped_default_config() -> dict:
+    """A config shaped like a shipped attached-project template.
+
+    Empty ``deployed_services`` plus the literal ``system.timezone: UTC`` the
+    templates pin — the exact combination that used to produce two warnings.
+    """
+    return {
+        "models": {"python_code_generator": {"provider": "p", "model_id": "m"}},
+        "deployed_services": [],
+        "services": {},
+        "api": {"providers": {"anthropic": {}}},
+        "system": {"timezone": "UTC"},
+    }
+
+
+class TestEmptyDeployedServices:
+    def test_empty_list_is_skip_not_warning(self):
+        row = _rows({"deployed_services": []})["deployed_services"]
+        assert row.status is Status.SKIP
+
+    def test_absent_key_is_skip_not_warning(self):
+        row = _rows({})["deployed_services"]
+        assert row.status is Status.SKIP
+
+    def test_message_names_the_supported_shapes(self):
+        row = _rows({"deployed_services": []})["deployed_services"]
+        assert row.message == "No services deployed — attached or service-free project"
+
+    def test_empty_list_does_not_raise_the_exit_code(self):
+        rows = _rows({"deployed_services": []})
+        report = CheckReport(results=[rows["deployed_services"]])
+        assert report.exit_code == 0
+
+    def test_populated_list_still_reports_ok(self):
+        row = _rows({"deployed_services": ["svc"], "services": {"svc": {}}})["deployed_services"]
+        assert row.status is Status.OK
+        assert "svc" in row.message
+
+    def test_undefined_service_is_still_an_error(self):
+        """The downgrade must not soften the real fault it sits next to."""
+        row = _rows({"deployed_services": ["missing"], "services": {}})["service_definitions"]
+        assert row.status is Status.ERROR
+
+
+class TestTimezoneRemediation:
+    def test_advice_names_the_config_key(self):
+        row = _rows({"system": {"timezone": "UTC"}})["timezone"]
+        assert row.status is Status.WARNING
+        assert "system.timezone" in row.details
+        assert "config.yml" in row.details
+
+    def test_advice_drops_the_unclearable_env_var_suggestion(self):
+        """``TZ`` in ``.env`` no longer feeds the literal the templates pin."""
+        row = _rows({"system": {"timezone": "UTC"}})["timezone"]
+        assert "TZ in .env" not in row.details
+        assert ".env" not in row.details
+
+    def test_configured_timezone_still_clears_the_warning(self):
+        row = _rows({"system": {"timezone": "Europe/Berlin"}})["timezone"]
+        assert row.status is Status.OK
+        assert "Europe/Berlin" in row.message
+
+
+def test_shipped_default_project_emits_no_deployed_services_warning():
+    """A stock attached project must not be scolded for its own defaults."""
+    rows = _rows(_shipped_default_config())
+    assert rows["deployed_services"].status is Status.SKIP
+    warned = {name for name, r in rows.items() if r.status is Status.WARNING}
+    assert warned == {"timezone"}, f"unexpected warnings on a shipped default: {warned}"

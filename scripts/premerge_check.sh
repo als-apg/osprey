@@ -40,7 +40,10 @@ else
   echo "✓ No obvious secrets"
 fi
 
-if ! uv run pytest tests/ --ignore=tests/e2e -x --tb=no -q >/dev/null 2>&1; then
+# --maxfail=1 (same option -x aliases): fast-fail under xdist is approximate —
+# the other workers still finish their in-flight tests, so a short-circuited
+# run can report more than one failure.
+if ! uv run pytest tests/ --ignore=tests/e2e -n 4 --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1; then
   echo "✗ Tests failing"
   ERRORS=$((ERRORS + 1))
 else
@@ -57,8 +60,11 @@ else
 fi
 
 # Type hints (fixed: only count functions, not classes; exclude methods)
-new_funcs=$(git diff $BASE...HEAD | grep -E "^\+def [a-z_]" | grep -v "^\+    " | wc -l || echo 0)
-typed_funcs=$(git diff $BASE...HEAD | grep -E "^\+def [a-z_][^(]*\([^)]*\) *->" | grep -v "^\+    " | wc -l || echo 0)
+# The `|| true` is inside the group so a no-match grep (exit 1) can't abort the
+# substitution under `set -eo pipefail`; `xargs` strips the padding BSD `wc -l`
+# emits, leaving a bare integer for the comparisons below.
+new_funcs=$({ git diff $BASE...HEAD | grep -E "^\+def [a-z_]" | grep -v "^\+    " || true; } | wc -l | xargs)
+typed_funcs=$({ git diff $BASE...HEAD | grep -E "^\+def [a-z_][^(]*\([^)]*\) *->" | grep -v "^\+    " || true; } | wc -l | xargs)
 if [ "$new_funcs" -gt 0 ]; then
   echo "  New top-level functions: $new_funcs"
   echo "  With return type hints: $typed_funcs"

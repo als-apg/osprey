@@ -12,8 +12,8 @@ Public surface::
         combined_text,
         resolve_default_model,
         sdk_env,
-        _expected_mcp_servers,
-        _await_mcp_ready,
+        expected_mcp_servers,
+        await_mcp_ready,
         run_query,
         agent_session,
         run_turns,
@@ -26,10 +26,10 @@ Public surface::
 from osprey.agent_runner.primitives import (
     SDKWorkflowResult,
     ToolTrace,
-    _await_mcp_ready,
-    _expected_mcp_servers,
+    await_mcp_ready,
     build_agent_options,
     combined_text,
+    expected_mcp_servers,
     resolve_default_model,
     sdk_env,
 )
@@ -57,8 +57,8 @@ __all__ = [
     "combined_text",
     "resolve_default_model",
     "sdk_env",
-    "_expected_mcp_servers",
-    "_await_mcp_ready",
+    "expected_mcp_servers",
+    "await_mcp_ready",
     # runner (single-turn)
     "run_query",
     # session (multi-turn)

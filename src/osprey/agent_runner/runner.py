@@ -31,10 +31,10 @@ except ImportError:
 
 from osprey.agent_runner.primitives import (
     SDKWorkflowResult,
-    _await_mcp_ready,
     _drain_response,
-    _expected_mcp_servers,
+    await_mcp_ready,
     build_agent_options,
+    expected_mcp_servers,
 )
 
 # ---------------------------------------------------------------------------
@@ -58,9 +58,9 @@ async def run_query(
     the SDK forwards to the Claude Code CLI as ``--disallowedTools``, blocking
     writes even under ``permission_mode=bypassPermissions``.
 
-    The function polls ``_await_mcp_ready`` before sending the prompt so the
+    The function polls ``await_mcp_ready`` before sending the prompt so the
     agent always starts with a fully registered toolset — eliminating the
-    controls cold-start race described in ``primitives._await_mcp_ready``.
+    controls cold-start race described in ``primitives.await_mcp_ready``.
 
     Args:
         project_dir: Path to an initialized OSPREY project.
@@ -104,9 +104,7 @@ async def run_query(
         # we can poll ``get_mcp_status()`` and wait out async MCP registration
         # before the first turn — eliminating the controls cold-start race.
         async with ClaudeSDKClient(options=options) as client:
-            workflow.mcp_servers = await _await_mcp_ready(
-                client, _expected_mcp_servers(project_dir)
-            )
+            workflow.mcp_servers = await await_mcp_ready(client, expected_mcp_servers(project_dir))
             await client.query(prompt)
             await _drain_response(client, workflow)
     except Exception as exc:

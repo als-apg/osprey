@@ -65,6 +65,48 @@ def test_postgresql_deploy_mints_ariel_db_password(captured_argv, _clean_token_e
     assert "BLUESKY_LAUNCH_TOKEN" not in env
 
 
+@pytest.mark.parametrize("execution_method", ["local", "subprocess"])
+def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
+    captured_argv, _clean_token_env, monkeypatch, tmp_path, execution_method
+):
+    """ARIEL_DB_PASSWORD mints with writes enabled and Python running as a subprocess.
+
+    The ``captured_argv`` fixture's config carries no ``control_system`` or
+    ``execution`` section, so on its own it never exercises this combination —
+    the one a since-deleted deploy-time guard used to withhold tokens under
+    (``writes_enabled: true`` plus the ``local`` spelling of the subprocess
+    backend). Minting is now unconditional for every var a deployed service
+    declares, and this password in particular is not an arming credential at
+    all: it is the Postgres superuser secret the ARIEL store initializes with,
+    and withholding it leaves the store on the shared ``ariel``/``ariel``
+    default. Assert it for ARIEL_DB_PASSWORD specifically rather than trusting a
+    bluesky-scoped test to generalize across the token map.
+
+    Both spellings are covered: ``local`` is the legacy name for the same
+    subprocess backend (see ``osprey.utils.config.resolve_execution_method``)
+    and is the value the deleted guard keyed on.
+    """
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {
+                "deployed_services": ["postgresql"],
+                "control_system": {"writes_enabled": True},
+                "execution": {"execution_method": execution_method},
+            },
+            ["docker-compose.yml"],
+        ),
+    )
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+
+    env = _parse_env(tmp_path)
+    assert env.get("ARIEL_DB_PASSWORD")
+    assert len(env["ARIEL_DB_PASSWORD"]) == 64
+    assert _validate_var("ARIEL_DB_PASSWORD", env["ARIEL_DB_PASSWORD"])
+
+
 def test_ariel_db_password_generator_is_uri_safe_every_time():
     """The value lands unescaped in the DSN's password slot, so every mint
     must be free of URI-reserved characters — guaranteed by the hex alphabet."""
@@ -98,10 +140,3 @@ def test_operator_password_with_reserved_char_is_rejected(
     (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=p@ssword\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="ARIEL_DB_PASSWORD"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-
-def test_ariel_db_password_is_local_exec_safe_listed():
-    """The var gates the logbook store, not a control-system write path, so it
-    stays mintable under writes_enabled + unsandboxed local exec (the same
-    triage as ZO_ROOT_USER_PASSWORD)."""
-    assert "ARIEL_DB_PASSWORD" in container_lifecycle._LOCAL_EXEC_SAFE_VARS

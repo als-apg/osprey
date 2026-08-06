@@ -3,6 +3,8 @@
 Tests for base enhancement module, factory, and module implementations.
 """
 
+import logging
+import sys
 from datetime import UTC
 
 import pytest
@@ -20,6 +22,9 @@ from osprey.services.ariel_search.enhancement.semantic_processor import (
 from osprey.services.ariel_search.enhancement.text_embedding import (
     TextEmbeddingModule,
 )
+from tests.services.ariel_search.conftest import _FakeConnection, _FakeEmbeddingProvider
+
+TABLES_QUERY = "information_schema.tables"
 
 
 class TestEnhancementFactory:
@@ -62,7 +67,7 @@ class TestEnhancementFactory:
             {
                 "database": {"uri": "postgresql://localhost:5432/test"},
                 "enhancement_modules": {
-                    "semantic_processor": {"enabled": True},
+                    "semantic_processor": {"enabled": True, "provider": "ollama"},
                     "text_embedding": {
                         "enabled": True,
                         "models": [{"name": "nomic-embed-text", "dimension": 768}],
@@ -136,6 +141,7 @@ class TestSemanticProcessorModule:
         module = SemanticProcessorModule()
         module.configure(
             {
+                "provider": "ollama",
                 "prompt_template": "Custom prompt: {text}",
             }
         )
@@ -270,7 +276,7 @@ class TestSemanticProcessorPromptGeneration:
     def test_custom_prompt_template(self):
         """Configure can set custom prompt template."""
         module = SemanticProcessorModule()
-        module.configure({"prompt_template": "Custom: {text}"})
+        module.configure({"provider": "ollama", "prompt_template": "Custom: {text}"})
         assert module._prompt_template == "Custom: {text}"
 
     def test_prompt_template_format(self):
@@ -323,15 +329,15 @@ class TestSemanticProcessorModuleConfig:
     """Tests for SemanticProcessorModule configure method."""
 
     def test_configure_empty_dict(self):
-        """Configure with empty dict uses defaults."""
+        """Configure with empty dict names the provider key it needs."""
         module = SemanticProcessorModule()
-        module.configure({})
-        # Should not raise, uses defaults
+        with pytest.raises(ValueError, match="semantic_processor.provider"):
+            module.configure({})
 
     def test_configure_with_model_config(self):
         """Configure sets model_config for LLM calls."""
         module = SemanticProcessorModule()
-        module.configure({"model": {"provider": "ollama", "name": "llama3"}})
+        module.configure({"provider": "ollama", "model": {"name": "llama3"}})
         assert module._model_config == {"provider": "ollama", "name": "llama3"}
 
 
@@ -670,6 +676,7 @@ class TestSemanticProcessorEnhanceWithLLM:
         m = SemanticProcessorModule()
         m.configure(
             {
+                "provider": "ollama",
                 "model": {"model_id": "llama3"},
             }
         )
@@ -717,3 +724,569 @@ class TestGetEnhancementModuleConfigDetails:
         assert te_config.models is not None
         assert len(te_config.models) == 1
         assert te_config.models[0].name == "nomic-embed-text"
+
+
+class TestSemanticProcessorConfigureModelResolution:
+    """Tests for SemanticProcessorModule.configure tier resolution."""
+
+    def test_configure_resolves_model_id_when_provider_given(self, monkeypatch):
+        """A provider plus a model_id routes the id through resolve_model_id."""
+        calls = []
+
+        def fake_resolve(provider, model_id):
+            calls.append((provider, model_id))
+            return f"{provider}/{model_id}-resolved"
+
+        monkeypatch.setattr("osprey.models.tiers.resolve_model_id", fake_resolve)
+
+        module = SemanticProcessorModule()
+        module.configure(
+            {
+                "provider": "ollama",
+                "model": {"model_id": "fast", "temperature": 0.1},
+            }
+        )
+
+        assert calls == [("ollama", "fast")]
+        assert module._model_config == {
+            "provider": "ollama",
+            "model_id": "ollama/fast-resolved",
+            "temperature": 0.1,
+        }
+
+    def test_configure_without_provider_raises_before_resolution(self, monkeypatch):
+        """No provider is an error, not a silent fall-through to a default."""
+
+        def boom(provider, model_id):
+            raise AssertionError("resolve_model_id must not run without a provider")
+
+        monkeypatch.setattr("osprey.models.tiers.resolve_model_id", boom)
+
+        module = SemanticProcessorModule()
+        with pytest.raises(ValueError, match="semantic_processor.provider"):
+            module.configure({"model": {"model_id": "llama3"}})
+
+    def test_configure_with_provider_but_no_model_id_skips_resolution(self, monkeypatch):
+        """A provider alone is not enough — resolution needs a model_id too."""
+
+        def boom(provider, model_id):
+            raise AssertionError("resolve_model_id must not run without a model_id")
+
+        monkeypatch.setattr("osprey.models.tiers.resolve_model_id", boom)
+
+        module = SemanticProcessorModule()
+        module.configure({"provider": "ollama", "model": {"temperature": 0.2}})
+
+        assert module._model_config == {"provider": "ollama", "temperature": 0.2}
+
+
+class TestSemanticProcessorProcessText:
+    """Tests for SemanticProcessorModule._process_text with a patched LLM."""
+
+    @pytest.fixture
+    def module(self):
+        """Module configured with a model config (no tier resolution)."""
+        m = SemanticProcessorModule()
+        m.configure({"provider": "ollama", "model": {"model_id": "llama3"}})
+        return m
+
+    @pytest.mark.asyncio
+    async def test_process_text_parses_llm_json(self, module, monkeypatch):
+        """A JSON completion becomes a SemanticProcessorResult."""
+        calls = []
+
+        def fake_completion(message, model_config=None):
+            calls.append({"message": message, "model_config": model_config})
+            return '{"keywords": ["vacuum", "pump"], "summary": "Pump replaced."}'
+
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            fake_completion,
+        )
+
+        result = await module._process_text("Replaced vacuum pump VP-103.")
+
+        assert result is not None
+        assert result.keywords == ["vacuum", "pump"]
+        assert result.summary == "Pump replaced."
+        assert calls[0]["model_config"] == {"provider": "ollama", "model_id": "llama3"}
+        assert "Replaced vacuum pump VP-103." in calls[0]["message"]
+
+    @pytest.mark.asyncio
+    async def test_process_text_truncates_entry_to_8000_chars(self, module, monkeypatch):
+        """Entry text is clipped to 8000 characters before prompting."""
+        calls = []
+
+        def fake_completion(message, model_config=None):
+            calls.append(message)
+            return '{"keywords": [], "summary": "s"}'
+
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            fake_completion,
+        )
+
+        await module._process_text("a" * 8000 + "TAIL")
+
+        assert "TAIL" not in calls[0]
+        assert "a" * 8000 in calls[0]
+
+    @pytest.mark.asyncio
+    async def test_process_text_stringifies_non_string_response(self, module, monkeypatch):
+        """A non-str completion is coerced with str() before parsing."""
+
+        class _JSONish:
+            def __str__(self) -> str:
+                return '{"keywords": ["rf"], "summary": "RF fault."}'
+
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            lambda message, model_config=None: _JSONish(),
+        )
+
+        result = await module._process_text("RF cavity fault.")
+
+        assert result is not None
+        assert result.keywords == ["rf"]
+
+    @pytest.mark.asyncio
+    async def test_process_text_passes_none_model_config_when_unconfigured(self, monkeypatch):
+        """An unconfigured module sends model_config=None, not an empty dict."""
+        calls = []
+
+        def fake_completion(message, model_config=None):
+            calls.append(model_config)
+            return '{"keywords": [], "summary": "s"}'
+
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            fake_completion,
+        )
+
+        await SemanticProcessorModule()._process_text("some text")
+
+        assert calls == [None]
+
+    @pytest.mark.asyncio
+    async def test_process_text_import_error_degrades_gracefully(self, module, monkeypatch, caplog):
+        """An unimportable completion module yields None plus a warning."""
+        monkeypatch.setitem(sys.modules, "osprey.models.completion", None)
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            result = await module._process_text("some text")
+
+        assert result is None
+        assert "osprey.models.completion not available" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_process_text_llm_failure_returns_none(self, module, monkeypatch, caplog):
+        """An LLM exception is logged and reported as no result."""
+
+        def boom(message, model_config=None):
+            raise RuntimeError("model server down")
+
+        monkeypatch.setattr("osprey.models.completion.get_chat_completion", boom)
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            result = await module._process_text("some text")
+
+        assert result is None
+        assert "LLM processing failed: model server down" in caplog.text
+
+
+class TestSemanticProcessorEnhanceBranches:
+    """Tests for SemanticProcessorModule.enhance store/skip/swallow branches."""
+
+    @pytest.fixture
+    def module(self):
+        """Module configured with a model config."""
+        m = SemanticProcessorModule()
+        m.configure({"provider": "ollama", "model": {"model_id": "llama3"}})
+        return m
+
+    @pytest.fixture
+    def entry(self):
+        """Non-empty sample entry."""
+        return {"entry_id": "entry-001", "raw_text": "Replaced vacuum pump VP-103."}
+
+    @pytest.mark.asyncio
+    async def test_enhance_stores_keywords_and_summary(self, module, entry, monkeypatch):
+        """A parsed result is written to enhanced_entries."""
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            lambda message, model_config=None: (
+                '{"keywords": ["vacuum", "pump"], "summary": "Pump replaced."}'
+            ),
+        )
+        conn = _FakeConnection()
+
+        await module.enhance(entry, conn)
+
+        assert len(conn.calls) == 1
+        sql, params = conn.calls[0]
+        assert "UPDATE enhanced_entries" in sql
+        assert params == [["vacuum", "pump"], "Pump replaced.", "entry-001"]
+
+    @pytest.mark.asyncio
+    async def test_enhance_skips_store_when_parsing_fails(self, module, entry, monkeypatch):
+        """An unparseable completion leaves the database untouched."""
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            lambda message, model_config=None: "not JSON at all",
+        )
+        conn = _FakeConnection()
+
+        await module.enhance(entry, conn)
+
+        assert conn.calls == []
+
+    @pytest.mark.asyncio
+    async def test_enhance_swallows_store_failure(self, module, entry, monkeypatch, caplog):
+        """A failing UPDATE is logged, not raised — enhancement is best-effort."""
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            lambda message, model_config=None: '{"keywords": ["a"], "summary": "s"}',
+        )
+        conn = _FakeConnection(results=[RuntimeError("connection reset")])
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await module.enhance(entry, conn)
+
+        assert "Failed to process entry entry-001: connection reset" in caplog.text
+
+
+class TestSemanticProcessorParseResponseFences:
+    """Tests for _parse_response markdown-fence stripping."""
+
+    def test_parse_response_plain_triple_backtick_fence(self):
+        """A bare ``` fence (no json tag) is stripped before parsing."""
+        module = SemanticProcessorModule()
+        response = '```\n{"keywords": ["beam"], "summary": "Beam lost."}\n```'
+
+        result = module._parse_response(response)
+
+        assert result is not None
+        assert result.keywords == ["beam"]
+        assert result.summary == "Beam lost."
+
+    def test_parse_response_json_fence_without_closing_fence(self):
+        """An unterminated ```json fence still parses."""
+        module = SemanticProcessorModule()
+        response = '```json\n{"keywords": ["rf"], "summary": "RF trip."}'
+
+        result = module._parse_response(response)
+
+        assert result is not None
+        assert result.keywords == ["rf"]
+
+
+class TestSemanticProcessorHealthCheckBranches:
+    """Tests for SemanticProcessorModule.health_check outcomes."""
+
+    @pytest.mark.asyncio
+    async def test_health_check_ok_when_llm_responds(self, monkeypatch):
+        """A truthy completion reports healthy."""
+        calls = []
+
+        def fake_completion(message, model_config=None):
+            calls.append(message)
+            return "OK"
+
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            fake_completion,
+        )
+
+        healthy, message = await SemanticProcessorModule().health_check()
+
+        assert (healthy, message) == (True, "OK")
+        assert calls == ["Say OK"]
+
+    @pytest.mark.asyncio
+    async def test_health_check_unhealthy_on_empty_response(self, monkeypatch):
+        """An empty completion reports unhealthy."""
+        monkeypatch.setattr(
+            "osprey.models.completion.get_chat_completion",
+            lambda message, model_config=None: "",
+        )
+
+        healthy, message = await SemanticProcessorModule().health_check()
+
+        assert (healthy, message) == (False, "Empty response from LLM")
+
+    @pytest.mark.asyncio
+    async def test_health_check_unhealthy_on_import_error(self, monkeypatch):
+        """An unimportable completion module reports unhealthy."""
+        monkeypatch.setitem(sys.modules, "osprey.models.completion", None)
+
+        healthy, message = await SemanticProcessorModule().health_check()
+
+        assert (healthy, message) == (False, "osprey.models.completion not available")
+
+    @pytest.mark.asyncio
+    async def test_health_check_unhealthy_on_llm_error(self, monkeypatch):
+        """An LLM exception surfaces as the unhealthy message."""
+
+        def boom(message, model_config=None):
+            raise RuntimeError("no route to host")
+
+        monkeypatch.setattr("osprey.models.completion.get_chat_completion", boom)
+
+        healthy, message = await SemanticProcessorModule().health_check()
+
+        assert (healthy, message) == (False, "no route to host")
+
+
+def _embedding_module(models=None, provider=None):
+    """Build a TextEmbeddingModule with an inline provider config."""
+    module = TextEmbeddingModule()
+    module.configure(
+        {
+            "models": models if models is not None else [{"name": "test-model", "dimension": 4}],
+            "provider": provider
+            if provider is not None
+            else {"name": "fake", "base_url": "http://fake:11434"},
+        }
+    )
+    return module
+
+
+class TestTextEmbeddingCheckTablesExist:
+    """Tests for TextEmbeddingModule._check_tables_exist caching and latching."""
+
+    @pytest.mark.asyncio
+    async def test_tables_present_is_cached_after_first_probe(self):
+        """A positive probe is cached — the second call issues no SQL."""
+        module = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        assert await module._check_tables_exist(conn) is True
+        assert len(conn.calls) == 1
+
+        assert await module._check_tables_exist(conn) is True
+        assert len(conn.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_tables_absent_warns_and_caches_negative(self, caplog):
+        """A negative probe warns once and caches False."""
+        module = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(False,)]})
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            assert await module._check_tables_exist(conn) is False
+
+        assert "Embedding tables do not exist" in caplog.text
+        assert module._tables_exist is False
+        assert len(conn.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_probe_stops_at_first_existing_table(self):
+        """The scan short-circuits on the first model whose table exists."""
+        module = _embedding_module(
+            models=[{"name": "model-a", "dimension": 4}, {"name": "model-b", "dimension": 4}]
+        )
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        assert await module._check_tables_exist(conn) is True
+        assert len(conn.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_check_tables_exist_latches_first_outcome_permanently(self):
+        """HAZARD: the tri-state latch is permanent for the module instance.
+
+        ``_tables_exist`` starts as None and is written exactly once, by the
+        first probe. Whatever that probe decided is returned forever after —
+        the module never re-probes, so a table created *after* a negative probe
+        stays invisible for the lifetime of the instance (and, in the service,
+        for the lifetime of the process). A run that starts before the pgvector
+        migration lands will skip text embedding for every entry even once the
+        tables are there; only a fresh module instance clears the latch.
+        """
+        module = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(False,)]})
+
+        assert await module._check_tables_exist(conn) is False
+        assert len(conn.calls) == 1
+
+        # The world changes: the migration runs and the table now exists.
+        conn.recorder.rows_for[TABLES_QUERY] = [(True,)]
+
+        assert await module._check_tables_exist(conn) is False, (
+            "latched negative must survive the table appearing"
+        )
+        assert len(conn.calls) == 1, "no re-probe is ever issued"
+
+        # A fresh instance is the only way back.
+        assert await _embedding_module()._check_tables_exist(conn) is True
+
+    @pytest.mark.asyncio
+    async def test_enhance_returns_early_when_tables_missing(self):
+        """enhance() stops at the table check — no provider, no INSERT."""
+        module = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(False,)]})
+
+        await module.enhance({"entry_id": "entry-001", "raw_text": "Beam at 500mA."}, conn)
+
+        assert len(conn.calls) == 1
+        assert not any("INSERT" in sql for sql in conn.sql)
+        assert module._provider is None
+
+
+class TestTextEmbeddingEnhanceWithProvider:
+    """Tests for TextEmbeddingModule.enhance against a fake embedding provider."""
+
+    @pytest.fixture
+    def entry(self):
+        """Non-empty sample entry."""
+        return {"entry_id": "entry-001", "raw_text": "Beam current stabilized at 500mA."}
+
+    @pytest.mark.asyncio
+    async def test_enhance_stores_embedding_in_model_table(self, entry, monkeypatch):
+        """A successful embedding is upserted into the model's own table."""
+        provider = _FakeEmbeddingProvider(vectors=[[0.1, 0.2, 0.3, 0.4]])
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+        module = _embedding_module(
+            provider={"name": "fake", "base_url": "http://fake:11434", "api_key": "secret"}
+        )
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance(entry, conn)
+
+        insert_sql = [sql for sql in conn.sql if "INSERT INTO" in sql]
+        assert len(insert_sql) == 1
+        assert "embeddings_test_model" in insert_sql[0]
+        assert conn.calls[-1][1] == ["entry-001", [0.1, 0.2, 0.3, 0.4]]
+
+        assert provider.calls == [
+            {
+                "texts": ["Beam current stabilized at 500mA."],
+                "model_id": "test-model",
+                "api_key": "secret",
+                "base_url": "http://fake:11434",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_enhance_falls_back_to_provider_default_base_url(self, entry, monkeypatch):
+        """With no configured base_url the provider's own default is used."""
+        provider = _FakeEmbeddingProvider(default_base_url="http://provider-default:11434")
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+        module = _embedding_module(provider={"name": "fake"})
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance(entry, conn)
+
+        assert provider.calls[0]["base_url"] == "http://provider-default:11434"
+        assert provider.calls[0]["api_key"] is None
+
+    @pytest.mark.asyncio
+    async def test_enhance_truncates_text_to_model_token_budget(self, monkeypatch):
+        """Text is clipped to max_input_tokens * 4 characters."""
+        provider = _FakeEmbeddingProvider()
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+        module = _embedding_module(
+            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 10}]
+        )
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 100}, conn)
+
+        assert provider.calls[0]["texts"] == ["x" * 40]
+
+    @pytest.mark.asyncio
+    async def test_enhance_loads_provider_once_across_entries(self, entry, monkeypatch):
+        """The provider is looked up lazily and then reused."""
+        lookups = []
+        provider = _FakeEmbeddingProvider()
+
+        def fake_lookup(name):
+            lookups.append(name)
+            return provider
+
+        monkeypatch.setattr("osprey.models.embeddings.get_embedding_provider", fake_lookup)
+        module = _embedding_module(provider="ollama")
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance(entry, conn)
+        await module.enhance(entry, conn)
+
+        assert lookups == ["ollama"]
+
+    @pytest.mark.asyncio
+    async def test_enhance_raises_when_provider_fails_for_every_model(
+        self, entry, monkeypatch, caplog
+    ):
+        """Every model failing escalates to RuntimeError naming each one."""
+        provider = _FakeEmbeddingProvider(error=RuntimeError("embedding backend down"))
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+        module = _embedding_module(
+            models=[{"name": "model-a", "dimension": 4}, {"name": "model-b", "dimension": 4}]
+        )
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        with caplog.at_level(logging.WARNING, logger="ariel"), pytest.raises(RuntimeError) as exc:
+            await module.enhance(entry, conn)
+
+        assert "All embedding models failed for entry entry-001" in str(exc.value)
+        assert "model-a: embedding backend down" in str(exc.value)
+        assert "model-b: embedding backend down" in str(exc.value)
+        assert "Failed to generate embedding for entry entry-001" in caplog.text
+        assert not any("INSERT" in sql for sql in conn.sql)
+
+
+class TestTextEmbeddingHealthCheckBranches:
+    """Tests for TextEmbeddingModule.health_check outcomes."""
+
+    @pytest.mark.asyncio
+    async def test_health_check_delegates_to_provider(self, monkeypatch):
+        """A healthy provider's verdict is returned, with credentials passed through."""
+        provider = _FakeEmbeddingProvider(healthy=(True, "ollama reachable"))
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+        module = _embedding_module(
+            provider={"name": "fake", "base_url": "http://fake:11434", "api_key": "secret"}
+        )
+
+        assert await module.health_check() == (True, "ollama reachable")
+        assert provider.calls == [
+            {"check_health": True, "api_key": "secret", "base_url": "http://fake:11434"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_health_check_reports_provider_unhealthy(self, monkeypatch):
+        """An unhealthy provider's message is surfaced verbatim."""
+        provider = _FakeEmbeddingProvider(healthy=(False, "connection refused"))
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+
+        assert await _embedding_module().health_check() == (False, "connection refused")
+
+    @pytest.mark.asyncio
+    async def test_health_check_unhealthy_when_provider_lookup_fails(self, monkeypatch):
+        """A provider that cannot be loaded reports unhealthy rather than raising."""
+
+        def boom(name):
+            raise ValueError("unknown embedding provider 'fake'")
+
+        monkeypatch.setattr("osprey.models.embeddings.get_embedding_provider", boom)
+
+        healthy, message = await _embedding_module().health_check()
+
+        assert healthy is False
+        assert message == "unknown embedding provider 'fake'"

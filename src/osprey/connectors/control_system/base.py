@@ -16,6 +16,11 @@ from typing import Any
 
 logger = logging.getLogger("osprey.connectors.control_system")
 
+# Tripped the first time a write reads a config that still declares the retired
+# ``control_system.write_verification.fail_on_mismatch: true``.  Warning once per
+# process keeps a scan's thousands of writes from burying the operator in repeats.
+_fail_on_mismatch_warned = False
+
 
 @dataclass
 class ChannelMetadata:
@@ -100,6 +105,39 @@ def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteRes
         ),
         blocked=True,
         refusal_reason="WRITES_DISABLED",
+    )
+
+
+def _warn_once_if_fail_on_mismatch_set(verification: Any) -> None:
+    """Warn once per process if this project still declares ``fail_on_mismatch: true``.
+
+    The key was deleted because nothing ever read it: a failed verification has
+    never stopped a write on the default path. A project that still carries it at
+    ``true`` is running on a belief about its own safety posture that was never
+    true, so it gets told once — at the first write, where the belief matters —
+    which path actually enforces verification.
+
+    The other retired ``write_verification`` keys stay silent: ``enabled`` and
+    ``timeout`` were inert at every value, so their presence misleads nobody about
+    what a write does.
+
+    Args:
+        verification: The ``control_system.write_verification`` mapping from the
+            global config, or whatever non-mapping value the key holds.
+    """
+    global _fail_on_mismatch_warned
+    if _fail_on_mismatch_warned:
+        return
+    if not isinstance(verification, dict) or verification.get("fail_on_mismatch") is not True:
+        return
+
+    _fail_on_mismatch_warned = True
+    logger.warning(
+        "config.yml sets control_system.write_verification.fail_on_mismatch: true, "
+        "but that key has no reader and never had one — a failed verification does "
+        "not block or roll back a write on this path. Remove it. The path that does "
+        "enforce verification is write_channel_checked(), which raises when a write "
+        "is refused, fails, or comes back unverified; scan plans write through it."
     )
 
 
@@ -207,6 +245,11 @@ class ControlSystemConnector(ABC):
         # Fall back to global config (or hardcoded defaults if config unavailable)
         try:
             from osprey.utils.config import get_config_value
+
+            verification = get_config_value("control_system.write_verification", {})
+            # Config loading itself stays silent about retired keys; a legacy project
+            # only hears about fail_on_mismatch when it actually writes.
+            _warn_once_if_fail_on_mismatch_set(verification)
 
             level = get_config_value("control_system.write_verification.default_level", "callback")
 

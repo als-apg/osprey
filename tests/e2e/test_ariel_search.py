@@ -9,13 +9,14 @@ Run with:
 
 from __future__ import annotations
 
-import atexit
 import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+
+from tests._container_support import is_docker_available, start_or_skip, stop_quietly
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -74,31 +75,24 @@ def is_dev_database_available() -> tuple[bool, str]:
     return False, ""
 
 
-def is_docker_available() -> bool:
-    """Check if Docker is available for testcontainers."""
-    try:
-        import docker
-
-        client = docker.from_env()
-        client.ping()
-        return True
-    except Exception:
-        return False
-
-
 # =============================================================================
 # Module-scoped fixtures for E2E tests
 # =============================================================================
 
 
 @pytest.fixture(scope="module")
-def e2e_database_url() -> str:
+def e2e_database_url(request: pytest.FixtureRequest) -> str:
     """Get database connection URL for e2e tests.
 
     Tries:
     1. ARIEL_TEST_DATABASE_URL environment variable
     2. Existing docker-compose dev database
     3. Testcontainers
+
+    Only the testcontainers branch owns a container, so teardown is registered
+    with ``request.addfinalizer`` on that branch alone. A ``yield`` would turn
+    all three exits into generator paths and make the two that return an
+    externally managed URL fail with "did not yield a value".
     """
     # Check env var
     env_url = os.environ.get("ARIEL_TEST_DATABASE_URL")
@@ -119,14 +113,17 @@ def e2e_database_url() -> str:
     logger.info("Starting testcontainers PostgreSQL for e2e tests")
     from testcontainers.postgres import PostgresContainer
 
-    container = PostgresContainer(
-        image="ankane/pgvector:latest",
-        username="ariel",
-        password="ariel",
-        dbname="ariel_e2e_test",
+    container = start_or_skip(
+        lambda: PostgresContainer(
+            image="ankane/pgvector:latest",
+            username="ariel",
+            password="ariel",
+            dbname="ariel_e2e_test",
+        ),
+        label="ariel-e2e-postgres",
     )
-    container.start()
-    atexit.register(container.stop)
+
+    request.addfinalizer(lambda: stop_quietly(container))
 
     url = container.get_connection_url()
     if url.startswith("postgresql+psycopg2://"):
@@ -160,13 +157,6 @@ def e2e_ariel_config(e2e_database_url: str) -> ARIELConfig:
             "ingestion": {
                 "adapter": "als_logbook",
                 "source_url": str(TEST_DATA_PATH),
-            },
-            # LLM config for RAG answer generation
-            # provider references api.providers for credentials
-            "reasoning": {
-                "provider": "als-apg",
-                "model_id": "claude-haiku-4-5-20251001",
-                "temperature": 0.1,
             },
         }
     )

@@ -138,6 +138,7 @@ async def build_execution_response(
         result = {
             "description": description,
             "execution_mode": execution_mode,
+            "execution_method": exec_result.execution_method_used,
             "stdout": stdout_text,
             "stderr": stderr_text,
             "has_errors": has_errors,
@@ -179,6 +180,7 @@ async def build_execution_response(
         summary["artifact_count"] = len(artifact_ids)
     access_details = {
         "execution_mode": execution_mode,
+        "execution_method": exec_result.execution_method_used,
         "code_lines": len(code.splitlines()),
         "stdout_length": len(stdout_text),
         "stderr_length": len(stderr_text),

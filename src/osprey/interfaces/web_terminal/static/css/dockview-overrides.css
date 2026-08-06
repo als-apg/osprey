@@ -1,0 +1,269 @@
+/* OSPREY Web Terminal — dockview theme bridge
+ *
+ * Maps dockview-core's `--dv-*` custom properties onto OSPREY design tokens so
+ * the docking chrome (tab strips, group surfaces, sashes, drop targets, floating
+ * groups, context menus) reads as part of the OSPREY UI instead of dockview's
+ * stock GitHub/abyss palettes. Loaded AFTER the vendored dockview.css (see
+ * index.html) so these overrides win the cascade.
+ *
+ * Theme following is token-driven, not duplicated per mode: every value below
+ * resolves to an OSPREY token whose own value already flips with the active
+ * `html[data-theme]` (tokens.css owns that), so ONE mapping covers both light and
+ * dark. dock-workspace.js additionally swaps dockview's own `dockview-theme-dark`
+ * / `dockview-theme-light` base class on #dock-root as the live theme changes, so
+ * any base `--dv-*` var not remapped here still falls back to a correct
+ * light/dark default rather than a fixed one.
+ *
+ * The `--dv-*` declarations are intentionally scoped to dockview's theme classes
+ * (never `:root` or `[data-theme=...]`) — the design-system hygiene scanner
+ * forbids defining custom properties in those blocks outside design_system/.
+ *
+ * Selector shape: the vendored dockview-core BUNDLE injects its own copy of
+ * dockview.css into <head> at load time — AFTER these <link>ed overrides — so a
+ * bare `.dockview-theme-*` selector would lose the order tiebreak to the stock
+ * theme blocks. Compounding with `.dock-root` (and covering the `.dv-shell`
+ * element dockview stamps its own theme class on, which sits BETWEEN the root
+ * and every panel) wins on specificity instead of order, deterministically.
+ */
+
+.dock-root.dockview-theme-dark,
+.dock-root.dockview-theme-light,
+.dock-root .dv-shell.dockview-theme-dark,
+.dock-root .dv-shell.dockview-theme-light {
+  /* Surfaces */
+  --dv-group-view-background-color: var(--bg-primary);
+  --dv-tabs-and-actions-container-background-color: var(--bg-secondary);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-primary);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-secondary);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-secondary);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-secondary);
+
+  /* Tab text: the active tab reads primary, everything backgrounded is dimmer. */
+  --dv-activegroup-visiblepanel-tab-color: var(--text-primary);
+  --dv-activegroup-hiddenpanel-tab-color: var(--text-secondary);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--text-secondary);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--text-muted);
+
+  /* Borders / separators (all consumed as bare colors by dockview.css). */
+  --dv-separator-border: var(--border-default);
+  --dv-tab-divider-color: var(--border-default);
+  --dv-paneview-header-border-color: var(--border-default);
+  --dv-sash-color: var(--border-default);
+
+  /* Accent-driven interaction: resize sash, drop target, focus outline. */
+  --dv-active-sash-color: var(--color-accent);
+  --dv-paneview-active-outline-color: var(--color-accent);
+  --dv-drag-over-background-color: var(--accent-tint-20);
+  --dv-drag-over-border: 2px solid var(--color-accent);
+  --dv-icon-hover-background-color: var(--bg-elevated);
+
+  /* Floating groups + context menu (elevated overlay surfaces). */
+  --dv-floating-box-shadow: var(--shadow-dialog);
+  --dv-floating-titlebar-background-color: var(--bg-secondary);
+  --dv-context-menu-background-color: var(--bg-elevated);
+  --dv-context-menu-color: var(--text-primary);
+  --dv-tabs-container-scrollbar-color: var(--border-default);
+
+  /* Type + shape + motion onto the emitted scales (flat OSPREY chrome). */
+  --dv-tab-font-size: var(--text-sm);
+  --dv-tab-border-radius: var(--radius-none);
+  --dv-border-radius: var(--radius-none);
+  --dv-sash-border-radius: var(--radius-none);
+  --dv-tab-group-chip-border-radius: var(--radius-sm);
+  --dv-dropdown-border-radius: var(--radius-md);
+  --dv-transition-duration: var(--duration-fast);
+  --dv-active-sash-transition-duration: var(--duration-fast);
+  /* dockview's base delays the accent hover fill on a sash by 0.5s, which makes
+   * the (already narrow) divider feel unresponsive — light up immediately. */
+  --dv-active-sash-transition-delay: 0s;
+}
+
+/* ---- Resize sashes: wider grab zone + a visible grip ---- */
+
+/* dockview's sash is a 4px strip and only inflates its hit area on touch
+ * devices (its own `@media (pointer: coarse)` ::before). Mirror that inflation
+ * for mouse/trackpad so the divider is grabbable without pixel-hunting: ±4px
+ * around the 4px strip = a 12px target. The ::before is unused by dockview at
+ * fine pointers, so it is free here; events on the pseudo target the sash. */
+@media (pointer: fine) {
+  .dock-root .dv-split-view-container > .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    content: "";
+    position: absolute;
+    background: transparent;
+  }
+  .dock-root .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    top: 0;
+    bottom: 0;
+    left: -4px;
+    right: -4px;
+  }
+  .dock-root .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    left: 0;
+    right: 0;
+    top: -4px;
+    bottom: -4px;
+  }
+}
+
+/* Always-visible grip pill centered on every resizable sash — the divider's
+ * grab affordance (the pre-dock split had a visible grip; the bare 4px strip
+ * lost it). Muted at rest, accent + full opacity the instant the sash is
+ * hovered or dragged (the strip itself also fills accent via
+ * --dv-active-sash-color above). pointer-events:none keeps it purely visual. */
+.dock-root .dv-split-view-container > .dv-sash-container > .dv-sash:not(.dv-disabled)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: background var(--duration-fast) ease, opacity var(--duration-fast) ease;
+}
+
+.dock-root .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash:not(.dv-disabled)::after {
+  width: 3px;
+  height: 28px;
+}
+
+.dock-root .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash:not(.dv-disabled)::after {
+  height: 3px;
+  width: 28px;
+}
+
+.dock-root .dv-split-view-container > .dv-sash-container > .dv-sash:not(.dv-disabled):hover::after,
+.dock-root .dv-split-view-container > .dv-sash-container > .dv-sash:not(.dv-disabled):active::after {
+  background: var(--color-accent);
+  opacity: 1;
+}
+
+/* ---- Tile header bar: the single tab IS the host chrome ----
+ * One panel per tile is a workspace invariant (both modes), so a tile's "tab"
+ * can never have siblings; dock-tab.js renders it as the tile's header bar.
+ * EVERY tile carries the same 36px bar with the same grammar — six-dot drag
+ * grip on the left, the tile's identity beside it, close on the right — so
+ * grabbing, naming and closing a tile is one gesture learned once:
+ *
+ *   SERVICE tiles show grip + the panel's name (.tile-tab-title) + close.
+ *   The TERMINAL tile shows grip + the adopted .terminal-header (session LED,
+ *     session id, selector, "+ New") + close.
+ *
+ * Fixed height, no hover reveal: the bar never changes size, so tile content
+ * never reflows on pointer movement.
+ *
+ * Height is set on the container DIRECTLY rather than through dockview's
+ * `--dv-tabs-and-actions-container-height`. Going through the variable does
+ * not work here: the vendored bundle injects its own copy of dockview.css
+ * into <head> AFTER this linked sheet, so a `.dock-root` declaration (0,1,0)
+ * ties with the stock `.dockview-theme-*` blocks and loses the order
+ * tiebreak — the same trap the selector note at the top of this file
+ * describes. Compounding onto the container is (0,2,0) and wins on
+ * specificity, deterministically, in either theme. */
+.dock-root .dv-tabs-and-actions-container {
+  height: 36px;
+}
+
+/* The lone tab fills the strip; the void container (dockview's empty-space
+ * group drag surface) collapses to zero — the bar itself is the handle. */
+.dock-root .dv-tab {
+  flex: 1 1 auto;
+  max-width: none;
+  padding: 0;
+}
+
+.dock-root .tile-tab {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 6px 0 10px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  cursor: grab;
+}
+
+/* The drag grip: an upright 2×3 dot grid on every tile — the one mark that
+ * means "grab here to move this tile", muted at rest and accent under the
+ * pointer, matching the sash/splitter grip treatment above. */
+.dock-root .tile-tab-grip {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 14px;
+  background-image:
+    radial-gradient(circle, var(--text-muted) 1.5px, transparent 1.6px);
+  background-size: 5px 5px;
+  background-position: 0 0;
+  opacity: 0.6;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.dock-root .dv-tab:hover .tile-tab-grip,
+.dock-root .dv-tab:active .tile-tab-grip {
+  background-image:
+    radial-gradient(circle, var(--color-accent) 1.5px, transparent 1.6px);
+  opacity: 1;
+}
+
+/* Service tile name: display type at rail-label weight, ellipsized so a long
+ * runtime-panel label can never push the close control off the bar. */
+.dock-root .tile-tab-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.dock-root .tile-tab-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.dock-root .tile-tab-actions button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-xl);
+  line-height: var(--leading-none);
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.dock-root .tile-tab-actions button:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+/* Simple mode is a locked layout. dock-workspace.js disables drag/float
+ * (disableDnd) and sash resize (api.locked) at runtime, so a service tile's
+ * header bar is dead chrome there — it collapses away entirely and the panel
+ * gets those pixels back. The terminal's bar stays (`:not(:has(...))` — it
+ * carries live session controls, content rather than chrome), but its grip
+ * and close are suppressed: moving or closing tiles is not a simple-mode
+ * gesture.
+ * display:none overrides dockview's own visibility toggle on the active tab.
+ *
+ * A zero-height flex container does not clip its children on its own, and
+ * dockview's own tab elements carry padding — clip explicitly so nothing
+ * bleeds a pixel row over the panel below. */
+html[data-ui-mode="simple"] .dock-root .dv-tabs-and-actions-container:not(:has(.tile-tab-terminal)) {
+  height: 0;
+  overflow: hidden;
+}
+
+html[data-ui-mode="simple"] .dv-tab .tile-tab-close,
+html[data-ui-mode="simple"] .dv-tab .tile-tab-grip,
+html[data-ui-mode="simple"] .dv-tab .dv-default-tab-action {
+  display: none;
+}

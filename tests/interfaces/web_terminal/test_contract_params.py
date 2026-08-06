@@ -240,7 +240,10 @@ def test_postmessage_session_change_gallery_rejects_foreign_origin(
         )
         # Assert -- rejected: currentSessionId did not change, so an
         # independent refresh click still fetches with no session_id.
+        # Refresh lives in the browser toolbar's ⋯ overflow menu, so it has to
+        # be opened before the item is clickable.
         with page.expect_request(lambda r: "/api/artifacts" in r.url) as rejected_info:
+            page.locator("#sidebar-menu-btn").click()
             page.locator("#refresh-btn").click()
         assert "evil-session-999" not in rejected_info.value.url
         assert "session_id" not in rejected_info.value.url
@@ -558,7 +561,12 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
         page.goto(f"{base_url}?embedded=true", wait_until="load")
 
         # Assert -- the pipeline switcher is rendered and positioned inside the viewport.
-        box = page.locator("#pipeline-switcher").bounding_box()
+        # ``load`` fires before the switcher's layout settles, so on a loaded runner
+        # bounding_box() can catch it at width/height 0; wait for it to be visible
+        # (Playwright's visibility check requires a non-empty box) before measuring.
+        switcher = page.locator("#pipeline-switcher")
+        expect(switcher).to_be_visible(timeout=10_000)
+        box = switcher.bounding_box()
         assert box is not None, "#pipeline-switcher has no bounding box -- is it rendered?"
         viewport = page.viewport_size
         assert viewport is not None

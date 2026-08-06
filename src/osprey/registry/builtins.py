@@ -7,6 +7,8 @@ that all Osprey applications build upon.
 """
 
 from osprey.connectors.types import (
+    DOOCS,
+    DOOCS_ARCHIVER,
     EPICS,
     EPICS_ARCHIVER,
     MOCK,
@@ -77,6 +79,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="VirtualAcceleratorConnector",
                     description="Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
                 ),
+                ConnectorRegistration(
+                    name=DOOCS,
+                    connector_type="control_system",
+                    module_path="osprey.connectors.control_system.doocs_connector",
+                    class_name="DOOCSConnector",
+                    description="DOOCS control system connector (requires doocs4py)",
+                ),
                 # Archiver connectors
                 ConnectorRegistration(
                     name=MOCK_ARCHIVER,
@@ -98,6 +107,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.connectors.archiver.mongodb_archiver_connector",
                     class_name="MongoDBArchiverConnector",
                     description="MongoDB archiver connector for time-series PV data",
+                ),
+                ConnectorRegistration(
+                    name=DOOCS_ARCHIVER,
+                    connector_type="archiver",
+                    module_path="osprey.connectors.archiver.doocs_archiver_connector",
+                    class_name="DOOCSArchiverConnector",
+                    description="DOOCS local history connector (requires doocs4py)",
                 ),
             ],
             # ARIEL search modules

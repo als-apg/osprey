@@ -16,6 +16,7 @@ without arguments launches an interactive TUI menu.
 
    osprey                    # Launch interactive menu
    osprey --version          # Show framework version
+   osprey profile            # Author, validate, and inspect build profiles
    osprey build PROJECT      # Build project from preset or profile
    osprey config             # Manage configuration
    osprey deploy COMMAND     # Manage services
@@ -26,6 +27,7 @@ without arguments launches an interactive TUI menu.
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
+   osprey theme-lab          # Design and preview a theme in the browser
    osprey scaffold           # Build artifact overrides
    osprey audit              # Audit project or profile safety
    osprey skills             # Manage bundled Osprey skills
@@ -64,11 +66,56 @@ Manage project configuration. Interactive menu if no subcommand is given.
    osprey config show
    osprey config set-control-system epics
 
+osprey profile
+==============
+
+Author, validate, and inspect build profiles. A profile directory is the
+durable, facility-owned input to ``osprey build`` — see
+:doc:`/how-to/build-profiles`.
+
+.. code-block:: bash
+
+   osprey profile new TARGET_DIR --preset NAME [OPTIONS]
+   osprey profile validate TARGET
+   osprey profile presets
+
+``osprey profile new TARGET_DIR --preset NAME``
+   Materialize an editable profile directory from a bundled preset.
+   ``TARGET_DIR`` is created and populated with a standalone ``profile.yml``
+   (the preset's full configuration written out explicitly, no ``extends:``),
+   the preset's ``data/`` tree copied verbatim, an ``overlays/`` seed, and a
+   ``README.md``. Refuses to overwrite an existing directory.
+
+   ``-O, --override PATH`` — Layer a YAML file on top of the preset before
+   writing (repeatable, in order).
+
+   ``--set KEY.PATH=VALUE`` — Inline override baked into the written profile
+   (repeatable). RHS is parsed as YAML. Wins over ``-O`` at the same key.
+
+``osprey profile validate TARGET``
+   Check a profile without building anything. ``TARGET`` is a profile
+   directory (its ``profile.yml`` is used) or a path to a profile file.
+   Resolves ``extends:`` chains and reports every problem found — overlay
+   sources, the ``data:`` tree, service templates, lifecycle steps, env vars.
+   Exits 0 when valid, 2 with the accumulated errors when not.
+
+``osprey profile presets``
+   List bundled preset names, one per line. Every name printed is usable as
+   ``--preset NAME`` for ``osprey profile new`` and ``osprey build``.
+
+.. code-block:: bash
+
+   osprey profile presets
+   osprey profile new my-profile --preset control-assistant --set model=opus
+   osprey profile validate my-profile/
+   osprey build my-agent my-profile/profile.yml
+
 osprey build
 ============
 
 Build a facility-specific assistant from a bundled preset or a YAML profile.
-See :doc:`/how-to/build-profiles`.
+For durable, facility-owned customization, materialize a profile first with
+``osprey profile new`` and build from it. See :doc:`/how-to/build-profiles`.
 
 .. code-block:: bash
 
@@ -198,10 +245,9 @@ status.
    ``--dry-run`` — Show what would change without writing files.
 
    ``--runtime-root PATH`` — Rewrite ``project_root`` in ``config.yml`` to
-   PATH (comment-preserving) and re-render artifacts against it. A recorded
-   ``execution.python_env_path`` that does not exist on the current
-   filesystem is replaced with the current interpreter. Use after copying a
-   built project into a container image; see :doc:`/how-to/containerize-project`.
+   PATH (comment-preserving) and re-render artifacts against it. Use after
+   copying a built project into a container image; see
+   :doc:`/how-to/containerize-project`.
 
 ``osprey claude status [OPTIONS]``
    Display provider configuration, model tier mappings, per-agent model
@@ -364,6 +410,31 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    osprey web --port 9000 --host 0.0.0.0
    osprey web --detach
    osprey web stop
+
+osprey theme-lab
+================
+
+Design a theme in the browser. Starts a local server for OSPREY's design
+system and opens the Theme Lab, where you pick an accent color and see it
+previewed live on dark and light mock-ups of the web terminal, with contrast
+badges that update as you go. Copying the export block gives you a
+ready-to-paste description of the theme to request; the lab itself does not
+write theme files. See :doc:`/how-to/web-terminal/theming`.
+
+``osprey theme-lab [OPTIONS]``
+   Serve the Theme Lab and open it. The URL is printed as well, so the page can
+   be opened by hand if no browser appears.
+
+   ``-p, --port INTEGER`` — Port to serve on (default: an unused port chosen
+   automatically).
+
+   ``--no-browser`` — Do not open a browser window; print the URL only.
+
+.. code-block:: bash
+
+   osprey theme-lab
+   osprey theme-lab --port 9000
+   osprey theme-lab --no-browser
 
 osprey audit
 ============

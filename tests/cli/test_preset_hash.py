@@ -10,14 +10,14 @@ import json
 
 import pytest
 
-from osprey.cli import build_profile
+from osprey.cli import build_profile, build_profile_presets
 
 
 @pytest.fixture
 def presets_dir(tmp_path, monkeypatch):
     d = tmp_path / "presets"
     d.mkdir()
-    monkeypatch.setattr(build_profile, "_presets_dir", lambda: d)
+    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: d)
     return d
 
 
@@ -60,6 +60,15 @@ def test_compute_preset_hash_unknown_preset_returns_none(presets_dir):
     assert build_profile.compute_preset_hash("no-such-preset") is None
 
 
+def test_compute_profile_hash_is_stable(tmp_path):
+    """Re-hashing unchanged content yields the same digest (the staleness no-drift case)."""
+    profile = tmp_path / "my-profile.yml"
+    profile.write_text("name: Custom\nskills: [a, b]\n", encoding="utf-8")
+    assert build_profile.compute_profile_hash(profile) == build_profile.compute_profile_hash(
+        profile
+    )
+
+
 def test_compute_profile_hash_tracks_content_change(tmp_path):
     profile = tmp_path / "my-profile.yml"
     profile.write_text("name: Custom\n", encoding="utf-8")
@@ -71,6 +80,13 @@ def test_compute_profile_hash_tracks_content_change(tmp_path):
 
 def test_compute_profile_hash_missing_file_returns_none(tmp_path):
     assert build_profile.compute_profile_hash(tmp_path / "gone.yml") is None
+
+
+def test_compute_profile_hash_non_mapping_yaml_returns_none(tmp_path):
+    """A profile file whose YAML parses to a list (not a mapping) is unhashable."""
+    profile = tmp_path / "list-profile.yml"
+    profile.write_text("- a\n- b\n", encoding="utf-8")
+    assert build_profile.compute_profile_hash(profile) is None
 
 
 def test_generate_manifest_stamps_preset_hash(presets_dir, tmp_path):
@@ -94,6 +110,58 @@ def test_generate_manifest_stamps_preset_hash(presets_dir, tmp_path):
     assert data["creation"]["preset_hash"] == build_profile.compute_preset_hash("demo")
     on_disk = json.loads((project_dir / manifest_mod.MANIFEST_FILENAME).read_text())
     assert on_disk["creation"]["preset_hash"] == data["creation"]["preset_hash"]
+
+
+def test_generate_manifest_records_both_profile_path_forms(tmp_path, monkeypatch):
+    """The typed string is kept for display; the resolved path is kept for reuse.
+
+    ``reproducible_command`` has to echo what the user typed, but every later
+    reader — the deploy-side staleness advisory above all — needs a path that
+    still resolves from somewhere other than the build's working directory.
+    """
+    from osprey.cli.templates import manifest as manifest_mod
+
+    profile = tmp_path / "profiles" / "facility.yml"
+    profile.parent.mkdir()
+    profile.write_text("name: Facility\n", encoding="utf-8")
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    data = manifest_mod.generate_manifest(
+        template_root=tmp_path / "templates",
+        jinja_env=None,
+        project_dir=project_dir,
+        project_name="proj",
+        template_name="demo_bundle",
+        context={"profile_path_abs": str(profile)},
+        profile_path="profiles/facility.yml",
+    )
+
+    assert data["build_args"]["profile_path"] == "profiles/facility.yml"
+    assert data["build_args"]["profile_path_abs"] == str(profile)
+    assert data["reproducible_command"] == "osprey build proj profiles/facility.yml"
+    assert data["creation"]["preset_hash"] == build_profile.compute_profile_hash(profile)
+
+
+def test_generate_manifest_omits_absolute_path_when_build_gave_none(tmp_path):
+    """A --preset build has no profile path to resolve; the key stays absent."""
+    from osprey.cli.templates import manifest as manifest_mod
+
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+
+    data = manifest_mod.generate_manifest(
+        template_root=tmp_path / "templates",
+        jinja_env=None,
+        project_dir=project_dir,
+        project_name="proj",
+        template_name="demo_bundle",
+        context={},
+        preset_name="demo",
+    )
+
+    assert "profile_path_abs" not in data["build_args"]
 
 
 def test_generate_manifest_survives_unhashable_preset(tmp_path, monkeypatch):

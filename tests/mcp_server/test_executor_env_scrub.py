@@ -42,10 +42,10 @@ def _reset_all_config_caches(monkeypatch):
     _cfg._config_cache.update(saved_cache)
 
 
-def _write_local_config(tmp_path):
+def _write_subprocess_config(tmp_path):
     config = {
         "control_system": {"type": "mock", "limits_checking": {"enabled": False}},
-        "execution": {"execution_method": "local"},
+        "execution": {"execution_method": "subprocess"},
         "python_executor": {"execution_timeout_seconds": 300},
     }
     (tmp_path / "config.yml").write_text(yaml.dump(config))
@@ -130,7 +130,7 @@ async def test_local_subprocess_env_excludes_launch_token(tmp_path, monkeypatch)
     """The local-exec subprocess is spawned with an env that excludes the token."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
-    _write_local_config(tmp_path)
+    _write_subprocess_config(tmp_path)
 
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
@@ -154,7 +154,7 @@ async def test_local_subprocess_env_excludes_launch_token(tmp_path, monkeypatch)
 async def test_local_subprocess_env_excludes_event_dispatcher_token(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "super-secret-value")
-    _write_local_config(tmp_path)
+    _write_subprocess_config(tmp_path)
 
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
@@ -180,7 +180,7 @@ async def test_local_subprocess_env_keeps_config_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-value")
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
-    _write_local_config(tmp_path)
+    _write_subprocess_config(tmp_path)
 
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))

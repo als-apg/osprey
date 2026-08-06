@@ -17,14 +17,14 @@
  *   - mcp-renderer.js: the .mcp.json renderer.
  *
  * Both re-exports are one-directional: `_section`/`_groupPermissions`/
- * `_countHooks` (needed by this file, settings-editor.js, and
+ * `_renderHookEvents` (needed by this file, settings-editor.js, and
  * mcp-renderer.js alike) live in the neutral leaf module
  * config-render-helpers.js, so none of the three renderer modules need to
  * import from each other — no circular imports.
  */
 
-import { el as _el, escapeHtml as _esc } from '/design-system/js/dom.js';
-import { _section, _groupPermissions, _countHooks } from './config-render-helpers.js';
+import { el as _el } from '/design-system/js/dom.js';
+import { _section, _groupPermissions, _renderHookEvents } from './config-render-helpers.js';
 
 export { renderSettingsJsonEditor } from './settings-editor.js';
 export { renderMcpJson } from './mcp-renderer.js';
@@ -84,41 +84,7 @@ export function renderSettingsJson(jsonString) {
   // ---- Hooks ----
   if (data.hooks) {
     const section = _section('Hooks');
-
-    for (const [eventName, hookGroups] of Object.entries(data.hooks)) {
-      const eventSection = _el('div', 'config-hook-event');
-
-      const eventHeader = _el('div', 'config-hook-event-header');
-      eventHeader.innerHTML = `<span class="config-hook-chevron">\u25B6</span><span>${eventName}</span><span class="config-hook-count">${_countHooks(hookGroups)}</span>`;
-      eventHeader.addEventListener('click', () => {
-        eventSection.classList.toggle('expanded');
-      });
-      eventSection.appendChild(eventHeader);
-
-      const eventBody = _el('div', 'config-hook-event-body');
-      for (const group of hookGroups) {
-        const matcher = group.matcher || '*';
-        const matcherEl = _el('div', 'config-hook-matcher');
-
-        const matcherLabel = _el('span', 'config-hook-matcher-label');
-        matcherLabel.textContent = matcher;
-        matcherEl.appendChild(matcherLabel);
-
-        for (const hook of (group.hooks || [])) {
-          const hookEl = _el('div', 'config-hook-entry');
-          const cmd = hook.command || '';
-          const scriptName = cmd.split('/').pop().replace(/"/g, '').replace(/\.py$/, '');
-          hookEl.innerHTML = `<span class="config-hook-script">${_esc(scriptName)}</span>` +
-            (hook.timeout ? `<span class="config-hook-timeout">${hook.timeout}s</span>` : '');
-          matcherEl.appendChild(hookEl);
-        }
-
-        eventBody.appendChild(matcherEl);
-      }
-      eventSection.appendChild(eventBody);
-      section.appendChild(eventSection);
-    }
-
+    section.appendChild(_renderHookEvents(data.hooks));
     container.appendChild(section);
   }
 

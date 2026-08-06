@@ -22,12 +22,23 @@ Every assertion is paired with a mutation test: a fresh, in-memory-mutated
 copy of the parsed workflow reintroduces exactly the bug the assertion
 exists to catch, and the same assertion must then fail. ci.yml itself is
 never edited by this module.
+
+One check reads a source file rather than the parsed workflow: the unit
+lane's ``--dist loadgroup`` flag is only safe because ``tests/conftest.py``
+overrides ``pytest_xdist_make_scheduler``, and that override lives in
+Python, not in YAML. Its *behaviour* is covered by
+``tests/infrastructure/test_xdist_scheduler.py``; what is pinned here is the
+pairing — the flag in ci.yml must never outlive the scheduler behind it.
 """
 
 from __future__ import annotations
 
+import ast
 import copy
+import importlib.util
 import json
+import re
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -57,6 +68,14 @@ SANDBOX_JOB = "bluesky-sandbox-escape-e2e"
 BENCHMARKS_JOB = "channel-finder-benchmarks"
 BENCHMARKS_TEST_FILE = "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py"
 FLOOR_JOB = "dependency-floor"
+NEXTCLOUD_JOB = "nextcloud-talk-bridge-e2e"
+NEXTCLOUD_TEST_FILE = "tests/e2e/test_nextcloud_talk_bridge_e2e.py"
+NEXTCLOUD_DOCKERFILE = "tests/e2e/fixtures/Dockerfile.nextcloud_talk"
+
+CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
+PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
+SCHEDULER_HOOK = "pytest_xdist_make_scheduler"
+SCHEDULER_CLASS = "FileOrGroupScheduling"
 
 
 def _load_workflow() -> dict[str, Any]:
@@ -322,6 +341,155 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
         assert any(dep.startswith(stack_dep) for dep in core_deps), (
             f"{stack_dep} must be a core dependency"
         )
+
+
+# ---------------------------------------------------------------------------
+# The unit-test job runs in parallel, and the scheduler that makes it safe
+# still exists
+# ---------------------------------------------------------------------------
+
+
+def _unit_test_pytest_line(wf: dict[str, Any]) -> str:
+    """The single ``pytest tests/`` invocation from the unit-test job's run
+    block, isolated from the surrounding ``COV_ARGS`` shell conditional.
+
+    Everything from an unquoted ``#`` onward is dropped first, so a flag named
+    in a shell comment — whole-line or *trailing*, as in
+    ``... $COV_ARGS  # TODO restore -n 4 --dist loadgroup`` — cannot satisfy
+    the pin while the lane actually runs serial. Truncating at a ``#`` inside a
+    quoted argument would only ever make the pin stricter, so the naive split
+    is the safe direction to be wrong in.
+    """
+    run_text = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")["run"]
+    commands = [line.split("#", 1)[0] for line in run_text.splitlines()]
+    lines = [cmd for cmd in commands if "pytest tests/" in cmd]
+    assert len(lines) == 1, f"expected exactly one pytest invocation; got: {lines}"
+    return lines[0]
+
+
+def _missing_parallel_flags(cmd: str) -> list[str]:
+    """Which of the parallel flags are absent (empty = fully wired). Both are
+    load-bearing and checked independently: `-n 4` without `--dist loadgroup`
+    falls back to xdist's default per-test `load` scheduling, which scatters a
+    file's tests across workers and reinstates the module-state bleed."""
+    return [flag for flag in PARALLEL_FLAGS if flag not in cmd]
+
+
+def test_unit_test_job_runs_xdist_parallel(workflow: dict[str, Any]) -> None:
+    """The unit lane was serial for as long as the suite had cross-test
+    global-state bleed. That debt is paid, so the lane must actually collect
+    the win — a silent revert to serial would cost ~3x wall clock on every
+    push without failing anything."""
+    line = _unit_test_pytest_line(workflow)
+    missing = _missing_parallel_flags(line)
+    assert missing == [], (
+        f"the '{UNIT_TEST_JOB}' job in .github/workflows/ci.yml must invoke pytest with "
+        f"{' '.join(PARALLEL_FLAGS)} — missing {missing} in: {line.strip()!r}. "
+        f"Flags are matched as literal substrings (exact spelling, single spaces) on the "
+        f"one `pytest tests/` line, so reflowing the command across backslash-continued "
+        f"lines (the e2e lane's style) means updating _unit_test_pytest_line too."
+    )
+
+
+def test_unit_test_job_runs_xdist_parallel__mutation_flags_only_in_trailing_comment() -> None:
+    """The hole a reviewer probe found: flags parked in a TRAILING shell
+    comment while the lane runs serial. `# TODO restore ...` is exactly how a
+    temporary revert gets written, so it must fail the pin, not satisfy it."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace(
+        " -n 4 --dist loadgroup $COV_ARGS",
+        " $COV_ARGS  # TODO restore -n 4 --dist loadgroup",
+    )
+    assert step["run"] != original, "parallel invocation not found — mutation is stale"
+    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == list(PARALLEL_FLAGS)
+
+
+def test_unit_test_job_runs_xdist_parallel__mutation_drops_worker_count() -> None:
+    """Dropping `-n 4` (leaving `--dist loadgroup`) must be reported: without
+    a worker count xdist does not parallelize at all and the dist mode is
+    inert."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    step["run"] = step["run"].replace(" -n 4", "")
+    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == ["-n 4"]
+
+
+def test_unit_test_job_runs_xdist_parallel__mutation_drops_dist_mode() -> None:
+    """Dropping `--dist loadgroup` (leaving `-n 4`) must be reported too — the
+    dangerous half of the revert, since the lane still looks parallelized
+    while the scheduler override goes inert."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    step["run"] = step["run"].replace(" --dist loadgroup", "")
+    assert _missing_parallel_flags(_unit_test_pytest_line(mutated)) == ["--dist loadgroup"]
+
+
+def _conftest_source() -> str:
+    return CONFTEST.read_text(encoding="utf-8")
+
+
+def _hook_source(source: str) -> str:
+    """Source of the top-level ``pytest_xdist_make_scheduler`` definition, or
+    ``""`` if it is not defined.
+
+    Parsed with ``ast`` rather than grepped because the explanatory comment
+    above the hook also spells "loadgroup": a whole-file substring search
+    would stay green after the guard itself was deleted.
+    """
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.FunctionDef) and node.name == SCHEDULER_HOOK:
+            return ast.get_source_segment(source, node) or ""
+    return ""
+
+
+def _missing_scheduler_parts(source: str) -> list[str]:
+    """Which parts of the scheduler override are absent (empty = all present)."""
+    hook = _hook_source(source)
+    present = {
+        f"def {SCHEDULER_HOOK}": bool(hook),
+        f"class {SCHEDULER_CLASS}": f"class {SCHEDULER_CLASS}(" in source,
+        "loadgroup guard": 'getoption("dist"' in hook and "loadgroup" in hook,
+        f"returns {SCHEDULER_CLASS}": f"{SCHEDULER_CLASS}(config, log)" in hook,
+    }
+    return [label for label, ok in present.items() if not ok]
+
+
+def test_conftest_defines_the_loadgroup_scheduler_override() -> None:
+    """Source-level counterpart to the ci.yml pin above. `--dist loadgroup` is
+    only safe for this suite because ``tests/conftest.py`` replaces stock
+    ``LoadGroupScheduling`` — which gives every unmarked nodeid its own scope
+    — with one that falls back to file scope. Deleting the override while
+    leaving the CI flag in place would parallelize the lane per-test again,
+    silently, and the failures would land as intermittent reds in unrelated
+    PRs."""
+    assert _missing_scheduler_parts(_conftest_source()) == []
+
+
+def test_conftest_scheduler_override__mutation_renames_hook() -> None:
+    """A hook pytest never calls is the same as no hook at all: renaming the
+    definition must be reported, not papered over by the class still being
+    defined below it."""
+    source = _conftest_source()
+    mutated = source.replace(f"def {SCHEDULER_HOOK}(", f"def _disabled_{SCHEDULER_HOOK}(")
+    assert mutated != source, f"no `def {SCHEDULER_HOOK}(` in {CONFTEST} — mutation is stale"
+    assert _missing_scheduler_parts(mutated) == [
+        f"def {SCHEDULER_HOOK}",
+        "loadgroup guard",
+        f"returns {SCHEDULER_CLASS}",
+    ]
+
+
+def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
+    """The guard returns None for every dist mode but ``loadgroup``, which is
+    what keeps the e2e lane's ``--dist loadfile`` (and ad-hoc ``load`` /
+    ``worksteal`` runs) on stock xdist. Deleting it would silently widen the
+    override's reach beyond the lane it was written for."""
+    source = _conftest_source()
+    mutated = "\n".join(line for line in source.splitlines() if 'getoption("dist"' not in line)
+    assert mutated != source, f"no dist-option guard in {CONFTEST} — mutation is stale"
+    assert _missing_scheduler_parts(mutated) == ["loadgroup guard"]
 
 
 # ---------------------------------------------------------------------------
@@ -607,6 +775,194 @@ def test_dependency_floor_gates_the_merge__mutation_drops_needs_entry() -> None:
     _jobs(mutated)[GATE_JOB]["needs"].remove(FLOOR_JOB)
     with pytest.raises(AssertionError):
         assert FLOOR_JOB in _jobs(mutated)[GATE_JOB]["needs"]
+
+
+# ---------------------------------------------------------------------------
+# (h) nextcloud-talk-bridge-e2e lane
+# ---------------------------------------------------------------------------
+
+
+def test_nextcloud_talk_bridge_job_exists(workflow: dict[str, Any]) -> None:
+    assert NEXTCLOUD_JOB in _jobs(workflow)
+
+
+def test_nextcloud_talk_bridge_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][NEXTCLOUD_JOB]
+    with pytest.raises(AssertionError):
+        assert NEXTCLOUD_JOB in _jobs(mutated)
+
+
+def test_e2e_lane_ignores_nextcloud_talk_bridge(workflow: dict[str, Any]) -> None:
+    """The lane runs a real Nextcloud container plus a dispatcher/worker pair;
+    swept into the shared e2e-tests lane it would double-execute against its
+    own fixed host port and exact-named container."""
+    assert _run_step_ignores_all(workflow, [NEXTCLOUD_TEST_FILE]) == []
+
+
+def test_e2e_lane_ignores_nextcloud_talk_bridge__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], NEXTCLOUD_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [BENCHMARKS_TEST_FILE]) == []  # others survive
+    assert _run_step_ignores_all(mutated, [NEXTCLOUD_TEST_FILE]) == [NEXTCLOUD_TEST_FILE]
+
+
+def test_all_checks_passed_needs_nextcloud_talk_bridge(workflow: dict[str, Any]) -> None:
+    assert NEXTCLOUD_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+
+
+def test_all_checks_passed_needs_nextcloud_talk_bridge__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(NEXTCLOUD_JOB)
+    with pytest.raises(AssertionError):
+        assert NEXTCLOUD_JOB in _jobs(mutated)[GATE_JOB]["needs"]
+
+
+def test_gate_checks_nextcloud_talk_bridge_result(workflow: dict[str, Any]) -> None:
+    """A ``needs`` entry the gate script never reads is decorative — the
+    generic completeness guard above catches that, but this lane gets its own
+    named check so a partial removal names the right lane in the failure."""
+    assert f"needs.{NEXTCLOUD_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_gate_checks_nextcloud_talk_bridge_result__mutation_drops_check_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if NEXTCLOUD_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    with pytest.raises(AssertionError):
+        assert f"needs.{NEXTCLOUD_JOB}.result" in _gate_run_text(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (i) Nextcloud fixture image-pin drift guard
+# ---------------------------------------------------------------------------
+#
+# .github/workflows/build-nextcloud-fixture.yml already cross-checks the four
+# values that live INSIDE the Dockerfile and refuses to publish on any
+# disagreement. What no workflow can see is the fifth value: the ghcr tag the
+# e2e module asks for at run time. That constant is what binds the published
+# image to the pins it claims to carry, so a bump that moves `FROM`/`ARG`
+# without moving the tag (or the reverse) yields an image whose name lies about
+# its contents. The comparison below is therefore always against the
+# authoritative `FROM`/`ARG`, never against the `# ..._PIN=` comments — a guard
+# that validated a comment against a comment would constrain nothing.
+
+_FROM_RE = re.compile(r"^FROM\s+nextcloud:(\S+)-apache\s*$", re.MULTILINE)
+_ARG_RE = re.compile(r"^ARG\s+SPREED_VERSION=(\S+)\s*$", re.MULTILINE)
+_NEXTCLOUD_COMMENT_RE = re.compile(r"^#\s*NEXTCLOUD_PIN=(\S+)\s*$", re.MULTILINE)
+_SPREED_COMMENT_RE = re.compile(r"^#\s*SPREED_PIN=(\S+)\s*$", re.MULTILINE)
+
+
+def _dockerfile_text() -> str:
+    return (CI_YML.parents[2] / NEXTCLOUD_DOCKERFILE).read_text(encoding="utf-8")
+
+
+def _sole_match(pattern: re.Pattern[str], text: str, label: str) -> str:
+    found = pattern.findall(text)
+    assert len(found) == 1, f"expected exactly one {label} in {NEXTCLOUD_DOCKERFILE}; got {found}"
+    return found[0]
+
+
+def _e2e_fixture_image() -> str:
+    """The image reference constant from the e2e module, imported not regexed.
+
+    The module imports cleanly with no container runtime present: its only
+    module-level runtime touch is ``shutil.which`` inside a ``skipif`` marker,
+    and the daemon/image checks are ``pytest.skip`` calls inside a fixture
+    body. So the real object is available, and a source parse would only be a
+    second, weaker spelling of the same fact. Loaded under a private module
+    name so it can never collide with pytest's own collection of that file.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_nextcloud_e2e_pin_probe", CI_YML.parents[2] / NEXTCLOUD_TEST_FILE
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    # Registered before exec_module: @dataclass resolves annotations through
+    # sys.modules[cls.__module__] and raises AttributeError without it.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        return str(module.NEXTCLOUD_FIXTURE_IMAGE)
+    finally:
+        sys.modules.pop(spec.name, None)
+
+
+def _assert_fixture_pins_agree(dockerfile_text: str, image_reference: str) -> None:
+    """The whole pin contract in one place, parameterized on its two inputs so
+    a mutation can feed it a drifted copy of either side."""
+    nextcloud = _sole_match(_FROM_RE, dockerfile_text, "FROM nextcloud:<ver>-apache")
+    spreed = _sole_match(_ARG_RE, dockerfile_text, "ARG SPREED_VERSION=<ver>")
+    nextcloud_comment = _sole_match(_NEXTCLOUD_COMMENT_RE, dockerfile_text, "# NEXTCLOUD_PIN=")
+    spreed_comment = _sole_match(_SPREED_COMMENT_RE, dockerfile_text, "# SPREED_PIN=")
+
+    assert nextcloud == nextcloud_comment, (
+        f"Dockerfile FROM pins nextcloud {nextcloud} but the NEXTCLOUD_PIN comment "
+        f"says {nextcloud_comment}"
+    )
+    assert spreed == spreed_comment, (
+        f"Dockerfile ARG pins spreed {spreed} but the SPREED_PIN comment says {spreed_comment}"
+    )
+
+    expected_tag = f"{nextcloud}-spreed{spreed}"
+    actual_tag = image_reference.rsplit(":", 1)[-1]
+    assert actual_tag == expected_tag, (
+        f"{NEXTCLOUD_TEST_FILE}'s NEXTCLOUD_FIXTURE_IMAGE is tagged {actual_tag!r}, but the "
+        f"authoritative FROM/ARG in {NEXTCLOUD_DOCKERFILE} build {expected_tag!r} — the "
+        f"published image would advertise contents it does not have"
+    )
+
+
+def test_nextcloud_fixture_pins_agree_across_dockerfile_and_e2e_module() -> None:
+    _assert_fixture_pins_agree(_dockerfile_text(), _e2e_fixture_image())
+
+
+def test_nextcloud_fixture_pins__mutation_bumps_from_without_the_tag() -> None:
+    """The real drift shape: someone bumps the base image (and dutifully the
+    NEXTCLOUD_PIN comment with it) but leaves the module's ghcr tag behind."""
+    text = _dockerfile_text()
+    mutated = text.replace("FROM nextcloud:33.0.7-apache", "FROM nextcloud:33.0.8-apache").replace(
+        "NEXTCLOUD_PIN=33.0.7", "NEXTCLOUD_PIN=33.0.8"
+    )
+    assert mutated != text, "mutation matched nothing — the pin spelling moved"
+    with pytest.raises(AssertionError, match="advertise contents it does not have"):
+        _assert_fixture_pins_agree(mutated, _e2e_fixture_image())
+
+
+def test_nextcloud_fixture_pins__mutation_bumps_spreed_arg_without_the_tag() -> None:
+    """Same failure from the other authoritative value, proving both halves of
+    the derived tag are independently load-bearing."""
+    text = _dockerfile_text()
+    mutated = text.replace("ARG SPREED_VERSION=23.0.9", "ARG SPREED_VERSION=23.1.0").replace(
+        "SPREED_PIN=23.0.9", "SPREED_PIN=23.1.0"
+    )
+    assert mutated != text, "mutation matched nothing — the pin spelling moved"
+    with pytest.raises(AssertionError, match="advertise contents it does not have"):
+        _assert_fixture_pins_agree(mutated, _e2e_fixture_image())
+
+
+def test_nextcloud_fixture_pins__mutation_comment_drifts_from_authoritative_from() -> None:
+    """Bumping only the comment must fail on the comment/authoritative check —
+    and must NOT be waved through by the tag check, which is deliberately
+    derived from FROM/ARG and would still agree here."""
+    text = _dockerfile_text()
+    mutated = text.replace("NEXTCLOUD_PIN=33.0.7", "NEXTCLOUD_PIN=33.0.8")
+    assert mutated != text, "mutation matched nothing — the pin spelling moved"
+    with pytest.raises(AssertionError, match="NEXTCLOUD_PIN comment"):
+        _assert_fixture_pins_agree(mutated, _e2e_fixture_image())
+
+
+def test_nextcloud_fixture_pins__mutation_tag_drifts_from_dockerfile() -> None:
+    """And the inverse: the module's tag moves while the Dockerfile stands
+    still. Feeding a drifted reference through the same helper proves the tag
+    comparison, not just the comment comparison, is doing work."""
+    with pytest.raises(AssertionError, match="advertise contents it does not have"):
+        _assert_fixture_pins_agree(
+            _dockerfile_text(), "ghcr.io/als-apg/nextcloud-talk-fixture:33.0.7-spreed23.1.0"
+        )
 
 
 # ---------------------------------------------------------------------------

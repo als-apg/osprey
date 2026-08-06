@@ -57,7 +57,9 @@ def test_copy_service_templates_copies_root_when_no_services(tmp_path: Path) -> 
     )
 
 
-def test_prepare_compose_files_no_services_renders_nothing(tmp_path: Path) -> None:
+def test_prepare_compose_files_no_services_renders_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With empty deployed_services, prepare_compose_files renders no files at all.
 
     An attached project (``deploy_services: false``) scaffolds no ``services/``
@@ -67,18 +69,10 @@ def test_prepare_compose_files_no_services_renders_nothing(tmp_path: Path) -> No
     """
     config_path = _write_config(tmp_path, deployed_services=[])
 
-    monkey_cwd = Path.cwd()
-    try:
-        # render_template resolves SERVICES_DIR relative to cwd; deliberately
-        # no _copy_service_templates — the attached case has no services/ dir.
-        import os
-
-        os.chdir(tmp_path)
-        config, compose_files = prepare_compose_files(str(config_path))
-    finally:
-        import os
-
-        os.chdir(monkey_cwd)
+    # render_template resolves SERVICES_DIR relative to cwd; deliberately
+    # no _copy_service_templates — the attached case has no services/ dir.
+    monkeypatch.chdir(tmp_path)
+    config, compose_files = prepare_compose_files(str(config_path))
 
     assert compose_files == [], (
         f"empty deployed_services must render no compose files, got {compose_files}"
@@ -319,7 +313,7 @@ def test_worker_layout_paths_track_injected_project_name() -> None:
     assert f"OSPREY_PROJECT_DIR: {root}" in rendered
     assert f"CONFIG_FILE: {root}/config.yml" in rendered
 
-    # Staged config bind-mount (python_env_path stripped) — repointed target,
+    # Staged config bind-mount (the deploy-time config) — repointed target,
     # source unchanged (relative to build/services/).
     assert f"- ./dispatch_worker/config.yml:{root}/config.yml:ro" in rendered
 
@@ -427,7 +421,7 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
         # Return non-zero so the function bails before trying to copy a wheel.
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="stop here")
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
     # A failed build now aborts the deploy rather than falling back to the
     # released package; the interpreter assertion below is what this test is for.
     with pytest.raises(DevModeUnavailableError):
@@ -696,18 +690,18 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 # Task 4.3 / FR11: turn-key scan-stack deploy config
 #
 # A shipped, tested deploy configuration bringing up VA + bridge + Tiled with
-# control_system.type=virtual_accelerator, execution.execution_method=
-# container (so BLUESKY_LAUNCH_TOKEN mints safely and the agent can arm --
-# see container_lifecycle.py's _local_exec_arming_unsafe), and the scan MCP
-# server enabled. tests/e2e/_orm_stack.py is the single source of this
+# control_system.type=virtual_accelerator and the scan MCP server enabled
+# (BLUESKY_LAUNCH_TOKEN is minted unconditionally for the deployed bluesky
+# service, so no execution-method override is needed to arm the agent).
+# tests/e2e/_orm_stack.py is the single source of this
 # config, reused by the real-container round-trip e2e (task 5.2) and the
 # agentic-discovery e2e (5.3/5.4) -- this gate only exercises the Docker-free
 # render path via its in-process `osprey build` helper.
 # ---------------------------------------------------------------------------
 
 
-def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
-    tmp_path: Path,
+def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """FR11's turn-key deploy config, end to end without Docker:
     ``osprey build`` (in-process, via ``tests/e2e/_orm_stack``) followed by a
@@ -716,15 +710,14 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
       - the Virtual Accelerator + bluesky-bridge + co-deployed Tiled compose
         services (``control_system.type=virtual_accelerator`` +
         ``bluesky.tiled_enabled=true``),
-      - ``execution.execution_method: container`` (the arming-safe exec
-        method — a ``local`` exec method gates launch-token auto-minting
-        off, per ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``),
+      - ``execution.execution_method: subprocess`` (the one execution backend
+        OSPREY ships — the deploy config sets no override, so this is the
+        rendered default, and no code path reads it for safety semantics),
       - the ``scan`` MCP server enabled in the rendered ``.mcp.json`` (it is
         ``default_enabled=False`` in the framework registry — a project must
         opt in, and this deploy config does).
     """
     import json
-    import os
 
     from click.testing import CliRunner
 
@@ -733,13 +726,13 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     runner = CliRunner()
     project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path)
 
-    # -- execution_method: container (arming-safe) --------------------------
+    # -- execution_method: subprocess (the only backend OSPREY ships) --------
     yaml = YAML()
     with open(project_dir / "config.yml") as fh:
         config = yaml.load(fh)
-    assert config["execution"]["execution_method"] == "container", (
-        "FR11 requires execution.execution_method=container so the launch "
-        "token mints safely and the agent can arm"
+    assert config["execution"]["execution_method"] == "subprocess", (
+        "the rendered config must name the backend that actually runs agent "
+        "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
 
@@ -751,15 +744,11 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     )
 
     # -- VA + bridge + Tiled compose services --------------------------------
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(project_dir)
-        _, compose_files = prepare_compose_files(str(project_dir / "config.yml"))
-        # Read while still inside project_dir — prepare_compose_files returns
-        # paths relative to it (SERVICES_DIR resolves relative to cwd).
-        rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(project_dir)
+    _, compose_files = prepare_compose_files(str(project_dir / "config.yml"))
+    # Read while still inside project_dir — prepare_compose_files returns
+    # paths relative to it (SERVICES_DIR resolves relative to cwd).
+    rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
 
     assert "\n  virtual-accelerator:\n" in rendered, "VA service must be deployed"
     assert "\n  bluesky-bridge:\n" in rendered, "bridge service must be deployed"
@@ -787,100 +776,109 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
 
 
 # ---------------------------------------------------------------------------
-# Task 1.4: preserve-staged-config-python-env-path
+# Container config staging: no host interpreter can reach the container
 #
 # The M2 concern: the dispatch worker's runtime config.yml must never carry
-# the HOST build machine's ``execution.python_env_path`` (e.g.
-# ``/Users/.../.venv/bin/python``) into the container — that path does not
-# exist in-container, and Claude Code's MCP-server command generation prefers
-# it over ``sys.executable`` when present, so every MCP server would fail to
-# launch. This is already handled by two independent mechanisms:
+# the HOST build machine's interpreter (e.g. ``/Users/.../.venv/bin/python``)
+# into the container — that path does not exist in-container, and MCP-server
+# command generation used to prefer it over ``sys.executable``, so every MCP
+# server would fail to launch. Two properties now make that unreachable, with
+# no staging-time surgery:
 #
-# 1. ``setup_build_dir`` (compose_generator.py, ~L728-738) pops
-#    ``execution.python_env_path`` from the flattened config it stages for
-#    the worker's config.yml bind-mount.
-# 2. ``build_claude_code_context`` (osprey.cli.templates.claude_code, L91)
-#    resolves ``current_python_env`` as
-#    ``config.execution.python_env_path or sys.executable`` — so a config
-#    with the key stripped falls back to the container's own interpreter.
+# 1. A generated project's config records no interpreter at all — there is no
+#    ``execution.python_env_path`` for staging to carry across. (An older
+#    config that still carries the retired key stages verbatim, but
+#    ``ConfigBuilder`` drops it on load.)
+# 2. ``build_claude_code_context`` (osprey.cli.templates.claude_code) derives
+#    ``current_python_env`` from the filesystem — the project's own ``.venv``
+#    when it has one, else the generating interpreter — and consults the config
+#    not at all. A ``project_root_override`` (the container case) forces the
+#    generating interpreter, since the host's venv is not what exists in the
+#    container. So no config, of any vintage, can name the interpreter an MCP
+#    server launches with.
 #
-# These tests prove both mechanisms against the real generator entrypoints
-# rather than re-asserting the ``or`` expression in isolation. Mechanism 2's
-# companion (build-time ``osprey claude regen`` self-healing a *recorded*
-# stale python_env_path baked into an existing project) is covered by
-# tests/cli/test_claude_regen.py and is out of this file's scope.
+# ``setup_build_dir`` therefore stages the flattened config as-is; the strip it
+# used to perform removed a key nothing writes and nothing reads. These tests
+# prove the invariant against the real generator entrypoints. The full
+# role-split contract (all three runtime launch sites, driven with a config
+# that points somewhere else) lives in tests/cli/test_interpreter_role_split.py.
 # ---------------------------------------------------------------------------
 
 
-def test_setup_build_dir_strips_python_env_path_from_staged_config(
+def test_setup_build_dir_stages_a_config_naming_no_interpreter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``setup_build_dir`` must pop ``execution.python_env_path`` from the
-    flattened config it writes for the service's ``config.yml`` bind-mount.
+    """The config staged for a service's bind-mount must name no interpreter.
 
-    Drives the real staging code path: a project ``config.yml`` on disk with
-    a host-looking venv path, loaded internally via ``ConfigBuilder()``
-    (which resolves against ``os.getcwd()``), flattened, and written to
-    ``<build_dir>/<service_dir>/config.yml``. The written file must have the
-    key removed entirely, not merely emptied.
+    Drives the real staging code path against a real generated project: its
+    ``config.yml`` is loaded internally via ``ConfigBuilder()`` (which resolves
+    against ``os.getcwd()``), flattened, and written to
+    ``<build_dir>/<service_dir>/config.yml``. Neither the retired
+    ``execution.python_env_path`` key nor any interpreter path may appear —
+    and nothing strips them, because nothing writes them.
     """
+    from osprey.cli.templates.manager import TemplateManager
     from osprey.deployment.compose_generator import setup_build_dir
 
-    host_python = "/Users/someone/.venv/bin/python"
-
-    project_config_path = tmp_path / "config.yml"
-    project_config_path.write_text(
-        yaml.dump(
-            {
-                "project_name": "pep-fixture",
-                "execution": {"python_env_path": host_python},
-            }
-        )
+    project_dir = TemplateManager().create_project(
+        project_name="staged-no-interp",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
     )
 
-    service_dir = tmp_path / "services" / "worker"
+    service_dir = project_dir / "services" / "worker"
     service_dir.mkdir(parents=True)
     (service_dir / "docker-compose.yml.j2").write_text("services:\n  worker:\n    image: test\n")
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(project_dir)
 
     template_path = str(Path("services") / "worker" / "docker-compose.yml.j2")
-    config = {"project_name": "pep-fixture", "build_dir": "./build"}
+    config = {"project_name": "staged-no-interp", "build_dir": "./build"}
     container_cfg = {"copy_src": False, "render_kernel_templates": False}
 
     setup_build_dir(template_path, config, container_cfg)
 
-    staged_config_path = tmp_path / "build" / "services" / "worker" / "config.yml"
+    staged_config_path = project_dir / "build" / "services" / "worker" / "config.yml"
     assert staged_config_path.is_file(), (
         f"expected a staged config.yml at {staged_config_path} "
         "(flattening must have failed and fallen back to a verbatim copy)"
     )
-    staged_config = yaml.safe_load(staged_config_path.read_text())
-    assert "python_env_path" not in staged_config.get("execution", {}), (
-        f"host python_env_path leaked into the staged config: {staged_config.get('execution')}"
+    staged_text = staged_config_path.read_text()
+    staged_config = yaml.safe_load(staged_text)
+    assert "execution_method" in staged_config.get("execution", {}), (
+        "the staged config must carry a real, flattened execution block — "
+        "without one the interpreter assertions below would be vacuous"
+    )
+    assert "python_env_path" not in staged_config["execution"], (
+        f"an interpreter path reached the staged config: {staged_config.get('execution')}"
+    )
+    assert sys.executable not in staged_text, (
+        "the staging interpreter must not appear anywhere in the staged config"
     )
 
 
-def test_setup_build_dir_staged_config_has_no_execution_python_env_path_key_at_all(
+def test_setup_build_dir_stages_the_execution_block_verbatim(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Same as above, phrased as a positive contract on the whole ``execution``
-    block: no key named ``python_env_path`` survives staging, regardless of
-    whatever else lives under ``execution``.
+    """Staging edits no key under ``execution``.
+
+    The strip that used to run here is gone, so a legacy config carrying the
+    retired ``execution.python_env_path`` stages unchanged. That is safe rather
+    than a regression: the loader drops the key and MCP-server generation never
+    reads it (see the companion tests below), so the value is inert wherever it
+    lands. What matters is that staging does not quietly lose sibling keys.
     """
     from osprey.deployment.compose_generator import setup_build_dir
 
+    execution_block = {
+        "python_env_path": "/Users/someone/.venv/bin/python3.11",
+        "execution_method": "subprocess",
+    }
+
     project_config_path = tmp_path / "config.yml"
     project_config_path.write_text(
-        yaml.dump(
-            {
-                "project_name": "pep-fixture-2",
-                "execution": {
-                    "python_env_path": "/Users/someone/.venv/bin/python3.11",
-                    "execution_method": "local",
-                },
-            }
-        )
+        yaml.dump({"project_name": "pep-fixture-2", "execution": dict(execution_block)})
     )
 
     service_dir = tmp_path / "services" / "worker"
@@ -897,22 +895,20 @@ def test_setup_build_dir_staged_config_has_no_execution_python_env_path_key_at_a
 
     staged_config_path = tmp_path / "build" / "services" / "worker" / "config.yml"
     staged_config = yaml.safe_load(staged_config_path.read_text())
-    assert list(staged_config["execution"].keys()) == ["execution_method"], (
-        "only python_env_path should be dropped; sibling execution keys must survive"
+    assert staged_config["execution"] == execution_block, (
+        "staging must pass the execution block through untouched"
     )
 
 
 def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
-    """The real ``.mcp.json`` generation seam: with ``execution.python_env_path``
-    absent (exactly what ``setup_build_dir`` staging produces), MCP-server
-    commands must resolve to the CONTAINER's own ``sys.executable``, never a
-    host path.
+    """The real ``.mcp.json`` generation seam: with no interpreter recorded in
+    the config (exactly what staging produces today), MCP-server commands must
+    resolve to the CONTAINER's own ``sys.executable``, never a host path.
 
     Drives ``build_claude_code_context`` (the actual context-builder used by
     both ``osprey build`` and ``osprey claude regen``) followed by
-    ``resolve_servers``'s real command resolution, rather than asserting the
-    ``config.execution.python_env_path or sys.executable`` expression in
-    isolation.
+    ``resolve_servers``'s real command resolution, rather than asserting a
+    single expression in isolation.
     """
     import tempfile
 
@@ -945,11 +941,15 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
         )
 
 
-def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> None:
-    """Companion to the above: proves what the strip in ``setup_build_dir``
-    prevents. If a host-looking ``python_env_path`` survived staging (it does
-    not, per the tests above), the exact same generator would bake that host
-    path into every MCP server's ``command`` — the M2 failure mode.
+def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() -> None:
+    """Companion to the above: the M2 failure mode is now unreachable by design.
+
+    A host-looking ``python_env_path`` that survived staging used to be baked
+    into every MCP server's ``command``. The generator no longer reads the key,
+    so even a config that still carries it — exactly what an already-deployed
+    project looks like — yields the container's own interpreter. This is what
+    lets ``setup_build_dir`` stage the config untouched: nothing stands between
+    the host path and a broken container because nothing consumes the path.
     """
     import tempfile
 
@@ -975,11 +975,11 @@ def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> 
             manager.template_root, manager.jinja_env, project_dir, config
         )
 
-        assert ctx["current_python_env"] == host_python
+        assert ctx["current_python_env"] == sys.executable
 
         controls_server = next(s for s in ctx["servers"] if s["name"] == "controls")
-        assert controls_server["command"] == host_python
-        assert controls_server["command"] != sys.executable
+        assert controls_server["command"] == sys.executable
+        assert controls_server["command"] != host_python
 
 
 # ---------------------------------------------------------------------------
@@ -1094,27 +1094,24 @@ def _write_openobserve_config(
     return config_path
 
 
-def _render_project_compose(config_path: Path, project_path: Path) -> str:
+def _render_project_compose(
+    config_path: Path, project_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> str:
     """Copy service templates, render via ``prepare_compose_files``, return the text.
 
     Runs the real CLI gating path from inside the project dir (SERVICES_DIR and
     the service ``path`` both resolve relative to cwd), then joins every rendered
-    compose file so callers can assert on the aggregate text.
+    compose file so callers can assert on the aggregate text. The caller's
+    ``monkeypatch`` owns the cwd change, so it is undone at test teardown.
     """
-    import os
-
     _copy_service_templates(project_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(project_path)
-        _, compose_files = prepare_compose_files(str(config_path))
-        return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(project_path)
+    _, compose_files = prepare_compose_files(str(config_path))
+    return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
 
 
-def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
+def test_openobserve_renders_when_deployed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """With ``openobserve`` in deployed_services the compose renders (exit 0) with
     the expected image reference, port, named volume, and root-cred env vars.
 
@@ -1123,7 +1120,7 @@ def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
     agent's OTLP push against the local store.
     """
     config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
 
     # The service block and its in-network DNS host name.
     assert "\n  openobserve:\n" in rendered
@@ -1143,19 +1140,23 @@ def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
     assert "osprey-openobserve" not in rendered
 
 
-def test_openobserve_retention_env_default_rendered(tmp_path: Path) -> None:
+def test_openobserve_retention_env_default_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Omitting retention_days renders the 14-day growth bound (the compose default)."""
     config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
     assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "14"' in rendered
 
 
-def test_openobserve_retention_env_custom_rendered(tmp_path: Path) -> None:
+def test_openobserve_retention_env_custom_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A configured retention_days flows into ZO_COMPACT_DATA_RETENTION_DAYS."""
     config_path = _write_openobserve_config(
         tmp_path, deployed_services=["openobserve"], retention_days=30
     )
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
     assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "30"' in rendered
 
     # Named data volume for persistence (both the mount and the top-level decl).
@@ -1168,13 +1169,15 @@ def test_openobserve_retention_env_custom_rendered(tmp_path: Path) -> None:
     assert "ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-" in rendered
 
 
-def test_openobserve_absent_when_not_deployed(tmp_path: Path) -> None:
+def test_openobserve_absent_when_not_deployed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With ``openobserve`` declared but NOT in deployed_services it must not
     render — the opt-in posture. Only the root compose is produced, with no
     openobserve service, image, or volume anywhere in the output.
     """
     config_path = _write_openobserve_config(tmp_path, deployed_services=[])
-    rendered = _render_project_compose(config_path, tmp_path)
+    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
 
     assert "openobserve" not in rendered, (
         f"openobserve must stay off when absent from deployed_services (opt-in):\n{rendered}"
@@ -1351,6 +1354,10 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "dispatch_worker": {"worker_count": 1, "workspace_mode": "isolated"},
             "bluesky": {"port": 8090},
             "bluesky_panels": {"port": 8095},
+            # The bridge template reads its trigger with no fallback, so the
+            # shared ctx must declare the block or every render through here
+            # raises UndefinedError on `services.nextcloud_bridge`.
+            "nextcloud_bridge": {"trigger": "t"},
         },
         "deployment": {},
         "system": {"timezone": "UTC"},
@@ -1609,6 +1616,12 @@ _PREFIXED_IMAGE_SERVICES = [
         "OSPREY_BLUESKY_PANELS_IMAGE",
         "bluesky-panels",
     ),
+    (
+        "nextcloud_bridge/docker-compose.yml.j2",
+        "nextcloud-bridge",
+        "OSPREY_NEXTCLOUD_BRIDGE_IMAGE",
+        "nextcloud-bridge",
+    ),
 ]
 
 _PREFIXED_IDS = [s[1] for s in _PREFIXED_IMAGE_SERVICES]
@@ -1807,6 +1820,8 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
     """
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
+
     calls: list = []
     real_run = subprocess_module.run
 
@@ -1818,12 +1833,12 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
     return calls
 
 
 def test_dev_wheel_builds_once_across_service_and_project_staging(
-    tmp_path: Path, spy_wheel_build: list
+    tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """One process, many staging targets, exactly ONE ``python -m build``.
 
@@ -1834,8 +1849,6 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     invoke against their own contexts. Every context must still receive its
     own wheel copy (the memo caches the BUILD, not the copy).
     """
-    import os
-
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
@@ -1846,14 +1859,10 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     project_image_ctx.mkdir()
     persona_ctx.mkdir()
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-        assert _copy_local_framework_for_override(str(project_image_ctx)) is True
-        assert _copy_local_framework_for_override(str(persona_ctx)) is True
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
+    assert _copy_local_framework_for_override(str(project_image_ctx)) is True
+    assert _copy_local_framework_for_override(str(persona_ctx)) is True
 
     assert len(spy_wheel_build) == 1, (
         f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
@@ -1867,22 +1876,16 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
 
 
 def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
-    tmp_path: Path, spy_wheel_build: list
+    tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``rebuild_deployment`` runs ``prepare_compose_files`` twice (its own call
     plus the delegated ``deploy_up``'s) — the wheel build must still run once."""
-    import os
-
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-        prepare_compose_files(str(config_path), dev_mode=True)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
+    prepare_compose_files(str(config_path), dev_mode=True)
 
     assert len(spy_wheel_build) == 1, (
         f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
@@ -1912,12 +1915,8 @@ def test_dev_wheel_staged_only_into_dockerfile_build_contexts(
     )
     _copy_service_templates(tmp_path)
 
-    monkey_cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        prepare_compose_files(str(config_path), dev_mode=True)
-    finally:
-        os.chdir(monkey_cwd)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
 
     assert len(staged) == 1, f"expected staging into exactly one context, got {staged}"
     assert staged[0].endswith(os.path.join("services", "event_dispatcher")), staged[0]
@@ -1992,6 +1991,7 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
     the deploy must abort, and no wheel may be left in the build context."""
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
 
     real_run = subprocess_module.run
@@ -2003,7 +2003,7 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
             )
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _failing_build)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _failing_build)
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
@@ -2164,6 +2164,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
     still lacks the local wheel's added deps (half-staged)."""
     import subprocess as subprocess_module
 
+    from osprey.deployment import compose_generator
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
     from osprey.deployment.errors import DevModeUnavailableError
 
@@ -2176,7 +2177,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(subprocess_module, "run", _fake_run)
+    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()
@@ -2206,3 +2207,684 @@ def test_staging_fails_closed_when_manifest_write_fails(
         _copy_local_framework_for_override(str(ctx))
     assert not list(ctx.glob("*.whl")), "the half-staged wheel must be removed"
     assert not (ctx / "osprey-local-requirements.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# Nextcloud Talk bridge service template
+#
+# The bridge is an outbound-only poller: no published port, no healthcheck, and
+# a single named volume that IS its crash-safety ledger. Two properties of this
+# template are load-bearing beyond "the YAML parses":
+#
+#   * every credential is a BARE ``${VAR}`` reference — a ``:-default`` on any of
+#     them would let the container come up pointed at a guessable host or
+#     authenticating with a placeholder instead of failing closed at boot, so
+#     these tests assert the ABSENCE of a fallback, not just the presence of the
+#     name;
+#   * the rendered environment block is the bridge's whole configuration
+#     surface, so it is fed through the real ``NextcloudBridgeConfig.from_env``
+#     here rather than only string-matched — a renamed env var is dead config the
+#     runtime silently ignores, which no substring assertion would catch;
+#   * that block is also the ONLY way configuration reaches this service: it
+#     declares no ``env_file:``, so the project .env's provider keys never enter
+#     the container that faces the external Nextcloud instance.
+# ---------------------------------------------------------------------------
+
+_NEXTCLOUD_BRIDGE_TEMPLATE = "templates/services/nextcloud_bridge/docker-compose.yml.j2"
+
+# Credentials and tokens that must render as bare ``${VAR}``. The three secrets
+# (the Talk app password and both dispatch tokens) are the security-critical
+# members; the base URL, bot account, and room list are here for the same reason
+# — a default would silently point the bridge at the wrong instance or room.
+_NEXTCLOUD_FAIL_CLOSED_VARS = [
+    "NEXTCLOUD_BASE_URL",
+    "NEXTCLOUD_BOT_ACCOUNT",
+    "NEXTCLOUD_APP_PASSWORD",
+    "NEXTCLOUD_ROOMS",
+    "EVENT_DISPATCHER_TOKEN",
+    "DISPATCH_WORKER_TOKEN",
+]
+
+# A single-variable compose substitution: ``${NAME}`` (bare, no fallback),
+# ``${NAME:-default}``, or the REQUIRED form ``${NAME:?message}``, on which
+# compose aborts instead of substituting. Anchored, so a value that merely
+# CONTAINS a reference does not parse as one.
+_COMPOSE_VAR_RE = re.compile(
+    r"^\$\{([A-Z_][A-Z0-9_]*)(?::-(?P<default>.*)|:\?(?P<required>.*))?\}$"
+)
+
+
+class _ComposeRequiredVarUnset(RuntimeError):
+    """Stands in for the compose CLI aborting on an unset ``${VAR:?message}``."""
+
+
+def _render_nextcloud_bridge_template(
+    *,
+    env_present: bool = True,
+    dispatcher_deployed: bool = True,
+    worker_deployed: bool = True,
+    services: dict | None = None,
+    project_name: str = "p",
+) -> str:
+    """Render the packaged nextcloud-bridge compose template.
+
+    Loads the packaged template directly (CWD-independent) and renders it with
+    bare ``jinja2.Template``, the same default-Undefined mode
+    ``compose_generator``'s Environment uses, so ``| default(...)`` chains behave
+    exactly as in production.
+    """
+    from importlib import resources
+
+    from jinja2 import Template
+
+    tpl = resources.files("osprey").joinpath(_NEXTCLOUD_BRIDGE_TEMPLATE)
+    template = Template(tpl.read_text(encoding="utf-8"))
+    deployed = ["nextcloud_bridge"]
+    if dispatcher_deployed:
+        deployed.append("event_dispatcher")
+    if worker_deployed:
+        deployed.append("dispatch_worker")
+    if services is None:
+        services = {
+            "nextcloud_bridge": {"trigger": "nextcloud-question"},
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        }
+    return template.render(
+        services=services,
+        deployment={},
+        system={"timezone": "UTC"},
+        deployed_services=deployed,
+        osprey_labels={
+            "project_name": project_name,
+            "project_root": f"/r/{project_name}",
+            "deployed_at": "now",
+        },
+        osprey_version="",
+        osprey_env_present=env_present,
+    )
+
+
+def _nextcloud_bridge_service(**kwargs: object) -> dict:
+    """Return the parsed ``nextcloud-bridge`` service block."""
+    rendered = yaml.safe_load(_render_nextcloud_bridge_template(**kwargs))  # type: ignore[arg-type]
+    return rendered["services"]["nextcloud-bridge"]
+
+
+def _resolve_compose_env(
+    rendered_env: dict, host_env: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Resolve a rendered ``environment:`` block the way the compose CLI does.
+
+    ``${VAR}`` resolves to the host value or the empty string; ``${VAR:-d}``
+    resolves to the host value or ``d``; ``${VAR:?msg}`` raises when the host
+    supplies nothing, exactly as compose refuses the deploy; anything else is a
+    literal. This is what lets the tests below hand the template's own output to
+    the real config parser instead of restating the values.
+    """
+    host_env = host_env or {}
+    resolved: dict[str, str] = {}
+    for name, raw in rendered_env.items():
+        value = str(raw)
+        match = _COMPOSE_VAR_RE.match(value)
+        if match is None:
+            resolved[name] = value
+            continue
+        from_host = host_env.get(match.group(1), "")
+        if not from_host and match.group("required") is not None:
+            raise _ComposeRequiredVarUnset(f"{match.group(1)}: {match.group('required')}")
+        resolved[name] = from_host or (match.group("default") or "")
+    return resolved
+
+
+def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
+    """image = ${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-<project>-nextcloud-bridge:local}.
+
+    Same three-level chain as every sibling service (env override wins, then a
+    config-declared image, then the project-namespaced ``:local`` tag that
+    ``osprey deploy up`` builds). The local tag must carry the project name: it
+    is a host-global docker tag, so a static default would make two projects
+    fight over one image.
+    """
+    assert _nextcloud_bridge_service(project_name="proj-a")["image"] == (
+        "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-proj-a-nextcloud-bridge:local}"
+    )
+    assert _nextcloud_bridge_service(project_name="proj-b")["image"] == (
+        "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-proj-b-nextcloud-bridge:local}"
+    )
+
+    # A config-declared image displaces the local tag but stays under the env
+    # override, so an operator can still repoint a published image at deploy
+    # time without a rebuild.
+    pinned = _nextcloud_bridge_service(
+        services={
+            "nextcloud_bridge": {
+                "trigger": "nextcloud-question",
+                "image": "ghcr.io/als-apg/osprey-nextcloud-bridge:1.2.3",
+            },
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        }
+    )
+    assert pinned["image"] == (
+        "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-nextcloud-bridge:1.2.3}"
+    )
+
+
+def test_nextcloud_bridge_build_context_is_project_dir_relative() -> None:
+    """The image builds from ./nextcloud_bridge (compose-project-dir relative).
+
+    With multiple ``-f`` compose files every relative path resolves against the
+    FIRST file's dir (build/services/), not this file's own subdir, so a
+    file-relative context ('.', '../nextcloud_bridge') breaks a fresh
+    ``osprey deploy up`` with "unable to prepare context: path ... not found".
+    """
+    build = _nextcloud_bridge_service()["build"]
+    assert build["context"] == "./nextcloud_bridge"
+    assert build["dockerfile"] == "Dockerfile"
+
+
+def test_nextcloud_bridge_command_runs_the_bridge_module() -> None:
+    """The service runs the bridge entrypoint as an exec-form ``python -m``.
+
+    Exec form (a YAML list) and not a shell string: the container's PID 1 must be
+    python itself so SIGTERM from ``deploy down`` reaches the poll loop's
+    shutdown path instead of a shell that never forwards it.
+    """
+    assert _nextcloud_bridge_service()["command"] == [
+        "python",
+        "-m",
+        "osprey.bridges.nextcloud_talk",
+    ]
+
+
+def test_nextcloud_bridge_state_volume_is_named_and_mounted_at_data() -> None:
+    """/data is a NAMED volume — it holds the dedup ledger, history, and offsets.
+
+    All three state files default to paths under /data (``DEDUP_PATH``,
+    ``HISTORY_PATH``, ``OFFSETS_PATH``). Without a persisted volume a restart
+    loses the in-flight dedup ledger (re-answering or dropping questions) and
+    resets the poll offsets (replaying or skipping room history), so this is a
+    correctness requirement, not a convenience. Named rather than a bind mount so
+    it is namespaced per compose project and survives ``deploy down``.
+    """
+    rendered = _render_nextcloud_bridge_template()
+    parsed = yaml.safe_load(rendered)
+    service = parsed["services"]["nextcloud-bridge"]
+
+    assert service["volumes"] == ["nextcloud_bridge_data:/data"]
+    assert "nextcloud_bridge_data" in parsed["volumes"], (
+        "the /data mount names nextcloud_bridge_data, so the compose file must "
+        "declare it as a top-level named volume or `compose up` errors"
+    )
+    assert not any(str(v).startswith((".", "/", "$")) for v in service["volumes"]), (
+        "bridge state must not be a host bind mount — a named volume is what "
+        "keeps it project-namespaced and portable across runtimes"
+    )
+
+
+@pytest.mark.parametrize("var", _NEXTCLOUD_FAIL_CLOSED_VARS)
+def test_nextcloud_bridge_credentials_render_without_a_default_fallback(var: str) -> None:
+    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
+
+    This is the fail-closed contract. With a fallback, a deployment missing the
+    Talk app password or a dispatch token would come up and authenticate with a
+    guessable placeholder; bare, the value stays empty and
+    ``NextcloudBridgeConfig.require_startup`` aborts at boot naming the missing
+    variables. The absence of the fallback is the requirement, so both the parsed
+    value and the raw text are checked — a substring test for the name alone
+    would pass on the very regression this guards.
+    """
+    rendered = _render_nextcloud_bridge_template()
+    environment = yaml.safe_load(rendered)["services"]["nextcloud-bridge"]["environment"]
+
+    assert environment[var] == f"${{{var}}}", (
+        f"{var} must be a bare ${{{var}}} reference (got {environment[var]!r}) so an "
+        "unset value stays empty and the bridge fails closed at boot"
+    )
+    assert f"${{{var}:" not in rendered, (
+        f"{var} carries a compose default — a missing secret would silently "
+        "resolve to it instead of failing the boot"
+    )
+
+
+def test_nextcloud_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
+    """Optional knobs pass through with an EMPTY ``:-`` default, not a restated value.
+
+    An empty value makes ``CoreConfig.from_env`` fall back to its own default, so
+    each tunable has exactly one definition (the dataclass) instead of drifting
+    copies in the compose file. The empty default (rather than a bare reference)
+    also keeps ``compose up`` quiet about unset optional vars on every deploy.
+    ``POLL_BUDGET`` is the deliberate exception — its default is derived from the
+    worker cap (see the poll-budget test below).
+    """
+    environment = _nextcloud_bridge_service()["environment"]
+    for var in (
+        "POLL_INTERVAL",
+        "DRAIN_INTERVAL",
+        "RETRY_MIN_AGE",
+        "RETRY_GIVE_UP",
+        "RETRY_LIFETIME_CAP",
+        "BRIDGE_TRUST_ENV",
+        "GITLAB_URL",
+        "GITLAB_PROJECT",
+        "GITLAB_ISSUES_TOKEN",
+    ):
+        assert environment[var] == f"${{{var}:-}}", (
+            f"{var} must pass through with an empty default so CoreConfig owns "
+            f"its default (got {environment[var]!r})"
+        )
+
+
+@pytest.mark.parametrize("env_present", [True, False])
+def test_nextcloud_bridge_never_mounts_the_project_env_in_bulk(env_present: bool) -> None:
+    """The bridge gets named variables only — never the whole project .env.
+
+    The project .env holds the provider keys the dispatch worker needs
+    (``CBORG_API_KEY``, ``OPENAI_API_KEY``, ...). The bridge never calls an LLM
+    and it is the one component that talks to an external Nextcloud instance, so
+    handing it the file would widen its blast radius for nothing: every value it
+    actually reads arrives by interpolation into ``environment:``, resolved from
+    that same .env because ``deploy up`` runs compose with ``--env-file .env``
+    (and ``environment:`` outranks ``env_file:`` in compose regardless).
+    Asserted for a .env both present and absent, so reintroducing the mount
+    behind an ``osprey_env_present`` gate does not slip through.
+    """
+    rendered = _render_nextcloud_bridge_template(env_present=env_present)
+    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered
+    assert "env_file" not in yaml.safe_load(rendered)["services"]["nextcloud-bridge"]
+
+
+def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
+    """The state paths' compose defaults equal the config dataclasses' defaults.
+
+    These three are the only vars whose ``:-`` fallback restates a code default
+    instead of passing through empty: their readers are plain
+    ``e.get(NAME, default)`` calls, for which "" is an accepted value, so the
+    empty-fallback trick the neutral tunables use would point the stores at the
+    empty path. That duplication is the thing this test exists to bind — the
+    defaults are read back OUT of the real config classes (built from an empty
+    environment, so the dataclass defaults are what surface) rather than
+    restated here, so changing either side alone fails.
+    """
+    from osprey.bridges.core import CoreConfig
+    from osprey.bridges.nextcloud_talk.config import NextcloudBridgeConfig
+
+    core_defaults = CoreConfig.from_env({})
+    nextcloud_defaults = NextcloudBridgeConfig.from_env({})
+    code_defaults = {
+        "DEDUP_PATH": core_defaults.dedup_path,
+        "HISTORY_PATH": core_defaults.history_path,
+        "OFFSETS_PATH": nextcloud_defaults.offsets_path,
+    }
+
+    environment = _nextcloud_bridge_service()["environment"]
+    for var, code_default in code_defaults.items():
+        match = _COMPOSE_VAR_RE.match(str(environment[var]))
+        assert match is not None and match.group("default") is not None, (
+            f"{var} must render as ${{{var}:-<default>}} (got {environment[var]!r}) — "
+            "the literal default is what keeps the path set when the var is unset, "
+            "and the interpolation is what keeps it .env-overridable"
+        )
+        assert match.group("default") == code_default, (
+            f"{var} renders {match.group('default')!r} but the config default is "
+            f"{code_default!r}: the compose literal and the dataclass default must "
+            "move together, or a deploy silently writes state somewhere else"
+        )
+
+    # Nothing on the host resolves to the code default, so the stores land on the
+    # mounted volume; a value on the host wins, which is the override path the
+    # removed bulk .env mount used to provide.
+    resolved = _resolve_compose_env(environment)
+    for var, code_default in code_defaults.items():
+        assert resolved[var] == code_default
+
+    overridden = _resolve_compose_env(
+        environment, host_env={var: f"/srv/state/{var.lower()}.json" for var in code_defaults}
+    )
+    for var in code_defaults:
+        assert overridden[var] == f"/srv/state/{var.lower()}.json"
+
+    # And the override reaches the config objects under the names they read —
+    # an empty value would NOT, which is why these three are not passed through
+    # with an empty fallback.
+    cfg = NextcloudBridgeConfig.from_env(overridden)
+    assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
+    assert cfg.core.history_path == "/srv/state/history_path.json"
+    assert cfg.offsets_path == "/srv/state/offsets_path.json"
+
+
+def test_nextcloud_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
+    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed.
+
+    The bridge reconciles in-flight runs against the dispatcher before accepting
+    a message, so co-deployed it must start after the dispatcher's health probe.
+    A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
+    compose fails hard on a ``depends_on`` naming an undefined service.
+    """
+    with_dispatcher = _nextcloud_bridge_service(dispatcher_deployed=True)
+    assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
+
+    external = _render_nextcloud_bridge_template(dispatcher_deployed=False)
+    assert "depends_on:" not in external, (
+        "a bridge deployed without the dispatcher must emit no depends_on — "
+        "compose errors on a dependency naming an undefined service"
+    )
+    assert yaml.safe_load(external)["services"]["nextcloud-bridge"].get("depends_on") is None
+
+
+def test_nextcloud_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> None:
+    """In-network URLs use the SAME ports the dispatch templates serve on.
+
+    Derived from the sibling templates' own rendered output rather than restated
+    here, so a port change in the dispatch pair cannot leave the bridge calling a
+    closed port. Service keys (not container names) are the DNS names on
+    osprey-network, and the worker is addressed directly because the bridge polls
+    run status and fetches artifacts from it, not through the dispatcher.
+    """
+    for services, expected_dispatcher_port, expected_worker_port in (
+        # Config-block defaults, and explicitly non-default ports.
+        (
+            {"nextcloud_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
+            8020,
+            9190,
+        ),
+        (
+            {
+                "nextcloud_bridge": {"trigger": "t"},
+                "event_dispatcher": {"port": 8031},
+                "dispatch_worker": {"worker_port_base": 9201},
+            },
+            8031,
+            9201,
+        ),
+    ):
+        dispatcher = yaml.safe_load(
+            _render_service_template(
+                "event_dispatcher/docker-compose.yml.j2", "p", services=services
+            )
+        )["services"]["event-dispatcher"]
+        assert dispatcher["environment"]["FASTMCP_PORT"] == str(expected_dispatcher_port), (
+            "test premise: the dispatcher template must serve the port this case expects"
+        )
+
+        environment = _nextcloud_bridge_service(services=services)["environment"]
+        assert (
+            environment["DISPATCHER_URL"] == f"http://event-dispatcher:{expected_dispatcher_port}"
+        )
+        assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{expected_worker_port}"
+
+
+def test_nextcloud_bridge_dispatch_urls_pass_through_when_external() -> None:
+    """Without the dispatch pair co-deployed, both URLs are REQUIRED host vars.
+
+    An external dispatcher/worker is reached by whatever address the deploy env
+    supplies; hardcoding the in-network name would make the bridge call a
+    nonexistent host, and the code's localhost default is wrong from inside a
+    container either way. They render in compose's required form
+    (``${VAR:?message}``) rather than as bare references, because compose
+    resolves an unset bare reference to the EMPTY STRING and not to an absent
+    key: ``CoreConfig.from_env``'s localhost default would never fire,
+    ``require_startup`` does not cover these two, so the stack would boot and
+    then POST every dispatch to a protocol-less URL. Since a raising
+    ``handle_event`` deliberately leaves the persisted poll offset unadvanced,
+    that turns one missing variable into a room re-fetching the same batch
+    forever. ``:?`` makes it a startup abort instead.
+    """
+    environment = _nextcloud_bridge_service(
+        dispatcher_deployed=False,
+        worker_deployed=False,
+        services={"nextcloud_bridge": {"trigger": "t"}},
+    )["environment"]
+    for var in ("DISPATCHER_URL", "WORKER_URL"):
+        assert str(environment[var]).startswith(f"${{{var}:?"), (
+            f"{var} must render as compose's required form ${{{var}:?...}} when the "
+            f"dispatch pair is external (got {environment[var]!r}) — a bare reference "
+            "resolves to an empty string and boots a bridge that can never dispatch"
+        )
+
+    # Nothing on the host: the deploy must be REFUSED, not resolved to "".
+    with pytest.raises(_ComposeRequiredVarUnset, match="DISPATCHER_URL"):
+        _resolve_compose_env(environment)
+
+    # Supplied, they pass through verbatim — the point of the passthrough.
+    resolved = _resolve_compose_env(
+        environment,
+        host_env={
+            "DISPATCHER_URL": "https://dispatch.example.org",
+            "WORKER_URL": "https://worker.example.org",
+        },
+    )
+    assert resolved["DISPATCHER_URL"] == "https://dispatch.example.org"
+    assert resolved["WORKER_URL"] == "https://worker.example.org"
+
+    # The CO-DEPLOYED branch must NOT carry the guard: it renders the in-network
+    # address itself and needs no host variable, so a `:?` there would abort a
+    # perfectly valid single-stack deploy.
+    co_deployed = _nextcloud_bridge_service()["environment"]
+    for var in ("DISPATCHER_URL", "WORKER_URL"):
+        assert ":?" not in str(co_deployed[var]), (
+            f"{var} is rendered in-network when the dispatch pair is co-deployed; "
+            "requiring a host variable there would break the common deploy"
+        )
+
+
+def test_nextcloud_bridge_trigger_comes_from_the_profile_and_has_no_template_default() -> None:
+    """``DISPATCH_TRIGGER`` is rendered from the profile block, with no fallback here.
+
+    ``NextcloudBridgeProfileConfig.trigger`` is the ONLY place the
+    ``nextcloud-question`` default lives (the runtime's ``from_env`` applies none
+    either), so a template-side default would be a second definition that fires
+    some other facility's trigger when the config key goes missing.
+    """
+    from osprey.cli.build_profile import NextcloudBridgeProfileConfig
+
+    profile_default = NextcloudBridgeProfileConfig().trigger
+    rendered = _render_nextcloud_bridge_template(
+        services={
+            "nextcloud_bridge": {"trigger": profile_default},
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        }
+    )
+    environment = yaml.safe_load(rendered)["services"]["nextcloud-bridge"]["environment"]
+    assert environment["DISPATCH_TRIGGER"] == profile_default
+
+    # A facility-chosen trigger must render verbatim, and the profile default
+    # must not survive as a template-side fallback.
+    custom = _render_nextcloud_bridge_template(
+        services={
+            "nextcloud_bridge": {"trigger": "als-talk-question"},
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        }
+    )
+    custom_env = yaml.safe_load(custom)["services"]["nextcloud-bridge"]["environment"]
+    assert custom_env["DISPATCH_TRIGGER"] == "als-talk-question"
+
+    # A config that lost the key must render an EMPTY trigger, so the bridge
+    # aborts at boot naming DISPATCH_TRIGGER. A template-side default would
+    # instead fire whatever name the framework happened to pick.
+    keyless = _render_nextcloud_bridge_template(
+        services={"nextcloud_bridge": {}, "event_dispatcher": {}, "dispatch_worker": {}}
+    )
+    keyless_env = yaml.safe_load(keyless)["services"]["nextcloud-bridge"]["environment"]
+    assert keyless_env["DISPATCH_TRIGGER"] == "", (
+        f"a missing trigger key must render empty, not fall back to {profile_default!r} — "
+        "the profile block is the single source of the trigger name"
+    )
+
+
+def test_nextcloud_bridge_rendered_env_parses_and_fails_closed_without_secrets() -> None:
+    """The rendered env, resolved with nothing set on the host, refuses to boot.
+
+    Feeds the template's own output through the real
+    ``NextcloudBridgeConfig.from_env`` — so a renamed variable shows up as dead
+    config here rather than as a bridge that silently ignores it — and asserts
+    ``require_startup`` names exactly the fail-closed variables. The trigger is
+    absent from that list precisely because the template renders it as a literal.
+    """
+    from osprey.bridges.nextcloud_talk.config import NextcloudBridgeConfig
+
+    environment = _nextcloud_bridge_service()["environment"]
+    cfg = NextcloudBridgeConfig.from_env(_resolve_compose_env(environment))
+
+    with pytest.raises(ValueError) as excinfo:
+        cfg.require_startup()
+    missing = {name.strip() for name in str(excinfo.value).split(":", 1)[1].split(",")}
+    assert missing == set(_NEXTCLOUD_FAIL_CLOSED_VARS), (
+        "with nothing set on the host the bridge must abort naming exactly the "
+        f"bare-reference variables; got {sorted(missing)}"
+    )
+
+
+def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
+    """With the .env supplying the credentials, the same block yields a valid config.
+
+    Proves the variable NAMES the template renders are the names the runtime
+    reads: the Nextcloud settings, both tokens, the trigger, and the in-network
+    dispatch endpoints all arrive on the config object, and the state paths stay
+    on the /data volume.
+    """
+    from osprey.bridges.nextcloud_talk.config import NextcloudBridgeConfig
+
+    environment = _nextcloud_bridge_service()["environment"]
+    resolved = _resolve_compose_env(
+        environment,
+        host_env={
+            "NEXTCLOUD_BASE_URL": "https://talk.example.org",
+            "NEXTCLOUD_BOT_ACCOUNT": "osprey-bot",
+            "NEXTCLOUD_APP_PASSWORD": "app-pw",
+            "NEXTCLOUD_ROOMS": "abc123, def456",
+            "EVENT_DISPATCHER_TOKEN": "dispatcher-token",
+            "DISPATCH_WORKER_TOKEN": "worker-token",
+        },
+    )
+    cfg = NextcloudBridgeConfig.from_env(resolved)
+    cfg.require_startup()
+
+    assert cfg.base_url == "https://talk.example.org"
+    assert cfg.bot_account == "osprey-bot"
+    assert cfg.app_password == "app-pw"
+    assert cfg.rooms == ("abc123", "def456")
+    assert cfg.core.event_dispatcher_token == "dispatcher-token"
+    assert cfg.core.dispatch_worker_token == "worker-token"
+    assert cfg.core.trigger == "nextcloud-question"
+    assert cfg.core.dispatcher_url == "http://event-dispatcher:8020"
+    assert cfg.core.worker_url == "http://dispatch-worker-1:9190"
+    # The three state files must land on the mounted volume, not the image layer.
+    for path in (cfg.offsets_path, cfg.core.dedup_path, cfg.core.history_path):
+        assert path.startswith("/data/"), path
+
+
+@pytest.mark.parametrize("worker_timeout", [None, 600])
+def test_nextcloud_bridge_poll_budget_default_outlasts_the_worker_cap(
+    worker_timeout: int | None,
+) -> None:
+    """The bridge's poll budget is derived from the worker's cap, not restated.
+
+    ``CoreConfig.__post_init__`` rejects ``poll_budget < worker_timeout``, which
+    would crash-loop the bridge, and both halves read the cap from the same
+    ``services.dispatch_worker.timeout_sec`` key — so raising the cap in one
+    place must raise the budget here too. Constructing the config from the
+    resolved defaults is what proves the relation holds rather than asserting on
+    the numbers alone.
+    """
+    from osprey.bridges.core import CoreConfig
+
+    worker_config = {} if worker_timeout is None else {"timeout_sec": worker_timeout}
+    environment = _nextcloud_bridge_service(
+        services={
+            "nextcloud_bridge": {"trigger": "t"},
+            "event_dispatcher": {},
+            "dispatch_worker": worker_config,
+        }
+    )["environment"]
+
+    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
+    expected_timeout = float(worker_timeout if worker_timeout is not None else 300)
+    assert cfg.worker_timeout == expected_timeout
+    assert cfg.poll_budget == expected_timeout + 30, (
+        "the poll budget default must exceed the worker cap it waits out"
+    )
+
+
+def test_nextcloud_bridge_config_lookups_survive_explicit_null_values() -> None:
+    """A config key present but EMPTY must still render the documented default.
+
+    Jinja's ``default`` filter substitutes only on *Undefined*, so a key written
+    as ``timeout_sec:`` with no value — which YAML loads as ``None`` — sails past
+    a plain ``| default(300)`` and renders the literal string "None".
+    ``CoreConfig.from_env`` then dies on ``float("None")`` at boot, and
+    ``None | int`` silently degrades ``POLL_BUDGET`` to 0. The boolean form
+    (``default(300, true)``) substitutes on any falsy value, which is what keeps
+    a half-written config booting on the defaults instead of crash-looping.
+    """
+    from osprey.bridges.core import CoreConfig
+
+    environment = _nextcloud_bridge_service(
+        services={
+            "nextcloud_bridge": {"trigger": "t"},
+            "event_dispatcher": {"port": None},
+            "dispatch_worker": {"timeout_sec": None, "worker_port_base": None},
+        }
+    )["environment"]
+
+    assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
+    assert environment["DISPATCHER_URL"] == "http://event-dispatcher:8020"
+    assert environment["WORKER_URL"] == "http://dispatch-worker-1:9190"
+
+    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
+    assert cfg.worker_timeout == 300.0
+    assert cfg.poll_budget == 330.0
+
+
+def test_nextcloud_bridge_container_name_is_project_namespaced() -> None:
+    """Two projects render distinct bridge container names.
+
+    ``container_name`` is a HOST-GLOBAL docker identifier, so a static name stops
+    two OSPREY projects from running a bridge on one host. Nothing reaches this
+    service in-network (it only makes outbound calls), so no network alias is
+    needed alongside the rename.
+    """
+    name_a = _nextcloud_bridge_service(project_name="proj-a")["container_name"]
+    name_b = _nextcloud_bridge_service(project_name="proj-b")["container_name"]
+    assert (name_a, name_b) == ("proj-a-nextcloud-bridge", "proj-b-nextcloud-bridge")
+
+
+def test_nextcloud_bridge_publishes_no_ports_and_declares_no_healthcheck() -> None:
+    """The bridge is a poller: no listening socket, so no ports and no probe.
+
+    A published port would be dead surface, and a healthcheck against a service
+    that opens no socket would mark a healthy bridge unhealthy — which
+    ``depends_on: service_healthy`` elsewhere would then act on.
+    """
+    service = _nextcloud_bridge_service()
+    assert "ports" not in service
+    assert "healthcheck" not in service
+    assert service["networks"] == ["osprey-network"]
+    assert service["restart"] == "unless-stopped"
+
+
+def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
+    """``osprey build`` copies the packaged bridge template into the project tree.
+
+    The whole service directory (compose template, Dockerfile, .dockerignore)
+    must ship in the package and be discoverable under the ``nextcloud_bridge``
+    service key, or ``osprey deploy up`` has nothing to render and no build
+    context to build.
+    """
+    _write_config(tmp_path, deployed_services=["nextcloud_bridge"])
+
+    assert _copy_service_templates(tmp_path) == 1
+
+    service_dir = tmp_path / "services" / "nextcloud_bridge"
+    assert (service_dir / "docker-compose.yml.j2").is_file()
+    assert (service_dir / "Dockerfile").is_file(), (
+        "the build context needs its Dockerfile — the compose template declares "
+        "build: ./nextcloud_bridge with dockerfile: Dockerfile"
+    )
+    assert (service_dir / ".dockerignore").is_file(), (
+        ".dockerignore is the guaranteed COPY sibling the Dockerfile's optional "
+        "wheel/requirements globs rely on, and it keeps a stale .env out of the image"
+    )

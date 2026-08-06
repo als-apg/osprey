@@ -12,10 +12,18 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
+from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
 logger = get_logger("build")
+
+# Every build installs the framework's web-terminal persona baseline
+# (``base.md``) into this directory. A directory overlay landing on the
+# directory itself would rmtree that baseline; per-user subdirectories below
+# it are the supported mapping.
+_PERSONA_CONTEXT_DIR = Path("docker") / "web-terminal-context"
 
 
 def _clear_rendered_project_dir(project_path: Path) -> list[str]:
@@ -84,6 +92,20 @@ def _copy_overlay_files(
             if not dst.is_relative_to(project_path.resolve()):
                 raise ValueError(f"Overlay destination escapes project root: {dst_rel}")
 
+            # A directory overlay replaces its destination wholesale, so one
+            # aimed at the persona context root would delete the baseline the
+            # build just installed there. Point it at a per-user subdirectory.
+            if src.is_dir() and dst == (project_path / _PERSONA_CONTEXT_DIR).resolve():
+                raise BuildProfileError(
+                    f"Overlay destination {dst_rel!r} would replace the whole "
+                    f"{_PERSONA_CONTEXT_DIR.as_posix()}/ directory, removing the "
+                    "web-terminal persona baseline (base.md) the build installs "
+                    "there.\nMap each user's context directory instead, e.g.:\n"
+                    f"  overlay:\n"
+                    f"    {src_rel.rstrip('/')}/alice: "
+                    f"{_PERSONA_CONTEXT_DIR.as_posix()}/alice"
+                )
+
             dst.parent.mkdir(parents=True, exist_ok=True)
 
             if src.is_dir():
@@ -150,35 +172,32 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
     ``.mcp.json`` and ``settings.json``.  Placeholders like ``{project_root}``
     are preserved as-is — resolution happens during regen.
     """
-    from osprey.utils.config_writer import _load, _save
+    from osprey.utils.config_writer import _load, _save, anchored_put
 
     from .build_profile import McpServerDef
 
     config_path = project_path / "config.yml"
     data = _load(config_path)
 
-    # Ensure claude_code.servers section exists
-    if "claude_code" not in data:
-        from ruamel.yaml import CommentedMap
-
-        data["claude_code"] = CommentedMap()
-    cc = data["claude_code"]
-    if "servers" not in cc:
-        from ruamel.yaml import CommentedMap
-
-        cc["servers"] = CommentedMap()
-    servers_section = cc["servers"]
-
+    # Collect the server specs first, then register them via anchored_put:
+    # writing an empty ``servers:`` map and filling it afterwards would leave
+    # any section comment trailing ``claude_code:`` anchored above the new
+    # entries (rendering them under the next section's banner).
+    specs: dict[str, dict[str, Any]] = {}
     for name, server in mcp_servers.items():
         if not isinstance(server, McpServerDef):
             continue
 
         spec: dict[str, Any] = {}
         if server.url:
-            spec["transport"] = "http"
+            # Written explicitly (even for the default) so the rendered
+            # config.yml states its wire transport instead of implying it —
+            # _custom_server_from_spec() reads this key back during regen.
+            spec["transport"] = server.transport
             spec["url"] = server.url
         else:
-            spec["transport"] = "stdio"
+            # Stdio servers get no transport key: launching via 'command' IS
+            # the transport, and load_profile rejects a declared one.
             if server.command:
                 spec["command"] = server.command
             if server.args:
@@ -188,45 +207,72 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
         if server.port is not None and server.url:
             # Emit a derived network block so non-Claude consumers
             # (compose-port checkers, integration-tests probes) can read
-            # host/docker URLs without re-deriving them.
+            # host/docker URLs without re-deriving them. The endpoint path
+            # follows the declared url (an SSE server's stream is not /mcp).
             # NOTE: docker_url uses the MCP server's YAML key (`name`) as the
             # container hostname. This assumes the operator names the
             # docker-compose service identically to the mcp_servers entry
             # (e.g. mcp_servers.matlab → service: matlab). If they diverge,
             # docker_url will point at a non-existent host.
+            path = urlparse(server.url).path or "/mcp"
             spec["network"] = {
                 "port": int(server.port),
-                "host_url": f"http://localhost:{server.port}/mcp",
-                "docker_url": f"http://{name}:{server.port}/mcp",
+                "host_url": f"http://localhost:{server.port}{path}",
+                "docker_url": f"http://{name}:{server.port}{path}",
             }
         if server.permissions:
             spec["permissions"] = dict(server.permissions)
 
-        servers_section[name] = spec
+        specs[name] = spec
+
+    if specs:
+        if "claude_code" not in data:
+            from ruamel.yaml import CommentedMap
+
+            data["claude_code"] = CommentedMap()
+        cc = data["claude_code"]
+        if "servers" in cc:
+            for name, spec in specs.items():
+                anchored_put(cc["servers"], name, spec)
+        else:
+            anchored_put(cc, "servers", specs)
 
     _save(config_path, data)
 
 
-def _persist_categories(project_path: Path, categories: dict[str, dict[str, str]]) -> None:
-    """Persist custom artifact categories into config.yml's ``categories`` section."""
-    from osprey.utils.config_writer import _load, _save
+def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> None:
+    """Merge profile ``artifact_server`` overrides into config.yml's block.
+
+    Scalar subkeys (``host``, ``port``, ``auto_launch``) replace the rendered
+    defaults; ``categories`` entries are written into the block's
+    ``categories`` submap.
+    """
+    from ruamel.yaml import CommentedMap
+
+    from osprey.utils.config_writer import _load, _save, anchored_put
 
     config_path = project_path / "config.yml"
     data = _load(config_path)
 
-    if "categories" not in data:
-        from ruamel.yaml import CommentedMap
+    if "artifact_server" not in data:
+        # Root-level append: new top-level sections land at the file tail
+        # by design (the template documents appended sections there).
+        data["artifact_server"] = CommentedMap()
+    block = data["artifact_server"]
 
-        data["categories"] = CommentedMap()
-    cat_section = data["categories"]
-
-    for key, spec in categories.items():
-        from ruamel.yaml import CommentedMap
-
-        entry = CommentedMap()
-        entry["label"] = spec["label"]
-        entry["color"] = spec["color"]
-        cat_section[key] = entry
+    for key, value in overrides.items():
+        if key != "categories":
+            anchored_put(block, key, value)
+    categories = {
+        key: {"label": spec["label"], "color": spec["color"]}
+        for key, spec in overrides.get("categories", {}).items()
+    }
+    if categories:
+        if "categories" in block:
+            for key, entry in categories.items():
+                anchored_put(block["categories"], key, entry)
+        else:
+            anchored_put(block, "categories", categories)
 
     _save(config_path, data)
 

@@ -1,3 +1,6 @@
+# Scratch notes (local idea capture)
+scratch/
+
 # NFS temporary files
 .nfs*
 
@@ -39,10 +42,11 @@ pip-delete-this-directory.txt
 htmlcov/
 .tox/
 .coverage
-.coverage.*
+.coverage*
 .cache
 nosetests.xml
 coverage.xml
+coverage.json
 *.cover
 .hypothesis/
 .pytest_cache/
@@ -122,6 +126,10 @@ valves.json
 
 # Agent data directories
 _agent_data/*
+.agents/
+
+# Local coding-agent guidance (CLAUDE.md is the tracked source of guidance)
+AGENTS.md
 
 # Sample logbook data (large JSONL files)
 logbook_*.jsonl
@@ -179,6 +187,14 @@ src/osprey/templates/apps/control_assistant/data/benchmarks/results/
 # Node.js (dev-only JS toolchain; not part of the Python wheel)
 node_modules/
 
-# feature-scaffolding logs
+# Version stamp written by the hatch-vcs build hook. Committing it would recreate
+# the stale-literal problem the git-derived version exists to remove. It is still
+# packaged into the wheel and sdist — the hook registers it as a build artifact.
+src/osprey/_version.py
+
+# feature-scaffolding logs (not committed)
 .claude/.logs/.state/
 .claude/.logs/*.jsonl
+
+# Process scaffolding — never committed (specs/plans live here uncommitted)
+docs/superpowers/

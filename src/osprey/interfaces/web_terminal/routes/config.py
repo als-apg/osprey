@@ -26,7 +26,6 @@ _AGENT_CONFIG_SECTIONS = [
     "ariel",
     "python_execution",
     "artifact_server",
-    "workspace",
     "screen_capture",
     "hooks",
 ]

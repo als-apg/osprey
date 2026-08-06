@@ -23,9 +23,11 @@ The Control System Integration system provides a **two-layer abstraction** for w
   like ``epics`` but tracks setpoints through the simulated machine, so scans
   actually run (the mock connector can't do that); see :doc:`use-virtual-accelerator`
 - **mongodb_archiver**: MongoDB time-series archiver (optional, ``pip install "osprey-framework[archiver-mongodb]"``)
-
-A DOOCS connector and DOOCS archiver also ship in-tree; they are wired up via
-their dotted class paths rather than a registered name.
+- **doocs** / **doocs_archiver**: DOOCS properties and DOOCS local histories
+  (DESY, European XFEL). Both require ``doocs4py``, which is supplied by the
+  DOOCS environment rather than installed from PyPI — the import is deferred to
+  ``connect()``, so the names register everywhere and only fail where a DOOCS
+  environment is genuinely absent.
 
 
 Quick Start: Using Connectors
@@ -135,6 +137,35 @@ correctly, each on its own timestamp series. The connector requires the optional
 .. code-block:: bash
 
    pip install "osprey-framework[archiver-mongodb]"
+
+Production Mode (DOOCS)
+~~~~~~~~~~~~~~~~~~~~~~~
+
+DOOCS facilities select both connectors by name. Channel addresses are DOOCS
+properties (``FACILITY/DEVICE/LOCATION/PROPERTY``), and the control-system
+connector needs no options -- it reads its environment from the DOOCS
+installation:
+
+.. code-block:: yaml
+
+   control_system:
+     type: doocs
+
+   archiver:
+     type: doocs_archiver
+     doocs_archiver:
+       avg_window: 20    # optional moving average, in samples
+
+The archiver reads DOOCS *local histories*, so it only makes sense alongside
+``type: doocs``. Both connectors need ``doocs4py``, which the DOOCS environment
+provides rather than PyPI; without it, ``connect()`` fails with a clear
+``ImportError`` instead of silently degrading.
+
+.. note::
+
+   DOOCS supports the ``none`` and ``readback`` write-verification levels.
+   ``callback`` is accepted but has no DOOCS equivalent, so it performs a
+   readback and reports the level as ``readback``.
 
 
 Write Verification

@@ -28,7 +28,7 @@ Overview
 The ``osprey build`` command takes a YAML profile and produces a standalone Osprey agent
 project. The profile declares:
 
-- **Data bundle** to start from (``control_assistant``, ``hello_world``, or ``ariel_standalone``)
+- **App template** to start from (``control_assistant``, ``hello_world``, or ``ariel_standalone``)
 - **Config overrides** for the generated ``config.yml`` (dot-notation)
 - **File overlays** that copy facility data into the project
 - **MCP server definitions** to inject custom tools
@@ -66,42 +66,86 @@ OSPREY's build inputs form a three-layer hierarchy:
 - **Project** — the rendered output of ``osprey build``. Derived; regenerable;
   treat it as a build artifact and avoid editing it in place.
 
-You can drive ``osprey build`` in three modes:
+The three steps that move between those layers:
 
 .. list-table::
    :header-rows: 1
    :widths: 22 38 40
 
-   * - Mode
+   * - Step
      - Command
      - When to use
    * - Quick start
      - ``osprey build my-project --preset X``
      - Trying a preset; no customizations needed.
-   * - Scaffold profile
-     - ``osprey build --emit-profile my-profile --preset X``
-     - Starting facility-specific customization. Writes an editable
-       profile directory and exits — no project rendered yet.
+   * - Materialize a profile
+     - ``osprey profile new my-profile --preset X``
+     - Starting facility-specific customization. Writes an editable,
+       **standalone** profile directory — no project rendered yet. The
+       preset's full configuration is materialized into ``profile.yml``
+       (comments preserved, no ``extends:``) alongside a copy of the
+       preset's data tree, and any ``--set`` / ``-O`` values are applied
+       in place, so a validated build one-liner carries straight into
+       the profile.
    * - Build from profile
      - ``osprey build my-project my-profile/profile.yml``
      - Rendering a project from your profile (the everyday command after
        the profile exists).
 
-The scaffold mode writes:
+``osprey profile new`` writes:
 
 .. code-block:: text
 
    my-profile/
-     profile.yml          # extends: <preset>, with override sections (commented)
+     profile.yml          # the preset's full configuration, materialized — edit freely
+     data/                # the preset's data tree, copied verbatim — edit freely
      overlays/
-       rules/   .gitkeep  # drop facility-specific rule .md files here
-       skills/  .gitkeep  # drop custom skill directories here
-       agents/  .gitkeep  # drop custom subagent .md files here
+       rules/                 .gitkeep  # drop facility-specific rule .md files here
+       skills/                .gitkeep  # drop custom skill directories here
+       agents/                .gitkeep  # drop custom subagent .md files here
+       web-terminal-context/  .gitkeep  # drop per-user web-terminal content here
      README.md            # explains the layout
 
-The seed ``profile.yml`` lists every supported override section in commented
-form (``skills:``, ``rules:``, ``agents:``, ``config:``, ``env:``,
-``overlay:``) — uncomment what you need.
+The materialized ``profile.yml`` is fully self-sufficient: every section the preset
+configures (artifact lists, ``config:`` overrides, service blocks like
+``bluesky:`` / ``virtual_accelerator:`` / ``dispatch:``, ``env:`` wiring) is
+written out explicitly with the preset's own comments, and nothing is
+inherited at build time. Upstream preset improvements in later OSPREY releases
+do **not** flow in automatically — materialize a fresh profile into a scratch
+directory and diff to pick them up.
+
+Persona profiles
+----------------
+
+Some presets give each operator their own web terminal, and each terminal runs
+with a persona — a capability posture, such as read-only versus write-capable.
+For those presets (``control-assistant`` and ``multi-user-demo``),
+``osprey profile new`` writes one profile per persona into a ``personas/``
+directory alongside ``profile.yml``:
+
+.. code-block:: text
+
+   my-profile/
+     profile.yml
+     data/
+     personas/
+       readonly.yml       # a read-only terminal
+       readwrite.yml      # a write-capable terminal
+
+Each persona profile carries ``data: ../data``, so the whole stack reads the
+single data tree above it — edit ``data/`` once and every persona picks the
+change up on its next build, with no per-persona copy to keep in sync. The
+host ``profile.yml`` points at these files by path, so keep the names in step
+if you rename one.
+
+They are ordinary profiles: edit one to change what that persona's terminal
+can do, validate it on its own, or build it directly.
+
+.. code-block:: bash
+
+   osprey profile validate my-profile/personas/readonly.yml
+
+At deployment time, the persona projects are rendered from these files.
 
 Inheriting from a preset
 ------------------------
@@ -216,7 +260,7 @@ Create a minimal profile and build:
 
    # my-facility-dev.yml
    name: "My Facility (Dev)"
-   data_bundle: control_assistant
+   app_template: control_assistant
    provider: anthropic
    model: sonnet
    channel_finder_mode: in_context
@@ -249,7 +293,7 @@ Profile YAML Schema
      - string
      - *required*
      - Human-readable profile name.
-   * - ``data_bundle``
+   * - ``app_template``
      - string
      - ``control_assistant``
      - App template (data bundle) to use. Valid: ``control_assistant``,
@@ -299,6 +343,11 @@ Profile YAML Schema
      - ``[]``
      - Python packages to install into the project venv and record in
        ``pyproject.toml``.
+   * - ``environment``
+     - mapping
+     - ``{}``
+     - Base interpreter the project environment is built from, plus extra
+       packages (see :ref:`profile-environment`).
    * - ``requires_osprey_version``
      - string
      - ``None``
@@ -429,6 +478,26 @@ configuration) and ``.claude/settings.json`` (tool permissions) — so a later
          allow: ["safe_tool"]
          ask: ["write_tool"]
 
+Remote servers declare a ``url`` instead of a ``command``, plus an optional
+``transport`` — ``http`` (streamable-HTTP, the default) or ``sse`` (legacy
+Server-Sent Events):
+
+.. code-block:: yaml
+
+   mcp_servers:
+     matlab:
+       transport: http
+       url: "http://localhost:8008/mcp"
+       permissions:
+         allow: ["mml_search"]
+     legacy_api:
+       transport: sse
+       url: "http://appsdev2:8001/sse"
+
+``command`` and ``url`` are mutually exclusive, and stdio servers must not set
+``transport`` (launching via ``command`` *is* the transport) — the profile
+loader rejects both combinations at load time.
+
 **Placeholder resolution:**
 
 - ``{project_root}`` — resolved at **build time** to the absolute project path
@@ -505,7 +574,7 @@ Supported keys:
 .. admonition:: Deny wins, and it wins at runtime too
    :class: important
 
-   Claude Code resolves permissions as **deny > ask > allow**, and a static ``deny``
+   The agent resolves permissions as **deny > ask > allow**, and a static ``deny``
    entry cannot be overridden during a session. While a tool sits in the deny list,
    an in-session ``/permissions`` "allow once" will **not** unblock it — you must
    ``remove_deny`` it and rebuild. Use ``ask`` instead of ``deny`` for tools you want
@@ -650,6 +719,84 @@ declares the same set, ``uv run`` inside the project resolves the project's own
 Builds run with ``--skip-deps`` create no environment and no ``pyproject.toml``;
 install dependencies yourself in that mode.
 
+.. _profile-environment:
+
+The Execution Environment
+-------------------------
+
+``dependencies`` says what *else* to install. The ``environment:`` block says
+what the project environment is built *on top of* — which interpreter it starts
+from, and, when that interpreter belongs to a virtual environment your facility
+already maintains, which of its packages to carry over. This is the environment
+the agent's Python code runs in.
+
+.. code-block:: yaml
+
+   environment:
+     python: /opt/facility/analysis-env/bin/python   # base interpreter
+     packages:                                       # installed on top
+       - lmfit>=1.3
+     inherit_exclude:                                # left out of the freeze
+       - facility-inhouse-tools
+
+All three keys are optional; the block as a whole can be omitted.
+
+``python``
+   The base interpreter, as an absolute path. It may be a plain interpreter
+   (``/usr/bin/python3.12``) or the interpreter inside a virtual environment
+   (``.../analysis-env/bin/python``) — the syntax is the same and there is no
+   mode to select. The build aborts if the path does not exist or is not
+   executable. Leave the key out and the build uses its own interpreter.
+
+``packages``
+   Extra requirements (PEP 508 specifiers) installed into the project
+   environment. Additive in both cases: pointing ``python`` at a facility
+   environment does not stop you adding packages on top. ``packages`` and
+   ``dependencies`` are resolved in the same install, so they cannot disagree;
+   where both name the same distribution, a pinned version wins over a bare
+   name, and between two pinned versions ``packages`` wins.
+
+``inherit_exclude``
+   Distribution names to leave out of the freeze described below. It is only
+   meaningful with a virtual environment base; declaring it against a plain
+   interpreter, or with no ``python`` at all, is rejected at validation time
+   rather than silently doing nothing.
+
+**Carrying a virtual environment's packages over.** Basing a project on a
+virtual environment's *interpreter* does not inherit that environment's
+*packages* — creating a new environment from another one's interpreter yields
+an empty one. What carries them over is a **freeze**: when
+``environment.python`` names a virtual environment's interpreter, the build
+records that environment's installed distributions as exact ``name==version``
+requirements in the project's generated ``pyproject.toml``. The project venv,
+and any container image built from it, install that same set — so the built
+project matches the environment it was based on.
+
+A pin written in ``dependencies`` or ``packages`` overrides the version the
+base happened to carry, so you can base a project on a facility environment and
+still choose a different version of one package.
+
+The freeze runs **only when a base interpreter is declared**. Without
+``environment.python`` the base is whatever interpreter OSPREY itself happens
+to be installed into — an accident of how the framework was installed, not a
+curated environment — and its packages are deliberately not carried over.
+
+**The build stops if a package cannot be reproduced.** A freeze that would not
+survive the move fails the build rather than producing a project that quietly
+differs from its base. Two cases are refused:
+
+- **No package-index coordinate.** A distribution installed from a local path,
+  a VCS checkout, or a bare archive URL — an editable install, for instance —
+  has no ``name==version`` that would reinstall it anywhere else.
+- **A version OSPREY itself forbids.** If the base carries a version outside
+  OSPREY's own requirement for that package, both cannot hold. OSPREY's
+  requirement is authoritative.
+
+Every offending package is named in a single message, along with the
+``inherit_exclude`` block that clears all of them, so you fix them in one edit
+instead of one build at a time. Excluding a conflicting package leaves OSPREY's
+own version in place.
+
 
 Repository Structure
 ====================
@@ -727,10 +874,6 @@ CLI Reference
        points at. Advanced — overrides the default derived from the channel
        finder paradigm (``in_context`` → tier 1, ``hierarchical`` /
        ``middle_layer`` → tier 3). Tier 1 is ``in_context``-only.
-   * - ``--emit-profile DIR``
-     - Scaffold an editable profile directory at ``DIR`` that extends
-       ``--preset``, then exit without rendering a project. Build from it
-       with ``osprey build <PROJECT_NAME> DIR/profile.yml``.
    * - ``-s, --stream``
      - Stream lifecycle step output in real time.
    * - ``--skip-lifecycle``
@@ -761,6 +904,10 @@ declaration order → ``--set`` pairs.
    osprey build als-test --preset control-assistant \
        -O als-overrides.yml \
        --set model=claude-sonnet-4-6
+
+   # Materialize a facility profile with those same overrides baked in
+   osprey profile new als-profile --preset control-assistant \
+       --set provider=als-apg --set model=opus
 
 
 Build Pipeline

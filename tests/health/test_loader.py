@@ -32,17 +32,6 @@ def _write(path: Path, body: str) -> None:
     path.write_text(body)
 
 
-@pytest.fixture(autouse=True)
-def _restore_environ():
-    """Snapshot/restore ``os.environ`` — the loader mutates it via ``.env`` loads."""
-    saved = dict(os.environ)
-    try:
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
-
-
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     proj = tmp_path / "proj"

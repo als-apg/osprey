@@ -10,13 +10,13 @@ name: Control Assistant
 # The data bundle provides the project skeleton (config.yml, registry, data
 # files, benchmark datasets, etc.).  "control_assistant" is the standard full
 # bundle that includes channel databases, benchmarks, and a logbook seed.
-data_bundle: control_assistant
+app_template: control_assistant
 
 # Default LLM provider and model. Override here or via `osprey build`'s
 # --set provider=... / --set model=... flags; explicit --set overrides are
 # also forwarded to the persona projects auto-rendered at deploy time.
 provider: anthropic
-model: claude-haiku-4-5
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
 # Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
 channel_finder_mode: hierarchical
@@ -36,6 +36,8 @@ hooks:
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Inject the web terminal panel inventory into agent context
 
 rules:
   - safety              # Core safety rules: never write without approval
@@ -53,6 +55,7 @@ skills:
   - setup-mode      # Toggle between interactive and automated operating modes
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
+  - demo-ui         # Run a scripted demo of the agent driving the web workspace
   - writing-bluesky-plans  # Author, validate, and launch a session-tier plan (requires the Bluesky MCP server)
   - operating-bluesky-scans  # Stage, launch, and watch a registered scan through the shared draft (requires the Bluesky MCP server)
 
@@ -94,10 +97,9 @@ bluesky:
   # the real VA soft-IOC over BLUESKY_EPICS_SUBSTRATE, not the mock demo runner.
 
 virtual_accelerator:
-  # MUST stay 5064 — config.yml.j2 hardcodes the VA gateway port at 5064
-  # (control_system.connector.virtual_accelerator.gateways.*.port is not
-  # templated from services.virtual_accelerator.port); changing this here
-  # would desync the connector from the deployed container.
+  # Channel Access port the soft-IOC serves on. The connector's gateway port
+  # follows this value, so changing it here moves both the container and the
+  # connector that talks to it.
   port: 5064
 
 bluesky_panels:
@@ -117,11 +119,6 @@ config:
   # deployed VA end-to-end (correctors move, BPMs read); use "epics" for live
   # hardware.
   control_system.type: mock
-  # Required for arming: a local-exec posture withholds the auto-minted
-  # BLUESKY_LAUNCH_TOKEN (see container_lifecycle.py's
-  # _local_exec_arming_unsafe) — container execution is what lets `osprey
-  # deploy up` mint the token safely.
-  execution.execution_method: container
   # The Bluesky MCP server is off-by-default in the framework registry
   # (default_enabled=False); opt in here so the tutorial's agent can author
   # and launch scan plans out of the box.
@@ -131,7 +128,11 @@ config:
   # run read-only framework/stack health checks out of the box.
   claude_code.servers.health.enabled: true
   # system.timezone: America/Los_Angeles
-  # system.facility_name: My Facility
+  # Facility display name, woven into the agent prompts (CLAUDE.md, the
+  # channel-finder/logbook agents) and the web-terminal landing page. Defaults
+  # to the project name when unset. Sits in the same `facility:` block as
+  # `facility.prefix` below.
+  # facility.name: My Facility
   # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
   # URL defaults to the host-run dispatcher (127.0.0.1:8020); override
   # EVENT_DISPATCHER_URL for containerized/remote web terminals.

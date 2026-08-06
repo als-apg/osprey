@@ -74,8 +74,11 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 # Same rationale as test_osprey_drawer.py: the settings trigger carries
 # `data-drawer-trigger`, not the drawer component's own `[data-drawer]`
-# marker, so the warning gate below is the sole open path.
+# marker, so the warning gate below is the sole open path. It is the System
+# Settings row inside the header display-menu popover, so reaching it means
+# opening the display menu first.
 TRIGGER_SELECTOR = '[data-drawer-trigger="settings-drawer"]'
+DISPLAY_MENU_BTN_SELECTOR = "#display-menu-btn"
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
 WARNING_PROCEED_SELECTOR = ".settings-warning-proceed"
@@ -160,7 +163,9 @@ def _goto(page: Page, base_url: str) -> None:
 
 
 def _open_settings_drawer(page: Page) -> None:
-    """Click the header trigger, proceeding past the first-time warning if shown."""
+    """Open the display menu, click its System Settings row, and proceed past
+    the first-time warning if shown."""
+    page.click(DISPLAY_MENU_BTN_SELECTOR)
     page.click(TRIGGER_SELECTOR)
     proceed = page.locator(WARNING_PROCEED_SELECTOR)
     try:

@@ -1,79 +1,82 @@
 {
-  "$description": "High Contrast Dark — WCAG-AAA member of the 'high-contrast' family (the dark twin of high-contrast-light.json). Same semantic key set as dark.json/light.json (contract-enforced). Every value aliases an EXISTING core.json primitive; no new primitives were needed to hit AAA. bg.primary/bg.terminal use the darkest existing slate step (slate.1100, #020408, already used elsewhere as wt-welcome.bg); text/accent use the lightest/brightest existing steps that clear the AAA gates with margin. AAA gates computed against these values (via validate.py's own contrast_ratio()) and ALL PASS: text.primary 19.82:1 (>=7), text.secondary 13.88:1 (>=7), text.muted 7.22:1 (>=4.5), accent.base 11.00:1 (>=4.5). accent.light/tint.accent/border.accent are re-derived from the brighter accent.light (teal.50, #67e8f9) chosen for this theme, not copy-pasted from dark.json's teal.100-based tints.",
+  "$description": "High Contrast Dark — the black-and-white twin of the main dark theme, and the dark member of the WCAG-AAA 'high-contrast' family. Fully monochrome by construction: every color resolves to the achromatic core.mono ramp, so no hue survives anywhere — not in status, not in diffs, not in the ANSI palette. State is carried by lightness (an alarm is the brightest thing on screen, a healthy reading the dimmest) on top of the glyphs and labels the consuming surfaces already draw; nothing in this theme depends on a viewer distinguishing red from green. It mirrors the main theme's *structure* (same surface stack, same emphasis ordering), not the retro family's, which is what it inherited before this remap. AAA gates against bg.primary (#000000), via validate.py's own contrast_ratio(): text.primary 21.00:1 (>=7), text.secondary 13.08:1 (>=7), text.muted 7.37:1 (>=4.5), accent.base 21.00:1 (>=4.5), accent.on 21.00:1 on accent.base (>=7).",
   "$extensions": { "mode": "dark", "id": "high-contrast-dark", "label": "High Contrast Dark", "family": "high-contrast" },
   "bg": {
-    "terminal": { "$value": "{color.slate.1100}", "$type": "color" },
-    "primary": { "$value": "{color.slate.1100}", "$type": "color", "$description": "Darkest existing slate step (#020408); anchors the AAA gates below." },
-    "secondary": { "$value": "{color.slate.1050}", "$type": "color" },
-    "panel": { "$value": "{color.slate.1000}", "$type": "color" },
-    "elevated": { "$value": "{color.slate.900}", "$type": "color" }
+    "terminal": { "$value": "{color.mono.1000}", "$type": "color" },
+    "primary": { "$value": "{color.mono.1000}", "$type": "color", "$description": "Pure black; anchors every AAA gate below." },
+    "secondary": { "$value": "{color.mono.900}", "$type": "color" },
+    "panel": { "$value": "{color.mono.900}", "$type": "color" },
+    "elevated": { "$value": "{color.mono.800}", "$type": "color" }
   },
   "text": {
-    "primary": { "$value": "{color.slate.50}", "$type": "color", "$description": "Lightest existing slate step (#fafbfd); 19.82:1 vs bg.primary." },
-    "secondary": { "$value": "{color.slate.500}", "$type": "color", "$description": "13.88:1 vs bg.primary." },
-    "muted": { "$value": "{color.slate.600}", "$type": "color", "$description": "7.22:1 vs bg.primary — the dimmest existing slate step that still clears the AAA 4.5:1 floor (slate.650, dark.json's own text.muted value, only reaches 4.31:1 here and was rejected)." }
+    "primary": { "$value": "{color.mono.0}", "$type": "color", "$description": "Pure white; 21.00:1 vs bg.primary." },
+    "secondary": { "$value": "{color.mono.200}", "$type": "color", "$description": "13.08:1 vs bg.primary." },
+    "muted": { "$value": "{color.mono.400}", "$type": "color", "$description": "7.37:1 vs bg.primary — the dimmest ramp step that still clears the AAA 4.5:1 floor with margin." }
   },
   "accent": {
-    "base": { "$value": "{color.teal.100}", "$type": "color", "$description": "11.00:1 vs bg.primary (AAA floor is 4.5:1)." },
-    "light": { "$value": "{color.teal.50}", "$type": "color", "$description": "Brightest existing teal step; used as the base for tint.accent/border.accent below." },
-    "on": { "$value": "#000000", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). ~10.6:1 on teal.100 (white would be 1.87:1, far below the AAA 7:1 floor)." }
+    "base": { "$value": "{color.mono.0}", "$type": "color", "$description": "White is the accent: in a monochrome theme, emphasis is maximum lightness. 21.00:1 vs bg.primary." },
+    "light": { "$value": "{color.mono.150}", "$type": "color", "$description": "The hover/secondary accent shade — a step down from white so a hover state is still felt without hue." },
+    "on": { "$value": "{color.mono.1000}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 21.00:1 on white." }
   },
-  "amber": {
-    "base": { "$value": "{color.amber.300}", "$type": "color" },
-    "light": { "$value": "{color.amber.100}", "$type": "color" },
-    "hover": { "$value": "{color.amber.500}", "$type": "color" }
+  "accent-secondary": {
+    "$description": "The decorative secondary-accent group; monochrome here, sitting one emphasis tier below accent.* so surfaces that pair the two still read as two tiers.",
+    "base": { "$value": "{color.mono.150}", "$type": "color" },
+    "light": { "$value": "{color.mono.50}", "$type": "color" },
+    "hover": { "$value": "{color.mono.300}", "$type": "color" }
   },
   "status": {
-    "success": { "$value": "{color.green.400}", "$type": "color" },
-    "warning": { "$value": "{color.amber.400}", "$type": "color" },
-    "error": { "$value": "{color.red.300}", "$type": "color" },
-    "error-hover": { "$value": "{color.red.500}", "$type": "color" }
+    "$description": "The monochrome emphasis ladder, brightest = most urgent: error (white) > warning > success (dim). Consuming surfaces carry the glyph and label that name the state; this only sets how loudly it is drawn.",
+    "success": { "$value": "{color.mono.400}", "$type": "color" },
+    "warning": { "$value": "{color.mono.200}", "$type": "color" },
+    "error": { "$value": "{color.mono.0}", "$type": "color" },
+    "error-hover": { "$value": "{color.mono.150}", "$type": "color" }
   },
   "border": {
-    "default": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color", "$description": "Same tint.neutral-family composite as dark.json's border.default (unaffected by the accent/text changes above)." },
-    "accent": { "$value": "rgba(103, 232, 249, 0.15)", "$type": "color", "$description": "Alpha composite of THIS theme's accent.light (teal.50, #67e8f9) — not dark.json's teal.100-based value." }
+    "default": { "$value": "rgba(255, 255, 255, 0.24)", "$type": "color", "$description": "Twice the alpha the chromatic themes use for their hairline — on pure black a 0.12 composite all but disappears, and a high-contrast theme must keep its structure legible." },
+    "accent": { "$value": "rgba(255, 255, 255, 0.40)", "$type": "color" }
   },
   "tint": {
+    "$description": "Every tint family composites the same pure white, because monochrome means the accent/accent-secondary/error/success/neutral washes differ only in strength, never in hue.",
     "accent": {
-      "04": { "$value": "rgba(103, 232, 249, 0.04)", "$type": "color" },
-      "06": { "$value": "rgba(103, 232, 249, 0.06)", "$type": "color" },
-      "08": { "$value": "rgba(103, 232, 249, 0.08)", "$type": "color" },
-      "10": { "$value": "rgba(103, 232, 249, 0.10)", "$type": "color" },
-      "12": { "$value": "rgba(103, 232, 249, 0.12)", "$type": "color" },
-      "20": { "$value": "rgba(103, 232, 249, 0.20)", "$type": "color" },
-      "25": { "$value": "rgba(103, 232, 249, 0.25)", "$type": "color" },
-      "30": { "$value": "rgba(103, 232, 249, 0.30)", "$type": "color" }
+      "04": { "$value": "rgba(255, 255, 255, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(255, 255, 255, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(255, 255, 255, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(255, 255, 255, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(255, 255, 255, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(255, 255, 255, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(255, 255, 255, 0.30)", "$type": "color" }
     },
-    "amber": {
-      "04": { "$value": "rgba(212, 165, 116, 0.04)", "$type": "color" },
-      "06": { "$value": "rgba(212, 165, 116, 0.06)", "$type": "color" },
-      "08": { "$value": "rgba(212, 165, 116, 0.08)", "$type": "color" },
-      "12": { "$value": "rgba(212, 165, 116, 0.12)", "$type": "color" },
-      "15": { "$value": "rgba(212, 165, 116, 0.15)", "$type": "color" },
-      "25": { "$value": "rgba(212, 165, 116, 0.25)", "$type": "color" }
+    "accent-secondary": {
+      "04": { "$value": "rgba(255, 255, 255, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(255, 255, 255, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+      "12": { "$value": "rgba(255, 255, 255, 0.12)", "$type": "color" },
+      "15": { "$value": "rgba(255, 255, 255, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(255, 255, 255, 0.25)", "$type": "color" }
     },
     "error": {
-      "04": { "$value": "rgba(239, 68, 68, 0.04)", "$type": "color" },
-      "08": { "$value": "rgba(239, 68, 68, 0.08)", "$type": "color" },
-      "10": { "$value": "rgba(239, 68, 68, 0.10)", "$type": "color" },
-      "15": { "$value": "rgba(239, 68, 68, 0.15)", "$type": "color" },
-      "25": { "$value": "rgba(239, 68, 68, 0.25)", "$type": "color" },
-      "30": { "$value": "rgba(239, 68, 68, 0.30)", "$type": "color" },
-      "40": { "$value": "rgba(239, 68, 68, 0.40)", "$type": "color" }
+      "04": { "$value": "rgba(255, 255, 255, 0.04)", "$type": "color" },
+      "08": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(255, 255, 255, 0.10)", "$type": "color" },
+      "15": { "$value": "rgba(255, 255, 255, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(255, 255, 255, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(255, 255, 255, 0.30)", "$type": "color" },
+      "40": { "$value": "rgba(255, 255, 255, 0.40)", "$type": "color" }
     },
     "success": {
-      "08": { "$value": "rgba(34, 197, 94, 0.08)", "$type": "color" },
-      "40": { "$value": "rgba(34, 197, 94, 0.40)", "$type": "color" },
-      "50": { "$value": "rgba(34, 197, 94, 0.50)", "$type": "color" }
+      "08": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+      "40": { "$value": "rgba(255, 255, 255, 0.40)", "$type": "color" },
+      "50": { "$value": "rgba(255, 255, 255, 0.50)", "$type": "color" }
     },
     "neutral": {
-      "03": { "$value": "rgba(148, 163, 184, 0.03)", "$type": "color" },
-      "06": { "$value": "rgba(148, 163, 184, 0.06)", "$type": "color" },
-      "08": { "$value": "rgba(148, 163, 184, 0.08)", "$type": "color" },
-      "10": { "$value": "rgba(148, 163, 184, 0.10)", "$type": "color" },
-      "12": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color" },
-      "20": { "$value": "rgba(148, 163, 184, 0.20)", "$type": "color" },
-      "35": { "$value": "rgba(148, 163, 184, 0.35)", "$type": "color" }
+      "03": { "$value": "rgba(255, 255, 255, 0.03)", "$type": "color" },
+      "06": { "$value": "rgba(255, 255, 255, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(255, 255, 255, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(255, 255, 255, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(255, 255, 255, 0.20)", "$type": "color" },
+      "35": { "$value": "rgba(255, 255, 255, 0.35)", "$type": "color" }
     }
   },
   "overlay": {
@@ -89,61 +92,64 @@
     "panel": { "$value": "-4px 0 24px rgba(0, 0, 0, 0.4)", "$type": "shadow" },
     "dropdown": { "$value": "0 8px 24px rgba(0, 0, 0, 0.4)", "$type": "shadow" },
     "dialog": { "$value": "0 8px 32px rgba(0, 0, 0, 0.4)", "$type": "shadow" },
-    "error-dialog": { "$value": "0 0 40px rgba(239, 68, 68, 0.15), 0 8px 32px rgba(0, 0, 0, 0.5)", "$type": "shadow" }
+    "error-dialog": { "$value": "0 0 40px rgba(255, 255, 255, 0.15), 0 8px 32px rgba(0, 0, 0, 0.5)", "$type": "shadow", "$description": "The error dialog's halo goes white with the rest of the palette — it is the only glow in the theme, which is what marks the dialog as the error one." }
   },
   "diff": {
-    "add-bg": { "$value": "rgba(34, 197, 94, 0.08)", "$type": "color" },
-    "add-text": { "$value": "rgba(34, 197, 94, 0.9)", "$type": "color" },
-    "del-bg": { "$value": "rgba(239, 68, 68, 0.08)", "$type": "color" },
-    "del-text": { "$value": "rgba(239, 68, 68, 0.9)", "$type": "color" },
-    "word-del-bg": { "$value": "rgba(239, 68, 68, 0.30)", "$type": "color" },
-    "word-del-text": { "$value": "{color.red.300}", "$type": "color" },
-    "word-add-bg": { "$value": "rgba(34, 197, 94, 0.30)", "$type": "color" },
-    "word-add-text": { "$value": "{color.green.400}", "$type": "color" }
+    "$description": "Additions read bright, deletions read dim — the only distinction a monochrome diff can carry beyond the +/- gutter the renderer already draws.",
+    "add-bg": { "$value": "rgba(255, 255, 255, 0.10)", "$type": "color" },
+    "add-text": { "$value": "rgba(255, 255, 255, 0.95)", "$type": "color" },
+    "del-bg": { "$value": "rgba(255, 255, 255, 0.05)", "$type": "color" },
+    "del-text": { "$value": "rgba(255, 255, 255, 0.60)", "$type": "color" },
+    "word-del-bg": { "$value": "rgba(255, 255, 255, 0.15)", "$type": "color" },
+    "word-del-text": { "$value": "{color.mono.400}", "$type": "color" },
+    "word-add-bg": { "$value": "rgba(255, 255, 255, 0.30)", "$type": "color" },
+    "word-add-text": { "$value": "{color.mono.0}", "$type": "color" }
   },
   "terminal": {
-    "cursor": { "$value": "{color.teal.50}", "$type": "color" },
-    "text": { "$value": "{color.slate.250}", "$type": "color", "$description": "Bumped to a near-white step (vs dark.json's slate.500) so the terminal's own body text also reads at high contrast, matching the theme's AAA intent." },
-    "selection": { "$value": "rgba(103, 232, 249, 0.25)", "$type": "color" },
+    "cursor": { "$value": "{color.mono.0}", "$type": "color" },
+    "text": { "$value": "{color.mono.0}", "$type": "color" },
+    "selection": { "$value": "rgba(255, 255, 255, 0.25)", "$type": "color" },
     "ansi": {
-      "background": { "$value": "{color.slate.1100}", "$type": "color" },
-      "foreground": { "$value": "{color.slate.250}", "$type": "color" },
-      "cursor": { "$value": "{color.teal.50}", "$type": "color" },
-      "cursor-accent": { "$value": "{color.slate.1100}", "$type": "color" },
-      "selection": { "$value": "rgba(103, 232, 249, 0.25)", "$type": "color" },
-      "black": { "$value": "{color.slate.800}", "$type": "color" },
-      "red": { "$value": "{color.red.300}", "$type": "color" },
-      "green": { "$value": "{color.green.400}", "$type": "color" },
-      "yellow": { "$value": "{color.amber.400}", "$type": "color" },
-      "blue": { "$value": "{color.blue.300}", "$type": "color" },
-      "magenta": { "$value": "{color.violet.300}", "$type": "color" },
-      "cyan": { "$value": "{color.teal.100}", "$type": "color" },
-      "white": { "$value": "{color.slate.400}", "$type": "color" },
-      "bright-black": { "$value": "{color.slate.650}", "$type": "color" },
-      "bright-red": { "$value": "{color.red.100}", "$type": "color" },
-      "bright-green": { "$value": "{color.green.300}", "$type": "color" },
-      "bright-yellow": { "$value": "{color.amber.200}", "$type": "color" },
-      "bright-blue": { "$value": "{color.blue.100}", "$type": "color" },
-      "bright-magenta": { "$value": "{color.violet.150}", "$type": "color" },
-      "bright-cyan": { "$value": "{color.teal.50}", "$type": "color" },
-      "bright-white": { "$value": "{color.slate.100}", "$type": "color" }
+      "$description": "The 16 ANSI slots spread across the light half of the mono ramp: program output that colors itself still separates into distinct tones, it just separates by lightness instead of hue. The bright-* slots sit one to two steps above their normal twins, capped at pure white.",
+      "background": { "$value": "{color.mono.1000}", "$type": "color" },
+      "foreground": { "$value": "{color.mono.0}", "$type": "color" },
+      "cursor": { "$value": "{color.mono.0}", "$type": "color" },
+      "cursor-accent": { "$value": "{color.mono.1000}", "$type": "color" },
+      "selection": { "$value": "rgba(255, 255, 255, 0.25)", "$type": "color" },
+      "black": { "$value": "{color.mono.700}", "$type": "color" },
+      "red": { "$value": "{color.mono.0}", "$type": "color" },
+      "green": { "$value": "{color.mono.100}", "$type": "color" },
+      "yellow": { "$value": "{color.mono.50}", "$type": "color" },
+      "blue": { "$value": "{color.mono.300}", "$type": "color" },
+      "magenta": { "$value": "{color.mono.200}", "$type": "color" },
+      "cyan": { "$value": "{color.mono.150}", "$type": "color" },
+      "white": { "$value": "{color.mono.400}", "$type": "color" },
+      "bright-black": { "$value": "{color.mono.500}", "$type": "color" },
+      "bright-red": { "$value": "{color.mono.0}", "$type": "color" },
+      "bright-green": { "$value": "{color.mono.50}", "$type": "color" },
+      "bright-yellow": { "$value": "{color.mono.0}", "$type": "color" },
+      "bright-blue": { "$value": "{color.mono.200}", "$type": "color" },
+      "bright-magenta": { "$value": "{color.mono.100}", "$type": "color" },
+      "bright-cyan": { "$value": "{color.mono.100}", "$type": "color" },
+      "bright-white": { "$value": "{color.mono.0}", "$type": "color" }
     }
   },
   "chart": {
-    "paper-bg": { "$value": "{color.slate.1100}", "$type": "color" },
-    "plot-bg": { "$value": "{color.slate.1100}", "$type": "color" },
-    "grid": { "$value": "rgba(139, 154, 181, 0.1)", "$type": "color" },
-    "axis-text": { "$value": "{color.slate.600}", "$type": "color" },
+    "$description": "Plots follow the theme: black paper, white-at-10% grid, and a 6-slot categorical palette that separates by lightness. A monochrome categorical palette tops out around six legible steps on this canvas — a plot needing more series should carry markers or dashes, not more grays.",
+    "paper-bg": { "$value": "{color.mono.1000}", "$type": "color" },
+    "plot-bg": { "$value": "{color.mono.1000}", "$type": "color" },
+    "grid": { "$value": "rgba(204, 204, 204, 0.1)", "$type": "color", "$description": "text.secondary base (#cccccc) at 10% alpha." },
+    "axis-text": { "$value": "{color.mono.200}", "$type": "color" },
     "series": {
-      "1": { "$value": "{color.teal.100}", "$type": "color" },
-      "2": { "$value": "{color.amber.400}", "$type": "color" },
-      "3": { "$value": "{color.green.400}", "$type": "color" },
-      "4": { "$value": "{color.red.300}", "$type": "color" },
-      "5": { "$value": "{color.violet.300}", "$type": "color" },
-      "6": { "$value": "{color.blue.300}", "$type": "color" }
+      "1": { "$value": "{color.mono.0}", "$type": "color" },
+      "2": { "$value": "{color.mono.100}", "$type": "color" },
+      "3": { "$value": "{color.mono.200}", "$type": "color" },
+      "4": { "$value": "{color.mono.300}", "$type": "color" },
+      "5": { "$value": "{color.mono.400}", "$type": "color" },
+      "6": { "$value": "{color.mono.500}", "$type": "color" }
     }
   },
   "code": {
-    "theme": { "$value": "highlight.js atom-one-dark theme", "$type": "string", "$description": "No dedicated high-contrast highlight.js theme is vendored; reuses the dark family's asset name (contract-tested against src/osprey/interfaces/vendor_manifest.json)." }
+    "theme": { "$value": "highlight.js atom-one-dark theme", "$type": "string", "$description": "No dedicated high-contrast highlight.js theme is vendored; reuses the dark family's asset name (contract-tested against src/osprey/interfaces/vendor_manifest.json). Syntax highlighting is therefore the one surface this theme does not make monochrome." }
   }
 }

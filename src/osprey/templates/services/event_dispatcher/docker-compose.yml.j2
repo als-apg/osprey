@@ -52,6 +52,32 @@ services:
       TRIGGERS_YML: /app/triggers.yml
       OSPREY_FACILITY_NAME: "{{ services.event_dispatcher.facility_name | default('') }}"
       PV_STRIP_PREFIX: "{{ services.event_dispatcher.pv_strip_prefix | default('') }}"
+{#- Deployment is decided by the top-level `deployed_services` list, NOT by the
+    presence of a `services.openobserve` block: a store can be fully configured
+    yet left out of the deploy, and gating on the config block alone would link
+    to a container that was never started. Testing membership also sidesteps the
+    empty-mapping trap — `services.openobserve` is falsy when the block exists
+    but sets no keys, which would wrongly read as "not deployed".
+
+    `claude_code is defined` must come FIRST in its chain: this environment raises
+    on attribute access against an undefined name, so testing `claude_code.telemetry`
+    on a config that omits the whole `claude_code:` block would fail the render
+    rather than fall through to the off state. #}
+{% if 'openobserve' in (deployed_services | default([])) and claude_code is defined and claude_code.telemetry is defined and claude_code.telemetry and claude_code.telemetry.enabled %}
+      # Browser-reachable base URL of the telemetry store, so the dashboard can
+      # link a run to its own OTEL records. Deliberately localhost-and-host-port,
+      # NOT the `openobserve` compose DNS name the containers talk to: the value
+      # is rendered into a link the OPERATOR's browser follows, and the browser
+      # is outside the compose network. This mirrors how the store's UI is
+      # reached today (the service binds to localhost by design).
+      #
+      # Emitted only when the store is deployed AND agent telemetry is on —
+      # either being off leaves the var unset, which the dashboard reads as
+      # "hide the link" rather than offering one that resolves to nothing.
+      # Render-time gate: toggling telemetry in config.yml afterwards needs a
+      # redeploy to take effect here, same as every other value in this block.
+      OSPREY_TELEMETRY_URL: "http://localhost:{{ services.openobserve.port | default(5080) }}"
+{% endif %}
       TZ: {{ system.timezone }}
     # Bind-mount sources are relative to the compose *project directory*
     # (build/services/), which is the first -f file's location — not this

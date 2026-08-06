@@ -6,16 +6,16 @@ one ``{ ... }`` block per theme. The theme whose ``$extensions.mode`` is
 gets sane defaults — and is emitted first; every other theme follows in
 ``tree.themes`` order. Within a block: ``color-scheme``, then (default
 theme only) the fleet-wide promoted-primitive scales (see
-:data:`_PROMOTED_PRIMITIVE_GROUPS` — font, type, weight, line-height,
-spacing, radius, z-index, duration), then semantic tokens in source
+:data:`~.naming.PROMOTED_PRIMITIVE_GROUPS` — font, text, weight,
+leading, space, radius, z, duration), then semantic tokens in source
 order, then each interface's extension tokens (interfaces sorted
 alphabetically, each interface's own tokens in source order).
 
-Dot-path to CSS custom property name is *not* a uniform kebab-join — see
-:func:`css_variable_name` for the exact rules (a handful of legacy names
-are preserved verbatim, ``tint.*``/``terminal.ansi.*`` are reshaped, and
-``code.*`` is excluded entirely since it selects a highlight.js asset
-name consumed elsewhere, not a CSS value).
+Dot-path to CSS custom property name mapping lives in ``naming.py`` (the
+shared naming authority, also consumed by the validator's collision
+checks) — see :func:`~.naming.css_variable_name` for the exact rules;
+``css_variable_name`` is re-exported here so this module's public API is
+unchanged.
 
 Output is fully deterministic: no timestamps, source-order property
 declarations, no trailing whitespace on any line, exactly one trailing
@@ -26,7 +26,16 @@ unchanged and the freshness gate (a future task) can byte-compare it.
 from __future__ import annotations
 
 from osprey.interfaces.design_system.generator.inherits import source_mode
-from osprey.interfaces.design_system.generator.model import ResolvedToken, TokenTree
+from osprey.interfaces.design_system.generator.model import (
+    ResolvedToken,
+    TokenTree,
+    default_flagged_stem,
+)
+from osprey.interfaces.design_system.generator.naming import (
+    PROMOTED_PRIMITIVE_GROUPS,
+    css_variable_name,
+    promoted_css_name,
+)
 
 __all__ = ["css_variable_name", "emit_css"]
 
@@ -36,68 +45,6 @@ _HEADER = (
     " * Regenerate with: python -m osprey.interfaces.design_system.generator.build\n"
     " */"
 )
-
-#: Semantic token groups excluded from CSS emission entirely. ``code.*``
-#: selects a highlight.js asset name for server-side href resolution /
-#: tokens.js, not a CSS value — see the module docstring.
-_EXCLUDED_GROUPS = frozenset({"code"})
-
-#: Dot-path -> CSS custom property name overrides that don't follow the
-#: naive kebab-join rule, preserving today's widely-used legacy names
-#: (per Task 1.1's naming-reconciliation report).
-_NAME_OVERRIDES: dict[str, str] = {
-    "accent.base": "--color-accent",
-    "accent.light": "--color-accent-light",
-    "accent.on": "--color-on-accent",
-    "amber.base": "--color-amber",
-    "amber.light": "--color-amber-light",
-    "amber.hover": "--color-amber-hover",
-    "status.success": "--color-success",
-    "status.warning": "--color-warning",
-    "status.error": "--color-error",
-    "status.error-hover": "--color-error-hover",
-}
-
-#: core.json primitive groups promoted directly to root-level CSS variables
-#: (--font-*, --text-*, --space-*, ...). Theme-independent by construction:
-#: emitted once in the default (:root) block, never per-theme; a theme
-#: cannot override them.
-_PROMOTED_PRIMITIVE_GROUPS: tuple[str, ...] = (
-    "font",
-    "text",
-    "weight",
-    "leading",
-    "space",
-    "radius",
-    "z",
-    "duration",
-)
-
-
-def css_variable_name(path: str) -> str | None:
-    """Map a semantic or (mode-prefix-stripped) extension dot-path to a CSS name.
-
-    Args:
-        path: A theme-relative dot-path, e.g. ``"bg.primary"``, or — for
-            an interface extension token — its dot-path with the leading
-            mode segment already stripped, e.g. ``"wt-crt.scanline-opacity"``.
-
-    Returns:
-        The ``--kebab-case`` custom property name, or ``None`` if this
-        path is not emitted into CSS at all (see :data:`_EXCLUDED_GROUPS`).
-    """
-    root = path.split(".", 1)[0]
-    if root in _EXCLUDED_GROUPS:
-        return None
-    if path in _NAME_OVERRIDES:
-        return _NAME_OVERRIDES[path]
-    if path.startswith("tint."):
-        _, family, step = path.split(".", 2)
-        return f"--{family}-tint-{step}"
-    if path.startswith("terminal.ansi."):
-        name = path[len("terminal.ansi.") :]
-        return f"--ansi-{name}"
-    return "--" + path.replace(".", "-")
 
 
 def _resolved_value(token: ResolvedToken) -> str:
@@ -118,12 +65,14 @@ def _resolved_value(token: ResolvedToken) -> str:
 def _default_theme_stem(tree: TokenTree) -> str:
     """Return the stem of the dark theme that doubles as the ``:root`` fallback.
 
-    Prefer a dark theme explicitly flagged ``$extensions.default: true`` —
-    this pins the ``:root`` fallback deterministically, independent of
-    filename/manifest order, so adding a theme family whose files sort
-    before the canonical one can never hijack the product default. When no
-    dark theme is flagged, fall back to the first dark theme in manifest
-    order (the historical behavior).
+    Prefer the theme flagged ``$extensions.default: true`` (resolved by
+    the shared :func:`~.model.default_flagged_stem`, the same source the
+    JS emitters use for ``DEFAULT_FAMILY`` — so the two artifacts cannot
+    disagree). The flag pins the ``:root`` fallback deterministically,
+    independent of filename/manifest order, so adding a theme family whose
+    files sort before the canonical one can never hijack the product
+    default. When no theme is flagged, fall back to the first dark theme
+    in manifest order (the historical behavior).
 
     Args:
         tree: The loaded token tree.
@@ -141,9 +90,9 @@ def _default_theme_stem(tree: TokenTree) -> str:
     dark_stems = [
         stem for stem in tree.themes if tree.theme_metadata.get(stem, {}).get("mode") == "dark"
     ]
-    for stem in dark_stems:
-        if tree.theme_metadata.get(stem, {}).get("default") is True:
-            return stem
+    flagged = default_flagged_stem(tree)
+    if flagged is not None and flagged in dark_stems:
+        return flagged
     if dark_stems:
         return dark_stems[0]
     raise ValueError("no theme declares $extensions.mode == 'dark'; cannot emit tokens.css")
@@ -155,12 +104,12 @@ def _theme_declarations(tree: TokenTree, stem: str, *, include_fonts: bool) -> l
     lines = [f"  color-scheme: {mode};"]
 
     if include_fonts:
-        for group in _PROMOTED_PRIMITIVE_GROUPS:
+        for group in PROMOTED_PRIMITIVE_GROUPS:
             prefix = f"{group}."
             for path, token in tree.primitives.items():
                 if not path.startswith(prefix):
                     continue
-                lines.append(f"  --{path.replace('.', '-')}: {_resolved_value(token)};")
+                lines.append(f"  {promoted_css_name(path)}: {_resolved_value(token)};")
 
     for path, token in tree.themes[stem].items():
         name = css_variable_name(path)

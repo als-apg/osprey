@@ -9,6 +9,10 @@
        before any stylesheet. Live theme changes and the embedded-mode flag
        are handled by the theme-manager FOLLOWER role in app.js. -->
   <script src="/design-system/js/theme-boot.js"></script>
+  <!-- Mode boot: applies data-ui-mode (expert/simple) pre-paint, same zero-dep
+       contract as theme-boot. Live mode flips arrive via the hub's
+       'osprey-mode-change' postMessage, handled in app.js. -->
+  <script src="/design-system/js/mode-boot.js"></script>
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
 

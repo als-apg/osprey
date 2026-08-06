@@ -15,6 +15,7 @@ import pytest
 import yaml
 
 from osprey.cli import build_profile as bp
+from osprey.cli import build_profile_model
 from osprey.cli.build_profile import (
     BuildProfile,
     DispatchConfig,
@@ -134,7 +135,7 @@ def test_bundled_triggers_name_resolves(tmp_path: Path, monkeypatch: pytest.Monk
     triggers = tmp_path / "triggers"
     triggers.mkdir()
     (triggers / "tutorial_triggers.yml").write_text("triggers: []", encoding="utf-8")
-    monkeypatch.setattr(bp, "_triggers_dir", lambda: triggers)
+    monkeypatch.setattr(build_profile_model, "_triggers_dir", lambda: triggers)
 
     profile_dir = tmp_path / "empty_profile"
     profile_dir.mkdir()

@@ -65,7 +65,7 @@ Examples:
 from dataclasses import dataclass
 from enum import Enum
 
-from osprey.connectors.types import EPICS
+from osprey.connectors.types import MOCK
 from osprey.utils.logger import get_logger
 
 logger = get_logger("execution_control")
@@ -87,8 +87,8 @@ class ExecutionMode(Enum):
     :cvar WRITE_ACCESS: Full-access environment enabling system writes and control operations
 
     .. note::
-       Each execution mode corresponds to a specific Jupyter container configuration
-       with appropriate kernel settings, environment variables, and access controls.
+       The execution mode gates what the generated code is permitted to do;
+       enforcement happens before execution via approval workflows.
 
     .. warning::
        WRITE_ACCESS mode can perform operations with real-world consequences in
@@ -131,7 +131,8 @@ class ExecutionControlConfig:
 
     :param control_system_writes_enabled: Whether control system write operations are permitted in this deployment
     :type control_system_writes_enabled: bool
-    :param control_system_type: Type of control system (epics, mock, tango, etc.)
+    :param control_system_type: Type of control system (epics, mock, tango, etc.).
+        Defaults to mock so an under-specified config never claims a live system.
     :type control_system_type: str
 
     .. note::
@@ -166,7 +167,7 @@ class ExecutionControlConfig:
 
     # Control system settings
     control_system_writes_enabled: bool = False
-    control_system_type: str = EPICS  # Default for backward compatibility
+    control_system_type: str = MOCK  # Fail-closed: never assume a live system
 
     def get_execution_mode(self, has_epics_writes: bool, has_epics_reads: bool) -> ExecutionMode:
         """Determine appropriate execution mode based on code analysis and security policy.
@@ -256,8 +257,15 @@ def get_execution_control_config() -> ExecutionControlConfig:
         control_system_config = get_config_value("control_system", {})
         writes_enabled = control_system_config.get("writes_enabled", False)
 
-        # Get control system type for proper configuration
-        control_system_type = control_system_config.get("type", EPICS)
+        # Get control system type for proper configuration. Fail closed: an
+        # unset (or blank) key must not be read as a live control system.
+        control_system_type = control_system_config.get("type")
+        if not control_system_type:
+            logger.warning(
+                f"control_system.type is not set; defaulting to '{MOCK}'. "
+                f"Set control_system.type explicitly to select a connector."
+            )
+            control_system_type = MOCK
 
         # Build typed config with defaults
         execution_control = ExecutionControlConfig(

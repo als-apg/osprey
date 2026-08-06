@@ -8,7 +8,6 @@ wall-clock whether the box runs UTC or a wildly different zone. No LLM involved;
 this locks the regression that broke the benchmark on non-UTC boxes.
 """
 
-import os
 import shutil
 import time
 from datetime import UTC, datetime, timedelta
@@ -85,17 +84,14 @@ async def test_archiver_spike_is_box_tz_independent(tmp_path):
     sr07_utc = _sr07_rows(df_utc)
     peak_utc = sr07_utc.loc[sr07_utc["value"].idxmax(), "timestamp"].to_pydatetime()
 
-    old_tz = os.environ.get("TZ")
-    try:
-        os.environ["TZ"] = "Pacific/Kiritimati"  # UTC+14
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TZ", "Pacific/Kiritimati")  # UTC+14
         time.tzset()
-        df_far, _ = await _sr07_window(machine)
-    finally:
-        if old_tz is None:
-            os.environ.pop("TZ", None)
-        else:
-            os.environ["TZ"] = old_tz
-        time.tzset()
+        try:
+            df_far, _ = await _sr07_window(machine)
+        finally:
+            mp.undo()
+            time.tzset()
 
     sr07_far = _sr07_rows(df_far)
     peak_far = sr07_far.loc[sr07_far["value"].idxmax(), "timestamp"].to_pydatetime()

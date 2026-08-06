@@ -11,6 +11,13 @@ from osprey.connectors.archiver.base import ArchiverMetadata
 from osprey.connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
 from osprey.connectors.factory import ConnectorFactory
 
+# xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
+# container, and this file shares the group with the Postgres-backed ARIEL tests so
+# every container start lands on one worker. Each worker is its own testcontainers
+# session with its own ryuk reaper; two workers starting containers at once race the
+# Docker daemon's port mapper and fail the reaper's port 8080 publish.
+pytestmark = pytest.mark.xdist_group("docker")
+
 
 @pytest.mark.integration
 class TestConnectDisconnectLifecycle:
@@ -480,9 +487,11 @@ class TestFactoryIntegration:
     def setup_factory(self):
         """Ensure built-in archivers (including mongodb_archiver) are registered.
 
-        Idempotent: ``register_builtin_connectors`` no-ops if already populated,
-        so this is safe regardless of prior test state. No teardown — we leave
-        built-ins in place so subsequent tests can rely on them.
+        Idempotent: ``register_builtin_connectors`` no-ops only when all five
+        required built-ins are already present, and otherwise re-registers the
+        missing ones, so this is safe regardless of prior test state. No
+        teardown — we leave built-ins in place so subsequent tests can rely on
+        them.
         """
         from osprey.connectors.factory import register_builtin_connectors
 

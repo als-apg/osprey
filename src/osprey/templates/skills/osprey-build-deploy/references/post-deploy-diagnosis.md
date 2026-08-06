@@ -77,14 +77,15 @@ ${config.runtime.engine} exec ${config.facility.prefix}-web-<user> \
 
 # Verify regenerated config paths
 ${config.runtime.engine} exec ${config.facility.prefix}-web-<user> \
-  grep -E 'project_root|python_env_path' /app/${config.facility.prefix}-assistant/config.yml
+  grep -E 'project_root' /app/${config.facility.prefix}-assistant/config.yml
 ```
 
 Expected after regen:
 - `project_root` = `/app/${config.facility.prefix}-assistant`
-- `python_env_path` is empty or matches the container's `.venv`
 
-If either still shows a CI build path (e.g., `/builds/...`), the regen step did not run — go straight to the Dockerfile.
+If it still shows a CI build path (e.g., `/builds/...`), the regen step did not run — go straight to the Dockerfile.
+
+`config.yml` records no interpreter path, so there is nothing else in it to check here: each MCP server's `command` in `.mcp.json` is resolved at generation time from the container's own environment.
 
 ### Health endpoint round-trip
 

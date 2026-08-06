@@ -4,7 +4,7 @@
  * Reset, typography, and foundational styles for the
  * "Precision Instrumentation" design system.
  *
- * Colors (bg/text/border/accent/amber/status) resolve to the OSPREY
+ * Colors (bg/text/border/accent/accent-secondary/status) resolve to the OSPREY
  * design system (tokens.css + base.css, loaded before this file); the
  * --ariel-score-* badge colors are a generator-emitted extension (see
  * design_system/tokens/interfaces/ariel.json). The block below holds only
@@ -21,7 +21,7 @@
   --surface-hover: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
 
   --text-accent: var(--color-accent-light);
-  --text-amber: var(--color-amber-light);
+  --text-accent-secondary: var(--color-accent-secondary-light);
   /* Info status blue tracks the per-family --ansi-blue (as artifacts does),
      so it darkens for legibility on the light/high-contrast-light themes. */
   --color-info: var(--ansi-blue);
@@ -32,7 +32,7 @@
 
   --shadow-lg: 0 10px 15px var(--overlay-black-50);
   --shadow-glow-accent: 0 0 20px var(--accent-tint-30);
-  --shadow-glow-amber: 0 0 15px var(--amber-tint-15);
+  --shadow-glow-accent-secondary: 0 0 15px var(--accent-secondary-tint-15);
 
   --ariel-text-xs: 0.75rem;
   --ariel-text-sm: 0.875rem;
@@ -153,7 +153,7 @@ code {
   padding: 0.2em 0.4em;
   background: var(--bg-elevated);
   border-radius: var(--ariel-radius-sm);
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 pre {
@@ -217,7 +217,7 @@ pre {
 .text-muted { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
 .text-accent { color: var(--text-accent); }
-.text-amber { color: var(--text-amber); }
+.text-accent-secondary { color: var(--text-accent-secondary); }
 .text-success { color: var(--color-success); }
 .text-warning { color: var(--color-warning); }
 .text-error { color: var(--color-error); }

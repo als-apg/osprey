@@ -14,6 +14,7 @@ These tests lock down the translation from profile inputs into rendered
 from __future__ import annotations
 
 import json
+import logging
 import re
 import textwrap
 from pathlib import Path
@@ -507,6 +508,98 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# hook_config.json: control_system.write_tools merge + empty-server rendering
+# ---------------------------------------------------------------------------
+
+
+def _read_hook_config(project: Path) -> dict:
+    return json.loads((project / ".claude" / "hooks" / "hook_config.json").read_text())
+
+
+def _server_names_from_prefixes(hook_cfg: dict) -> list[str]:
+    """Recover enabled server names from ``mcp__<name>__`` hook_config prefixes."""
+    return [p[len("mcp__") : -len("__")] for p in hook_cfg["server_prefixes"]]
+
+
+def test_hook_config_write_tools_dedupe(tmp_path):
+    """``control_system.write_tools`` merges into hook_config without duplicating.
+
+    The writes-check hook rules of every enabled server already contribute their
+    matcher to ``write_tools``. A facility that re-states one of those matchers
+    in ``control_system.write_tools`` (a natural thing to do when spelling out
+    the kill-switch set explicitly) must not get it twice — only genuinely new
+    entries are appended, in config order, after the server-derived ones.
+    """
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="write-tools-dedupe",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    baseline = _read_hook_config(project)["write_tools"]
+    assert "mcp__controls__channel_write" in baseline, (
+        f"expected the controls writes-check rule to seed write_tools; got {baseline}"
+    )
+
+    from osprey.utils.config_writer import config_update_fields
+
+    config_update_fields(
+        project / "config.yml",
+        {
+            "control_system.write_tools": [
+                "mcp__controls__channel_write",  # already server-derived
+                "mcp__facility__custom_write",  # genuinely new
+            ]
+        },
+    )
+    manager.regenerate_claude_code(project)
+
+    write_tools = _read_hook_config(project)["write_tools"]
+
+    assert write_tools.count("mcp__controls__channel_write") == 1, (
+        f"already-present entry duplicated by the config merge: {write_tools}"
+    )
+    assert write_tools == [*baseline, "mcp__facility__custom_write"], (
+        f"expected only the new entry appended to {baseline}; got {write_tools}"
+    )
+
+
+def test_hook_config_with_no_enabled_servers(tmp_path):
+    """Disabling every server still yields valid JSON with empty lists.
+
+    The hook runtime reads this file unconditionally, so the all-disabled corner
+    must render as a well-formed document with empty collections rather than a
+    truncated or absent one.
+    """
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="no-servers",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    enabled = _server_names_from_prefixes(_read_hook_config(project))
+    assert enabled, "fixture precondition: the preset must ship some enabled servers"
+
+    from osprey.utils.config_writer import config_update_fields
+
+    config_update_fields(
+        project / "config.yml",
+        {f"claude_code.servers.{name}.enabled": False for name in enabled},
+    )
+    manager.regenerate_claude_code(project)
+
+    # json.loads is the validity assertion — a truncated render raises here.
+    hook_cfg = _read_hook_config(project)
+    assert hook_cfg == {
+        "server_prefixes": [],
+        "approval_prefixes": [],
+        "write_tools": [],
+    }, f"all-disabled build should render empty lists; got {hook_cfg}"
+
+
+# ---------------------------------------------------------------------------
 # Crown-jewel invariant
 # ---------------------------------------------------------------------------
 
@@ -603,7 +696,7 @@ def test_crown_jewel_invariant_accepts_prefix_match_on_existing_allow(
 # ---------------------------------------------------------------------------
 
 
-def test_build_command_fails_on_violation(tmp_path, monkeypatch):
+def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
     """``osprey build`` must abort when an overlay agent declares an unbacked tool.
 
     Uses a synthetic profile with an overlay agent .md that references a
@@ -646,22 +739,26 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "broken-build",
-            str(profile_yaml),
-            "--output-dir",
-            str(tmp_path / "out"),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--force",
-        ],
-        catch_exceptions=False,
-    )
+    with caplog.at_level(logging.WARNING):
+        result = runner.invoke(
+            build,
+            [
+                "broken-build",
+                str(profile_yaml),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--force",
+            ],
+            catch_exceptions=False,
+        )
 
     assert result.exit_code != 0, f"build should have failed; stdout:\n{result.output}"
-    # Validator's diagnostic should mention the bogus agent and tool.
-    assert "bogus" in result.output or "phantom_tool" in result.output, (
-        f"build output should name the violation; got:\n{result.output}"
+    # The validator's diagnostic is logged, so it reaches the operator on
+    # stderr rather than stdout. click's Result.output mixes both streams and
+    # cannot distinguish them, so assert on the record itself.
+    assert "bogus" in caplog.text or "phantom_tool" in caplog.text, (
+        f"build should name the violation; got records:\n"
+        f"{[record.getMessage()[:120] for record in caplog.records]}"
     )

@@ -8,7 +8,11 @@ from pathlib import Path
 _DASHBOARD_HTML = Path(__file__).parent / "dashboard.html"
 
 
-def render_dashboard_html(facility_name: str = "", pv_strip_prefix: str = "") -> str:
+def render_dashboard_html(
+    facility_name: str = "",
+    pv_strip_prefix: str = "",
+    telemetry_url: str = "",
+) -> str:
     """Read dashboard.html and inject runtime config via the OSPREY_CONFIG_PLACEHOLDER sentinel.
 
     The HTML carries a ``/* OSPREY_CONFIG_PLACEHOLDER */`` comment that this replaces
@@ -18,10 +22,22 @@ def render_dashboard_html(facility_name: str = "", pv_strip_prefix: str = "") ->
     Args:
         facility_name: Facility display name injected into the dashboard config.
         pv_strip_prefix: PV prefix the dashboard strips when rendering channel names.
+        telemetry_url: Browser-reachable base URL of the telemetry store (e.g.
+            ``http://localhost:5080``), or ``""`` when the store is not deployed
+            or agent telemetry is off. Must be the address the OPERATOR's browser
+            can reach — not the compose DNS name the containers use — because the
+            dashboard renders it as a link the browser follows. Empty disables the
+            dashboard's per-run telemetry link entirely.
 
     Returns:
         The dashboard HTML with the runtime config injected where the sentinel is present.
     """
     html = _DASHBOARD_HTML.read_text()
-    config = json.dumps({"facility_name": facility_name, "pv_strip_prefix": pv_strip_prefix})
+    config = json.dumps(
+        {
+            "facility_name": facility_name,
+            "pv_strip_prefix": pv_strip_prefix,
+            "telemetry_url": telemetry_url,
+        }
+    )
     return html.replace("/* OSPREY_CONFIG_PLACEHOLDER */", f"window.__OSPREY_CONFIG__ = {config};")

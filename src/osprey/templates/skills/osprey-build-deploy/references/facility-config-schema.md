@@ -34,7 +34,7 @@ facility:
   name: "Advanced Light Source"          # full human-readable name
   prefix: "als"                           # short slug; used in profile filenames (als-prod.yml, als-client.yml)
                                           # and container names (als-mcp-matlab, als-web-thellert)
-  timezone: "America/Los_Angeles"         # facility timezone — drives container TZ and the agent's system.timezone
+  timezone: "America/Los_Angeles"         # facility timezone — drives container TZ only; mirror it manually into the profile's system.timezone
 ```
 
 | Field | Type | Required | Notes |
@@ -56,7 +56,7 @@ control_system:
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `type` | enum | yes | OSPREY ships connectors for `epics` and `mock` today. `doocs`, `tango`, and `custom` are **roadmap values only** — selecting one writes the value into config but NO connector is built, so the resulting assistant has no live control-system access. Use `mock` for development on non-EPICS facilities until a real connector lands. Any value other than `epics` disables the EPICS test IOC module. |
+| `type` | enum | yes | OSPREY ships connectors for `epics`, `doocs`, and `mock` today. `doocs` additionally needs `doocs4py`, which comes from the DOOCS environment rather than PyPI. `tango` and `custom` are **roadmap values only** — selecting one writes the value into config but NO connector is built, so the resulting assistant has no live control-system access. Use `mock` for development on facilities with no connector yet. Any value other than `epics` disables the EPICS test IOC module. |
 | `ca_addr_list` | string | EPICS only | Used in compose files that need EPICS broadcast |
 | `archiver_url` | URL | no | Used by integration tests and analytics agents |
 
@@ -282,6 +282,7 @@ modules:
         index: 1                           # required for object-form entries — explicit port-offset (see note below)
         persona: "analysis"                # optional; key into personas.<name> below
         display_name: "Operations"         # optional; window/tab title → OSPREY_WEB_APP_NAME (see note below)
+        theme: "desy-light"                # optional; default web UI theme → OSPREY_WEB_THEME (see note below)
       - scleemann
     image_source: "registry"               # registry (default) | local — see note below
     image_tag: "latest"                    # registry-mode image tag; ${VAR} expanded at render time — see note below
@@ -371,6 +372,7 @@ users:
     index: 1                             # required in object form — explicit port-offset (see below)
     persona: "analysis"                  # optional — key into personas.<name>
     display_name: "Operations"           # optional — window/tab title → OSPREY_WEB_APP_NAME
+    theme: "desy-light"                  # optional — default web UI theme → OSPREY_WEB_THEME
 ```
 
 | Field | Type | Required | Notes |
@@ -379,6 +381,7 @@ users:
 | `index` | int (non-negative, non-bool) | yes, for an object-form entry | Explicit port-offset. A bare-string entry has no `index` field at all (its offset is inferred from list position); the moment an entry is written in object form, `index` must be present and a valid non-negative, non-bool int, or lint rejects it — there is no "infer it anyway" fallback for object-form entries. `osprey deploy decommission` freezes every *surviving* entry to this object form (assigning each its current positional index) before deleting the target user, so removing an earlier user from the list can never shift a later survivor's allocated ports; this is a tooling-managed migration, not something to hand-author in the interview |
 | `persona` | string | no | Key into `modules.web_terminals.personas`. Falls back to `default_persona` when absent; falls back further to "no persona in effect" (today's single-image, single-project behavior) when neither is set |
 | `display_name` | string | no | Human-facing window/tab title for this user's terminal. Emitted into the container as `OSPREY_WEB_APP_NAME`, which `osprey web` treats as authoritative over the per-image `web.app_name` in `config.yml` — the only way to vary the title per user, since every per-user container on a shared image otherwise reads the same baked `web.app_name`. Omit it (the default) to emit no env line at all and inherit `web.app_name`. Must be a string when present (a non-string is a lint ERROR); bare-string roster entries can't carry one |
+| `theme` | string | no | This user's default web UI theme. Emitted into the container as `OSPREY_WEB_THEME`, which `osprey web` treats as authoritative over the per-image `web.theme` in `config.yml` — the only way to vary the theme per user on a shared image. Either a theme **family** (`"main"`, `"desy"`, `"high-contrast"`, `"retro"`), which sets the palette and leaves light/dark to that user's OS preference, or a concrete theme **id** (`"desy-light"`), which also pins the mode. It is a *default*: the user's own pick in the display menu outranks it thereafter. Omit it (the default) to emit no env line at all and inherit `web.theme`. Must be a string when present (a non-string is a lint ERROR); the *value* is not validated here — the theme registry ships with the image, and an unknown value warns at container start and falls back to `main`. Bare-string roster entries can't carry one |
 
 ### Personas
 

@@ -19,6 +19,7 @@ from osprey.cli.templates._rendering import render_template as _render_template
 from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
+from osprey.utils.facility import resolve_facility_name
 
 
 class TemplateManager:
@@ -126,6 +127,7 @@ class TemplateManager:
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
         tier: int | None = None,
+        data_root: Path | None = None,
     ) -> Path:
         """Create complete project from template.
 
@@ -149,6 +151,10 @@ class TemplateManager:
                 ``BuildProfile.resolved_tier``. An explicit tier is honored but
                 validated against the paradigm, so a tier/mode mismatch raises a
                 legible rule error instead of an opaque FileNotFoundError.
+            data_root: Facility data tree to copy instead of the bundle's
+                ``apps/<data_bundle>/data/``, already resolved by
+                ``BuildProfile.resolved_data_root``. A full replacement copied
+                verbatim (no Jinja rendering); ``None`` keeps the bundle tree.
 
         Returns:
             Path to created project directory
@@ -271,7 +277,6 @@ class TemplateManager:
                     "channel_finder_tools": list(
                         CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(channel_finder_mode, [])
                     ),
-                    "facility_name": ctx.get("facility_name", project_name),
                 }
             )
 
@@ -307,7 +312,10 @@ class TemplateManager:
                             self.template_root, project_dir, to_copy
                         )
 
-        # 6. Copy data files from template (no src/ package)
+        # 6. Copy data files from template (no src/ package), or from the
+        # profile's own data tree when one was resolved. Either way this lands
+        # before step 6b's tier materialization and the hierarchy probe in
+        # step 8, both of which read the project's flat data/ paths.
         scaffolding.copy_template_data(
             self.template_root,
             project_dir,
@@ -315,6 +323,7 @@ class TemplateManager:
             data_bundle,
             ctx,
             jinja_env=self.jinja_env,
+            data_root=data_root,
         )
 
         # 6a. Copy machine_data/ if bundle provides it
@@ -326,16 +335,16 @@ class TemplateManager:
                 f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
             )
 
-        # 6a'. Copy docker/ if bundle provides it — carries the
-        # docker/web-terminal-context/ overlay tree (base.md + per-user
-        # extra.md/skills) that web-terminal seeding requires at deploy time.
-        docker_src = bundle_dir / "docker"
-        if docker_src.exists():
-            docker_dst = project_dir / "docker"
-            shutil.copytree(docker_src, docker_dst, dirs_exist_ok=True)
-            console.print(
-                f"  [success]✓[/success] Copied docker overlay tree to [path]{docker_dst}[/path]"
-            )
+        # 6a'. Install the web-terminal persona baseline. base.md is
+        # framework-layer, not bundle-layer: seeding requires it for ANY
+        # project that seeds a user, so every bundle gets it. Per-user
+        # extra.md/skills stay user-authored under the same tree.
+        context_src = self.template_root / "claude_code" / "web-terminal-context"
+        context_dst = project_dir / "docker" / "web-terminal-context"
+        shutil.copytree(context_src, context_dst, dirs_exist_ok=True)
+        console.print(
+            f"  [success]✓[/success] Installed web-terminal context to [path]{context_dst}[/path]"
+        )
 
         # 6b. Flatten the preset's tier-routed channel DBs into the canonical
         # data/channel_databases/<paradigm>.json locations. Must run before the
@@ -396,9 +405,10 @@ class TemplateManager:
             system_config = rendered_config.get("system", {})
             ctx["system_timezone"] = system_config.get("timezone", "UTC")
 
-            # Facility name fallback (already set for control_assistant at line 284,
-            # but setdefault handles other templates)
-            ctx.setdefault("facility_name", rendered_config.get("facility_name", project_name))
+            # Facility identity: canonical `facility.name`, legacy top-level
+            # `facility_name` as fallback (see utils.facility.resolve_facility_name).
+            # setdefault so an explicit caller-supplied context value still wins.
+            ctx.setdefault("facility_name", resolve_facility_name(rendered_config, project_name))
 
             cf_config = rendered_config.get("channel_finder", {})
 
@@ -431,6 +441,10 @@ class TemplateManager:
                         exc_info=True,
                     )
             ctx.setdefault("channel_finder_hierarchy", None)
+
+        # A bundle that renders no config.yml still needs a facility name for the
+        # agent/CLAUDE.md prompts rendered below.
+        ctx.setdefault("facility_name", project_name)
 
         # Textbooks root -- resolve relative to project directory
         _textbooks_dir = project_dir.parent / "data" / "textbooks"

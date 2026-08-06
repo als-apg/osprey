@@ -118,6 +118,51 @@ def test_normalize_users_drops_non_string_display_name() -> None:
     assert result == [{"name": "alice", "index": 0}]
 
 
+def test_normalize_users_carries_string_theme_through() -> None:
+    """An object entry's string `theme` is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "theme": "desy-light"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "theme": "desy-light"}]
+
+
+def test_normalize_users_omits_theme_key_when_absent() -> None:
+    """An entry with no `theme` keeps the plain two-key shape (no None key)."""
+    # Act / Assert
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+def test_normalize_users_drops_non_string_theme() -> None:
+    """A non-string `theme` (a config typo) is dropped defensively; the rest of a
+    well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "theme": ["desy"]}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), theme omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_carries_display_name_and_theme_together() -> None:
+    """The two optional per-user fields are independent — declaring both keeps
+    both."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": "Operations", "theme": "desy"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "display_name": "Operations", "theme": "desy"}]
+
+
 def test_normalize_users_empty_list_returns_empty_list() -> None:
     """An empty users list normalizes to an empty list."""
     # Act / Assert
@@ -488,6 +533,71 @@ def test_resolve_personas_omits_display_name_key_when_unset_or_empty() -> None:
 
     # Assert — no entry carries a display_name key
     assert all("display_name" not in entry for entry in result)
+
+
+def test_resolve_personas_exposes_theme_when_set() -> None:
+    """A roster entry's `theme` is threaded onto the resolved svc dict as a
+    `theme` key (here on the no-persona zero-migration path)."""
+    # Arrange
+    web_terminals = {"users": [{"name": "alice", "index": 0, "theme": "desy-light"}]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result == [
+        {
+            "name": "alice",
+            "index": 0,
+            "persona": None,
+            "image": "registry.example.org/osprey/web-terminal:latest",
+            "project": "als-assistant",
+            "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
+            "theme": "desy-light",
+        }
+    ]
+
+
+def test_resolve_personas_theme_threads_through_persona_branch() -> None:
+    """`theme` is orthogonal to persona resolution — it rides through a
+    fully-resolved non-default persona entry too, not only the zero-migration path."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "persona": "gui", "theme": "desy"}],
+        "default_persona": "cli",
+        "personas": {
+            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["persona"] == "gui"
+    assert result[0]["theme"] == "desy"
+
+
+def test_resolve_personas_omits_theme_key_when_unset_or_empty() -> None:
+    """No `theme` (or an empty-string one) omits the key entirely, so the resolved
+    entry stays byte-identical to a pre-`theme` resolution."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            "alice",  # bare string — never carries one
+            {"name": "bob", "index": 1},  # object form, no theme
+            {"name": "carol", "index": 2, "theme": ""},  # empty is inert
+        ]
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert — no entry carries a theme key
+    assert all("theme" not in entry for entry in result)
 
 
 def test_resolve_personas_empty_users_returns_empty_list() -> None:

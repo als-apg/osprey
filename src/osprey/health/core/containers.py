@@ -21,6 +21,11 @@ Two whole-category shortcuts replace per-service rows:
 
 A broken runtime (``--version`` fails) yields only the ``error``
 ``<runtime>_available`` row; the container probe is not run.
+
+The config is threaded into runtime detection (here and, via
+:class:`~osprey.health.probes.ProbeContext`, into the container probe) so the
+category reports on the runtime the project's ``container_runtime`` actually
+selects rather than whatever auto-detection finds first.
 """
 
 from __future__ import annotations
@@ -55,7 +60,8 @@ def containers(
 
     Args:
         config: Parsed config mapping, or ``None`` when config is unavailable
-            (degraded mode). Read for ``deployed_services``.
+            (degraded mode). Read for ``deployed_services`` and, via runtime
+            detection, ``container_runtime``.
         context: Health runtime; forwarded to the container probe, which ignores
             it (no control-system connector is needed).
         probe: Container probe callable to compose, for dependency injection in
@@ -65,11 +71,11 @@ def containers(
         A no-argument async callable returning the category's check results.
     """
     run_probe: ProbeCallable = probe or container_probe
-    ctx = ProbeContext(runtime=cast("HealthRuntime", context))
+    ctx = ProbeContext(runtime=cast("HealthRuntime", context), config=config)
 
     async def _run() -> list[CheckResult]:
         try:
-            runtime_cmd = get_runtime_command()
+            runtime_cmd = get_runtime_command(config)
         except (RuntimeError, FileNotFoundError) as exc:
             return [
                 CheckResult(

@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from osprey.health.models import CheckResult, Status
 
@@ -29,6 +30,10 @@ _CATEGORY = "configuration"
 # live code (basic_generator.py). Other model roles are optional and
 # application-specific.
 _RECOMMENDED_MODELS = ["python_code_generator"]
+
+# services.postgresql.port_host is the host-side published port of *this*
+# project's Postgres, so it only bears on a DSN aimed back at the host.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 @dataclass
@@ -143,6 +148,7 @@ def _check_configuration(state: ConfigState) -> list[CheckResult]:
     results.extend(_check_config_structure(config))
     results.extend(_check_environment_variables(config))
     results.append(_check_timezone(config))
+    results.extend(_check_ariel_dsn_port(config))
     return results
 
 
@@ -218,15 +224,18 @@ def _check_config_structure(config: dict[str, Any]) -> list[CheckResult]:
             )
         )
 
-    # Check deployed_services.
+    # Check deployed_services. An empty list is a supported shape, not a fault:
+    # presets that attach to an existing stack and the standalone templates ship
+    # it empty on purpose. The sibling ``containers`` category already treats the
+    # same empty list as normal, so this one must not scold either.
     deployed_services = config.get("deployed_services", [])
     if not deployed_services:
         results.append(
             CheckResult(
                 name="deployed_services",
                 category=_CATEGORY,
-                status=Status.WARNING,
-                message="No deployed services configured",
+                status=Status.SKIP,
+                message="No services deployed — attached or service-free project",
             )
         )
     else:
@@ -335,7 +344,8 @@ def _check_timezone(config: dict[str, Any]) -> CheckResult:
             status=Status.WARNING,
             message="Timezone is UTC (default)",
             details=(
-                "Set TZ in .env to your facility timezone (e.g., America/New_York, Europe/Berlin)"
+                "Set system.timezone in config.yml to your facility timezone "
+                "(e.g., America/New_York, Europe/Berlin)"
             ),
         )
     return CheckResult(
@@ -344,6 +354,107 @@ def _check_timezone(config: dict[str, Any]) -> CheckResult:
         status=Status.OK,
         message=f"Timezone: {tz}",
     )
+
+
+def _check_ariel_dsn_port(config: dict[str, Any]) -> list[CheckResult]:
+    """Cross-check an explicit ARIEL DSN against the Postgres port it should use.
+
+    With ``ariel.database.uri`` unset the DSN is derived from
+    ``services.postgresql`` (see
+    :func:`osprey.services.ariel_search.config.resolve_ariel_dsn`), so it follows
+    a port move by construction and there is nothing to cross-check. An explicit
+    uri — including one still spelled with the retired ``connection_string``
+    alias, which is honored as the effective uri — is a second, independent copy
+    of the same facts: a config rendered before the project moved ``port_host``
+    keeps its literal ``:5432`` and points at a database that is no longer there.
+
+    Only a loopback DSN is checked. A uri naming an external database host is a
+    legitimate override that ``port_host`` says nothing about, as is any config
+    with no ``services.postgresql`` block at all.
+
+    Returns:
+        A single row when both ports are known and comparable; no rows at all
+        when there is nothing to compare (derived DSN, external database, no
+        Postgres service, or a uri whose port cannot be read).
+    """
+    from osprey.utils.config import resolve_env_vars
+
+    database = (config.get("ariel") or {}).get("database") or {}
+    if "uri" in database:
+        key = "ariel.database.uri"
+        uri = database["uri"]
+    elif "connection_string" in database:
+        key = "ariel.database.connection_string"
+        uri = database["connection_string"]
+    else:
+        return []
+
+    if not isinstance(uri, str):
+        return []
+
+    postgresql = (config.get("services") or {}).get("postgresql") or {}
+    if "port_host" not in postgresql:
+        return []
+
+    try:
+        service_port = int(postgresql["port_host"])
+    except (TypeError, ValueError):
+        return []
+
+    uri_port = _loopback_dsn_port(resolve_env_vars(uri))
+    if uri_port is None:
+        return []
+
+    if uri_port == service_port:
+        return [
+            CheckResult(
+                name="ariel_dsn_port",
+                category=_CATEGORY,
+                status=Status.OK,
+                message=f"ARIEL DSN port {uri_port} matches services.postgresql.port_host",
+            )
+        ]
+
+    return [
+        CheckResult(
+            name="ariel_dsn_port",
+            category=_CATEGORY,
+            status=Status.WARNING,
+            message=(
+                f"{key} points at port {uri_port}, but "
+                f"services.postgresql.port_host is {service_port}"
+            ),
+            details=(
+                f"The explicit {key} is a second copy of the Postgres port and no longer "
+                f"matches services.postgresql.port_host ({service_port}), the port this "
+                f"project actually publishes — so ARIEL connects to nothing. Either delete "
+                f"{key} from config.yml, which derives the DSN from services.postgresql "
+                f"(username, database_name, port_host) so it follows any future port move, "
+                f"or set ariel.database.uri to port {service_port}."
+            ),
+        )
+    ]
+
+
+def _loopback_dsn_port(uri: Any) -> int | None:
+    """Read the port from a DSN aimed at the local host.
+
+    Returns:
+        The explicit port, or ``None`` when the uri is not a parseable loopback
+        DSN carrying one — an external host, a portless DSN, or a value with an
+        unresolved ``${VAR}`` placeholder where the port belongs.
+    """
+    if not isinstance(uri, str):
+        return None
+    try:
+        parts = urlsplit(uri)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if host is None or host.lower() not in _LOOPBACK_HOSTS:
+        return None
+    return port
 
 
 # Re-exported so the CLI can build states without importing private helpers.

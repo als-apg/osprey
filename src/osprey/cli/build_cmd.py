@@ -23,6 +23,7 @@ persistence (config overrides, overlays, MCP servers, git init) in
 from __future__ import annotations
 
 import shlex
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,7 @@ from .build_injectors import (
     _inject_bluesky,
     _inject_bluesky_panels,
     _inject_dispatch,
+    _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_va,
     _locate_pkg_services,
@@ -57,7 +59,7 @@ from .build_persistence import (
     _clear_rendered_project_dir,
     _copy_overlay_files,
     _git_init_and_commit,
-    _persist_categories,
+    _persist_artifact_server,
     _persist_mcp_servers,
     _register_overlay_artifacts,
 )
@@ -79,10 +81,11 @@ __all__ = [
     "_inject_bluesky",
     "_inject_bluesky_panels",
     "_inject_dispatch",
+    "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_va",
     "_locate_pkg_services",
-    "_persist_categories",
+    "_persist_artifact_server",
     "_persist_mcp_servers",
     "_register_overlay_artifacts",
     "_resolve_osprey_spec",
@@ -180,16 +183,6 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
     "(in_context → tier 1, hierarchical/middle_layer → tier 3). "
     "Tier 1 is in_context-only.",
 )
-@click.option(
-    "--emit-profile",
-    "emit_profile",
-    type=click.Path(path_type=Path),
-    default=None,
-    metavar="DIR",
-    help="Scaffold an editable profile directory at DIR that extends --preset, "
-    "then exit without rendering a project. Build the project from it with "
-    "`osprey build <PROJECT_NAME> DIR/profile.yml`.",
-)
 def build(
     project_name: str | None,
     profile: str | None,
@@ -203,7 +196,6 @@ def build(
     skip_deps: bool,
     runtime_root: str | None,
     tier: str | None,
-    emit_profile: Path | None,
 ) -> None:
     """Build a facility-specific assistant from a profile or bundled preset.
 
@@ -232,50 +224,6 @@ def build(
     """
     from .build_profile import explicit_model_override_keys, resolve_build_profile
     from .project_utils import _clear_claude_code_project_state
-
-    # --emit-profile is a project-less scaffold mode. Validate its constraints
-    # and dispatch before the normal "PROJECT_NAME is required" check fires.
-    if emit_profile is not None:
-        if not preset:
-            raise click.UsageError("--emit-profile requires --preset.")
-        # Reject every flag that only makes sense for rendering a project.
-        _incompatible: list[str] = []
-        if project_name:
-            _incompatible.append("PROJECT_NAME")
-        if profile:
-            _incompatible.append("PROFILE")
-        if overrides:
-            _incompatible.append("--override")
-        if set_pairs:
-            _incompatible.append("--set")
-        if output_dir != ".":
-            _incompatible.append("--output-dir")
-        if force:
-            _incompatible.append("--force")
-        if stream:
-            _incompatible.append("--stream")
-        if skip_lifecycle:
-            _incompatible.append("--skip-lifecycle")
-        if skip_deps:
-            _incompatible.append("--skip-deps")
-        if runtime_root:
-            _incompatible.append("--runtime-root")
-        if tier is not None:
-            _incompatible.append("--tier")
-        if _incompatible:
-            raise click.UsageError(
-                "--emit-profile cannot be combined with project-rendering flags: "
-                + ", ".join(_incompatible)
-            )
-        try:
-            _emit_profile_directory(emit_profile, preset)
-        except BuildProfileError as e:
-            # Unknown-preset is a user error; promote to UsageError so the
-            # exit code is 2 (same convention as the project-render path).
-            if str(e).lower().startswith("unknown preset"):
-                raise click.UsageError(str(e)) from e
-            raise
-        return
 
     if not project_name:
         raise click.UsageError("PROJECT_NAME is required. Run 'osprey build --help' for usage.")
@@ -356,21 +304,34 @@ def build(
             from packaging.specifiers import SpecifierSet
             from packaging.version import Version
 
-            from osprey import __version__
+            from osprey.version import get_release_version
 
-            spec = SpecifierSet(build_profile.requires_osprey_version)
-            current = Version(__version__)
+            from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
+
+            # Compare the release lineage, not the running version: a development
+            # build carries a post/local segment that no release specifier is
+            # written against. But the lineage alone is not the whole capability:
+            # between releases a checkout ships the *next* release's profile
+            # schema (it stamps `_PROFILE_SCHEMA_MIN_OSPREY` into every profile
+            # it writes) while its tag still names the previous release, so
+            # judging it by tag alone would make it refuse profiles it just
+            # wrote. The schema floor this code carries is therefore also a
+            # floor on what it satisfies. `prereleases=True` keeps a pre-release
+            # lineage from being excluded by PEP 440's default filtering.
+            release_version = get_release_version()
+            spec = SpecifierSet(build_profile.requires_osprey_version, prereleases=True)
+            current = max(Version(release_version), Version(_PROFILE_SCHEMA_MIN_OSPREY))
             if current not in spec:
                 logger.error(
                     "  ✗ OSPREY %s does not satisfy requires_osprey_version: %s",
-                    __version__,
+                    current,
                     build_profile.requires_osprey_version,
                 )
                 logger.info("     Upgrade OSPREY or run: osprey --version")
                 raise click.Abort()
             logger.info(
                 "  ✓ OSPREY %s satisfies %s",
-                __version__,
+                current,
                 build_profile.requires_osprey_version,
             )
 
@@ -431,10 +392,26 @@ def build(
 
         # 6c. Create project venv with OSPREY + profile deps
         # Moved before template rendering so templates get the real project Python path.
+        # The merged requirement list it installed — and recorded in the
+        # project's pyproject.toml — is carried forward to step 6f, which
+        # renders it into the generated Dockerfile.
         if not skip_deps:
-            _create_project_venv(project_path, build_profile)
+            project_deps = _create_project_venv(project_path, build_profile)
+        else:
+            # No venv was created, so nothing was frozen and nothing merged.
+            # The profile's own `dependencies` are all that is known to declare,
+            # and `environment.packages` describes an environment this build
+            # never assembled.
+            project_deps = list(build_profile.dependencies or [])
 
-        # 6d. Resolve python_env for template context
+        # 6d. Resolve the OSPREY-runtime interpreter for the template context.
+        # This key feeds .mcp.json server commands, framework hook commands, and
+        # registry `{current_python_env}` substitution — all processes that
+        # import `osprey`, so every branch below must yield an interpreter that
+        # has it. The build profile chooses here; config.yml never does, at build
+        # time or later (`osprey claude regen` derives `sys.executable` for the
+        # same reason). Agent-authored code is the other half of the split and is
+        # resolved separately at run time by `resolve_agent_interpreter`.
         python_env = build_profile.python_env or "project"
         if skip_deps:
             # No venv created — pin to the python running osprey-build, which is
@@ -442,33 +419,76 @@ def build(
             # run). Bare "python" gambles on PATH and breaks for subprocess
             # contexts that don't inherit the venv's PATH (Claude Code SDK,
             # containerized launchers).
-            import sys
-
             resolved_python_env = sys.executable
         elif python_env == "project":
             resolved_python_env = str(project_path / ".venv" / "bin" / "python")
         elif python_env == "build":
-            import sys
-
             resolved_python_env = sys.executable
         else:
             resolved_python_env = python_env
         context["current_python_env"] = resolved_python_env
 
+        # 6d2. Record the environment declaration for the rendered config.yml.
+        # This is provenance, not configuration: it is the profile's `environment:`
+        # block verbatim, so a config.yml states which environment the project was
+        # built from and the build can be reproduced from it. Deliberately no
+        # interpreter path — the runtime resolves the interpreter conventionally
+        # (project `.venv`, else the interpreter running OSPREY), so a config.yml
+        # never carries an absolute host path that a move or a container would
+        # invalidate.
+        environment = build_profile.environment
+        context["environment_python"] = environment.python
+        context["environment_packages"] = list(environment.packages or [])
+        context["environment_inherit_exclude"] = list(environment.inherit_exclude or [])
+
         # 6e. Override project_root for container builds
         if runtime_root:
             context["project_root"] = str(runtime_root)
 
-        # 6f. Profile pip dependencies for the generated Dockerfile's install line
-        deps = list(build_profile.dependencies or [])
-        context["dependencies"] = deps
-        context["pip_dependency_args"] = " ".join(shlex.quote(d) for d in deps)
+        # 6f. Project dependencies for the generated Dockerfile's install line.
+        # Not re-derived from the profile: this is the very list step 6c
+        # installed into the project venv and recorded in its pyproject.toml, so
+        # the image and the host it was built from carry the same packages. A
+        # second derivation here is how the two drifted before — the profile's
+        # `dependencies` alone omit both the frozen base and
+        # `environment.packages`, leaving the image short of what the host has.
+        context["dependencies"] = project_deps
+        context["pip_dependency_args"] = " ".join(shlex.quote(d) for d in project_deps)
+
+        manager = TemplateManager()
+
+        # 6g. Prepare the virtual-accelerator channel manifest from the data
+        # tree this build sources. It has to happen before step 7 on both
+        # counts: step 7 prunes the tiers/ subtree the paradigm DBs live in,
+        # and it renders the .env whose VA_CHANNELS_FILE/VA_LATTICE keys this
+        # decides. Preparing (not writing) here is what makes the step atomic
+        # — every way generation can fail has happened by the time the two
+        # context keys are set. Most trees can't back a manifest and get None,
+        # leaving the container's package fallback exactly as it was.
+        # Imported here, not at module scope: this pulls in the channel-finder
+        # database parsers, which no other build path needs.
+        from osprey.services.virtual_accelerator.manifest.build import (
+            MANIFEST_FILENAME as VA_MANIFEST_FILENAME,
+        )
+        from osprey.services.virtual_accelerator.manifest.build import (
+            prepare_project_manifest,
+            write_project_manifest,
+        )
+
+        va_data_root = build_profile.resolved_data_root(profile_dir) or (
+            manager.template_root / "apps" / build_profile.data_bundle / "data"
+        )
+        prepared_va_manifest = prepare_project_manifest(va_data_root, build_profile.resolved_tier())
+        if prepared_va_manifest is not None:
+            context["va_channels_file"] = VA_MANIFEST_FILENAME
+            context["va_lattice"] = "builtin"
 
         # 7. Create project from template (also materializes tier-specific
-        # channel DBs from the preset's tiers/ subtree, before the Claude Code
+        # channel DBs from the tiers/ subtree, before the Claude Code
         # hierarchy probe reads the flat data/channel_databases/<name>.json
-        # path).
-        manager = TemplateManager()
+        # path). A profile carrying `data:` replaces the bundle's data tree
+        # wholesale with its own; materialization then runs against that tree
+        # unchanged, and the overlays copied in step 11 still land last.
         project_path = manager.create_project(
             project_name=project_name,
             output_dir=output_path,
@@ -477,6 +497,7 @@ def build(
             force=True,  # Directory already exists from step 6b (venv created there)
             artifacts=artifacts or None,
             tier=build_profile.resolved_tier(),
+            data_root=build_profile.resolved_data_root(profile_dir),
         )
         logger.info("  ✓ Base template rendered")
 
@@ -509,6 +530,16 @@ def build(
             if build_profile.dispatch is not None:
                 _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
 
+            # 10b2. Inject the Nextcloud Talk bridge. Must follow step 10b: the
+            # bridge's compose template gates its `depends_on` and its
+            # in-network DISPATCHER_URL/WORKER_URL on `event_dispatcher` /
+            # `dispatch_worker` being in `deployed_services`, which is exactly
+            # what _inject_dispatch writes there. `validate()` already rejected a
+            # bridge declared without a `dispatch:` block, so by here a declared
+            # bridge means step 10b ran.
+            if build_profile.nextcloud_bridge is not None:
+                _inject_nextcloud_bridge(build_profile.nextcloud_bridge, project_path)
+
             # 10c. Inject the Bluesky scan-bridge service
             if build_profile.bluesky is not None:
                 _inject_bluesky(build_profile.bluesky, project_path)
@@ -538,6 +569,22 @@ def build(
             if reg_count:
                 logger.info("  ✓ Registered %d overlay artifact(s) in config.yml", reg_count)
 
+        # 11c. Write the prepared VA manifest and its drive limits into
+        # data/simulation/, the directory the container already bind-mounts —
+        # so neither file needs a compose change. The decision is atomic (step
+        # 6g settled it before anything was written); these writes carry it
+        # out. After the overlay copy, so the limits the accelerator enforces
+        # are the ones the project ships.
+        # The two files come from different points on purpose: the limits from
+        # the built project (post-overlay), the manifest from the source tree,
+        # which is the only place the paradigm DBs still exist by now.
+        if prepared_va_manifest is not None:
+            write_project_manifest(prepared_va_manifest, project_path / "data")
+            logger.info(
+                "  ✓ Generated virtual-accelerator channel manifest (%d channels)",
+                prepared_va_manifest.manifest["_metadata"]["total_channels"],
+            )
+
         # 12. Persist profile MCP servers to config.yml
         if build_profile.mcp_servers:
             _persist_mcp_servers(project_path, build_profile.mcp_servers)
@@ -545,12 +592,13 @@ def build(
                 "  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers)
             )
 
-        # 12b. Persist custom artifact categories to config.yml
-        if build_profile.categories:
-            _persist_categories(project_path, build_profile.categories)
+        # 12b. Merge artifact_server overrides (gallery settings + custom
+        # artifact categories) into config.yml
+        if build_profile.artifact_server:
+            _persist_artifact_server(project_path, build_profile.artifact_server)
             logger.info(
-                "  ✓ Persisted %d custom category/ies to config.yml",
-                len(build_profile.categories),
+                "  ✓ Merged artifact_server overrides into config.yml (%d category/ies)",
+                len(build_profile.artifact_server.get("categories", {})),
             )
 
         # 13. Copy profile .env file (if provided)
@@ -590,6 +638,12 @@ def build(
         else:
             manifest_preset = None
             manifest_profile_path = profile  # the original CLI string
+            # ...plus the path this build actually resolved. `deploy` runs from
+            # the project directory, where a relative CLI string re-resolves to
+            # something else (usually nothing) and silently turns the staleness
+            # advisory off; the absolute form is what the deploy side follows.
+            if profile_arg is not None:
+                manifest_context["profile_path_abs"] = str(profile_arg)
 
         manager.generate_manifest(
             project_dir=project_path,
@@ -621,6 +675,23 @@ def build(
             raise BuildProfileError(
                 "Agent tool/permission drift detected:\n  " + "\n  ".join(validation_errors)
             )
+
+        # 16d. Validate the model selection against the rendered provider map.
+        # The web terminal runs the same resolver strict at startup, so a value
+        # that only warns here would deploy per-user terminals that crash-loop
+        # behind the reverse proxy. Failing the build stops the
+        # `build && deploy` chain at the checkpoint the operator watches.
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        # Telemetry credentials are exempt from this strictness: a profile may
+        # legitimately leave them as ${VAR} for the *deployment* to supply, and
+        # the runtime re-resolves them at agent-spawn (degrading telemetry, not
+        # the agent, if they are still unset). Aborting here would force every
+        # such build to hand the builder production observability secrets.
+        try:
+            load_provider_spec(project_path, defer_unresolved_telemetry_creds=True)
+        except ValueError as e:
+            raise BuildProfileError(str(e)) from e
 
         # 17. Git init + commit
         _git_init_and_commit(project_path)
@@ -673,59 +744,3 @@ def build(
 
         logger.debug(traceback.format_exc())
         raise click.Abort() from e
-
-
-def _emit_profile_directory(target_dir: Path, preset_name: str) -> None:
-    """Scaffold an editable profile directory that extends ``preset_name``.
-
-    Writes ``profile.yml`` (with ``extends: <preset>`` + commented override
-    sections), an explanatory ``README.md``, and the ``overlays/{rules,skills,
-    agents}/`` tree (with ``.gitkeep`` sentinels). The user then drops overlay
-    artifacts in, edits ``profile.yml``, and builds the project with
-    ``osprey build <PROJECT_NAME> <target_dir>/profile.yml``.
-    """
-    from .build_profile import _load_preset_raw, _normalize_preset_name
-    from .templates.scaffolding import _copy_data_tree
-
-    # Resolve and validate the preset name up-front so the error is clean
-    # (raises BuildProfileError → caught by the outer except chain).
-    preset_raw, _preset_path = _load_preset_raw(preset_name)
-
-    target = target_dir.resolve()
-    if target.exists():
-        raise click.UsageError(
-            f"Target directory already exists: {target}. Remove it or choose a different path."
-        )
-
-    normalized_preset = _normalize_preset_name(preset_name)
-    # `target.name` is the user-chosen directory name (e.g. "my-profile").
-    # Derive a human display name only when the preset itself has no `name:`.
-    profile_name_default = target.name.replace("-", " ").replace("_", " ").title()
-    preset_display_name = preset_raw.get("name") or profile_name_default
-
-    manager = TemplateManager()
-    seed_root = manager.template_root / "profile_seed"
-    if not seed_root.is_dir():
-        # Defensive: catch packaging regressions early with an actionable error
-        # rather than letting Jinja raise TemplateNotFound deep in the loader.
-        raise BuildProfileError(
-            f"Profile seed templates missing at {seed_root}. "
-            f"This is a packaging bug — reinstall osprey-framework."
-        )
-
-    target.mkdir(parents=True)
-    ctx = {
-        "preset_name": normalized_preset,
-        "preset_display_name": preset_display_name,
-        "profile_name": profile_name_default,
-        "profile_dirname": target.name,
-        "profile_filename": f"{target.name}/profile.yml",
-    }
-    _copy_data_tree(seed_root, target, manager.template_root, manager.jinja_env, ctx)
-
-    logger.info("✓ Scaffolded profile at: %s", target)
-    logger.info(
-        "  Next: edit %s/profile.yml, then run `osprey build <PROJECT_NAME> %s/profile.yml`",
-        target,
-        target,
-    )
