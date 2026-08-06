@@ -590,8 +590,13 @@ Appliance, configure the archiver block independently of the control-system choi
 </pre></div>
 </div>
 <p>Documents in the collection are expected to have a <code class="docutils literal notranslate"><span class="pre">date</span></code> field (<code class="docutils literal notranslate"><span class="pre">ISODate</span></code>) and
-PV names as top-level fields: <code class="docutils literal notranslate"><span class="pre">{date:</span> <span class="pre">ISODate(...),</span> <span class="pre">PV1:</span> <span class="pre">value1,</span> <span class="pre">PV2:</span> <span class="pre">value2,</span> <span class="pre">...}</span></code>.
-The connector requires the optional <code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> extra:</p>
+one or more PV names as top-level fields: <code class="docutils literal notranslate"><span class="pre">{date:</span> <span class="pre">ISODate(...),</span> <span class="pre">PV1:</span> <span class="pre">value1,</span> <span class="pre">PV2:</span>
+<span class="pre">value2,</span> <span class="pre">...}</span></code>. A query matches any document that carries <strong>at least one</strong> of the
+requested PVs (an <code class="docutils literal notranslate"><span class="pre">$or</span></code> across per-PV <code class="docutils literal notranslate"><span class="pre">$exists</span></code> checks) – documents do not need
+to carry every requested PV together, so channels archived at different cadences, or
+written into separate documents by different collectors, are still returned
+correctly, each on its own timestamp series. The connector requires the optional
+<code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> extra:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;osprey-framework[archiver-mongodb]&quot;</span>
 </pre></div>
 </div>
@@ -761,6 +766,105 @@ database format.</p>
 <p>Subclass <code class="xref py py-class docutils literal notranslate"><span class="pre">ControlSystemConnector</span></code> and implement the abstract methods: <code class="docutils literal notranslate"><span class="pre">connect</span></code>, <code class="docutils literal notranslate"><span class="pre">disconnect</span></code>, <code class="docutils literal notranslate"><span class="pre">read_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">write_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">read_multiple_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">subscribe</span></code>, <code class="docutils literal notranslate"><span class="pre">unsubscribe</span></code>, <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">validate_channel</span></code>.</p>
 <p>You may also override the non-abstract <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> method if your backend benefits from atomic batch writes (e.g., disabling lattice recalculation between writes in a simulator). The default implementation writes sequentially via <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code>.</p>
 <p>Your connector must return the standard data models from <code class="docutils literal notranslate"><span class="pre">osprey.connectors.control_system.base</span></code>: <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelMetadata</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>, and <code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerification</span></code>.</p>
+<section id="archiver-connectors">
+<h3>Archiver Connectors<a class="headerlink" href="#archiver-connectors" title="Link to this heading">#</a></h3>
+<div class="versionchanged">
+<p><span class="versionmodified changed">Changed in version Unreleased: </span><code class="docutils literal notranslate"><span class="pre">get_data</span></code> returns long-format data (below) instead of a shared-index wide
+<code class="docutils literal notranslate"><span class="pre">DataFrame</span></code>. Out-of-tree connectors written against the old contract must be updated.</p>
+</div>
+<p>Subclass <code class="xref py py-class docutils literal notranslate"><span class="pre">ArchiverConnector</span></code> and implement
+<code class="docutils literal notranslate"><span class="pre">connect</span></code>, <code class="docutils literal notranslate"><span class="pre">disconnect</span></code>, <code class="docutils literal notranslate"><span class="pre">get_data</span></code>, <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">check_availability</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">get_data</span></code> is the entire contract. It returns a <strong>long-format</strong> <code class="docutils literal notranslate"><span class="pre">pandas.DataFrame</span></code>
+with exactly three columns, sorted by <code class="docutils literal notranslate"><span class="pre">channel</span></code> then <code class="docutils literal notranslate"><span class="pre">timestamp</span></code>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 25.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Column</p></th>
+<th class="head"><p>Dtype</p></th>
+<th class="head"><p>Contents</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timestamp</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">datetime64[ns,</span> <span class="pre">UTC]</span></code></p></td>
+<td><p>When the sample – or, under a <code class="docutils literal notranslate"><span class="pre">processing</span></code> mode, the bin’s aggregate –
+occurred.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">str</span></code></p></td>
+<td><p>The channel/PV name the row belongs to.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">value</span></code></p></td>
+<td><p>not dtype-constrained</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">float64</span></code> when every requested channel’s samples are numeric; pandas’
+natural mixed dtype (typically <code class="docutils literal notranslate"><span class="pre">object</span></code>) once any channel is non-numeric.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An empty result is an empty frame with these same three columns (<code class="docutils literal notranslate"><span class="pre">value</span></code> defaults
+to <code class="docutils literal notranslate"><span class="pre">float64</span></code>, since there is no data to infer a dtype from).</p>
+<p><strong>Nothing is manufactured.</strong> Channels are never placed on a shared index. Each
+channel contributes only its own real samples – never forward-filled, never
+reindexed onto a regular grid, never padded with a row for a bin or timestamp
+nothing was actually recorded at. A channel with no data in the requested range
+simply contributes no rows; it does not appear as an all-NaN column the way the old
+wide, shared-index format required. Every connector correctness bug this contract
+replaced traced back to violating this rule, so hold to it strictly: if a custom
+connector finds itself building a shared <code class="docutils literal notranslate"><span class="pre">DatetimeIndex</span></code> and reindexing per-channel
+series onto it, that is the bug.</p>
+<p><strong>Per-channel aggregation.</strong> <code class="docutils literal notranslate"><span class="pre">get_data</span></code> takes a trailing <code class="docutils literal notranslate"><span class="pre">processing:</span> <span class="pre">str</span> <span class="pre">=</span>
+<span class="pre">&quot;raw&quot;</span></code> keyword – one of <code class="docutils literal notranslate"><span class="pre">raw</span></code>, <code class="docutils literal notranslate"><span class="pre">mean</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">median</span></code>, <code class="docutils literal notranslate"><span class="pre">std</span></code>,
+<code class="docutils literal notranslate"><span class="pre">count</span></code> – applied independently to each channel’s own real samples, never across
+channels and never onto a shared grid:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">raw</span></code> decimates each <code class="docutils literal notranslate"><span class="pre">precision_ms</span></code> bin down to its <strong>last real sample</strong>,
+keeping that sample’s own true timestamp – never a timestamp invented at the
+bin’s edge to hold it. This matches the EPICS Archiver Appliance’s long-standing
+<code class="docutils literal notranslate"><span class="pre">lastSample_N</span></code> semantics, and every in-tree backend now applies it the same way.</p></li>
+<li><p>Every other mode aggregates the real samples that landed in each <code class="docutils literal notranslate"><span class="pre">precision_ms</span></code>
+bin. A bin with no samples is dropped, not emitted as <code class="docutils literal notranslate"><span class="pre">NaN</span></code> – so a sparse
+channel returns <em>fewer</em> rows than it has samples, never more, and no bin-width
+floor is ever needed to avoid upsampling.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">precision_ms</span> <span class="pre">&lt;=</span> <span class="pre">0</span></code> means full resolution: every real sample, undecimated. It is
+only valid with <code class="docutils literal notranslate"><span class="pre">processing=&quot;raw&quot;</span></code> – an aggregate has no bin to aggregate over,
+and requesting one must raise <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> rather than silently falling back to
+raw.</p></li>
+<li><p>Aggregating a non-numeric channel with anything but <code class="docutils literal notranslate"><span class="pre">raw</span></code> must raise
+<code class="docutils literal notranslate"><span class="pre">ValueError</span></code> naming the channel – never coerce it, drop it, or silently emit
+<code class="docutils literal notranslate"><span class="pre">NaN</span></code>. Backends that bin client-side get this from <code class="docutils literal notranslate"><span class="pre">aggregate_series</span></code>; a
+backend that pushes the aggregation to its server must call
+<code class="docutils literal notranslate"><span class="pre">reject_non_numeric</span></code> on what comes back, since it never reaches
+<code class="docutils literal notranslate"><span class="pre">aggregate_series</span></code>.</p></li>
+<li><p>A bin width your backend cannot express must raise <code class="docutils literal notranslate"><span class="pre">ValueError</span></code>, never round
+to one it can. The EPICS Archiver Appliance’s operator syntax takes whole
+seconds, so that connector rejects any positive <code class="docutils literal notranslate"><span class="pre">precision_ms</span></code> that is not a
+multiple of 1000 rather than serving a different resolution than was asked
+for.</p></li>
+</ul>
+<p>The shared helpers in <code class="docutils literal notranslate"><span class="pre">osprey.connectors.archiver._timerange</span></code> (<code class="docutils literal notranslate"><span class="pre">to_utc</span></code>,
+<code class="docutils literal notranslate"><span class="pre">require_datetime</span></code>, <code class="docutils literal notranslate"><span class="pre">resolve_processing</span></code>, <code class="docutils literal notranslate"><span class="pre">long_frame</span></code>, <code class="docutils literal notranslate"><span class="pre">decimate_raw</span></code>,
+<code class="docutils literal notranslate"><span class="pre">aggregate_series</span></code>, <code class="docutils literal notranslate"><span class="pre">reject_non_numeric</span></code>)
+implement all of the above and are the easiest way to get it right – every in-tree
+connector (EPICS, MongoDB, DOOCS, mock) builds on them rather than reimplementing
+binning.</p>
+<p><strong>Why the ``value`` dtype rule matters.</strong> Enum/status channels – machine mode,
+interlock state, RF state, anything archived as EPICS <code class="docutils literal notranslate"><span class="pre">mbbi</span></code> or DOOCS
+<code class="docutils literal notranslate"><span class="pre">DBR_STRING</span></code> – carry string values, not numbers. <code class="docutils literal notranslate"><span class="pre">get_data</span></code> never coerces them:
+a channel’s own dtype flows straight through, and only combining a non-numeric
+channel with a numeric one in the same query promotes the shared <code class="docutils literal notranslate"><span class="pre">value</span></code> column to
+a mixed dtype. A custom connector must resist forcing <code class="docutils literal notranslate"><span class="pre">value</span></code> to <code class="docutils literal notranslate"><span class="pre">float64</span></code> “for
+consistency” – doing so silently corrupts every enum/status channel it touches.</p>
+<p>Query windows must also be normalized to UTC before touching the wire: a naive
+(timezone-less) <code class="docutils literal notranslate"><span class="pre">start_date</span></code>/<code class="docutils literal notranslate"><span class="pre">end_date</span></code> is facility-local, matching how the rest
+of the framework reads operator wall-clock times, and must be converted – not
+relabeled – to your backend’s UTC wire format. <code class="docutils literal notranslate"><span class="pre">to_utc()</span></code> in
+<code class="docutils literal notranslate"><span class="pre">osprey.connectors.archiver._timerange</span></code> does this.</p>
+</section>
 <section id="registering-custom-connectors">
 <h3>Registering Custom Connectors<a class="headerlink" href="#registering-custom-connectors" title="Link to this heading">#</a></h3>
 <p><strong>Direct registration</strong> (simplest approach):</p>
@@ -876,6 +980,7 @@ don’t need a registry entry.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-custom-connectors">Implementing Custom Connectors</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#archiver-connectors">Archiver Connectors</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-custom-connectors">Registering Custom Connectors</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-custom-connectors">Testing Custom Connectors</a></li>
 </ul>
