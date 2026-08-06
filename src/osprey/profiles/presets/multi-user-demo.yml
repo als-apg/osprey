@@ -21,9 +21,11 @@
 
 name: Multi-User Demo
 
-# The standard full bundle (channel databases, simulation data, logbook seed) —
-# the demo needs real channels to read, and a channel_limits.json for the
-# write-capable tier's limits checking to bite on.
+# Which packaged project skeleton `osprey build` renders (config.yml, README,
+# Dockerfile). The full "control_assistant" skeleton — the demo needs real
+# channels to read, and a channel_limits.json for the write-capable tier's
+# limits checking to bite on. Its data files are copied into a materialized
+# profile's data/ directory; that copy is what the build uses from then on.
 app_template: control_assistant
 
 provider: anthropic
