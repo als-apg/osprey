@@ -28,7 +28,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML, CommentedMap
+from ruamel.yaml import YAML, CommentedMap, CommentedSeq
+from ruamel.yaml.error import CommentMark
+from ruamel.yaml.tokens import CommentToken
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,143 @@ logger = logging.getLogger(__name__)
 _yaml = YAML(typ="rt")
 _yaml.preserve_quotes = True
 _yaml.width = 4096  # prevent aggressive line-wrapping
+
+
+# =============================================================================
+# Section-Comment Anchoring
+# =============================================================================
+# ruamel attaches a comment block that sits between two YAML sections to the
+# deepest last node of the PRECEDING section — not to the key that follows it.
+# A plain append to that section's list/mapping therefore renders the new
+# entry *after* the comment block: a list split in two around a section
+# banner, or a new service block emitted below the next section's header.
+# The helpers below detach such a trailing block before appending and
+# re-attach it to the new last entry, so section banners stay at section
+# boundaries. Inline comments (same line as a value) are never moved.
+
+
+def _deepest_trailing_slot(container: Any) -> tuple[Any, Any, int] | None:
+    """Locate the comment slot trailing *container*'s last entry.
+
+    Descends through nested non-empty containers, because that is where ruamel
+    parks a section-trailing comment block. Returns ``(owner, key_or_index,
+    slot_index)`` addressing ``owner.ca.items[key_or_index][slot_index]``, or
+    None for empty/non-commented containers.
+    """
+    while True:
+        if isinstance(container, CommentedMap) and len(container):
+            last: Any = next(reversed(container))
+            slot = 2  # eol/post-value comment slot for mappings
+        elif isinstance(container, CommentedSeq) and len(container):
+            last = len(container) - 1
+            slot = 0  # post-item comment slot for sequences
+        else:
+            return None
+        value = container[last]
+        if isinstance(value, (CommentedMap, CommentedSeq)) and len(value):
+            container = value
+            continue
+        return container, last, slot
+
+
+def _steal_section_comment(container: Any) -> str | None:
+    """Detach and return the comment block trailing *container*'s last entry.
+
+    An inline comment on the entry's own line stays put; only the block that
+    follows on subsequent lines is removed and returned (with its leading
+    newline, ready for re-attachment). Returns None when there is nothing to
+    move.
+    """
+    found = _deepest_trailing_slot(container)
+    if found is None:
+        return None
+    owner, last, slot = found
+    entry = owner.ca.items.get(last)
+    token = entry[slot] if entry else None
+    if token is None:
+        return None
+    text = token.value
+    newline = text.find("\n")
+    if newline == -1 or not text[newline + 1 :].strip():
+        return None  # inline-only comment — nothing trails onto later lines
+    first_line, rest = text[: newline + 1], text[newline + 1 :]
+    if first_line.strip():
+        # Keep the inline part; the extra "\n" restores the line terminator
+        # the inline comment's token no longer provides at the new location.
+        token.value = first_line
+        return "\n" + rest
+    entry[slot] = None
+    if not any(entry):
+        del owner.ca.items[last]
+    return text
+
+
+def _attach_section_comment(container: Any, text: str) -> None:
+    """Attach *text* as the comment block trailing *container*'s last entry."""
+    found = _deepest_trailing_slot(container)
+    if found is None:
+        return
+    owner, last, slot = found
+    if not text.startswith("\n"):
+        text = "\n" + text
+    entry = owner.ca.items.setdefault(last, [None, None, None, None])
+    if entry[slot] is not None:
+        entry[slot].value += text
+    else:
+        entry[slot] = CommentToken(text, CommentMark(0), None)
+
+
+def _to_commented(obj: Any) -> Any:
+    """Deep-convert plain dicts/lists so comment slots exist along the spine."""
+    if isinstance(obj, dict) and not isinstance(obj, CommentedMap):
+        return CommentedMap((k, _to_commented(v)) for k, v in obj.items())
+    if isinstance(obj, list) and not isinstance(obj, CommentedSeq):
+        return CommentedSeq(_to_commented(item) for item in obj)
+    return obj
+
+
+def anchored_append(seq: Any, value: Any) -> None:
+    """Append *value* to *seq*, keeping a trailing section comment at the end.
+
+    Drop-in replacement for ``seq.append(value)`` on a round-trip-loaded
+    sequence whose tail may carry the comment block introducing the next
+    section. Plain lists are appended to unchanged.
+    """
+    if not isinstance(seq, CommentedSeq) or not len(seq):
+        seq.append(value)
+        return
+    moved = _steal_section_comment(seq)
+    seq.append(_to_commented(value))
+    if moved:
+        _attach_section_comment(seq, moved)
+
+
+def anchored_put(mapping: Any, key: Any, value: Any) -> None:
+    """Set ``mapping[key] = value``, keeping a trailing section comment at the end.
+
+    Drop-in replacement for item assignment on a round-trip-loaded mapping:
+    when *key* is new (ruamel appends it after the last entry — and after any
+    comment block trailing that entry), the block is re-anchored below the new
+    entry. Existing keys are updated in place with no layout change — except
+    the last key, whose replacement value would silently discard a comment
+    block parked inside the old value; that block is carried over. *value*
+    must be complete — an empty dict/list cannot carry the re-anchored
+    comment beneath it, so such values are assigned without relocation.
+    """
+    if not isinstance(mapping, CommentedMap) or not len(mapping):
+        mapping[key] = value
+        return
+    if key in mapping and next(reversed(mapping)) != key:
+        mapping[key] = value
+        return
+    value = _to_commented(value)
+    if isinstance(value, (CommentedMap, CommentedSeq)) and not len(value):
+        mapping[key] = value
+        return
+    moved = _steal_section_comment(mapping)
+    mapping[key] = value
+    if moved:
+        _attach_section_comment(mapping, moved)
 
 
 # =============================================================================
@@ -112,7 +251,7 @@ def config_add_to_list(
     if value in lst:
         return False
 
-    lst.append(value)
+    anchored_append(lst, value)
     _save(config_path, data)
     logger.debug("config_add_to_list: %s += %s in %s", ".".join(key_path), value, config_path)
     return True
@@ -225,16 +364,62 @@ def config_update_fields(
     data = _load(config_path)
 
     for dotted_key, value in updates.items():
-        parts = dotted_key.split(".")
-        node = data
-        for part in parts[:-1]:
-            if part not in node:
-                node[part] = {}
-            node = node[part]
-        node[parts[-1]] = value
+        _set_dotted_anchored(data, data, dotted_key, value, create_only=True)
 
     _save(config_path, data)
     logger.info("config_update_fields: updated %d field(s) in %s", len(updates), config_path)
+
+
+def _set_dotted_anchored(
+    root: Any, data: Any, dotted_key: str, value: Any, *, create_only: bool
+) -> None:
+    """Set a dotted key, re-anchoring a section comment displaced by new keys.
+
+    Walks ``dotted_key`` from *data*, creating missing intermediate maps. The
+    first key created inside an existing non-root mapping is where a trailing
+    section comment would be displaced — it is detached there, and re-attached
+    once the full subtree exists. New keys at the *root* mapping keep their
+    tail-append placement: the shipped templates document appended top-level
+    sections at the file tail, below banners written for exactly that purpose.
+
+    Args:
+        root: The document's top-level mapping (anchor exemption).
+        data: Mapping to walk from (the root itself, or a nested map).
+        dotted_key: ``"dot.separated.key"`` path.
+        value: Value to assign at the leaf.
+        create_only: If True, walk into whatever an existing intermediate key
+            holds (:func:`config_update_fields` semantics); if False, replace
+            non-mapping intermediates with empty maps
+            (:func:`_set_nested_value` semantics).
+    """
+    parts = dotted_key.split(".")
+    node = data
+    moved: str | None = None
+    anchor: Any = None
+
+    def _steal_here(current: Any) -> str | None:
+        if current is root or not isinstance(current, CommentedMap) or not len(current):
+            return None
+        return _steal_section_comment(current)
+
+    for part in parts[:-1]:
+        if part not in node:
+            if moved is None:
+                moved = _steal_here(node)
+                anchor = node if moved else None
+            node[part] = CommentedMap()
+        elif not create_only and not isinstance(node[part], dict):
+            node[part] = CommentedMap()
+        node = node[part]
+
+    leaf = parts[-1]
+    if leaf not in node and moved is None:
+        moved = _steal_here(node)
+        anchor = node if moved else None
+    node[leaf] = _to_commented(value)
+
+    if moved:
+        _attach_section_comment(anchor, moved)
 
 
 def config_read(config_path: Path) -> dict:
@@ -321,39 +506,39 @@ def update_yaml_file(
     return backup_path
 
 
-def _apply_nested_updates(data: dict, updates: dict) -> None:
+def _apply_nested_updates(data: dict, updates: dict, root: Any = None) -> None:
     """Apply nested updates to a dictionary, supporting dot notation keys.
 
     Args:
         data: Target dictionary to update (modified in place)
         updates: Updates to apply
+        root: The document's top-level mapping, threaded through recursion for
+            section-comment anchoring (defaults to *data*).
     """
+    if root is None:
+        root = data
     for key, value in updates.items():
         if "." in key:
-            _set_nested_value(data, key, value)
+            _set_nested_value(data, key, value, root=root)
         elif isinstance(value, dict) and key in data and isinstance(data[key], dict):
-            _apply_nested_updates(data[key], value)
-        else:
+            _apply_nested_updates(data[key], value, root=root)
+        elif data is root:
             data[key] = value
+        else:
+            anchored_put(data, key, value)
 
 
-def _set_nested_value(data: dict, path: str, value: Any) -> None:
+def _set_nested_value(data: dict, path: str, value: Any, root: Any = None) -> None:
     """Set a value at a nested path using dot notation.
 
     Args:
         data: Target dictionary
         path: Dot-separated path (e.g., "control_system.connector.epics.port")
         value: Value to set
+        root: The document's top-level mapping, for section-comment anchoring
+            (defaults to *data*).
     """
-    keys = path.split(".")
-    current = data
-
-    for key in keys[:-1]:
-        if key not in current or not isinstance(current[key], dict):
-            current[key] = {}
-        current = current[key]
-
-    current[keys[-1]] = value
+    _set_dotted_anchored(root if root is not None else data, data, path, value, create_only=False)
 
 
 # =============================================================================

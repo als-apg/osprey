@@ -9,6 +9,17 @@ Versions follow `YYYY.MM.MICRO`. Year and month identify the release window;
 the micro segment increments for hotfixes and same-month follow-up releases.
 Compatibility is documented in release notes, not encoded in the version string.
 
+## [Unreleased]
+
+### Fixed
+
+- Built projects' `config.yml` no longer misplaces section comments: entries
+  added at build time (service blocks, `deployed_services` names, web panels,
+  config overrides) rendered *after* the next section's comment banner —
+  splitting the `deployed_services` list around the `SAFETY CONTROLS` header.
+  Appended entries now render inside their own section, with the banner kept
+  at the section boundary.
+
 ## [2026.8.0]
 
 ### Removed
