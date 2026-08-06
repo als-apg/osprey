@@ -16,6 +16,12 @@ from typing import Any
 
 import pandas as pd
 
+from osprey.connectors.archiver._timerange import (
+    long_frame,
+    reject_non_numeric,
+    resolve_processing,
+    utc_window,
+)
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
@@ -128,6 +134,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         end_date: datetime,
         precision_ms: int = 1000,
         timeout: int | None = None,
+        processing: str = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from EPICS archiver.
@@ -136,67 +143,75 @@ class EPICSArchiverConnector(ArchiverConnector):
             pv_list: List of PV names to retrieve
             start_date: Start of time range
             end_date: End of time range
-            precision_ms: Time precision in milliseconds (for downsampling)
+            precision_ms: Bin width in milliseconds, applied server-side. Must
+                be a whole number of seconds (the Archiver Appliance's operator
+                syntax takes seconds); a finer width is rejected rather than
+                rounded. ``<= 0`` means full resolution.
             timeout: Optional timeout in seconds
+            processing: Aggregation applied within each precision_ms bin, pushed
+                down to the appliance. One of "raw", "mean", "min", "max",
+                "median", "std", "count". Anything else raises ValueError.
 
         Returns:
-            DataFrame with datetime index and PV columns
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`.
 
         Raises:
             RuntimeError: If archiver not connected
             TimeoutError: If operation times out
             ConnectionError: If archiver cannot be reached
-            ValueError: If data format is unexpected
+            ValueError: If data format is unexpected; if ``precision_ms`` is
+                positive but not a multiple of 1000; or if a non-raw
+                ``processing`` mode is requested for a channel whose values are
+                non-numeric
         """
         timeout = timeout if timeout is not None else self._timeout
 
         if not self._connected:
             raise RuntimeError("Archiver not connected")
 
-        # Validate inputs
-        if not isinstance(start_date, datetime):
-            raise TypeError(f"start_date must be a datetime object, got {type(start_date)}")
-        if not isinstance(end_date, datetime):
-            raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
+        # The retrieval API's ".000Z" wire format is UTC: convert the bounds
+        # rather than relabel them.
+        start_utc, end_utc = utc_window(start_date, end_date)
+        start_str = start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        end_str = end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-        start_str = start_date.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        end_str = end_date.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        resolved = resolve_processing(processing, precision_ms)
 
-        # Apply server-side downsampling when precision is set
-        if precision_ms > 0:
-            n_secs = max(1, precision_ms // 1000)
-            effective_pvs = [f"lastSample_{n_secs}({pv})" for pv in pv_list]
-        else:
-            effective_pvs = list(pv_list)
+        # A bin width was asked for but the appliance cannot express it. Reject
+        # rather than fall through to the bare PV name, which would answer an
+        # aggregate query with full-resolution samples.
+        if precision_ms > 0 and resolved.epics_operator is None:
+            raise ValueError(
+                f"precision_ms={precision_ms} is not a whole number of seconds. The EPICS "
+                "Archiver Appliance bins server-side in whole seconds only, so this bin "
+                "width cannot be requested from it. Use a multiple of 1000, or "
+                "precision_ms<=0 with processing='raw' for full resolution."
+            )
+
+        # A None operator here can only mean full resolution.
+        operator = resolved.epics_operator
 
         def fetch_all():
-            series_dict = {}
-            for pv, effective_pv in zip(pv_list, effective_pvs, strict=True):
-                series_dict[pv] = self._fetch_single_pv(effective_pv, start_str, end_str)
-            return series_dict
+            return {
+                pv: self._fetch_single_pv(
+                    f"{operator}({pv})" if operator else pv, start_str, end_str
+                )
+                for pv in pv_list
+            }
 
         try:
             series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
 
-            if len(pv_list) == 1:
-                data = pd.DataFrame(series_dict)
-            else:
-                # Align multi-PV series to a common precision_ms grid via ffill
-                resolution = f"{max(1, precision_ms)}ms"
-                grid = pd.date_range(start=start_date, end=end_date, freq=resolution)
-                # Archiver timestamps are always UTC; ensure the grid matches
-                if grid.tz is None:
-                    grid = grid.tz_localize("UTC")
-                aligned = {}
-                for pv, series in series_dict.items():
-                    if series.empty:
-                        aligned[pv] = pd.Series(index=grid, dtype=float, name=pv)
-                    else:
-                        reindexed = series.reindex(series.index.union(grid)).ffill()
-                        aligned[pv] = reindexed.reindex(grid)
-                data = pd.DataFrame(aligned)
+            # The appliance already binned server-side, so aggregate_series is
+            # skipped — but its non-numeric check must run here: the appliance
+            # answers an aggregate query on a string-valued PV with the raw
+            # values, which would otherwise be handed back labelled as means.
+            for s in series_dict.values():
+                reject_non_numeric(s, resolved)
 
-            logger.debug(f"Retrieved archiver data: {len(data)} points for {len(pv_list)} PVs")
+            data = long_frame(series_dict)
+
+            logger.debug(f"Retrieved archiver data: {len(data)} rows across {len(pv_list)} PVs")
             return data
 
         except TimeoutError as e:

@@ -91,6 +91,35 @@ def reset_state_between_tests():
 
 
 # ===================================================================
+# Host-timezone leak guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _no_host_timezone_leak():
+    """Fail the test that leaves the process on a different host timezone.
+
+    Finalizers run LIFO: a bare ``request.addfinalizer(time.tzset)`` runs
+    *before* monkeypatch restores ``TZ``, leaving every later test on the
+    wrong host zone. This fixture's teardown runs after monkeypatch's own,
+    which is exactly the ordering the bug turns on.
+    """
+    import os as _os
+    import time as _time
+
+    before = (_os.environ.get("TZ"), _time.tzname)
+
+    yield
+
+    after = (_os.environ.get("TZ"), _time.tzname)
+    assert after == before, (
+        f"test leaked the host timezone: TZ/tzname was {before} before the test "
+        f"and {after} after. Undo the monkeypatch *before* calling time.tzset() "
+        f"so the C library re-reads the restored TZ, not the patched one."
+    )
+
+
+# ===================================================================
 # Working-directory guard
 # ===================================================================
 

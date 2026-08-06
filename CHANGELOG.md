@@ -19,6 +19,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   profile has fully rendered — a failed run leaves the old directory intact.
 - The emitted `profile.yml` header now opens with a lifecycle diagram:
   profile (edit) → build → project (regenerable) → deploy → running containers.
+- `archiver_read` gained `bin_size=0` for full resolution — every real
+  archived sample in the requested range, with no per-bin decimation. Only
+  valid with `processing="raw"` (an aggregate has no bin to aggregate
+  over); a non-raw `processing` with `bin_size=0`, or a negative
+  `bin_size`, is a validation error.
 
 ### Changed
 
@@ -32,8 +37,212 @@ Compatibility is documented in release notes, not encoded in the version string.
   user entry instead of bare-string shorthand for the first user. Behavior is
   unchanged; already-deployed projects will see a one-time profile-staleness
   advisory from the preset content change.
+- The EPICS connector now rejects a `bin_size` the appliance cannot express
+  rather than quietly serving a different resolution. Sub-second and
+  non-whole-second widths used to be floored to the nearest second (500 ms
+  *and* 1500 ms both became 1 s).
+- `archiver_read`'s `access_details` payload no longer repeats the same access
+  rule once per channel: 3548 → 1075 bytes for a twenty-channel read, and now
+  flat in channel count rather than growing with it.
+- **Breaking change: `ArchiverConnector.get_data` now returns long-format
+  data instead of a shared-index wide frame.** Every archiver connector
+  correctness bug fixed below traced back to forcing every requested
+  channel onto one shared index, which required forward-filling gaps and
+  resampling data into existence just to keep a rectangular shape.
+  - **Before:** a wide `pandas.DataFrame` indexed by timestamp, one column
+    per channel, reindexed/forward-filled onto a shared grid so every
+    column had a value at every row.
+  - **After:** a long `pandas.DataFrame` with exactly three columns —
+    `timestamp` (`datetime64[ns, UTC]`), `channel` (`str`), and `value` —
+    sorted by `channel` then `timestamp`. Each channel contributes only its
+    own real samples (or, under a non-`raw` `processing` mode, only its own
+    real per-bin aggregates); nothing is forward-filled, reindexed onto a
+    shared grid, or otherwise manufactured, and a channel with no data in
+    range contributes no rows. An empty result is an empty frame with the
+    same three columns.
+  - `value` is not dtype-constrained: `float64` when every requested
+    channel's samples are numeric, or pandas' natural mixed dtype once any
+    channel is non-numeric — enum/status channels (EPICS `mbbi` / DOOCS
+    `DBR_STRING`: machine mode, interlock state, RF state) are archived as
+    strings and round-trip as strings, never coerced.
+  - `raw` processing now decimates each bin to its last **real** sample,
+    keeping that sample's own true timestamp rather than a relabeled bin
+    edge — matching EPICS's long-standing `lastSample_N` semantics on every
+    backend.
+  - The `archiver_read` artifact payload changed from a split-orient wide
+    frame to `{"query": ..., "series": {"<channel>": {"timestamps": [...],
+    "values": [...]}}}`. Artifacts already saved in the old layout still
+    render — `extract_channel_series` normalizes all three historical
+    layouts.
+  - **Any out-of-tree `ArchiverConnector` subclass must be updated** to
+    return the new long-format shape; downstream code no longer accepts
+    the old wide, shared-index format.
+- `ArchiverConnector.get_data` gained a trailing `processing: str = "raw"`
+  keyword (one of `raw`, `mean`, `min`, `max`, `median`, `std`, `count`).
+  It's appended last with a default, so existing positional callers are
+  unaffected; an out-of-tree connector that overrides `get_data` must
+  accept the new keyword (even just to ignore it) to remain
+  call-compatible.
+
+### Removed
+
+- Removed the DOOCS connector's `max_points` history-decimation path. It built
+  a fixed `np.linspace` grid and forward-filled onto it with a zero-order hold,
+  which the "nothing is manufactured" contract forbids, and no production
+  caller could reach it — the connector always passed `None`.
 
 ### Fixed
+
+- Enum/status channels no longer render a state the channel was never in. A
+  gap in an enum channel (a `null` sample) was being turned into the literal
+  category rung `"<channel>: null"` on the chart's shared category axis, so a
+  disconnect drew as a real state. Gaps now break the line as they always did
+  for numeric channels. The same axis also had its tick labels clipped by a
+  fixed right margin and drew an off-theme gridline per rung; both fixed.
+- `raw` and the aggregate processing modes now place bin boundaries on the same
+  lattice. `raw` decimation anchored its bins to the Unix epoch while the
+  aggregates anchored theirs to the start of the day, so for any `bin_size`
+  that does not divide a day evenly (7 s, say) the two disagreed — an operator
+  comparing `raw` against `mean` over one window got bins that did not line up.
+  Whole-second widths that divide a day, which is every width the framework had
+  been exercised with, are unaffected.
+- The archiver freshness health probe stopped silently discarding sub-microsecond
+  precision. It converted each sample's timestamp through `to_pydatetime()`,
+  which emits `Discarding nonzero nanoseconds` on every EPICS probe run.
+- The timeseries table's header came from a different HTTP request than its
+  cells — the header from `format=chart`, the rows from `format=table`. For an
+  artifact being written while it is viewed the two can disagree, showing values
+  under the wrong PV name. `format=table` now returns the very column list its
+  rows were built from, and the client uses it.
+- The artifact gallery's info-bar totals are now computed server-side and
+  reported under a new `summary` object on `format=chart`. The client had been
+  summing each channel's own point count, a number that cannot be reconciled
+  with the table's unioned row count — only the server sees both axes.
+- The EPICS Archiver Appliance connector formatted query-window bounds
+  with a literal UTC `Z` suffix without actually converting to UTC first,
+  so at any facility whose `system.timezone` is not UTC every
+  `archiver_read` window against EPICS landed hours away from the one an
+  operator actually asked for — e.g. "the last hour" could silently pull
+  data from several hours in the past or future, depending on the
+  facility's UTC offset. EPICS now converts to UTC before the query
+  reaches the wire. MongoDB and DOOCS did not share this regression
+  through the actual `archiver_read` path — the tool always hands
+  `get_data()` a timezone-aware datetime, and pymongo's BSON encoding and
+  `datetime.timestamp()` are each already correct for an aware datetime
+  regardless of its zone — but both connectors (and the mock/simulation
+  archiver) now call the same `to_utc()` helper as EPICS, hardening the
+  connector-level contract for a caller that bypasses the tool: a naive
+  (timezone-less) datetime passed directly to `get_data()` is now read as
+  facility-local rather than depending on the caller's own zone or
+  assuming UTC, consistent with every other connector.
+- `archiver_read`'s `processing` parameter (e.g. `mean`, `min`, `max`) was
+  accepted and echoed back in the response, but never actually applied to
+  the query — a request for a 60-second mean silently returned the same
+  last-sample-per-60-second data as `processing="raw"`, with no error or
+  warning. `processing` is now honored end-to-end: the EPICS connector
+  pushes the aggregation to the Archiver Appliance server-side, and
+  MongoDB/DOOCS/mock apply it client-side, so the values returned actually
+  match the requested aggregation.
+- The MongoDB archiver connector ANDed a `$exists` condition for every
+  requested PV onto the same query, so a request spanning channels
+  archived in separate documents — a common ingestion pattern — matched no
+  documents at all and silently returned an empty frame with no error, as
+  if none of the channels had ever been archived. It also ignored
+  `precision_ms` entirely (returning every raw document at ingestion
+  cadence regardless of the requested bin width) and treated `timeout=0`
+  as "no timeout given," silently substituting the connector's default.
+  The query now matches any document carrying at least one requested PV
+  (`$or` instead of ANDed per-PV `$exists` checks), `precision_ms` is
+  honored via per-channel resampling, and an explicit `timeout=0` is
+  respected rather than overridden.
+- `DOOCSArchiverConnector.check_availability` built its "everything
+  unavailable" result when the connector was disconnected, but never
+  returned it, so execution fell through into querying the live DOOCS ENS
+  anyway — a disconnected connector could still report channels as
+  available instead of cleanly reporting all of them unavailable. The
+  disconnected guard now returns immediately.
+- Plotting an archiver artifact that mixes channels with and without data in
+  the requested window no longer fails. A channel with no samples produced an
+  untyped (object-dtype) column, and Plotly Express refuses a wide frame
+  "with columns of different type" — so `px.line(data)` over "beam current
+  plus a channel that was down" raised instead of drawing the channel that
+  did have data. Empty channels now carry a `float64` column.
+- `data_read` on an over-cap archiver artifact now previews the long-format
+  payload it actually receives. It recognized only the old wide/split-orient
+  shape, so a `{query, series}` file — the common reason for exceeding the
+  100 KB inline cap — fell through to a bare `json_object` preview listing
+  `["query", "series"]` and nothing else. The preview now reports channel
+  names, total and per-channel point counts, and each channel's first and
+  last sample, including the zero-sample channels that explain a missing
+  trace.
+- The session-report skill's reference file still taught the pre-long-format
+  Chart.js recipe (`data: { labels: timestamps, datasets: [{ data: values }] }`).
+  `archiver_downsample` gives every channel its own timestamps, so a
+  multi-channel report built from that recipe drew each series against the
+  first channel's x-values — a plausible-looking chart that was silently
+  wrong. The recipe now maps per-dataset `{x, y}` points, skips enum/status
+  channels that cannot share the numeric axis, and needs no date-adapter
+  script.
+- The DOOCS connector no longer fails when its configured `avg_window` is wider
+  than the queried time span. The moving average used `np.convolve(mode="same")`,
+  which returns `max(len(data), window)` points rather than `len(data)`, so the
+  returned `data` array outgrew its `time` array and `get_data` died with a
+  length mismatch. The average is now a pandas centered rolling mean, which
+  returns one value per input point and shrinks the window at the edges instead
+  of zero-padding — removing the separate edge-renormalization pass as well.
+- Plotting two or more enum/status channels together no longer draws them on
+  interleaved rungs. They share one categorical y-axis, and Plotly builds that
+  axis's rungs from the union of its traces in first-appearance order, so each
+  channel's step line crossed rungs belonging to the other — rendering as a
+  state the channel was never in. Each channel's rungs are now namespaced to it;
+  hover still shows the real, unprefixed value.
+- The artifact gallery's `format=table` view no longer rebuilds the entire
+  timeseries on every page click. It pivoted every (timestamp, channel) cell in
+  the file and then sliced to the 50-row page, against a 200 MB file cap; only
+  the requested page's rows are built now. The shared timestamp axis is still
+  unioned in full — that is what the row count and page offset are measured
+  against — but that is one entry per timestamp rather than one per timestamp
+  and channel.
+- The EPICS connector now honors two contract rules it documented but did not
+  enforce, both reachable only through the connector API directly (not through
+  `archiver_read`):
+  - Aggregating a non-numeric channel with anything but `processing="raw"` now
+    raises `ValueError` naming the channel, as `base.py` and the add-a-connector
+    guide both require. EPICS pushes aggregation to the appliance and so never
+    reached the client-side helper where the other three backends enforce this —
+    `mean` over a string-valued PV came back as its raw `CW`/`STANDBY` values
+    labelled as means.
+  - A `precision_ms` that is not a whole number of seconds is now rejected
+    instead of floored. The appliance's operator syntax takes seconds, so a
+    500 ms request was silently served at 1 s (and 1500 ms likewise), while every
+    other backend binned at exactly the width asked for.
+- A DOOCS connector configured with `avg_window` no longer manufactures its
+  timestamps. Because the moving average was a fixed-width convolution kernel,
+  it needed a constant `dt`, so setting `avg_window` forced the samples onto a
+  `numpy.linspace` grid via a zero-order hold — every returned timestamp was a
+  grid position rather than an archived one, and every value was forward-filled
+  onto it. `get_data` deliberately bypasses that grid, but `avg_window` brought
+  it back through a config key, so the one connector with a smoothing knob was
+  also the one still violating the no-manufacturing contract. The average is now
+  a real time-duration window applied to the archived samples at their own
+  irregular timestamps. An explicit `max_points` still returns a uniform grid —
+  that is what the caller asked for.
+- The DOOCS connector no longer waits forever when `get_data` is called without
+  an explicit `timeout`. It passed the argument straight to `asyncio.wait_for`,
+  where `None` blocks indefinitely, and had no configured default to fall back
+  on — so an unresponsive ENS hung the caller with no recovery. `connect` now
+  accepts a `timeout` config key (default 60 seconds), matching EPICS and
+  MongoDB. An explicit `timeout=0` is still honored as a real request.
+- The mock archiver is now genuinely reproducible, as its docstring always
+  claimed. Noise for every non-BPM channel was drawn from the unseeded global
+  `numpy.random` instead of the per-PV generator, so two identical queries in
+  one process returned different data; and the per-PV generator was seeded from
+  `hash(pv_name)`, which CPython salts per process, so even the seeded path
+  differed between runs. Seeding now uses a stable checksum and all noise comes
+  from the per-PV generator.
+- `data_read`'s over-cap preview now also unwraps the legacy `_osprey_metadata`
+  envelope, matching the plot tools' reader. Older archiver artifacts on disk
+  carry that wrapper and were previewed as an opaque JSON object.
 
 - Built projects' `config.yml` no longer misplaces section comments: entries
   added at build time (service blocks, `deployed_services` names, web panels,
@@ -688,6 +897,51 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `osprey deploy --dev` now fails with a clear error when the local osprey wheel
+  cannot be built, instead of warning and deploying the pinned PyPI release.
+  Previously a missing `build` package (or a broken local checkout) produced one
+  warning among many info lines and an exit code of 0, so the containers came up
+  running released osprey and the deployment silently tested something other than
+  the local code. The preconditions — editable install, source checkout, `build`
+  package — are now checked before any deploy work begins, and `build` moved from
+  the `dev` extra to a base dependency so an editable install always has it.
+- `osprey build` now prints a provider-credentials summary that reports the API
+  keys it *found*, not just the ones it didn't. It leads with the provider the
+  project was built for, names where that key came from (project `.env`, the
+  build directory's `.env`, or the shell), and warns if the selected provider's
+  key is missing. Previously the build logged one line per *unresolved*
+  placeholder — twice — so a successful key was silent, and a missing key for
+  the selected provider looked identical to the irrelevant misses for providers
+  the project never uses. The per-placeholder resolver line moved to `DEBUG`.
+- Scaffolded `.env` / `.env.example` files derive their provider API-key list
+  from the provider registry instead of a hand-maintained list (which had
+  drifted: `ALS_APG_API_KEY` was missing, a stale Langfuse block remained, and
+  a detected `ARGO_API_KEY` value was discarded in favor of a `$${USER}`
+  placeholder).
+- Shipped preset configs now document `deployment.bind_address` and point the
+  Virtual Accelerator instructions at `osprey deploy up` instead of a
+  repo-internal container path.
+
+- The model-benchmark matrix now scores two lanes separately: `agentic_benchmark`
+  marks genuine model-capability e2e tests (the headline pass rate) and
+  `harness_benchmark` marks model-independent safety/plumbing assertions, so
+  harness passes no longer pad a model's capability score. Every in-scope e2e
+  test must declare its lane (gated per matrix cell and in CI); 19 non-LLM e2e
+  files moved to the matrix exclusion list. The `e2e_benchmark` marker was
+  renamed to `channel_finder_benchmark` to say what it actually covers.
+
+- The ARIEL panel no longer shows the logbook Search tab when embedded in the web terminal — search there goes through the agent, so the embedded panel offers Browse, New Entry, and Status and opens on Browse. Standalone ARIEL keeps Search as the default view.
+- `osprey build` now records a project's dependencies in a generated `pyproject.toml` instead of `requirements.txt`. This makes `uv run osprey web` (and any other command) resolve the project's own `.venv` rather than walking up to an ancestor project's environment, and makes `uv sync` rebuild the environment instead of pruning it empty. Existing projects can delete their now-unused `requirements.txt` on the next `osprey build --force`.
+- `osprey deploy up` now runs the web-terminal preflight (persona auto-render and the fail-closed `.env.production` credential gate) *before* building any image, so a deploy doomed to abort on a missing provider secret says so in seconds instead of after the full image build. When the missing variable is exported in the caller's shell but absent from `.env`, the error now says so and names the exact copy-in command (`.env` remains the only secret source the generator reads).
+- The `osprey-build-interview` skill now asks the installed framework what it offers instead of carrying its own catalog: presets, build artifacts, providers, and config keys are all read from the live installation at interview time, so a newly shipped capability is offered without anyone editing the skill. It generates the profile with `osprey build --emit-profile` rather than a hand-written YAML template, and builds that profile itself before handing it over — what you receive is known to build. The interview now adapts its questions to the person rather than following a fixed script, and takes about five minutes. Legacy-project migration, the feedback prompts, and the web-panel design step were removed; panel authoring belongs to the `creating-an-osprey-panel` skill.
+- New `osprey.build` package holds the build-time kernel shared across layers (Claude Code model/provider resolution, telemetry env block, channel-finder tier defaults, manifest primitives); agent-runtime helpers (clean child-env, SDK system-prompt, artifact-path resolution, Claude Code project-path encoding) moved to `osprey.agent_runner`. This removes the `services`/`mcp_server` → `cli`/`interfaces` layering inversions; internal import paths changed with no compatibility shims.
+- Removed the legacy facility-config `gitlab:` block: a config that still carries it now fails closed with a `ConfigurationError` naming the `ci: {provider: "gitlab", ...}` replacement, instead of being silently aliased.
+- Bluesky panels app moved from services to interfaces (import path `osprey.interfaces.bluesky_panels`).
+- python-executor: removed the deprecated `epics_writes_enabled` field; `control_system_writes_enabled` is now the single write-gating flag.
+- The seven LiteLLM-thin provider adapters (anthropic, als-apg, amsc-i2, cborg, google, openai, stanford) now share a single data-driven delegating base; behavior is unchanged (Stanford keeps its base-URL fallback).
+- The three channel-finder MCP servers now share one bootstrap module (config load, path resolution, `python -m` entry point, startup sequence); behavior and entry points are unchanged.
+- `osprey build --force` now re-renders an existing project *in place* instead of deleting the directory: `.env` (existing values win over freshly detected ones, and keys only it carries are kept), `_agent_data/`, and the project's `.git` are preserved; everything framework-rendered, including `data/`, is rebuilt. A profile-provided `env.file` is likewise merged into an existing `.env` rather than overwriting it.
+
 - **`osprey health` now separates cheap poll-class checks from costly on_demand checks**, run by default and only with `--full` respectively. Three behaviors change as a result:
   - Bare `osprey health` no longer performs live model-chat completions — the `model_chat` category is now `on_demand` and runs only under `--full`.
   - Pinned-CLI verification (the `npx @anthropic-ai/claude-code@<pin>` download) moved to the `on_demand` `claude_cli_pinned` category and likewise requires `--full`; a bare run keeps only the cheap `claude --version` availability check.
@@ -726,8 +980,49 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Retired the Tuning optimization panel and its companion web server. It is no longer a built-in panel, and `web_panels: [tuning]` entries should be removed from project configs.
 - Dropped the unused `basePath` iframe query parameter from the Web Terminal.
 - Retired the tier-2 channel databases and their benchmark query set; build profiles can no longer select tier 2.
-
 ### Fixed
+
+- `osprey web --project <dir>` launched from outside the project now behaves the
+  same as running `osprey web` inside it. Previously the flag only set the
+  terminal's working directory, so the project's `.env` was never loaded
+  (leaving `${VAR}` placeholders such as a provider `api_key` unexpanded), the
+  project's `web_terminal` and `claude_code` settings were replaced by built-in
+  defaults, and `_agent_data/` was created next to wherever the command was run.
+- ARIEL logbook ingestion no longer skips an otherwise-valid entry when the source
+  payload omits its `id`: the ALS and generic adapters now fall back to an empty
+  entry id (matching the JLab/ORNL adapters) instead of raising a `KeyError` the
+  fetch loop caught and dropped the entry on.
+- All artifact stores are now rooted at the shared data root, so artifacts saved
+  from session-scoped writers (e.g. resumed web-terminal sessions) stay visible to
+  the gallery.
+- `artifact_focus`/`artifact_pin` now report gallery failures honestly instead of
+  always claiming success.
+- `web.app_name` in `config.yml` now actually labels the web terminal header: the
+  runtime read the key from a nested section nothing generates, so only the
+  `OSPREY_WEB_APP_NAME` env override worked. It now reads top-level `web.app_name`,
+  matching `web.theme` and `web.presets` (env override still wins).
+- A server-configured `web.theme` family now survives a visitor's first page load:
+  the in-browser theme runtime adopted the default family on first visit instead of
+  the configured one. Light/dark still follows the OS until the visitor picks a mode.
+- How-to documentation refreshed against the current code: provider model IDs,
+  deploy/build semantics (`--force` preservation, `--dev` image builds, full
+  subcommand list), telemetry now documented as on-by-default, MCP/executor error
+  contracts, and the ARIEL web-interface module tables.
+
+- `osprey ariel purge` now clears the text-embedding migration record along with the dropped embedding tables, so a subsequent `osprey ariel migrate` actually recreates them instead of silently no-opping.
+- Containerized Python execution no longer misclassifies an infrastructure failure during result collection as a code error: pre-classified executor errors keep their retry category, so an infrastructure fault re-executes the same code instead of triggering code regeneration.
+- The Stanford provider's health-check model id had a typo (`gpt-4.omini` → `gpt-4o-mini`), also fixed in its available-models list.
+- The AskSage provider now falls back to its static default model list when a `/models` fetch fails or credentials are missing, instead of returning a malformed value that could reach a UI caller. The fetched list is also cached across adapter instances, so an AskSage completion no longer pays a repeat `/models` round-trip on every request.
+- Every companion web panel now gets its own per-user port family in multi-user deployments. The family set is derived from the web-server registry — previously it was a hand-maintained list that missed the channel-finder and OKF panels, so a second user's container collided with the first on the panel's fixed port (crash-looping the container once the `osprey web` preflight landed). Families omitted from config fall back to registry defaults (`channel_finder_base_port` 9591, `okf_base_port` 9691), so existing configs deploy unchanged.
+- Bluesky PLAN/RESULTS/HEALTH panels now resolve their API endpoints correctly under the multi-user `/u/<user>/` mount: the shared `panelApiPrefix()` helper accepts an outer proxy prefix, the health panel no longer relies on the proxy's content rewrite (which double-prefixes once the runtime prefix is correct — this also fixes the proxied single-user health panel), and a guard test keeps panel bundles free of literals colliding with the proxy rewrite list.
+- Panel tabs without a configured health endpoint (e.g. PLAN and RESULTS) now show a green LED instead of a permanently red one — the tab-state painter runs for panels that skip health polling.
+- The multi-user landing page is served only at `/`; any other path outside a `/u/<user>/` mount now returns 404 instead of silently answering with landing-page HTML.
+- `osprey deploy up` hot-reloads nginx after reconciling the web-terminal stack, so re-rendered `nginx.conf` routing changes take effect without a manual container restart.
+
+- `osprey deploy up` is now idempotent from any prior state: it first removes the project's own stale non-running containers (a container left in `created` state by an aborted deploy holds its published host ports on Docker Desktop, blocking the next `up` with "address already in use"), and the plain services path reconciles away containers of services removed from the config. Running containers, volumes, and sibling deployments on the same host are untouched.
+- `osprey deploy rebuild` on a web-terminals project now brings the web-terminal stack (nginx, per-user containers) back up after the clean; previously it restarted only the backend services. Per-user volumes survive a rebuild.
+- Local-mode `.env.production` generation now includes the auth secret for every `claude_code.provider` in play — the deploy config's own and each referenced persona project's. A persona whose secret is missing from `.env` aborts the deploy naming the exact variable, and an existing `.env.production` that contains none of the configured LLM credentials draws a warning; previously the file could silently omit the credential entirely, producing healthy-looking web terminals that fail authentication on their first prompt.
+- `osprey deploy up` probes the web-terminal landing page from the host after bringing the stack up and warns when it is unreachable. On Docker Desktop (macOS/Windows), `network_mode: host` binds inside the Docker VM unless the opt-in host-networking setting is enabled — previously this state was reported as a fully successful deploy; the warning now names that setting.
 
 - Generated Dockerfiles (project/persona, virtual accelerator, Bluesky bridge, event dispatcher) switch Debian apt mirrors to HTTPS and set bounded apt retries, so image builds survive networks that throttle or drop plain-HTTP bulk transfers.
 - Web-terminal seeding now chowns each user's `CLAUDE.md` and skills to the container's actual runtime user (queried per container) instead of a hardcoded `dispatch` user, which the persona images don't define.

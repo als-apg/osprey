@@ -67,6 +67,7 @@ CATALOG_JOB = "bluesky-catalog-e2e"
 SANDBOX_JOB = "bluesky-sandbox-escape-e2e"
 BENCHMARKS_JOB = "channel-finder-benchmarks"
 BENCHMARKS_TEST_FILE = "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py"
+FLOOR_JOB = "dependency-floor"
 NEXTCLOUD_JOB = "nextcloud-talk-bridge-e2e"
 NEXTCLOUD_TEST_FILE = "tests/e2e/test_nextcloud_talk_bridge_e2e.py"
 NEXTCLOUD_DOCKERFILE = "tests/e2e/fixtures/Dockerfile.nextcloud_talk"
@@ -736,6 +737,61 @@ def test_all_checks_passed_needs_promoted_lanes__mutation_drops_sandbox() -> Non
     assert CATALOG_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the other survives untouched
     with pytest.raises(AssertionError):
         assert _gating_e2e_jobs(mutated) == [ORM_JOB, OVERLAY_JOB, CATALOG_JOB, SANDBOX_JOB]
+
+
+# ---------------------------------------------------------------------------
+# dependency-floor lane: the declared pandas/numpy minimums are actually run
+# ---------------------------------------------------------------------------
+
+
+def test_dependency_floor_job_exists(workflow: dict[str, Any]) -> None:
+    assert FLOOR_JOB in _jobs(workflow)
+
+
+def test_dependency_floor_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][FLOOR_JOB]
+    with pytest.raises(AssertionError):
+        assert FLOOR_JOB in _jobs(mutated)
+
+
+def test_dependency_floor_job_pins_the_versions_pyproject_declares() -> None:
+    """The lane certifies nothing if its pin drifts from the declared floor."""
+    pyproject = tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
+    declared = {
+        dep.split(">=")[0]: dep.split(">=")[1]
+        for dep in pyproject["project"]["dependencies"]
+        if dep.startswith(("pandas>=", "numpy>="))
+    }
+    assert declared, "pyproject no longer declares pandas/numpy floors"
+
+    job = json.dumps(_jobs(_load_workflow())[FLOOR_JOB])
+    for package, floor in declared.items():
+        assert f"{package}=={floor}" in job, (
+            f"{FLOOR_JOB} does not pin {package}=={floor}; pyproject declares >={floor}"
+        )
+
+
+def test_dependency_floor_job_keeps_the_pin_when_running_tests() -> None:
+    """A bare ``uv run`` re-syncs and silently restores the newest pandas,
+    so every ``uv run`` in the job must carry ``--no-sync``.
+    """
+    steps = _jobs(_load_workflow())[FLOOR_JOB]["steps"]
+    uv_runs = [s["run"] for s in steps if "uv run" in s.get("run", "")]
+    assert uv_runs, f"{FLOOR_JOB} has no `uv run` step"
+    for run in uv_runs:
+        assert "uv run --no-sync" in run, f"`uv run` without --no-sync would undo the pin: {run!r}"
+
+
+def test_dependency_floor_gates_the_merge(workflow: dict[str, Any]) -> None:
+    assert FLOOR_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+
+
+def test_dependency_floor_gates_the_merge__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(FLOOR_JOB)
+    with pytest.raises(AssertionError):
+        assert FLOOR_JOB in _jobs(mutated)[GATE_JOB]["needs"]
 
 
 # ---------------------------------------------------------------------------

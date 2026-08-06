@@ -12,6 +12,11 @@ from typing import Any
 
 import pandas as pd
 
+from osprey.connectors.archiver._timerange import (
+    aggregate_long_frame,
+    resolve_processing,
+    utc_window,
+)
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
@@ -180,6 +185,15 @@ class MongoDBArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("MongoDB Archiver connector disconnected")
 
+    def _require_connected(self) -> None:
+        """Raise ``RuntimeError`` unless a live collection is available.
+
+        Raises:
+            RuntimeError: If the connector is not connected.
+        """
+        if not self._connected or self._collection is None:
+            raise RuntimeError("MongoDB archiver not connected")
+
     async def get_data(
         self,
         pv_list: list[str],
@@ -187,6 +201,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         end_date: datetime,
         precision_ms: int = 1000,
         timeout: int | None = None,
+        processing: str = "raw",
     ) -> pd.DataFrame:
         """
         Retrieve historical data from MongoDB collection.
@@ -197,41 +212,46 @@ class MongoDBArchiverConnector(ArchiverConnector):
             end_date: End of time range
             precision_ms: Time precision in milliseconds (for downsampling)
             timeout: Optional timeout in seconds
+            processing: Aggregation applied within each precision_ms bin. One of
+                "raw", "mean", "min", "max", "median", "std", "count". Applied
+                client-side via pandas resampling. Anything else raises ValueError.
 
         Returns:
-            DataFrame with datetime index and PV columns
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`.
 
         Raises:
             RuntimeError: If archiver not connected
             TimeoutError: If operation times out
             ConnectionError: If MongoDB cannot be reached
             TypeError: If start_date or end_date are not datetime objects
-            ValueError: If pv_list is empty or data retrieval fails
+            ValueError: If pv_list is empty, data retrieval fails, or a
+                non-raw processing mode is requested for a channel that
+                carries non-numeric values
         """
-        timeout = timeout or self._timeout
+        timeout = timeout if timeout is not None else self._timeout
 
-        if not self._connected or self._collection is None:
-            raise RuntimeError("MongoDB archiver not connected")
+        self._require_connected()
 
-        # Validate inputs
-        if not isinstance(start_date, datetime):
-            raise TypeError(f"start_date must be a datetime object, got {type(start_date)}")
-        if not isinstance(end_date, datetime):
-            raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
+        # pymongo reads naive datetimes as UTC; normalize so a bare wall-clock
+        # means facility-local, as in every other connector.
+        start_utc, end_utc = utc_window(start_date, end_date)
 
         if not pv_list:
             raise ValueError("pv_list cannot be empty")
 
+        resolved = resolve_processing(processing, precision_ms)
+
         def fetch_data():
             """Synchronous data fetch function."""
-            # Build query filter for date range
-            query = {"date": {"$gte": start_date, "$lte": end_date}}
+            # Match any document carrying at least one requested PV: ANDing
+            # existence would silently return nothing for PVs archived apart.
+            query = {
+                "date": {"$gte": start_utc, "$lte": end_utc},
+                "$or": [{pv: {"$exists": True}} for pv in pv_list],
+            }
 
-            # Project only the fields we need: date and requested PVs
-            projection = {"date": 1}
-            for pv in pv_list:
-                query[pv] = {"$exists": True}
-                projection[pv] = 1
+            # Project only the fields we need: date and requested PVs.
+            projection = {"date": 1, **dict.fromkeys(pv_list, 1)}
 
             # Query MongoDB collection
             cursor = self._collection.find(query, projection).sort("date", 1)
@@ -241,55 +261,39 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             if not documents:
                 logger.debug(f"No documents found in date range {start_date} to {end_date}")
-                # Return empty DataFrame with correct structure
-                return pd.DataFrame(index=pd.DatetimeIndex([]), columns=pv_list)
 
-            # Extract data into lists for DataFrame construction
-            dates = []
-            data_dict = {pv: [] for pv in pv_list}
-
+            # Group documents into one series per requested PV. A PV absent
+            # from a given document contributes no sample for that channel.
+            timestamps: dict[str, list] = {pv: [] for pv in pv_list}
+            values: dict[str, list] = {pv: [] for pv in pv_list}
             for doc in documents:
-                # Extract date
                 doc_date = doc.get("date")
                 if doc_date is None:
                     logger.warning("Document missing 'date' field, skipping")
                     continue
-
-                # Convert to datetime if needed
-                if isinstance(doc_date, str):
-                    doc_date = pd.to_datetime(doc_date)
-                elif not isinstance(doc_date, datetime):
-                    doc_date = pd.to_datetime(doc_date)
-
-                dates.append(doc_date)
-
-                # Extract PV values
                 for pv in pv_list:
-                    value = doc.get(pv)
-                    data_dict[pv].append(value)
+                    if pv in doc:
+                        timestamps[pv].append(doc_date)
+                        values[pv].append(doc[pv])
 
-            # Create DataFrame
-            if not dates:
-                logger.debug("No valid documents with date field found")
-                return pd.DataFrame(index=pd.DatetimeIndex([]), columns=pv_list)
-
-            df = pd.DataFrame(data_dict, index=pd.to_datetime(dates))
-
-            # Apply downsampling based on precision_ms if needed
-            # This is a simple approach - could be enhanced with more sophisticated downsampling
-            #            if precision_ms > 0 and len(df) > 0:
-            #                # Resample to approximate precision
-            #                freq = f"{precision_ms}ms"
-            #                df = df.resample(freq).mean()
-
-            return df
+            # No server-side aggregation to defer to, so every mode — including
+            # "raw" — is binned client-side here.
+            return aggregate_long_frame(
+                {
+                    pv: pd.Series(
+                        values[pv], index=pd.to_datetime(timestamps[pv], utc=True), name=pv
+                    )
+                    for pv in pv_list
+                },
+                resolved,
+            )
 
         try:
             # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution
             data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=timeout)
 
             logger.debug(
-                f"Retrieved MongoDB archiver data: {len(data)} points for {len(pv_list)} PVs"
+                f"Retrieved MongoDB archiver data: {len(data)} rows across {len(pv_list)} PVs"
             )
             return data
 
@@ -320,8 +324,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
         """
-        if not self._connected or self._collection is None:
-            raise RuntimeError("MongoDB archiver not connected")
+        self._require_connected()
 
         def check_pv():
             """Check if PV exists in any document."""
@@ -355,8 +358,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
         """
-        if not self._connected or self._collection is None:
-            raise RuntimeError("MongoDB archiver not connected")
+        self._require_connected()
 
         def check_pvs():
             """Check which PVs exist in the collection."""

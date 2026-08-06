@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-28T07:13:47.252864Z"
+exclude-newer = "2026-07-30T09:43:35.715086Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -3936,6 +3936,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
     { name = "pyepics" },
+    { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "questionary" },
@@ -4144,6 +4145,7 @@ requires-dist = [
     { name = "pytest-timeout", marker = "extra == 'dev'" },
     { name = "pytest-xdist", marker = "extra == 'all'" },
     { name = "pytest-xdist", marker = "extra == 'dev'" },
+    { name = "python-dateutil", specifier = ">=2.9.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "python-xlib", marker = "extra == 'all'", specifier = ">=0.33" },
     { name = "python-xlib", marker = "extra == 'screen-capture-linux'", specifier = ">=0.33" },

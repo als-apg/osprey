@@ -10,12 +10,13 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 import yaml
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from datetime import datetime
     from zoneinfo import ZoneInfo
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
@@ -807,6 +808,32 @@ def get_facility_timezone() -> "ZoneInfo":
     return zone
 
 
+@overload
+def localize_facility(dt: "datetime") -> "datetime": ...
+
+
+@overload
+def localize_facility(dt: None) -> None: ...
+
+
+def localize_facility(dt: "datetime | None") -> "datetime | None":
+    """Read a naive datetime as facility-local wall-clock; pass an aware one through.
+
+    A naive datetime is stamped with the facility zone -- never the box ``$TZ``,
+    which ``astimezone`` would silently impose. :func:`get_facility_timezone`
+    degrades to UTC when the zone is unset or unreadable.
+
+    Args:
+        dt: A datetime in either state, or ``None``.
+
+    Returns:
+        The same instant, timezone-aware, or ``None`` for ``None`` input.
+    """
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=get_facility_timezone())
+    return dt
+
+
 def _warn_on_tz_drift(tz_name: str) -> None:
     """Warn once if the container ``$TZ`` disagrees with an explicit system.timezone.
 
@@ -841,23 +868,17 @@ def to_facility_iso(value: Any) -> "str | None":
 
     The single shared timestamp-egress transform for agent- and operator-facing
     output (the ARIEL MCP ``serialize_entry``/``entry_get`` and the ARIEL web
-    responses). Centralizing it here is deliberate: the input side was already
-    mirrored (``parse_date_filters`` / ``_localize_facility``), and the original
-    web/MCP output drift came from a copy-pasted localizer, so both paths now call
-    one function. An aware datetime is converted to the facility zone; a naive
-    datetime is assumed to already be facility-local wall-clock and is stamped with
-    the facility zone (mirroring the parse-side ``_localize_facility`` contract —
-    never the box ``$TZ``, which ``astimezone`` would otherwise impose); ``None``
-    passes through; anything else degrades to ``str(value)`` so callers never crash
-    on an unexpected shape (e.g. a value already serialized upstream).
+    responses). An aware datetime is converted to the facility zone; a naive
+    datetime is treated as facility-local wall-clock via :func:`localize_facility`
+    (never the box ``$TZ``); ``None`` passes through; anything else degrades to
+    ``str(value)`` so callers never crash on an unexpected shape.
     """
     if value is None:
         return None
     if hasattr(value, "astimezone"):  # a datetime
-        tz = get_facility_timezone()
-        if value.tzinfo is None:
-            return str(value.replace(tzinfo=tz).isoformat())
-        return str(value.astimezone(tz).isoformat())
+        # localize_facility stamps the naive case; astimezone converts aware
+        # values into the facility zone for display.
+        return str(localize_facility(value).astimezone(get_facility_timezone()).isoformat())
     return str(value)
 
 

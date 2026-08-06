@@ -187,6 +187,21 @@ class TestSessionReportReferenceStructure:
         assert "Chart.js" in reference_text or "chart.js" in reference_text
         assert "chart.umd.min.js" in reference_text
 
+    def test_chart_recipe_uses_per_dataset_x_values(self, reference_text):
+        """The line-chart recipe must not teach a shared `labels` axis.
+
+        ``archiver_downsample`` returns one ``timestamps`` array per channel,
+        so each dataset needs its own ``{x, y}`` points.
+        """
+        assert "labels: timestamps" not in reference_text
+        assert "x: Date.parse(" in reference_text
+        assert "d.timestamps.map(" in reference_text
+        # {x, y} point data requires parsing off and an explicit scale type.
+        assert "parsing: false" in reference_text
+        assert "type: 'linear'" in reference_text
+        # Enum/status channels can't share the numeric y-axis.
+        assert "d.numeric" in reference_text
+
     def test_has_animations(self, reference_text):
         assert "fadeUp" in reference_text
         assert "fadeScale" in reference_text

@@ -133,6 +133,57 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  dependency-floor:
+    name: Archiver suite at the declared dependency floor
+    runs-on: ubuntu-latest
+    # pyproject declares `pandas>=2.2.3` / `numpy>=2.2.6`, but every other lane
+    # resolves to the newest release, so nothing ever ran the floor and the
+    # declaration was an unverified claim. It is not a formality: pandas 3
+    # changed two things the archiver code touches — the default string dtype
+    # (object -> str) and non-nanosecond datetime resolution (coerced -> kept) —
+    # so "green on latest" does not imply "works at the floor". This lane pins
+    # the declared minimums so the floor either holds or fails here, rather than
+    # at an operator's site running an older pandas.
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Pin pandas and numpy to the declared floor
+      # Must come after `uv sync`, which would otherwise resolve them back up.
+      run: uv pip install "pandas==2.2.3" "numpy==2.2.6"
+
+    - name: Show resolved versions
+      # Printed so a failure here is immediately attributable to the pin rather
+      # than mistaken for a normal test regression.
+      run: uv run --no-sync python -c "import pandas, numpy; print('pandas', pandas.__version__, 'numpy', numpy.__version__)"
+
+    - name: Run the archiver suite
+      # `--no-sync` keeps the pin: a bare `uv run` re-syncs and silently undoes
+      # the downgrade, which would make this lane a duplicate of `test`.
+      # Scoped to the pandas-dependent surface — this lane exists to check the
+      # dependency floor, not to re-run the whole suite a second time.
+      run: |
+        uv run --no-sync pytest \
+          tests/connectors/test_archiver_timerange.py \
+          tests/connectors/test_epics_archiver_connector.py \
+          tests/connectors/test_doocs_archiver_connector.py \
+          tests/connectors/test_mock_connector.py \
+          tests/connectors/test_archiver_timezone.py \
+          tests/connectors/test_simulation_integration.py \
+          tests/utils/test_timeseries.py \
+          -v --tb=short
+
   lint:
     name: Lint and Code Quality
     runs-on: ubuntu-latest
@@ -1795,7 +1846,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
     runs-on: ubuntu-latest
     if: always()
 
@@ -1816,6 +1867,10 @@ jobs:
       run: |
         if [[ "${{ needs.test.result }}" != "success" ]]; then
           echo "❌ Tests failed"
+          exit 1
+        fi
+        if [[ "${{ needs.dependency-floor.result }}" != "success" ]]; then
+          echo "❌ Archiver suite failed at the declared dependency floor"
           exit 1
         fi
         if [[ "${{ needs.lint.result }}" != "success" ]]; then

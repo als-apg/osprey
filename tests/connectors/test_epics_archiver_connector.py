@@ -3,12 +3,14 @@
 import json
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
 
+from osprey.connectors.archiver._timerange import Processing
 from osprey.connectors.archiver.base import ArchiverMetadata
 from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
@@ -32,6 +34,19 @@ def _archiver_payload(pv: str, points: list) -> list:
             "data": [{"secs": s, "nanos": n, "val": v} for s, n, v in points],
         }
     ]
+
+
+@pytest.fixture
+def captured_urls():
+    """Patch ``urlopen`` to record each request URL and answer with no data."""
+    urls: list[str] = []
+
+    def mock_urlopen(req, timeout=None):
+        urls.append(req.full_url)
+        return _make_urlopen_response([])
+
+    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+        yield urls
 
 
 class TestConnectDisconnectLifecycle:
@@ -110,7 +125,7 @@ class TestGetDataMethod:
 
     @pytest.mark.asyncio
     async def test_get_data_returns_dataframe(self):
-        """Test that get_data returns a DataFrame with DatetimeIndex."""
+        """Test that get_data returns the canonical long-format DataFrame."""
         points = [(1704067200, 0, 499.8), (1704067201, 0, 499.7)]
         response = _make_urlopen_response(_archiver_payload("BEAM:CURRENT", points))
 
@@ -125,14 +140,16 @@ class TestGetDataMethod:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert isinstance(df.index, pd.DatetimeIndex)
-            assert "BEAM:CURRENT" in df.columns
+            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert df["timestamp"].dtype == "datetime64[ns, UTC]"
+            assert df["value"].dtype == "float64"
+            assert set(df["channel"]) == {"BEAM:CURRENT"}
 
             await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_get_data_single_pv_correct_values(self):
-        """Test that single-PV fetch returns correct values."""
+        """Test that single-PV fetch returns correct values, in timestamp order."""
         points = [(1704067200, 0, 1.0), (1704067201, 0, 2.0), (1704067202, 0, 3.0)]
         response = _make_urlopen_response(_archiver_payload("PV:X", points))
 
@@ -146,13 +163,36 @@ class TestGetDataMethod:
                 end_date=datetime(2024, 1, 1, 1),
             )
 
-            assert list(df["PV:X"]) == [1.0, 2.0, 3.0]
+            assert (df["channel"] == "PV:X").all()
+            assert list(df["value"]) == [1.0, 2.0, 3.0]
 
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_get_data_multi_pv_returns_one_column_per_pv(self):
-        """Test that multi-PV fetch returns DataFrame with one column per PV."""
+    async def test_get_data_string_valued_pv_round_trips(self):
+        """An mbbi/DBR_STRING-style PV archives a string ``val``; it must come
+        back unchanged, not raise."""
+        points = [(1704067200, 0, "CW"), (1704067201, 0, "CW"), (1704067202, 0, "STANDBY")]
+        response = _make_urlopen_response(_archiver_payload("RF:MODE", points))
+
+        with patch("urllib.request.urlopen", return_value=response):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            df = await connector.get_data(
+                pv_list=["RF:MODE"],
+                start_date=datetime(2024, 1, 1),
+                end_date=datetime(2024, 1, 1, 1),
+            )
+
+            assert (df["channel"] == "RF:MODE").all()
+            assert list(df["value"]) == ["CW", "CW", "STANDBY"]
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_get_data_multi_pv_returns_rows_for_each_channel(self):
+        """Test that multi-PV fetch returns long-format rows for each channel."""
         points = [(1704067200 + i, 0, float(i)) for i in range(5)]
 
         call_count = [0]
@@ -174,57 +214,10 @@ class TestGetDataMethod:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert "PV:1" in df.columns
-            assert "PV:2" in df.columns
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_get_data_server_side_downsampling_wraps_pv(self):
-        """Test that precision_ms > 0 wraps PV name as lastSample_N(pv)."""
-        captured_urls = []
-
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
-
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
-                precision_ms=5000,
-            )
-
-            assert len(captured_urls) == 1
-            assert "lastSample_5" in captured_urls[0]
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_get_data_precision_ms_zero_sends_raw_pv(self):
-        """Test that precision_ms=0 sends the raw PV name without wrapping."""
-        captured_urls = []
-
-        def mock_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            return _make_urlopen_response([])
-
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
-            connector = EPICSArchiverConnector()
-            await connector.connect({"url": "https://archiver.example.com"})
-
-            await connector.get_data(
-                pv_list=["SR:DCCT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
-                precision_ms=0,
-            )
-
-            assert "lastSample" not in captured_urls[0]
+            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert set(df["channel"]) == {"PV:1", "PV:2"}
+            assert (df["channel"] == "PV:1").sum() == 5
+            assert (df["channel"] == "PV:2").sum() == 5
 
             await connector.disconnect()
 
@@ -245,6 +238,7 @@ class TestGetDataMethod:
 
             assert isinstance(df, pd.DataFrame)
             assert len(df) == 0
+            assert list(df.columns) == ["timestamp", "channel", "value"]
 
             await connector.disconnect()
 
@@ -265,6 +259,7 @@ class TestGetDataMethod:
 
             assert isinstance(df, pd.DataFrame)
             assert len(df) == 0
+            assert list(df.columns) == ["timestamp", "channel", "value"]
 
             await connector.disconnect()
 
@@ -312,12 +307,12 @@ class TestGetDataMethod:
         await connector.disconnect()
 
 
-class TestMultiPVAlignment:
-    """Tests for multi-PV timestamp alignment."""
+class TestMultiPVLongFormat:
+    """Each channel in a multi-PV response keeps its own real timestamps."""
 
     @pytest.mark.asyncio
-    async def test_multi_pv_different_timestamps_produces_aligned_dataframe(self):
-        """Test that multi-PV with different timestamps produces aligned DataFrame."""
+    async def test_multi_pv_each_channel_keeps_its_own_timestamps(self):
+        """Channels sampled at different instants are not forced onto a shared index."""
         base = 1704067200
         pv1_points = [(base, 0, 1.0), (base + 2, 0, 2.0)]
         pv2_points = [(base + 1, 0, 10.0), (base + 3, 0, 20.0)]
@@ -346,9 +341,20 @@ class TestMultiPVAlignment:
             )
 
             assert isinstance(df, pd.DataFrame)
-            assert "PV:A" in df.columns
-            assert "PV:B" in df.columns
-            assert isinstance(df.index, pd.DatetimeIndex)
+            assert list(df.columns) == ["timestamp", "channel", "value"]
+            assert len(df) == 4
+            assert set(df["channel"]) == {"PV:A", "PV:B"}
+
+            expected_a = list(pd.to_datetime([base, base + 2], unit="s", utc=True))
+            expected_b = list(pd.to_datetime([base + 1, base + 3], unit="s", utc=True))
+
+            a_timestamps = list(df.loc[df["channel"] == "PV:A", "timestamp"])
+            b_timestamps = list(df.loc[df["channel"] == "PV:B", "timestamp"])
+
+            assert a_timestamps == expected_a
+            assert b_timestamps == expected_b
+            # No shared/aligned grid was fabricated between them.
+            assert set(a_timestamps).isdisjoint(set(b_timestamps))
 
             await connector.disconnect()
 
@@ -478,19 +484,6 @@ class TestGetDataErrorHandling:
                 )
 
             await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_unconnected_connector_raises_runtime_error(self):
-        """Test that calling get_data on unconnected connector raises RuntimeError."""
-        connector = EPICSArchiverConnector()
-
-        with pytest.raises(RuntimeError, match="Archiver not connected"):
-            await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 2),
-                timeout=1,
-            )
 
 
 class TestMetadataMethods:
@@ -639,3 +632,285 @@ class TestFactoryIntegration:
 
         with pytest.raises(ValueError, match="archiver URL is required"):
             await ConnectorFactory.create_archiver_connector(config)
+
+
+class TestQueryWindowTimezone:
+    """The wire format is UTC; a caller's zone must be converted, not relabeled.
+
+    Regression: the connector used to strftime a literal 'Z' onto the caller's
+    wall-clock digits, shifting every ALS query by 7-8h.
+    """
+
+    _LA = ZoneInfo("America/Los_Angeles")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("start", "end", "facility_local"),
+        [
+            # tz-aware, non-UTC: converted, not relabeled.
+            (
+                datetime(2026, 7, 30, 10, 0, 0, tzinfo=_LA),
+                datetime(2026, 7, 30, 11, 0, 0, tzinfo=_LA),
+                False,
+            ),
+            # already UTC: survives untouched.
+            (
+                datetime(2026, 7, 30, 17, 0, 0, tzinfo=UTC),
+                datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC),
+                False,
+            ),
+            # bare wall-clock: means facility-local, matching the tool layer.
+            (datetime(2026, 7, 30, 10, 0, 0), datetime(2026, 7, 30, 11, 0, 0), True),
+        ],
+        ids=["aware_non_utc", "aware_utc", "naive_facility_local"],
+    )
+    async def test_window_reaches_the_archiver_as_the_same_utc_instant(
+        self, monkeypatch, captured_urls, start, end, facility_local
+    ):
+        if facility_local:
+            monkeypatch.setattr(
+                "osprey.utils.config.get_facility_timezone",
+                lambda: ZoneInfo("America/Los_Angeles"),
+            )
+
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        await connector.get_data(
+            pv_list=["SR:DCCT"], start_date=start, end_date=end, precision_ms=1000
+        )
+
+        # 10:00 PDT is 17:00 UTC; 11:00 PDT is 18:00 UTC.
+        assert "from=2026-07-30T17%3A00%3A00.000Z" in captured_urls[0]
+        assert "to=2026-07-30T18%3A00%3A00.000Z" in captured_urls[0]
+
+        await connector.disconnect()
+
+
+class TestProcessingModes:
+    """The requested aggregation must reach the archiver as an operator."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "mode,expected",
+        [
+            ("raw", "lastSample_60"),
+            ("mean", "mean_60"),
+            ("min", "min_60"),
+            ("max", "max_60"),
+            ("median", "median_60"),
+            ("std", "std_60"),
+            ("count", "count_60"),
+        ],
+    )
+    async def test_mode_selects_the_archiver_operator(self, captured_urls, mode, expected):
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        await connector.get_data(
+            pv_list=["SR:DCCT"],
+            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            precision_ms=60_000,
+            processing=mode,
+        )
+
+        assert expected in captured_urls[0]
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_unknown_mode_raises_value_error(self):
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        with pytest.raises(ValueError, match="Unknown processing mode"):
+            await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=60_000,
+                processing="p99",
+            )
+
+        await connector.disconnect()
+
+
+class TestNonNumericAggregation:
+    """Only ``raw`` is valid for an enum/status channel — on every backend.
+
+    Regression: EPICS pushed the aggregation to the appliance without enforcing
+    this, so a mean over a string PV returned raw values labelled as means.
+    """
+
+    @staticmethod
+    def _connector_returning(payload: list):
+        return patch("urllib.request.urlopen", return_value=_make_urlopen_response(payload))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["mean", "min", "max", "median", "std", "count"])
+    async def test_aggregate_over_string_channel_raises_naming_it(self, mode):
+        payload = _archiver_payload("SR:MODE", [(1000, 0, "CW"), (1060, 0, "STANDBY")])
+
+        with self._connector_returning(payload):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            with pytest.raises(ValueError, match="SR:MODE"):
+                await connector.get_data(
+                    pv_list=["SR:MODE"],
+                    start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                    end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                    precision_ms=60_000,
+                    processing=mode,
+                )
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_raw_over_string_channel_is_allowed(self):
+        """``raw`` never aggregates, so an enum channel passes through untouched."""
+        payload = _archiver_payload("SR:MODE", [(1000, 0, "CW"), (1060, 0, "STANDBY")])
+
+        with self._connector_returning(payload):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            df = await connector.get_data(
+                pv_list=["SR:MODE"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=60_000,
+                processing="raw",
+            )
+
+            assert df["value"].tolist() == ["CW", "STANDBY"]
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_empty_channel_does_not_fail_an_aggregate_query(self):
+        """A channel that matched nothing has nothing to reject."""
+        with self._connector_returning([]):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "https://archiver.example.com"})
+
+            df = await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=60_000,
+                processing="mean",
+            )
+
+            assert df.empty
+
+            await connector.disconnect()
+
+
+class TestSubSecondPrecision:
+    """A bin width the appliance cannot express is rejected, not rounded.
+
+    Regression: the width was floored with ``max(1, precision_ms // 1000)``,
+    silently serving a 500 ms or 1500 ms request at 1 s.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("precision_ms", [1, 500, 999, 1500, 2500])
+    async def test_non_whole_second_precision_is_rejected(self, precision_ms):
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        with pytest.raises(ValueError, match="whole number of seconds"):
+            await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=precision_ms,
+                processing="raw",
+            )
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_rejection_follows_resolve_processing_rather_than_a_second_copy_of_the_rule(
+        self, monkeypatch, captured_urls
+    ):
+        """Which widths are expressible is decided once, in ``resolve_processing``.
+
+        The helper is forced to reject a width EPICS' own arithmetic would wave
+        through; the request must be refused, not downgraded to a bare PV name.
+        """
+        monkeypatch.setattr(
+            "osprey.connectors.archiver.epics_archiver_connector.resolve_processing",
+            lambda processing, precision_ms: Processing(
+                mode=processing,
+                precision_ms=precision_ms,
+                epics_operator=None,
+            ),
+        )
+
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        with pytest.raises(ValueError, match="whole number of seconds"):
+            await connector.get_data(
+                pv_list=["SR:DCCT"],
+                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                precision_ms=60_000,
+                processing="mean",
+            )
+
+        assert captured_urls == []
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("processing", "precision_ms", "expected"),
+        [
+            ("mean", 1000, "mean_1"),
+            ("mean", 60_000, "mean_60"),
+            ("mean", 3600_000, "mean_3600"),
+            # raw at a non-60s width: raw's operator width must track precision_ms.
+            ("raw", 5000, "lastSample_5"),
+        ],
+    )
+    async def test_whole_second_precision_renders_the_operator(
+        self, captured_urls, processing, precision_ms, expected
+    ):
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        await connector.get_data(
+            pv_list=["SR:DCCT"],
+            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            precision_ms=precision_ms,
+            processing=processing,
+        )
+
+        assert len(captured_urls) == 1
+        assert expected in captured_urls[0]
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_full_resolution_is_still_allowed(self, captured_urls):
+        """precision_ms <= 0 is full resolution, not a sub-second bin width."""
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        await connector.get_data(
+            pv_list=["SR:DCCT"],
+            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            precision_ms=0,
+            processing="raw",
+        )
+
+        # Bare PV name, no operator wrapper.
+        assert "lastSample" not in captured_urls[0]
+
+        await connector.disconnect()
