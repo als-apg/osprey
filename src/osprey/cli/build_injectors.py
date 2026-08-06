@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.errors import BuildProfileError
+from osprey.utils.config_writer import anchored_append, anchored_put
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -245,12 +246,12 @@ def _inject_profile_services(
             config["services"] = {}
         svc_config = {"path": f"./services/{name}"}
         svc_config.update(svc_def.config)
-        config["services"][name] = svc_config
+        anchored_put(config["services"], name, svc_config)
 
         # Add to deployed_services
         deployed = config.get("deployed_services", [])
         if name not in [str(s) for s in deployed]:
-            deployed.append(name)
+            anchored_append(deployed, name)
             config["deployed_services"] = deployed
 
         count += 1
@@ -344,28 +345,36 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # Override with OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE, or set
     # ``services.<name>.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["event_dispatcher"] = {
-        "path": "./services/event_dispatcher",
-        "port": dispatch.dispatcher_port,
-        "facility_name": dispatch.facility_name,
-        "pv_strip_prefix": dispatch.pv_strip_prefix,
-        # Copy the project's triggers.yml into the service build context so the
-        # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
-        # container runtime auto-creates an empty directory at the mount source).
-        "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
-    }
-    config["services"]["dispatch_worker"] = {
-        "path": "./services/dispatch_worker",
-        "worker_count": dispatch.worker_count,
-        "worker_port_base": dispatch.worker_port_base,
-        "workspace_mode": dispatch.workspace_mode,
-        "timeout_sec": dispatch.timeout_sec,
-        "inactivity_sec": dispatch.inactivity_sec,
-    }
+    anchored_put(
+        config["services"],
+        "event_dispatcher",
+        {
+            "path": "./services/event_dispatcher",
+            "port": dispatch.dispatcher_port,
+            "facility_name": dispatch.facility_name,
+            "pv_strip_prefix": dispatch.pv_strip_prefix,
+            # Copy the project's triggers.yml into the service build context so the
+            # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
+            # container runtime auto-creates an empty directory at the mount source).
+            "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
+        },
+    )
+    anchored_put(
+        config["services"],
+        "dispatch_worker",
+        {
+            "path": "./services/dispatch_worker",
+            "worker_count": dispatch.worker_count,
+            "worker_port_base": dispatch.worker_port_base,
+            "workspace_mode": dispatch.workspace_mode,
+            "timeout_sec": dispatch.timeout_sec,
+            "inactivity_sec": dispatch.inactivity_sec,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     for name in ("event_dispatcher", "dispatch_worker"):
         if name not in [str(s) for s in deployed]:
-            deployed.append(name)
+            anchored_append(deployed, name)
     config["deployed_services"] = deployed
 
     # Derive web.panels.events.url from dispatcher_port so the port is a single
@@ -380,10 +389,21 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # facility that pinned its own ``web.panels.events.path``.
     existing_events_url = config.get("web", {}).get("panels", {}).get("events", {}).get("url", "")
     if not existing_events_url:
-        config.setdefault("web", {}).setdefault("panels", {}).setdefault("events", {})
-        events_panel = config["web"]["panels"]["events"]
-        events_panel["url"] = f"http://localhost:{dispatch.dispatcher_port}"
-        events_panel.setdefault("path", "/dashboard")
+        panels = config.setdefault("web", {}).setdefault("panels", {})
+        events_panel = panels.get("events")
+        if events_panel is None:
+            # Put the complete panel in one shot: anchored_put re-anchors a
+            # section comment beneath the new entry, which needs the entry's
+            # full subtree to exist at insertion time.
+            anchored_put(
+                panels,
+                "events",
+                {"url": f"http://localhost:{dispatch.dispatcher_port}", "path": "/dashboard"},
+            )
+        else:
+            anchored_put(events_panel, "url", f"http://localhost:{dispatch.dispatcher_port}")
+            if "path" not in events_panel:
+                anchored_put(events_panel, "path", "/dashboard")
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -462,7 +482,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     # first ``osprey deploy up``. Override with OSPREY_BLUESKY_BRIDGE_IMAGE, or
     # set ``services.bluesky.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["bluesky"] = {
+    svc_config: dict[str, Any] = {
         "path": "./services/bluesky",
         "port": bluesky.port,
         "tiled_enabled": bluesky.tiled_enabled,
@@ -475,17 +495,18 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         # as before: the compose template's {% if %} guard reads this same
         # key, so an unset plan_dir means no mount and no BLUESKY_PLAN_DIRS
         # env var at all (Task 1.4).
-        config["services"]["bluesky"]["plan_dir"] = bluesky.plan_dir
+        svc_config["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
         # Only written when non-empty — its absence keeps a deploy with no
         # exclusions rendering exactly as before: the compose template's
         # {% if %} guard reads this same key, so an empty list means no
         # BLUESKY_EXCLUDED_PLANS env var at all. The os.pathsep join is done
         # Python-side because the Jinja render context has no `os` module.
-        config["services"]["bluesky"]["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+        svc_config["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+    anchored_put(config["services"], "bluesky", svc_config)
     deployed = config.get("deployed_services", []) or []
     if "bluesky" not in [str(s) for s in deployed]:
-        deployed.append("bluesky")
+        anchored_append(deployed, "bluesky")
     config["deployed_services"] = deployed
 
     with open(config_path, "w") as fh:
@@ -567,13 +588,17 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     # ``osprey deploy up``. Override with OSPREY_VA_IMAGE, or set
     # ``services.virtual_accelerator.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["virtual_accelerator"] = {
-        "path": "./services/virtual_accelerator",
-        "port": va.port,
-    }
+    anchored_put(
+        config["services"],
+        "virtual_accelerator",
+        {
+            "path": "./services/virtual_accelerator",
+            "port": va.port,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     if "virtual_accelerator" not in [str(s) for s in deployed]:
-        deployed.append("virtual_accelerator")
+        anchored_append(deployed, "virtual_accelerator")
     config["deployed_services"] = deployed
 
     with open(config_path, "w") as fh:
@@ -648,13 +673,17 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # first ``osprey deploy up``. Override with OSPREY_BLUESKY_PANELS_IMAGE, or
     # set ``services.bluesky_panels.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["bluesky_panels"] = {
-        "path": "./services/bluesky_panels",
-        "port": bluesky_panels.port,
-    }
+    anchored_put(
+        config["services"],
+        "bluesky_panels",
+        {
+            "path": "./services/bluesky_panels",
+            "port": bluesky_panels.port,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     if "bluesky_panels" not in [str(s) for s in deployed]:
-        deployed.append("bluesky_panels")
+        anchored_append(deployed, "bluesky_panels")
     config["deployed_services"] = deployed
 
     # 3. Register the two web.panels.<id> entries. Derive each url from
@@ -674,11 +703,20 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         ("results", "/results/", "RESULTS"),
     )
     for panel_id, panel_path, label in panel_specs:
-        panel_cfg = config.setdefault("web", {}).setdefault("panels", {}).setdefault(panel_id, {})
+        panels = config.setdefault("web", {}).setdefault("panels", {})
+        panel_cfg = panels.get(panel_id)
+        if panel_cfg is None:
+            # Put the complete panel in one shot: anchored_put re-anchors a
+            # section comment beneath the new entry, which needs the entry's
+            # full subtree to exist at insertion time.
+            anchored_put(panels, panel_id, {"url": default_url, "path": panel_path, "label": label})
+            continue
         if not panel_cfg.get("url"):
-            panel_cfg["url"] = default_url
-        panel_cfg.setdefault("path", panel_path)
-        panel_cfg.setdefault("label", label)
+            anchored_put(panel_cfg, "url", default_url)
+        if "path" not in panel_cfg:
+            anchored_put(panel_cfg, "path", panel_path)
+        if "label" not in panel_cfg:
+            anchored_put(panel_cfg, "label", label)
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -759,13 +797,17 @@ def _inject_nextcloud_bridge(
     # OSPREY_NEXTCLOUD_BRIDGE_IMAGE, or set ``services.nextcloud_bridge.image``
     # here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["nextcloud_bridge"] = {
-        "path": "./services/nextcloud_bridge",
-        "trigger": nextcloud_bridge.trigger,
-    }
+    anchored_put(
+        config["services"],
+        "nextcloud_bridge",
+        {
+            "path": "./services/nextcloud_bridge",
+            "trigger": nextcloud_bridge.trigger,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     if "nextcloud_bridge" not in [str(s) for s in deployed]:
-        deployed.append("nextcloud_bridge")
+        anchored_append(deployed, "nextcloud_bridge")
     config["deployed_services"] = deployed
 
     with open(config_path, "w") as fh:
