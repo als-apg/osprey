@@ -105,6 +105,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Providers that ship a default endpoint (ALS-APG, Stanford) now work without a
+  `base_url` in config. The requirement check ran before the provider could
+  supply its own default, so a config that omitted `base_url` failed with
+  "Base URL required" instead of using the endpoint the provider already knew.
+  An explicit `base_url`, and the environment override, still take precedence in
+  that order.
 - A run whose steps each wrote a file with the same name (two `plot.png`, say)
   now delivers all of them to a chat bridge. Previously the second overwrote the
   first in the shared upload directory and both were reported as delivered, so a
