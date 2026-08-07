@@ -59,8 +59,9 @@ osprey-framework`` resolves for the real image, and fails loudly if one is not
 declared. Drop ``python-multipart`` from ``pyproject.toml`` and this harness
 loses it exactly as the deployed image would, and
 :func:`test_login_post_parses_its_form_body_in_the_container` goes red. What
-remains unproven here is the *built image* itself; the full-stack
-``tests/e2e/test_multi_user_demo.py`` job is where that belongs.
+remains unproven here is the *built image* itself: no job builds
+``templates/modules/web_terminals/auth_sidecar/Dockerfile``, so a break confined
+to that Dockerfile would reach a deployment without a test noticing.
 """
 
 from __future__ import annotations
