@@ -83,10 +83,23 @@ def _worker(request: dict) -> dict:
     op = request["op"]
     timeout = request.get("timeout", 10.0)
 
+    def fresh(pv: Any) -> Any:
+        """Read ``pv`` off the wire, never out of pyepics' monitor cache.
+
+        ``PV.get()`` defaults to ``use_monitor=True``, which returns the value
+        of the last monitor callback the client happened to have processed. On
+        a subscribed PV that is a *stale* value: a put can complete and the
+        following read still report the old one, because the monitor event has
+        not been dispatched yet. Worse than the flake, a "did not move"
+        assertion reads a cache that never moves and passes for free. Every
+        value this suite asserts on is therefore read explicitly.
+        """
+        return pv.get(use_monitor=False)
+
     def describe(pv: Any) -> dict:
         control = pv.get_ctrlvars() or {}
         return {
-            "value": pv.value,
+            "value": fresh(pv),
             "type": pv.type,
             "count": pv.count,
             "precision": control.get("precision"),
@@ -114,7 +127,7 @@ def _worker(request: dict) -> dict:
 
     if op == "write_watch":
         watched = {address: connect(address, monitor=True) for address in request["watch"]}
-        before = {address: pv.value for address, pv in watched.items()}
+        before = {address: fresh(pv) for address, pv in watched.items()}
         events: dict[str, list] = {address: [] for address in watched}
         for address, pv in watched.items():
             pv.add_callback(lambda value=None, _sink=events[address], **_kw: _sink.append(value))
@@ -137,7 +150,7 @@ def _worker(request: dict) -> dict:
                 "put_seconds": elapsed,
                 "before": before,
                 "events": events,
-                "after": {address: pv.get(use_monitor=False) for address, pv in watched.items()},
+                "after": {address: fresh(pv) for address, pv in watched.items()},
             }
         finally:
             # Explicit, and in a finally: a pyepics PV whose subscription is
@@ -148,7 +161,7 @@ def _worker(request: dict) -> dict:
 
     if op == "watch":
         watched = {address: connect(address, monitor=True) for address in request["watch"]}
-        before = {address: pv.value for address, pv in watched.items()}
+        before = {address: fresh(pv) for address, pv in watched.items()}
         events: dict[str, list] = {address: [] for address in watched}
         started = time.monotonic()
         for address, pv in watched.items():
@@ -574,7 +587,14 @@ class TestRecordTypeParity:
 
     def test_a_setpoint_publishes_the_band_and_a_reading_publishes_none(self, va: LiveVA) -> None:
         """A client reads the same band the write path enforces, and a channel
-        with no band says so rather than reporting a spurious one."""
+        with no band says so rather than reporting a spurious one.
+
+        The absent half needs a positive control, because "no band here" is
+        satisfied just as well by a server that has stopped answering. Both
+        channels are read in one call, so the setpoint's band arriving is the
+        evidence that the reading's absent one is an answer rather than a
+        silence.
+        """
         channels = va.read(WRITE_SP, SEEDED_BPM)
 
         assert channels[WRITE_SP]["lower_ctrl_limit"] == pytest.approx(BAND_LOW)
