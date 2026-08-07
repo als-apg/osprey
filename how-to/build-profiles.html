@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 06, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 07, 2026"/>
   </head>
   
   
@@ -812,12 +812,9 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
-<li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user.html">Multi-User Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user-demo.html">Run the Multi-User Demo</a></li>
 </ul>
 </details></li>
-</ul>
-</details></li>
+<li class="toctree-l1"><a class="reference internal" href="multi-user.html">Multi-User Support</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
 
@@ -1027,7 +1024,7 @@ directory and diff to pick them up.</p>
 <h3>Persona profiles<a class="headerlink" href="#persona-profiles" title="Link to this heading">#</a></h3>
 <p>Some presets give each operator their own web terminal, and each terminal runs
 with a persona — a capability posture, such as read-only versus write-capable.
-For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">multi-user-demo</span></code>),
+For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>),
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes one profile per persona into a <code class="docutils literal notranslate"><span class="pre">personas/</span></code>
 directory alongside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
@@ -1129,9 +1126,9 @@ profile itself is edited.</p>
 <p class="admonition-title">Note</p>
 <p><code class="docutils literal notranslate"><span class="pre">exclude:</span></code> carves a tier by <em>removing</em> capability. When the boundary you
 want is “may not write,” prefer flipping the enforcement switch instead —
-the bundled <code class="docutils literal notranslate"><span class="pre">multi-user-demo-readonly</span></code> preset differs from its
+the bundled <code class="docutils literal notranslate"><span class="pre">control-assistant-readonly</span></code> preset differs from its
 write-capable sibling only on <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>, leaving
-the tool surface identical (see <a class="reference internal" href="web-terminal/multi-user-demo.html"><span class="doc">Run the Multi-User Demo</span></a>).</p>
+the tool surface identical (see <a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a>).</p>
 </div>
 <p>To keep the scan server <strong>on</strong> while hiding an individual plan, set
 <code class="docutils literal notranslate"><span class="pre">bluesky.excluded_plans</span></code> on the deploying project’s profile:</p>

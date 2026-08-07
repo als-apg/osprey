@@ -61,6 +61,14 @@ Run & Operate the Agent
       The browser cockpit for the Osprey agent — launching it, theming every
       OSPREY interface at once, and adding your own themed side panels.
 
+   .. grid-item-card:: Multi-User Support
+      :link: multi-user
+      :link-type: doc
+
+      Serve a whole team from one host — a landing page plus a private
+      containerized Web Terminal per user, in read-only and write-capable
+      capability tiers.
+
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
       :link-type: doc
@@ -187,6 +195,7 @@ Bundled Services & Tutorials
    deploy-project
    containerize-project
    web-terminal/index
+   multi-user
    use-cli-chat
    non_interactive_query
    event-dispatch
