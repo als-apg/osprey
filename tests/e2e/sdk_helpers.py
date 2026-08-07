@@ -638,6 +638,7 @@ async def run_sdk_query_with_hooks(
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
     model: str | None = None,
+    disallowed_tools: list[str] | None = None,
 ) -> HookObservedResult:
     """Run a query via the Claude Agent SDK with hooks enabled and can_use_tool callback.
 
@@ -661,6 +662,12 @@ async def run_sdk_query_with_hooks(
         max_budget_usd: Budget cap in USD.
         model: Model to use. Defaults to the project's haiku-tier model
             resolved from ``config.yml``.
+        disallowed_tools: Optional list of tool names to forbid at the SDK level.
+            Forwarded to the Claude Code CLI as ``--disallowedTools``. Use this to
+            force a specific route when a test must *prove* one path works: the
+            agent picks between equivalent capabilities non-deterministically
+            (e.g. ``mcp__python__execute`` vs ``create_static_plot`` for a plot),
+            so a prompt alone cannot guarantee which one a run exercises.
 
     Returns:
         HookObservedResult with tool traces, text, metadata, and hook events.
@@ -709,6 +716,7 @@ async def run_sdk_query_with_hooks(
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         can_use_tool=_can_use_tool,
+        disallowed_tools=disallowed_tools or [],
     )
 
     workflow = HookObservedResult()

@@ -24,20 +24,32 @@ from tests.e2e.sdk_helpers import (
     find_png_files,
     init_project,
     read_audit_events,
-    run_sdk_query,
+    run_sdk_query_with_hooks,
 )
 
 pytestmark = pytest.mark.agentic_benchmark
+
+# The workspace plotting tools are an equivalent capability to running
+# matplotlib through the Python executor, and the agent picks between them
+# non-deterministically — a prompt asking for Python is a steer, not a
+# guarantee. Forbidding them at the SDK level is what makes this test actually
+# exercise the Python route it claims to cover; without it the run silently
+# proves nothing whenever the agent delegates to the data-visualizer instead.
+_WORKSPACE_PLOT_TOOLS = [
+    "mcp__osprey_workspace__create_static_plot",
+    "mcp__osprey_workspace__create_interactive_plot",
+    "mcp__osprey_workspace__create_dashboard",
+]
 
 
 class TestAuditObservability:
     """Natural workflow + transcript-based audit verification."""
 
-    # Multi-step agentic pipeline (channel-finder -> archiver -> plot -> PNG)
-    # on Haiku. Same stochastic-miss class as the test_sdk_workflows.py pipeline
-    # tests: the agent occasionally stops before persisting the plot. Rerun
-    # absorbs that flake; the strict artifact/audit assertions still gate (a
-    # real regression fails all attempts).
+    # Multi-step agentic pipeline (channel-finder -> archiver -> Python -> PNG)
+    # on Haiku. Reruns absorb ordinary model non-determinism; the strict
+    # artifact/audit assertions still gate, and the denied-tool assertion below
+    # means a permission regression fails every attempt rather than presenting
+    # as flake.
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
@@ -48,6 +60,14 @@ class TestAuditObservability:
         Prompts Claude to find horizontal BPM channels, read archiver data for
         the first one, and create a timeseries plot saved as PNG. Then verifies
         that session_log can read OSPREY events from Claude Code transcripts.
+
+        Runs through ``run_sdk_query_with_hooks`` rather than the bypass runner:
+        ``mcp__python__execute`` ships in ``settings.json`` ``permissions.ask``
+        because it is a write-capable tool, and ``bypassPermissions`` does not
+        override that static list. With no approver the call comes back refused
+        ("you haven't granted it yet"), which reads as a missing plot rather
+        than a blocked tool. ``auto_approve`` supplies the operator decision a
+        real deployment would, matching test_safety_python.py.
 
         Cost budget: $2.00
         """
@@ -64,17 +84,19 @@ class TestAuditObservability:
             "1. Use channel_find to discover horizontal BPM channels\n"
             "2. Use archiver_read to get the last 1 hour of data for the "
             "first BPM channel\n"
-            "3. Use execute to create a timeseries plot and save it "
+            "3. Use Python to create a timeseries plot and save it "
             "as a PNG file\n"
             "Do not stop until you have completed all three steps and saved "
             "the PNG plot."
         )
 
-        result = await run_sdk_query(
+        result = await run_sdk_query_with_hooks(
             project_dir,
             prompt,
+            approval_policy="auto_approve",
             max_turns=25,
             max_budget_usd=2.00,
+            disallowed_tools=_WORKSPACE_PLOT_TOOLS,
         )
 
         # -- Debug output --
@@ -82,6 +104,10 @@ class TestAuditObservability:
         print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
         print(f"  num_turns: {result.num_turns}")
         print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
+        print(f"  approval events: {[(e.tool_name, e.decision) for e in result.hook_events]}")
+        print(
+            f"  errored tools: {[(t.name, str(t.result)[:80]) for t in result.tool_traces if t.is_error]}"
+        )
 
         # ================================================================
         # TIER 1: Functional assertions (the workflow worked)
@@ -89,6 +115,26 @@ class TestAuditObservability:
 
         assert result.result is not None, "No ResultMessage received from SDK"
         assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
+
+        # No tool call was refused by the permission layer. Scoped to permission
+        # refusals rather than any is_error trace, because ordinary tool errors
+        # the agent recovers from are legitimate (e.g. Read rejecting an
+        # oversized file). Without this, a gated tool returns a refusal, the
+        # agent silently produces no artifact, and the failure surfaces as the
+        # PNG assertion below — which blames persistence for a permission
+        # problem and reads as flake across reruns.
+        refusal_markers = ("requested permissions to use", "haven't granted it yet")
+        refused = [
+            t
+            for t in result.tool_traces
+            if t.is_error and any(m in str(t.result or "") for m in refusal_markers)
+        ]
+        assert not refused, (
+            "Tool call(s) refused by the permission layer: "
+            f"{[(t.name, str(t.result)[:120]) for t in refused]}. "
+            "A tool the workflow needs is gated behind approval that this run "
+            "cannot answer — check settings.json permissions.ask."
+        )
 
         # channel_find (or any channel-finder MCP server tool, in case the
         # agent delegated to the channel-finder subagent which browsed first)
@@ -101,22 +147,22 @@ class TestAuditObservability:
         archiver_tools = result.tools_matching("archiver_read")
         assert len(archiver_tools) >= 1, f"Expected archiver_read call but got: {result.tool_names}"
 
-        # A plot was created — via execute or create_static_plot/create_interactive_plot
-        plot_tool_names = ["execute", "create_static_plot", "create_interactive_plot"]
-        plot_tools = [t for t in result.tool_traces if any(p in t.name for p in plot_tool_names)]
-        assert len(plot_tools) >= 1, (
-            f"Expected a plot tool call (execute or create_*_plot) but got: {result.tool_names}"
+        # The plot came from the Python route specifically. The workspace
+        # plotting tools are disallowed for this run, so this is the coverage
+        # the test uniquely owns: a PNG artifact produced by agent-authored
+        # matplotlib through the executor. The other pipeline tests cover the
+        # data-visualizer route and tool-agnostic plotting.
+        py_tools = result.tools_matching("execute")
+        assert len(py_tools) >= 1, (
+            f"Expected an mcp__python__execute call but got: {result.tool_names}"
         )
 
-        # If execute was used, verify it contains plot-related code
-        py_tools = result.tools_matching("execute")
-        if py_tools:
-            py_code_combined = " ".join(str(t.input.get("code", "")) for t in py_tools).lower()
-            plot_keywords = ["plot", "plt", "matplotlib", "savefig", "figure"]
-            has_plot_code = any(kw in py_code_combined for kw in plot_keywords)
-            assert has_plot_code, (
-                f"execute code doesn't appear to create a plot. Code: {py_code_combined[:500]}"
-            )
+        py_code_combined = " ".join(str(t.input.get("code", "")) for t in py_tools).lower()
+        plot_keywords = ["plot", "plt", "matplotlib", "savefig", "figure"]
+        has_plot_code = any(kw in py_code_combined for kw in plot_keywords)
+        assert has_plot_code, (
+            f"execute code doesn't appear to create a plot. Code: {py_code_combined[:500]}"
+        )
 
         # At least one PNG artifact exists (or artifact_save was called)
         png_files = find_png_files(project_dir)
