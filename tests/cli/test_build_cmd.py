@@ -2586,7 +2586,7 @@ def test_preset_build_never_touches_the_presets_package_dir(
     assert entries_after == entries_before
 
 
-def test_profile_pointing_into_the_osprey_package_is_refused(tmp_path: Path) -> None:
+def test_profile_pointing_into_the_osprey_package_is_refused(tmp_path: Path, caplog) -> None:
     """`osprey build X <installed-preset>.yml` must not treat the package as a profile root.
 
     Passing the bundled preset file by path sidesteps --preset materialization,
@@ -2594,6 +2594,8 @@ def test_profile_pointing_into_the_osprey_package_is_refused(tmp_path: Path) -> 
     conventions pass refuses that by construction — the only protection on
     this route.
     """
+    import logging
+
     from click.testing import CliRunner
 
     import osprey.profiles.presets as presets_pkg
@@ -2605,19 +2607,25 @@ def test_profile_pointing_into_the_osprey_package_is_refused(tmp_path: Path) -> 
     out = tmp_path / "out"
     out.mkdir()
     runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        [
-            "build",
-            "package-profile-proj",
-            str(preset_yml),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(out),
-        ],
-    )
+    with caplog.at_level(logging.ERROR):
+        result = runner.invoke(
+            cli,
+            [
+                "build",
+                "package-profile-proj",
+                str(preset_yml),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(out),
+            ],
+        )
 
     assert result.exit_code != 0, result.output
-    assert "inside the installed osprey package" in result.output
+    # The refusal is logged, and the Rich handler wraps the rendered line to the
+    # console width. The message embeds the profile path, so where that break
+    # lands varies with the checkout location and can split the phrase itself —
+    # read the record, which carries the message whole.
+    reported = caplog.text + (str(result.exception) if result.exception else "")
+    assert "inside the installed osprey package" in reported
     assert not (preset_yml.parent / "web-terminal-context").exists()
