@@ -405,6 +405,13 @@ class TestClaudeExecutesArchiverAndPlots:
     It uses hardcoded channel names that the mock archiver accepts.
     """
 
+    # Multi-step agentic pipeline (archiver -> execute -> plot), same
+    # stochastic-miss class as the test_audit_observability.py pipeline test:
+    # the agent sometimes is still working when the 300s budget runs out, and
+    # the run ends mid-plot with the artifact half-written. Rerun absorbs that
+    # flake; the return-code and artifact assertions still gate (a real
+    # regression fails all attempts).
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
@@ -509,6 +516,11 @@ class TestClaudeFullBpmAnalysisPipeline:
     are valid solutions and the test does not prescribe one.
     """
 
+    # Longest agentic pipeline in the suite — channel_find makes its own LLM
+    # call before the archiver and plotting steps even begin, so it carries the
+    # most accumulated non-determinism of any test here. Same rerun rationale as
+    # the archiver+plot test above.
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
