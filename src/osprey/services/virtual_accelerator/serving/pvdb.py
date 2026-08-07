@@ -188,10 +188,10 @@ def discard_pva_post(address: str, value: Any) -> None:
     """Publish nothing: the default for a process serving no PVA channels.
 
     A null implementation rather than a ``None`` to test for, so that a
-    pushed value follows one code path whatever protocols happen to be
-    served. Identical in name and behaviour to the write path's own null
-    publisher; this module is the lower of the two and cannot import from
-    it, so the definition lives here.
+    published value follows one code path whatever protocols happen to be
+    served. Defined here rather than beside the write path that also uses it
+    because this is the lower module of the two: the write path imports this
+    one, so the definition can only live on this side of that edge.
     """
 
 

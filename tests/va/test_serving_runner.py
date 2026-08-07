@@ -1488,6 +1488,34 @@ class TestRunnerShape:
         init = ast.unparse(self._method(tree, "CohostRunner", "__init__"))
         assert "pva_post=self._post_pva" in init
 
+    def test_the_pva_publisher_is_wired_into_the_record_shims(self, tree: ast.Module) -> None:
+        """The sibling of the check above, and it needs to be its own check:
+        the write path publishes only what a client writes. Every *reading*
+        reaches its PV through the record shim instead, so a shim attached
+        without the publisher leaves all 144 BPM readings frozen on PVA while
+        setpoints track -- which looks correct, and is the worse failure.
+
+        Asserted against the call node rather than by matching text in the
+        constructor's source, so it cannot be satisfied by the argument
+        appearing anywhere else in it.
+        """
+        init = self._method(tree, "CohostRunner", "__init__")
+        attaches = [
+            node
+            for node in ast.walk(init)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "attach_driver"
+        ]
+
+        assert len(attaches) == 1, "the records are attached exactly once"
+        published = [
+            ast.unparse(keyword.value)
+            for keyword in attaches[0].keywords
+            if keyword.arg == "pva_post"
+        ]
+        assert published == ["self._post_pva"]
+
     def test_pva_puts_are_routed_through_the_write_path(self, tree: ast.Module) -> None:
         """The stock handler would enqueue a bare model write for this one
         variable: no physics hook, no clamp, and no Channel Access view."""

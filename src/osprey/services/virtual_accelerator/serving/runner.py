@@ -58,10 +58,15 @@ finished, and there they differ for good reason: Channel Access completion
 carries no status, so a refusal is signalled by an alarm and by the absence
 of movement, while a PVA put is completed with the model's own error string.
 
-What is *not* synchronised is stated as plainly: a BPM reading reaches its
-Channel Access PV through the record shim the physics bridge pushes into,
-which knows only the CA driver, so the PVA view of a reading still does not
-move. Only the addresses a client writes are synchronised by this module.
+What a client *reads* is synchronised by the same route rather than by a
+second mechanism of its own. A BPM reading reaches its Channel Access PV
+through the record shim the physics bridge pushes into, and that shim is
+handed this module's publisher when its driver is attached, so one push
+moves both views. Attaching also reconciles the two onto their boot values,
+which are otherwise seeded from different places: Channel Access from the
+manifest's PV specs, each PVA channel from the model variable it was built
+from. So no channel this module serves moves on one transport and not on
+the other -- not a setpoint, not its echo, and not a reading.
 """
 
 from __future__ import annotations
@@ -253,8 +258,11 @@ class CohostRunner(Runner):
             )
         # Last, and only now: until the driver exists a record writes into
         # its spec (which is how the boot values above got there), and after
-        # the server has created the PVs a spec write reaches nobody.
-        records.attach_driver(self.ca_driver)
+        # the server has created the PVs a spec write reaches nobody. The
+        # publisher goes in here for the same reason it goes into the write
+        # path above -- a value source pushes a reading once, and both views
+        # of that address have to carry it.
+        records.attach_driver(self.ca_driver, pva_post=self._post_pva)
 
     def _extend_pvdb(self) -> dict[str, dict[str, Any]]:
         """Contribute the whole co-hosted database.

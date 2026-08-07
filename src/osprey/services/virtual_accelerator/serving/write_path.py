@@ -60,7 +60,11 @@ from typing import Any, Protocol
 
 from lume.model import LUMEModel
 
-from osprey.services.virtual_accelerator.serving.pvdb import SETPOINT_SUBFIELD, ServingRecords
+from osprey.services.virtual_accelerator.serving.pvdb import (
+    SETPOINT_SUBFIELD,
+    ServingRecords,
+    discard_pva_post,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -259,15 +263,6 @@ def physics_setpoint_addresses(records: ServingRecords) -> frozenset[str]:
     """
     suffix = f":{SETPOINT_SUBFIELD}"
     return frozenset(address for address in records.pyat_coupled if address.endswith(suffix))
-
-
-def discard_pva_post(address: str, value: Any) -> None:
-    """Publish nothing: the default for a process serving no PVA channels.
-
-    A null implementation rather than a ``None`` to test for, so that
-    publishing an accepted value follows one code path whatever protocols
-    happen to be served.
-    """
 
 
 def clamp_into(value: Any, limits: tuple[float, float] | None) -> Any:
