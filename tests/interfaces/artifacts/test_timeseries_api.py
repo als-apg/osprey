@@ -451,6 +451,96 @@ class TestArtifactDataAPI:
         assert resp.status_code == 404
 
 
+class TestDataFileResolution:
+    """How ``/api/artifacts/{id}/data`` locates the entry's ``data_file`` on
+    disk: absolute paths are used as-is; relative paths are tried against the
+    workspace parent, the artifact store dir, and the workspace root in turn.
+    """
+
+    _PAYLOAD = {
+        "query": {"channels": ["PV:A"]},
+        "series": {"PV:A": {"timestamps": ["t0", "t1"], "values": [1.0, 2.0]}},
+    }
+
+    @pytest.fixture
+    def app_client(self, tmp_path):
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.artifacts.app import create_app
+
+        app = create_app(workspace_root=tmp_path)
+        return TestClient(app), tmp_path
+
+    @staticmethod
+    def _save_with_data_file(store, data_file: str):
+        """Register a timeseries artifact whose ``data_file`` is the given string."""
+        return store.save_file(
+            file_content=b"timeseries placeholder",
+            filename="ts.txt",
+            artifact_type="text",
+            title="Relative data file",
+            description="data_file resolution test",
+            mime_type="text/plain",
+            tool_source="archiver_read",
+            metadata={"data_type": "timeseries", "data_file": data_file},
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "data_file",
+        ["data/rel_series.json", "bare_series.json"],
+        ids=["workspace-relative", "bare-filename"],
+    )
+    def test_relative_data_file_resolves(self, app_client, data_file):
+        """A workspace-relative path (the last candidate tried) and a bare
+        filename (tried against the store dir) both still resolve — legacy
+        entries wrote such paths."""
+        client, workspace = app_client
+        store = client.app.state.artifact_store
+        entry = self._save_with_data_file(store, data_file)
+        # save_file created the store dir; a bare name lands beside the index.
+        base = store.artifact_dir if data_file == "bare_series.json" else workspace
+        target = base / data_file
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(json.dumps(self._PAYLOAD))
+
+        resp = client.get(f"/api/artifacts/{entry.id}/data?format=chart")
+        assert resp.status_code == 200
+        assert resp.json()["channels"][0]["channel"] == "PV:A"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
+    def test_missing_data_file_returns_404(self, app_client, absolute):
+        """A data_file that resolves nowhere — absolute, or relative and
+        matching no candidate location — is a 404, not a 500."""
+        client, workspace = app_client
+        store = client.app.state.artifact_store
+        data_file = str(workspace / "vanished.json") if absolute else "data/ghost_series.json"
+        entry = self._save_with_data_file(store, data_file)
+
+        resp = client.get(f"/api/artifacts/{entry.id}/data?format=chart")
+        assert resp.status_code == 404
+        assert "not found on disk" in resp.json()["detail"]
+
+    @pytest.mark.unit
+    def test_oversized_data_file_returns_413(self, app_client, monkeypatch):
+        """A data file over the size cap is refused with 413 rather than
+        parsed; the cap protects the gallery process, not the client."""
+        monkeypatch.setattr("osprey.interfaces.artifacts.app.MAX_TIMESERIES_FILE_BYTES", 64)
+        client, workspace = app_client
+        store = client.app.state.artifact_store
+        entry, _ = _make_timeseries_artifact(store, workspace, n_rows=50)
+
+        resp = client.get(f"/api/artifacts/{entry.id}/data?format=chart")
+        assert resp.status_code == 413
+        assert "too large" in resp.json()["detail"].lower()
+
+        # The cap applies only to the parsed formats: the raw passthrough
+        # (no format param) still streams the file bytes.
+        raw = client.get(f"/api/artifacts/{entry.id}/data")
+        assert raw.status_code == 200
+
+
 class TestArtifactTablePivotRobustness:
     """Edge cases in ``_pivot_channel_series_to_table``, the union-and-fill
     pivot behind ``format=table``.

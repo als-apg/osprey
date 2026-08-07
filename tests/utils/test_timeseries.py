@@ -12,8 +12,11 @@ triangle-area math runs on a zero-filled working copy.
 
 from __future__ import annotations
 
+import pytest
+
 from osprey.utils.timeseries import (
     _lttb_select_indices,
+    downsample_channel_map,
     extract_channel_series,
     is_numeric_channel,
     lttb_downsample_channel,
@@ -92,6 +95,13 @@ class TestLttbSelectIndices:
         assert len(selected) == 20
         assert selected[0] == 0
         assert selected[-1] == 199
+
+    def test_empty_values_is_total_and_still_returns_max_points_indices(self):
+        """Degenerate empty channel (unreachable via the public reducer): the
+        lookahead-bucket clamp keeps the selector total instead of raising."""
+        selected = _lttb_select_indices([], 4)
+        assert len(selected) == 4
+        assert selected[0] == 0
 
 
 class TestExtractChannelSeries:
@@ -362,3 +372,58 @@ class TestLttbDownsampleChannel:
         assert out_ts[0] == "t0"
         assert out_ts[-1] == "t29"
         assert out_vals[-1] == 29.0
+
+
+class TestDownsampleChannelMap:
+    """One record per selected channel: the shared shape the artifacts web API
+    and the ``archiver_downsample`` MCP tool rename into their own wire
+    vocabularies.
+    """
+
+    @staticmethod
+    def _series() -> dict[str, dict]:
+        return {
+            "PV:A": {
+                "timestamps": [f"t{i}" for i in range(100)],
+                "values": [float(i) for i in range(100)],
+            },
+            "PV:B": {"timestamps": ["t0", "t1"], "values": ["CW", "STANDBY"]},
+        }
+
+    @pytest.mark.parametrize(
+        ("channels", "expected"),
+        [
+            pytest.param(None, ["PV:A", "PV:B"], id="none-keeps-series-order"),
+            pytest.param(["PV:B", "PV:A"], ["PV:B", "PV:A"], id="subset-in-requested-order"),
+            pytest.param(["PV:A", "PV:X"], ["PV:A"], id="names-not-in-series-dropped"),
+        ],
+    )
+    def test_channel_selection_and_order(self, channels, expected):
+        records = downsample_channel_map(self._series(), max_points=10, channels=channels)
+        assert [r["channel"] for r in records] == expected
+
+    def test_records_report_what_downsampling_cost_each_channel(self):
+        numeric, enum = downsample_channel_map(self._series(), max_points=10)
+        # Numeric channel: LTTB-reduced, cost reported.
+        assert numeric["numeric"] is True
+        assert (numeric["original_points"], numeric["returned_points"]) == (100, 10)
+        assert len(numeric["timestamps"]) == len(numeric["values"]) == 10
+        # First/last survival flows through from the per-channel reducer.
+        assert (numeric["timestamps"][0], numeric["timestamps"][-1]) == ("t0", "t99")
+        # Non-numeric channel: flagged, returned whole when it fits.
+        assert enum["numeric"] is False
+        assert (enum["original_points"], enum["returned_points"]) == (2, 2)
+        assert enum["values"] == ["CW", "STANDBY"]
+
+    def test_channel_missing_timestamps_and_values_keys_yields_an_empty_record(self):
+        records = downsample_channel_map({"PV:E": {}}, max_points=10)
+        assert records == [
+            {
+                "channel": "PV:E",
+                "timestamps": [],
+                "values": [],
+                "original_points": 0,
+                "returned_points": 0,
+                "numeric": True,
+            }
+        ]

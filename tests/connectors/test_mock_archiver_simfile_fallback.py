@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector, _anchor
 
 ARCHIVER_LOGGER = "mock_archiver_connector"
 
@@ -110,6 +110,29 @@ async def _series(connector: MockArchiverConnector) -> list[float]:
 def _warnings(caplog) -> list[str]:
     """Warning-or-worse messages only — the loaders chat at INFO on every load."""
     return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+class TestAnchor:
+    """``_anchor`` only rewrites a path that is both relative and has a root to hang on."""
+
+    @pytest.mark.parametrize(
+        ("path", "root", "expected"),
+        [
+            (
+                Path("/elsewhere/machine.json"),
+                Path("/project/root"),
+                Path("/elsewhere/machine.json"),
+            ),
+            (Path("data/machine.json"), None, Path("data/machine.json")),
+            (
+                Path("data/machine.json"),
+                Path("/project/root"),
+                Path("/project/root/data/machine.json"),
+            ),
+        ],
+    )
+    def test_only_a_relative_path_with_a_root_is_rewritten(self, path, root, expected):
+        assert _anchor(path, root) == expected
 
 
 class TestDerivedFromControlSystem:
