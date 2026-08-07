@@ -58,6 +58,14 @@ BUILD_ID="$(cat "${WORKTREE_ROOT}/pyproject.toml" \
                 "${SCRIPT_DIR}/Containerfile" | "${DIGEST_CMD[@]}" | cut -c1-12)"
 IMAGE="osprey-va-live-ca:${BUILD_ID}"
 
+# The PVA layer gets its own digest, over its own Containerfile as well as the
+# base's inputs. Reusing BUILD_ID alone would leave an edit to Containerfile.pva
+# invisible to the tag, and the stale layer would be silently reused.
+PVA_BUILD_ID="$(cat "${WORKTREE_ROOT}/pyproject.toml" \
+                    "${WORKTREE_ROOT}/uv.lock" \
+                    "${SCRIPT_DIR}/Containerfile" \
+                    "${SCRIPT_DIR}/Containerfile.pva" | "${DIGEST_CMD[@]}" | cut -c1-12)"
+
 # Container runtime. docker is preferred here, the reverse of
 # scripts/va/probe_pcaspy/run_probe.sh: this image is cross-architecture on an
 # arm64 developer machine, and Docker Desktop ships the amd64 emulation that
@@ -108,7 +116,49 @@ else
     echo "--- reusing ${IMAGE} (OSPREY_LIVE_CA_REBUILD=1 to rebuild) ---"
 fi
 
-echo "--- running the live Channel Access gate ---"
+# PVA layer. `serving/runner.py` imports lume_pva_apg and p4p alongside pcaspy,
+# so the *served* boot in tests/va/test_facility_seam.py needs both on top of
+# the CA venue. lume_pva_apg is not published yet, so there is nothing to
+# install and nothing to guess at: point OSPREY_LUME_PVA_PATH at a checkout of
+# the fork and this runs the composed suite set; leave it unset and it runs
+# CA-only.
+#
+# Deliberately opt-in rather than probing likely sibling directories. A guessed
+# path that silently misses would drop back to CA-only while looking like it
+# had run everything, which is the same class of quiet false green this whole
+# script exists to prevent.
+if [[ -n "${OSPREY_LUME_PVA_PATH:-}" ]]; then
+    FORK_PATH="$(cd "${OSPREY_LUME_PVA_PATH}" 2>/dev/null && pwd)" || {
+        echo "FATAL: OSPREY_LUME_PVA_PATH=${OSPREY_LUME_PVA_PATH} is not a directory" >&2
+        exit 1
+    }
+    if [[ ! -d "${FORK_PATH}/lume_pva_apg" ]]; then
+        echo "FATAL: no lume_pva_apg/ package under ${FORK_PATH}" >&2
+        exit 1
+    fi
+
+    PVA_IMAGE="${IMAGE%:*}-pva:${PVA_BUILD_ID}"
+    if [[ "${OSPREY_LIVE_CA_REBUILD:-0}" == "1" ]] || \
+       ! "${RUNTIME}" image inspect "${PVA_IMAGE}" >/dev/null 2>&1; then
+        echo "--- building ${PVA_IMAGE} (PVA layer) ---"
+        "${RUNTIME}" build --platform "${PLATFORM}" \
+            -t "${PVA_IMAGE}" \
+            --build-arg "BASE_IMAGE=${IMAGE}" \
+            -f "${SCRIPT_DIR}/Containerfile.pva" \
+            "${SCRIPT_DIR}"
+    fi
+
+    echo "--- running the composed CA+PVA gate (fork: ${FORK_PATH}) ---"
+    exec "${RUNTIME}" run --rm --platform "${PLATFORM}" \
+        -v "${WORKTREE_ROOT}:/work:ro" \
+        -v "${FORK_PATH}:/fork:ro" \
+        "${PVA_IMAGE}" \
+        python -u scripts/va/live_ca/gate.py --pva "$@"
+fi
+
+echo "--- running the live Channel Access gate (CA only) ---"
+echo "    the served-boot branch of tests/va/test_facility_seam.py is NOT"
+echo "    exercised here -- set OSPREY_LUME_PVA_PATH=<lume-pva checkout> for that."
 exec "${RUNTIME}" run --rm --platform "${PLATFORM}" \
     -v "${WORKTREE_ROOT}:/work:ro" \
     "${IMAGE}" \

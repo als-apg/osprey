@@ -1,0 +1,43 @@
+# The PVA layer: adds what the *served* boot needs on top of the CA venue.
+#
+# The base image installs exactly what CI installs, from the repo's own
+# lockfile, and that fidelity is the whole reason the CA gate's green means
+# something. This layer deliberately sits on top rather than being folded in,
+# so that property survives: the base stays "what CI has", and everything CI
+# does not yet have is added here and visibly labelled as such.
+#
+# What it adds, and why each is here:
+#
+#   p4p   -- the PVA transport. `serving/runner.py` imports it at module scope
+#            alongside pcaspy. It is NOT in pyproject's virtual-accelerator
+#            extra, and deliberately so: runner.py's import order is pcaspy,
+#            then lume_pva_apg, then p4p, so a host missing the fork stops on
+#            lume_pva_apg and never reaches p4p. Declaring p4p before the fork
+#            is installable would change nothing observable. When task 6.3
+#            pins lume-pva-apg, p4p arrives with it through the lock and this
+#            line should be deleted rather than kept in parallel.
+#
+#   the fork itself -- NOT installed here. lume_pva_apg is unpublished, so it
+#            is bind-mounted at /fork by run_live_ca.sh and reaches Python
+#            through PYTHONPATH below. That is an expedient with a known
+#            expiry: once 6.2 publishes it and 6.3 pins it, both the mount and
+#            this whole layer collapse back into the base image.
+#
+# uvicorn is NOT installed here even though the served path needs it --
+# `osprey.interfaces._serving` imports it for the shared free_port() helper.
+# It already arrives in the base image through the dev extra. Do not "clean it
+# up" out of the dependency tree on the grounds that nothing serves HTTP here.
+# No meaningful default: run_live_ca.sh always passes the content-addressed tag
+# of the base it just built, and a layer built on some other base would not be
+# the venue this file describes. The placeholder only keeps the build lint quiet.
+ARG BASE_IMAGE=osprey-va-live-ca:unset
+FROM ${BASE_IMAGE}
+
+RUN uv pip install --python /opt/venv/bin/python --no-cache-dir p4p
+
+# /fork ahead of nothing and behind /work/src: the osprey source still wins for
+# anything it defines, and lume_pva_apg resolves out of the bind-mounted fork.
+ENV PYTHONPATH=/work/src:/fork
+
+WORKDIR /work
+CMD ["python", "-u", "scripts/va/live_ca/gate.py", "--pva"]

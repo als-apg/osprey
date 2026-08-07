@@ -35,6 +35,29 @@ Exit status is the gate's, so this is usable directly as a check. First run
 builds the image (a few minutes on an arm64 Mac, where linux/amd64 is
 emulated); later runs reuse it and take about ten seconds.
 
+### Composed CA + PVA mode
+
+`tests/va/test_facility_seam.py` has a **served-boot** branch that needs more
+than Channel Access: `serving/runner.py` imports `lume_pva_apg` and `p4p`
+alongside `pcaspy`. `lume-pva-apg` is not published yet, so point the runner at
+a checkout of it:
+
+```bash
+OSPREY_LUME_PVA_PATH=/path/to/lume-pva scripts/va/live_ca/run_live_ca.sh
+```
+
+That builds a thin PVA layer on the base image (adding `p4p`), bind-mounts the
+fork at `/fork`, and runs the seam suite alongside the CA suites — **57 passed,
+0 skipped**. Leave the variable unset and you get CA-only, with a printed note
+saying the served branch was not exercised.
+
+The path is opt-in rather than probed. A guessed sibling directory that missed
+would fall back to CA-only while looking like it had run everything — the same
+class of quiet false green this directory exists to prevent.
+
+Once task 6.2 publishes the fork and 6.3 pins it, the mount, the `p4p` install
+and `Containerfile.pva` all collapse back into the base image.
+
 ## What makes it trustworthy
 
 **It installs what CI installs.** The image runs
@@ -52,6 +75,16 @@ Verified against a negative control: with `pcaspy` made unimportable inside the
 container, pytest reports `9 passed, 44 skipped` and exits **0**, and the gate
 turns that into exit **1**. That vacuous green is the exact failure this
 directory exists to prevent.
+
+**In `--pva` mode, a skip check is not enough.** `test_facility_seam.py`'s boot
+test passes on either of two outcomes — the boot served, or it stopped on a
+missing server extension — and both are legitimate, so nothing skips either
+way. Run the seam suite in the PVA image with the fork *absent* and it reports
+`4 passed, 0 skipped`, exit 0, having never touched the served path. So `--pva`
+additionally requires `pcaspy`, `p4p` and `lume_pva_apg` to import *before*
+pytest starts. That makes the fallback branch unreachable, which is what makes
+the green mean "the served path ran". Without the fork mounted, the gate exits
+1 rather than running.
 
 **The tag is content-addressed.** The image is tagged with a digest of
 `pyproject.toml`, `uv.lock` and the `Containerfile`, so bumping the pcaspy

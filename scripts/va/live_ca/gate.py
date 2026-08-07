@@ -31,6 +31,7 @@ instead: the skip there is expected and this gate would (correctly) reject it.
 
 from __future__ import annotations
 
+import importlib
 import sys
 
 import pytest
@@ -40,6 +41,23 @@ LIVE_SUITES = (
     "tests/va/test_record_factory.py",
     "tests/va/test_apply_fault.py",
 )
+
+#: Added in --pva mode. Its served-boot branch needs the PVA transport and the
+#: serving fork on top of pcaspy.
+PVA_SUITES = ("tests/va/test_facility_seam.py",)
+
+#: Modules that must import in --pva mode. This is a precondition, not a
+#: preference, and it is checked *before* pytest runs.
+#:
+#: test_facility_seam.py's boot test passes on either of two outcomes: the boot
+#: served, or it stopped on a missing server extension. Both are legitimate --
+#: on a host lacking the transport, stopping there is the honest result -- so
+#: a green tells you nothing about which branch ran, and the served branch is
+#: the one that had never executed. Asserting these import first is what makes
+#: the fallback unreachable, and therefore what makes the green mean "the
+#: served path ran". Without it, --pva mode would quietly re-certify the same
+#: fallback the CA-only venue already covers.
+PVA_REQUIRED_MODULES = ("pcaspy", "p4p", "lume_pva_apg")
 
 #: ``-o addopts=`` drops the repo's default ``-v``; ``-p no:cacheprovider``
 #: keeps pytest from writing to /work, which is mounted read-only. ``-ra``
@@ -60,9 +78,36 @@ class _Tally:
         self.counts = {outcome: len(reports) for outcome, reports in stats.items() if outcome}
 
 
+def _check_required_modules(modules: tuple[str, ...]) -> list[str]:
+    """Return the subset of ``modules`` that cannot be imported."""
+    missing = []
+    for name in modules:
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            missing.append(name)
+    return missing
+
+
 def main(argv: list[str]) -> int:
     """Run the suites and return the gate's exit status."""
-    targets = argv or list(LIVE_SUITES)
+    pva = "--pva" in argv
+    argv = [arg for arg in argv if arg != "--pva"]
+
+    if pva:
+        missing = _check_required_modules(PVA_REQUIRED_MODULES)
+        if missing:
+            print("=" * 72)
+            print("live Channel Access gate (--pva)")
+            print(f"  VERDICT: FAIL -- cannot import {', '.join(missing)}.")
+            print("           The served-boot branch cannot run without these, and the")
+            print("           seam test PASSES on the fallback branch instead, so")
+            print("           continuing would certify the served path without")
+            print("           exercising it. Check that the fork is mounted at /fork.")
+            print("=" * 72)
+            return 1
+
+    targets = argv or [*LIVE_SUITES, *(PVA_SUITES if pva else ())]
     tally = _Tally()
     status = int(pytest.main([*targets, *PYTEST_ARGS], plugins=[tally]))
 
@@ -73,7 +118,7 @@ def main(argv: list[str]) -> int:
 
     print()
     print("=" * 72)
-    print("live Channel Access gate")
+    print(f"live Channel Access gate{' (--pva)' if pva else ''}")
     print(
         f"  passed={passed} skipped={skipped} failed={failed} errors={errors} pytest_exit={status}"
     )
