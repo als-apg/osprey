@@ -51,7 +51,7 @@ EXPECTED_SETPOINTS = 396
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
-MIN_COLLECTED_TESTS = 30
+MIN_COLLECTED_TESTS = 70
 
 
 def _channel(
@@ -124,6 +124,45 @@ class FakeDriver:
 
     def posted(self) -> list[str]:
         return [reason for call, reason, _ in self.calls if call == "updatePV"]
+
+
+class FakePvaChannels:
+    """The PVA half of the served namespace: the addresses the model describes.
+
+    Faithful on the one point the PVA assertions rest on: a p4p ``post`` both
+    replaces the value a one-shot ``get`` is answered with and delivers the
+    monitor update, so on that transport "the reading moved" is the single
+    assertion that a value was posted.
+
+    Only the addresses the model describes have a PVA channel at all; every
+    other co-hosted address is silently dropped, exactly as the runner's own
+    publisher drops an address it finds no channel for. Posts land in the
+    driver's own journal so that the order the two views of one address move
+    in is one sequence and not two that have to be reconciled.
+    """
+
+    def __init__(
+        self,
+        driver: FakeDriver,
+        served: frozenset[str],
+        *,
+        failing: frozenset[str] = frozenset(),
+    ) -> None:
+        self.driver = driver
+        self.served = served
+        self.failing = failing
+        self.values: dict[str, object] = {}
+
+    def post(self, address: str, value: object) -> None:
+        if address not in self.served:
+            return
+        if address in self.failing:
+            raise RuntimeError(f"PVA transport failure publishing {address}")
+        self.driver.calls.append(("post", address, value))
+        self.values[address] = value
+
+    def posted(self, address: str) -> int:
+        return sum(1 for call, name, _ in self.driver.calls if call == "post" and name == address)
 
 
 # (manifest record type, served type, element count, enum state count)
@@ -375,6 +414,380 @@ class TestRecordShim:
 
         assert callable(record.set)
         assert callable(record.get)
+
+
+# One channel of every kind a value source pushes into, with the value pushed.
+# Parametrised rather than asserted once on whichever kind happened to be
+# tested first: the defect this guards against is a *per-kind* one -- setpoints
+# tracking on both transports while readings track on only one -- so the claim
+# that no channel type disagrees has to be made per type.
+FAN_OUT_KINDS = [
+    pytest.param(
+        {
+            "subfield": "SP",
+            "partition": PARTITION_PYAT_COUPLED,
+            "system": "MAG",
+            "family": "HCM",
+            "field": "CURRENT",
+        },
+        1.25,
+        id="magnet-setpoint",
+    ),
+    pytest.param(
+        {
+            "subfield": "RB",
+            "partition": PARTITION_PYAT_COUPLED,
+            "system": "MAG",
+            "family": "HCM",
+            "field": "CURRENT",
+        },
+        1.25,
+        id="magnet-readback",
+    ),
+    pytest.param(
+        {
+            "subfield": "X",
+            "partition": PARTITION_PYAT_COUPLED,
+            "system": "DIAG",
+            "family": "BPM",
+            "field": "POSITION",
+        },
+        0.000123,
+        id="bpm-reading",
+    ),
+    pytest.param(
+        {
+            "subfield": "RB",
+            "partition": PARTITION_STATIC_NOISY,
+            "system": "VAC",
+            "family": "GAUGE",
+            "field": "PRESSURE",
+        },
+        3.5e-09,
+        id="telemetry-readback",
+    ),
+    pytest.param(
+        {
+            "record_type": RECORD_TYPE_BINARY,
+            "subfield": "RB",
+            "partition": PARTITION_STATIC_NOISY,
+            "system": "VAC",
+            "family": "VALVE",
+            "field": "STATUS",
+        },
+        1,
+        id="status-flag",
+    ),
+]
+
+
+class TestPvaFanOut:
+    """One push, every view of the address.
+
+    Some served addresses are also model variables and so are served twice --
+    on Channel Access from this database and on PVA by the runner. The value
+    sources push through :meth:`PVRecord.set` and nowhere else, so this shim
+    is the only place a reading can be made to move on both. A shim holding
+    the Channel Access driver alone would leave every readback frozen on PVA
+    while setpoints tracked, which looks correct from a client that watches
+    setpoints and is the trap these tests exist to keep shut.
+    """
+
+    def _attached(
+        self,
+        channels: list[dict],
+        served: frozenset[str],
+        *,
+        failing: frozenset[str] = frozenset(),
+    ) -> tuple[ServingRecords, FakeDriver, FakePvaChannels]:
+        """A database wired to both views, the way the runner wires it."""
+        records = build_serving_pvdb(channels)
+        driver = FakeDriver({address: spec["value"] for address, spec in records.pvdb.items()})
+        pva = FakePvaChannels(driver, served, failing=failing)
+        records.attach_driver(driver, pva_post=pva.post)
+        # Attaching also reconciles every view onto its boot value, which is
+        # asserted on its own in TestBootReconciliation. Both journals are
+        # cleared here so each test below sees only what its own push did.
+        driver.calls.clear()
+        pva.values.clear()
+        return records, driver, pva
+
+    @pytest.mark.parametrize(("channel_kwargs", "value"), FAN_OUT_KINDS)
+    def test_no_channel_type_moves_on_one_transport_alone(
+        self, channel_kwargs: dict, value: object
+    ) -> None:
+        records, driver, pva = self._attached(
+            [_channel("X:1", **channel_kwargs)], frozenset({"X:1"})
+        )
+
+        records.all["X:1"].set(value)
+
+        assert driver.values["X:1"] == value
+        assert pva.values["X:1"] == value
+
+    def test_a_reading_moves_on_pva_on_every_push_not_only_the_first(self) -> None:
+        """A readback is pushed once per solve and once per telemetry tick;
+        a view that latched the first value would look alive at boot and
+        never move again."""
+        records, _driver, pva = self._attached([_channel("X:1")], frozenset({"X:1"}))
+
+        for reading in (0.001, 0.002, 0.003):
+            records.all["X:1"].set(reading)
+
+        assert pva.values["X:1"] == 0.003
+        assert pva.posted("X:1") == 3
+
+    def test_channel_access_is_committed_before_pva(self) -> None:
+        """Channel Access is the authoritative view of the machine, and its
+        commit must not be behind anything that can fail."""
+        records, driver, _pva = self._attached([_channel("X:1")], frozenset({"X:1"}))
+
+        records.all["X:1"].set(1.5)
+
+        assert [call for call, _reason, _value in driver.calls] == [
+            "setParam",
+            "updatePV",
+            "post",
+        ]
+
+    def test_an_address_with_no_pva_channel_is_served_on_channel_access_alone(self) -> None:
+        """Most of the namespace: the model describes a few hundred of these
+        2,908 addresses and the publisher drops the rest."""
+        records, driver, pva = self._attached(
+            [_channel("X:1"), _channel("X:2")], frozenset({"X:1"})
+        )
+
+        records.all["X:2"].set(7.0)
+
+        assert driver.values["X:2"] == 7.0
+        assert pva.values == {}
+
+    def test_both_views_carry_the_same_coerced_value(self) -> None:
+        """The coercion happens once, above the fan-out: a float on an enum
+        channel must not reach one transport as 1 and the other as 1.0."""
+        records, driver, pva = self._attached(
+            [_channel("X:1", record_type=RECORD_TYPE_BINARY)], frozenset({"X:1"})
+        )
+
+        records.all["X:1"].set(1.0)
+
+        assert driver.values["X:1"] == 1
+        assert pva.values["X:1"] == 1
+        assert isinstance(pva.values["X:1"], int)
+
+    def test_a_pva_failure_costs_one_update_and_never_a_value(self) -> None:
+        records, driver, pva = self._attached(
+            [_channel("X:1")], frozenset({"X:1"}), failing=frozenset({"X:1"})
+        )
+
+        records.all["X:1"].set(2.5)
+
+        assert driver.values["X:1"] == 2.5
+        assert driver.posted() == ["X:1"]
+        assert pva.values == {}
+
+    def test_a_pva_failure_does_not_abandon_the_rest_of_the_push(self) -> None:
+        """A solve pushes 144 BPM readings in one loop through this shim. One
+        unreachable channel must not stop the other 143 from reaching either
+        transport."""
+        records, driver, pva = self._attached(
+            [_channel("X:1"), _channel("X:2")],
+            frozenset({"X:1", "X:2"}),
+            failing=frozenset({"X:1"}),
+        )
+
+        for address in ("X:1", "X:2"):
+            records.all[address].set(4.0)
+
+        assert driver.values["X:2"] == 4.0
+        assert pva.values == {"X:2": 4.0}
+
+    def test_a_pva_failure_is_logged_with_its_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Swallowed, not silent: a transport that stops publishing has to be
+        diagnosable from the log alone."""
+        records, _driver, _pva = self._attached(
+            [_channel("X:1")], frozenset({"X:1"}), failing=frozenset({"X:1"})
+        )
+
+        with caplog.at_level("ERROR"):
+            records.all["X:1"].set(2.5)
+
+        assert "X:1" in caplog.text
+        assert "PVA transport failure" in caplog.text
+
+    def test_without_a_publisher_nothing_is_posted_on_pva(self) -> None:
+        """A process serving no PVA channels publishes on Channel Access
+        alone, and does it down the same code path."""
+        records = build_serving_pvdb([_channel("X:1")])
+        driver = FakeDriver({"X:1": 0.0})
+        records.attach_driver(driver)
+        driver.calls.clear()
+
+        records.all["X:1"].set(3.0)
+
+        assert driver.values["X:1"] == 3.0
+        assert [call for call, _reason, _value in driver.calls] == ["setParam", "updatePV"]
+
+    def test_a_push_before_the_driver_exists_lands_in_the_spec(self) -> None:
+        """The boot window: the database is built and seeded before either
+        server exists, so a push there edits the PV spec -- there is no
+        channel on either transport to publish onto yet. What the spec holds
+        at that moment is what the servers come up with."""
+        records = build_serving_pvdb([_channel("X:1")])
+        driver = FakeDriver({"X:1": 0.0})
+        pva = FakePvaChannels(driver, frozenset({"X:1"}))
+
+        records.all["X:1"].set(4.5)
+
+        assert records.pvdb["X:1"]["value"] == 4.5
+        assert pva.values == {}
+        assert driver.calls == []
+
+    def test_attach_driver_wires_the_publisher_into_every_record(self) -> None:
+        records, _driver, pva = self._attached(
+            [_channel("X:1"), _channel("X:2")], frozenset({"X:1", "X:2"})
+        )
+
+        for record in records.all.values():
+            record.set(1.0)
+
+        assert pva.values == {"X:1": 1.0, "X:2": 1.0}
+
+
+class TestBootReconciliation:
+    """The boot window, in which the two views are seeded from different places.
+
+    The Channel Access server copies each PV spec, which holds the BPM
+    *reading* ``PhysicsBridge.bind()`` pushed before either server existed --
+    readout error and all. The PVA channel for the same address is opened
+    from the model variable's own value, which is the *truth* that reading
+    exists to differ from. Fanning ``set()`` out closes nothing here, because
+    nothing is pushed until something moves, and on a machine nobody writes
+    to that is never. Attaching is therefore also a reconciliation.
+    """
+
+    def _attached(
+        self,
+        *,
+        driver_values: dict | None = None,
+        served: frozenset[str] = frozenset({"X:1"}),
+        failing: frozenset[str] = frozenset(),
+    ) -> tuple[ServingRecords, FakeDriver, FakePvaChannels]:
+        records = build_serving_pvdb([_channel("X:1"), _channel("X:2")])
+        # The boot push a value source makes while the database is still
+        # plain data -- the first BPM reading, in the real assembly.
+        records.all["X:1"].set(-1.0e-4)
+        records.all["X:2"].set(2.0e-4)
+        values = {address: spec["value"] for address, spec in records.pvdb.items()}
+        values.update(driver_values or {})
+        driver = FakeDriver(values)
+        pva = FakePvaChannels(driver, served, failing=failing)
+        records.attach_driver(driver, pva_post=pva.post)
+        return records, driver, pva
+
+    def test_the_boot_value_reaches_pva_without_anything_moving(self) -> None:
+        _records, _driver, pva = self._attached()
+
+        assert pva.values == {"X:1": -1.0e-4}
+
+    def test_the_reconciled_value_is_the_channel_access_one(self) -> None:
+        """Channel Access is the authoritative view of the machine, so it is
+        the view the other is brought onto -- never the reverse."""
+        _records, driver, pva = self._attached(driver_values={"X:1": 9.0})
+
+        assert driver.values["X:1"] == 9.0
+        assert pva.values["X:1"] == 9.0
+
+    def test_an_address_with_no_pva_channel_is_not_reconciled(self) -> None:
+        _records, _driver, pva = self._attached(served=frozenset({"X:1"}))
+
+        assert "X:2" not in pva.values
+
+    def test_a_failure_reconciling_one_address_does_not_stop_the_rest(self) -> None:
+        """2,908 records are attached in one loop; one unreachable channel
+        must not leave the remainder unattached and the server half-built."""
+        _records, _driver, pva = self._attached(
+            served=frozenset({"X:1", "X:2"}), failing=frozenset({"X:1"})
+        )
+
+        assert pva.values == {"X:2": 2.0e-4}
+
+    def test_nothing_is_reconciled_without_a_publisher(self) -> None:
+        """A process with one view has nothing to reconcile onto, and must not
+        pay 2,908 driver reads at boot to discover that."""
+        records = build_serving_pvdb([_channel("X:1")])
+        records.all["X:1"].set(1.0)
+        driver = FakeDriver({"X:1": 1.0})
+
+        records.attach_driver(driver)
+
+        assert driver.calls == []
+
+    def test_a_driver_that_cannot_answer_does_not_abort_the_attach(self) -> None:
+        """Attaching walks every record in one loop. A record left unattached
+        would write into a spec nobody serves for the life of the process."""
+
+        class ExplodingReadDriver(FakeDriver):
+            def getParam(self, reason: str) -> object:  # noqa: N802 - driver contract
+                if reason == "X:1":
+                    raise RuntimeError(f"driver read failed for {reason!r}")
+                return super().getParam(reason)
+
+        records = build_serving_pvdb([_channel("X:1"), _channel("X:2")])
+        records.all["X:2"].set(5.0)
+        driver = ExplodingReadDriver({a: s["value"] for a, s in records.pvdb.items()})
+        pva = FakePvaChannels(driver, frozenset({"X:1", "X:2"}))
+
+        records.attach_driver(driver, pva_post=pva.post)
+
+        assert pva.values == {"X:2": 5.0}
+        records.all["X:1"].set(6.0)
+        assert driver.values["X:1"] == 6.0, "the raising record was left unattached"
+
+
+class TestPhysicsReadbacksReachPva:
+    """The defect this task exists to close, at the seam it appears on.
+
+    ``PhysicsBridge`` pushes each BPM's seeded-error reading through the
+    record shim after every solve. Nothing between the solve and the wire is
+    aware of a transport, which is the point: the bridge is unchanged and the
+    reading reaches both views because the shim it already pushes through
+    now carries both.
+    """
+
+    BPM_X = "SR:DIAG:BPM:01:POSITION:X"
+    MAGNET_SP = "SR:MAG:HCM:01:CURRENT:SP"
+
+    @pytest.fixture(scope="class")
+    def channels(self) -> list[dict]:
+        from osprey.services.virtual_accelerator.manifest import build_manifest
+
+        return [
+            channel
+            for channel in build_manifest()["channels"]
+            if channel["partition"] == PARTITION_PYAT_COUPLED
+        ]
+
+    def test_a_solved_bpm_reading_moves_on_both_views(self, channels: list[dict]) -> None:
+        from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
+
+        records = build_serving_pvdb(channels)
+        bridge = PhysicsBridge(rng_seed=11)
+        # Bound before the driver exists, exactly as the runner binds it: the
+        # first push is the boot state and has to land in the specs.
+        bridge.bind(records.pyat_coupled)
+
+        driver = FakeDriver({address: spec["value"] for address, spec in records.pvdb.items()})
+        pva = FakePvaChannels(driver, frozenset({self.BPM_X}))
+        records.attach_driver(driver, pva_post=pva.post)
+
+        boot = driver.values[self.BPM_X]
+        bridge.on_setpoint(self.MAGNET_SP, 3.0)
+
+        assert driver.values[self.BPM_X] != boot, "the corrector did not move the orbit"
+        assert pva.values[self.BPM_X] == driver.values[self.BPM_X]
 
 
 class TestPartitionsAndPairing:

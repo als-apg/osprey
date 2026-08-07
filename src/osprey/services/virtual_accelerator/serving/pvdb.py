@@ -14,9 +14,12 @@ Two consumers already exist and are deliberately not changed by this module:
 ``ioc.physics_bridge.PhysicsBridge`` (BPM readbacks after a solve). Both
 drive their records through exactly two calls -- ``record.set(value)`` and
 ``record.get()`` -- so :class:`PVRecord` reproduces that surface and they
-plug in unchanged.
+plug in unchanged. That surface is also what makes the second transport
+free: a value source pushes once, and the shim fans that one push out to
+every view of the address, so neither source knows how many transports it
+is feeding.
 
-Three properties of the served database are contracts, not preferences:
+Four properties of the served database are contracts, not preferences:
 
 * **The channel set is closed.** One PV per manifest channel, no more, no
   fewer: the pinned counts (348 SR magnet ``:SP`` / 348 paired ``:RB`` /
@@ -37,10 +40,21 @@ Three properties of the served database are contracts, not preferences:
   served value pushed with :meth:`PVRecord.set` on a scanning PV would
   silently never reach a subscriber. Every value here is driver-posted;
   none is server-scanned.
+* **No channel type moves on one transport and not the other.** Some of
+  these addresses are served twice: on Channel Access from this database,
+  and on PVA because the same address is also a model variable. Every push
+  through :meth:`PVRecord.set` reaches both, so a BPM reading, a telemetry
+  value and a setpoint echo all move together wherever they are watched --
+  and :meth:`ServingRecords.attach_driver` reconciles them at boot, because
+  the two servers seed their first value from different places. A view that
+  tracked setpoints but not readings, or agreed only once something moved,
+  would be worse than one that tracked nothing: it would *look* correct.
 """
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -54,6 +68,8 @@ from osprey.services.virtual_accelerator.manifest import (
     RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
 )
+
+LOG = logging.getLogger(__name__)
 
 SETPOINT_SUBFIELD = "SP"
 READBACK_SUBFIELD = "RB"
@@ -168,39 +184,61 @@ class ManifestContractError(ValueError):
     """A manifest entry violates a contract the serving layer relies on."""
 
 
+def discard_pva_post(address: str, value: Any) -> None:
+    """Publish nothing: the default for a process serving no PVA channels.
+
+    A null implementation rather than a ``None`` to test for, so that a
+    pushed value follows one code path whatever protocols happen to be
+    served. Identical in name and behaviour to the write path's own null
+    publisher; this module is the lower of the two and cannot import from
+    it, so the definition lives here.
+    """
+
+
 class PVRecord:
     """One served channel, in the shape its value sources already speak.
 
     ``EngineSource`` and ``PhysicsBridge`` drive their channels with
     ``record.set(value)`` and ``record.get()``. This class is that surface
-    over a CA driver: ``set`` commits the value into the driver's parameter
-    store and posts a monitor event for this address alone; ``get`` reads
-    the committed value back *through the driver*, so a setpoint a client
-    wrote over CA is visible here too (a local cache would go stale the
-    moment the write path bypassed it).
+    over *both* views of an address: ``set`` commits the value into the CA
+    driver's parameter store, posts a monitor event for this address alone,
+    and carries the same value onto the PVA channel serving it; ``get``
+    reads the committed value back *through the driver*, so a setpoint a
+    client wrote over CA is visible here too (a local cache would go stale
+    the moment the write path bypassed it).
+
+    Holding both publishers is what makes a *reading* behave like a
+    setpoint. Nothing else does: the value sources push readings and
+    telemetry through here and nowhere else, so a shim that knew only the
+    CA driver would leave every readback frozen on PVA while setpoints
+    tracked -- a view that looks live and is not.
 
     A record is usable before a driver exists, which matters because the
     database has to be built -- and its initial values fixed -- before the
     server and driver are constructed. Until :meth:`attach` is called,
     ``set`` writes straight into the PV spec's boot value and ``get`` reads
     it, so values pushed during assembly (notably ``PhysicsBridge.bind()``'s
-    first BPM push) become the values the server comes up with.
+    first BPM push) become the values the server comes up with. Nothing is
+    published on PVA in that window because no channel exists yet to publish
+    onto; :meth:`ServingRecords.attach_driver` is what closes that gap.
     """
 
-    __slots__ = ("address", "_spec", "_coerce", "_driver")
+    __slots__ = ("address", "_spec", "_coerce", "_driver", "_pva_post")
 
     def __init__(self, address: str, spec: dict[str, Any], coerce: Any) -> None:
         self.address = address
         self._spec = spec
         self._coerce = coerce
         self._driver: Any = None
+        self._pva_post: Callable[[str, Any], None] = discard_pva_post
 
-    def attach(self, driver: Any) -> None:
-        """Bind this record to the live CA driver (see :meth:`ServingRecords.attach_driver`)."""
+    def attach(self, driver: Any, pva_post: Callable[[str, Any], None] = discard_pva_post) -> None:
+        """Bind this record to both live views (see :meth:`ServingRecords.attach_driver`)."""
         self._driver = driver
+        self._pva_post = pva_post
 
     def set(self, value: Any) -> None:
-        """Commit ``value`` and post a monitor event for this address.
+        """Commit ``value`` on every view of this address.
 
         Posting is per-address (``updatePV``), not database-wide
         (``updatePVs``): the telemetry source sets on the order of a
@@ -209,6 +247,12 @@ class PVRecord:
         delivery -- ``updatePV`` posts exactly the address whose value just
         changed. The driver itself suppresses the event when the value is
         unchanged, so an unmoving telemetry channel costs no CA traffic.
+
+        Channel Access first, and its commit is never conditional on the
+        second view: the parameter store is the authoritative value of the
+        machine, and a PVA transport failure must cost one update rather
+        than a value. Addresses the model does not describe -- most of the
+        namespace -- have no PVA channel and the publisher drops them.
         """
         value = self._coerce(value)
         if self._driver is None:
@@ -216,6 +260,51 @@ class PVRecord:
             return
         self._driver.setParam(self.address, value)
         self._driver.updatePV(self.address)
+        self._publish_pva(value)
+
+    def reconcile_pva(self) -> None:
+        """Carry the currently served value onto this address's PVA channel.
+
+        Called once, at attach time, and this is not belt-and-braces: the two
+        servers seed their first value from *different places*. The Channel
+        Access server copies the PV spec, which holds the BPM **reading** --
+        readout error and all -- that ``PhysicsBridge.bind()`` pushed before
+        either server existed. The PVA channel for the same address is opened
+        by the runner from the model variable's own value, which is the
+        **truth** that reading exists to differ from. Left alone the two views
+        of every BPM disagree from boot until something moves them, and for a
+        machine nobody writes to that is never.
+
+        The value taken is the Channel Access one, because that is the
+        authoritative view of the machine -- the same reason a write commits
+        there first. A driver that cannot answer for this address is logged
+        and skipped: 2,908 records are attached in one loop, and one of them
+        failing must not leave the remainder unattached and the server
+        half-built.
+        """
+        if self._driver is None:
+            return
+        try:
+            value = self.get()
+        except Exception:
+            LOG.exception("failed to read the served value of %s while attaching", self.address)
+            return
+        self._publish_pva(value)
+
+    def _publish_pva(self, value: Any) -> None:
+        """Carry an already-committed value onto this address's PVA channel.
+
+        The failure is swallowed deliberately, and logged with a traceback.
+        This runs on whichever thread the value source pushes from -- the run
+        loop, for a BPM reading solved out of a setpoint write -- and an
+        exception escaping here would abandon the rest of that push: one
+        unreachable PVA channel would stop the other 143 BPMs of the same
+        solve from reaching either transport.
+        """
+        try:
+            self._pva_post(self.address, value)
+        except Exception:
+            LOG.exception("failed to publish %s on the PVA view of %s", value, self.address)
 
     def get(self) -> Any:
         """Return the currently served value."""
@@ -246,15 +335,37 @@ class ServingRecords:
     static_noisy: dict[str, PVRecord] = field(default_factory=dict)
     setpoint_readbacks: dict[str, str] = field(default_factory=dict)
 
-    def attach_driver(self, driver: Any) -> None:
-        """Point every record at the live driver.
+    def attach_driver(
+        self, driver: Any, *, pva_post: Callable[[str, Any], None] | None = None
+    ) -> None:
+        """Point every record at the live views of its address.
 
         Called once, after the server has created the PVs and the driver
         exists. Before this, records serve and accept values through the PV
         spec; after it, through the driver.
+
+        Args:
+            driver: the live Channel Access driver.
+            pva_post: called as ``pva_post(address, value)`` for every value
+                a record publishes, to carry it onto the PVA channel serving
+                the same address. Addresses with no PVA channel are the
+                callee's business to ignore. ``None`` publishes on Channel
+                Access alone -- correct only for a process serving no PVA
+                channels at all, because a reading that moves on one
+                transport and not the other is the failure this argument
+                exists to prevent.
         """
+        post = pva_post if pva_post is not None else discard_pva_post
         for record in self.all.values():
-            record.attach(driver)
+            record.attach(driver, post)
+            if pva_post is not None:
+                # Attaching alone would leave the two views agreeing only from
+                # the first push onwards; this is what makes them agree from
+                # boot (see :meth:`PVRecord.reconcile_pva`). Skipped outright
+                # when there is no second view, rather than reconciled onto a
+                # publisher that discards it: that would be 2,908 driver reads
+                # at boot to produce nothing.
+                record.reconcile_pva()
 
 
 def _channel_key(channel: dict) -> tuple[str, str, str, str, str]:
@@ -400,4 +511,5 @@ __all__ = [
     "PVRecord",
     "ServingRecords",
     "build_serving_pvdb",
+    "discard_pva_post",
 ]
