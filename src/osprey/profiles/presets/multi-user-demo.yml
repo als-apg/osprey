@@ -106,11 +106,17 @@ config:
   #
   # `image_source: local` means `osprey deploy up` builds each persona's image
   # itself from `project_path`; the referenced persona projects are auto-rendered
-  # from their `build_profile` preset before the build, so a bare `osprey build`
-  # of this preset plus `osprey deploy up` stands the whole stack up with no
-  # registry. Each persona's `project` equals its `project_path` basename — the
-  # invariant persona auto-render relies on to land the rendered project exactly
-  # where the catalog mounts it.
+  # before the build, so a bare `osprey build` of this preset plus `osprey deploy
+  # up` stands the whole stack up with no registry. Each persona's `project`
+  # equals its `project_path` basename — the invariant persona auto-render relies
+  # on to land the rendered project exactly where the catalog mounts it.
+  #
+  # The `build_profile` values below are PRESET names, and are consumed only
+  # here, at materialization: `osprey profile new` renders each one into a
+  # delta at `personas/<name>.yml` beside the emitted profile and rewrites this
+  # catalog to point at that file. Deploy-time auto-render reads only the
+  # rewritten value, and accepts nothing else — a persona is built from a delta
+  # over this profile, never from a preset of its own.
   modules.web_terminals:
     enabled: true
     image_source: local

@@ -20,6 +20,24 @@ from typing import Any, Literal
 
 
 @dataclass
+class ProfileProvenance:
+    """What a materialized profile was emitted from (``provenance:``).
+
+    Written by ``osprey profile new`` and never by hand. It is the
+    MACHINE-READABLE record of the profile's source — the emitted header says
+    the same thing in prose, for people — and it is what a later build compares
+    against the installed preset to notice that the preset has moved on since
+    the profile was materialized (FR-6). That comparison is advisory: a profile
+    is the source of truth once it exists, so drift is reported, never enforced.
+    """
+
+    preset: str
+    """Bundled preset name the profile was materialized from."""
+    preset_hash: str
+    """Content hash of that preset as resolved at materialization time."""
+
+
+@dataclass
 class McpServerDef:
     """Definition of an MCP server to inject into a built project."""
 

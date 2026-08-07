@@ -15,8 +15,10 @@ name: Control Assistant
 app_template: control_assistant
 
 # Default LLM provider and model. Override here or via `osprey build`'s
-# --set provider=... / --set model=... flags; explicit --set overrides are
-# also forwarded to the persona projects auto-rendered at deploy time.
+# --set provider=... / --set model=... flags, which are written into the
+# profile this preset materializes. The persona projects auto-rendered at
+# deploy time build from deltas over that same profile, so they pick the
+# change up from the file rather than from a replayed command line.
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
@@ -178,11 +180,17 @@ config:
   #
   # `image_source: local` means `osprey deploy up` builds each persona's image
   # itself from `project_path`; the referenced persona projects are auto-rendered
-  # from their `build_profile` preset before the build, so a bare `osprey build`
-  # of this preset plus `osprey deploy up` stands the whole stack up with no
-  # registry. Each persona's `project` equals its `project_path` basename — the
-  # invariant persona auto-render relies on to land the rendered project exactly
-  # where the catalog mounts it.
+  # before the build, so a bare `osprey build` of this preset plus `osprey deploy
+  # up` stands the whole stack up with no registry. Each persona's `project`
+  # equals its `project_path` basename — the invariant persona auto-render relies
+  # on to land the rendered project exactly where the catalog mounts it.
+  #
+  # The `build_profile` values below are PRESET names, and are consumed only
+  # here, at materialization: `osprey profile new` renders each one into a
+  # delta at `personas/<name>.yml` beside the emitted profile and rewrites this
+  # catalog to point at that file. Deploy-time auto-render reads only the
+  # rewritten value, and accepts nothing else — a persona is built from a delta
+  # over this profile, never from a preset of its own.
   modules.web_terminals:
     enabled: true
     image_source: local
@@ -226,7 +234,7 @@ config:
 # control-system-free tutorial triggers so you can exercise the pipeline with a
 # single `curl` after `osprey deploy up`. Remove this block to disable dispatch.
 dispatch:
-  triggers: tutorial_triggers.yml   # bundled with OSPREY; resolved at build time
+  triggers: tutorial_triggers.yml   # profile-relative path or bundled name
   worker_count: 1
   workspace_mode: isolated
   max_concurrent_runs: 2

@@ -586,6 +586,16 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     with open(config_path) as fh:
         config = yaml.load(fh)
 
+    # The compose file bind-mounts the scenario state directory read-only. It is
+    # otherwise created lazily at run time (by `osprey sim apply`), so create it
+    # here too: a missing bind source makes the container runtime materialize it
+    # itself, root-owned, which then locks the host writer out of its own
+    # project. Resolved from the config so it follows a relocated agent-data
+    # root — the same path the compose mount source is rendered from.
+    from osprey.utils.workspace import resolve_simulation_state_dir
+
+    resolve_simulation_state_dir(config, project_path).mkdir(parents=True, exist_ok=True)
+
     # No ``image`` key: the service builds the local VA image on first
     # ``osprey deploy up``. Override with OSPREY_VA_IMAGE, or set
     # ``services.virtual_accelerator.image`` here, to use a prebuilt/published image.

@@ -1,4 +1,24 @@
 {%- set ns = namespace() -%}
+{#- Wiring the profile DECLARED for the custom hooks it ships (claude_code.hooks,
+    resolved in claude_code.py). Purely additive: every block below emits the
+    framework's own entries unconditionally and unaltered, then appends these. -#}
+{%- set declared = declared_hooks | default({}) -%}
+{%- macro declared_entry(rule, py) %}
+      {
+{%- if rule.matcher %}
+        "matcher": {{ rule.matcher | tojson }},
+{%- endif %}
+        "hooks": [
+{%- for h in rule.hooks %}
+          {
+            "type": "{{ h.type }}",
+            "command": {{ h.command | replace("python3 ", '"' ~ py ~ '" ') | tojson }},
+            "timeout": {{ h.timeout }}
+          }{% if not loop.last %},{% endif %}
+{%- endfor %}
+        ]
+      }
+{%- endmacro -%}
 {
   "showThinkingSummaries": true,
   "outputStyle": ".claude/output-styles/control-operator.md",
@@ -87,7 +107,7 @@
             "timeout": 5
           }
         ]
-      }
+      }{% for rule in declared.get('SessionStart', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
     ],
     "UserPromptSubmit": [
       {
@@ -98,7 +118,7 @@
             "timeout": 2
           }
         ]
-      }
+      }{% for rule in declared.get('UserPromptSubmit', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}
     ],
     "PreToolUse": [
 {%- set pre_rules = [] -%}
@@ -110,9 +130,15 @@
 {%- set _ = pre_rules.append(rule) -%}
 {%- endfor -%}
 {%- endfor -%}
+{#- Appended, so the framework's entries are neither removed nor altered. Claude
+    Code runs every entry whose matcher fits, so position carries no authority
+    and a declared hook is one MORE gate, never a way to relax an existing one. -#}
+{%- for rule in declared.get('PreToolUse', []) -%}
+{%- set _ = pre_rules.append(rule) -%}
+{%- endfor -%}
 {%- for rule in pre_rules %}
       {
-        "matcher": "{{ rule.matcher }}",
+        "matcher": {{ rule.matcher | tojson }},
         "hooks": [
 {%- for h in rule.hooks %}
           {
@@ -135,9 +161,12 @@
 {%- for rule in framework_post_hooks | default([]) -%}
 {%- set _ = post_rules.append(rule) -%}
 {%- endfor -%}
+{%- for rule in declared.get('PostToolUse', []) -%}
+{%- set _ = post_rules.append(rule) -%}
+{%- endfor -%}
 {%- for rule in post_rules %}
       {
-        "matcher": "{{ rule.matcher }}",
+        "matcher": {{ rule.matcher | tojson }},
         "hooks": [
 {%- for h in rule.hooks %}
           {
@@ -150,5 +179,11 @@
       }{% if not loop.last %},{% endif %}
 {%- endfor %}
     ]
+{#- Events the framework wires nothing on exist as keys only when declared. -#}
+{%- for event in declared_extra_events | default([]) %},
+    "{{ event }}": [
+{%- for rule in declared[event] %}{{ declared_entry(rule, current_python_env) }}{% if not loop.last %},{% endif %}{% endfor %}
+    ]
+{%- endfor %}
   }
 }

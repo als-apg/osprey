@@ -566,7 +566,12 @@ channel_finder:
       # Injects prior paths as hints so the LLM can resolve repeated queries faster
       feedback:
         enabled: true
-        store_path: data/feedback/hierarchical_feedback.json
+        store_path: _agent_data/feedback/hierarchical_feedback.json
+                                      # Written at run time, so it lives under
+                                      # _agent_data/ — everything in data/ is
+                                      # rebuilt from the profile and checksummed
+                                      # into the manifest, and `osprey build
+                                      # --force` clears it.
 {% endif %}
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database)

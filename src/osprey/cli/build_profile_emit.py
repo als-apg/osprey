@@ -61,7 +61,7 @@ _FIELD_TO_YAML: dict[str, str] = {"data_bundle": "app_template"}
 #   - a `None` loader default FORCES COMMENTED — writing the key would emit
 #     `null`, and "commenting beats null noise";
 #   - a concrete default (bool/list/dict/str) PERMITS EXPLICIT but does not
-#     require it. The opt-in facility blocks (overlay, mcp_servers,
+#     require it. The opt-in facility blocks (mcp_servers,
 #     artifact_server) default to `{}` and still stay COMMENTED, because an
 #     empty block teaches nothing while a commented example teaches the shape;
 #   - build mechanics are never synthesized at all, whatever their default.
@@ -86,6 +86,7 @@ _EXPLICIT_KEYS: frozenset[str] = frozenset(
         "output_styles",
         "web_panels",
         "requires_osprey_version",  # schema stamp; see _PROFILE_SCHEMA_MIN_OSPREY
+        "provenance",  # source preset + its hash; see _PROVENANCE_COMMENT
     }
 )
 
@@ -100,7 +101,6 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "channel_finder_mode",
         "tier",  # pinning it would break mode-edit parity — see PROPOSAL D-notes
         "default_panel",
-        "overlay",  # facility artifacts
         "mcp_servers",  # facility tool servers
         "artifact_server",  # gallery categories + host/port
         "dispatch",  # the six optional feature blocks
@@ -130,8 +130,8 @@ _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
 )
 
 # Loader defaults for EXPLICIT members, used when the resolved profile lacks
-# one. `name` and `requires_osprey_version` are always set by the emitter, so
-# they need no fallback.
+# one. `name`, `requires_osprey_version` and `provenance` are always set by the
+# emitter, so they need no fallback.
 _EXPLICIT_DEFAULTS: dict[str, Any] = {
     "data_bundle": "control_assistant",
     "deploy_services": True,
@@ -170,6 +170,15 @@ _REQUIRES_VERSION_COMMENT = (
     "# Minimum OSPREY release that understands this profile's keys. Builds below it abort."
 )
 
+# Same rationale as the version stamp: always written, so it explains itself.
+# Emitted as a key rather than left to the header comment because a later build
+# reads it — the header says the same thing for people.
+_PROVENANCE_COMMENT = [
+    "# What this profile was materialized from. Emitted, not hand-written: a",
+    "# build compares it against the installed preset and mentions it when the",
+    "# preset has moved on. Advisory only — this profile is the source of truth.",
+]
+
 # Round-trip mode preserves comments, key order, and quoting style (same
 # conventions as osprey.utils.config_writer).
 _yaml = YAML(typ="rt")
@@ -178,29 +187,6 @@ _yaml.width = 4096
 # Match the bundled presets' list style (`  - item` under the key).
 _yaml.indent(mapping=2, sequence=4, offset=2)
 
-
-# Appended when the resolved profile has no ``overlay:`` section — the one
-# facility-customization section bundled presets never carry. The per-user
-# web-terminal-context mapping lives here rather than in its own block so the
-# file never carries two commented ``overlay:`` keys (uncommenting both would
-# be a duplicate-key error).
-_OVERLAY_APPENDIX = """
-# --- Facility overlay artifacts ----------------------------------------------
-# Drop custom artifacts under overlays/ and map each one here. Sources are
-# relative to this profile directory, destinations to the rendered project.
-# Add the artifact's name to the matching list above (skills:/rules:/agents:)
-# when it should appear in the artifact selection.
-#
-# The web-terminal-context entry restores a seeded persona directory that
-# `osprey build --force` would otherwise wipe. Map each user individually:
-# mapping a directory onto docker/web-terminal-context itself is rejected at
-# build time, because it would replace the framework's base.md.
-#
-# overlay:
-#   overlays/rules/my-facility-rule.md: .claude/rules/my-facility-rule.md
-#   overlays/skills/my-custom-skill: .claude/skills/my-custom-skill
-#   overlays/web-terminal-context/alice: docker/web-terminal-context/alice
-"""
 
 # Appended when the resolved profile has no ``mcp_servers:`` section — the
 # facility's own tool servers, which bundled presets never carry.
@@ -254,8 +240,8 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # --- Facility data tree ------------------------------------------------------
 # Path (relative to this profile) of the data tree the build copies in place of
 # the bundled apps/<app_template>/data/. `osprey profile new` materializes one
-# and sets this key; a sibling persona profile points at the shared parent tree
-# with `data: ../data`. Full replacement, not a fallback.
+# and sets this key; a persona delta under personas/ inherits it and resolves it
+# against this profile's directory. Full replacement, not a fallback.
 #
 # data: data
 """,
@@ -354,9 +340,8 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # gchat_bridge:
 #   trigger: gchat-question
 """,
-    # The three long-form blocks above this module's helpers, registered here so
+    # The two long-form blocks above this module's helpers, registered here so
     # the partition has a single template table to guard.
-    "overlay": _OVERLAY_APPENDIX,
     "mcp_servers": _MCP_SERVERS_APPENDIX,
     "artifact_server": _CATEGORIES_APPENDIX,
 }
@@ -371,7 +356,6 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "channel_finder_mode",
     "tier",
     "default_panel",
-    "overlay",
     "mcp_servers",
     "artifact_server",
     "dispatch",
@@ -801,38 +785,51 @@ def emit_persona_delta_yaml(
     profile_filename: str,
     host_filename: str = "profile.yml",
 ) -> str:
-    """Render a persona sibling as a DELTA over the materialized host profile.
+    """Render a persona sibling as a pure DELTA over the materialized host profile.
 
     The bundled persona presets are already deltas — a handful of keys over
-    their base preset, each carrying its own explanatory comment. This
-    emission keeps that shape and rebases it: the preset's raw text is reused
-    comments-and-all, with ``extends`` repointed from the bundled base preset
-    at the host ``profile.yml`` one directory up, the display ``name``
-    retitled, and ``data`` re-anchored on the host's tree (relative paths
-    resolve against the file that names them, so the inherited ``data: data``
-    would otherwise look inside ``personas/``).
+    their base preset, each carrying its own explanatory comment. This emission
+    keeps exactly that shape: the preset's raw text is reused comments-and-all,
+    with the ``extends`` line REMOVED and the display ``name`` retitled.
+    Nothing else is added or subtracted, so the emitted file is the preset's own
+    layer and nothing more.
 
-    Callers must only pass a ``preset_name`` whose ``extends`` chain reaches
-    the host profile's source preset
-    (:func:`~.build_profile_presets._preset_extends_chain_reaches`); rebasing
-    any other preset onto the host would change what it resolves to. Presets
-    off that chain keep the flattened :func:`emit_standalone_profile_yaml`
-    path.
+    There is no ``extends:`` because a file under ``personas/`` beside a
+    ``profile.yml`` is merged over that profile implicitly (FR-10), and the
+    merge anchors every profile-relative path — ``data:``, the trigger config,
+    the convention dirs — at the host profile's directory. A delta that
+    re-anchored them itself would fight that.
+
+    Callers must only pass a ``preset_name`` whose ``extends`` names the host
+    profile's source preset: the emitted delta drops every layer between the
+    two, so a preset that sits anywhere else would resolve to something the
+    caller never asked for. ``osprey profile new`` rejects such catalog entries
+    outright rather than emitting an approximation.
+
+    The ``extends`` removal is line surgery on the preset's raw text — that is
+    what preserves its comments — so it assumes the key is written on ONE line
+    with its value beside the colon (``extends: control-assistant``). A preset
+    spelling it across lines is rejected rather than cut in half, since dropping
+    only the ``extends:`` line would leave its value behind as a stray document
+    fragment.
 
     Args:
         preset_name: Bundled persona preset whose raw text is the delta body.
         profile_name: Display name for the emitted persona profile.
         profile_filename: Display path (``my-profile/personas/readonly.yml``)
             for the header's validate hint.
-        host_filename: The host profile's file name one directory up.
+        host_filename: The host profile's file name one directory up, named in
+            the generated header.
 
     Returns:
-        Complete persona profile text: ``extends: ../<host_filename>``, the
-        preset's own commented overrides, and the shared-tree ``data`` anchor.
+        Complete persona delta text: the preset's own commented overrides,
+        retitled, with no ``extends:``.
 
     Raises:
-        BuildProfileError: If the preset is unknown or declares no ``extends``
-            line to rebase.
+        BuildProfileError: If the preset is unknown, declares no ``extends``
+            line — it is then not a delta over anything, and emitting its raw
+            layer would silently drop the base it was written against — or
+            writes ``extends`` across more than one line.
     """
     raw, preset_path = _load_preset_raw(preset_name)
     if not isinstance(raw.get("extends"), str) or not raw["extends"]:
@@ -844,16 +841,32 @@ def emit_persona_delta_yaml(
 
     body: list[str] = []
     titled = False
+    dropped_extends = False
     for line in preset_path.read_text(encoding="utf-8").splitlines():
         if line.startswith("extends:"):
-            body.append(f"extends: {host_ref}")
-        elif line.startswith("name:"):
+            # The inheritance is positional now, so the key goes away entirely.
+            # Only a one-line spelling can go away by dropping this line: with
+            # the value on a following line, cutting here would leave that value
+            # behind as a stray fragment, and the emitted delta would be neither
+            # the preset's layer nor valid.
+            if not line.split(":", 1)[1].strip():
+                raise BuildProfileError(
+                    f"Preset {preset_name!r} writes 'extends' across more than one line. "
+                    f"A persona delta is emitted by removing that line from the preset's "
+                    f"own text, which only works when the value sits beside the colon "
+                    f"(extends: {raw['extends']}) — rewrite it that way."
+                )
+            dropped_extends = True
+            continue
+        if dropped_extends and not line.strip():
+            # Swallow only the blank line the dropped key left behind, so the
+            # spacing around the neighbouring blocks is the preset's own.
+            dropped_extends = False
+            continue
+        dropped_extends = False
+        if line.startswith("name:"):
             body.append(f"name: {profile_name}")
             titled = True
-        elif line.startswith("data:"):
-            # The shared-tree anchor is appended below with its own comment; a
-            # second top-level ``data`` key would be invalid YAML.
-            continue
         else:
             body.append(line)
     text = "\n".join(body).rstrip("\n") + "\n"
@@ -862,9 +875,10 @@ def emit_persona_delta_yaml(
     header = (
         f"# {profile_name} — persona profile, a delta over {host_ref}\n"
         f"#\n"
-        f"# `extends: {host_ref}` inherits every setting from the host profile —\n"
-        f"# including any edit you make there — and the keys below are this\n"
-        f"# persona's only differences. See the resolved whole with:\n"
+        f"# Sitting in personas/ beside {host_filename} IS the inheritance: the\n"
+        f"# build merges this file over that profile — including any edit you\n"
+        f"# make there — so the keys below are this persona's only differences\n"
+        f"# and there is no `extends:` to write. See the resolved whole with:\n"
         f"#   osprey profile validate {profile_filename}\n"
         f"#\n"
         f"# Provenance — what this persona was materialized from:\n"
@@ -874,16 +888,9 @@ def emit_persona_delta_yaml(
     )
     text = _replace_header(text, header)
 
-    tail = [
-        "",
-        "# One facility data tree for the whole stack: the host profile's data/",
-        "# directory. Relative paths resolve against THIS file, so without this",
-        "# override the inherited `data: data` would look inside personas/.",
-        "data: ../data",
-    ]
-    if not titled:
-        tail = ["", f"name: {profile_name}", *tail]
-    return text.rstrip("\n") + "\n" + "\n".join(tail) + "\n"
+    if titled:
+        return text
+    return text.rstrip("\n") + "\n\n" + f"name: {profile_name}\n"
 
 
 # The lifecycle picture at the top of a materialized profile: what the user
@@ -900,7 +907,7 @@ _FLOW_DIAGRAM = """\
 #  |                |           |                |           |                 |
 #  |  profile.yml   +---------->|  config.yml    +---------->|  agent CLI/web  |
 #  |  data/         |           |  services/     |  up -d    |  + service      |
-#  |  overlays/     |           |  .mcp.json     |           |    containers   |
+#  |  rules/ …      |           |  .mcp.json     |           |    containers   |
 #  |  personas/     |           |  .env  ...     |           | (docker/podman) |
 #  +----------------+           +----------------+           +-----------------+
 #   durable source of            regenerable — a              osprey deploy down
@@ -960,6 +967,14 @@ def emit_standalone_profile_yaml(
     # while ignoring the keys it just wrote.
     resolved["requires_osprey_version"] = f">={_PROFILE_SCHEMA_MIN_OSPREY}"
 
+    # Where this profile came from, as data rather than as a comment a later
+    # build would have to parse (FR-6). The generated header says the same thing
+    # in prose for people; both are written here from the same two values, so
+    # they cannot disagree.
+    normalized = base_anchor.stem
+    preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
+    resolved["provenance"] = {"preset": normalized, "preset_hash": preset_hash}
+
     # Defaults-synthesis: every EXPLICIT member the preset left unset is written
     # out at its loader default, so the emitted profile shows the whole
     # deployment-shaping surface rather than only the keys the preset happened
@@ -1006,13 +1021,13 @@ def emit_standalone_profile_yaml(
             _set_pre_comment(doc, key, [f"# {rationale}"], 0)
     if "requires_osprey_version" in doc:
         _set_pre_comment(doc, "requires_osprey_version", [_REQUIRES_VERSION_COMMENT], 0)
+    if "provenance" in doc:
+        _set_pre_comment(doc, "provenance", _PROVENANCE_COMMENT, 0)
 
     buffer = io.StringIO()
     _yaml.dump(doc, buffer)
     text = buffer.getvalue()
 
-    normalized = base_anchor.stem
-    preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
     flow_block = f"{_FLOW_DIAGRAM}\n#\n" if include_flow_diagram else ""
     header = (
         f"# {profile_name} — OSPREY build profile\n"
