@@ -589,6 +589,14 @@ automatically starts a local translation proxy to bridge the protocols.</p></li>
 </pre></div>
 </div>
 <p>Ollama and vLLM run locally and do not require an API key.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>A shell export reaches a <strong>profile</strong> only once, when the profile is
+materialized (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code>, or the first <code class="docutils literal notranslate"><span class="pre">--preset</span></code> build), and
+only for providers that profile references. After that, put the key in the
+profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>: the build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from there and
+never re-reads your shell. See <a class="reference internal" href="build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
+</div>
 </section>
 <section id="provider-configuration">
 <h2>Provider Configuration<a class="headerlink" href="#provider-configuration" title="Link to this heading">#</a></h2>

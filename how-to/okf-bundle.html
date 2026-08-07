@@ -555,6 +555,10 @@ conventional starting shape groups documents by kind:</p>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships an Example Research Facility bundle
 you can read as a worked example, then replace with your own.</p>
+<p>Author the bundle in your <strong>profile</strong> (<code class="docutils literal notranslate"><span class="pre">my-profile/data/facility_knowledge/</span></code>),
+not in the built project: each build copies the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree
+over the project’s, so an edit made in the project is lost on the next
+rebuild. See <a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 <p id="authoring-concept-documents"><strong>Authoring concept documents.</strong> Each concept document is a markdown file
 with YAML frontmatter at the top:</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>---

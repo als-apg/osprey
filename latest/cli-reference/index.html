@@ -489,7 +489,7 @@ without arguments launches an interactive TUI menu.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w">                    </span><span class="c1"># Launch interactive menu</span>
 osprey<span class="w"> </span>--version<span class="w">          </span><span class="c1"># Show framework version</span>
 osprey<span class="w"> </span>profile<span class="w">            </span><span class="c1"># Author, validate, and inspect build profiles</span>
-osprey<span class="w"> </span>build<span class="w"> </span>PROJECT<span class="w">      </span><span class="c1"># Build project from preset or profile</span>
+osprey<span class="w"> </span>build<span class="w"> </span>PROJECT<span class="w">      </span><span class="c1"># Build a project from a build profile</span>
 osprey<span class="w"> </span>config<span class="w">             </span><span class="c1"># Manage configuration</span>
 osprey<span class="w"> </span>deploy<span class="w"> </span>COMMAND<span class="w">     </span><span class="c1"># Manage services</span>
 osprey<span class="w"> </span>health<span class="w">             </span><span class="c1"># Check system health</span>
@@ -550,9 +550,12 @@ osprey<span class="w"> </span>profile<span class="w"> </span>presets
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">TARGET_DIR</span> <span class="pre">--preset</span> <span class="pre">NAME</span></code></dt><dd><p>Materialize an editable profile directory from a bundled preset.
 <code class="docutils literal notranslate"><span class="pre">TARGET_DIR</span></code> is created and populated with a standalone <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
 (the preset’s full configuration written out explicitly, no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>),
-the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree copied verbatim, an <code class="docutils literal notranslate"><span class="pre">overlays/</span></code> seed, and a
-<code class="docutils literal notranslate"><span class="pre">README.md</span></code>. Refuses to overwrite an existing directory unless <code class="docutils literal notranslate"><span class="pre">--force</span></code>
-is given.</p>
+the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree copied verbatim, an <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> listing
+every variable the agent reads, an <code class="docutils literal notranslate"><span class="pre">.env</span></code> seeded from your shell (only
+when it held keys for a provider this profile references), a <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>,
+and a <code class="docutils literal notranslate"><span class="pre">README.md</span></code>. Directories for your own artifacts (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">skills/</span></code>, …) are not created up front — make the ones you need. Refuses
+to overwrite an existing directory unless <code class="docutils literal notranslate"><span class="pre">--force</span></code> is given.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">PATH</span></code> — Layer a YAML file on top of the preset before
 writing (repeatable, in order).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code> — Inline override baked into the written profile
@@ -565,9 +568,9 @@ has fully rendered, so a failed run leaves the old directory untouched.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span> <span class="pre">TARGET</span></code></dt><dd><p>Check a profile without building anything. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> is a profile
 directory (its <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is used) or a path to a profile file.
-Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains and reports every problem found — overlay
-sources, the <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree, service templates, lifecycle steps, env vars.
-Exits 0 when valid, 2 with the accumulated errors when not.</p>
+Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains and reports every problem found — convention
+directories, the <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree, service templates, lifecycle steps, env
+vars. Exits 0 when valid, 2 with the accumulated errors when not.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code></dt><dd><p>List bundled preset names, one per line. Every name printed is usable as
 <code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
@@ -582,22 +585,37 @@ osprey<span class="w"> </span>build<span class="w"> </span>my-agent<span class="
 </section>
 <section id="osprey-build">
 <h2>osprey build<a class="headerlink" href="#osprey-build" title="Link to this heading">#</a></h2>
-<p>Build a facility-specific assistant from a bundled preset or a YAML profile.
-For durable, facility-owned customization, materialize a profile first with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> and build from it. See <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+<p>Build a facility-specific assistant from a build profile. Every build reads a
+profile — there is no build straight out of a bundled preset. See
+<a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>PROJECT_NAME<span class="w"> </span><span class="o">[</span>PROFILE<span class="o">]</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> — Use a bundled preset (mutually exclusive with positional
-<code class="docutils literal notranslate"><span class="pre">PROFILE</span></code>). Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--list-presets</span></code> to see available names.</p>
-<p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">PATH</span></code> — Layer a YAML file on top of the base preset/profile
-(repeatable, in order).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code> — Materialize <code class="docutils literal notranslate"><span class="pre">&lt;PROJECT_NAME&gt;-profile/</span></code> from a bundled
+preset and build from it (mutually exclusive with positional <code class="docutils literal notranslate"><span class="pre">PROFILE</span></code>). Only
+the <em>first</em> such build materializes; every later one reuses that directory as it
+stands. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--list-presets</span></code> to see available names.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">PATH</span></code> — Layer a YAML file on top of the profile (repeatable,
+in order). Written into the profile when it already exists.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code> — Inline scalar/list override (repeatable). RHS is
-parsed as YAML so <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">[a,b]</span></code>, and bare ints/floats are typed.</p>
+parsed as YAML so <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">[a,b]</span></code>, and bare ints/floats are typed. Written
+into the profile when it already exists, replacing the value at the dotted key
+path.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--list-presets</span></code> — Print bundled preset names and exit.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output-dir</span> <span class="pre">PATH</span></code> — Output directory (default: current directory).</p>
-<p><code class="docutils literal notranslate"><span class="pre">-f,</span> <span class="pre">--force</span></code> — Overwrite existing project directory.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-f,</span> <span class="pre">--force</span></code> — Re-render an existing project directory in place; <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
+<code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are preserved. Never touches the profile —
+replace one with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">--force</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--tier</span> <span class="pre">[1|3]</span></code> — Channel-database tier. Selects which
+<code class="docutils literal notranslate"><span class="pre">data/channel_databases/tiers/tier{N}/</span></code> database the rendered config points
+at, overriding the paradigm-derived default. Written into the profile like
+<code class="docutils literal notranslate"><span class="pre">--set</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code> — Stream build step output in real time.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code> — Skip the profile’s <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">validate</span></code> steps.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code> — Skip venv creation and dependency installation (CI mode).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code> — Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config, for
+container builds where the build path differs from the runtime path.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
 osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="w"> </span>~/profiles/als-dev.yml<span class="w"> </span>--force
 osprey<span class="w"> </span>build<span class="w"> </span>edu<span class="w"> </span>--preset<span class="w"> </span>education<span class="w"> </span>-O<span class="w"> </span>overrides.yml<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-sonnet-4-6
@@ -835,8 +853,8 @@ osprey<span class="w"> </span>theme-lab<span class="w"> </span>--no-browser
 <section id="osprey-audit">
 <h2>osprey audit<a class="headerlink" href="#osprey-audit" title="Link to this heading">#</a></h2>
 <p>Audit a build profile or project directory for safety risks. Uses an AI
-reviewer to analyze permissions, hooks, MCP server configs, overlay files,
-and lifecycle scripts.</p>
+reviewer to analyze permissions, hooks, MCP server configs, convention
+directories, and lifecycle scripts.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>audit<span class="w"> </span>TARGET<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
@@ -854,21 +872,27 @@ osprey<span class="w"> </span>audit<span class="w"> </span>project/<span class="
 <section id="osprey-scaffold">
 <h2>osprey scaffold<a class="headerlink" href="#osprey-scaffold" title="Link to this heading">#</a></h2>
 <p>Manage build artifact ownership. Framework-managed build artifacts (agents,
-rules, etc.) can be claimed per-facility for in-place editing. Claimed files
-are marked user-owned in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code>, and
-subsequent <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> runs skip them.</p>
+rules, etc.) can be claimed per-facility for in-place editing. A claim moves
+the artifact into the profile the project was built from; the next build copies
+it back and registers it as user-owned, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> skips it.</p>
 <p>All subcommands accept a common flag:</p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
-<dl class="simple">
+<dl>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code></dt><dd><p>List all build artifacts and their ownership status (framework vs.
 user-owned).</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">NAME</span></code></dt><dd><p>Claim ownership of a framework artifact for in-place editing. If the file
-doesn’t exist yet, the framework template is rendered in place at the
-canonical output path. If it already exists, it is marked user-owned.
-Service compose templates are claimable as directories
-(<code class="docutils literal notranslate"><span class="pre">services/&lt;name&gt;</span></code>): a claimed service is skipped by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>’s
-template refresh.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">NAME</span></code></dt><dd><p>Move an artifact into the profile this project was built from, into the
+convention directory for its kind (<code class="docutils literal notranslate"><span class="pre">rules/safety.md</span></code>,
+<code class="docutils literal notranslate"><span class="pre">skills/orbit-check/</span></code>, <code class="docutils literal notranslate"><span class="pre">services/postgresql/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/my-guard</span></code>). A
+file moves as a file; skills and services move as whole directories. The
+project copy is <em>moved</em>, not copied — it lives in one place until the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">...</span> <span class="pre">--force</span></code> deploys it again.</p>
+<p>Refused, with the reason: a project with no resolvable profile (nothing
+would keep the edit); a <strong>generated</strong> artifact rather than an authored one —
+<code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>, <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>,
+<code class="docutils literal notranslate"><span class="pre">hook_config.json</span></code> — where the message names the config key that does
+control it; and a profile slot that is already occupied. See
+<a class="reference internal" href="../how-to/build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a>.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">diff</span> <span class="pre">NAME</span></code></dt><dd><p>Show a unified diff between the current framework template (re-rendered)
 and your file at the canonical output path. For a claimed service
@@ -876,8 +900,10 @@ directory, diffs every file in the directory against the packaged
 template.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">unclaim</span> <span class="pre">NAME</span></code></dt><dd><p>Release ownership and restore framework management. The next
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> (or, for service templates, the next
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>) will overwrite the file with the framework template.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> will overwrite the file with the framework template.
+Ownership a build derived from the profile is re-registered by the next
+build, so this holds only until then — give the artifact up for good by
+deleting it from the profile’s convention directory.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span> <span class="pre">--config</span> <span class="pre">PATH</span></code></dt><dd><p>Validate the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza of a facility config
 (port-family allocation, reserved service names, duplicate users, persona

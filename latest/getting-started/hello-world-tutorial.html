@@ -458,6 +458,15 @@ control system channels using the Osprey agent.</p>
 <span class="nb">cd</span><span class="w"> </span>my-first-agent
 </pre></div>
 </div>
+<p>That writes <strong>two</strong> directories side by side:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-first-agent-profile/   the profile — your editable source of truth
+my-first-agent/           the project — rendered from the profile
+</pre></div>
+</div>
+<p>The first build copies the preset into <code class="docutils literal notranslate"><span class="pre">my-first-agent-profile/</span></code>; every later
+build reads that directory as it stands. Nothing in this tutorial needs you to
+edit it, but that is where changes go when you want them to survive a rebuild —
+see <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>First run may take 1–2 minutes to create a virtual environment and install

@@ -533,8 +533,10 @@ allowed to do with a chat question — and the block is only meaningful next to 
 settings. Which queue this deployment reads, which key file it signs in with,
 and which storage bucket files are published through all differ per deployment —
 and the key is a secret that must never be baked into a build. Listing them
-under <code class="docutils literal notranslate"><span class="pre">env.required</span></code> makes <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> write them into the project’s
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> (created mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, readable only by you) for you to fill in.</p>
+under <code class="docutils literal notranslate"><span class="pre">env.required</span></code> documents them in <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>; fill the values into
+the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which is where a secret survives a rebuild. The
+build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it (created mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, readable
+only by you).</p>
 <p>Two mistakes are caught at <strong>build</strong> time rather than at runtime: declaring the
 bridge without a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block, and naming a trigger your triggers file
 does not declare. Both fail the build with a message naming the problem.</p>
@@ -689,8 +691,8 @@ it directly without any setup.</p>
 to write to it. Anything the agent publishes there has to be readable without
 signing in — see <a class="reference internal" href="#what-is-shared-gchat"><span class="std std-ref">Who Can Ask, and What Is Shared</span></a> before you decide to do this at all.
 Skip this step and the agent answers text only.</p>
-<p><strong>5. Fill in the environment file.</strong> Set the values from the table above in
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+<p><strong>5. Fill in the environment file.</strong> Set the values from the table above in the
+<strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> (the build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">GCHAT_SA_KEY</span><span class="o">=</span>/etc/osprey/gchat-service-account.json
 <span class="nv">GCHAT_SUBSCRIPTION</span><span class="o">=</span>projects/my-gcp-project/subscriptions/osprey-chat-events
 <span class="nv">GCHAT_APP_ID</span><span class="o">=</span>users/1234567890

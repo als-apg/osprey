@@ -631,8 +631,10 @@ during <code class="docutils literal notranslate"><span class="pre">osprey</span
 edits.</p>
 </div>
 </li>
-<li><p><strong>Set provider credentials in ``.env``</strong> (e.g. <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>
-or <code class="docutils literal notranslate"><span class="pre">CBORG_API_KEY</span></code>). The default provider is <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>.</p></li>
+<li><p><strong>Set provider credentials in ``my-logbook-profile/.env``</strong> (e.g.
+<code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> or <code class="docutils literal notranslate"><span class="pre">CBORG_API_KEY</span></code>). The default provider is
+<code class="docutils literal notranslate"><span class="pre">anthropic</span></code>. The profile owns the project’s secrets: the build derives the
+project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it, so a value set there survives every rebuild.</p></li>
 <li><p><strong>Replace the demo logbook seed.</strong> The bundled
 <code class="docutils literal notranslate"><span class="pre">data/logbook_seed/demo_logbook.json</span></code> is 28 entries of fictional
 accelerator events. Either:</p>
@@ -656,10 +658,12 @@ profile from the <code class="docutils literal notranslate"><span class="pre">ar
 </div>
 <p>This writes a <code class="docutils literal notranslate"><span class="pre">my-ariel-profile/</span></code> directory containing a standalone
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — the preset’s full configuration written out explicitly, with
-no <code class="docutils literal notranslate"><span class="pre">extends:</span></code> back to the preset — plus the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree and
-<code class="docutils literal notranslate"><span class="pre">overlays/{rules,skills,agents,web-terminal-context}/</span></code> sentinels. Edit
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, the data files, and the overlays directly, then rebuild
-whenever you change something:</p>
+no <code class="docutils literal notranslate"><span class="pre">extends:</span></code> back to the preset — plus the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree and an
+<code class="docutils literal notranslate"><span class="pre">.env.example</span></code> listing every variable the agent reads. Directories for your
+own artifacts are not created up front: make a <code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code> or
+<code class="docutils literal notranslate"><span class="pre">agents/</span></code> directory when you have something to put in it, and the build
+carries its contents into the project. Edit <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, the data files, and
+those directories, then rebuild whenever you change something:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-ariel<span class="w"> </span>./my-ariel-profile/profile.yml
 </pre></div>
 </div>

@@ -542,7 +542,8 @@ Linux / WSL2</label><div class="sd-tab-content docutils">
 <section id="step-4-set-up-your-api-key">
 <h2>Step 4: Set up your API key<a class="headerlink" href="#step-4-set-up-your-api-key" title="Link to this heading">#</a></h2>
 <p>The Osprey agent needs an API key for the AI provider. Set it in your shell profile
-so it’s always available.</p>
+now: an exported key is what a host-local run reads, and it is what seeds the first
+project you build. Its durable home comes later — see the note below.</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-5">
@@ -584,6 +585,17 @@ Other providers</label><div class="sd-tab-content docutils">
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Using <code class="docutils literal notranslate"><span class="pre">bash</span></code> instead of <code class="docutils literal notranslate"><span class="pre">zsh</span></code>? Replace <code class="docutils literal notranslate"><span class="pre">~/.zshrc</span></code> with <code class="docutils literal notranslate"><span class="pre">~/.bashrc</span></code>.</p>
+</div>
+<div class="important admonition">
+<p class="admonition-title">Where the key lives once you build a project</p>
+<p>A shell export reaches a <strong>build profile</strong> once: when the profile is created,
+either by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> or by your first <code class="docutils literal notranslate"><span class="pre">--preset</span></code> build. From then
+on the profile’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> is the key’s home — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives each
+project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it and never re-reads your shell, so a key exported
+<em>after</em> the profile exists does not get in.</p>
+<p>Keep the export for host-local runs and for seeding that first build; put the
+key in <code class="docutils literal notranslate"><span class="pre">my-profile/.env</span></code> for anything you want to survive a rebuild. See
+<a class="reference internal" href="../how-to/build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
 </div>
 </section>
 <section id="step-5-install-osprey">

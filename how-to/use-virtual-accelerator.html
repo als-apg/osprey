@@ -593,7 +593,9 @@ launch the container directly:</p>
 that the container mounts read-only. It defaults to the <em>packaged preset’s</em>
 copy, <strong>not</strong> your project — so with no argument, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> in
 your project writes a scenario file the running IOC never sees. Pass your
-project’s directory explicitly to use its scenarios:</p>
+project’s directory explicitly to use its scenarios (the script then also
+mounts the sibling <code class="docutils literal notranslate"><span class="pre">_agent_data/simulation</span></code> state directory, which is what
+makes scenario switches reach the IOC):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/va/run_va.sh<span class="w"> </span>~/my-project/data/simulation
 </pre></div>
 </div>
@@ -602,15 +604,18 @@ project’s directory explicitly to use its scenarios:</p>
 <section id="scenarios">
 <h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works in Virtual Accelerator mode exactly as it
-does for the mock. Applying a scenario writes the project’s <code class="docutils literal notranslate"><span class="pre">active_scenarios</span></code>
-file; the in-container engine polls it and, within about a second, composed
-channel values reflect the new scenario. One behavioral difference from the
-mock: in VA mode a scenario switch only refreshes the engine-composed channels
-— setpoints you wrote during the session live in the IOC’s own records and
-<strong>survive</strong> the switch. (In mock mode, written values are reset.)</p>
-<p>This assumes the IOC is reading the same project’s <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code>. That is
-automatic for the deployed service; if you launched the container by hand, see
-the warning under <a class="reference internal" href="#running-from-a-source-checkout">Running from a source checkout</a>.</p>
+does for the mock. Applying a scenario writes the project’s
+<code class="docutils literal notranslate"><span class="pre">_agent_data/simulation/active_scenarios</span></code> file; the in-container engine polls
+it and, within about a second, composed channel values reflect the new scenario.
+One behavioral difference from the mock: in VA mode a scenario switch only
+refreshes the engine-composed channels — setpoints you wrote during the session
+live in the IOC’s own records and <strong>survive</strong> the switch. (In mock mode, written
+values are reset.)</p>
+<p>The container mounts two of the project’s directories: <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code> for
+the machine model (rebuilt from your profile on every build) and
+<code class="docutils literal notranslate"><span class="pre">_agent_data/simulation</span></code> for that scenario state (written while the system
+runs). Both are automatic for the deployed service; if you launched the
+container by hand, see the warning under <a class="reference internal" href="#running-from-a-source-checkout">Running from a source checkout</a>.</p>
 </section>
 <section id="write-limits">
 <h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>

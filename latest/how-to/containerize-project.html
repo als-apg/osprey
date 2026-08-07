@@ -487,6 +487,7 @@ every project.</p>
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text">What the generated <code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> / <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> are and who owns them</p></li>
+<li><p class="sd-card-text">How to keep a customized Dockerfile across rebuilds</p></li>
 <li><p class="sd-card-text">Building and running the image (ports, secrets, volumes)</p></li>
 <li><p class="sd-card-text">The three build-arg extension points for site-specific installs</p></li>
 <li><p class="sd-card-text">Path relocation with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span> <span class="pre">--runtime-root</span></code></p></li>
@@ -506,13 +507,21 @@ terminal.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — keeps secrets (<code class="docutils literal notranslate"><span class="pre">.env</span></code>) and host-specific state
 (<code class="docutils literal notranslate"><span class="pre">.venv</span></code>, <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>) out of the image.</p></li>
 </ul>
-<p>Both files are <strong>generated once and then yours</strong>: edit them freely, but keep
-<code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> in place — the build depends on it, and it is what keeps
-your <code class="docutils literal notranslate"><span class="pre">.env</span></code> secrets out of the image. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> never touches
-either file. To get a fresh copy, rebuild the project with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--force</span></code> — note that this overwrites any edits you made to
-the Dockerfile and <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> (only <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">.git</span></code> survive a force rebuild).</p>
+<p>Both files are <strong>generated, then yours to edit in place</strong>: change them freely,
+but keep <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — the build depends on it, and it is what keeps your
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> secrets out of the image. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> never touches either
+file.</p>
+<p>An edit made in the project lasts only until the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--force</span></code>,
+which re-renders both from the framework (only <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">.git</span></code> survive a force rebuild). To make a customization durable, put your
+version in the build profile’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror instead:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
+  project/
+    Dockerfile          # copied verbatim onto the project root, every build
+</pre></div>
+</div>
+<p>The mirror is applied after the framework render, so your copy wins each time.
+See <a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a> for the profile’s convention directories.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>This page covers the <strong>project image</strong> — one container that runs the
@@ -656,11 +665,13 @@ docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="
 <ul class="simple">
 <li><p><strong>Layer a site image on top</strong>: build the generated image as a base, then
 <code class="docutils literal notranslate"><span class="pre">FROM</span></code> it in a small site Dockerfile that adds credentials helpers,
-enterprise <code class="docutils literal notranslate"><span class="pre">managed-settings.json</span></code>, or extra processes.</p></li>
+enterprise settings, or extra processes.</p></li>
 <li><p><strong>Change the entrypoint</strong>: the default <code class="docutils literal notranslate"><span class="pre">CMD</span></code> runs
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--host</span> <span class="pre">0.0.0.0</span> <span class="pre">--port</span> <span class="pre">8087</span> <span class="pre">--project</span> <span class="pre">/app/&lt;project&gt;</span></code>;
 override it to run a process supervisor if you add sidecars.</p></li>
-<li><p><strong>Template-level override</strong>: a build profile’s app bundle can ship its own
+<li><p><strong>Carry the edit in the profile</strong>: put your Dockerfile in the profile’s
+<code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror (above) so every rebuild lands it again.</p></li>
+<li><p><strong>Template-level override</strong>: an app bundle can ship its own
 <code class="docutils literal notranslate"><span class="pre">apps/&lt;bundle&gt;/Dockerfile.j2</span></code>, which takes precedence over the framework
 template at build time — use this when every project built from a bundle
 needs the same customization.</p></li>

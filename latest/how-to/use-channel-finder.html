@@ -549,12 +549,20 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">build-database</span></code> writes to <code class="docutils literal notranslate"><span class="pre">data/processed/channel_database.json</span></code> by
-default, while the pipelines — and a bare <code class="docutils literal notranslate"><span class="pre">validate</span></code> / <code class="docutils literal notranslate"><span class="pre">preview</span></code> — read
-the database referenced in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (under
-<code class="docutils literal notranslate"><span class="pre">data/channel_databases/</span></code>). After building, either point the commands at
-the new file with <code class="docutils literal notranslate"><span class="pre">--database</span></code> or update the config path — otherwise you
-are silently validating the old database.</p>
+<p><code class="docutils literal notranslate"><span class="pre">build-database</span></code> writes into the <strong>profile</strong> the project was built from
+(<code class="docutils literal notranslate"><span class="pre">processed/channel_database.json</span></code> inside its <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree), not into the
+project — a generated database belongs beside the inputs it came from, and
+survives a rebuild there. That deliberately marks the project stale; clear
+the advisory by rebuilding:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database
+osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>my-profile/profile.yml<span class="w"> </span>--force
+</pre></div>
+</div>
+<p>The pipelines — and a bare <code class="docutils literal notranslate"><span class="pre">validate</span></code> / <code class="docutils literal notranslate"><span class="pre">preview</span></code> — read the database
+referenced in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (under <code class="docutils literal notranslate"><span class="pre">data/channel_databases/</span></code>). If you
+built to a different name, either point the commands at it with
+<code class="docutils literal notranslate"><span class="pre">--database</span></code> or update the config path; otherwise you are silently
+validating the old database.</p>
 </div>
 </section>
 <section id="hierarchical-pipeline">

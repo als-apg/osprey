@@ -526,9 +526,10 @@ is allowed to do with a chat question:</p>
 </div>
 <p>Rooms and credentials are <strong>not</strong> profile settings. They are runtime values you
 supply, because they differ per deployment and the password must never be baked
-into a build. Listing them under <code class="docutils literal notranslate"><span class="pre">env.required</span></code> makes <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> write
-them into the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> (created mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, readable only by you)
-for you to fill in.</p>
+into a build. Listing them under <code class="docutils literal notranslate"><span class="pre">env.required</span></code> documents them in
+<code class="docutils literal notranslate"><span class="pre">.env.example</span></code>; fill the values into the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which is
+where a secret survives a rebuild. The build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+from it (created mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, readable only by you).</p>
 <p>Two mistakes are caught at <strong>build</strong> time rather than at runtime: declaring the
 bridge without a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block, and naming a trigger that your triggers
 file does not declare. Both fail the build with a message naming the problem,
@@ -653,7 +654,7 @@ without disturbing the account, which is why the bridge uses one.</p>
 <p><strong>2. Invite it to the rooms it should serve.</strong> The bot only sees rooms it is a
 member of. Add it to each room you want served, and collect those rooms’ tokens.</p>
 <p><strong>3. Fill in the environment file.</strong> Set the four values from the table above in
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> (the build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">NEXTCLOUD_BASE_URL</span><span class="o">=</span>https://cloud.example.org
 <span class="nv">NEXTCLOUD_BOT_ACCOUNT</span><span class="o">=</span>osprey-agent
 <span class="nv">NEXTCLOUD_APP_PASSWORD</span><span class="o">=</span>xxxxx-xxxxx-xxxxx-xxxxx-xxxxx

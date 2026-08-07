@@ -477,6 +477,8 @@ in detail — everything below builds directly on it.</p>
 <span class="nb">cd</span><span class="w"> </span>my-control-assistant
 </pre></div>
 </div>
+<p>As in Hello World, this writes <code class="docutils literal notranslate"><span class="pre">my-control-assistant-profile/</span></code> beside the
+project and builds from it; provider keys go in that directory’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
 <p>Like <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, this project starts in <strong>mock</strong> mode, so every example
 below is safe to run with no hardware attached; hardware writes are still gated
 behind the human-approval prompt. Unlike
@@ -666,9 +668,12 @@ mode, which scales to large facilities with thousands of channels. For a small
 facility (under ~1,000 channels) the <code class="docutils literal notranslate"><span class="pre">in_context</span></code> strategy can be simpler and
 faster. The strategy is a build-time choice, so select it when you build:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--set<span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
+<span class="w">    </span>--set<span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context<span class="w"> </span>--force
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> re-renders the existing project directory. The <code class="docutils literal notranslate"><span class="pre">--set</span></code> value is
+written into <code class="docutils literal notranslate"><span class="pre">my-control-assistant-profile/profile.yml</span></code> first, so it stays in
+effect for every later build — you can also just edit that file instead.</p>
 <p>See <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> for a comparison of the strategies.</p>
 <p><strong>Switch to real hardware.</strong> As in Hello World, moving to production is a
 configuration change, not a code change. Point the connectors at your facility in
@@ -700,7 +705,7 @@ format.</p></li>
 <li><p><strong>Web terminal</strong>: <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> launches the browser UI and
 its panels with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p></li>
 <li><p><strong>Tailor a preset to your facility</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> shows how
-to extend <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> with your own overrides and overlays.</p></li>
+to turn <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> into a profile you own and edit.</p></li>
 <li><p><strong>Architecture deep dive</strong>: the <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> and the
 <a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture</span></a> section explain the agent + MCP
 design, the connector system, and the safety mechanisms.</p></li>

@@ -547,12 +547,17 @@ loads unconditionally at session start.</p>
 <p><strong>Edit the Markdown directly.</strong> Each rule is a file under <code class="docutils literal notranslate"><span class="pre">.claude/rules/</span></code>.
 <code class="docutils literal notranslate"><span class="pre">facility.md</span></code> is yours to edit — it is user-owned, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>
 never overwrites it. The framework-generated rules <em>are</em> re-rendered by
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>; to keep an edit to one of those, claim it first so it
-becomes user-owned:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>rules/safety
-<span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>rules/safety<span class="w">     </span><span class="c1"># compare yours vs the framework version</span>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>; to keep an edit to one of those, claim it. A claim
+<strong>moves</strong> the rule into the profile the project was built from, which is where
+you then edit it:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>rules/safety<span class="w">              </span><span class="c1"># moves it to my-profile/rules/safety.md</span>
+<span class="gp">$ </span><span class="nv">$EDITOR</span><span class="w"> </span>my-profile/rules/safety.md
+<span class="gp">$ </span>osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>my-profile/profile.yml<span class="w"> </span>--force
+<span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>rules/safety<span class="w">               </span><span class="c1"># compare yours vs the framework version</span>
 </pre></div>
 </div>
+<p>The rebuild copies it back and registers it as yours, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>
+leaves it alone from then on. See <a class="reference internal" href="build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a>.</p>
 <p><strong>Through the web terminal.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> exposes the agent’s <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>
 files in the browser: edit a rule in the setup editor, or use the scaffold
 gallery to override a framework-generated rule (which claims it for you). See
@@ -584,7 +589,7 @@ unclaim and regen:</p>
 <dl class="simple">
 <dt><a class="reference internal" href="use-facility-knowledge.html"><span class="doc">Facility Knowledge</span></a></dt><dd><p>How the always-in-context rules relate to the on-demand OKF bundle.</p>
 </dd>
-<dt><a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a></dt><dd><p>How a build profile overlays its own rules into a generated project.</p>
+<dt><a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a></dt><dd><p>How a build profile carries its own rules into a generated project.</p>
 </dd>
 </dl>
 </div>

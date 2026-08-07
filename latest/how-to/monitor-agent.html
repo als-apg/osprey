@@ -575,7 +575,8 @@ environments or agent instances in your backend.</p></td>
 </tbody>
 </table>
 </div>
-<p>Set the endpoint in your project <code class="docutils literal notranslate"><span class="pre">.env</span></code> and run the agent as usual:</p>
+<p>Set the endpoint in your profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> — the build derives the project’s
+from it — then run the agent as usual:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
 <span class="nv">OTEL_EXPORTER_OTLP_ENDPOINT</span><span class="o">=</span>https://otel-collector.example.com
 </pre></div>
@@ -607,9 +608,10 @@ default. If your project removed it, restore it:</p>
 <h3>2. (Optional) set the admin credentials<a class="headerlink" href="#optional-set-the-admin-credentials" title="Link to this heading">#</a></h3>
 <p>The OpenObserve root account doubles as the OTLP ingest credential. You do not
 have to set it yourself: the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> mints a strong
-<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> into <code class="docutils literal notranslate"><span class="pre">.env</span></code> automatically. Set the two variables
-yourself only if you want specific values — the same pair configures the
-container <strong>and</strong> authenticates the agent’s OTLP push, one source of truth:</p>
+<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> into the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> automatically, and the
+project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is derived from there. Set the two variables yourself (in the
+profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>) only if you want specific values — the same pair configures
+the container <strong>and</strong> authenticates the agent’s OTLP push, one source of truth:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
 <span class="nv">ZO_ROOT_USER_EMAIL</span><span class="o">=</span>you@example.com
 <span class="nv">ZO_ROOT_USER_PASSWORD</span><span class="o">=</span>choose-a-strong-password

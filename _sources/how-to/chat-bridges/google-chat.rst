@@ -59,8 +59,10 @@ The queue, the service-account key and the bucket for files are **not** profile
 settings. Which queue this deployment reads, which key file it signs in with,
 and which storage bucket files are published through all differ per deployment —
 and the key is a secret that must never be baked into a build. Listing them
-under ``env.required`` makes ``osprey build`` write them into the project's
-``.env`` (created mode ``0600``, readable only by you) for you to fill in.
+under ``env.required`` documents them in ``.env.example``; fill the values into
+the **profile's** ``.env``, which is where a secret survives a rebuild. The
+build derives the project's ``.env`` from it (created mode ``0600``, readable
+only by you).
 
 Two mistakes are caught at **build** time rather than at runtime: declaring the
 bridge without a ``dispatch:`` block, and naming a trigger your triggers file
@@ -188,8 +190,8 @@ to write to it. Anything the agent publishes there has to be readable without
 signing in — see :ref:`what-is-shared-gchat` before you decide to do this at all.
 Skip this step and the agent answers text only.
 
-**5. Fill in the environment file.** Set the values from the table above in
-``.env``:
+**5. Fill in the environment file.** Set the values from the table above in the
+**profile's** ``.env`` (the build derives the project's ``.env`` from it):
 
 .. code-block:: bash
 

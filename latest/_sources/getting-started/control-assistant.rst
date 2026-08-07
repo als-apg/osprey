@@ -49,6 +49,9 @@ Create a project from the ``control-assistant`` preset:
    osprey build my-control-assistant --preset control-assistant
    cd my-control-assistant
 
+As in Hello World, this writes ``my-control-assistant-profile/`` beside the
+project and builds from it; provider keys go in that directory's ``.env``.
+
 Like ``hello-world``, this project starts in **mock** mode, so every example
 below is safe to run with no hardware attached; hardware writes are still gated
 behind the human-approval prompt. Unlike
@@ -263,7 +266,11 @@ faster. The strategy is a build-time choice, so select it when you build:
 .. code-block:: bash
 
    osprey build my-control-assistant --preset control-assistant \
-       --set channel_finder_mode=in_context
+       --set channel_finder_mode=in_context --force
+
+``--force`` re-renders the existing project directory. The ``--set`` value is
+written into ``my-control-assistant-profile/profile.yml`` first, so it stays in
+effect for every later build — you can also just edit that file instead.
 
 See :doc:`../how-to/use-channel-finder` for a comparison of the strategies.
 
@@ -303,7 +310,7 @@ search, historical plotting, and operator skills. Where to go next:
 - **Web terminal**: :doc:`../how-to/web-terminal/operate` launches the browser UI and
   its panels with ``osprey web``.
 - **Tailor a preset to your facility**: :doc:`../how-to/build-profiles` shows how
-  to extend ``control-assistant`` with your own overrides and overlays.
+  to turn ``control-assistant`` into a profile you own and edit.
 - **Architecture deep dive**: the :doc:`conceptual-tutorial` and the
   :doc:`Architecture <../architecture/index>` section explain the agent + MCP
   design, the connector system, and the safety mechanisms.

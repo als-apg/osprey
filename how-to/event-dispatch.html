@@ -957,7 +957,8 @@ config into your project, and appends both to <code class="docutils literal notr
 <h2>Bring It Up<a class="headerlink" href="#bring-it-up" title="Link to this heading">#</a></h2>
 <p>Both services are registered in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, so they come up with the
 rest of the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> auto-generates both bearer tokens into
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> when they are unset:</p>
+the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> when they are unset, then derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+from it:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
 </pre></div>
 </div>
@@ -973,8 +974,9 @@ worker runs on.</p>
 (<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-dispatch:local</span></code>, from
 <code class="docutils literal notranslate"><span class="pre">services/event_dispatcher/Dockerfile</span></code>);</p></li>
 <li><p class="sd-card-text">the <strong>worker</strong> runs the full <em>project image</em> (<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> — the
-same image <a class="reference internal" href="containerize-project.html"><span class="doc">Containerize a Project</span></a> describes, with your overlays and
-<code class="docutils literal notranslate"><span class="pre">data/</span></code> baked in), so the agent it launches sees the real project.</p></li>
+same image <a class="reference internal" href="containerize-project.html"><span class="doc">Containerize a Project</span></a> describes, with your profile’s
+artifacts and <code class="docutils literal notranslate"><span class="pre">data/</span></code> baked in), so the agent it launches sees the real
+project.</p></li>
 </ul>
 <p class="sd-card-text">Pass <code class="docutils literal notranslate"><span class="pre">--dev</span></code> to install your local osprey checkout (incl. unreleased
 code) via a wheel; otherwise the images install <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> from
@@ -1134,10 +1136,12 @@ stack never exercises it; the behaviour is covered by
 </details></section>
 <section id="authentication">
 <h2>Authentication<a class="headerlink" href="#authentication" title="Link to this heading">#</a></h2>
-<p>Two bearer tokens live in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>
-auto-generates a strong random value for each when it is unset (and logs where
-it wrote it), so a containerized deploy needs no token editing. Set your own
-values in <code class="docutils literal notranslate"><span class="pre">.env</span></code> to override:</p>
+<p>Two bearer tokens guard the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> auto-generates a strong
+random value for each when it is unset (and logs where it wrote it), so a
+containerized deploy needs no token editing. A generated value is written into
+the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> and derived from there into the project’s, so a
+rebuild comes up on the same token. To pick your own values, set them in the
+profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> and rebuild:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> — guards <strong>inbound</strong> webhook and write endpoints.
 Send it as <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;token&gt;</span></code>.</p></li>

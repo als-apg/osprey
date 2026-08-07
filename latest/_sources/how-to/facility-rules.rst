@@ -59,13 +59,19 @@ There are two ways to edit a rule.
 **Edit the Markdown directly.** Each rule is a file under ``.claude/rules/``.
 ``facility.md`` is yours to edit — it is user-owned, and ``osprey claude regen``
 never overwrites it. The framework-generated rules *are* re-rendered by
-``osprey claude regen``; to keep an edit to one of those, claim it first so it
-becomes user-owned:
+``osprey claude regen``; to keep an edit to one of those, claim it. A claim
+**moves** the rule into the profile the project was built from, which is where
+you then edit it:
 
 .. code-block:: console
 
-   $ osprey scaffold claim rules/safety
-   $ osprey scaffold diff rules/safety     # compare yours vs the framework version
+   $ osprey scaffold claim rules/safety              # moves it to my-profile/rules/safety.md
+   $ $EDITOR my-profile/rules/safety.md
+   $ osprey build my-project my-profile/profile.yml --force
+   $ osprey scaffold diff rules/safety               # compare yours vs the framework version
+
+The rebuild copies it back and registers it as yours, so ``osprey claude regen``
+leaves it alone from then on. See :ref:`profile-claim`.
 
 **Through the web terminal.** ``osprey web`` exposes the agent's ``.claude/``
 files in the browser: edit a rule in the setup editor, or use the scaffold
@@ -104,4 +110,4 @@ unclaim and regen:
       How the always-in-context rules relate to the on-demand OKF bundle.
 
    :doc:`build-profiles`
-      How a build profile overlays its own rules into a generated project.
+      How a build profile carries its own rules into a generated project.

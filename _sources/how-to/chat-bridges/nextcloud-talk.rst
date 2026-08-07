@@ -52,9 +52,10 @@ is allowed to do with a chat question:
 
 Rooms and credentials are **not** profile settings. They are runtime values you
 supply, because they differ per deployment and the password must never be baked
-into a build. Listing them under ``env.required`` makes ``osprey build`` write
-them into the project's ``.env`` (created mode ``0600``, readable only by you)
-for you to fill in.
+into a build. Listing them under ``env.required`` documents them in
+``.env.example``; fill the values into the **profile's** ``.env``, which is
+where a secret survives a rebuild. The build derives the project's ``.env``
+from it (created mode ``0600``, readable only by you).
 
 Two mistakes are caught at **build** time rather than at runtime: declaring the
 bridge without a ``dispatch:`` block, and naming a trigger that your triggers
@@ -150,7 +151,7 @@ without disturbing the account, which is why the bridge uses one.
 member of. Add it to each room you want served, and collect those rooms' tokens.
 
 **3. Fill in the environment file.** Set the four values from the table above in
-``.env``:
+the **profile's** ``.env`` (the build derives the project's ``.env`` from it):
 
 .. code-block:: bash
 

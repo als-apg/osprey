@@ -993,8 +993,8 @@ machine — not authentication (see <a class="reference internal" href="#multi-u
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
 Switching it on</label><div class="sd-tab-content docutils">
-<p>The whole feature is one config block. This is what the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset renders into <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<p>The whole feature is one config block. This is what a project built from
+the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset carries in its <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -1015,13 +1015,21 @@ Switching it on</label><div class="sd-tab-content docutils">
 <span class="w">      </span><span class="nt">readonly</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readonly</span>
 <span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">../control-assistant-readonly</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readonly</span>
+<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
 <span class="w">      </span><span class="nt">readwrite</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readwrite</span>
 <span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">../control-assistant-readwrite</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readwrite</span>
+<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
 </pre></div>
 </div>
+<p>Each <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> names that persona’s <strong>delta</strong> inside the build
+profile this project was rendered from — the file
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes under <code class="docutils literal notranslate"><span class="pre">personas/</span></code> and points the catalog
+at. The delta merges over that profile, so every persona shares one data
+tree, one set of secrets, and one set of your own artifacts. A bundled
+preset name, an absolute path, or a path outside <code class="docutils literal notranslate"><span class="pre">personas/</span></code> is
+rejected by both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">users</span></code> list is the roster — the single source of truth for who
 exists. A bare name resolves to <code class="docutils literal notranslate"><span class="pre">default_persona</span></code>; an entry with an
 explicit <code class="docutils literal notranslate"><span class="pre">persona</span></code> picks its tier. Each user’s host ports are
@@ -1044,6 +1052,12 @@ deployment.</p>
 Day-to-day operations</label><div class="sd-tab-content docutils">
 <p>The roster drives everything: edit it, then let <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>
 reconcile reality against it.</p>
+<p>Edit it in the <strong>build profile</strong> — the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.users</span></code>
+entry under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — and rebuild the project with
+<code class="docutils literal notranslate"><span class="pre">--force</span></code>. A roster change made directly in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+deploys, but the next build overwrites it. Rebuilding also seeds an empty
+<code class="docutils literal notranslate"><span class="pre">web-terminal-context/&lt;user&gt;/</span></code> slot in the profile for each new
+operator, which is where their per-user context goes.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 34.0%" />
@@ -1127,13 +1141,16 @@ instead.</p>
 <h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> does for the web tier<a class="headerlink" href="#what-osprey-deploy-up-does-for-the-web-tier" title="Link to this heading">#</a></h3>
 <ol class="arabic simple">
 <li><p><strong>Auto-renders the two persona projects.</strong> For any persona whose project
-directory does not yet exist, <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> renders it from the persona’s
-<code class="docutils literal notranslate"><span class="pre">build_profile</span></code> — landing it as a sibling of the main project
-(<code class="docutils literal notranslate"><span class="pre">../control-assistant-readonly</span></code> and <code class="docutils literal notranslate"><span class="pre">../control-assistant-readwrite</span></code>)
-and forwarding the choices you made at build time (provider, model). An
-already-rendered project is user-owned and never overwritten; a
-half-written one errors with a remediation hint rather than being rebuilt
-over.</p></li>
+directory does not yet exist, <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> renders it from that persona’s
+<strong>delta</strong> in the build profile beside your project — landing it as a sibling
+of the main project (<code class="docutils literal notranslate"><span class="pre">../control-assistant-readonly</span></code> and
+<code class="docutils literal notranslate"><span class="pre">../control-assistant-readwrite</span></code>). Because each delta merges over that
+profile’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, both personas share its data tree, secrets and
+artifacts, and inherit the choices recorded there (provider, model): edit
+the profile once and both terminals pick the change up from the file rather
+than from a replayed command line. An already-rendered project is
+user-owned and never overwritten; a half-written one errors with a
+remediation hint rather than being rebuilt over.</p></li>
 <li><p><strong>Builds each persona’s image.</strong> In the preset’s local mode
 (<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> builds each persona’s image
 (tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-&lt;persona&gt;:local</span></code>) itself from that rendered project —

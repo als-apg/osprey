@@ -17,8 +17,8 @@ Build & Deploy a Project
       :link: build-profiles
       :link-type: doc
 
-      Assemble facility-specific assistants from templates with config overrides,
-      file overlays, and custom MCP servers.
+      Build a facility-specific assistant from a profile you own — convention
+      directories, taking ownership of framework artifacts, personas, and secrets.
 
    .. grid-item-card:: Configure LLM Providers
       :link: configure-providers

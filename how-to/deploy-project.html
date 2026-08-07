@@ -595,32 +595,35 @@ preferred, otherwise Podman is used. Force a specific runtime with the
 <section id="keeping-a-rendered-project-up-to-date">
 <h2>Keeping a Rendered Project Up to Date<a class="headerlink" href="#keeping-a-rendered-project-up-to-date" title="Link to this heading">#</a></h2>
 <p>A project directory is a <em>rendered artifact</em>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes its
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and service scaffolding from the preset at build time, and
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and service scaffolding from the <strong>build profile</strong>, and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> deploys exactly what that rendered config describes. If
-the framework or preset gains features after the render, the stale project
+the profile or the framework gains features after the render, the stale project
 still deploys “successfully” — just without them.</p>
 <p>To update an existing project, re-run the build with <code class="docutils literal notranslate"><span class="pre">--force</span></code>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span> <span class="n">build</span> <span class="n">my</span><span class="o">-</span><span class="n">project</span> <span class="o">--</span><span class="n">preset</span> <span class="n">my</span><span class="o">-</span><span class="n">preset</span> <span class="o">--</span><span class="n">force</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span> <span class="n">build</span> <span class="n">my</span><span class="o">-</span><span class="n">project</span> <span class="n">my</span><span class="o">-</span><span class="n">profile</span><span class="o">/</span><span class="n">profile</span><span class="o">.</span><span class="n">yml</span> <span class="o">--</span><span class="n">force</span>
 <span class="n">cd</span> <span class="n">my</span><span class="o">-</span><span class="n">project</span> <span class="o">&amp;&amp;</span> <span class="n">osprey</span> <span class="n">deploy</span> <span class="n">up</span> <span class="o">-</span><span class="n">d</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">--force</span></code> re-renders everything framework-owned and preserves what you
 own: <code class="docutils literal notranslate"><span class="pre">.env</span></code> values (secrets, and the service tokens/passwords your
 existing docker volumes were initialized with), <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and the
-project’s <code class="docutils literal notranslate"><span class="pre">.git</span></code> history. <code class="docutils literal notranslate"><span class="pre">data/</span></code> is re-materialized from the preset.
+project’s <code class="docutils literal notranslate"><span class="pre">.git</span></code> history. <code class="docutils literal notranslate"><span class="pre">data/</span></code> is re-materialized from the profile.
+The profile directory itself is never touched by a build.
 Avoid guarding the build behind a directory-existence check
 (<code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">-d</span> <span class="pre">my-project</span> <span class="pre">]</span> <span class="pre">||</span> <span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">...</span></code>) — “exists” is not “current”,
-and the guard silently skips exactly the re-render that an updated preset
+and the guard silently skips exactly the re-render that an updated profile
 needs.</p>
 <p>Two guards make render drift visible:</p>
 <ul class="simple">
 <li><p><strong>Staleness advisory</strong> — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span></code>
 compare the project’s recorded provenance (osprey version and a content
-hash of the resolved preset, stamped into <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code> at
-build time) against the installed framework, and warn when the render is
+hash of the resolved profile, stamped into <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code> at
+build time) against what is on disk now, and warn when the render is
 out of date — <code class="docutils literal notranslate"><span class="pre">up</span></code> prints the exact rebuild command, <code class="docutils literal notranslate"><span class="pre">status</span></code> a
-general reminder. The warning never blocks a deploy; projects built
-before the hash existed get the version comparison only.</p></li>
+general reminder. The hash covers the profile’s data tree and convention
+directories as well as <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so regenerating a channel database
+or adding a rule trips it too. The warning never blocks a deploy; projects
+built before the hash existed get the version comparison only.</p></li>
 <li><p><strong>Endpoint summary</strong> — every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> ends with a summary of
 the published service endpoints, including an explicit <code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">terminal</span>
 <span class="pre">(not</span> <span class="pre">configured</span> <span class="pre">in</span> <span class="pre">this</span> <span class="pre">project)</span></code> line when the config declares no web
@@ -668,17 +671,19 @@ engine-injected values:</p>
 every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refreshes them from the installed OSPREY version, so
 compose fixes reach your project automatically. Do not edit them in place —
 your changes would be overwritten on the next build.</p>
-<p>To customize a service template, claim it first:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">   </span><span class="c1"># freeze for local editing</span>
-osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>services/postgresql<span class="w">    </span><span class="c1"># compare against the framework</span>
+<p>To customize a service template, claim it — which <strong>moves</strong> it into the build
+profile the project was built from, where edits survive:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">   </span><span class="c1"># move it into the profile</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>services/postgresql<span class="w">    </span><span class="c1"># compare yours against the framework</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>services/postgresql<span class="w"> </span><span class="c1"># restore framework management</span>
 </pre></div>
 </div>
-<p>A claimed service is recorded in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">scaffold.user_owned</span></code>
-and skipped by every subsequent build; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">diff</span></code> shows how far
-your copy has drifted from the current framework template. This is the same
-ownership mechanism used for the Claude Code artifacts (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span>
-<span class="pre">list</span></code> shows both).</p>
+<p>Edit the moved copy under <code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/services/postgresql/</span></code>, then rebuild with
+<code class="docutils literal notranslate"><span class="pre">--force</span></code> to deploy it. Every build copies it back and marks it yours, so
+later re-renders leave it alone. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code> shows what is
+framework-managed and what is yours; the same mechanism covers the agent
+artifacts (rules, agents, skills, hooks). See <a class="reference internal" href="build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a> for the full
+workflow and the artifacts a claim refuses.</p>
 <p>Before reaching for a claim, check whether a config key or environment
 variable already covers your need — most service knobs (ports, images,
 credentials, retention) are configurable without forking the template.</p>
@@ -757,16 +762,35 @@ have authentication and firewalling in place — <code class="docutils literal n
 Podman Compose via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code>. Compose uses these values to fill in
 <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files; a variable reaches a
 running container only where a template maps it in.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
-<span class="c1"># Edit .env with your actual values</span>
+<p>The project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is <strong>derived from the build profile’s</strong>, so that is where
+you set a value:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>my-profile/.env.example<span class="w"> </span>my-profile/.env
+<span class="c1"># Edit my-profile/.env with your actual values, then rebuild</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> also <em>writes</em> to this file: on first deploy it mints any
+<p>Editing the project copy directly works for the current deploy but does not
+survive a rebuild — the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> re-derives the file from the
+profile. See <a class="reference internal" href="build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> also <em>writes</em> to these files. On first deploy it mints any
 missing service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>,
 <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>, or <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so services never start
-with blank or publicly-known credentials, and restricts the file to owner-only
-permissions. Treat <code class="docutils literal notranslate"><span class="pre">.env</span></code> as the project’s secret store and keep it out of
-version control.</p>
+with blank or publicly-known credentials, restricts the file to owner-only
+permissions, and then writes those values <strong>back into the profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+under a “Minted by deploy” heading. That is what makes the stack reproducible: a
+rebuild from the same profile comes up on the same credentials instead of
+minting a second set the running containers do not trust.</p>
+<p>The write-back never overwrites. A value already in the profile wins — it is
+pinned by the docker volume that was initialized with it — and a deploy whose
+own value disagrees says so by variable name (never by value) and keeps using
+its own, leaving you to reconcile the two.</p>
+<p>If the profile cannot be reached — it has moved or been deleted, or the project
+was built before this mechanism existed — the deploy still succeeds. The secrets
+stay in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>, a warning names the path that failed, and the
+project records that its <code class="docutils literal notranslate"><span class="pre">.env</span></code> is the only copy; a later
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--force</span></code> repeats that warning before it touches the directory.
+Back that file up.</p>
+<p>Keep both <code class="docutils literal notranslate"><span class="pre">.env</span></code> files out of version control (the profile’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>
+does this for you).</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Postgres reads <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code> (as <code class="docutils literal notranslate"><span class="pre">POSTGRES_PASSWORD</span></code>) only when

@@ -124,7 +124,8 @@ Step 4: Set up your API key
 -----------------------------
 
 The Osprey agent needs an API key for the AI provider. Set it in your shell profile
-so it's always available.
+now: an exported key is what a host-local run reads, and it is what seeds the first
+project you build. Its durable home comes later — see the note below.
 
 .. tab-set::
 
@@ -169,6 +170,19 @@ so it's always available.
 
 .. note::
    Using ``bash`` instead of ``zsh``? Replace ``~/.zshrc`` with ``~/.bashrc``.
+
+.. admonition:: Where the key lives once you build a project
+   :class: important
+
+   A shell export reaches a **build profile** once: when the profile is created,
+   either by ``osprey profile new`` or by your first ``--preset`` build. From then
+   on the profile's own ``.env`` is the key's home — ``osprey build`` derives each
+   project's ``.env`` from it and never re-reads your shell, so a key exported
+   *after* the profile exists does not get in.
+
+   Keep the export for host-local runs and for seeding that first build; put the
+   key in ``my-profile/.env`` for anything you want to survive a rebuild. See
+   :ref:`profile-secrets`.
 
 
 Step 5: Install OSPREY

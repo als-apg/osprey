@@ -158,8 +158,10 @@ directly:
       during ``osprey build``. ``osprey claude regen`` will preserve your
       edits.
 
-2. **Set provider credentials in ``.env``** (e.g. ``ANTHROPIC_API_KEY``
-   or ``CBORG_API_KEY``). The default provider is ``anthropic``.
+2. **Set provider credentials in ``my-logbook-profile/.env``** (e.g.
+   ``ANTHROPIC_API_KEY`` or ``CBORG_API_KEY``). The default provider is
+   ``anthropic``. The profile owns the project's secrets: the build derives the
+   project's ``.env`` from it, so a value set there survives every rebuild.
 
 3. **Replace the demo logbook seed.** The bundled
    ``data/logbook_seed/demo_logbook.json`` is 28 entries of fictional
@@ -184,10 +186,12 @@ profile from the ``ariel-standalone`` preset:
 
 This writes a ``my-ariel-profile/`` directory containing a standalone
 ``profile.yml`` — the preset's full configuration written out explicitly, with
-no ``extends:`` back to the preset — plus the preset's ``data/`` tree and
-``overlays/{rules,skills,agents,web-terminal-context}/`` sentinels. Edit
-``profile.yml``, the data files, and the overlays directly, then rebuild
-whenever you change something:
+no ``extends:`` back to the preset — plus the preset's ``data/`` tree and an
+``.env.example`` listing every variable the agent reads. Directories for your
+own artifacts are not created up front: make a ``rules/``, ``skills/`` or
+``agents/`` directory when you have something to put in it, and the build
+carries its contents into the project. Edit ``profile.yml``, the data files, and
+those directories, then rebuild whenever you change something:
 
 .. code-block:: bash
 

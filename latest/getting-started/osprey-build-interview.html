@@ -574,7 +574,8 @@ claude
 host, deploy server, container runtime, ports, optional modules) and
 writes them to <code class="docutils literal notranslate"><span class="pre">facility-config.yml</span></code></p></li>
 <li><p>Scaffolding the deploy infrastructure from that config (<code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">.gitlab-ci.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">scripts/deploy.sh</span></code>, <code class="docutils literal notranslate"><span class="pre">.env.template</span></code>)</p></li>
+<code class="docutils literal notranslate"><span class="pre">.gitlab-ci.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">scripts/deploy.sh</span></code>, and a template listing the
+secrets the deploy server needs)</p></li>
 <li><p>Driving the GitLab pipeline (push → CI builds containers → manual release
 tag → <code class="docutils literal notranslate"><span class="pre">deploy.sh</span></code> on the server)</p></li>
 <li><p>Post-deploy health checks and ongoing release operations</p></li>

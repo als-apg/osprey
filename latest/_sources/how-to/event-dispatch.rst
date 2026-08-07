@@ -49,7 +49,8 @@ Bring It Up
 
 Both services are registered in ``deployed_services``, so they come up with the
 rest of the stack. ``osprey deploy up`` auto-generates both bearer tokens into
-``.env`` when they are unset:
+the profile's ``.env`` when they are unset, then derives the project's ``.env``
+from it:
 
 .. code-block:: bash
 
@@ -68,8 +69,9 @@ worker runs on.
      (``<project>-dispatch:local``, from
      ``services/event_dispatcher/Dockerfile``);
    - the **worker** runs the full *project image* (``<project>:local`` — the
-     same image :doc:`containerize-project` describes, with your overlays and
-     ``data/`` baked in), so the agent it launches sees the real project.
+     same image :doc:`containerize-project` describes, with your profile's
+     artifacts and ``data/`` baked in), so the agent it launches sees the real
+     project.
 
    Pass ``--dev`` to install your local osprey checkout (incl. unreleased
    code) via a wheel; otherwise the images install ``osprey-framework`` from
@@ -257,10 +259,12 @@ Authoring Triggers
 Authentication
 ==============
 
-Two bearer tokens live in the project ``.env``. ``osprey deploy up``
-auto-generates a strong random value for each when it is unset (and logs where
-it wrote it), so a containerized deploy needs no token editing. Set your own
-values in ``.env`` to override:
+Two bearer tokens guard the stack. ``osprey deploy up`` auto-generates a strong
+random value for each when it is unset (and logs where it wrote it), so a
+containerized deploy needs no token editing. A generated value is written into
+the **profile's** ``.env`` and derived from there into the project's, so a
+rebuild comes up on the same token. To pick your own values, set them in the
+profile's ``.env`` and rebuild:
 
 - ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints.
   Send it as ``Authorization: Bearer <token>``.
