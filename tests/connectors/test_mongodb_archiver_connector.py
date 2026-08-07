@@ -2,7 +2,7 @@
 
 import sys
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -779,6 +779,24 @@ class TestQueryShapeWithoutDocker:
         assert set(df["channel"]) == {"BEAM:CURRENT"}
 
     @pytest.mark.asyncio
+    async def test_document_missing_date_is_skipped(self):
+        """A document without a 'date' field is skipped; its values contribute no rows."""
+        documents = [
+            {"BEAM:CURRENT": 99.0},  # no 'date' field: must not become a row
+            {"date": datetime(2024, 1, 1, 0, 0, 1, tzinfo=UTC), "BEAM:CURRENT": 1.0},
+        ]
+        connector, _ = self._stub_connector(documents)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=datetime(2024, 1, 1, tzinfo=UTC),
+            end_date=datetime(2024, 1, 2, tzinfo=UTC),
+            precision_ms=0,
+        )
+
+        assert df["value"].tolist() == [1.0]
+
+    @pytest.mark.asyncio
     async def test_mixed_cadence_channels_aggregate_independently(self):
         """A 10 Hz and a much sparser channel queried together must each be
         aggregated over only their own samples.
@@ -816,3 +834,106 @@ class TestQueryShapeWithoutDocker:
         # SLOW: its own 50 real samples, each its own bin.
         assert len(slow_values) == 50
         assert slow_values == pytest.approx([500.0 + i for i in range(50)])
+
+
+class TestErrorHandlingWithoutDocker:
+    """Exception mapping and degradation paths, with the pymongo client mocked."""
+
+    @staticmethod
+    def _erroring_connector(**side_effects):
+        """Return a connected connector whose named collection methods raise."""
+        connector = MongoDBArchiverConnector()
+        connector._connected = True
+        connector._collection = MagicMock()
+        connector._timeout = 10
+        for method, exception in side_effects.items():
+            getattr(connector._collection, method).side_effect = exception
+        return connector
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("raised", "match"),
+        [
+            ("ConnectionFailure", "Cannot connect to MongoDB"),
+            ("ConfigurationError", "MongoDB configuration error"),
+            (TimeoutError("unreachable"), "MongoDB connection failed"),
+            (OSError("unreachable"), "MongoDB connection failed"),
+            (RuntimeError("driver bug"), "MongoDB connection failed"),
+        ],
+    )
+    async def test_connect_failures_map_to_connection_error(self, raised, match, monkeypatch):
+        """Every connect()-time failure surfaces as ConnectionError, message per cause."""
+        if isinstance(raised, str):  # pymongo exception class, imported lazily
+            pymongo_errors = pytest.importorskip("pymongo.errors")
+            raised = getattr(pymongo_errors, raised)("refused")
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        connector = MongoDBArchiverConnector()
+        config = {
+            "host": "mongodb.example.invalid",
+            "name": "testdb",
+            "collection": "testcoll",
+            "auth": "admin",
+            "username": "user",
+            "password_env": "MONGODB_MOCK_PASSWORD",
+        }
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            mock_client_cls.return_value.admin.command.side_effect = raised
+            with pytest.raises(ConnectionError, match=match) as exc_info:
+                await connector.connect(config)
+
+        assert isinstance(exc_info.value.__cause__, type(raised))
+
+    @pytest.mark.asyncio
+    async def test_disconnect_swallows_close_error_and_clears_state(self):
+        """A failing client.close() is logged, not raised, and state is still cleared."""
+        connector = self._erroring_connector()
+        connector._client = MagicMock()
+        connector._client.close.side_effect = RuntimeError("socket already closed")
+
+        await connector.disconnect()
+
+        assert connector._client is None
+        assert connector._collection is None
+        assert connector._connected is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("raised", "expected", "match"),
+        [
+            (TimeoutError("slow server"), TimeoutError, "MongoDB query timed out after 10s"),
+            (
+                ConnectionError("connection reset"),
+                ConnectionError,
+                "Network connectivity issue with MongoDB",
+            ),
+            (ValueError("bad document"), ValueError, "Error retrieving data from MongoDB"),
+            (TypeError("bad document"), ValueError, "Error retrieving data from MongoDB"),
+            (RuntimeError("cursor lost"), ValueError, "Error retrieving data from MongoDB"),
+        ],
+    )
+    async def test_get_data_failures_map_per_exception_type(self, raised, expected, match):
+        """Each get_data()-time failure re-raises as the documented type and message."""
+        connector = self._erroring_connector(find=raised)
+
+        with pytest.raises(expected, match=match) as exc_info:
+            await connector.get_data(
+                pv_list=["BEAM:CURRENT"],
+                start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                end_date=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+
+        assert isinstance(exc_info.value.__cause__, type(raised))
+
+    @pytest.mark.asyncio
+    async def test_availability_query_errors_degrade_to_not_archived(self):
+        """get_metadata()/check_availability() report not-archived instead of raising."""
+        connector = self._erroring_connector(count_documents=RuntimeError("cursor lost"))
+
+        metadata = await connector.get_metadata("BEAM:CURRENT")
+        assert isinstance(metadata, ArchiverMetadata)
+        assert metadata.pv_name == "BEAM:CURRENT"
+        assert metadata.is_archived is False
+
+        availability = await connector.check_availability(["BEAM:CURRENT", "BEAM:LIFETIME"])
+        assert availability == {"BEAM:CURRENT": False, "BEAM:LIFETIME": False}

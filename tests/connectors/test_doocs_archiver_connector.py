@@ -187,6 +187,14 @@ class TestGetDataSinglePV:
         df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
         assert len(df) > 0
 
+    async def test_unreadable_history_raises_runtime_error(self, archiver):
+        """A channel whose history cannot be read fails loudly, not as an empty frame."""
+        conn, mock_d4py = archiver
+        mock_d4py.get.side_effect = RuntimeError("DOOCS error")
+
+        with pytest.raises(RuntimeError, match="Cannot read history for FAC/DEV/LOC/PROP"):
+            await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
+
 
 class TestGetDataTimeout:
     """``timeout`` reaches ``asyncio.wait_for``, with the configured default applied."""
@@ -416,6 +424,29 @@ class TestReadHistory:
         assert len(out["data"]) == len(out["time"]) == n
         # min_periods=1 shrinks the window at the edges rather than zero-padding.
         assert np.all(np.isfinite(out["data"]))
+
+    def test_pagination_breaks_when_oldest_timestamp_stops_advancing(self):
+        """The failsafe: a chunk whose oldest timestamp equals the current stop
+        must end pagination instead of re-requesting the same window forever."""
+        mid_ts = (_START_TS + _END_TS) / 2
+        mock_d4py = MagicMock()
+        # The first chunk covers only the newer half of the window, so pagination
+        # continues with current_stop = mid_ts; the archive then keeps answering
+        # with that same oldest sample. No third result: without the failsafe the
+        # loop would spin into StopIteration and report no data at all.
+        mock_d4py.get.side_effect = [
+            MagicMock(value=_make_raw_chunk(n=10, t_start=mid_ts, t_end=_END_TS)),
+            MagicMock(value=[(mid_ts, 0, 0, 99.0)]),
+        ]
+
+        conn = self._make_connector_with_d4py(mock_d4py)
+        out = conn._read_history("FAC/DEV/LOC/PROP", _START_TS, _END_TS)
+
+        assert out is not None
+        assert mock_d4py.get.call_count == 2
+        # The duplicated mid-window sample is deduplicated, not double-counted.
+        assert len(out["time"]) == 10
+        assert np.all(np.diff(out["time"]) > 0)
 
     def test_hist_suffix_appended(self):
         chunk = _make_raw_chunk(n=5)
