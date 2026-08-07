@@ -7,16 +7,22 @@ system for unified component management and lazy loading.
 
 """
 
+from __future__ import annotations
+
 import importlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.connectors import types
-from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
 from osprey.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    # Import only for annotations: pulling in the archiver base eagerly would
+    # make pandas a hard dependency of the lean control-system import chain.
+    from osprey.connectors.archiver.base import ArchiverConnector
 
 logger = get_logger("connector_factory")
 
