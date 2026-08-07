@@ -27,6 +27,21 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- The web terminal's System Settings drawer explains itself. Each tab opens
+  with a standing one-line subtitle, and the category help tooltips now
+  describe how each kind of file is *loaded* — when it enters the session,
+  what runs it, whether it advises or enforces — instead of summarizing what
+  the shipped files happen to say, which went stale as soon as an operator
+  edited one. Ownership prompts likewise state what taking or releasing
+  ownership actually does.
+- Each settings gallery now opens on artifacts rather than controls. Search and
+  the category chips moved behind a `Filter` disclosure on a single muted
+  summary line, and every category except the pinned ones starts collapsed.
+  An active filter stays named on that line, with a one-click clear, so a
+  narrowed list can never be mistaken for a short one.
+- The Behavior tab labels `CLAUDE.md` "project instructions" rather than
+  "system prompt": it is delivered as a message after the system prompt, while
+  the output style is what actually modifies it.
 - Bridge conversation history keeps more context. Replay is now bounded by the
   character budget (raised to 100k chars) rather than by turn count, which
   becomes a runaway backstop (100 turns), and a turn stays eligible for replay
@@ -112,6 +127,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The settings drawer's `CLAUDE.md` section now has a help tooltip. Its help
+  text was filed under a category name no gallery ever displays, so the button
+  silently never rendered — on the one artifact that matters most.
+- The settings Config tab's form view no longer hides most of `config.yml`. It
+  listed a `python_execution` section that does not exist (the section is
+  `execution`), so execution settings were reachable only through Raw YAML;
+  `archiver`, `logbook`, and `facility_knowledge` are now editable there too.
 - Enum/status channels no longer render a state the channel was never in. A
   gap in an enum channel (a `null` sample) was being turned into the literal
   category rung `"<channel>: null"` on the chart's shared category axis, so a

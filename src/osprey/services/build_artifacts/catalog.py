@@ -51,19 +51,19 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="claude-md",
             template_path="CLAUDE.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md system prompt (control-system persona)",
+            description="CLAUDE.md project instructions (control-system persona)",
         ),
         BuildArtifact(
             canonical_name="claude-md-ariel",
             template_path="CLAUDE.ariel.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md system prompt (ARIEL logbook research persona)",
+            description="CLAUDE.md project instructions (ARIEL logbook research persona)",
         ),
         BuildArtifact(
             canonical_name="claude-md-channel-finder",
             template_path="CLAUDE.channel-finder.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md system prompt (channel-finder assistant persona)",
+            description="CLAUDE.md project instructions (channel-finder assistant persona)",
         ),
         BuildArtifact(
             canonical_name="mcp-json",

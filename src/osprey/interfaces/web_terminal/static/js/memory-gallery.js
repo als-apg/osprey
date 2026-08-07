@@ -546,7 +546,12 @@ export function initMemoryGallery() {
   const memoryPanel = document.getElementById('tab-memory');
   if (!memoryPanel) return;
 
-  const memoryGallery = new MemoryGallery({ container: memoryPanel });
+  // Section container, so the panel can also hold the static subtitle
+  // index.html renders above it (the gallery clears its own container on
+  // build). Falls back to the panel itself for fixtures mounting a bare
+  // `#tab-memory`, matching the scaffold galleries.
+  const memoryContainer = document.getElementById('memory-gallery-section') || memoryPanel;
+  const memoryGallery = new MemoryGallery({ container: memoryContainer });
 
   // Load when tab becomes active
   memoryPanel.addEventListener('drawer:tab-activate', () => {
