@@ -231,13 +231,35 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
-# Virtual Accelerator: kept as an empty alias for back-compat. Everything the
-# VA needs is a core dependency (see [project] dependencies), so this extra
-# installs nothing extra. Retained so existing
-# `osprey-framework[virtual-accelerator]` references (CI `uv sync --extra`, the
-# VA image Dockerfile, and pinned older-version image builds that still gated
-# the serving stack here) keep resolving.
-virtual-accelerator = []
+# Virtual Accelerator: the Channel Access serving stack. Everything else the VA
+# needs (PyAT, the manifest/lattice layer) is a core dependency, so pcaspy is
+# the only entry here; `osprey-framework[virtual-accelerator]` keeps resolving
+# for every existing reference to it (CI `uv sync --extra`, the VA image).
+#
+# pcaspy is the portable Channel Access server. The serving layer hosts one,
+# and tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand
+# one up in-process to assert the write contract from the far side of the wire;
+# without pcaspy installed both suites skip, and a skipped live suite proves
+# nothing.
+#
+# `>=0.8.1` is a hard floor, not a preference. 0.8.0's `SimplePV.writeNotify`
+# hands `startAsyncWrite` the wrong object and aborts the server process on any
+# asynchronous write, and the client is not told: `caput -w` returns success in
+# tens of milliseconds for a value that never landed. The fix needs
+# `casClientInfo.ctx`, a binding that only exists in the 0.8.1 extension.
+#
+# The environment marker is load-bearing. pcaspy publishes manylinux x86_64
+# wheels at every interpreter, but nothing else that loads: cp313/cp314 are
+# x86_64-only, there is no linux aarch64 wheel at any interpreter, and the
+# macosx_11_0_arm64 wheels are broken as shipped (they link
+# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). Unmarked, this
+# requirement would send a developer's Mac into a source build that needs EPICS
+# Base plus the separate PCAS module, and fail. Marked, those hosts get the
+# honest `importorskip` skip and run the live suites in the container venue
+# under scripts/va/live_ca/ instead.
+virtual-accelerator = [
+    "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 
 # All optional dependencies for complete installation
 all = [

@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-31T08:38:29.721038Z"
+exclude-newer = "2026-07-31T09:50:07.743242Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -4145,6 +4145,9 @@ screen-capture-linux = [
 sheets = [
     { name = "gspread" },
 ]
+virtual-accelerator = [
+    { name = "pcaspy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -4204,6 +4207,7 @@ requires-dist = [
     { name = "openai", specifier = ">=2.45.0" },
     { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
     { name = "pandas", specifier = ">=2.2.3" },
+    { name = "pcaspy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = ">=0.8.1" },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=12.3.0" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=12.3.0" },
     { name = "playwright", specifier = ">=1.61.0" },
@@ -4399,6 +4403,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fa/36/e27608899f9b8d4dff0617b2d9ab17ca5608956ca44461ac14ac48b44015/pathspec-1.0.4.tar.gz", hash = "sha256:0210e2ae8a21a9137c0d470578cb0e595af87edaa6ebf12ff176f14a02e0e645", size = 131200, upload-time = "2026-01-27T03:59:46.938Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ef/3c/2c197d226f9ea224a9ab8d197933f9da0ae0aac5b6e0f884e2b8d9c8e9f7/pathspec-1.0.4-py3-none-any.whl", hash = "sha256:fb6ae2fd4e7c921a165808a552060e722767cfa526f99ca5156ed2ce45a5c723", size = 55206, upload-time = "2026-01-27T03:59:45.137Z" },
+]
+
+[[package]]
+name = "pcaspy"
+version = "0.8.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/d3/50e8042e234997b3fe3e3c19f48b3aef68fc2282dba807749a3a97bd592c/pcaspy-0.8.1.tar.gz", hash = "sha256:80f6aafacdd796c471b62737ad242a322cff22d8b8f18d9c56feed4270d221bf", size = 36913, upload-time = "2024-03-16T17:22:24.852Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/f0/e47130d9903f2025821fe7402f44cff7e1709ee18298be4088c02967f90f/pcaspy-0.8.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:845cc552194eab0383d70af5b2276d34d8083f08f5fcbacf4d5a8ccfde9183cd", size = 2988171, upload-time = "2024-03-17T19:54:17.486Z" },
+    { url = "https://files.pythonhosted.org/packages/08/d2/31d7f7373e5cfdbb29c873ee62bb49a19bb9b4a3e13b1ed788a152b91e68/pcaspy-0.8.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3be958e46f58771f5ecde273c56604891515408308a6f4535db400a4568cfb1c", size = 2975757, upload-time = "2024-03-17T19:54:19.748Z" },
+    { url = "https://files.pythonhosted.org/packages/15/73/cb43d8815816ef13210e6724451282a5d2e3b16c7b77ee0ac6e9a341f9c1/pcaspy-0.8.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:abba39aab103183fe63843f1ff6eb8dbcb240db9dcb45033961e7fd683797297", size = 3741551, upload-time = "2026-06-25T12:41:28.333Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/9b/027de403500434780f296fbedfddb3227431100bc5be622468acd0bdbff9/pcaspy-0.8.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:49c3cb3d65c483c73afd1d929331662b703305346f0dbf654a79da57a83cf2da", size = 3739653, upload-time = "2026-06-25T12:42:01.812Z" },
 ]
 
 [[package]]

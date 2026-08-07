@@ -1,0 +1,64 @@
+# The venue that actually runs the live Channel Access suites.
+#
+# tests/va/test_record_factory.py and tests/va/test_apply_fault.py assert the
+# serving write contract from the far side of a real CA wire: a real pcaspy
+# server, the real write path, and a real pyepics client, all in one process.
+# They need pcaspy, which publishes no loadable macOS arm64 wheel, so on a
+# developer's Mac they skip -- loudly, but they skip, and a skipped live suite
+# proves nothing. This image is where they are not allowed to skip.
+#
+# linux/amd64 is the default in the FROM line rather than left to the caller,
+# because it is the venue's defining property, not a preference: pcaspy
+# publishes manylinux x86_64 wheels only (no aarch64 wheel exists at any
+# interpreter), so an arm64 build of this image could not install the one
+# dependency it exists to provide. Defaulting it here makes a useless build
+# take a deliberate act rather than an omission. On an arm64 host this runs
+# emulated.
+#
+# python3.11 matches CI's oldest unit-test lane, which is the lane that must
+# not silently stop exercising Channel Access.
+ARG BASE_PLATFORM=linux/amd64
+FROM --platform=${BASE_PLATFORM} ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+
+# Dependencies come from the repo's own lockfile via the repo's own extras --
+# the same `uv sync --extra dev --extra virtual-accelerator` CI runs, on the
+# same platform CI runs it. That is deliberate: a hand-maintained pip list here
+# would drift from what CI installs, and this venue's whole job is to prove
+# what CI will do. --frozen means the lock is used as committed and never
+# re-resolved, so the container cannot quietly pick a different pcaspy than the
+# one uv.lock pins.
+#
+# Only the dependency closure is installed (--no-install-project). The osprey
+# source is bind-mounted at /work and put on PYTHONPATH at run time, so editing
+# a test or a module never invalidates this layer -- it is rebuilt only when
+# pyproject.toml or uv.lock changes.
+#
+# The build context is therefore just those three files, staged by
+# run_live_ca.sh -- NOT the repo root, which also holds .git/, .venv/ and the
+# worktrees and would make every build re-tar gigabytes the image never reads.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_LINK_MODE=copy
+WORKDIR /opt/osprey
+COPY pyproject.toml uv.lock README.md /opt/osprey/
+RUN uv sync --frozen --no-install-project --extra dev --extra virtual-accelerator
+
+# Channel Access stays inside this container: the server and the client share
+# this process and this network namespace, so nothing is published and no host
+# port is claimed. That is why this venue never collides with an operator's
+# demo stack on 5064 -- not because it picks a polite port, but because it has
+# no reachable port at all.
+#
+# The suites pick their own ephemeral loopback port at import time (libca
+# latches EPICS_CA_* when the C library initialises, earlier than any fixture
+# can run), so the ports are deliberately left unset here. Only the loopback
+# discipline is pinned, which is what stops a stray broadcast search.
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONPATH=/work/src \
+    PYTHONDONTWRITEBYTECODE=1 \
+    EPICS_CA_ADDR_LIST=127.0.0.1 \
+    EPICS_CA_AUTO_ADDR_LIST=NO
+
+# /work is the repo, mounted read-only. The gate script is read from there too
+# rather than copied in, so it stays editable without a rebuild.
+WORKDIR /work
+CMD ["python", "-u", "scripts/va/live_ca/gate.py"]
