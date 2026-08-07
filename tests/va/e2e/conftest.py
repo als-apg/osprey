@@ -5,10 +5,17 @@ actually serving Channel Access -- these are integration tests against a
 live soft-IOC, not unit tests, and are opt-in via ``OSPREY_VA_E2E_ENABLE=1``
 (unset, the whole directory collects cleanly and every test skips).
 
-Container lifecycle: ONE session-scoped container (name ``osprey-va-e2e``,
-never anything else -- see the containment rules in the run notes) shared by
-every test in this directory; they run serially in one pytest process, so
-there's no port contention. It's bind-mounted against a *scratch* copy of the
+Container lifecycle: ONE session-scoped container per pytest process, named
+``osprey-va-e2e-<pid>`` and never anything else (the containment rules in the
+run notes apply to that exact name), shared by every test in this directory;
+they run serially in one pytest process, so there's no port contention. The
+pid suffix is what keeps two concurrent runs from destroying each other: this
+fixture force-removes its container by name on the way in, as stale-cleanup
+from a crashed prior run, and against a *live* peer sharing one fixed name
+that is not cleanup -- it kills the peer mid-test, which then fails with a
+boot timeout or a dropped connection that reads as environmental rather than
+as a collision. The ``osprey-va-e2e`` prefix is kept so a stray container is
+still recognisable by eye. It's bind-mounted against a *scratch* copy of the
 Control Assistant preset's ``data/simulation`` directory (never the repo's
 own copy -- ``osprey sim apply`` mutates ``active_scenarios`` and this suite
 adds its own synthetic scenario), so the fixture is free to write into it.
@@ -63,9 +70,25 @@ ENV_FLAG = "OSPREY_VA_E2E_ENABLE"
 E2E_ENABLED = os.environ.get(ENV_FLAG) == "1"
 
 IMAGE = "osprey-va-full:latest"
-CONTAINER_NAME = "osprey-va-e2e"
+# Per-process, so two concurrent runs cannot force-remove each other's live
+# container -- see the module docstring. Everything that creates, inspects or
+# removes the container uses this one name.
+CONTAINER_NAME = f"osprey-va-e2e-{os.getpid()}"
+# 5064 stays pinned, and deliberately so: the Control Assistant preset's
+# config.yml.j2 hardcodes ``control_system.connector.virtual_accelerator.
+# gateways.*.port: 5064`` rather than templating it, so this is the only
+# coverage of the port the shipped default actually serves on. (Contrast
+# test_serving_parity.py in this directory, which binds an ephemeral port
+# because it boots two containers of its own and asserts nothing about
+# preset-rendered configuration.)
 CA_PORT = 5064
-CONTAINER_BOOT_TIMEOUT_S = 30.0
+# Generous on purpose. Boot-to-first-served-answer measured 9-15 s across six
+# container boots on this host -- the VA images are pinned ``linux/amd64`` and
+# the host is Apple Silicon, so every local boot is emulated. A 30 s ceiling is
+# ~2x a 15 s boot, thin enough to flake; a slow boot that still succeeds costs
+# nothing here, while a real failure gets its container logs into the error
+# either way.
+CONTAINER_BOOT_TIMEOUT_S = 120.0
 
 PRESET_SIM_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 LIMITS_DB_PATH = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/channel_limits.json"
@@ -288,10 +311,14 @@ def _readiness_pv_served() -> bool:
 def va_container(va_project: VaProject) -> Iterator[VaProject]:
     """Boot the session-shared VA container and wait for it to serve PVs.
 
-    Exact container name ``osprey-va-e2e`` (containment rule); torn down by
-    that exact name regardless of how this fixture exits.
+    Exact container name ``CONTAINER_NAME`` -- ``osprey-va-e2e-<pid>``
+    (containment rule); created, logged and torn down by that same name
+    regardless of how this fixture exits, and by no other.
     """
-    _docker_rm(CONTAINER_NAME)  # clear any stale container from a prior crashed run
+    # Stale-cleanup only: with the pid suffix this can name nothing but a
+    # container left behind by an earlier process that has since exited and
+    # whose pid was reused. It can no longer reach a concurrent peer's.
+    _docker_rm(CONTAINER_NAME)
 
     result = subprocess.run(
         [

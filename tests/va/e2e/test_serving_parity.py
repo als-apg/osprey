@@ -37,10 +37,17 @@ executor whose CA context is per-thread, so a main-thread pyepics call in this
 process deadlocks any connector-based test sharing it. The worker below is
 dispatched before this module imports anything heavy and speaks JSON on stdout.
 
-**Ports.** Each container binds an ephemeral port and publishes it unchanged: a
-Channel Access search reply carries the server's own port number, so a remap
-would hand every client an address nothing answers on. Nothing here goes near
-5064, which belongs to whatever the operator is running.
+**Ports, and container names.** Each container binds an ephemeral port and
+publishes it unchanged: a Channel Access search reply carries the server's own
+port number, so a remap would hand every client an address nothing answers on.
+Nothing here goes near 5064, which belongs to whatever the operator is running.
+That port also *names* the container, appended to the prefixes below. A fixed
+name would be mutually destructive: each boot force-removes its name first, as
+stale-cleanup from a crashed prior run, and against a concurrent peer that is
+not cleanup -- it kills a live run mid-test, which then fails with a boot
+timeout or a dropped connection that reads as environmental rather than as a
+collision, and so gets misdiagnosed. The port is already unique per run, so it
+is the suffix; the prefix stays recognisable to a human reading ``docker ps``.
 """
 
 from __future__ import annotations
@@ -202,6 +209,8 @@ MIN_COLLECTED_TESTS = 20
 #: directory serves from; override when certifying a candidate build.
 IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", "osprey-va-full:latest")
 
+#: Container-name *prefixes*. ``_serving`` appends the run's own ephemeral
+#: port; see the module docstring for why a fixed name is destructive.
 CONTAINER_SEEDED = "osprey-va-e2e-parity"
 CONTAINER_TRUTH = "osprey-va-e2e-parity-truth"
 
@@ -349,14 +358,18 @@ class LiveVA:
 
 
 @contextmanager
-def _serving(name: str, *, seeded: bool):
+def _serving(prefix: str, *, seeded: bool):
     """Boot one virtual accelerator container and wait until it serves.
 
     The published port and the server's own port are the same number by
-    construction; see the module docstring.
+    construction, and that number also names the container; see the module
+    docstring for both.
     """
     repository_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     port = _free_port()
+    name = f"{prefix}-{port}"
+    # Stale-cleanup only. The port is this run's alone, so this can name
+    # nothing a concurrent run is using -- which is the point of the suffix.
     _docker("rm", "-f", name, timeout=60)
 
     arguments = [
