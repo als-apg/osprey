@@ -1,16 +1,58 @@
 #!/usr/bin/env bash
-# Validation gate for the full Virtual Accelerator image (task 3.6).
+# Validation gate for the full Virtual Accelerator image.
 #
 # Stages a minimal build context (pyproject.toml, README.md, src/,
 # docker/virtual-accelerator/Containerfile -- never the repo root, which
 # also contains .venv/.git/worktrees), builds the image, boots a container
 # with the packaged control_assistant preset's data/simulation/ directory
 # bind-mounted (a real machine.json, so the engine source has something to
-# serve), waits for it to report ready, then confirms a live CA read
-# succeeds. Exits 0 only if the image builds, boots to serving PVs within
-# BOOT_TIMEOUT_SECS (<60s per the gate), and the caget succeeds.
+# serve), waits for it to report ready, and then drives both served
+# transports against it.
+#
+# What the gate asserts, and why each assertion is not vacuous:
+#
+#   1. The readiness line matches its whole contract -- marker AND a
+#      positive channel count -- rather than just the marker, so a boot that
+#      served nothing could not satisfy it.
+#   2. A Channel Access read of a quiescent BPM returns zero. This is the
+#      BASELINE, deliberately not an assertion of correctness: the tutorial
+#      lattice's closed orbit with no corrector excited IS exactly zero, so
+#      a read here cannot distinguish a working physics chain from an
+#      unseeded PV. That is why (3) exists.
+#   3. Exciting a corrector moves the BPMs off zero. THIS is the assertion
+#      with teeth: only a live manifest -> records -> physics-bridge ->
+#      lattice chain can move a reading, and an unseeded PV stays at zero
+#      through the write. The setpoint is written with put-completion, so
+#      the read that follows cannot race the solve.
+#   4. The runner's own control PVs (RESET, SNAPSHOT) are ABSENT. Paired
+#      with a positive control on a known-good PV, so "absent" cannot be
+#      satisfied by a server that stopped answering altogether.
+#   5. A PVA get of model_info returns the model's real variable roster.
+#   6. A PVA put above the drive limit lands CLAMPED, on both views of the
+#      address -- the value is checked back over PVA and over CA.
+#   7. A refused PVA put moves nothing. Checked on the Channel Access view,
+#      because that is the view that carries a real reading; see the step
+#      itself for why the PVA view would make this check vacuous today.
+#   8. The PVAccess port is not published to the host, while PVA is
+#      confirmed live inside the container -- so "unpublished" is
+#      distinguished from "not running".
+#
+# Exits 0 only if the image builds, boots to serving PVs within
+# BOOT_TIMEOUT_SECS, and every assertion above holds.
 #
 # Idempotent: safe to re-run. Removes any prior gate container first.
+#
+# Environment:
+#   OSPREY_VA_CA_PORT   Channel Access port to bind and publish. Defaults to
+#                       5064, which is what a full certification run needs
+#                       (it is the port the "Local Simulation" gateway preset
+#                       and the compose template both name). Override it to
+#                       run this gate on a host where 5064 is already held --
+#                       a running demo stack, most often -- without stopping
+#                       whatever holds it.
+#   OSPREY_VA_RUNTIME   Container runtime. Auto-detected when unset.
+#   LUME_PVA_SRC        Serving-stack checkout. Derived from the repo's
+#                       sibling layout when unset.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,13 +60,43 @@ WORKTREE_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VA_DIR="${WORKTREE_ROOT}/docker/virtual-accelerator"
 IMAGE="osprey-va-full:latest"
 CONTAINER="osprey-va-full-gate"
-CA_PORT="5064"
+# 5064 is the number a full certification needs: the "Local Simulation"
+# gateway preset and the compose template both name it, and the published
+# port must equal the bound port (a CA search reply carries the server's own
+# port). Overridable so this gate can run on a host where something else
+# already holds 5064 -- the alternative being to stop that stack, which is an
+# operator's decision and not this script's.
+CA_PORT="${OSPREY_VA_CA_PORT:-5064}"
 BOOT_TIMEOUT_SECS=60
 READY_LOG_MARKER="virtual accelerator IOC serving PVs"
-GATE_PV="SR:DIAG:BPM:01:POSITION:X"  # pyat-coupled BPM readback: seeded at
-    # boot by the physics bridge's initial closed-orbit solve, so it's
-    # readable with no write required -- exercising the full
-    # manifest -> records -> physics-bridge -> lattice chain.
+
+# The PVAccess server's port. Served inside the container only -- step 8
+# asserts it is never published to the host.
+PVA_PORT=5075
+
+# A pyat-coupled BPM readback, and the corrector whose field moves it. Reading
+# the BPM alone proves nothing: the tutorial lattice's closed orbit with no
+# corrector excited is exactly zero, which is indistinguishable from a PV that
+# was never seeded. So the gate writes ${EXCITE_PV} and requires the readings
+# to move -- only a live manifest -> records -> physics-bridge -> lattice chain
+# can do that.
+GATE_PV="SR:DIAG:BPM:01:POSITION:X"
+GATE_PV_2="SR:DIAG:BPM:02:POSITION:X"
+EXCITE_PV="SR:MAG:HCM:01:CURRENT:SP"
+EXCITE_VALUE="0.5"
+# Floor for "this reading moved". The excitation above produces order 1e-6 m
+# at both BPMs, so this sits ~100x below the signal and far above float noise.
+MOVED_THRESHOLD_M="1e-8"
+
+# ${EXCITE_PV}'s drive band is [-12, 12] (channel_limits.json). A put past the
+# top of it must land clamped at the limit rather than being refused or taken
+# literally.
+DRIVE_HIGH="12.0"
+OVER_DRIVE="20.0"
+
+# Control PVs the serving runner is configured NOT to claim: nothing is served
+# that the facility's channel manifest does not describe.
+ABSENT_PVS=("RESET" "SNAPSHOT")
 
 DEFAULT_DATA_DIR="${WORKTREE_ROOT}/src/osprey/templates/apps/control_assistant/data/simulation"
 DATA_DIR="${1:-${DEFAULT_DATA_DIR}}"
@@ -53,7 +125,6 @@ if [[ -z "${RUNTIME}" ]]; then
 fi
 echo "Using container runtime: ${RUNTIME}"
 
-HOST_CAGET="${HOME}/EPICS/epics-base/bin/darwin-aarch64/caget"
 VENV_PY="${WORKTREE_ROOT}/.venv/bin/python"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-full-build.XXXXXX")"
@@ -77,6 +148,13 @@ find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 # into the context so the image installs the fork you actually have. Same
 # staging step as scripts/va/run_va.sh -- both callers must satisfy the
 # Containerfile's build-context contract.
+#
+# This is a dev path with an end date: once the package is published, the image
+# resolves it by name from osprey's `virtual-accelerator` extra and this block
+# goes away. It is deliberately not a `git+https://` URL -- that would make the
+# image track a pushed ref rather than the checkout in front of you, which is
+# the property the source install exists to preserve, and would put the network
+# on the build path.
 if [[ -z "${LUME_PVA_SRC:-}" ]]; then
     MAIN_CHECKOUT="$(cd "$(git -C "${WORKTREE_ROOT}" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
     LUME_PVA_SRC="$(dirname "${MAIN_CHECKOUT}")/lume-pva"
@@ -88,7 +166,17 @@ if [[ ! -f "${LUME_PVA_SRC}/pyproject.toml" ]]; then
 fi
 command -v uv >/dev/null 2>&1 || { echo "FATAL: uv is required to build the serving-stack wheel" >&2; exit 1; }
 echo "--- Building the serving-stack wheel from ${LUME_PVA_SRC} ---"
-uv build --wheel --out-dir "${STAGING_DIR}" "${LUME_PVA_SRC}"
+# Built from a throwaway copy, never in place: that checkout is someone else's
+# repository and this script must leave it untouched, but a build backend
+# writes build/ and a generated _version.py into whatever tree it runs in.
+# .git comes along because the version is derived from it; the copy is deleted
+# before the image build so it never enters the context.
+FORK_COPY="${STAGING_DIR}/.lume-pva-src"
+rsync -a --exclude '.venv' --exclude 'build' --exclude 'dist' \
+    --exclude '*.egg-info' --exclude '.pytest_cache' --exclude '.ruff_cache' \
+    "${LUME_PVA_SRC}/" "${FORK_COPY}/"
+uv build --wheel --out-dir "${STAGING_DIR}" "${FORK_COPY}"
+rm -rf "${FORK_COPY}"
 
 # osprey's version comes from git (hatch-vcs) and the staged context has no
 # .git, so the host resolves it and passes it in; see the Containerfile.
@@ -129,30 +217,328 @@ if [[ "${booted}" != true ]]; then
 fi
 echo "Booted after ${boot_elapsed} s (container start -> ready log line; excludes the image build above)"
 
-echo "--- Reading ${GATE_PV} from host via CA name-server (TCP) ---"
+echo "--- [1/8] Asserting the runner readiness line ---"
+# The whole line is the contract, not just the marker: entrypoint.py writes it
+# in one place as "<marker>: <N> channels", and N is len(records.all). Matching
+# the marker alone would accept a boot that announced itself while serving an
+# empty namespace, so the count is parsed out and required to be positive.
+READY_LINE="$("${RUNTIME}" logs "${CONTAINER}" 2>&1 | grep -m1 "${READY_LOG_MARKER}" || true)"
+SERVED_CHANNELS="$(printf '%s' "${READY_LINE}" |
+    sed -n "s/.*${READY_LOG_MARKER}: \\([0-9][0-9]*\\) channels.*/\\1/p")"
+if [[ -z "${SERVED_CHANNELS}" ]]; then
+    echo "FATAL: readiness line did not match '<marker>: <N> channels'" >&2
+    echo "  got: ${READY_LINE:-<no line matching the marker>}" >&2
+    exit 1
+fi
+if [[ "${SERVED_CHANNELS}" -le 0 ]]; then
+    echo "FATAL: the IOC announced readiness while serving ${SERVED_CHANNELS} channels" >&2
+    exit 1
+fi
+echo "OK: ${READY_LINE}"
+
+# Host CA client configuration: name-server (TCP) mode, which is the one
+# host<->container arrangement proven to work across container runtimes. UDP
+# broadcast discovery is deliberately not relied upon and not published.
 export EPICS_CA_NAME_SERVERS="localhost:${CA_PORT}"
 export EPICS_CA_AUTO_ADDR_LIST="NO"
 export EPICS_CA_ADDR_LIST=""
 
-if [[ -x "${HOST_CAGET}" ]]; then
-    echo "Using host caget: ${HOST_CAGET}"
-    if ! "${HOST_CAGET}" -w 10 "${GATE_PV}"; then
-        echo "FATAL: caget failed to read ${GATE_PV}" >&2
-        "${RUNTIME}" logs "${CONTAINER}" >&2 || true
-        exit 1
-    fi
-elif [[ -x "${VENV_PY}" ]]; then
-    echo "Host caget not found; falling back to pyepics via worktree venv"
-    "${VENV_PY}" -c "
-import epics
-val = epics.caget('${GATE_PV}', timeout=10)
-if val is None:
-    raise SystemExit('FATAL: pyepics caget returned None for ${GATE_PV}')
-print('${GATE_PV}', val)
-"
-else
-    echo "FATAL: no host CA client available (no caget, no worktree venv python)" >&2
+# Every Channel Access assertion below runs through pyepics in the worktree
+# venv rather than through the host's caget/caput binaries. One client, not
+# two: these steps compare floats and assert on absence, and a single
+# implementation is what keeps "did not move" and "does not exist" meaning the
+# same thing in each of them. The venv is already a hard requirement above --
+# OSPREY_VERSION is resolved through it -- so this adds no new dependency.
+#
+# EVERY read below passes use_monitor=False, and that is load-bearing rather
+# than stylistic. pyepics' caget defaults to returning the value its monitor
+# subscription last cached, which after a write is whatever arrived before the
+# write did: the first draft of this gate read a setpoint back as 0 having just
+# completed a put of 0.5, intermittently, because the monitor event had not been
+# processed yet. Two distinct ways that corrupts a gate -- an assertion that a
+# value MOVED fails at random, and, far worse, an assertion that a value did NOT
+# move (step 7) passes for free, since a stale cache never moves. use_monitor=False
+# forces a fresh one-shot read over the wire, which is what put-completion
+# actually guarantees something about.
+if [[ ! -x "${VENV_PY}" ]]; then
+    echo "FATAL: no worktree venv python at ${VENV_PY}; the CA assertions need pyepics" >&2
     exit 1
 fi
+if ! "${VENV_PY}" -c "import epics" >/dev/null 2>&1; then
+    echo "FATAL: pyepics is not importable in ${VENV_PY}" >&2
+    exit 1
+fi
+
+ca_fail() {
+    echo "FATAL: $1" >&2
+    "${RUNTIME}" logs "${CONTAINER}" >&2 || true
+    exit 1
+}
+
+echo "--- [2/8] Baseline: reading the quiescent BPMs over Channel Access ---"
+# Not an assertion of correctness -- see the header. With no corrector
+# excited the closed orbit is exactly zero, so this only establishes that CA
+# answers at all and records the baseline step 3 measures movement against.
+QUIESCENT="$("${VENV_PY}" - "${GATE_PV}" "${GATE_PV_2}" <<'PY'
+import sys
+import epics
+vals = []
+for pv in sys.argv[1:]:
+    v = epics.caget(pv, timeout=15, use_monitor=False)
+    if v is None:
+        raise SystemExit(f"FATAL: no CA connection to {pv}")
+    vals.append(f"{float(v):.12g}")
+print(" ".join(vals))
+PY
+)" || ca_fail "could not read the BPMs over Channel Access"
+echo "OK: quiescent ${GATE_PV}=$(echo "${QUIESCENT}" | cut -d' ' -f1)" \
+     "${GATE_PV_2}=$(echo "${QUIESCENT}" | cut -d' ' -f2)"
+
+echo "--- [3/8] Exciting ${EXCITE_PV} and requiring the BPMs to move ---"
+# The assertion with teeth. put-completion (wait=True) is what makes the read
+# safe to do immediately: the setpoint is asynchronous, so the put returns only
+# once the physics hand-off behind it has finished and the readings it produced
+# have been pushed. Without that this would race the solve and read staleness.
+"${VENV_PY}" - "${EXCITE_PV}" "${EXCITE_VALUE}" "${MOVED_THRESHOLD_M}" \
+    "${GATE_PV}" "${GATE_PV_2}" <<'PY' || ca_fail "the excitation did not move the BPM readings"
+import sys
+import epics
+
+sp, value, threshold = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
+bpms = sys.argv[4:]
+
+before = {}
+for pv in bpms:
+    v = epics.caget(pv, timeout=15, use_monitor=False)
+    if v is None:
+        raise SystemExit(f"FATAL: no CA connection to {pv}")
+    before[pv] = float(v)
+
+if epics.caput(sp, value, wait=True, timeout=30) != 1:
+    raise SystemExit(f"FATAL: put-completion never returned for {sp}")
+
+readback = epics.caget(sp, timeout=15, use_monitor=False)
+if readback is None or abs(float(readback) - value) > 1e-9:
+    raise SystemExit(f"FATAL: {sp} reads {readback!r} after a completed put of {value}")
+
+failures = []
+for pv in bpms:
+    v = epics.caget(pv, timeout=15, use_monitor=False)
+    if v is None:
+        raise SystemExit(f"FATAL: no CA connection to {pv}")
+    moved = abs(float(v) - before[pv])
+    status = "moved" if moved > threshold else "DID NOT MOVE"
+    print(f"  {pv}: {before[pv]:.6g} -> {float(v):.6g}  (|delta|={moved:.3g}, {status})")
+    if moved <= threshold:
+        failures.append(pv)
+
+if failures:
+    raise SystemExit(
+        "FATAL: "
+        + ", ".join(failures)
+        + f" did not move by more than {threshold:g} m when {sp} was driven to {value}. "
+        "A reading that stays put through a corrector excitation is an unseeded PV, "
+        "not a physics chain."
+    )
+print(f"OK: every BPM moved off its quiescent value when {sp} was excited")
+PY
+
+echo "--- [4/8] Asserting the runner claims no control PVs ---"
+# The serving runner is configured with control_pvs off: nothing is served
+# that the facility's channel manifest does not describe. Absence is only
+# meaningful next to a positive control, so a known-good PV is read in the
+# same configuration first -- otherwise a server that had stopped answering
+# entirely would satisfy this step.
+"${VENV_PY}" - "${EXCITE_PV}" "${ABSENT_PVS[@]}" <<'PY' || ca_fail "control-PV absence check failed"
+import sys
+import epics
+
+control, absent = sys.argv[1], sys.argv[2:]
+
+if epics.caget(control, timeout=15, use_monitor=False) is None:
+    raise SystemExit(
+        f"FATAL: positive control {control} did not answer, so this step cannot "
+        "distinguish an absent control PV from a server that stopped responding"
+    )
+print(f"  positive control {control}: answers")
+
+present = []
+for pv in absent:
+    # Short timeout deliberately: this waits for a connection that must never
+    # come, and every second here is spent proving a negative.
+    if epics.caget(pv, timeout=3, connection_timeout=3, use_monitor=False) is not None:
+        present.append(pv)
+    else:
+        print(f"  {pv}: absent, as required")
+
+if present:
+    raise SystemExit(
+        "FATAL: the runner served control PVs it must not claim: " + ", ".join(present)
+    )
+print("OK: no control PV is served outside the channel manifest")
+PY
+
+echo "--- [5/8] PVA get of model_info (in-container; PVA is not published) ---"
+"${RUNTIME}" exec -i "${CONTAINER}" python - <<'PY' || ca_fail "PVA get of model_info failed"
+from p4p.client.thread import Context
+
+ctx = Context("pva")
+info = ctx.get("model_info", timeout=20)
+
+variables = info["supported_variables"]
+if len(variables) <= 0:
+    raise SystemExit("FATAL: model_info describes no variables")
+
+names = [entry["name"] for entry in variables]
+print(f"  class       : {info['class']}")
+print(f"  variables   : {len(names)}")
+print(f"  first       : {names[0]}")
+if len(set(names)) != len(names):
+    raise SystemExit("FATAL: model_info lists duplicate variable names")
+print("OK: model_info served over PVA with a populated variable roster")
+PY
+
+echo "--- [6/8] PVA put above the drive limit lands clamped, on both views ---"
+"${RUNTIME}" exec -i \
+    -e "SP_PV=${EXCITE_PV}" -e "OVER_DRIVE=${OVER_DRIVE}" -e "DRIVE_HIGH=${DRIVE_HIGH}" \
+    "${CONTAINER}" python - <<'PY' || ca_fail "PVA put was not clamped to the drive limit"
+import os
+
+from p4p.client.thread import Context
+
+sp = os.environ["SP_PV"]
+over = float(os.environ["OVER_DRIVE"])
+high = float(os.environ["DRIVE_HIGH"])
+
+ctx = Context("pva")
+before = float(ctx.get(sp, timeout=15))
+ctx.put(sp, over, timeout=30)
+after = float(ctx.get(sp, timeout=15))
+
+print(f"  {sp}: {before:g} -> put({over:g}) -> {after:g}")
+if abs(after - high) > 1e-9:
+    raise SystemExit(
+        f"FATAL: a put of {over:g} left {sp} at {after:g}; the drive limit is {high:g}, "
+        "so it should have landed clamped there"
+    )
+print(f"OK: the over-range put landed clamped at the drive limit ({high:g})")
+PY
+
+# The clamp must be visible on the OTHER view too. The address is served
+# twice -- co-hosted on Channel Access, natively on PVA because it is also a
+# model variable -- and a clamp that moved only the transport the client used
+# would leave the two views disagreeing about the machine.
+"${VENV_PY}" - "${EXCITE_PV}" "${DRIVE_HIGH}" <<'PY' || ca_fail "the clamped value did not reach the CA view"
+import sys
+import epics
+
+sp, high = sys.argv[1], float(sys.argv[2])
+v = epics.caget(sp, timeout=15, use_monitor=False)
+if v is None:
+    raise SystemExit(f"FATAL: no CA connection to {sp}")
+print(f"  CA view of {sp}: {float(v):g}")
+if abs(float(v) - high) > 1e-9:
+    raise SystemExit(
+        f"FATAL: the PVA put clamped to {high:g} but the Channel Access view reads "
+        f"{float(v):g}; the two views of one address have diverged"
+    )
+print("OK: both views of the address carry the clamped value")
+PY
+
+echo "--- [7/8] A refused PVA put moves nothing ---"
+# The refusal is checked on a read-only model variable, and the "did not move"
+# half is asserted on the CHANNEL ACCESS view rather than the PVA one. That is
+# deliberate: the value this step requires to hold still has to be one that
+# could visibly have moved, and on Channel Access a BPM carries a real,
+# non-zero reading pushed there by the physics bridge -- step 3 above is what
+# put it there. The check is guarded accordingly below: it FAILS rather than
+# passes if that reading is 0, so it can never degenerate into comparing one
+# zero against another.
+#
+# Channel Access is the right instrument here whether or not the PVA view of a
+# reading tracks it, so this step does not rest on which of those is true.
+CA_BEFORE="$("${VENV_PY}" - "${GATE_PV}" <<'PY'
+import sys
+import epics
+v = epics.caget(sys.argv[1], timeout=15, use_monitor=False)
+if v is None:
+    raise SystemExit("FATAL: no CA connection")
+print(f"{float(v):.17g}")
+PY
+)" || ca_fail "could not read ${GATE_PV} before the refused put"
+
+"${RUNTIME}" exec -i -e "RO_PV=${GATE_PV}" "${CONTAINER}" python - <<'PY' || ca_fail "the read-only PVA put was not refused"
+import os
+
+from p4p.client.thread import Context
+
+ro = os.environ["RO_PV"]
+ctx = Context("pva")
+try:
+    ctx.put(ro, 999.0, timeout=15)
+except Exception as exc:  # noqa: BLE001 - any refusal is the pass condition
+    print(f"  put({ro}, 999.0) refused: {type(exc).__name__}: {exc}")
+else:
+    raise SystemExit(f"FATAL: a put to the read-only {ro} was ACCEPTED")
+print("OK: the read-only variable refused the put")
+PY
+
+"${VENV_PY}" - "${GATE_PV}" "${CA_BEFORE}" <<'PY' || ca_fail "a refused put moved the served value"
+import sys
+import epics
+
+pv, before = sys.argv[1], float(sys.argv[2])
+v = epics.caget(pv, timeout=15, use_monitor=False)
+if v is None:
+    raise SystemExit(f"FATAL: no CA connection to {pv}")
+after = float(v)
+print(f"  CA view of {pv}: {before:.6g} -> {after:.6g}")
+if before == 0.0:
+    raise SystemExit(
+        f"FATAL: {pv} read 0 before the refused put, so 'unchanged' would prove "
+        "nothing here. The excitation in step 3 should have left it non-zero."
+    )
+if after != before:
+    raise SystemExit(f"FATAL: a refused put moved {pv} from {before!r} to {after!r}")
+if after == 999.0:
+    raise SystemExit(f"FATAL: the refused value landed on {pv}")
+print("OK: the refusal moved nothing any reader can see")
+PY
+
+echo "--- [8/8] The PVAccess port is not published to the host ---"
+# Asserted against the container runtime's own port table, which is
+# authoritative about what THIS container published. A host-side connect probe
+# would not be: on a shared development host something unrelated may already
+# be listening on ${PVA_PORT}, and this gate would then report a port leak
+# that is not its container's. (Measured on the development host -- an
+# unrelated process held ${PVA_PORT} while this gate ran clean.)
+PORT_TABLE="$("${RUNTIME}" port "${CONTAINER}" 2>&1 || true)"
+echo "  published: ${PORT_TABLE:-<nothing>}"
+if printf '%s' "${PORT_TABLE}" | grep -Eq "(^|[^0-9])${PVA_PORT}([^0-9]|\$)"; then
+    echo "FATAL: the PVAccess port ${PVA_PORT} is published to the host" >&2
+    exit 1
+fi
+if ! printf '%s' "${PORT_TABLE}" | grep -Eq "(^|[^0-9])${CA_PORT}([^0-9]|\$)"; then
+    echo "FATAL: the Channel Access port ${CA_PORT} is not in the container's port table" >&2
+    exit 1
+fi
+# ...and PVA really is running behind that unpublished port, so this step
+# distinguishes "not reachable from the host" from "never started".
+"${RUNTIME}" exec -i -e "PVA_PORT=${PVA_PORT}" "${CONTAINER}" python - <<'PY' || ca_fail "PVA is not listening inside the container"
+import os
+import socket
+
+port = int(os.environ["PVA_PORT"])
+with socket.socket() as s:
+    s.settimeout(5)
+    try:
+        s.connect(("127.0.0.1", port))
+    except OSError as exc:
+        raise SystemExit(
+            f"FATAL: nothing is listening on {port} inside the container ({exc}), so its "
+            "absence from the host says nothing about PVA being served"
+        ) from exc
+print(f"OK: PVA is live on {port} inside the container and published nowhere")
+PY
 
 echo "--- Gate PASSED ---"
