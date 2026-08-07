@@ -339,7 +339,19 @@ class TestArchiverDownsampleChannelFilter:
 
 
 class TestArchiverDownsampleErrors:
-    """Error cases: wrong category, missing entry, etc."""
+    """Error cases: wrong category, missing entry, unreadable data file, etc."""
+
+    @pytest.fixture
+    def entry(self, art_store):
+        return art_store.save_data(
+            tool="archiver_read",
+            data=_make_timeseries_data(5, 1),
+            title="Doomed entry",
+            description="Doomed entry",
+            summary={},
+            access_details={},
+            category="archiver_data",
+        )
 
     @pytest.fixture
     def non_archiver_entry(self, art_store):
@@ -368,6 +380,35 @@ class TestArchiverDownsampleErrors:
             await fn(entry_id="deadbeef0000")
         result = _exc_ctx["envelope"]
         assert "not found" in result["error_message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_file_path_is_internal_error(self, art_store, entry, monkeypatch):
+        """A file path the store cannot resolve reports internal_error, not a crash."""
+        monkeypatch.setattr(art_store, "get_file_path", lambda entry_id: None)
+
+        fn = _get_archiver_downsample()
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(entry_id=entry.id)
+        assert "not found on disk" in _exc_ctx["envelope"]["error_message"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "break_file",
+        [
+            # Invalid JSON on disk (JSONDecodeError) and a file deleted behind
+            # the store's back (OSError) take the same internal_error path.
+            pytest.param(lambda p: p.write_text("{not json"), id="corrupt_json"),
+            pytest.param(lambda p: p.unlink(), id="externally_deleted"),
+        ],
+    )
+    async def test_unreadable_data_file_is_internal_error(self, art_store, entry, break_file):
+        """An index entry can be fine while the data file itself is not."""
+        break_file(art_store.get_file_path(entry.id))
+
+        fn = _get_archiver_downsample()
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(entry_id=entry.id)
+        assert "Could not read data file" in _exc_ctx["envelope"]["error_message"]
 
 
 class TestArchiverDownsampleEmptyData:
