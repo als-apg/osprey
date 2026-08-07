@@ -83,6 +83,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   unaffected; an out-of-tree connector that overrides `get_data` must
   accept the new keyword (even just to ignore it) to remain
   call-compatible.
+- Ruff moved to 0.16, pinned to one minor in the `dev` extra so the
+  pre-commit hook and CI agree on formatting. The formatter skips Markdown,
+  leaving documentation snippets as written.
 
 ### Removed
 

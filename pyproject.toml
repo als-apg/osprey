@@ -168,7 +168,10 @@ dev = [
     "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
     "mypy",
     "pre-commit",
-    "ruff",
+    # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
+    # changes between minors, so an unpinned floor lets CI and the local hook
+    # disagree about what "formatted" means.
+    "ruff>=0.16.1,<0.17",
     "testcontainers[postgres]>=4.14.2",  # Real PostgreSQL for integration tests
     "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
@@ -375,6 +378,13 @@ src = ["src", "interfaces", "deployment"]
 # Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
 # enforce, and it is present in any built or editable-installed tree.
 extend-exclude = ["src/osprey/_version.py"]
+
+[tool.ruff.format]
+# Ruff >=0.16 also formats Python code blocks embedded in Markdown. The snippets
+# in the shipped agent rules and skill references are documentation, not code we
+# run: they are hand-aligned for readability and are sometimes deliberately
+# partial. Reformatting them serves no one, so the formatter stays out of prose.
+exclude = ["**/*.md"]
 
 [tool.ruff.lint]
 select = [
