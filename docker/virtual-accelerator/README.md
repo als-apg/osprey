@@ -110,6 +110,15 @@ Three physics-fidelity partitions:
   on an Apple Silicon host this image runs emulated, which is the accepted
   cost of the pin. Everything installs from prebuilt `manylinux_x86_64`
   wheels, so the image carries no C toolchain.
+
+  A build-time guard right after the `FROM` refuses any other architecture.
+  It exists because the failure it prevents is silent: osprey's
+  `virtual-accelerator` extra marks `pcaspy` with
+  `sys_platform == 'linux' and platform_machine == 'x86_64'`, and an
+  environment marker that does not match is not an error — pip installs
+  nothing for it. Without the guard, an aarch64 build would succeed and
+  produce an image with **no Channel Access server**, first visible as a
+  runtime `ImportError` inside `serving/runner.py`.
 - **`lume-pva-apg[ca,pva]`** — the serving stack, installed from a wheel
   staged into the build context rather than resolved by name, because it is
   not published yet. `[ca]` brings `pcaspy` (Channel Access), `[pva]` brings
@@ -168,10 +177,13 @@ Stages the build context, builds the image, boots a container (bind-mounting
 over CA from the host. Exits 0 only if all of that succeeds; tears the
 container down either way.
 
-A caution for anyone extending it: **reading a BPM position at boot proves
+`OSPREY_VA_CA_PORT` overrides the port, for a host where something else
+already holds 5064.
+
+Worth knowing if you extend it: **reading a BPM position at boot proves
 connectivity, not physics.** The tutorial lattice's closed orbit with no
 correctors excited is exactly zero, so `SR:DIAG:BPM:01:POSITION:X` reads `0`
-on a working IOC — indistinguishable from an unseeded PV. To exercise the
-manifest → serving database → physics bridge → lattice chain, write a
-corrector and watch the orbit move: `SR:MAG:HCM:01:CURRENT:SP` = 0.5 puts
-`SR:DIAG:BPM:01:POSITION:X` at ~4.5e-6.
+on a fully working IOC — indistinguishable from an unseeded PV. What
+exercises the manifest → serving database → physics bridge → lattice chain is
+writing a corrector and requiring the orbit to move: `SR:MAG:HCM:01:CURRENT:SP`
+= 0.5 puts `SR:DIAG:BPM:01:POSITION:X` at ~4.5e-6.

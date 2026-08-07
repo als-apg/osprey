@@ -26,6 +26,19 @@
 # The accepted cost: on an Apple Silicon host the image runs emulated.
 FROM --platform=linux/amd64 python:3.11-slim
 
+# Refuse to build anywhere but amd64. The pin above should make this
+# unreachable, but a `--platform` override on the command line, or someone
+# lifting this recipe into another file, would otherwise produce an image that
+# BUILDS CLEANLY AND CANNOT SERVE: there is no pcaspy wheel for linux/aarch64
+# at any interpreter, and osprey's `virtual-accelerator` extra marks pcaspy
+# `sys_platform == 'linux' and platform_machine == 'x86_64'` -- so on aarch64
+# the Channel Access server is simply not installed, silently, because an
+# unmatched environment marker is not an error. The first sign would be a
+# runtime ImportError on `import pcaspy` in serving/runner.py, long after the
+# build reported success. Fail here instead, where the message can say why.
+RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
+    || { echo "ERROR: the virtual accelerator image is linux/amd64 only (this build is $arch). No pcaspy wheel exists for linux/aarch64 at any interpreter, so an aarch64 image would carry no Channel Access server." >&2; exit 1; }
+
 # osprey itself -- manifest/lattice/ioc/serving/entrypoint live under
 # src/osprey/services/virtual_accelerator/ and install as part of the
 # package, so no separate COPY of a docker/virtual-accelerator source tree
@@ -44,6 +57,14 @@ COPY src/ /opt/osprey/src/
 # p4p for PVAccess -- and lume-base comes with the core, which the serving
 # layer needs even for a lattice-free boot (it imports lume at module scope,
 # and the model it serves is then an empty stub rather than absent).
+#
+# THIS IS A DEV PATH WITH AN END DATE. Once the package is published, this
+# whole layer goes away: the install moves into osprey's `virtual-accelerator`
+# extra, resolved by name from PyPI like every other dependency. Do not
+# "simplify" it in the meantime into `pip install ... @ git+https://...` -- a
+# git URL would make the image track a pushed ref instead of the checkout that
+# built it, which is exactly the property the source install below exists to
+# preserve, and it would put the network on the build path.
 #
 # --only-binary pcaspy is a guard, not an optimisation. pcaspy's sdist needs a
 # full EPICS base + epics-modules/pcas build -- minutes, not seconds -- and on
@@ -79,15 +100,15 @@ RUN whl="$(ls /tmp/wheels/lume_pva_apg-*.whl 2>/dev/null)" \
 # rather than a plausible wrong one.
 ARG OSPREY_VERSION=0.0.0.dev0+unknown
 
-# accelerator-toolbox is pinned to what this repo's uv.lock already resolves
-# (and what lattice/response.py and ioc/physics_bridge.py were built against),
-# installed ahead of osprey so a resolver backtrack can never silently pick a
-# different PyAT than the lattice code was written for. Everything here
-# installs from prebuilt manylinux_x86_64 wheels, so the image carries no C
-# toolchain at all.
-RUN pip install --no-cache-dir accelerator-toolbox==0.7.1 \
-    && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
-       pip install --no-cache-dir .
+# The `virtual-accelerator` extra rather than a bare install, matching the
+# service Dockerfile, so the two images resolve the serving dependency set the
+# same way. No native pin is repeated here: PyAT (accelerator-toolbox[plot]),
+# lume-base and lume-pyat are all core dependencies of osprey already, so a
+# version pinned in this file would only be a second place to bump and a second
+# thing to get wrong. Everything installs from prebuilt manylinux_x86_64
+# wheels, so the image carries no C toolchain at all.
+RUN SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
+    pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy
 
 # Channel Access server port. TCP only is required -- CA name-server mode
 # (EPICS_CA_NAME_SERVERS=<host>:5064, EPICS_CA_AUTO_ADDR_LIST=NO on the

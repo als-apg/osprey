@@ -82,6 +82,12 @@ if [[ "${OSPREY_VA_REBUILD:-0}" == "1" ]] || ! "${RUNTIME}" image inspect "${IMA
 
     # The serving stack is a sibling checkout, not a PyPI package: build its
     # wheel into the context so the image installs the fork you actually have.
+    # This is a dev path with an end date -- once the package is published the
+    # image resolves it by name from osprey's `virtual-accelerator` extra and
+    # this whole block goes away. It is deliberately not a `git+https://` URL:
+    # that would make the image track a pushed ref rather than the checkout in
+    # front of you, and put the network on the build path.
+    #
     # `git rev-parse --git-common-dir` resolves to the MAIN checkout's .git even
     # from a worktree, so this finds the sibling from either.
     if [[ -z "${LUME_PVA_SRC:-}" ]]; then
@@ -95,9 +101,17 @@ if [[ "${OSPREY_VA_REBUILD:-0}" == "1" ]] || ! "${RUNTIME}" image inspect "${IMA
     fi
     command -v uv >/dev/null 2>&1 || { echo "FATAL: uv is required to build the serving-stack wheel" >&2; exit 1; }
     echo "--- Building the serving-stack wheel from ${LUME_PVA_SRC} ---"
-    # Writes only build/ and the generated _version.py inside that checkout,
-    # both of which it ignores -- the same footprint as building it by hand.
-    uv build --wheel --out-dir "${STAGING_DIR}" "${LUME_PVA_SRC}"
+    # Built from a throwaway copy, never in place: that checkout is someone
+    # else's repository and this script must leave it untouched, but a build
+    # backend writes build/ and a generated _version.py into whatever tree it
+    # runs in. .git comes along because the version is derived from it; the
+    # copy is deleted before the image build so it never enters the context.
+    FORK_COPY="${STAGING_DIR}/.lume-pva-src"
+    rsync -a --exclude '.venv' --exclude 'build' --exclude 'dist' \
+        --exclude '*.egg-info' --exclude '.pytest_cache' --exclude '.ruff_cache' \
+        "${LUME_PVA_SRC}/" "${FORK_COPY}/"
+    uv build --wheel --out-dir "${STAGING_DIR}" "${FORK_COPY}"
+    rm -rf "${FORK_COPY}"
 
     # osprey's version comes from git (hatch-vcs) and the staged context has no
     # .git, so the host resolves it and passes it in; see the Containerfile.

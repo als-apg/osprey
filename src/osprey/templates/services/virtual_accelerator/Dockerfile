@@ -31,8 +31,16 @@
 # linux/aarch64 wheel at any interpreter, so an arm64 image would have to
 # compile EPICS base and epics-modules/pcas from source before it could even
 # start on pcaspy itself. amd64 is what CI runs, and it is where every
-# framework dependency resolves to a prebuilt manylinux_x86_64 wheel. The
-# accepted cost: on an Apple Silicon host it runs emulated.
+# framework dependency resolves to a prebuilt manylinux_x86_64 wheel.
+#
+# WHAT THIS COSTS YOU, since this file ships into generated projects: on an
+# Apple Silicon machine your virtual accelerator runs under emulation, and is
+# correspondingly slower. That is a deliberate trade, not an oversight. The
+# alternative is a ~10-minute EPICS source build on every cold image build, and
+# the real fix — a prebuilt EPICS base image to build aarch64 against — is
+# planned separately. Please don't drop the pin to "make it native" without
+# reading the guard below; on aarch64 the result is not a slower VA, it is a VA
+# with no Channel Access server.
 #
 # This image is built locally by `osprey deploy up`; override with
 # OSPREY_VA_IMAGE to use a prebuilt/published image.
@@ -40,6 +48,26 @@
 FROM --platform=linux/amd64 python:3.11-slim
 
 WORKDIR /app
+
+# Refuse to build anywhere but amd64. The pin above should make this
+# unreachable, but a `--platform` override, or someone lifting this recipe into
+# their own file, would otherwise produce an image that BUILDS CLEANLY AND
+# CANNOT SERVE: osprey's `virtual-accelerator` extra marks pcaspy
+# `sys_platform == 'linux' and platform_machine == 'x86_64'`, and an
+# environment marker that does not match is not an error — pip simply installs
+# nothing for it. The first sign would be a runtime ImportError on
+# `import pcaspy` inside serving/runner.py, long after the build reported
+# success. Fail here instead, where the message can say why.
+RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
+    || { echo "ERROR: the virtual accelerator image is linux/amd64 only (this build is $arch). No pcaspy wheel exists for linux/aarch64 at any interpreter, so an aarch64 image would carry no Channel Access server." >&2; exit 1; }
+
+# Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
+# broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
+# bounded apt retries with backoff so a transient network blip mid-build does
+# not fail the whole image.
+RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+    -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
+ && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 
 # ── deps layer ───────────────────────────────────────────────────────────────
 # Prime the image with the pinned framework release + `virtual-accelerator`
