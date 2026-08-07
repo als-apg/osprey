@@ -9,6 +9,13 @@
 # serve), waits for it to report ready, and then drives both served
 # transports against it.
 #
+# Before asserting anything, the gate proves it is measuring its OWN container:
+# every Channel Access step below runs from the host, and a host client is
+# pointed at a PORT, not at a container. A second virtual accelerator holding
+# that port serves the same channel names with the same quiescent zeros, so it
+# would satisfy or fail these steps while this gate reported on a machine it
+# never started. The identity handshake that runs before step 1 closes that.
+#
 # What the gate asserts, and why each assertion is not vacuous:
 #
 #   1. The readiness line matches its whole contract -- marker AND a
@@ -51,12 +58,13 @@
 #
 # Environment:
 #   OSPREY_VA_CA_PORT   Channel Access port to bind and publish. Defaults to
-#                       5064, which is what a full certification run needs
-#                       (it is the port the "Local Simulation" gateway preset
-#                       and the compose template both name). Override it to
-#                       run this gate on a host where 5064 is already held --
-#                       a running demo stack, most often -- without stopping
-#                       whatever holds it.
+#                       5164, deliberately NOT the 5064 the "Local Simulation"
+#                       gateway preset and the compose template name: this gate
+#                       binds and publishes whatever port it is given, so it
+#                       needs no particular number, and staying off 5064 keeps
+#                       it clear of the deployed stacks that do need that one.
+#                       Set it to 5064 to certify on the shipped default, on a
+#                       host where nothing else holds it.
 #   OSPREY_VA_RUNTIME   Container runtime. Auto-detected when unset.
 #   LUME_PVA_SRC        Serving-stack checkout. Derived from the repo's
 #                       sibling layout when unset.
@@ -67,13 +75,17 @@ WORKTREE_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VA_DIR="${WORKTREE_ROOT}/docker/virtual-accelerator"
 IMAGE="osprey-va-full:latest"
 CONTAINER="osprey-va-full-gate"
-# 5064 is the number a full certification needs: the "Local Simulation"
-# gateway preset and the compose template both name it, and the published
-# port must equal the bound port (a CA search reply carries the server's own
-# port). Overridable so this gate can run on a host where something else
-# already holds 5064 -- the alternative being to stop that stack, which is an
-# operator's decision and not this script's.
-CA_PORT="${OSPREY_VA_CA_PORT:-5064}"
+# The published port must equal the bound port -- a CA search reply carries the
+# server's own port -- but WHICH number that is, this gate does not care about:
+# it tells the server the port and publishes the same one. So the default is
+# chosen to stay out of the way rather than to match anything. 5064 belongs to
+# the deployed stacks (the "Local Simulation" gateway preset and the compose
+# template both name it), and pointing a host client at a port a *different*
+# virtual accelerator may be serving is precisely the hazard the identity
+# handshake below exists to catch. 5164 is a port this gate has been run clean
+# on end to end. Overridable, including back to 5064 to certify the shipped
+# default on a host where nothing else holds it.
+CA_PORT="${OSPREY_VA_CA_PORT:-5164}"
 BOOT_TIMEOUT_SECS=60
 READY_LOG_MARKER="virtual accelerator IOC serving PVs"
 
@@ -224,25 +236,6 @@ if [[ "${booted}" != true ]]; then
 fi
 echo "Booted after ${boot_elapsed} s (container start -> ready log line; excludes the image build above)"
 
-echo "--- [1/8] Asserting the runner readiness line ---"
-# The whole line is the contract, not just the marker: entrypoint.py writes it
-# in one place as "<marker>: <N> channels", and N is len(records.all). Matching
-# the marker alone would accept a boot that announced itself while serving an
-# empty namespace, so the count is parsed out and required to be positive.
-READY_LINE="$("${RUNTIME}" logs "${CONTAINER}" 2>&1 | grep -m1 "${READY_LOG_MARKER}" || true)"
-SERVED_CHANNELS="$(printf '%s' "${READY_LINE}" |
-    sed -n "s/.*${READY_LOG_MARKER}: \\([0-9][0-9]*\\) channels.*/\\1/p")"
-if [[ -z "${SERVED_CHANNELS}" ]]; then
-    echo "FATAL: readiness line did not match '<marker>: <N> channels'" >&2
-    echo "  got: ${READY_LINE:-<no line matching the marker>}" >&2
-    exit 1
-fi
-if [[ "${SERVED_CHANNELS}" -le 0 ]]; then
-    echo "FATAL: the IOC announced readiness while serving ${SERVED_CHANNELS} channels" >&2
-    exit 1
-fi
-echo "OK: ${READY_LINE}"
-
 # Host CA client configuration: name-server (TCP) mode, which is the one
 # host<->container arrangement proven to work across container runtimes. UDP
 # broadcast discovery is deliberately not relied upon and not published.
@@ -305,6 +298,113 @@ in_container_py() {
     fi
     return 0
 }
+
+echo "--- [identity] Confirming the host client is talking to THIS container ---"
+# A precondition on the measurement apparatus, not one of the eight assertions:
+# it says nothing about whether the virtual accelerator is correct, only that
+# the thing being measured is the one this script started.
+#
+# Every Channel Access step below runs from the host, and a host client is
+# pointed at a PORT. Another virtual accelerator holding ${CA_PORT} serves the
+# same channel names, quiescent at the same zeros, and accepts the same puts --
+# so it would carry this gate to a verdict about a machine that was never
+# built here. Silently measuring the wrong machine is worse than a red gate.
+#
+# The size of the hole, stated honestly: this container's own `run -p` would
+# have failed had the port been held at that moment, so a plain run cannot end
+# up here. What remains is a run with ${CA_PORT} overridden to a port this
+# script did not publish itself, and a host client that consequently never had
+# to reach this container at all. Narrow is not closed.
+#
+# The proof is a handshake neither end can fake alone: write a sentinel from
+# the HOST over Channel Access with put-completion, then read it back from
+# INSIDE this container over PVAccess. Only a host client whose writes land
+# here can put that value here. The host's own readback is captured first,
+# purely so a failure can say which end is wrong.
+IDENTITY_VALUE="3.7137"
+HOST_SEEN="$("${VENV_PY}" - "${EXCITE_PV}" "${IDENTITY_VALUE}" <<'PY'
+import sys
+import epics
+
+sp, value = sys.argv[1], float(sys.argv[2])
+if epics.caput(sp, value, wait=True, timeout=30) != 1:
+    raise SystemExit(f"FATAL: put-completion never returned for {sp}")
+v = epics.caget(sp, timeout=15, use_monitor=False)
+if v is None:
+    raise SystemExit(f"FATAL: no CA connection to {sp}")
+print(f"{float(v):.17g}")
+PY
+)" || ca_fail "could not write the identity sentinel to ${EXCITE_PV} over Channel Access"
+echo "  host CA wrote ${IDENTITY_VALUE} to ${EXCITE_PV} and read back ${HOST_SEEN}"
+
+identity_fail() {
+    echo "FATAL: the host Channel Access client is NOT talking to ${CONTAINER}." >&2
+    echo "       A sentinel of ${IDENTITY_VALUE} written from the host over CA on port" >&2
+    echo "       ${CA_PORT} did not appear inside this container; the host read it back" >&2
+    echo "       as ${HOST_SEEN}, so the write landed on SOMETHING -- just not here." >&2
+    echo "       Another virtual accelerator is almost certainly holding ${CA_PORT}: it" >&2
+    echo "       serves the same channel names, so every assertion below would have" >&2
+    echo "       measured a machine this gate never started." >&2
+    echo "       Find it with:  lsof -nP -iTCP:${CA_PORT} -sTCP:LISTEN" >&2
+    echo "                      ${RUNTIME} ps" >&2
+    echo "       Then re-run with OSPREY_VA_CA_PORT set to a port nothing else holds." >&2
+    echo "       (If the value did not appear on EITHER view, the write path is broken" >&2
+    echo "       rather than misdirected -- the host readback above tells you which.)" >&2
+    "${RUNTIME}" logs "${CONTAINER}" >&2 || true
+    exit 1
+}
+
+in_container_py -e "SP_PV=${EXCITE_PV}" -e "IDENTITY_VALUE=${IDENTITY_VALUE}" <<'PY' || identity_fail
+import os
+
+from p4p.client.thread import Context
+
+sp = os.environ["SP_PV"]
+expected = float(os.environ["IDENTITY_VALUE"])
+
+ctx = Context("pva")
+seen = float(ctx.get(sp, timeout=20))
+print(f"  this container's own view of {sp}: {seen:g}")
+if abs(seen - expected) > 1e-9:
+    raise SystemExit(
+        f"FATAL: {sp} reads {seen:g} inside this container, not the {expected:g} "
+        "the host wrote over Channel Access"
+    )
+print("OK: the host's Channel Access client reaches this container and no other")
+PY
+
+# Put the machine back at rest, so step 2's quiescent baseline is one.
+"${VENV_PY}" - "${EXCITE_PV}" <<'PY' || ca_fail "could not restore ${EXCITE_PV} after the identity handshake"
+import sys
+import epics
+
+sp = sys.argv[1]
+if epics.caput(sp, 0.0, wait=True, timeout=30) != 1:
+    raise SystemExit(f"FATAL: put-completion never returned for {sp}")
+v = epics.caget(sp, timeout=15, use_monitor=False)
+if v is None or abs(float(v)) > 1e-12:
+    raise SystemExit(f"FATAL: {sp} reads {v!r} after being restored to 0")
+print(f"OK: {sp} restored to 0; the machine is back at rest")
+PY
+
+echo "--- [1/8] Asserting the runner readiness line ---"
+# The whole line is the contract, not just the marker: entrypoint.py writes it
+# in one place as "<marker>: <N> channels", and N is len(records.all). Matching
+# the marker alone would accept a boot that announced itself while serving an
+# empty namespace, so the count is parsed out and required to be positive.
+READY_LINE="$("${RUNTIME}" logs "${CONTAINER}" 2>&1 | grep -m1 "${READY_LOG_MARKER}" || true)"
+SERVED_CHANNELS="$(printf '%s' "${READY_LINE}" |
+    sed -n "s/.*${READY_LOG_MARKER}: \\([0-9][0-9]*\\) channels.*/\\1/p")"
+if [[ -z "${SERVED_CHANNELS}" ]]; then
+    echo "FATAL: readiness line did not match '<marker>: <N> channels'" >&2
+    echo "  got: ${READY_LINE:-<no line matching the marker>}" >&2
+    exit 1
+fi
+if [[ "${SERVED_CHANNELS}" -le 0 ]]; then
+    echo "FATAL: the IOC announced readiness while serving ${SERVED_CHANNELS} channels" >&2
+    exit 1
+fi
+echo "OK: ${READY_LINE}"
 
 echo "--- [2/8] Baseline: reading the quiescent BPMs over Channel Access ---"
 # Not an assertion of correctness -- see the header. With no corrector
