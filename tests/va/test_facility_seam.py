@@ -72,6 +72,14 @@ is required to be either the serving announcement or a missing *server*
 module -- never a physics one, and never anything else. On a host with the
 extension this test proves the boot end to end; on one without it, it still
 proves everything the seam is about.
+
+Both outcomes have been exercised, so neither is a branch written on faith.
+A host carrying none of the server extensions stops at the runner import,
+which is the second outcome. In a linux/amd64 container carrying pcaspy,
+p4p and the PVA serving package, the same ``main()`` runs to ``virtual
+accelerator IOC serving PVs: 4 channels`` with the physics blocked -- so the
+seam is known to hold across a complete boot, not merely across the part of
+one a development host can reach.
 """
 
 from __future__ import annotations
