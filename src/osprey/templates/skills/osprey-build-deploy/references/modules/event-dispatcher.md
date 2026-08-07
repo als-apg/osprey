@@ -128,9 +128,14 @@ modules:
 
 ```
 # Event dispatcher (modules.event_dispatcher)
-${config.modules.event_dispatcher.token_env_var}=        # bearer token for external callers; pick a long random string
+# Left blank on purpose when the standard names are used — see below.
+${config.modules.event_dispatcher.token_env_var}=        # bearer token for external callers
 ${config.modules.event_dispatcher.sidecar_token_env_var}=  # internal token; dispatcher → sidecar auth
 ```
+
+Leave these **unset**: when the dispatcher services are deployed, `osprey deploy up` mints a strong random value for `EVENT_DISPATCHER_TOKEN` and `DISPATCH_WORKER_TOKEN` and writes it back into the profile's `.env`, so a rebuild comes up on the same token instead of a second set the running containers do not trust. Hand-picking a string here is not an improvement, and an existing value is never overwritten.
+
+Minting is keyed on those exact variable names. A facility that points `token_env_var` / `sidecar_token_env_var` at different names opts out and does have to fill them in by hand.
 
 If `epics_ca.enabled`, `EPICS_CA_ADDR_LIST` is already required by the control-system core — no new entry needed.
 

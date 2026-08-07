@@ -25,6 +25,17 @@ ${config.deploy.project_path}/../${config.facility.prefix}-assistant/   ← (bui
 
 OSPREY, the profile repo, and any built-assistant outputs are siblings — never nested. The CI-native deploy doesn't usually need OSPREY on-server at all (the web-terminal image already has it baked in); keep an OSPREY checkout there only if an operator needs to do off-pipeline `osprey build` runs for debugging.
 
+### The repo root is also a build profile directory
+
+A build profile is a *directory*, not a lone YAML file: `profile.yml` plus convention directories (`rules/`, `skills/`, `agents/`, `hooks/`, `services/`, `mcp_servers/`, `project/`, …), a `data/` tree, and `.env` / `.env.example`. `osprey build` anchors that directory at **the parent of whatever profile path you hand it** — so passing `${config.facility.prefix}-prod.yml` from the repo root makes the repo root itself the profile directory that the build reads.
+
+That has two consequences worth knowing before you edit anything here:
+
+- Convention directories at the repo root are live. A `rules/` or `skills/` directory beside `facility-config.yml` is carried into every build from this repo, whether or not that was intended.
+- The `.env` in this layout is the profile's `.env` — the file `osprey build` derives each project's `.env` from, and the file `osprey deploy up` writes minted service credentials back into. It is not a separate deploy-only secrets store, even though `.env.template` below documents a broader set of variables than a profile's own `.env.example` does.
+
+The scaffolded deploy files (`docker-compose.yml`, `.gitlab-ci.yml`, `.env.template`, `scripts/verify.sh`) share this directory with the profile rather than sitting beside it. Keep that in mind when reasoning about what a rebuild regenerates.
+
 ---
 
 ## Prerequisites
@@ -89,6 +100,28 @@ ssh ${config.deploy.host} "cd ${config.deploy.project_path} && git pull && ospre
 ## `.env` — operator-managed secrets
 
 `.env.template` (committed) lists every variable name and what it's for. `.env` (gitignored) holds the real values and is what `osprey deploy` passes to compose via `--env-file`. The scaffolder regenerates `.env.template` whenever `facility-config.yml` changes — diff against `.env` to find new vars to fill in.
+
+### Who owns which variable
+
+`.env.template` documents a broader set of variables than a profile's own `.env.example`, and the two groups are filled in differently. Getting this wrong means either a hand-typed secret that the next deploy overwrites, or a blank that nothing ever fills.
+
+**Owned by the profile's `.env` — do not treat `.env.template` as their home:**
+
+- **LLM provider key** (`${config.llm.api_key_env_var}`). `osprey build` derives every project's `.env` from the profile's, and reads nothing from the shell after the profile is materialized. Set it in the profile's `.env`.
+- **Service credentials the deploy mints.** For any deployed service that declares them, `osprey deploy up` generates a strong random value when the variable is unset, then writes it back into the profile's `.env` (append-only) and re-derives the project's. Do **not** hand-fill these — a value you type is not the one the initialized volume trusts:
+
+  | Deployed service | Minted variables |
+  |---|---|
+  | `event_dispatcher` / `dispatch_worker` | `EVENT_DISPATCHER_TOKEN`, `DISPATCH_WORKER_TOKEN` |
+  | `bluesky` | `BLUESKY_LAUNCH_TOKEN`, `BLUESKY_TILED_API_KEY` |
+  | `openobserve` | `ZO_ROOT_USER_PASSWORD` |
+  | `postgresql` | `ARIEL_DB_PASSWORD` |
+
+  Minting is keyed on those exact variable names. A facility that renames one in `facility-config.yml` opts out of minting and is back to filling it in by hand.
+
+  A variable already on file is never rewritten — a minted secret is pinned by the volume that was initialized with it. If the deploy's value and the profile's disagree, the profile's is kept and the mismatch is reported by name (never by value) for you to reconcile.
+
+**Legitimately deploy-scoped — hand-filled here, and nowhere else:** the registry PAT / CI token (`${config.ci.token_env_var}`), `REGISTRY`, `TZ`, the proxy pairs, EPICS Channel Access addressing, `ARIEL_DSN` (validated when present, never minted — this skill's own scaffolding provisions it), and credentials for external systems such as OLOG and the wiki. These describe the server and the services it talks to, not the assistant, and no profile mechanism fills them.
 
 Required structure (every facility has at least these):
 

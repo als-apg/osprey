@@ -10,8 +10,10 @@ baseline (``value`` or ``expr``). Derived channels recompute on every read
 from the *effective* values of referenced channels, so overrides and writes
 propagate through the physics couplings automatically.
 
-The active scenarios live in a plain-text ``active_scenarios`` file next to
-the machine file: an optional ``anchor=<ISO8601>`` metadata line followed by
+The active scenarios live in a plain-text ``active_scenarios`` file under the
+agent-data root (``_agent_data/simulation/`` by default — the machine file's
+own directory is build-owned and checksummed, so mutable state stays out of
+it): an optional ``anchor=<ISO8601>`` metadata line followed by
 one scenario name per line (``nominal`` is always implicitly first). It is
 re-read whenever its mtime changes, and switching (or re-asserting) the set
 clears all session-written state (fresh machine). Simultaneously active
@@ -22,6 +24,7 @@ for backward compatibility, but writes always target ``active_scenarios``.
 """
 
 import json
+import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -53,12 +56,75 @@ from osprey.simulation.series import (
 )
 from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
+from osprey.utils.workspace import (
+    SIMULATION_STATE_DIR_CONFIG_KEY,
+    SIMULATION_STATE_DIR_NAME,
+    resolve_simulation_state_dir,
+)
 
 logger = get_logger("simulation_engine")
 
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
 # Legacy single-name state file; read for back-compat, never written.
 ACTIVE_SCENARIO_FILENAME = "active_scenario"
+
+#: Config key naming the state directory explicitly (relative paths resolve
+#: against the project root). Unset — the normal case — puts it under the
+#: agent-data root. Defined in :mod:`osprey.utils.workspace` and re-exported
+#: here so this module and :data:`osprey.utils.config.RUNTIME_WRITE_PATH_KEYS`
+#: cannot drift to different spellings.
+STATE_DIR_CONFIG_KEY = SIMULATION_STATE_DIR_CONFIG_KEY
+
+#: Subdirectory of the agent-data root holding the scenario state file.
+STATE_DIR_NAME = SIMULATION_STATE_DIR_NAME
+
+
+#: Resolve the directory holding the ``active_scenarios`` state file. Defined in
+#: :mod:`osprey.utils.workspace` — the engine, the compose generator that renders
+#: the container's bind-mount source, and the build injector that pre-creates the
+#: directory must agree on it, and the latter two must not import numpy through
+#: this module to ask.
+resolve_state_dir = resolve_simulation_state_dir
+
+
+def resolve_active_scenarios(names: Sequence[str]) -> list[str]:
+    """The active scenario set a request for ``names`` really means.
+
+    ``nominal`` is the machine's baseline, not a fault: it is always active, so
+    it is prepended whether or not the caller named it. The rest keep the
+    caller's order and are deduplicated, because activating a scenario twice
+    would compose its physics twice.
+
+    One function for a rule two callers depend on — activation writes the state
+    file from it, and physics-fault rendering derives ``VA_*`` variables from
+    it — so the environment a project is built with and the scenarios its
+    engine runs cannot describe different machines.
+    """
+    resolved: list[str] = [DEFAULT_SCENARIO]
+    for name in names:
+        if name != DEFAULT_SCENARIO and name not in resolved:
+            resolved.append(name)
+    return resolved
+
+
+def default_state_dir() -> Path:
+    """Resolve the state directory from the ambient config.
+
+    For callers holding neither a project root nor a loaded config — the mock
+    connectors, which are constructed from an already-scoped config sub-dict.
+    Callers that do have them (the ``sim`` CLI,
+    :func:`osprey.simulation.apply.apply_scenarios`, the VA entrypoint) pass
+    ``state_dir`` explicitly instead of relying on this.
+    """
+    try:
+        from osprey.utils.config import get_config_builder
+
+        builder = get_config_builder()
+        config = builder.raw_config
+        project_root = Path(config.get("project_root") or builder.config_path.parent)
+    except (FileNotFoundError, IsADirectoryError, KeyError, RuntimeError, ValueError):
+        config, project_root = {}, Path.cwd()
+    return resolve_state_dir(config, project_root)
 
 
 @dataclass(frozen=True)
@@ -146,16 +212,25 @@ def _apply_signal_model(
 class SimulationEngine:
     """Scenario-driven machine simulation backing the mock connectors."""
 
-    # Cache engines per machine-file path; invalidated when the file's mtime changes.
-    _cache: ClassVar[dict[str, tuple[int, "SimulationEngine"]]] = {}
+    # Cache engines per (machine-file path, state dir); invalidated when the
+    # machine file's mtime changes.
+    _cache: ClassVar[dict[tuple[str, str], tuple[int, "SimulationEngine"]]] = {}
 
-    def __init__(self, machine: dict[str, Any], machine_path: Path):
+    def __init__(
+        self,
+        machine: dict[str, Any],
+        machine_path: Path,
+        state_dir: Path | str | None = None,
+    ):
         """Parse and validate a machine description.
 
         Args:
             machine: Decoded machine-file JSON.
-            machine_path: Path the machine was loaded from (the active-scenario
-                state file lives in the same directory).
+            machine_path: Path the machine was loaded from.
+            state_dir: Directory holding the ``active_scenarios`` state file.
+                Defaults to :func:`default_state_dir` (under the agent-data
+                root) — deliberately *not* the machine file's own directory,
+                which is build-owned and checksummed.
 
         Raises:
             ValueError: If the machine description is invalid (bad schema,
@@ -166,9 +241,12 @@ class SimulationEngine:
         self.name: str = model.name
         self.description: str = model.description
         self._machine_path = machine_path
+        self._state_dir = (
+            Path(state_dir).expanduser() if state_dir is not None else default_state_dir()
+        )
         # Canonical (write) state file plus the legacy single-name file (read-only).
-        self._state_path = machine_path.parent / ACTIVE_SCENARIOS_FILENAME
-        self._legacy_state_path = machine_path.parent / ACTIVE_SCENARIO_FILENAME
+        self._state_path = self._state_dir / ACTIVE_SCENARIOS_FILENAME
+        self._legacy_state_path = self._state_dir / ACTIVE_SCENARIO_FILENAME
         self._channels: dict[str, SimChannel] = model.channels
         self._scenarios: dict[str, Scenario] = model.scenarios
 
@@ -185,11 +263,14 @@ class SimulationEngine:
         self._refresh_scenario()
 
     @classmethod
-    def from_file(cls, path: Path | str) -> "SimulationEngine":
-        """Load an engine from a machine file, cached by (path, mtime).
+    def from_file(cls, path: Path | str, state_dir: Path | str | None = None) -> "SimulationEngine":
+        """Load an engine from a machine file, cached by (path, state dir, mtime).
 
         Args:
             path: Path to the machine JSON file.
+            state_dir: Directory holding the ``active_scenarios`` state file;
+                see :meth:`__init__`. Part of the cache key, so two engines on
+                one machine file but different state dirs never alias.
 
         Returns:
             A (possibly cached) engine instance.
@@ -199,14 +280,21 @@ class SimulationEngine:
             ValueError: If the machine description is invalid.
         """
         resolved = Path(path).expanduser().resolve()
+        # Resolved like the machine path above: two spellings of one directory
+        # must not key two engines onto the same state file.
+        resolved_state_dir = (
+            Path(state_dir) if state_dir is not None else default_state_dir()
+        ).expanduser()
+        resolved_state_dir = resolved_state_dir.resolve()
         mtime_ns = cls._machine_mtime_ns(resolved)
-        cached = cls._cache.get(str(resolved))
+        cache_key = (str(resolved), str(resolved_state_dir))
+        cached = cls._cache.get(cache_key)
         if cached is not None and cached[0] == mtime_ns:
             return cached[1]
         with open(resolved) as f:
             machine = json.load(f)
-        engine = cls(machine, resolved)
-        cls._cache[str(resolved)] = (mtime_ns, engine)
+        engine = cls(machine, resolved, state_dir=resolved_state_dir)
+        cls._cache[cache_key] = (mtime_ns, engine)
         logger.debug(
             f"Simulation engine loaded: {engine.name!r} ({len(engine._channels)} channels)"
         )
@@ -285,10 +373,7 @@ class SimulationEngine:
         Raises:
             ValueError: If a name is unknown or the set does not compose.
         """
-        resolved: list[str] = [DEFAULT_SCENARIO]
-        for name in names:
-            if name != DEFAULT_SCENARIO and name not in resolved:
-                resolved.append(name)
+        resolved = resolve_active_scenarios(names)
         problems = self.validate_composition(resolved)
         if problems:
             raise ValueError("Cannot activate scenarios: " + "; ".join(problems))
@@ -298,7 +383,14 @@ class SimulationEngine:
             body.append(f"anchor={anchor.isoformat()}")
         faults = [n for n in resolved if n != DEFAULT_SCENARIO]
         body.extend(faults if faults else [DEFAULT_SCENARIO])
-        self._state_path.write_text("\n".join(body) + "\n")
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        # Atomic rename, never a truncate-in-place: the VA IOC polls this file
+        # from a bind mount once a second, and a torn read would hand it a
+        # half-written scenario set. The temp file is a sibling so the rename
+        # stays within one filesystem.
+        tmp_path = self._state_path.with_name(f"{self._state_path.name}.tmp")
+        tmp_path.write_text("\n".join(body) + "\n")
+        os.replace(tmp_path, self._state_path)
         # Force a re-read even if filesystem mtime granularity hides the write.
         self._state_signature = ("", -1)
         self._refresh_scenario()
@@ -694,7 +786,10 @@ def engine_from_connector_config(config: dict[str, Any]) -> SimulationEngine | N
     """Load a SimulationEngine from a connector config dict, if configured.
 
     Mirrors ``LimitsValidator.from_config()`` path resolution: a relative
-    ``simulation_file`` path is anchored at the configured project root.
+    ``simulation_file`` path is anchored at the configured project root. The
+    scenario state file is resolved from the same ambient config (see
+    :func:`default_state_dir`), so a connector reads the state the ``sim`` CLI
+    writes.
 
     Args:
         config: Connector-scoped config dict (the connector receives the

@@ -417,7 +417,7 @@ curl -X POST 'http://${config.deploy.host}:<port>/api/chat?stream=false' \
 
 1. Append the new login to `modules.web_terminals.users` in `facility-config.yml` (re-run the interview, or hand-edit and skip ahead).
 2. Re-scaffold: regenerates the compose overlay with the new service + named volumes, and adds a row to the nginx upstream block.
-3. Create the per-user context stub: `mkdir -p docker/web-terminal-context/<new_user> && touch docker/web-terminal-context/<new_user>/extra.md`. (The legacy flat `docker/web-terminal-context/<new_user>.md` still works, but new facilities should use the directory form so a `skills/` overlay can be added later without restructuring.)
+3. Create the per-user context stub: `mkdir -p docker/web-terminal-context/<new_user> && touch docker/web-terminal-context/<new_user>/extra.md`. (The legacy flat `docker/web-terminal-context/<new_user>.md` still works, but new facilities should use the directory form so a `skills/` overlay can be added later without restructuring.) Author it in the **profile's** `web-terminal-context/<new_user>/` if the assistant is rebuilt from a profile — the build copies that directory to `docker/web-terminal-context/`, so a stub created only in the project is lost on the next build.
 4. Commit and push. CI rebuilds nothing image-side (the user list isn't baked into the image), but the new container only appears after a deploy.
 5. Deploy: `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy up"`. The seeding step creates the user's CLAUDE.md on first run.
 

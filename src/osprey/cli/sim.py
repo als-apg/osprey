@@ -51,7 +51,7 @@ def _load_project_engine():
     """
     from osprey.connectors.types import MOCK
     from osprey.simulation.apply import resolve_simulation_file
-    from osprey.simulation.engine import SimulationEngine
+    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
 
     project_dir = Path.cwd()
     config_path = project_dir / "config.yml"
@@ -73,7 +73,10 @@ def _load_project_engine():
             )
         click.echo("This project does not use the simulation engine.", err=True)
         raise SystemExit(1)
-    return project_dir, config, SimulationEngine.from_file(machine_path)
+    engine = SimulationEngine.from_file(
+        machine_path, state_dir=resolve_state_dir(config, project_dir)
+    )
+    return project_dir, config, engine
 
 
 # ---------------------------------------------------------------------------

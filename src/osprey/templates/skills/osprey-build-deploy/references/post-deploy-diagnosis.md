@@ -154,7 +154,7 @@ If `down && up` doesn't fix it, prefer **hand-debugging** over `nuke`. The reaso
 
 ## When to ask the running assistant to self-diagnose
 
-If `modules.web_terminals` is enabled, the built assistant ships a `/diagnose` skill (`overlays/skills/diagnose/`). The product Claude can introspect its own MCP servers, validate config paths, and pattern-match failures from the *inside* — which gives a different vantage point than SSH'ing in from outside.
+If `modules.web_terminals` is enabled, the built assistant ships a `/diagnose` skill (`skills/diagnose/` in the profile). The product Claude can introspect its own MCP servers, validate config paths, and pattern-match failures from the *inside* — which gives a different vantage point than SSH'ing in from outside.
 
 Use the in-container `/diagnose` when:
 - The user is already in a web terminal session and reports a tool is broken.

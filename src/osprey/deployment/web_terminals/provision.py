@@ -51,9 +51,10 @@ def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
     unresolvable persona catalog and a missing provider auth secret
     (:func:`ensure_env_production`'s fail-closed gate) — surface in seconds.
     Local mode first renders any missing persona project (the credential
-    sweep reads each rendered persona's ``config.yml``), forwarding the
-    parent's explicit ``--set`` overrides exactly as the main provisioning
-    path does.
+    sweep reads each rendered persona's ``config.yml``), from the persona
+    deltas in this deployment's own profile — exactly as the main provisioning
+    path does, which is why ``project_root`` is passed to both: it is where the
+    manifest naming that profile lives.
 
     Every step is idempotent, so :func:`deploy_up_web_terminals` re-running
     the same sequence later is a cheap no-op: rendered personas are

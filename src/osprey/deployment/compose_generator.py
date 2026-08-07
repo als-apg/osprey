@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
@@ -222,6 +222,29 @@ def _inject_project_metadata(config):
     # startup; gating the mount on existence avoids docker auto-creating a stray
     # empty ``.env`` directory when none is present.
     config_with_labels["osprey_env_present"] = os.path.exists(".env")
+
+    # Bind-mount source for the Virtual Accelerator's scenario state directory,
+    # derived here rather than hardcoded in the template: the mount must follow
+    # whatever directory `osprey sim apply` actually writes, whether that moved
+    # because the project relocated its agent-data root or because it set
+    # `simulation.state_dir` outright. Resolved through the one shared helper so
+    # writer and mount cannot disagree.
+    #
+    # Compose bind sources are relative to the compose project directory
+    # (build/services/), hence the ../../ back to the project root. A state dir
+    # outside the project has no relative spelling and is emitted absolute.
+    from osprey.utils.workspace import resolve_simulation_state_dir
+
+    state_project_root = Path(config.get("project_root") or os.getcwd()).expanduser().absolute()
+    state_dir = resolve_simulation_state_dir(config, state_project_root).expanduser().absolute()
+    try:
+        relative_state_dir = state_dir.relative_to(state_project_root)
+    except ValueError:
+        config_with_labels["osprey_state_mount_source"] = state_dir.as_posix()
+    else:
+        config_with_labels["osprey_state_mount_source"] = (
+            f"../../{PurePosixPath(relative_state_dir)}"
+        )
 
     # Default the dispatch worker's image to the project image that
     # ``osprey deploy up`` builds (``<project>:local``). The worker compose
@@ -437,12 +460,15 @@ def _ensure_agent_data_structure(config):
     to prevent Docker/Podman mount failures when containers try to mount non-existent
     directories. The root comes from ``agent_data.base_dir``; each subdirectory below
     is created only when ``file_paths`` declares its name, so the created structure
-    matches what :func:`osprey.utils.config.get_agent_dir` resolves at runtime.
+    matches what :func:`osprey.utils.config.get_agent_dir` resolves at runtime. The
+    scenario state directory is the one addition outside ``file_paths``, created only
+    for a Virtual Accelerator deployment — the one compose service that mounts it.
 
     :param config: Configuration dictionary containing agent_data and file_paths settings
     :type config: dict
     """
-    from osprey.utils.workspace import agent_data_base_dir
+    from osprey.connectors.types import VIRTUAL_ACCELERATOR
+    from osprey.utils.workspace import agent_data_base_dir, resolve_simulation_state_dir
 
     # Get file paths configuration
     file_paths = config.get("file_paths", {})
@@ -463,6 +489,25 @@ def _ensure_agent_data_structure(config):
             subdir_path = agent_data_path / subdir_name
             subdir_path.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Created agent data subdirectory: {subdir_path}")
+
+    # The Virtual Accelerator's compose service bind-mounts the scenario state
+    # directory read-only. Pre-create it for the same reason as the root above:
+    # left to the container runtime, a rootful daemon creates the missing mount
+    # source root-owned, and `osprey sim apply` on the host — which owns that
+    # file — can then no longer write it.
+    # `or []` rather than a default: a present-but-null `deployed_services:` is a
+    # normal hand-edited shape, and `get(..., [])` returns None for it.
+    #
+    # Resolved through the same helper the mount source is rendered from, not by
+    # joining the agent-data root here: the two agree only while
+    # `simulation.state_dir` is unset, and a project that sets it would have the
+    # directory pre-created in one place and mounted from another — leaving the
+    # real mount source to the container runtime, which is exactly the
+    # root-owned-directory failure this block exists to prevent.
+    if VIRTUAL_ACCELERATOR in {str(name) for name in config.get("deployed_services") or []}:
+        state_path = resolve_simulation_state_dir(config, Path(project_root))
+        state_path.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Created scenario state directory: {state_path}")
 
     logger.debug(f"Ensured agent data structure exists at: {agent_data_path}")
 

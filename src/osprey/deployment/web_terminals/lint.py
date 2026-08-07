@@ -13,10 +13,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import yaml
 
+from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     as_dict,
@@ -915,6 +916,34 @@ def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) ->
                 ),
             )
         ]
+
+    # Shape of build_profile, enforced through the SAME predicate the deploy-time
+    # resolver uses, so this gate cannot bless a value `osprey deploy up` will
+    # reject — the failure mode that matters here, since `deploy up` never runs
+    # lint and an operator who lints clean would otherwise meet a hard deploy
+    # error the gate promised away.
+    #
+    # Checked regardless of whether project_path exists: a rendered directory
+    # makes an unusable value harmless only until someone removes it, and a
+    # verdict that depended on local filesystem state would not be a gate. Like
+    # the name mismatch above it supersedes the existence findings — an entry
+    # that can never be auto-rendered has nothing to add about being missing.
+    if has_build_profile:
+        problem = persona_build_profile_shape_problem(cast(str, build_profile))
+        if problem is not None:
+            return [
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_build_profile_not_a_delta",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}].build_profile "
+                        f"{problem} Set it to {f'personas/{persona_name}.yml'!r} — the "
+                        "delta `osprey profile new` writes beside the profile this "
+                        "project is built from — or render the persona project yourself "
+                        "with `osprey build`"
+                    ),
+                )
+            ]
 
     if not project_path.is_dir():
         # Missing directory: only auto-renderable (info) when a build_profile

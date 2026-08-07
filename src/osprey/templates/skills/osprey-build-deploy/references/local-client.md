@@ -11,7 +11,7 @@ This file documents the build + run workflow. It assumes the `${config.facility.
 Use the client profile when:
 
 - A developer wants to use the assistant against the real shared MCP services (matlab index, accelpapers, phoebus, etc.) but doesn't need to run those services locally.
-- You're iterating on prompts, agent definitions, or overlays and want fast `osprey build` cycles without container rebuilds.
+- You're iterating on prompts, agent definitions, or other profile artifacts and want fast `osprey build` cycles without container rebuilds.
 - The developer is on a laptop where running the full container stack is impractical (Mac, low-RAM machine, no GPU).
 
 Don't use the client profile when:
@@ -38,7 +38,7 @@ The developer does *not* need a deploy token, a registry login, or anything that
 
 ## The build command
 
-Run from the root of the facility profile repo (where `${config.facility.prefix}-client.yml` lives):
+Run from the root of the facility profile repo (where `${config.facility.prefix}-client.yml` lives). Because a build anchors the profile directory at the parent of the profile path you pass, that repo root **is** the profile directory for this build — convention directories and `.env` / `.env.example` are read from there:
 
 ```bash
 osprey build ${config.facility.prefix}-client \
@@ -52,16 +52,16 @@ What each piece does:
 | Argument | Meaning |
 |----------|---------|
 | `${config.facility.prefix}-client` | Output project name. Becomes the directory name under `-o`. |
-| `$(pwd)/${config.facility.prefix}-client.yml` | Absolute path to the client profile YAML. OSPREY needs absolute paths so overlay sources resolve correctly. |
+| `$(pwd)/${config.facility.prefix}-client.yml` | Absolute path to the client profile YAML. OSPREY needs absolute paths so the profile's convention directories resolve correctly. |
 | `-o ~/projects` | Output parent directory. The built project lands at `~/projects/${config.facility.prefix}-client/`. |
-| `--force` | Wipe and rebuild if the output directory exists. Safe for client builds because the client project never holds user state — just generated config and a venv. |
+| `--force` | Re-render the project in place if it already exists (`.env`, `_agent_data/` and `.git` are preserved; everything else comes back from the profile). Safe for client builds because the client project never holds user state — just generated config and a venv. Never touches the profile. |
 
 The build:
 1. Creates `~/projects/${config.facility.prefix}-client/`.
 2. Renders the client profile's `config.yml` with MCP server URLs pointing at `${config.deploy.fqdn}`.
 3. Creates a Python virtualenv at `~/projects/${config.facility.prefix}-client/.venv/` and installs the profile's declared dependencies.
 4. Writes `.mcp.json` (consumed by Claude Code) with the remote HTTP transport URLs.
-5. Copies overlays (rules, agents, skills) into `.claude/`.
+5. Copies the profile's convention directories (`rules/`, `agents/`, `skills/`, `commands/`, `output-styles/`, `hooks/`) into `.claude/`, and registers each copied file as user-owned so a later regen leaves it alone.
 6. Runs lifecycle hooks if any (most client profiles skip these).
 
 Then run the assistant:
@@ -75,7 +75,7 @@ Claude Code reads `.mcp.json`, opens HTTP connections to each remote MCP server,
 
 ## How `${config.facility.prefix}-client.yml` differs from `${config.facility.prefix}-prod.yml`
 
-The two profiles share most overlay/agent/rule definitions (often via `extends:`). The differences are:
+The two profiles share most agent/rule definitions (often via `extends:`). The differences are:
 
 | Concern | `*-prod.yml` (deploy server) | `*-client.yml` (developer laptop) |
 |---------|------------------------------|------------------------------------|
@@ -83,7 +83,7 @@ The two profiles share most overlay/agent/rule definitions (often via `extends:`
 | `env.file` | `.env` (server-side, has all secrets) | `.env.local` (developer-side, has just the LLM key) |
 | `env.required` | Long list (every service credential) | Short list (`${config.llm.api_key_env_var}` and any client-specific key) |
 | `container_runtime` | `${config.runtime.engine}` (whatever the server uses) | typically `docker` (most developer laptops) |
-| `overlay:` extras | Server-side test infrastructure, soft-IOC management skills, etc. | Stripped down — no test IOC, no on-server admin skills |
+| Convention-directory extras | Server-side test infrastructure, soft-IOC management skills, etc. | Stripped down — no test IOC, no on-server admin skills |
 | Stdio MCP servers (e.g., wiki search via uvx) | Often present (run inside the web-terminal container) | Often absent (developer probably doesn't have facility wiki credentials) |
 | Database connections (when a module owns one) | `localhost:<port>` (container on the deploy server) | `${config.deploy.fqdn}:<port>` if reachable, else disabled — often fails gracefully |
 
@@ -124,15 +124,15 @@ If a client profile *does* include local containers (uncommon — usually only i
 - **Linux**: Docker Engine + compose plugin.
 - **Windows**: Docker Desktop (WSL2 backend).
 
-Podman on a developer laptop works but isn't the path of least resistance — most lifecycle hooks and overlays assume Docker syntax for any local stack.
+Podman on a developer laptop works but isn't the path of least resistance — most lifecycle hooks and profile-shipped scripts assume Docker syntax for any local stack.
 
 Set `container_runtime: docker` in the client profile YAML; it's separate from `${config.runtime.engine}` (which describes the deploy server's runtime, not the client's).
 
 ---
 
-## Re-building after profile or overlay changes
+## Re-building after a profile change
 
-When you edit the profile or any overlay file in the repo:
+When you edit `profile.yml` or any file in one of the profile's convention directories:
 
 ```bash
 osprey build ${config.facility.prefix}-client \
@@ -141,11 +141,11 @@ osprey build ${config.facility.prefix}-client \
   --force
 ```
 
-`--force` wipes the previous build. Any state the client project accumulates (Claude Code session history, dropped credentials) is in `~/.claude/` (Claude Code's user state), not in the project — it survives rebuilds. Only the project's `.venv` and `.mcp.json` and overlays get regenerated.
+`--force` re-renders the project from the profile, preserving `.env`, `_agent_data/` and `.git`. Any state the client project accumulates (session history, dropped credentials) is in `~/.claude/` (user state), not in the project — it survives rebuilds. The project's `.venv`, `.mcp.json`, and everything the profile contributes get regenerated.
 
 Rebuild whenever:
 - The client profile YAML changes.
-- Any agent, skill, or rule under `overlays/` changes.
+- Any agent, skill, or rule in one of the profile's convention directories changes.
 - The MCP server URLs change (e.g., the deploy server's FQDN is different).
 - A new dependency is added to the profile.
 
@@ -167,7 +167,7 @@ You don't need to rebuild when:
 | MCP server shows "connection failed" in Claude | Either wrong URL, server down, or network can't reach it | `curl -v http://${config.deploy.fqdn}:<port>/mcp` from the laptop. If that fails: VPN, firewall, or server issue. Verify with the deploy operator that the server is healthy. |
 | Some MCP servers work, others don't | Selective firewall or service-specific outage | Check `${config.deploy.host}` for the failing service: `ssh ${config.deploy.host} "${config.runtime.compose_command} ps <service>"` |
 | `claude` reports "API key invalid" | Wrong or missing `${config.llm.api_key_env_var}` in `.env.local` | Verify the key matches what `${config.llm.provider}` expects. Test the key directly with the provider's quick-start example before blaming Claude Code. |
-| Builds succeed but the assistant ignores a new agent/rule you added | Overlay file path wrong, or `--force` not used | Verify the overlay's source path under `overlays/` matches what the profile references; rebuild with `--force` |
+| Builds succeed but the assistant ignores a new agent/rule you added | File in the wrong (or misspelled) convention directory, or `--force` not used | Check the build output for an "unrecognized top-level entry" warning — `rule/` is not `rules/`. Then rebuild with `--force` |
 | Connection works but is slow | Proxy interception, or congested control network | Try without `HTTP_PROXY`/`HTTPS_PROXY` set on the laptop (these aren't usually needed for direct connections to internal services). For VPN slowness, ask IT. |
 | `pip install osprey-framework` fails behind a corporate proxy | Proxy not configured for pip | `pip install --proxy=<your-proxy> osprey-framework`, or set `HTTPS_PROXY` in the shell |
 | Claude Code can't find `claude` after `npm install -g` | npm global bin not in PATH | Add the npm global bin to PATH (`npm config get prefix` shows the directory; append `/bin`) |
@@ -178,8 +178,8 @@ You don't need to rebuild when:
 
 This file documents the build + run workflow once `${config.facility.prefix}-client.yml` already exists. It does NOT cover:
 
-- **Authoring or modifying `${config.facility.prefix}-client.yml`** — that's `/osprey-build-interview`'s job. If the client profile needs new MCP server entries, agent definitions, env vars, or overlay paths, hand the user off to `/osprey-build-interview` and stop.
+- **Authoring or modifying `${config.facility.prefix}-client.yml`** — that's `/osprey-build-interview`'s job. If the client profile needs new MCP server entries, agent definitions, env vars, or convention directories, hand the user off to `/osprey-build-interview` and stop.
 - **Running the deploy server's MCP services locally** — use the prod profile and a local container stack instead, or ask the deploy operator for shell access on the server.
 - **Setting up VPN or network access** — IT problem; this skill assumes the laptop can reach `${config.deploy.fqdn}`.
 
-If a developer's "client build doesn't work" problem turns out to be a profile gap (missing MCP server, wrong overlay), refer them to `/osprey-build-interview` to update the profile, then come back here for the build mechanics.
+If a developer's "client build doesn't work" problem turns out to be a profile gap (missing MCP server, artifact in the wrong convention directory), refer them to `/osprey-build-interview` to update the profile, then come back here for the build mechanics.
