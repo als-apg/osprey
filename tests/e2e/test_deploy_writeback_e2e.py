@@ -803,7 +803,7 @@ def test_degraded_topology_deploys_and_flags_itself(tmp_path: Path) -> None:
 def test_persona_autorender_resolves_from_the_profile(tmp_path: Path) -> None:
     """Personas are rendered from the parent profile's ``personas/`` — and only there.
 
-    ``multi-user-demo`` is the shipped two-persona stack. Materializing its
+    ``control-assistant`` is the shipped two-persona stack. Materializing its
     profile writes a delta per persona into ``<profile>/personas/`` and rewrites
     the catalog's ``build_profile`` to point at those files; ``deploy up`` then
     auto-renders each persona project from its delta. That anchoring is the
@@ -834,10 +834,10 @@ def test_persona_autorender_resolves_from_the_profile(tmp_path: Path) -> None:
     profile_dir = _profile_dir(tmp_path, project_name)
 
     try:
-        project_dir = _build_from_preset(tmp_path, project_name, "multi-user-demo", override)
+        project_dir = _build_from_preset(tmp_path, project_name, "control-assistant", override)
 
         catalog = _persona_catalog(project_dir)
-        assert catalog, "the multi-user-demo build produced no persona catalog"
+        assert catalog, "the control-assistant build produced no persona catalog"
         for persona, entry in catalog.items():
             delta = profile_dir / "personas" / f"{persona}.yml"
             assert entry.get("build_profile") == f"personas/{persona}.yml", (

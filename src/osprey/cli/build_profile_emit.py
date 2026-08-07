@@ -322,7 +322,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 """,
     "nextcloud_bridge": """
 # --- Nextcloud bridge --------------------------------------------------------
-# Turns a Nextcloud folder into a dispatch trigger source. The trigger name must
+# Answers questions asked from a Nextcloud Talk room. The trigger name must
 # match one declared in the dispatch triggers file.
 #
 # nextcloud_bridge:

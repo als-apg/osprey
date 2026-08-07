@@ -219,7 +219,7 @@ def _roster_names(preset: str) -> list[str]:
     return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
 
 
-@pytest.mark.parametrize("preset", ["control-assistant", "multi-user-demo"])
+@pytest.mark.parametrize("preset", ["control-assistant"])
 def test_per_user_context_directories_are_seeded_from_the_roster(
     runner: CliRunner, tmp_path: Path, preset: str
 ) -> None:

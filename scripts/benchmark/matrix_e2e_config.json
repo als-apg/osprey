@@ -99,10 +99,6 @@
       "reason": "Own hardcoded provider/model axis (als-apg/cborg/anthropic env-key preference with fixed haiku wire ids) — bypasses OSPREY_E2E_FORCE_MODEL."
     },
     {
-      "path": "tests/e2e/test_multi_user_demo.py",
-      "reason": "Multi-user-demo deploy topology and rendered write-posture/config assertions with a fake placeholder API key — no agent session ever runs."
-    },
-    {
       "path": "tests/e2e/test_nextcloud_talk_bridge_e2e.py",
       "reason": "Runs against a pinned, PRIVATE ghcr Nextcloud + Talk fixture image; the module never builds or pulls it and skips outright when it is absent from the local store, so on the bench box this file contributes nothing but skips. Its substance is the two-party wire contract with a real Talk server (room-type rules, mention filter, poll cursor, restart recovery), asserted through the dispatch engine's persisted run_id rather than through anything the model says — an adapter-integrity proof, not a model-capability signal."
     },

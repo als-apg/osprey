@@ -61,6 +61,14 @@ Run & Operate the Agent
       The browser cockpit for the Osprey agent — launching it, theming every
       OSPREY interface at once, and adding your own themed side panels.
 
+   .. grid-item-card:: Multi-User Support
+      :link: multi-user
+      :link-type: doc
+
+      Serve a whole team from one host — a landing page plus a private
+      containerized Web Terminal per user, in read-only and write-capable
+      capability tiers.
+
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
       :link-type: doc
@@ -82,8 +90,8 @@ Run & Operate the Agent
       Turn external events — webhooks and cron ticks — into headless Osprey agent
       runs, deployed as containers or run locally.
 
-   .. grid-item-card:: Deploy a Chat Bridge
-      :link: deploy-chat-bridge
+   .. grid-item-card:: Chat Bridges
+      :link: chat-bridges/index
       :link-type: doc
 
       Let your team ask the Osprey agent questions from Nextcloud Talk or Google
@@ -187,10 +195,11 @@ Bundled Services & Tutorials
    deploy-project
    containerize-project
    web-terminal/index
+   multi-user
    use-cli-chat
    non_interactive_query
    event-dispatch
-   deploy-chat-bridge
+   chat-bridges/index
    monitor-agent
    configure-health-checks
    add-connector

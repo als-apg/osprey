@@ -737,23 +737,38 @@ class TestPersonaReferenceErrors:
                 workspace.project_dir,
             )
 
-    def test_an_off_chain_persona_preset_is_refused_at_profile_new(self, tmp_path: Path) -> None:
+    def test_an_off_chain_persona_preset_is_refused_at_profile_new(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A persona preset that is not a delta over the host preset would emit
         a persona file carrying its own base, which the host cannot supply.
 
-        ``multi-user-demo-readonly`` is the honest off-chain case: it renders
-        the same app template as ``control-assistant`` (so the shared-data-tree
-        check passes) but extends ``multi-user-demo``, so it is not a delta over
-        the profile being materialized.
+        No bundled preset renders ``control-assistant``'s app template from
+        outside its extends chain, so the off-chain case is simulated for the
+        readonly persona: its raw ``extends`` is repointed away from the host
+        and the chain predicate pinned false.
         """
-        override = _write(
-            tmp_path / "off-chain.yml",
-            "config:\n"
-            "  modules.web_terminals:\n"
-            "    personas:\n"
-            "      readonly:\n"
-            "        build_profile: multi-user-demo-readonly\n",
+        from osprey.cli import build_profile_presets
+
+        real_load = build_profile_presets._load_preset_raw
+        real_reaches = build_profile_presets._preset_extends_chain_reaches
+
+        def out_of_chain_raw(name: str):
+            raw, path = real_load(name)
+            if name == "control-assistant-readonly":
+                raw = {**raw, "extends": "hello-world"}
+            return raw, path
+
+        def out_of_chain_for_readonly(child: str, ancestor: str) -> bool:
+            if child == "control-assistant-readonly":
+                return False
+            return real_reaches(child, ancestor)
+
+        monkeypatch.setattr(build_profile_presets, "_load_preset_raw", out_of_chain_raw)
+        monkeypatch.setattr(
+            build_profile_presets, "_preset_extends_chain_reaches", out_of_chain_for_readonly
         )
+
         result = _invoke(
             profile_group,
             [
@@ -761,8 +776,6 @@ class TestPersonaReferenceErrors:
                 str(tmp_path / "off-chain-profile"),
                 "--preset",
                 "control-assistant",
-                "-O",
-                str(override),
             ],
         )
         assert result.exit_code != 0

@@ -73,6 +73,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   in. `osprey deploy up` writes the credentials it mints back into the
   profile's `.env`, append-only, so a rebuild comes up on the same secrets
   instead of minting a second set the running containers do not trust.
+- Bridge conversation history keeps more context. Replay is now bounded by the
+  character budget (raised to 100k chars) rather than by turn count, which
+  becomes a runaway backstop (100 turns), and a turn stays eligible for replay
+  for 180 days instead of 90. Long-lived direct-message threads no longer drop
+  older turns while sitting far under their size budget.
 - `osprey profile new` now writes persona profiles as small deltas
   (`extends: ../profile.yml`) instead of full standalone copies: edit the host
   profile once and every persona inherits the change, while each persona file
@@ -129,6 +134,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   unaffected; an out-of-tree connector that overrides `get_data` must
   accept the new keyword (even just to ignore it) to remain
   call-compatible.
+- The chat bridge how-to is now a section, `how-to/chat-bridges/`, with an
+  overview page and a page per chat system. Adds a guide to connecting a
+  service that does not ship with Osprey, such as Slack or email. The old
+  `how-to/deploy-chat-bridge` page is gone; its content moved into the new
+  Nextcloud Talk and Google Chat pages.
+- Ruff moved to 0.16, pinned to one minor in the `dev` extra so the
+  pre-commit hook and CI agree on formatting. The formatter skips Markdown,
+  leaving documentation snippets as written.
 
 ### Removed
 
@@ -143,6 +156,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   `.env`, so what a build produces does not depend on the shell that ran it.
   Exporting a key still works for a host-local run and still seeds a profile at
   materialization; it no longer leaks into a built project unrecorded.
+- Removed the `multi-user-demo`, `multi-user-demo-readonly`, and
+  `multi-user-demo-readwrite` presets. The `control-assistant` preset ships
+  the same two-persona multi-user web tier, so the demo family was a lighter
+  clone of it; build from `--preset control-assistant` instead. The multi-user
+  walkthrough now lives at How-To → Multi-User Support.
 - Removed the DOOCS connector's `max_points` history-decimation path. It built
   a fixed `np.linspace` grid and forward-filled onto it with a zero-order hold,
   which the "nothing is manufactured" contract forbids, and no production
@@ -307,6 +325,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   splitting the `deployed_services` list around the `SAFETY CONTROLS` header.
   Appended entries now render inside their own section, with the banner kept
   at the section boundary.
+
+- The test suite no longer inherits a `TZ` supplied by a `.env` file, which made
+  `tests/connectors/test_archiver_timezone.py` error on any machine whose system
+  timezone differs from the one in `.env`. CI has no `.env`, so it never saw it.
+- Importing an `osprey` module no longer loads `.env` into the environment.
+  Previously any `import osprey.…` rewrote `os.environ` from whatever `.env`
+  sat in the working directory — or, through LiteLLM, in any parent directory —
+  overriding values the caller had set. `.env` now loads only where an
+  application asks for it: the `osprey` CLI, MCP server startup, and the Claude
+  Code launch paths. Every key is still passed through, unchanged, at those
+  points. Code that imports OSPREY as a library and relied on the side effect
+  must call `osprey.utils.config.load_project_dotenv()` itself.
+- The `nextcloud_bridge` block in a generated `profile.yml` described itself as
+  turning "a Nextcloud folder" into a trigger source. It answers questions from
+  a Talk room; the comment now says so.
 
 ## [2026.8.0]
 

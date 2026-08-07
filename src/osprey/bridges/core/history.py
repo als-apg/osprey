@@ -14,7 +14,7 @@ durability guarantees as the dedup store) so a bridge restart keeps
 conversations.
 
 A turn is ``{question, answer, ts, run_id, artifacts}``: the ``ts`` (epoch
-seconds, matching the retry queue's ``queued_at`` clock) anchors the 90-day
+seconds, matching the retry queue's ``queued_at`` clock) anchors the 180-day
 age-prune; ``run_id`` ties the turn back to the run that produced it; and
 ``artifacts`` carries up to :data:`MAX_ARTIFACTS_PER_TURN` opaque descriptor
 dicts (produced elsewhere — this store round-trips them without inspecting
@@ -30,27 +30,50 @@ from typing import Any
 
 from .store import JsonFileStore
 
-# Bounds on what we replay into the payload. Turn count is the primary knob;
-# the char budget guards against a few huge answers bloating every follow-up
-# (the worker's prompt is finite and channel answers can be long).
+# Bounds on what we replay into the payload. The CHAR budget is the primary
+# knob; the turn count is a runaway backstop, NOT the intended limiter.
 #
 # Why bound this at all — the window is replayed as fresh input tokens on EVERY
 # follow-up (each dispatch run is stateless, so there is no cross-run prompt
 # cache to amortize it), and a DM's history key is its space, which never
-# rotates: a DM is one unbounded, ever-growing conversation. Without a cap an
-# old DM would eventually replay months of stale, unrelated turns into every
-# new question. The caps below are sized generously (~10k tokens of history)
-# so normal working sessions carry full context, while still fencing the
-# eternal-DM case.
-MAX_TURNS = 30
-MAX_CHARS = 40000
+# rotates: a DM is one unbounded, ever-growing conversation.
+#
+# Why the char budget leads, and the turn count does not. Turn count is only a
+# proxy for size, and a poor one: observed turns span ~370-4,100 chars, so "N
+# turns" can differ by an order of magnitude in what actually rides the prompt.
+# The char budget measures the thing we care about directly. The turn cap earns
+# its place only by stopping a conversation of thousands of tiny turns from
+# growing the persisted store without limit — if it is ever the binding
+# constraint, that is a bug in these numbers, not the design working.
+#
+# Sized against a measured deployment rather than intuition: a real 30-turn DM
+# serializes to ~19k chars (~5k tokens), the largest single conversation to
+# ~24k chars, and an ENTIRE multi-conversation store to ~39k tokens — less than
+# a bare agent-harness system prompt, and a few percent of a >=200k-token
+# context. The budget below is therefore set so ordinary working conversations
+# are never trimmed by size at all, while one pathological thread still cannot
+# dominate the worker's prompt.
+MAX_TURNS = 100
+MAX_CHARS = 100000
 
-# Hard age ceiling: a turn older than this is dropped on the next append, so a
-# long-lived DM never replays months-stale exchanges even if it stays under the
-# turn/char caps. Pre-feature turns (no ``ts``) are grandfathered to the load
-# time (see :meth:`HistoryStore._coerce`), so this prune can never mistake them
-# for ancient and wipe a conversation's whole history on first append.
-MAX_AGE_SECONDS = 90 * 24 * 60 * 60
+# Hard age ceiling: a turn older than this is dropped on the next append.
+#
+# This is a RELEVANCE bound, not a cost one — the char budget already bounds
+# cost. Its load-bearing job is that an abandoned conversation eventually
+# shrinks: nothing else ever removes turns from a thread that stopped being
+# used, and the store rewrites its whole file on every append, so unbounded
+# retention would tax every future message in every OTHER conversation too.
+#
+# Six months is deliberately generous. Picking a months-old thread back up is a
+# legitimate thing to do — an operator returning to a prior investigation — and
+# each replayed turn carries its ``ts``, so the agent can weigh an old exchange
+# for itself rather than having it silently deleted underneath it. Prefer that
+# over a short ceiling: destroying context is not reversible, discounting it is.
+#
+# Pre-feature turns (no ``ts``) are grandfathered to the load time (see
+# :meth:`HistoryStore._coerce`), so this prune can never mistake them for
+# ancient and wipe a conversation's whole history on first append.
+MAX_AGE_SECONDS = 180 * 24 * 60 * 60
 
 # Per-turn cap on carried artifact descriptors. One run can emit many plots; we
 # keep the most recent handful so the payload (and the char budget) stays

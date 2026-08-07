@@ -33,8 +33,6 @@ HOST_PRESET = "control-assistant"
 PERSONA_PRESETS = (
     "control-assistant-readonly",
     "control-assistant-readwrite",
-    "multi-user-demo-readonly",
-    "multi-user-demo-readwrite",
 )
 
 

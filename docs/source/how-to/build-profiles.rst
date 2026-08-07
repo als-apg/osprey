@@ -368,7 +368,8 @@ Personas
 
 Some presets give each operator their own web terminal, and each terminal runs
 with a persona — a capability posture, such as read-only versus write-capable.
-For those presets, ``osprey profile new`` writes one file per persona:
+For those presets (``control-assistant``), ``osprey profile new`` writes one
+file per persona:
 
 .. code-block:: text
 
@@ -443,10 +444,10 @@ that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.
 .. note::
 
    ``exclude:`` carves a tier by *removing* capability. When the boundary you
-   want is "may not write," prefer flipping the enforcement switch instead — the
-   bundled read-only personas differ from their write-capable siblings only on
-   ``control_system.writes_enabled``, leaving the tool surface identical (see
-   :doc:`web-terminal/multi-user-demo`).
+   want is "may not write," prefer flipping the enforcement switch instead —
+   the bundled ``control-assistant-readonly`` preset differs from its
+   write-capable sibling only on ``control_system.writes_enabled``, leaving
+   the tool surface identical (see :doc:`multi-user`).
 
 To keep the scan server **on** while hiding an individual plan, set
 ``bluesky.excluded_plans`` instead:
