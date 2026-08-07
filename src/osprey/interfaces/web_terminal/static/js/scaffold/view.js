@@ -2,9 +2,16 @@
 /**
  * OSPREY Web Terminal — Scaffold Gallery: view layer
  *
- * Gallery-view rendering (search bar, filter chips, untracked-file banner,
- * summary line, and the category/card grid) plus the pure artifact-list
- * filter behind it.
+ * Gallery-view rendering (the muted meta line, the collapsible filter panel
+ * holding search + chips, the untracked-file banner, and the collapsible
+ * category/card grid) plus the pure artifact-list filter behind it.
+ *
+ * Chrome budget: the gallery's only permanent row is the meta line. Search and
+ * the category chips live behind its Filter disclosure, and every category but
+ * the pinned ones starts collapsed, so opening a tab shows artifacts rather
+ * than controls. The cost of hiding controls is that an active filter must
+ * stay legible with the panel shut -- hence the "N of M · <what>" readout and
+ * the clear-all ✕ on the meta line itself.
  *
  * Mirrors the factory/injection pattern scaffold/data.js and
  * lattice_dashboard/render.js already use: {@link createScaffoldGalleryView}
@@ -34,12 +41,19 @@ import { createScaffoldGalleryCards } from './cards.js';
  * @property {string|null} filterCategory
  * @property {boolean} filterProjectOwned
  * @property {string} searchQuery
+ * @property {boolean} [filterOpen]
+ * @property {Set<string>} [collapsedCategories]
+ * @property {Set<string>} [seenCategories]
+ * @property {boolean} [_lastFiltering]
  * @property {string[]} pinnedCategories
  * @property {{total: number, framework: number, userOwned: number}} summary
  * @property {HTMLElement|null} galleryView
  * @property {HTMLElement|null} detailView
  * @property {HTMLElement|null} untrackedBannerEl
  * @property {HTMLElement|null} filterChipsEl
+ * @property {HTMLElement|null} [filterPanelEl]
+ * @property {HTMLElement|null} [filterToggleEl]
+ * @property {HTMLElement|null} [clearFilterEl]
  * @property {HTMLElement|null} summaryEl
  * @property {HTMLInputElement|null} searchInput
  * @property {HTMLElement|null} categoriesEl
@@ -141,6 +155,17 @@ export function createScaffoldGalleryView(gallery) {
     setTimeout(() => document.addEventListener('click', handler), 0);
   }
 
+  /**
+   * True while the artifact list is narrowed by anything -- a category chip,
+   * the project-owned toggle, or a search query. Drives both the meta line's
+   * "N of M" readout and the category seeding below, so a narrowed list can
+   * never be mistaken for a short one.
+   * @returns {boolean}
+   */
+  function isFiltering() {
+    return Boolean(gallery.filterCategory || gallery.filterProjectOwned || gallery.searchQuery);
+  }
+
   /** @returns {void} */
   function renderGallery() {
     if (gallery.galleryView) gallery.galleryView.style.display = '';
@@ -150,8 +175,46 @@ export function createScaffoldGalleryView(gallery) {
 
     renderUntrackedBanner();
     renderFilterChips();
-    renderSummary();
     bindSearch();
+    renderFilterToggle();
+    renderCategories();  // ends with renderSummary()
+  }
+
+  /**
+   * Paint the Filter disclosure and its panel to match `gallery.filterOpen`,
+   * and (re)bind the toggle. Assignment to `onclick` rather than
+   * addEventListener keeps this idempotent across re-renders -- the same
+   * reason bindSearch() clones its input.
+   * @returns {void}
+   */
+  function renderFilterToggle() {
+    const btn = gallery.filterToggleEl;
+    const panel = gallery.filterPanelEl;
+    if (!btn || !panel) return;
+
+    const open = Boolean(gallery.filterOpen);
+    btn.textContent = open ? 'Filter ⌃' : 'Filter ⌄';
+    btn.setAttribute('aria-expanded', String(open));
+    panel.classList.toggle('open', open);
+
+    btn.onclick = () => {
+      gallery.filterOpen = !gallery.filterOpen;
+      renderFilterToggle();
+      if (gallery.filterOpen && gallery.searchInput) gallery.searchInput.focus();
+    };
+  }
+
+  /**
+   * Drop every active filter and re-render. Wired to the meta line's ✕, which
+   * is the escape hatch for a filter left active behind a collapsed panel.
+   * @returns {void}
+   */
+  function clearFilters() {
+    gallery.filterCategory = null;
+    gallery.filterProjectOwned = false;
+    gallery.searchQuery = '';
+    if (gallery.searchInput) gallery.searchInput.value = '';
+    renderFilterChips();
     renderCategories();
   }
 
@@ -175,14 +238,14 @@ export function createScaffoldGalleryView(gallery) {
 
     const title = _el('span', 'prompts-untracked-title');
     const n = gallery.untrackedFiles.length;
-    title.textContent = `${n} file${n > 1 ? 's' : ''} active in Claude Code but not managed by OSPREY`;
+    title.textContent = `${n} file${n > 1 ? 's' : ''} active in the agent's setup but not managed by OSPREY`;
     header.appendChild(title);
 
     banner.appendChild(header);
 
     const desc = _el('div', 'prompts-untracked-desc');
     desc.textContent =
-      'These files are in .claude/ and will be loaded by Claude Code, but they are not tracked in your project config. Register them to manage through this UI, or delete them.';
+      'These files are in .claude/ and take effect in the next session, but they are not tracked in your project config — a rebuild will not reproduce them. Register them to manage through this UI, or delete them.';
     banner.appendChild(desc);
 
     const list = _el('div', 'prompts-untracked-list');
@@ -213,7 +276,7 @@ export function createScaffoldGalleryView(gallery) {
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'prompts-untracked-btn prompts-untracked-delete';
       deleteBtn.textContent = 'Delete';
-      deleteBtn.title = 'Remove this file from disk — it will no longer affect Claude Code';
+      deleteBtn.title = 'Remove this file from disk — it will no longer reach the agent';
       deleteBtn.addEventListener('click', () => gallery.deleteUntracked(file.canonical_name));
       actions.appendChild(deleteBtn);
 
@@ -275,11 +338,40 @@ export function createScaffoldGalleryView(gallery) {
     }
   }
 
-  /** @returns {void} */
+  /**
+   * Paint the muted meta line. Unfiltered it is a plain inventory; filtered it
+   * names every active narrowing and reveals the clear-all ✕. The framework
+   * count is deliberately gone -- it is just total minus project-owned, and
+   * this line is the gallery's only permanent chrome.
+   * @returns {void}
+   */
   function renderSummary() {
     if (!gallery.summaryEl) return;
+
+    const total = gallery.summary.total;
+    const owned = gallery.summary.userOwned;
+
+    if (!isFiltering()) {
+      gallery.summaryEl.textContent =
+        `${total} artifact${total === 1 ? '' : 's'}` +
+        (owned > 0 ? ` · ${owned} project-owned` : '');
+      if (gallery.clearFilterEl) gallery.clearFilterEl.style.display = 'none';
+      return;
+    }
+
+    /** @type {string[]} */
+    const active = [];
+    if (gallery.filterCategory) active.push(gallery.filterCategory);
+    if (gallery.filterProjectOwned) active.push('project-owned');
+    if (gallery.searchQuery) active.push(`"${gallery.searchQuery}"`);
+
     gallery.summaryEl.textContent =
-      `${gallery.summary.total} artifacts · ${gallery.summary.framework} framework · ${gallery.summary.userOwned} project-owned`;
+      `${boundGetFilteredArtifacts().length} of ${total} · ${active.join(' · ')}`;
+
+    if (gallery.clearFilterEl) {
+      gallery.clearFilterEl.style.display = '';
+      gallery.clearFilterEl.onclick = clearFilters;
+    }
   }
 
   /** @returns {void} */
@@ -332,17 +424,68 @@ export function createScaffoldGalleryView(gallery) {
       if (bPin >= 0) return 1;
       return a.localeCompare(b);
     });
+
+    // Collapse bookkeeping. A category is seeded collapsed the first time it
+    // is seen unless it is pinned; after that the operator's own toggles win.
+    // Crossing the filtered/unfiltered boundary resets both sets, so starting
+    // a search always opens everything (matches can never hide behind a
+    // collapsed header) and clearing it restores the pinned-only default.
+    //
+    // Collapsing only earns its keep when there is more than one section to
+    // choose between: the single-category galleries (Safety's hooks, Config's
+    // two files) would otherwise open on a lone header over an empty panel.
+    // Their operator can still collapse it by hand.
+    const collapsed = gallery.collapsedCategories || (gallery.collapsedCategories = new Set());
+    const seen = gallery.seenCategories || (gallery.seenCategories = new Set());
+    const filtering = isFiltering();
+    const seedCollapsed = !filtering && sortedCategories.length > 1;
+    if (filtering !== gallery._lastFiltering) {
+      gallery._lastFiltering = filtering;
+      collapsed.clear();
+      seen.clear();
+    }
+
     for (const cat of sortedCategories) {
+      if (!seen.has(cat)) {
+        seen.add(cat);
+        if (seedCollapsed && !pinned.includes(cat)) collapsed.add(cat);
+      }
+      const isCollapsed = collapsed.has(cat);
+
       const section = document.createElement('div');
       section.className = 'prompts-category-section';
 
-      // Category header.
+      // Category header — the disclosure control for its own section.
       const header = document.createElement('div');
       header.className = 'prompts-category-header';
+      header.setAttribute('role', 'button');
+      header.tabIndex = 0;
+      header.setAttribute('aria-expanded', String(!isCollapsed));
+
+      const chevron = document.createElement('span');
+      chevron.className = 'prompts-category-chevron';
+      chevron.setAttribute('aria-hidden', 'true');
+      chevron.textContent = isCollapsed ? '▸' : '▾';
+      header.appendChild(chevron);
 
       const label = document.createElement('span');
+      label.className = 'prompts-category-label';
       label.textContent = cat.toUpperCase();
       header.appendChild(label);
+
+      const toggleSection = () => {
+        if (collapsed.has(cat)) collapsed.delete(cat);
+        else collapsed.add(cat);
+        renderCategories();
+      };
+      header.addEventListener('click', toggleSection);
+      header.addEventListener('keydown', (e) => {
+        const key = /** @type {KeyboardEvent} */ (e).key;
+        if (key === 'Enter' || key === ' ') {
+          e.preventDefault();
+          toggleSection();
+        }
+      });
 
       const count = document.createElement('span');
       count.className = 'prompts-category-count';
@@ -363,8 +506,10 @@ export function createScaffoldGalleryView(gallery) {
       }
 
       // "+" create button — use original category (not display-remapped).
+      // No 'commands': no gallery's categoryFilter admits that category, so a
+      // commands section can never render and the branch was unreachable.
       const creatableCategories = new Set([
-        'agents', 'rules', 'hooks', 'skills', 'commands', 'output-styles'
+        'agents', 'rules', 'hooks', 'skills', 'output-styles'
       ]);
       const originalCat = groups[cat][0]?.category || cat;
       if (creatableCategories.has(originalCat.toLowerCase())) {
@@ -381,6 +526,14 @@ export function createScaffoldGalleryView(gallery) {
 
       section.appendChild(header);
 
+      // Cards live in their own wrapper so collapsing is a class flip on one
+      // element. They are always BUILT -- collapsing hides them in CSS rather
+      // than skipping the render, so a collapsed section still answers to the
+      // search index and to card queries.
+      const body = document.createElement('div');
+      body.className = 'prompts-category-body';
+      if (isCollapsed) body.classList.add('collapsed');
+
       // Skills get special grouping.
       if (cat.toLowerCase() === 'skills') {
         /** @type {Record<string, any[]>} */
@@ -392,20 +545,23 @@ export function createScaffoldGalleryView(gallery) {
           skillGroups[skillName].push(art);
         }
         for (const [skillName, groupArts] of Object.entries(skillGroups).sort()) {
-          renderSkillGroup(section, skillName, groupArts);
+          renderSkillGroup(body, skillName, groupArts);
         }
       } else {
         for (const artifact of groups[cat]) {
-          renderArtifactCard(section, artifact, cat);
+          renderArtifactCard(body, artifact, cat);
         }
       }
 
+      section.appendChild(body);
       categoriesEl.appendChild(section);
     }
 
     if (filtered.length === 0) {
       categoriesEl.innerHTML = '<div class="prompts-empty">No matching artifacts found.</div>';
     }
+
+    renderSummary();
   }
 
   /** @returns {any[]} */
@@ -421,6 +577,8 @@ export function createScaffoldGalleryView(gallery) {
     renderGallery,
     renderUntrackedBanner,
     renderFilterChips,
+    renderFilterToggle,
+    clearFilters,
     renderSummary,
     bindSearch,
     renderCategories,

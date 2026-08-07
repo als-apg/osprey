@@ -58,12 +58,13 @@ const ENUM_FIELDS = {
   'approval.tools.entry_create': ['always', 'selective', 'skip'],
 };
 
-// Fields that should render as toggles (boolean)
+// Fields that should render as toggles even when the current value is null or
+// absent. A field whose value is already a boolean gets a toggle regardless
+// (see createInputForValue), so this set only matters for unset keys.
 const BOOLEAN_FIELDS = new Set([
   'approval.enabled',
   'control_system.writes_enabled',
   'control_system.read_only',
-  'python_execution.enabled',
   'ariel.enabled',
   'artifact_server.auto_launch',
   'screen_capture.enabled',
