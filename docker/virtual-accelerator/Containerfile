@@ -101,14 +101,26 @@ RUN whl="$(ls /tmp/wheels/lume_pva_apg-*.whl 2>/dev/null)" \
 ARG OSPREY_VERSION=0.0.0.dev0+unknown
 
 # The `virtual-accelerator` extra rather than a bare install, matching the
-# service Dockerfile, so the two images resolve the serving dependency set the
-# same way. No native pin is repeated here: PyAT (accelerator-toolbox[plot]),
-# lume-base and lume-pyat are all core dependencies of osprey already, so a
-# version pinned in this file would only be a second place to bump and a second
-# thing to get wrong. Everything installs from prebuilt manylinux_x86_64
-# wheels, so the image carries no C toolchain at all.
-RUN SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
-    pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy
+# service Dockerfile, so both images resolve the serving dependency set the
+# same way. lume-base and lume-pyat need no mention here -- they are exact-
+# pinned core dependencies of osprey, so the resolve can only produce one
+# answer for them.
+#
+# PyAT is the exception, and the pin is not redundant. pyproject.toml declares
+# `accelerator-toolbox[plot]>=0.7.1` and uv.lock resolves that to 0.7.1 --
+# which is what the dev venv and every unit test run against -- but this image
+# installs with pip, and pip does not read uv.lock. Without the pin the image
+# silently takes the newest release satisfying the floor, so the physics
+# library the container serves from would drift away from the one the lattice
+# code is tested against, with no signal. Task 6.3 owns replacing this with a
+# lockfile-driven install; until then this line is what keeps the two in step,
+# and it must be bumped together with uv.lock.
+#
+# Everything here installs from prebuilt manylinux_x86_64 wheels, so the image
+# carries no C toolchain at all.
+RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.7.1" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
+       pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy
 
 # Channel Access server port. TCP only is required -- CA name-server mode
 # (EPICS_CA_NAME_SERVERS=<host>:5064, EPICS_CA_AUTO_ADDR_LIST=NO on the
