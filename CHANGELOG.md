@@ -27,6 +27,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Bridge conversation history keeps more context. Replay is now bounded by the
+  character budget (raised to 100k chars) rather than by turn count, which
+  becomes a runaway backstop (100 turns), and a turn stays eligible for replay
+  for 180 days instead of 90. Long-lived direct-message threads no longer drop
+  older turns while sitting far under their size budget.
 - `osprey profile new` now writes persona profiles as small deltas
   (`extends: ../profile.yml`) instead of full standalone copies: edit the host
   profile once and every persona inherits the change, while each persona file
