@@ -16,6 +16,14 @@ a write path that recorded a value while withholding the post would fail the
 first of them, which is exactly the failure mode the runner's configuration
 exists to prevent.
 
+The PVA half of the namespace is stood in for by :class:`FakePvaChannels`,
+which is faithful on the mirror-image point: a p4p ``post`` both replaces the
+value a one-shot ``get`` is answered with and is the monitor update, so on
+that transport "nothing moved" is a single assertion. Its posts are recorded
+in the driver's own journal, so the order in which the two views of one
+address move -- and the order of both against put-completion -- is one
+sequence rather than two that have to be reconciled.
+
 The run loop is stood in for by :class:`FakeRunLoop`, which reproduces the
 four steps the real loop takes around each queued item. That is the boundary
 of what can be proven in process: the loop itself, the server, and the
@@ -30,6 +38,7 @@ from __future__ import annotations
 
 import ast
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +52,7 @@ from osprey.services.virtual_accelerator.manifest import (
     PARTITION_STATIC_NOISY,
     RECORD_TYPE_ANALOG,
 )
+from osprey.services.virtual_accelerator.serving import write_path as write_path_module
 from osprey.services.virtual_accelerator.serving.pvdb import (
     ServingRecords,
     build_serving_pvdb,
@@ -51,6 +61,7 @@ from osprey.services.virtual_accelerator.serving.write_path import (
     MODE_ECHO,
     MODE_LATCH,
     MODE_PHYSICS,
+    NOT_WRITABLE,
     RUNNER_CONFIG_POLICY,
     CohostWritePath,
     SetpointRoutedModel,
@@ -60,7 +71,7 @@ from osprey.services.virtual_accelerator.serving.write_path import (
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
-MIN_COLLECTED_TESTS = 50
+MIN_COLLECTED_TESTS = 90
 
 RING = "ZZRS"
 
@@ -96,6 +107,13 @@ BPM_READING = 0.000123
 # built database by `physics_setpoint_addresses`; pinned here as well so a
 # test that wires the wrapper directly does not depend on that derivation.
 PHYSICS_SETPOINTS = frozenset({MAG_SP, STUCK_SP})
+
+# The addresses served on PVA as well as on Channel Access: exactly the
+# model's own variables. Every other co-hosted address has one view only --
+# note that a magnet's `:RB` is not among them, because the model describes
+# the current that was commanded and the readings that came out, not the
+# readback that echoes a command.
+PVA_CHANNELS = frozenset({MAG_SP, STUCK_SP, BPM_X})
 
 
 def _channel(
@@ -240,6 +258,61 @@ class FakeDriver:
         return sum(1 for call, name, _ in self.calls if call == "updatePV" and name == reason)
 
 
+class FakePvaChannels:
+    """The PVA half of the served namespace: the model's own variables.
+
+    Faithful on the point the PVA assertions rest on. A p4p ``post`` both
+    replaces the value a one-shot ``get`` is answered with and delivers the
+    monitor update, so unlike Channel Access there is nothing a write can
+    record without publishing: "nothing moved on PVA, for either kind of
+    reader" is the single assertion that nothing was posted.
+
+    Only the addresses the model describes have a PVA channel at all. Every
+    other co-hosted address -- which is most of the namespace, including
+    every magnet's paired ``:RB`` -- is silently skipped, exactly as the
+    runner's own publisher skips an address it finds no channel for.
+    """
+
+    def __init__(
+        self,
+        driver: FakeDriver,
+        served: frozenset[str],
+        *,
+        failing: frozenset[str] = frozenset(),
+    ) -> None:
+        self.driver = driver
+        self.served = served
+        self.failing = failing
+        self.values: dict[str, Any] = {}
+
+    def post(self, address: str, value: Any) -> None:
+        if address not in self.served:
+            return
+        if address in self.failing:
+            raise RuntimeError(f"PVA transport failure publishing {address}")
+        # Into the driver's journal, so that the order the two views of one
+        # address move in is one sequence and not two.
+        self.driver.calls.append(("post", address, value))
+        self.values[address] = value
+
+    def posted(self, address: str) -> int:
+        return sum(1 for call, name, _ in self.driver.calls if call == "post" and name == address)
+
+
+class RecordingCompletion:
+    """A PVA put's completion callback, and what it was told.
+
+    Every put owes exactly one of these calls, on every outcome: a put left
+    uncompleted blocks the client that issued it until its own timeout.
+    """
+
+    def __init__(self) -> None:
+        self.errors: list[str | None] = []
+
+    def __call__(self, error: str | None) -> None:
+        self.errors.append(error)
+
+
 class RecordingModel(LUMEModel):
     """A model with the shape the runner drives, and nothing else.
 
@@ -360,8 +433,7 @@ class FakeRunLoop:
                 done(error)
 
 
-@pytest.fixture()
-def records() -> ServingRecords:
+def _records() -> ServingRecords:
     """The real serving database -- never a mock of it."""
     return build_serving_pvdb(
         CHANNELS,
@@ -369,6 +441,11 @@ def records() -> ServingRecords:
         boot_values=BOOT_VALUES,
         async_setpoints=True,
     )
+
+
+@pytest.fixture()
+def records() -> ServingRecords:
+    return _records()
 
 
 @pytest.fixture()
@@ -406,6 +483,7 @@ def _write_path(
     loop: FakeRunLoop | None,
     *,
     stuck: frozenset[str] = frozenset(),
+    pva: FakePvaChannels | None = None,
 ) -> CohostWritePath:
     return CohostWritePath(
         records,
@@ -414,12 +492,95 @@ def _write_path(
         stuck_setpoints=stuck,
         drive_limits=DRIVE_LIMITS,
         refusal_alarm=("WRITE_ALARM", "INVALID_ALARM"),
+        pva_post=pva.post if pva is not None else None,
     )
 
 
 @pytest.fixture()
-def path(records: ServingRecords, loop: FakeRunLoop) -> CohostWritePath:
-    return _write_path(records, loop, stuck=frozenset({STUCK_SP}))
+def pva(driver: FakeDriver) -> FakePvaChannels:
+    """The PVA channels the runner would serve: the model's variables."""
+    return FakePvaChannels(driver, PVA_CHANNELS)
+
+
+@pytest.fixture()
+def path(records: ServingRecords, loop: FakeRunLoop, pva: FakePvaChannels) -> CohostWritePath:
+    return _write_path(records, loop, stuck=frozenset({STUCK_SP}), pva=pva)
+
+
+@dataclass
+class Stack:
+    """One complete serving arrangement, assembled the way the runner does.
+
+    A test that needs a model which refuses, or a second arrangement to
+    compare against, builds one of these rather than reaching around the
+    fixtures: the driver, the PVA channels and the records are bound to each
+    other, and two arrangements sharing a records object would leave the
+    first one's driver detached.
+    """
+
+    records: ServingRecords
+    model: RecordingModel
+    bridge: RecordingBridge
+    loop: FakeRunLoop
+    driver: FakeDriver
+    pva: FakePvaChannels
+    path: CohostWritePath
+
+    def journal(self) -> list[tuple[str, str, Any]]:
+        """Every operation on either view, in order."""
+        return list(self.driver.calls)
+
+
+def _stack(
+    *,
+    refuse: frozenset[str] = frozenset(),
+    stuck: frozenset[str] = frozenset(),
+    served: frozenset[str] = PVA_CHANNELS,
+    failing: frozenset[str] = frozenset(),
+) -> Stack:
+    records = _records()
+    model = RecordingModel(refuse=refuse)
+    bridge = RecordingBridge(model, records)
+    loop = FakeRunLoop(
+        SetpointRoutedModel(model, on_setpoint=bridge.on_setpoint, routed=PHYSICS_SETPOINTS)
+    )
+    driver = FakeDriver({address: spec["value"] for address, spec in records.pvdb.items()})
+    records.attach_driver(driver)
+    pva = FakePvaChannels(driver, served, failing=failing)
+    return Stack(
+        records=records,
+        model=model,
+        bridge=bridge,
+        loop=loop,
+        driver=driver,
+        pva=pva,
+        path=_write_path(records, loop, stuck=stuck, pva=pva),
+    )
+
+
+def _write(stack: Stack, address: str, value: Any) -> RecordingCompletion:
+    """Write over Channel Access, and drain the loop.
+
+    The recorder returned is always empty, because Channel Access completion
+    carries nothing to record. That emptiness is the asymmetry between the
+    transports, and it is asserted rather than glossed over.
+    """
+    stack.path.write(stack.driver, address, value)
+    stack.loop.drain()
+    return RecordingCompletion()
+
+
+def _put(stack: Stack, address: str, value: Any) -> RecordingCompletion:
+    """Put over PVA, and drain the loop."""
+    done = RecordingCompletion()
+    stack.path.put(stack.driver, address, value, done=done)
+    stack.loop.drain()
+    return done
+
+
+#: The two transports, as ``(name, callable)``. Every property that must hold
+#: identically on both is parametrised over this rather than written twice.
+TRANSPORTS = [pytest.param(_write, id="ca-write"), pytest.param(_put, id="pva-put")]
 
 
 class TestRouting:
@@ -516,6 +677,7 @@ class TestAcceptedWrite:
         assert driver.sequence(MAG_SP, MAG_RB) == [
             ("setParam", MAG_SP),
             ("updatePV", MAG_SP),
+            ("post", MAG_SP),
             ("setParam", MAG_RB),
             ("updatePV", MAG_RB),
             ("callbackPV", MAG_SP),
@@ -533,64 +695,48 @@ class TestRejectedWrite:
     """A write the model refuses. Nothing may move, for any reader."""
 
     @pytest.fixture()
-    def refusing(self, records: ServingRecords) -> tuple[CohostWritePath, FakeRunLoop, FakeDriver]:
-        model = RecordingModel(refuse=frozenset({MAG_SP}))
-        bridge = RecordingBridge(model, records)
-        loop = FakeRunLoop(
-            SetpointRoutedModel(model, on_setpoint=bridge.on_setpoint, routed=PHYSICS_SETPOINTS)
-        )
-        drv = FakeDriver({address: spec["value"] for address, spec in records.pvdb.items()})
-        records.attach_driver(drv)
-        return _write_path(records, loop), loop, drv
+    def refusing(self) -> Stack:
+        return _stack(refuse=frozenset({MAG_SP}))
 
-    def test_one_shot_reader_sees_no_movement(self, refusing) -> None:  # noqa: ANN001
+    def test_one_shot_reader_sees_no_movement(self, refusing: Stack) -> None:
         """The served database is what a fresh read is answered from."""
-        path, loop, driver = refusing
-        path.write(driver, MAG_SP, 3.25)
-        loop.drain()
-        assert driver.values[MAG_SP] == BOOT_VALUES[MAG_SP]
-        assert driver.values[MAG_RB] == BOOT_VALUES[MAG_RB]
+        _write(refusing, MAG_SP, 3.25)
+        assert refusing.driver.values[MAG_SP] == BOOT_VALUES[MAG_SP]
+        assert refusing.driver.values[MAG_RB] == BOOT_VALUES[MAG_RB]
 
-    def test_monitoring_reader_sees_no_movement(self, refusing) -> None:  # noqa: ANN001
+    def test_monitoring_reader_sees_no_movement(self, refusing: Stack) -> None:
         """A monitoring client is served what is posted, and nothing is."""
-        path, loop, driver = refusing
-        path.write(driver, MAG_SP, 3.25)
-        loop.drain()
-        assert [call for call in driver.calls if call[0] == "setParam"] == []
-        assert driver.posted(MAG_RB) == 0
+        _write(refusing, MAG_SP, 3.25)
+        assert [call for call in refusing.driver.calls if call[0] == "setParam"] == []
+        assert refusing.driver.posted(MAG_RB) == 0
 
-    def test_completion_still_fires(self, refusing) -> None:  # noqa: ANN001
+    def test_the_other_view_sees_no_movement_either(self, refusing: Stack) -> None:
+        """One post is all a PVA reader of either kind would need to see."""
+        _write(refusing, MAG_SP, 3.25)
+        assert refusing.pva.values == {}
+
+    def test_completion_still_fires(self, refusing: Stack) -> None:
         """Withholding it would postpone every later write to this setpoint,
         for the life of the process."""
-        path, loop, driver = refusing
-        path.write(driver, MAG_SP, 3.25)
-        loop.drain()
-        assert ("callbackPV", MAG_SP, None) in driver.calls
+        _write(refusing, MAG_SP, 3.25)
+        assert ("callbackPV", MAG_SP, None) in refusing.driver.calls
 
-    def test_refusal_raises_an_alarm_after_the_value_is_left_alone(
-        self,
-        refusing,  # noqa: ANN001
-    ) -> None:
+    def test_refusal_raises_an_alarm_after_the_value_is_left_alone(self, refusing: Stack) -> None:
         """Put-completion can only report success, so the alarm is the only
         signal a refusal can leave."""
-        path, loop, driver = refusing
-        path.write(driver, MAG_SP, 3.25)
-        loop.drain()
-        assert driver.sequence(MAG_SP) == [
+        _write(refusing, MAG_SP, 3.25)
+        assert refusing.driver.sequence(MAG_SP) == [
             ("setParamStatus", MAG_SP),
             ("updatePV", MAG_SP),
             ("callbackPV", MAG_SP),
         ]
 
-    def test_a_later_accepted_write_still_lands(self, refusing) -> None:  # noqa: ANN001
+    def test_a_later_accepted_write_still_lands(self, refusing: Stack) -> None:
         """The refusal leaves nothing behind that blocks the next write."""
-        path, loop, driver = refusing
-        path.write(driver, MAG_SP, 3.25)
-        loop.drain()
-        path.write(driver, ECHO_SP, 7.0)
-        loop.drain()
-        assert driver.values[ECHO_SP] == 7.0
-        assert driver.values[ECHO_RB] == 7.0
+        _write(refusing, MAG_SP, 3.25)
+        _write(refusing, ECHO_SP, 7.0)
+        assert refusing.driver.values[ECHO_SP] == 7.0
+        assert refusing.driver.values[ECHO_RB] == 7.0
 
 
 class TestModelIsNeverTheSource:
@@ -652,6 +798,7 @@ class TestStuckSetpoint:
         assert driver.sequence(STUCK_SP, STUCK_RB) == [
             ("setParam", STUCK_SP),
             ("updatePV", STUCK_SP),
+            ("post", STUCK_SP),
             ("callbackPV", STUCK_SP),
         ]
 
@@ -700,6 +847,394 @@ class TestNonPhysicsWrites:
     ) -> None:
         assert path.write(driver, MAG_RB, 42.0) is False
         assert driver.values[MAG_RB] == BOOT_VALUES[MAG_RB]
+
+
+class TestBothViewsOfOneChannel:
+    """An address served twice carries one value, not two that drift."""
+
+    def test_a_channel_access_write_moves_the_pva_view_too(
+        self, path: CohostWritePath, driver: FakeDriver, loop: FakeRunLoop, pva: FakePvaChannels
+    ) -> None:
+        path.write(driver, MAG_SP, 3.25)
+        loop.drain()
+        assert pva.values[MAG_SP] == 3.25
+
+    def test_the_two_views_carry_the_same_value_bit_for_bit(
+        self, path: CohostWritePath, driver: FakeDriver, loop: FakeRunLoop, pva: FakePvaChannels
+    ) -> None:
+        """A settle poll compares to 1e-9; a re-derived value would not do."""
+        path.write(driver, MAG_SP, 700.0)
+        loop.drain()
+        assert pva.values[MAG_SP] == driver.values[MAG_SP] == MAG_BAND[1]
+
+    def test_the_pva_view_carries_the_post_clamp_value(
+        self, path: CohostWritePath, driver: FakeDriver, loop: FakeRunLoop, pva: FakePvaChannels
+    ) -> None:
+        """The clamp is upstream of the split, so neither view can carry the
+        requested value while the other carries the accepted one."""
+        path.write(driver, MAG_SP, -700.0)
+        loop.drain()
+        assert pva.values[MAG_SP] == MAG_BAND[0]
+
+    def test_an_address_with_one_view_is_published_once_and_does_not_raise(
+        self, path: CohostWritePath, driver: FakeDriver
+    ) -> None:
+        """Most of the co-hosted namespace has no PVA channel at all."""
+        assert path.write(driver, ECHO_SP, 7.0) is True
+        assert driver.values[ECHO_SP] == 7.0
+        assert ECHO_SP not in pva_addresses(driver)
+
+    def test_a_readback_with_a_pva_view_is_published_on_both(self) -> None:
+        """Nothing in the write path knows which addresses are doubly served;
+        the echo goes wherever the setpoint does."""
+        stack = _stack(served=frozenset({MAG_SP, MAG_RB}))
+        _write(stack, MAG_SP, 3.25)
+        assert stack.pva.values == {MAG_SP: 3.25, MAG_RB: 3.25}
+
+    def test_the_stuck_setpoint_latches_on_both_views(
+        self, path: CohostWritePath, driver: FakeDriver, loop: FakeRunLoop, pva: FakePvaChannels
+    ) -> None:
+        """The fault freezes the readback, not the record of what was asked
+        for -- and it freezes it identically for every reader on either
+        transport."""
+        path.write(driver, STUCK_SP, 3.25)
+        loop.drain()
+        assert pva.values[STUCK_SP] == 3.25
+        assert driver.values[STUCK_SP] == 3.25
+        assert driver.values[STUCK_RB] == BOOT_VALUES[STUCK_RB]
+
+    def test_no_value_read_back_from_the_model_reaches_the_pva_view_either(
+        self, path: CohostWritePath, driver: FakeDriver, loop: FakeRunLoop, pva: FakePvaChannels
+    ) -> None:
+        """The output pass offers every variable's read-back value on every
+        cycle; the second view is no more allowed to publish one than the
+        first is."""
+        path.write(driver, MAG_SP, 3.25)
+        loop.drain()
+        assert loop.outputs and all(value == POISON for value in loop.outputs[0].values())
+        assert POISON not in pva.values.values()
+
+
+def pva_addresses(driver: FakeDriver) -> set[str]:
+    """The addresses posted on the PVA view, out of the shared journal."""
+    return {name for call, name, _ in driver.calls if call == "post"}
+
+
+class TestPvaPut:
+    """A put takes the write path a Channel Access write takes."""
+
+    def test_the_clamped_value_reaches_the_hook(self) -> None:
+        stack = _stack()
+        _put(stack, MAG_SP, 700.0)
+        assert stack.bridge.calls == [(MAG_SP, MAG_BAND[1])]
+
+    def test_it_moves_the_channel_access_setpoint_and_its_echo(self) -> None:
+        stack = _stack()
+        _put(stack, MAG_SP, 3.25)
+        assert stack.driver.values[MAG_SP] == 3.25
+        assert stack.driver.values[MAG_RB] == 3.25
+
+    def test_it_posts_a_monitor_event_on_the_channel_access_view(self) -> None:
+        """A CA client monitoring the setpoint sees a put made on the other
+        transport, which is the whole point of routing it here."""
+        stack = _stack()
+        _put(stack, MAG_SP, 3.25)
+        assert stack.driver.posted(MAG_SP) == 1
+        assert stack.driver.posted(MAG_RB) == 1
+
+    def test_it_echoes_on_its_own_view(self) -> None:
+        stack = _stack()
+        _put(stack, MAG_SP, 3.25)
+        assert stack.pva.values[MAG_SP] == 3.25
+
+    def test_the_bpm_reading_still_comes_from_the_hook(self) -> None:
+        stack = _stack()
+        _put(stack, MAG_SP, 3.25)
+        assert stack.driver.values[BPM_X] == BPM_READING
+
+    def test_an_echo_setpoint_moves_its_pair_without_the_model(self) -> None:
+        stack = _stack()
+        done = _put(stack, ECHO_SP, 7.0)
+        assert stack.driver.values[ECHO_SP] == 7.0
+        assert stack.driver.values[ECHO_RB] == 7.0
+        assert stack.bridge.calls == []
+        assert done.errors == [None]
+
+    def test_a_stuck_setpoint_latches(self) -> None:
+        stack = _stack(stuck=frozenset({STUCK_SP}))
+        done = _put(stack, STUCK_SP, 3.25)
+        assert stack.driver.values[STUCK_SP] == 3.25
+        assert stack.driver.values[STUCK_RB] == BOOT_VALUES[STUCK_RB]
+        assert stack.bridge.calls == []
+        assert done.errors == [None]
+
+    def test_a_put_to_a_channel_that_is_not_a_setpoint_is_refused(self) -> None:
+        """Both transports agree on what is writable, not only on values."""
+        stack = _stack()
+        done = RecordingCompletion()
+        assert stack.path.put(stack.driver, TELEM_RB, 42.0, done=done) is False
+        assert done.errors == [NOT_WRITABLE]
+        assert stack.driver.calls == []
+        assert stack.pva.values == {}
+
+    def test_a_put_to_a_readback_is_refused(self) -> None:
+        stack = _stack()
+        done = RecordingCompletion()
+        assert stack.path.put(stack.driver, MAG_RB, 42.0, done=done) is False
+        assert done.errors == [NOT_WRITABLE]
+        assert stack.driver.values[MAG_RB] == BOOT_VALUES[MAG_RB]
+
+    def test_values_are_committed_before_the_put_is_completed(self) -> None:
+        """A PVA client unblocks on completion and reads immediately, just as
+        a Channel Access one does."""
+        stack = _stack()
+        order: list[str] = []
+        stack.path.put(
+            stack.driver,
+            MAG_SP,
+            3.25,
+            done=lambda error: order.append(f"done:{error}"),
+        )
+        stack.loop.drain()
+        order = [
+            *(f"{call}:{reason}" for call, reason, _ in stack.driver.calls if reason == MAG_SP),
+            *order,
+        ]
+        assert order == [
+            f"setParam:{MAG_SP}",
+            f"updatePV:{MAG_SP}",
+            f"post:{MAG_SP}",
+            "done:None",
+        ]
+
+    def test_the_putting_thread_never_touches_the_model(self) -> None:
+        """A p4p worker thread is no more allowed to reach the model than the
+        Channel Access server thread is."""
+        stack = _stack()
+        done = RecordingCompletion()
+        worker = threading.Thread(
+            target=stack.path.put,
+            args=(stack.driver, MAG_SP, 3.25),
+            kwargs={"done": done},
+            name="pva-worker",
+        )
+        worker.start()
+        worker.join()
+
+        assert stack.bridge.calls == []
+        assert stack.driver.values[MAG_SP] == BOOT_VALUES[MAG_SP]
+        assert done.errors == []
+
+        stack.loop.drain()
+        assert stack.bridge.threads == [threading.current_thread().name]
+        assert done.errors == [None]
+
+
+class TestTransportSymmetry:
+    """What a write does may not depend on which transport it arrived on."""
+
+    @pytest.mark.parametrize("send", TRANSPORTS)
+    def test_an_accepted_write_moves_both_views(self, send) -> None:  # noqa: ANN001
+        stack = _stack()
+        send(stack, MAG_SP, 3.25)
+        assert stack.driver.values[MAG_SP] == 3.25
+        assert stack.driver.values[MAG_RB] == 3.25
+        assert stack.pva.values[MAG_SP] == 3.25
+
+    @pytest.mark.parametrize("send", TRANSPORTS)
+    def test_a_refused_write_leaves_the_one_shot_readers_where_they_were(
+        self,
+        send,  # noqa: ANN001
+    ) -> None:
+        stack = _stack(refuse=frozenset({MAG_SP}))
+        send(stack, MAG_SP, 3.25)
+        assert stack.driver.values[MAG_SP] == BOOT_VALUES[MAG_SP]
+        assert stack.driver.values[MAG_RB] == BOOT_VALUES[MAG_RB]
+        assert stack.pva.values == {}
+
+    @pytest.mark.parametrize("send", TRANSPORTS)
+    def test_a_refused_write_posts_nothing_to_a_monitoring_reader(
+        self,
+        send,  # noqa: ANN001
+    ) -> None:
+        """On Channel Access that is two facts -- nothing recorded, nothing
+        posted -- because a value can be recorded without being posted. On
+        PVA the post is the record, so it is one."""
+        stack = _stack(refuse=frozenset({MAG_SP}))
+        send(stack, MAG_SP, 3.25)
+        assert [call for call in stack.driver.calls if call[0] == "setParam"] == []
+        assert stack.driver.posted(MAG_SP) == 1  # the alarm transition, no value
+        assert stack.driver.posted(MAG_RB) == 0
+        assert pva_addresses(stack.driver) == set()
+
+    @pytest.mark.parametrize("send", TRANSPORTS)
+    def test_a_refused_write_raises_the_alarm_whichever_side_it_came_from(
+        self,
+        send,  # noqa: ANN001
+    ) -> None:
+        """The alarm is the channel's condition, not one client's error
+        report: a refusal that arrived on PVA is still a refused write to
+        that setpoint, and a Channel Access client watching it is owed the
+        same signal it would get from a refusal of its own."""
+        stack = _stack(refuse=frozenset({MAG_SP}))
+        send(stack, MAG_SP, 3.25)
+        assert ("setParamStatus", MAG_SP, ("WRITE_ALARM", "INVALID_ALARM")) in stack.driver.calls
+
+    @pytest.mark.parametrize("send", TRANSPORTS)
+    def test_the_model_is_offered_the_same_value(self, send) -> None:  # noqa: ANN001
+        stack = _stack()
+        send(stack, MAG_SP, 700.0)
+        assert stack.bridge.calls == [(MAG_SP, MAG_BAND[1])]
+
+    def test_the_two_transports_leave_identical_journals_when_accepted(self) -> None:
+        """Everything either transport does to the served channels, in order,
+        is the same sequence -- the only difference permitted is which client
+        gets told the write finished."""
+        assert _journal(_write) == _journal(_put)
+
+    def test_the_two_transports_leave_identical_journals_when_refused(self) -> None:
+        assert _journal(_write, refuse=True) == _journal(_put, refuse=True)
+
+    def test_the_journal_comparison_is_not_vacuous(self) -> None:
+        """An accepted write and a refused one differ, so the equalities
+        above are asserting something."""
+        assert _journal(_write) != _journal(_write, refuse=True)
+        assert _journal(_write) != []
+
+
+def _journal(send, *, refuse: bool = False) -> list[tuple[str, str, Any]]:
+    """Everything one transport does to the served channels, in order.
+
+    Channel Access completion is dropped, because it is the one operation
+    that belongs to a transport rather than to the channel: a PVA put
+    completes through its own callback and must not end an asynchronous
+    Channel Access write that no client ever started.
+    """
+    stack = _stack(refuse=frozenset({MAG_SP}) if refuse else frozenset())
+    send(stack, MAG_SP, 3.25)
+    return [call for call in stack.journal() if call[0] != "callbackPV"]
+
+
+class TestPutCompletion:
+    """How each transport tells a client its write finished.
+
+    The one asymmetry the design keeps, because it is a real difference in
+    what the two protocols can express -- and the place where assuming
+    symmetry would freeze a setpoint.
+    """
+
+    def test_channel_access_completion_carries_no_status(self) -> None:
+        """It can only ever report success, which is why a refusal needs the
+        alarm to leave any trace at all."""
+        stack = _stack(refuse=frozenset({MAG_SP}))
+        assert _write(stack, MAG_SP, 3.25).errors == []
+        assert ("callbackPV", MAG_SP, None) in stack.driver.calls
+
+    def test_a_pva_put_is_completed_with_the_models_own_reason(self) -> None:
+        stack = _stack(refuse=frozenset({MAG_SP}))
+        done = _put(stack, MAG_SP, 3.25)
+        assert len(done.errors) == 1
+        assert "closed orbit" in done.errors[0]
+
+    def test_a_pva_put_that_lands_is_completed_with_no_error(self) -> None:
+        stack = _stack()
+        assert _put(stack, MAG_SP, 3.25).errors == [None]
+
+    @pytest.mark.parametrize(
+        ("address", "stuck"),
+        [
+            (MAG_SP, frozenset()),
+            (ECHO_SP, frozenset()),
+            (STUCK_SP, frozenset({STUCK_SP})),
+        ],
+    )
+    def test_every_accepted_put_is_completed_exactly_once(
+        self, address: str, stuck: frozenset[str]
+    ) -> None:
+        """Twice is a protocol error; never blocks the client until its own
+        timeout expires."""
+        stack = _stack(stuck=stuck)
+        assert len(_put(stack, address, 3.25).errors) == 1
+
+    def test_a_refused_put_is_completed_exactly_once(self) -> None:
+        stack = _stack(refuse=frozenset({MAG_SP}))
+        assert len(_put(stack, MAG_SP, 3.25).errors) == 1
+
+    def test_a_put_never_ends_a_channel_access_asynchronous_write(self) -> None:
+        """There is none in flight. Ending one that was never started would
+        complete some other client's write."""
+        stack = _stack()
+        _put(stack, MAG_SP, 3.25)
+        assert [call for call in stack.driver.calls if call[0] == "callbackPV"] == []
+
+    def test_a_refused_put_never_ends_one_either(self) -> None:
+        stack = _stack(refuse=frozenset({MAG_SP}))
+        _put(stack, MAG_SP, 3.25)
+        assert [call for call in stack.driver.calls if call[0] == "callbackPV"] == []
+
+    def test_a_channel_access_write_completes_on_channel_access_alone(self) -> None:
+        """Symmetrically: a write that arrived on Channel Access owes nothing
+        to a PVA operation, because there is none."""
+        stack = _stack()
+        assert _write(stack, MAG_SP, 3.25).errors == []
+        assert ("callbackPV", MAG_SP, None) in stack.driver.calls
+
+
+class TestPvaPublishFailure:
+    """The second view may fail; the first view's client may not pay for it."""
+
+    def test_the_channel_access_write_still_completes(self) -> None:
+        """A `callbackPV` that never fires postpones every later write to
+        that setpoint for the life of the process, so a failure publishing
+        the other view must not be allowed to skip it."""
+        stack = _stack(failing=frozenset({MAG_SP}))
+        _write(stack, MAG_SP, 3.25)
+        assert ("callbackPV", MAG_SP, None) in stack.driver.calls
+
+    def test_the_authoritative_view_still_moves(self) -> None:
+        stack = _stack(failing=frozenset({MAG_SP}))
+        _write(stack, MAG_SP, 3.25)
+        assert stack.driver.values[MAG_SP] == 3.25
+        assert stack.driver.values[MAG_RB] == 3.25
+
+    def test_the_put_that_provoked_it_is_still_completed(self) -> None:
+        stack = _stack(failing=frozenset({MAG_SP}))
+        assert _put(stack, MAG_SP, 3.25).errors == [None]
+
+
+class TestSingleClamp:
+    """One value, one enforcement of the drive band, on either transport."""
+
+    @pytest.fixture()
+    def clamps(self, monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any]]:
+        recorded: list[tuple[Any, Any]] = []
+        real = write_path_module.clamp_into
+
+        def spy(value: Any, limits: Any) -> Any:
+            recorded.append((value, limits))
+            return real(value, limits)
+
+        monkeypatch.setattr(write_path_module, "clamp_into", spy)
+        return recorded
+
+    @pytest.mark.parametrize("send", TRANSPORTS)
+    def test_a_write_is_clamped_exactly_once(
+        self,
+        send,  # noqa: ANN001
+        clamps: list[tuple[Any, Any]],
+    ) -> None:
+        """Identical bands make a second clamp invisible in the value, so it
+        is counted instead."""
+        send(_stack(), MAG_SP, 700.0)
+        assert clamps == [(700.0, MAG_BAND)]
+
+    def test_the_band_that_is_enforced_is_the_manifests(
+        self, clamps: list[tuple[Any, Any]]
+    ) -> None:
+        """The drive limits the co-hosted database publishes, which is what
+        the write path is given -- not a band read off a model variable."""
+        _put(_stack(), ECHO_SP, 400.0)
+        assert clamps == [(400.0, DRIVE_LIMITS[ECHO_SP])]
 
 
 class TestThreadOfExecution:
@@ -801,9 +1336,15 @@ class TestConfigPolicy:
             "update_rate": 0.0,
             "echo_unconfirmed_writes": False,
             "alarm_on_refused_write": True,
-            "clamp_writes": True,
+            "clamp_writes": False,
             "control_pvs": False,
         }
+
+    def test_the_runners_own_clamp_is_off(self) -> None:
+        """Because this module's is on, for both transports. The runner's
+        would enforce the same band on the same PVA puts, and two
+        enforcement points on one value is a second thing to keep in step."""
+        assert RUNNER_CONFIG_POLICY["clamp_writes"] is False
 
 
 class TestRealNamespace:
@@ -940,6 +1481,45 @@ class TestRunnerShape:
     def test_the_whole_database_is_contributed(self, tree: ast.Module) -> None:
         extend = ast.unparse(self._method(tree, "CohostRunner", "_extend_pvdb"))
         assert "self._records.pvdb" in extend
+
+    def test_the_pva_publisher_is_wired_into_the_write_path(self, tree: ast.Module) -> None:
+        """Without this the write path publishes on Channel Access alone and
+        the two views of a setpoint drift apart on every write."""
+        init = ast.unparse(self._method(tree, "CohostRunner", "__init__"))
+        assert "pva_post=self._post_pva" in init
+
+    def test_pva_puts_are_routed_through_the_write_path(self, tree: ast.Module) -> None:
+        """The stock handler would enqueue a bare model write for this one
+        variable: no physics hook, no clamp, and no Channel Access view."""
+        add_pv = ast.unparse(self._method(tree, "CohostRunner", "_add_pv"))
+        assert "channel.put" in add_pv
+        assert "self._put" in add_pv
+        assert "self.write_path.put" in ast.unparse(self._method(tree, "CohostRunner", "_put"))
+
+    def test_a_read_only_variable_keeps_the_stock_handler(self, tree: ast.Module) -> None:
+        """It has no route, and refusing a put to it is what a Channel Access
+        write to the same address already gets."""
+        add_pv = ast.unparse(self._method(tree, "CohostRunner", "_add_pv"))
+        assert "if ro or channel is None" in add_pv
+
+    def test_a_put_arriving_before_the_driver_exists_is_refused(self, tree: ast.Module) -> None:
+        """The PVA server is listening from the moment it is created, which
+        is before the driver every published value is committed through."""
+        put = ast.unparse(self._method(tree, "CohostRunner", "_put"))
+        assert "self.ca_driver" in put
+        assert "NOT_READY" in put
+
+    def test_the_runner_never_clamps_a_second_time(self, tree: ast.Module) -> None:
+        """The base class's clamp is configured off and never called: the
+        write path's is the only enforcement of a drive band there is."""
+        assert "_clamp_write" not in ast.unparse(tree)
+
+    def test_publishing_on_pva_never_reads_the_model(self, tree: ast.Module) -> None:
+        """It publishes the value the client wrote and the model accepted,
+        packed into the variable's structure -- never a value read back."""
+        post = ast.unparse(self._method(tree, "CohostRunner", "_post_pva"))
+        assert "self.model" not in post
+        assert ".get(" in post  # the channel lookup, and nothing else
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:

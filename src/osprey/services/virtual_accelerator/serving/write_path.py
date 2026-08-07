@@ -10,7 +10,7 @@ path is exercisable in process against a fake driver --
 that binds it to pcaspy and to the run loop, and holds nothing this module
 does not already decide.
 
-Three properties of that path are contracts, not preferences.
+Four properties of that path are contracts, not preferences.
 
 **A rejected write moves nothing, for any reader.** Channel Access
 put-completion has no failure channel -- it can only ever report success --
@@ -35,6 +35,17 @@ and completed later from the loop's own thread; the model class underneath
 is documented as not thread-safe, so the server thread must not reach into
 it. Nothing in this module holds a model reference, which is what makes
 that structural rather than a rule to remember.
+
+**A channel's two views carry one value.** Some co-hosted addresses are
+served twice -- on Channel Access from the manifest-derived database, and on
+PVA because the same address is also a model variable. Both transports enter
+here (:meth:`~CohostWritePath.write` from Channel Access,
+:meth:`~CohostWritePath.put` from PVA), and both leave through the same
+clamp, the same physics hand-off and the same publish, so the value on the
+two views is one value written once and never two views drifting. What
+differs between them is only how the client is told the write finished, and
+that difference is real: Channel Access can report nothing but success,
+while a PVA put carries an error string back to the client that issued it.
 """
 
 from __future__ import annotations
@@ -86,13 +97,16 @@ MODE_LATCH = "latch"
 #:     value, and the served database declares no alarm limits, so that
 #:     recomputation always lands on NO_ALARM.
 #: ``clamp_writes``
-#:     True. Enforcement of a variable's declared range exists nowhere else:
-#:     the model does not enforce it and the CA server does not reject an
-#:     out-of-band write despite publishing the band as display limits. This
-#:     covers the *model-variable* transports (the PVA puts the runner serves
-#:     natively); the co-hosted CA namespace is clamped by this module
-#:     against the same bands, and the two paths are disjoint -- no value is
-#:     clamped twice.
+#:     False -- because this module clamps instead, for every transport.
+#:     Enforcement of a drive band exists nowhere but in a write path: the
+#:     model does not enforce it and neither server rejects an out-of-band
+#:     write despite publishing the band as display limits. The runner's own
+#:     clamp would enforce the same band (a variable's ``value_range`` and the
+#:     manifest's drive limits are the same numbers) on the same PVA puts this
+#:     module now handles, which is precisely why it is off: two enforcement
+#:     points on one value is a second thing to keep in step, and the one that
+#:     survives is the one both transports share. See
+#:     :func:`clamp_into`.
 #: ``control_pvs``
 #:     False. The runner claims no name the facility's channel manifest does
 #:     not describe, so no RESET (or SNAPSHOT) PV is served.
@@ -100,9 +114,16 @@ RUNNER_CONFIG_POLICY: dict[str, Any] = {
     "update_rate": 0.0,
     "echo_unconfirmed_writes": False,
     "alarm_on_refused_write": True,
-    "clamp_writes": True,
+    "clamp_writes": False,
     "control_pvs": False,
 }
+
+#: Reported to a PVA client that put to an address the co-hosted namespace
+#: does not serve as a setpoint. Channel Access expresses the same refusal by
+#: returning False from the driver's write, which the server library turns
+#: into a rejected put with no message of its own; a PVA put can carry one,
+#: so it does.
+NOT_WRITABLE = "not a writable setpoint"
 
 
 class WriteDriver(Protocol):
@@ -240,6 +261,15 @@ def physics_setpoint_addresses(records: ServingRecords) -> frozenset[str]:
     return frozenset(address for address in records.pyat_coupled if address.endswith(suffix))
 
 
+def discard_pva_post(address: str, value: Any) -> None:
+    """Publish nothing: the default for a process serving no PVA channels.
+
+    A null implementation rather than a ``None`` to test for, so that
+    publishing an accepted value follows one code path whatever protocols
+    happen to be served.
+    """
+
+
 def clamp_into(value: Any, limits: tuple[float, float] | None) -> Any:
     """Clamp ``value`` into ``limits``, or return it untouched.
 
@@ -268,9 +298,9 @@ class CohostWritePath:
     Built once, before the server exists, from the served database and the
     facility's faults and limits; consulted on every write thereafter. It
     holds no model, no server and no driver -- the driver is passed in per
-    call, so the same object serves the server thread (:meth:`write`) and
-    the run loop thread (the completion it schedules) without either
-    reaching into the other.
+    call, so the same object serves both server threads (:meth:`write` for
+    Channel Access, :meth:`put` for PVA) and the run loop thread (the
+    completion each schedules) without any of them reaching into another.
     """
 
     def __init__(
@@ -282,6 +312,7 @@ class CohostWritePath:
         stuck_setpoints: frozenset[str] = frozenset(),
         drive_limits: Mapping[str, tuple[float, float]] | None = None,
         refusal_alarm: tuple[Any, Any] | None = None,
+        pva_post: Callable[[str, Any], None] | None = None,
     ) -> None:
         """Derive one route per writable address.
 
@@ -307,7 +338,14 @@ class CohostWritePath:
                 band as display limits; nothing else enforces it.
             refusal_alarm: ``(alarm, severity)`` raised on a setpoint whose
                 write the model refused, or ``None`` to leave a refusal
-                silent. Cleared by the next accepted write.
+                silent. Cleared by the next accepted write. Raised whichever
+                transport the refused write arrived on: it is the served
+                channel's condition, not one client's error report.
+            pva_post: called as ``pva_post(address, value)`` for every value
+                this path publishes, to carry it onto the PVA channel serving
+                the same address. Addresses with no PVA channel are the
+                callee's business to ignore. ``None`` publishes on Channel
+                Access alone.
 
         Raises:
             ValueError: a setpoint that routes through the model is not
@@ -317,6 +355,7 @@ class CohostWritePath:
         """
         self._enqueue = enqueue
         self._refusal_alarm = refusal_alarm
+        self._pva_post = pva_post if pva_post is not None else discard_pva_post
         self._routes: dict[str, SetpointRoute] = {}
 
         limits = dict(drive_limits or {})
@@ -359,12 +398,14 @@ class CohostWritePath:
         return dict(self._routes)
 
     def write(self, driver: WriteDriver, reason: str, value: Any) -> bool:
-        """Handle a client write to ``reason``.
+        """Handle a Channel Access write to ``reason``.
 
         Returns:
             True if ``reason`` is a writable co-hosted setpoint and the write
             was accepted for processing, False if it is not writable -- in
-            which case nothing has been recorded and nothing moves.
+            which case nothing has been recorded and nothing moves. The
+            server library turns a False into a rejected put; there is no
+            message to carry with it.
         """
         route = self._routes.get(reason)
         if route is None:
@@ -374,6 +415,69 @@ class CohostWritePath:
             LOG.debug("refused write to non-setpoint channel %s", reason)
             return False
 
+        self._begin(driver, route, value, partial(self._signal_ca, driver, route))
+        return True
+
+    def put(
+        self,
+        driver: WriteDriver,
+        reason: str,
+        value: Any,
+        done: Callable[[str | None], None],
+    ) -> bool:
+        """Handle a PVA put to ``reason``, exactly as :meth:`write` would.
+
+        The same address is served on both transports, so a put means what a
+        write means: the same clamp, the same hand-off to the model, and on
+        success the same values on both views of both addresses. Only the
+        completion differs. ``done`` is this transport's, and it is called
+        exactly once on every outcome -- with the model's error string when
+        the model refused, and with ``None`` when it did not.
+
+        That is the one place PVA is not symmetric with Channel Access, and
+        it is an improvement rather than a difference to paper over: a
+        Channel Access client can only be told that its write finished, and
+        learns of a refusal from the alarm this path raises, while a PVA
+        client is handed the reason its put failed. Both still see the same
+        thing on the channel itself, which is nothing.
+
+        Args:
+            driver: the Channel Access driver. A put publishes on both views,
+                so it reaches this even though it did not arrive through it.
+            reason: the address written.
+            value: the requested value, already unwrapped from its PVA
+                container by the caller -- nothing here knows p4p types.
+            done: this put's completion, called with an error string or None.
+
+        Returns:
+            True if ``reason`` is a writable co-hosted setpoint. False if it
+            is not, in which case nothing moves and ``done`` has already been
+            called with :data:`NOT_WRITABLE`.
+        """
+        route = self._routes.get(reason)
+        if route is None:
+            LOG.debug("refused put to non-setpoint channel %s", reason)
+            # Owed even here: a put left uncompleted blocks the client that
+            # issued it until its own timeout expires.
+            done(NOT_WRITABLE)
+            return False
+
+        self._begin(driver, route, value, done)
+        return True
+
+    def _begin(
+        self,
+        driver: WriteDriver,
+        route: SetpointRoute,
+        value: Any,
+        signal: Callable[[str | None], None],
+    ) -> None:
+        """Clamp, then either hand the value to the model or publish it now.
+
+        The whole of what a write *means* is here, and both transports enter
+        it, which is what makes them agree: ``signal`` is the only thing
+        either one contributes of its own.
+        """
         value = clamp_into(value, route.limits)
 
         # The `is not None` is an invariant, not a fallback: MODE_PHYSICS is
@@ -386,21 +490,26 @@ class CohostWritePath:
             # this thread.
             self._enqueue(
                 {route.address: {"value": value, "ts": time.monotonic()}},
-                done=partial(self.complete, driver, route, value),
+                done=partial(self.complete, driver, route, value, signal),
             )
-            return True
+            return
 
         self._publish(driver, route, value)
-        self._signal(driver, route)
-        return True
+        signal(None)
 
     def complete(
-        self, driver: WriteDriver, route: SetpointRoute, value: Any, error: str | None
+        self,
+        driver: WriteDriver,
+        route: SetpointRoute,
+        value: Any,
+        signal: Callable[[str | None], None],
+        error: str | None,
     ) -> None:
         """Finish a write the model has now either taken or refused.
 
         Called from the run loop's thread once the cycle carrying this write
-        has finished. ``error`` is None when the model took the value.
+        has finished, whichever transport the write arrived on. ``error`` is
+        None when the model took the value.
         """
         if error is None:
             self._publish(driver, route, value)
@@ -413,29 +522,54 @@ class CohostWritePath:
                 # untouched, so a monitoring client sees the refusal without
                 # seeing movement.
                 driver.updatePV(route.address)
-        self._signal(driver, route)
+        signal(error)
 
     def _publish(self, driver: WriteDriver, route: SetpointRoute, value: Any) -> None:
-        """Record ``value`` on the setpoint and its echo, and post both.
+        """Commit ``value`` on the setpoint and its echo, on every view.
 
         Posting is per address rather than a database-wide sweep: the served
         database has thousands of entries and a sweep on each write would
         cost the whole namespace to deliver two values.
         """
-        driver.setParam(route.address, value)
-        driver.updatePV(route.address)
+        self._commit(driver, route.address, value)
         if route.readback is not None:
-            driver.setParam(route.readback, value)
-            driver.updatePV(route.readback)
+            self._commit(driver, route.readback, value)
 
-    def _signal(self, driver: WriteDriver, route: SetpointRoute) -> None:
-        """Complete the asynchronous write, if this setpoint declares one.
+    def _commit(self, driver: WriteDriver, address: str, value: Any) -> None:
+        """Publish one accepted value on both views of one address.
+
+        The value is the client's own, post-clamp: not a re-derivation of it
+        and never a value read back out of the model. Channel Access first,
+        because it is the authoritative view of the machine and because it is
+        the view whose client is still blocked.
+        """
+        driver.setParam(address, value)
+        driver.updatePV(address)
+        try:
+            self._pva_post(address, value)
+        except Exception:
+            # A failure on the second view must not cost the first view's
+            # client its completion: `_signal_ca` runs after this, and a
+            # Channel Access write whose `callbackPV` never fires postpones
+            # every later write to that PV for the life of the process. The
+            # authoritative value is committed above, before anything here
+            # can fail, so what is lost is one PVA update and not a value.
+            LOG.exception("failed to publish %s on the PVA view of %s", value, address)
+
+    def _signal_ca(self, driver: WriteDriver, route: SetpointRoute, error: str | None) -> None:
+        """Complete the Channel Access write, if this setpoint declares one.
 
         Always last, and on every outcome. Last, because completion is what
         unblocks a client waiting on the put and it must find the values
-        already committed. On every outcome, because the server library
-        postpones every later write to a PV whose asynchronous write is still
-        in flight -- a refusal that skipped this would freeze the setpoint.
+        already committed. On every outcome -- ``error`` is accepted and
+        ignored, there being no failure channel to carry it -- because the
+        server library postpones every later write to a PV whose asynchronous
+        write is still in flight, so a refusal that skipped this would freeze
+        the setpoint.
+
+        Fires only for a write that arrived on Channel Access. A PVA put
+        starts no asynchronous write here, and ending one that was never
+        started would complete some *other* client's put.
         """
         if route.asyn:
             driver.callbackPV(route.address)
@@ -445,11 +579,13 @@ __all__ = [
     "MODE_ECHO",
     "MODE_LATCH",
     "MODE_PHYSICS",
+    "NOT_WRITABLE",
     "RUNNER_CONFIG_POLICY",
     "CohostWritePath",
     "SetpointRoute",
     "SetpointRoutedModel",
     "WriteDriver",
     "clamp_into",
+    "discard_pva_post",
     "physics_setpoint_addresses",
 ]
