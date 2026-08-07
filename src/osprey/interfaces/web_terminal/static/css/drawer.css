@@ -161,6 +161,23 @@
   display: flex;
 }
 
+/* ---- Tab Subtitle ----
+   A standing one-liner naming what the tab is. Muted and non-interactive on
+   purpose: always available to a first-time operator, never competing with the
+   content for attention. `flex-shrink: 0` keeps it from being squeezed out
+   when the gallery below it fills the panel. */
+
+.drawer-tab-subtitle {
+  margin: 0;
+  padding: 10px 12px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+}
+
 /* ---- Drawer Close ---- */
 
 .drawer-close-btn {

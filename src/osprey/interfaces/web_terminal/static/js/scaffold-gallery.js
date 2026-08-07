@@ -22,6 +22,9 @@ import { el as _el } from '/design-system/js/dom.js';
 import {
   BEHAVIOR_CATEGORIES,
   BEHAVIOR_NAMES,
+  BEHAVIOR_CATEGORY_OVERRIDES,
+  BEHAVIOR_CATEGORY_REMAPS,
+  BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
   CONFIG_NAMES,
   configureMarked,
@@ -102,6 +105,17 @@ class ArtifactGallery {
     this.loaded = false;
     this.summary = { total: 0, framework: 0, userOwned: 0 };
 
+    // Filter panel (search box + category chips) starts collapsed: the default
+    // gallery is artifacts plus one muted summary line, nothing else.
+    this.filterOpen = false;
+    // Categories the operator has collapsed, plus the ones seeded collapsed on
+    // first sight (everything outside `pinnedCategories`). Both live for as
+    // long as the drawer stays open -- reset() clears them on close.
+    /** @type {Set<string>} */
+    this.collapsedCategories = new Set();
+    /** @type {Set<string>} */
+    this.seenCategories = new Set();
+
     // DOM references (populated by _buildDOM)
     this.loadingEl = null;
     this.errorEl = null;
@@ -109,8 +123,11 @@ class ArtifactGallery {
     this.detailView = null;
     this.searchInput = null;
     this.filterChipsEl = null;
+    this.filterPanelEl = null;
+    this.filterToggleEl = null;
     this.untrackedBannerEl = null;
     this.summaryEl = null;
+    this.clearFilterEl = null;
     this.categoriesEl = null;
     this.detailHeaderEl = null;
     this.detailModesEl = null;
@@ -181,32 +198,67 @@ class ArtifactGallery {
     // Gallery view
     this.galleryView = _el('div', 'scaffold-gallery-view');
 
-    if (this.showSearch) {
-      const searchBar = _el('div', 'prompts-search-bar');
+    // Meta bar: one muted line carrying the counts, the active-filter readout,
+    // and the only always-visible control -- the Filter disclosure. Rendered
+    // whenever there is anything to put in it; the Config tab turns all three
+    // options off and gets no bar at all.
+    const hasFilterPanel = this.showSearch || this.showFilterChips;
+    if (this.showSummary || hasFilterPanel) {
+      const metaBar = _el('div', 'prompts-meta-bar');
 
-      this.searchInput = document.createElement('input');
-      this.searchInput.type = 'text';
-      this.searchInput.className = 'prompts-search';
-      this.searchInput.placeholder = 'Search artifacts...';
-      this.searchInput.spellcheck = false;
-      searchBar.appendChild(this.searchInput);
+      this.summaryEl = _el('span', 'prompts-meta-summary');
+      metaBar.appendChild(this.summaryEl);
+
+      // Clear-all for an active filter/search. Shown by renderSummary() only
+      // while something is actually filtering, so collapsing the panel can
+      // never hide the fact that the list is narrowed.
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'prompts-meta-clear';
+      clearBtn.type = 'button';
+      clearBtn.textContent = '✕';
+      clearBtn.title = 'Clear filters';
+      clearBtn.style.display = 'none';
+      metaBar.appendChild(clearBtn);
+      this.clearFilterEl = clearBtn;
+
+      const spacer = _el('span', 'prompts-meta-spacer');
+      metaBar.appendChild(spacer);
+
+      if (hasFilterPanel) {
+        const toggle = document.createElement('button');
+        toggle.className = 'prompts-filter-toggle';
+        toggle.type = 'button';
+        toggle.setAttribute('aria-expanded', 'false');
+        metaBar.appendChild(toggle);
+        this.filterToggleEl = toggle;
+      }
+
+      this.galleryView.appendChild(metaBar);
+    }
+
+    if (hasFilterPanel) {
+      this.filterPanelEl = _el('div', 'prompts-filter-panel');
+
+      if (this.showSearch) {
+        this.searchInput = document.createElement('input');
+        this.searchInput.type = 'text';
+        this.searchInput.className = 'prompts-search';
+        this.searchInput.placeholder = 'Search artifacts...';
+        this.searchInput.spellcheck = false;
+        this.filterPanelEl.appendChild(this.searchInput);
+      }
 
       if (this.showFilterChips) {
         this.filterChipsEl = _el('div', 'prompts-filter-chips');
-        searchBar.appendChild(this.filterChipsEl);
+        this.filterPanelEl.appendChild(this.filterChipsEl);
       }
 
-      this.galleryView.appendChild(searchBar);
+      this.galleryView.appendChild(this.filterPanelEl);
     }
 
     this.untrackedBannerEl = _el('div', 'prompts-untracked-banner');
     this.untrackedBannerEl.style.display = 'none';
     this.galleryView.appendChild(this.untrackedBannerEl);
-
-    if (this.showSummary) {
-      this.summaryEl = _el('div', 'prompts-summary');
-      this.galleryView.appendChild(this.summaryEl);
-    }
 
     this.categoriesEl = _el('div', 'prompts-categories');
     this.galleryView.appendChild(this.categoriesEl);
@@ -355,6 +407,9 @@ class ArtifactGallery {
     this.searchQuery = '';
     this.filterCategory = null;
     this.filterProjectOwned = false;
+    this.filterOpen = false;
+    this.collapsedCategories = new Set();
+    this.seenCategories = new Set();
     this.editDirty = false;
     this.loaded = false;
     this.summary = { total: 0, framework: 0, userOwned: 0 };
@@ -382,13 +437,19 @@ export function initScaffoldGallery() {
 
   if (!behaviorPanel || !safetyPanel || !configGallerySection) return;
 
+  // Section container, so the tab panel can also hold the static subtitle that
+  // index.html renders above it (the gallery clears its own container on
+  // build). Falls back to the panel itself, matching the Safety tab below and
+  // keeping fixtures that mount a bare `#tab-behavior` working.
+  const behaviorGalleryContainer =
+    document.getElementById('behavior-gallery-section') || behaviorPanel;
   const behaviorGallery = new ArtifactGallery({
-    container: behaviorPanel,
+    container: behaviorGalleryContainer,
     categoryFilter: (a) => BEHAVIOR_CATEGORIES.has(a.category) || BEHAVIOR_NAMES.has(a.name),
     options: {
-      categoryOverrides: { 'claude-md': 'system prompt' },
-      categoryRemaps: { rules: 'instructions' },
-      pinnedCategories: ['system prompt', 'instructions'],
+      categoryOverrides: BEHAVIOR_CATEGORY_OVERRIDES,
+      categoryRemaps: BEHAVIOR_CATEGORY_REMAPS,
+      pinnedCategories: BEHAVIOR_PINNED_CATEGORIES,
     },
   });
 

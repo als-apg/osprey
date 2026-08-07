@@ -67,7 +67,11 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function takeOwnership() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm('By doing this you take responsibility for this file.')) return;
+    if (!confirm(
+      'Take ownership of this file? A project copy is written into .claude/, and '
+      + 'OSPREY stops overwriting it when artifacts are regenerated — later framework '
+      + 'updates to it will not reach your project. You can release ownership again.'
+    )) return;
 
     try {
       await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`, {
@@ -88,7 +92,10 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function releaseToFramework() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm('Your customizations will be removed.')) return;
+    if (!confirm(
+      'Release this file back to the framework? Your project copy is deleted from '
+      + 'disk and the framework version takes over again.'
+    )) return;
 
     await unoverrideArtifact(true);
   }
@@ -96,7 +103,10 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function handleEditFramework() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm('This will create a project copy for editing.')) return;
+    if (!confirm(
+      'Editing this file takes ownership of it: a project copy is written into '
+      + '.claude/, and OSPREY stops overwriting it when artifacts are regenerated.'
+    )) return;
 
     try {
       await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`, {
@@ -282,7 +292,7 @@ export function createScaffoldGalleryEdit(gallery) {
     if (!gallery.selectedArtifact) return;
 
     if (!skipConfirm) {
-      if (!confirm('Reset to framework default? This will remove your customizations.')) {
+      if (!confirm('Reset to the framework default? Your project copy is deleted from disk.')) {
         return;
       }
     }
