@@ -146,13 +146,20 @@ def cli(ctx):
       osprey health                   Check system health
       osprey channel-finder           Interactive channel search
     """
+    from osprey.utils.config import load_project_dotenv
     from osprey.utils.logger import configure_logging
 
     from .styles import initialize_theme_from_config
 
-    # The CLI is a process entry point: nothing else configures logging, and
-    # importing the framework deliberately does not. Records go to stderr, so
-    # `--json` subcommand output on stdout stays machine-readable.
+    # The CLI is a process entry point: nothing else populates the environment
+    # from `.env`, and importing the framework deliberately does not. Do this
+    # first — logging and theme config below resolve `${VAR}` placeholders, and
+    # subcommands may read os.environ before touching config at all.
+    load_project_dotenv()
+
+    # Likewise a process entry point for logging: nothing else configures it,
+    # and importing the framework deliberately does not. Records go to stderr,
+    # so `--json` subcommand output on stdout stays machine-readable.
     configure_logging()
 
     initialize_theme_from_config()

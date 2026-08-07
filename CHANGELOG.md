@@ -260,6 +260,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The test suite no longer inherits a `TZ` supplied by a `.env` file, which made
   `tests/connectors/test_archiver_timezone.py` error on any machine whose system
   timezone differs from the one in `.env`. CI has no `.env`, so it never saw it.
+- Importing an `osprey` module no longer loads `.env` into the environment.
+  Previously any `import osprey.…` rewrote `os.environ` from whatever `.env`
+  sat in the working directory — or, through LiteLLM, in any parent directory —
+  overriding values the caller had set. `.env` now loads only where an
+  application asks for it: the `osprey` CLI, MCP server startup, and the Claude
+  Code launch paths. Every key is still passed through, unchanged, at those
+  points. Code that imports OSPREY as a library and relied on the side effect
+  must call `osprey.utils.config.load_project_dotenv()` itself.
 
 ## [2026.8.0]
 

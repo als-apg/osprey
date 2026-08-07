@@ -2,13 +2,26 @@
 
 Loads a single YAML config file, resolves environment variables,
 and provides dot-path access to values.
+
+**Importing this module does not read ``.env`` and does not touch
+``os.environ``.** Building a :class:`ConfigBuilder` does (see its ``load_env``
+argument), and that is deliberate — but it must be an *application* that asks
+for a config, never the mere act of importing an ``osprey`` module. Loading
+``.env`` at import time made a library consumer's environment depend on which
+directory the process happened to start in, gave non-credential keys
+``override=True`` semantics they were never scoped for, and silently undid
+callers' own ``os.environ`` writes depending on import order.
+
+Applications load ``.env`` explicitly at startup: the CLI in
+``osprey.cli.main``, MCP servers via :func:`osprey.mcp_env.load_dotenv_from_project`,
+and the Claude Code launch paths via
+:func:`osprey.build.claude_code_resolver.inject_provider_env`.
 """
 
 import copy
 import logging
 import os
 import re
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
@@ -219,6 +232,44 @@ def resolve_execution_method(
     )
 
 
+def load_project_dotenv() -> None:
+    """Load ``./.env`` into ``os.environ``, overriding existing values.
+
+    This is the ``.env`` → environ passthrough the framework depends on: it
+    feeds the ``${VAR}`` references Claude Code expands in ``.mcp.json`` at MCP
+    server launch time (``EPICS_CA_ADDR_LIST``, ``PHOEBUS_BRIDGE_URL``,
+    ``BLUESKY_*``), and it makes ``.env`` the source of truth for API keys over
+    a stale shell export. Every key in the file is passed through, not a
+    declared subset — narrowing it would drop Channel Access addressing with no
+    error.
+
+    ``override=True`` and the breadth of the copy are exactly why this must be
+    called deliberately. Call it from process entry points only; never at
+    import time, and never from library code that a host application merely
+    imports. Missing file, missing ``python-dotenv``, and an unreadable file
+    are all non-fatal.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        logger.warning("python-dotenv not available, skipping .env file loading")
+        return
+
+    dotenv_path = Path.cwd() / ".env"
+    try:
+        if not dotenv_path.exists():
+            logger.debug(f"No .env file found at {dotenv_path}")
+            return
+        load_dotenv(dotenv_path, override=True)
+        logger.debug(f"Loaded .env file from {dotenv_path}")
+    except OSError as e:
+        # e.g. a 0600 .env owned by another uid mounted into a non-root
+        # container (dispatch worker on a uid-mismatched host). Provider
+        # env should already be in os.environ by the time config is built,
+        # so degrade gracefully instead of crash-looping the process.
+        logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
+
+
 class ConfigBuilder:
     """Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and
     pre-computes a ``configurable`` dict for framework and standalone use.
@@ -267,25 +318,7 @@ class ConfigBuilder:
             FileNotFoundError: If config.yml is not found and no path is provided.
         """
         if load_env:
-            try:
-                from dotenv import load_dotenv
-
-                dotenv_path = Path.cwd() / ".env"
-                if dotenv_path.exists():
-                    load_dotenv(
-                        dotenv_path, override=True
-                    )  # .env file is source of truth for API keys
-                    logger.debug(f"Loaded .env file from {dotenv_path}")
-                else:
-                    logger.debug(f"No .env file found at {dotenv_path}")
-            except ImportError:
-                logger.warning("python-dotenv not available, skipping .env file loading")
-            except OSError as e:
-                # e.g. a 0600 .env owned by another uid mounted into a non-root
-                # container (dispatch worker on a uid-mismatched host). Provider
-                # env should already be in os.environ by the time config is built,
-                # so degrade gracefully instead of crash-looping the process.
-                logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
+            load_project_dotenv()
 
         if config_path is None:
             cwd_config = Path.cwd() / "config.yml"
@@ -917,9 +950,9 @@ def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
     return _get_configurable(config_path, set_as_default=set_as_default)
 
 
-# Eager-init config on import; deferred init is OK if config.yml is absent.
-try:
-    if "sphinx" not in sys.modules and not os.environ.get("SPHINX_BUILD"):
-        _get_config()
-except FileNotFoundError:
-    pass
+# No eager _get_config() here, deliberately. Building the default config at
+# import time loaded `.env` into os.environ as a side effect of importing any
+# osprey module (osprey/utils/__init__.py imports this one), which is the
+# behaviour the module docstring rules out. The first real get_config_value()
+# call builds it instead; entry points that need `.env` in the environment
+# load it themselves.
