@@ -62,11 +62,11 @@ dependencies = [
     "google-generativeai",
     "ollama>=0.6.2",
     # Advanced code generation
-    # Claude Code SDK - pinned. Bundles CLI 2.1.191 (verified to work with
+    # Claude Code SDK - pinned. Bundles CLI 2.1.220 (verified to work with
     # als-apg routing). >=0.1.46 needed for list_subagents/
     # get_subagent_messages, which the e2e trace collector uses to read sub-agent
     # transcripts (CLI >=2.1.x no longer streams them through query()).
-    "claude-agent-sdk==0.2.110",
+    "claude-agent-sdk==0.2.128",
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
@@ -100,7 +100,7 @@ dependencies = [
     # Natural language processing
     "nltk>=3.10.0",
     # ARIEL Web Interface (FastAPI server)
-    "fastapi>=0.140.0",
+    "fastapi>=0.141.1",
     "uvicorn[standard]>=0.51.0",
     # Utilities
     "unique-namer>=0.1.0",

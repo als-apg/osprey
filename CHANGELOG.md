@@ -27,6 +27,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- The bundled Claude Code CLI moved from 2.1.191 to 2.1.220, via
+  `claude-agent-sdk` 0.2.128. FastAPI's minimum is now 0.141.1.
 - `osprey profile new` now writes persona profiles as small deltas
   (`extends: ../profile.yml`) instead of full standalone copies: edit the host
   profile once and every persona inherits the change, while each persona file
