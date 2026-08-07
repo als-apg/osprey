@@ -46,7 +46,7 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   (`EPICS_CA_NAME_SERVERS=<host>:5064`, `EPICS_CA_AUTO_ADDR_LIST=NO` on the
   connecting client) — the one host↔container CA configuration proven to
   work across container runtimes (see
-  `src/osprey/services/virtual_accelerator/probe/README.md`'s reachability
+  `scripts/va/probe_pcaspy/README.md`'s reachability
   matrix; UDP broadcast discovery is not published because it is not relied
   upon). Port 5064 matches the shipped **"Local Simulation"** gateway preset
   (`src/osprey/templates/data/facility_gateways.py`) exactly, so a project
@@ -104,12 +104,6 @@ Three physics-fidelity partitions:
   0.7.1 to match what this repo's own `uv.lock` already resolves (and what
   `lattice/response.py` / `ioc/physics_bridge.py` were actually built and
   tested against), rather than carrying a stale pre-existing pin forward.
-  **The probe's `3.10` / `0.6.1` / `4.5.0` pins remain correct and
-  intentional for
-  `src/osprey/services/virtual_accelerator/probe/Containerfile`** — that
-  image never installs `osprey`, so it never hits the `>=3.11` conflict. The two images using
-  different Python/PyAT/softioc versions is deliberate, not drift; please
-  don't "fix" the probe to match this one, or vice versa.
 - **`osprey` installed from the repo source**, not PyPI — the image always
   matches whatever checkout built it (this feature may not be released to
   PyPI yet). Only `SimulationEngine` and `pv_taxonomy` are used from the

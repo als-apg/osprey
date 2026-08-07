@@ -9,10 +9,10 @@ happens synchronously in the write handler itself, never on a
 polling/heartbeat tick).
 
 This module fulfills the ``on_pyat_setpoint`` callback contract that
-``ioc.records.build_records()`` exposes (see that module's docstring):
+``serving.pvdb.build_serving_pvdb()`` exposes (see that module's docstring):
 ``PhysicsBridge.on_setpoint`` is passed as ``on_pyat_setpoint``, and
-``PhysicsBridge.bind()`` wires the resulting ``IOCRecords.pyat_coupled`` BPM
-records so they receive the recomputed positions via ``.set()``.
+``PhysicsBridge.bind()`` wires the resulting ``ServingRecords.pyat_coupled``
+BPM records so they receive the recomputed positions via ``.set()``.
 
 The ring itself lives behind a :class:`~lume.model.LUMEModel` -- by default
 :class:`~osprey.services.virtual_accelerator.model.pyat.PyATRingModel`, which
@@ -20,7 +20,7 @@ owns the lattice, the current->strength calibration
 (:class:`~osprey.services.virtual_accelerator.lattice.strengths.StrengthMap`,
 see that module's docstring for the per-family formulas), the atomic
 apply-and-solve, and its rollback. This bridge is the *serving* half: address
-grammar, seeded magnet calibration and BPM readout errors, and the softioc
+grammar, seeded magnet calibration and BPM readout errors, and the served
 record wiring. Everything the model owns is reached through its public
 ``set()``/``get()``, so a different backend (a surrogate, Cheetah, Bmad) can be
 injected through ``model=`` without this module changing.
@@ -174,12 +174,12 @@ class PhysicsBridge:
         """Wire the BPM POSITION readback records this bridge should push into.
 
         Args:
-            pyat_coupled_records: the `IOCRecords.pyat_coupled` dict from
-                `ioc.records.build_records()` -- contains every partition (a)
-                record (both the SR magnet SP writables and the SR BPM
+            pyat_coupled_records: the `ServingRecords.pyat_coupled` dict from
+                `serving.pvdb.build_serving_pvdb()` -- contains every partition
+                (a) record (both the SR magnet SP writables and the SR BPM
                 POSITION readbacks) keyed by address. Only the BPM entries are
-                retained; magnet SP records are driven by softioc directly,
-                not by this bridge.
+                retained; magnet SP records are driven by the serving write
+                path directly, not by this bridge.
         """
         ring, system, family = "SR", *_BPM_SYSTEM_FAMILY
         prefix = f"{ring}:{system}:{family}:"

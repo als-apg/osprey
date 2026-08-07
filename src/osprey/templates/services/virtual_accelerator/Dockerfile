@@ -1,7 +1,6 @@
 # Image for the Virtual Accelerator soft-IOC (osprey.services.virtual_accelerator):
 # a PyAT-backed EPICS Channel Access server, reached over CA by an unmodified
-# EPICSConnector (see src/osprey/services/virtual_accelerator/probe/README.md
-# for the Phase-1 reachability gate this shape was proven against).
+# EPICSConnector.
 #
 # osprey install strategy (two cache-friendly layers):
 #   * deps layer  — primes the pinned framework release with the
@@ -16,19 +15,18 @@
 #     (the primer only covers the *released* extra set, and `pip check` cannot
 #     see missing extras); the second install is a fast, deps-free
 #     force-reinstall without the extra. With no wheel staged it is a no-op.
-# Deliberately no pinned accelerator-toolbox/softioc versions here — the extra +
-# core deps resolve them, so this Dockerfile can't drift from pyproject.toml's
+# Deliberately no pinned native-dependency versions here — the extra + core
+# deps resolve them, so this Dockerfile can't drift from pyproject.toml's
 # declared constraints.
 #
 # Architecture-agnostic: this image builds for the host's native architecture
-# (no `--platform` pin). On arm64 the native deps (accelerator-toolbox, softioc,
-# and softioc's epicscorelibs/pvxslibs deps) publish no manylinux_aarch64 wheels,
-# so pip compiles them from sdist using the build toolchain installed in the
-# deps layer below — and purged in that same RUN — for native execution with no
-# x86 emulation. This arm64 sdist compile now happens once, in the shared deps
-# layer, so per-project dev rebuilds (the wheel layer) never re-pay it. On
-# x86_64 pip installs the prebuilt wheels as before. See the probe README's
-# platform note for the historical amd64 rationale.
+# (no `--platform` pin). On arm64 the native deps (accelerator-toolbox and the
+# CA server stack's epicscorelibs/pvxslibs) publish no manylinux_aarch64
+# wheels, so pip compiles them from sdist using the build toolchain installed
+# in the deps layer below — and purged in that same RUN — for native execution
+# with no x86 emulation. This arm64 sdist compile now happens once, in the
+# shared deps layer, so per-project dev rebuilds (the wheel layer) never re-pay
+# it. On x86_64 pip installs the prebuilt wheels as before.
 #
 # This image is built locally by `osprey deploy up`; override with
 # OSPREY_VA_IMAGE to use a prebuilt/published image.
@@ -48,7 +46,7 @@ RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
 # ── deps layer ───────────────────────────────────────────────────────────────
 # Prime the image with the pinned framework release + `virtual-accelerator`
 # extra and their dependencies. A C toolchain is needed at install time to
-# compile the arm64 native deps (accelerator-toolbox, softioc,
+# compile the arm64 native deps (accelerator-toolbox,
 # epicscorelibs/pvxslibs); it is purged in this same RUN so it does not bloat
 # the final image. Under `--dev` an unreleased pin may not exist on PyPI:
 # OSPREY_DEV=1 relaxes the failure to an unpinned prime (the wheel layer below

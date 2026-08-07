@@ -615,7 +615,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     logger.info(
         "    Images:     `osprey deploy up` builds the virtual-accelerator image "
         "locally for your native architecture (first run is slow — the native deps "
-        "PyAT/softioc are compiled from source, so no prebuilt aarch64 wheels are "
+        "are compiled from source, so no prebuilt aarch64 wheels are "
         "needed). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_VA_IMAGE to use a published image."
     )

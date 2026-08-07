@@ -2,8 +2,8 @@
 SimulationEngine, and detects scenario switches on the bind-mounted
 ``data/simulation/`` directory.
 
-Partition (c) is everything the record factory (``ioc.records``) builds as a
-plain In-type record with no wired write behavior -- GOLDEN references,
+Partition (c) is everything the record factory (``serving.pvdb``) builds as a
+plain read-only record with no wired write behavior -- GOLDEN references,
 STATUS flags, temperatures, pressures, and any other channel with no lattice
 physics and no SP->RB echo pairing. This module is their only value source:
 on each poll tick it reads the effective value for every partition-(c)
@@ -60,8 +60,8 @@ class EngineSource:
             used to look up each address's ``record_type``/``noise`` flag for
             the legacy-fallback synthesis path.
         static_noisy_records: The ``static_noisy`` dict from
-            :func:`ioc.records.build_records` -- address -> softioc In-type
-            record. This instance drives exactly these records; addresses in
+            :func:`serving.pvdb.build_serving_pvdb` -- address -> read-only
+            record shim. This instance drives exactly these records; addresses in
             ``channels`` that aren't also keys here are ignored.
         data_dir: The bind-mounted ``data/simulation/`` directory (the mount
             unit). ``active_scenarios`` is read from directly under it, fresh
@@ -153,8 +153,8 @@ class EngineSource:
         return switched
 
     async def run_forever(self, interval: float = DEFAULT_POLL_INTERVAL_S) -> None:
-        """Poll indefinitely at ``interval`` seconds (for the IOC's asyncio
-        dispatcher event loop; see ``softioc.asyncio_dispatcher``).
+        """Poll indefinitely at ``interval`` seconds (on the serving runner's
+        asyncio event loop; see ``serving.runner``).
 
         ``poll_once()`` must never let one record's failure raise out of
         this loop: it is scheduled via
@@ -211,7 +211,7 @@ class EngineSource:
         (see ``machine.json``), even for partition-(c) channels built as
         binary (``bi``) records (e.g. ``STATUS:VALID`` flags). Passing that
         raw float straight to a ``bi`` record's ``.set()`` raises
-        ``TypeError`` inside softioc's ctypes conversion -- and because this
+        ``TypeError`` inside the server's value conversion -- and because this
         runs inside ``poll_once()``'s single per-tick loop over every
         static-noisy record, one such mismatch kills the whole poll
         iteration (and, via ``run_forever``, every future tick) rather than

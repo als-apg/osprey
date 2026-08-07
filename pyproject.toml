@@ -120,15 +120,10 @@ dependencies = [
     # Floor-pinned for the save_mat/load_mat(use='RING'), disable_6d, and
     # get_optics(get_chrom=) surface the shared ALS-U AR ring relies on.
     "accelerator-toolbox[plot]>=0.7.1",
-    # Virtual Accelerator soft-IOC (osprey.services.virtual_accelerator): the
-    # in-process EPICS soft-IOC the record factory builds against. Core, not
-    # optional — the VA is exercised in almost all deployments, and PyAT
-    # (accelerator-toolbox above) is already core, so the IOC toolkit joins it.
-    "softioc",
     # LUMEModel physics-backend contract for the VA (osprey.services.virtual_accelerator).
     # Exact-pinned: young/fast-moving API (8 releases between 0.3.2 and 0.5.0) and the
     # adapter code is written against the 0.5.0 contract specifically. Core, not optional —
-    # same reasoning as PyAT/softioc above.
+    # same reasoning as PyAT above.
     "lume-base==0.5.0",
     # pyAT physics backend implementing the LUMEModel contract above
     # (osprey.services.virtual_accelerator.model). Exact-pinned for the same
@@ -139,7 +134,7 @@ dependencies = [
     "lume-pyat==0.1.0",
     # Bluesky scan stack (osprey.services.bluesky_bridge): RunEngine, ophyd-async
     # devices, and the Tiled writer/reader. Core, not optional — Bluesky is a
-    # core part of OSPREY, joining PyAT/softioc above. ophyd-async's [ca] brings
+    # core part of OSPREY, joining PyAT above. ophyd-async's [ca] brings
     # the aioca Channel Access backend the EPICS substrate devices need.
     "bluesky>=1.15.1",
     "ophyd-async[ca]>=0.16,<1.0",
@@ -236,11 +231,12 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
-# Virtual Accelerator: kept as an empty alias for back-compat. `softioc` is now
-# a core dependency (see [project] dependencies), so this extra installs nothing
-# extra. Retained so existing `osprey-framework[virtual-accelerator]` references
-# (CI `uv sync --extra`, the VA image Dockerfile, and pinned older-version image
-# builds where softioc was still gated here) keep resolving.
+# Virtual Accelerator: kept as an empty alias for back-compat. Everything the
+# VA needs is a core dependency (see [project] dependencies), so this extra
+# installs nothing extra. Retained so existing
+# `osprey-framework[virtual-accelerator]` references (CI `uv sync --extra`, the
+# VA image Dockerfile, and pinned older-version image builds that still gated
+# the serving stack here) keep resolving.
 virtual-accelerator = []
 
 # All optional dependencies for complete installation

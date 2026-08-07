@@ -1,6 +1,6 @@
 """LUME model layer for the virtual accelerator: the ALS-U facility adapter.
 
-The softioc-free half of the VA, expressed as a LUME model plus its variable
+The serving-free half of the VA, expressed as a LUME model plus its variable
 catalog. Nothing here imports EPICS.
 
 **Four layers, each knowing only the one below it.** ``lume`` states the
@@ -11,8 +11,8 @@ orbit, and no knowledge of ALS-U at all. This package is the ALS-U adapter
 -- :class:`~osprey.services.virtual_accelerator.model.pyat.PyATRingModel`,
 the lattice bindings, the current->strength transformer variables, and the
 catalog that derives them from the facility databases. Above it sits the
-serving layer (``ioc.physics_bridge``, softioc), which none of this reaches
-into.
+serving layer (``ioc.physics_bridge``, ``serving``), which none of this
+reaches into.
 
 **The adapter contract**, in three rules. It is prose rather than a
 ``Protocol`` deliberately: with one backend in tree a formal interface would

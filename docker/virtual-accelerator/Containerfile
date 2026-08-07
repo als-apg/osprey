@@ -54,7 +54,7 @@ RUN apt-get update \
 # (EPICS_CA_NAME_SERVERS=<host>:5064, EPICS_CA_AUTO_ADDR_LIST=NO on the
 # client side) is the one host<->container configuration proven to work
 # across container runtimes (see
-# src/osprey/services/virtual_accelerator/probe/README.md); UDP broadcast
+# scripts/va/probe_pcaspy/README.md); UDP broadcast
 # discovery is not published because it is not relied upon. 5064 matches the
 # "Local Simulation" gateway preset
 # (src/osprey/templates/data/facility_gateways.py) exactly, so a preset
