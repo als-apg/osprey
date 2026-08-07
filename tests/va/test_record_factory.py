@@ -51,9 +51,9 @@ def _free_port() -> str:
         return str(probe.getsockname()[1])
 
 
-# Set at import time because libca latches the EPICS_CA_* environment when the
-# C library initialises, which happens on the first `import epics` anywhere in
-# the process -- earlier than any fixture can run.
+# import-time required because libca latches the EPICS_CA_* environment when
+# the C library initialises, which happens on the first `import epics` anywhere
+# in the process -- earlier than any fixture can run.
 #
 # Loopback only, and on an ephemeral port unless the environment already pins
 # one: this worktree is shared by concurrent test runs and by the operator's

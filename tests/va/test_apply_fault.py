@@ -39,9 +39,9 @@ def _free_port() -> str:
         return str(probe.getsockname()[1])
 
 
-# Set at import time: libca latches the EPICS_CA_* environment when the C
-# library initialises, which happens on the first `import epics` anywhere in the
-# process. Loopback only, on an ephemeral port unless the environment pins one,
+# import-time required because libca latches the EPICS_CA_* environment when
+# the C library initialises, which happens on the first `import epics` anywhere
+# in the process. Loopback only, on an ephemeral port unless the environment pins one,
 # with the server and CAS ports equal -- a search reply carries the server's own
 # port, so a server listening anywhere else hands clients a dead address.
 os.environ.setdefault("EPICS_CA_ADDR_LIST", "127.0.0.1")
