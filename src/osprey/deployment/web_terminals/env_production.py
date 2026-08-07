@@ -326,14 +326,40 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
         exported = [var for var in missing if os.environ.get(var)]
         shell_hint = ""
         if exported:
-            copy_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
+            # Append to the PROFILE .env when the project records one: a key
+            # written to the project .env unblocks the deploy in front of the
+            # operator but is dropped by the next `osprey build`, which derives
+            # the project .env from the profile. The project .env stays the
+            # fallback for legacy preset-built projects, where there is no
+            # profile to write to and it really is the only store.
+            from osprey.deployment.container_lifecycle import _profile_env_path
+
+            profile_env = _profile_env_path(root)
+            names = ", ".join(exported)
             verb = "are" if len(exported) > 1 else "is"
-            shell_hint = (
-                f" Note: {', '.join(exported)} {verb} exported in the current "
-                f"shell, but .env is the canonical secrets store for this "
-                f"deploy (generation never reads the ambient environment). "
-                f"Copy it in with: {copy_cmds}"
+            preamble = (
+                f" Note: {names} {verb} exported in the current shell, but this "
+                f"deploy reads only {env_path} (generation never reads the "
+                f"ambient environment)."
             )
+            if profile_env is None:
+                copy_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
+                shell_hint = f"{preamble} Copy it in with: {copy_cmds}"
+            else:
+                # Both routes named, because neither alone is the whole answer:
+                # the profile write is the durable one but does not reach this
+                # deploy until a rebuild derives the project .env from it, and
+                # the project write unblocks this deploy but the next build
+                # drops it.
+                copy_cmds = " && ".join(f'echo "{var}=${var}" >> {profile_env}' for var in exported)
+                quick_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
+                shell_hint = (
+                    f"{preamble} The profile owns this project's secrets, so put "
+                    f"it there and rebuild: {copy_cmds} — then re-run `osprey "
+                    f"build` to carry it into {env_path}. Appending straight to "
+                    f"{env_path} ({quick_cmds}) unblocks this deploy but is "
+                    f"dropped by the next build."
+                )
         raise RuntimeError(
             f"Generating {env_production_path} from {env_path} would leave web "
             f"terminals unauthenticated: {needs}, not set in {env_path}. Add "

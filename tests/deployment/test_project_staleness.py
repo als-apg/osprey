@@ -108,8 +108,17 @@ def test_unknown_installed_version_is_silent(tmp_path, monkeypatch):
     assert staleness.staleness_reasons(tmp_path) == []
 
 
-def test_preset_content_drift_is_reported(tmp_path, presets_dir, monkeypatch):
-    """Same installed version, changed preset — the --dev checkout incident."""
+def test_preset_content_drift_is_reported_when_no_profile_is_recorded(
+    tmp_path, presets_dir, monkeypatch
+):
+    """Same installed version, changed preset — the --dev checkout incident.
+
+    The preset branch is the fallback now: it applies to a manifest carrying no
+    profile path at all (one written before profile-always builds, or one whose
+    profile path could not be recorded). A current ``--preset`` build records
+    the profile it materialized and is judged by that instead — see
+    :func:`test_edited_preset_materialized_profile_reports_stale`.
+    """
     _write_preset(presets_dir, "demo", "name: Demo\n")
     monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
     _write_manifest(
@@ -135,6 +144,49 @@ def test_removed_preset_is_silent_on_content_check(tmp_path, presets_dir, monkey
     monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
     _write_manifest(tmp_path, creation={"preset_hash": "sha256:deadbeef"})
     assert staleness.staleness_reasons(tmp_path) == []
+
+
+def test_edited_preset_materialized_profile_reports_stale(tmp_path, monkeypatch):
+    """The edit the advisory most needs to see, on the preset-origin topology.
+
+    A ``--preset`` build renders from the profile it materializes, so editing
+    that profile is how a facility changes its project — and the project is
+    stale from that moment. Judging the project by the bundled preset instead
+    would stay silent on exactly this change, since the preset never moved.
+
+    Built for real rather than hand-stamped: the claim is that the hash the
+    build writes and the hash the deploy recomputes describe the same source,
+    which a synthesized manifest could not show.
+    """
+    from click.testing import CliRunner
+
+    from osprey.cli.build_cmd import build
+
+    result = CliRunner().invoke(
+        build,
+        [
+            "proj",
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert staleness.staleness_reasons(tmp_path / "proj") == []
+
+    profile_path = tmp_path / "proj-profile" / "profile.yml"
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8") + "\ndeploy_services: false\n",
+        encoding="utf-8",
+    )
+
+    reasons = staleness.staleness_reasons(tmp_path / "proj")
+    assert len(reasons) == 1
+    assert "profile" in reasons[0]
+    assert str(profile_path) in reasons[0]
 
 
 def _write_profile_manifest(project_dir, build_args, preset_hash):

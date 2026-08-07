@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -239,6 +240,89 @@ def test_inject_project_metadata_flags_env_presence(
 
     (tmp_path / ".env").write_text("ALS_APG_API_KEY=x\n")
     assert _inject_project_metadata({})["osprey_env_present"] is True
+
+
+# ---------------------------------------------------------------------------
+# Virtual Accelerator scenario-state mount
+# ---------------------------------------------------------------------------
+# The VA container reads `active_scenarios` from a bind mount while the host
+# rewrites it (`osprey sim apply`). The mount source is derived from the config
+# rather than hardcoded, so a project that relocates its agent-data root does
+# not end up mounting a directory nothing writes.
+
+
+def _render_va_template(config: dict[str, Any]) -> str:
+    """Render the packaged VA compose through the real generator injection."""
+    from importlib import resources
+
+    from jinja2 import Template
+
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    ctx = _inject_project_metadata(
+        {
+            "system": {"timezone": "UTC"},
+            "deployment": {"bind_address": "127.0.0.1"},
+            "services": {"virtual_accelerator": {"port": 5064}},
+            **config,
+        }
+    )
+    tpl = resources.files("osprey").joinpath(
+        "templates/services/virtual_accelerator/docker-compose.yml.j2"
+    )
+    return Template(tpl.read_text(encoding="utf-8")).render(**ctx)
+
+
+def test_va_state_mount_defaults_to_the_agent_data_root() -> None:
+    rendered = _render_va_template({})
+
+    assert "- ../../_agent_data/simulation:/state/simulation:ro" in rendered
+    assert "VA_STATE_DIR: /state/simulation" in rendered
+
+
+def test_va_state_mount_follows_a_relocated_agent_data_root() -> None:
+    rendered = _render_va_template({"agent_data": {"base_dir": "./scratch-data"}})
+
+    assert "- ../../scratch-data/simulation:/state/simulation:ro" in rendered
+    mounts = [line for line in rendered.splitlines() if ":/state/simulation:ro" in line]
+    assert mounts and not any("_agent_data" in line for line in mounts), (
+        "the state mount source must come from agent_data.base_dir, not a literal"
+    )
+
+
+def test_va_state_mount_accepts_an_absolute_agent_data_root() -> None:
+    """An absolute root is already anchored — the ../../ prefix would break it."""
+    rendered = _render_va_template({"agent_data": {"base_dir": "/srv/osprey-state"}})
+
+    assert "- /srv/osprey-state/simulation:/state/simulation:ro" in rendered
+
+
+@pytest.mark.parametrize(
+    "relocation",
+    [
+        pytest.param({}, id="default"),
+        pytest.param({"agent_data": {"base_dir": "./scratch-data"}}, id="relocated-agent-data"),
+        pytest.param({"simulation": {"state_dir": "run/scenarios"}}, id="explicit-state-dir"),
+    ],
+)
+def test_va_state_mount_matches_what_the_engine_writes(
+    tmp_path: Path, relocation: dict[str, Any]
+) -> None:
+    """The mount source and the writer's target are one directory.
+
+    Every way a project can move that directory has to move both sides together:
+    relocating the agent-data root, or naming the state dir outright. The mount
+    is rendered relative to ``build/services/``, so resolving it from there must
+    land on exactly the path ``resolve_state_dir`` hands the engine.
+    """
+    from osprey.simulation.engine import resolve_state_dir
+
+    config: dict[str, Any] = {"project_root": str(tmp_path), **relocation}
+    rendered = _render_va_template(config)
+    source = re.search(r"- (\S+):/state/simulation:ro", rendered).group(1)
+
+    compose_project_dir = tmp_path / "build" / "services"
+    assert (compose_project_dir / source).resolve() == resolve_state_dir(config, tmp_path).resolve()
 
 
 # The worker process reads OSPREY config directly (get_facility_timezone while
@@ -2068,7 +2152,105 @@ def test_wheel_cache_dir_creation_registers_atexit_cleanup(
 # rebuild would invalidate the image layer cache even with no code change.
 # This gate builds the wheel twice for real (memo reset in between) and pins
 # byte-identity via sha256.
+#
+# Both builds necessarily read the LIVE source root — hatch-vcs needs the real
+# git checkout to derive the version, so the tree cannot be snapshotted into
+# tmp_path. That makes "identical source" a premise the test must verify rather
+# than assume: any write under ``src/`` between the two builds (an editor save,
+# a formatter, a concurrent process) makes the two wheels legitimately differ
+# and the assertion would report build nondeterminism that does not exist. So
+# each round is bracketed by a content snapshot of the packaged inputs, and the
+# comparison is only made once a round provably saw the same tree twice.
+#
+# Exhausting the retries is a FAILURE, not a skip. Nothing writes under ``src/``
+# during a CI test run, so a tree that churns through every attempt is a real
+# anomaly worth a red rather than a condition to tolerate — and a skip here
+# would exit 0 and read as success to any gate that does not assert on skip
+# counts.
 # ---------------------------------------------------------------------------
+
+
+def _packaged_source_snapshot(source_root: Path) -> dict[str, str]:
+    """Per-path content hashes of the source inputs hatchling packages.
+
+    Returns a mapping rather than one combined digest so that a tree changing
+    under the test can be reported as the specific paths that moved.
+
+    A deliberate superset of the true include set (the whole ``src/`` tree plus
+    the root metadata files): a superset is sound for the "did the tree change
+    under us" guard, and avoids reimplementing hatchling's inclusion rules.
+
+    ``src/osprey/_version.py`` is excluded — it is written *by* the hatch-vcs
+    build hook on every build, so it is a build output, not an input. Excluding
+    it makes the guard stricter, not weaker: a version stamp that varied between
+    builds would still change the wheel bytes while the snapshot held steady,
+    and the reproducibility assertion would (correctly) fail.
+    """
+    import hashlib
+
+    snapshot: dict[str, str] = {}
+    version_file = source_root / "src" / "osprey" / "_version.py"
+    for path in sorted((source_root / "src").rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts or path == version_file:
+            continue
+        try:
+            content = path.read_bytes()
+        except OSError:
+            # Mid-write or just-unlinked: record a marker rather than raising,
+            # so the churn surfaces as an unstable snapshot and triggers a retry.
+            content = b"<unreadable>"
+        snapshot[str(path.relative_to(source_root))] = hashlib.sha256(content).hexdigest()
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        meta = source_root / name
+        if meta.is_file():
+            snapshot[name] = hashlib.sha256(meta.read_bytes()).hexdigest()
+    return snapshot
+
+
+def _snapshot_churn(samples: list[dict[str, str]]) -> list[str]:
+    """Paths whose content differed across any of ``samples``, with how."""
+    baseline = samples[0]
+    churn: dict[str, str] = {}
+    for sample in samples[1:]:
+        for path in sorted(set(baseline) | set(sample)):
+            if baseline.get(path) == sample.get(path):
+                continue
+            if path not in baseline:
+                churn[path] = "appeared"
+            elif path not in sample:
+                churn[path] = "removed"
+            else:
+                churn[path] = "content changed"
+    return [f"{path} ({how})" for path, how in sorted(churn.items())]
+
+
+def _wheel_difference_report(first: Path, second: Path) -> str:
+    """Name the zip members that differ, so a real failure is diagnosable."""
+    import zipfile
+
+    with zipfile.ZipFile(first) as zf1, zipfile.ZipFile(second) as zf2:
+        names1 = [info.filename for info in zf1.infolist()]
+        names2 = [info.filename for info in zf2.infolist()]
+        lines = []
+        if only1 := sorted(set(names1) - set(names2)):
+            lines.append(f"  only in first: {only1[:10]}")
+        if only2 := sorted(set(names2) - set(names1)):
+            lines.append(f"  only in second: {only2[:10]}")
+        for name in sorted(set(names1) & set(names2)):
+            info1, info2 = zf1.getinfo(name), zf2.getinfo(name)
+            if zf1.read(name) != zf2.read(name):
+                lines.append(f"  content differs: {name}")
+            elif (info1.date_time, info1.external_attr, info1.compress_type) != (
+                info2.date_time,
+                info2.external_attr,
+                info2.compress_type,
+            ):
+                lines.append(
+                    f"  zip metadata differs: {name} "
+                    f"{info1.date_time}/{info2.date_time} "
+                    f"attr {info1.external_attr}/{info2.external_attr}"
+                )
+    return "\n".join(lines) or "  (archives differ only in container-level bytes)"
 
 
 def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
@@ -2096,22 +2278,53 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
     if importlib.util.find_spec("build") is None:
         pytest.skip("the 'build' package is not installed")
 
-    digests = []
-    for label in ("first", "second"):
-        out_dir = tmp_path / label
-        out_dir.mkdir()
-        # Reset the memo so the second round is a genuinely fresh build, not
-        # a copy of the first round's cached wheel.
-        _reset_wheel_build_cache()
-        if not _copy_local_framework_for_override(str(out_dir)):
-            pytest.skip("dev wheel build unavailable in this environment")
-        [wheel] = out_dir.glob("*.whl")
-        digests.append(hashlib.sha256(wheel.read_bytes()).hexdigest())
+    attempts = 3
+    all_samples: list[dict[str, str]] = []
+    for attempt in range(attempts):
+        wheels: list[Path] = []
+        digests: list[str] = []
+        # Four samples: before and after each of the two builds. Only when all
+        # four agree did both builds provably read the same bytes.
+        samples: list[dict[str, str]] = []
+        for label in ("first", "second"):
+            out_dir = tmp_path / f"attempt{attempt}-{label}"
+            out_dir.mkdir()
+            samples.append(_packaged_source_snapshot(source_root))
+            # Reset the memo so the second round is a genuinely fresh build, not
+            # a copy of the first round's cached wheel.
+            _reset_wheel_build_cache()
+            if not _copy_local_framework_for_override(str(out_dir)):
+                pytest.skip("dev wheel build unavailable in this environment")
+            [wheel] = out_dir.glob("*.whl")
+            wheels.append(wheel)
+            digests.append(hashlib.sha256(wheel.read_bytes()).hexdigest())
+            samples.append(_packaged_source_snapshot(source_root))
+        all_samples.extend(samples)
+        if all(sample == samples[0] for sample in samples):
+            break
+    else:
+        churn = _snapshot_churn(all_samples)
+        shown = "\n".join(f"  {entry}" for entry in churn[:20])
+        if len(churn) > 20:
+            shown += f"\n  ... and {len(churn) - 20} more"
+        pytest.fail(
+            f"the packaged source tree changed during all {attempts} attempts, so "
+            f"the two builds never read the same bytes and wheel reproducibility "
+            f"could not be judged.\n\n"
+            f"Paths that changed under the test:\n{shown}\n\n"
+            f"Likely cause: a concurrent write under {source_root / 'src'}. That is "
+            f"expected while several agents or an editor write to this checkout in "
+            f"parallel — re-run on a quiet tree and it will pass. In CI it is a real "
+            f"signal, not a flake: nothing writes to the source tree during a CI test "
+            f"run, so a tree churning through every attempt means something genuinely "
+            f"mutated the checkout mid-run."
+        )
 
     assert digests[0] == digests[1], (
         "two wheel builds from identical source must be byte-identical — a "
         "nondeterministic wheel invalidates the Docker layer cache on every "
-        "--dev rebuild"
+        "--dev rebuild. The source tree was verified unchanged across both "
+        "builds, so this is the build itself:\n" + _wheel_difference_report(wheels[0], wheels[1])
     )
 
 

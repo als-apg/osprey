@@ -14,6 +14,9 @@ from osprey.cli.templates.scaffolding import provider_api_key_entries
 from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
 from osprey.utils.dotenv import BUILD_DERIVED_KEYS, parse_dotenv_file
 
+#: Distinctive enough that a substring check on the whole render is meaningful.
+_AMBIENT_KEY_VALUE = "ambient-shell-secret"
+
 
 def _render(ctx: dict) -> str:
     manager = TemplateManager()
@@ -25,7 +28,11 @@ def _ctx(**extra) -> dict:
         "project_name": "test-project",
         "project_root": "/tmp/test-project",
         "current_python_env": "/usr/bin/python3",
-        "env": {"CBORG_API_KEY": "x"},
+        # Deliberate hostile input. The real build context has no `env` key at
+        # all (osprey.cli.templates.manager), so this mapping only exists to
+        # give the template something ambient to leak — see
+        # test_ambient_provider_keys_do_not_render.
+        "env": {"CBORG_API_KEY": _AMBIENT_KEY_VALUE},
         "provider_api_keys": provider_api_key_entries(),
     }
     base.update(extra)
@@ -58,13 +65,21 @@ class TestVirtualAcceleratorEnvKeys:
         # Without this the physics bridge would not be built at all.
         assert parsed["VA_LATTICE"] == "builtin"
 
-    def test_provider_keys_still_render_alongside(self, tmp_path):
-        parsed = _parsed(
-            tmp_path,
-            _render(_ctx(va_channels_file=MANIFEST_FILENAME, va_lattice="builtin")),
-        )
+    def test_ambient_provider_keys_do_not_render(self, tmp_path):
+        """Build-derived is not a licence to harvest.
 
-        assert parsed["CBORG_API_KEY"] == "x"
+        The VA keys render because the build computes them; a provider key in
+        the ambient environment does not, whatever a caller puts in the render
+        context. Asserted with the VA branch active so the two paths stay
+        distinguishable: a template that reopened the ambient path while
+        writing the manifest pointers would still satisfy the tests above.
+        The profile's own keys arrive after the render, via
+        :func:`osprey.utils.dotenv.derive_project_env`.
+        """
+        rendered = _render(_ctx(va_channels_file=MANIFEST_FILENAME, va_lattice="builtin"))
+
+        assert "CBORG_API_KEY" not in _parsed(tmp_path, rendered)
+        assert _AMBIENT_KEY_VALUE not in rendered
 
     def test_written_keys_are_the_declared_build_derived_set(self, tmp_path):
         with_va = _parsed(

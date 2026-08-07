@@ -118,6 +118,7 @@ Runs in the freshly-built `ci-base:latest`. Produces all data artifacts that dow
 1. Generates `.env.production` from CI masked variables (every required env var listed in the prod profile YAML must be available as a CI variable; the job concatenates them into the file).
 2. Sets `PYTHONPATH=mcp_servers` so `python -m <server>` invocations work for any custom MCP server lifecycle steps.
 3. Runs `osprey build ${config.facility.prefix}-assistant ${config.facility.prefix}-prod.yml -o build-output --skip-lifecycle --skip-deps --runtime-root /app/${config.facility.prefix}-assistant`.
+   - The profile path is positional, so **the directory containing it is the profile directory** the build reads — here, the repo root. That is where the build looks for convention directories (`rules/`, `skills/`, `agents/`, `hooks/`, `services/`, …), the `data/` tree, and `.env` / `.env.example`. A file added at the repo root under one of those names reaches every build from this repo.
    - `--skip-lifecycle`: there's no container runtime in CI, so any pre/post-build lifecycle hooks (which often start containers) must not run here.
    - `--skip-deps`: the CI base image already pip-installed everything; the per-project `.venv` would be redundant.
    - `--runtime-root`: tells OSPREY what path the project will occupy *inside the web-terminal container*, not on the CI runner. This is what makes generated MCP commands like `/app/${config.facility.prefix}-assistant/.venv/bin/python` resolvable at container runtime.

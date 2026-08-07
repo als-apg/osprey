@@ -135,7 +135,10 @@ try:
         log_hook("cf-feedback-capture", hook_input, status="no-cwd")
         sys.exit(0)
 
-    store_path = os.path.join(project_dir, "data", "feedback", "pending_reviews.json")
+    # Runtime state lives under the agent-data root: a project's data/ tree is
+    # build-owned, checksummed into the manifest, and cleared by
+    # `osprey build --force`.
+    store_path = os.path.join(project_dir, "_agent_data", "feedback", "pending_reviews.json")
 
     # ----------------------------------------------------------------
     # 5. Extract fields from hook input

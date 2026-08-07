@@ -15,6 +15,57 @@ logger = logging.getLogger("osprey.utils.workspace")
 #: Agent-data root used when a config declares no ``agent_data.base_dir``.
 DEFAULT_AGENT_DATA_BASE_DIR = "./_agent_data"
 
+#: Subdirectory of the agent-data root holding the simulation's mutable
+#: ``active_scenarios`` state file.
+SIMULATION_STATE_DIR_NAME = "simulation"
+
+#: Config key naming that directory explicitly (relative paths resolve against
+#: the project root). Unset — the normal case — puts it under the agent-data
+#: root. It lives here, rather than in the simulation package, so
+#: :data:`osprey.utils.config.RUNTIME_WRITE_PATH_KEYS` and
+#: :func:`osprey.simulation.engine.resolve_state_dir` share one spelling without
+#: ``config`` having to import the engine (which would pull numpy into every
+#: config load).
+SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
+
+
+def dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
+    """Read a dotted config key, or ``None`` if it does not name a real string.
+
+    ``None`` is returned for every way the key can fail to answer — a missing
+    segment, a segment that is not a mapping, a non-string value, or an empty
+    one — because each of those means the same thing to every caller: the key
+    is unset, use the default. A mistyped key therefore falls through to the
+    default rather than raising.
+
+    The single reader for the path-shaped config keys, so the checks that
+    *reject* a value and the resolvers that *use* it cannot disagree about what
+    the config says. They previously differed on ``dict`` versus ``Mapping``,
+    which is only invisible while every config arrives straight from the YAML
+    loader.
+
+    Args:
+        config: Loaded config mapping, or ``None``.
+        key: Dotted path, e.g. ``simulation.state_dir``.
+    """
+    value: Any = config or {}
+    for part in key.split("."):
+        if not isinstance(value, Mapping) or part not in value:
+            return None
+        value = value[part]
+    return value if isinstance(value, str) and value else None
+
+
+def anchored_path(value: str, project_root: Path) -> Path:
+    """Expand ``~`` in a configured path and anchor a relative one at the project.
+
+    The other half of :func:`dotted_config_str`: a configured path is absolute,
+    home-relative, or project-relative, and every consumer has to make the same
+    three-way choice before comparing paths or creating directories.
+    """
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else Path(project_root) / path
+
 
 def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
     """Read the agent-data root out of an already-loaded config mapping.
@@ -35,6 +86,41 @@ def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
     if not isinstance(section, Mapping):
         return DEFAULT_AGENT_DATA_BASE_DIR
     return str(section.get("base_dir") or DEFAULT_AGENT_DATA_BASE_DIR)
+
+
+def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root: Path) -> Path:
+    """Resolve the directory holding the mutable ``active_scenarios`` state file.
+
+    The state file is the one piece of simulation state that changes after a
+    build, so it lives under the agent-data root rather than next to
+    ``machine.json``: everything in a project's ``data/`` tree is build-owned
+    and checksummed (see
+    :func:`osprey.cli.templates.manifest.calculate_file_checksums`), and a
+    scenario switch is not project drift.
+
+    Lives here rather than in the simulation package so the three sides that
+    must agree — the engine that writes the file, the compose generator that
+    renders the container's bind-mount source, and the build injector that
+    pre-creates it — resolve it identically without ``deployment`` importing
+    numpy through :mod:`osprey.simulation.engine`. Re-exported there as
+    ``resolve_state_dir``.
+
+    A mistyped :data:`SIMULATION_STATE_DIR_CONFIG_KEY` (anything but a non-empty
+    string) falls through to the default rather than raising, matching how
+    :func:`osprey.utils.config.find_runtime_write_paths_under_data` reads the
+    same key.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+        project_root: Root the relative paths above resolve against.
+
+    Returns:
+        Absolute path to the state directory (not created here).
+    """
+    config = config or {}
+    configured = dotted_config_str(config, SIMULATION_STATE_DIR_CONFIG_KEY)
+    relative = configured or f"{agent_data_base_dir(config)}/{SIMULATION_STATE_DIR_NAME}"
+    return anchored_path(relative, project_root)
 
 
 def resolve_config_path() -> Path:

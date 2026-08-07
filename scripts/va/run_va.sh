@@ -42,6 +42,16 @@ if [[ ! -f "${DATA_DIR}/machine.json" ]]; then
     exit 1
 fi
 
+# `osprey sim apply` writes the active-scenario state under the project's
+# _agent_data/ (data/ is build-owned and re-rendered), so mount that too when
+# DATA_DIR really is a project's data/simulation. Without it the IOC falls back
+# to reading the state next to machine.json and never sees a scenario switch.
+STATE_DIR="$(cd "${DATA_DIR}/../.." >/dev/null 2>&1 && pwd)/_agent_data/simulation"
+STATE_MOUNT=()
+if [[ -d "${STATE_DIR}" ]]; then
+    STATE_MOUNT=(-v "${STATE_DIR}:/state/simulation:ro" -e "VA_STATE_DIR=/state/simulation")
+fi
+
 RUNTIME="${OSPREY_VA_RUNTIME:-}"
 if [[ -z "${RUNTIME}" ]]; then
     if command -v podman >/dev/null 2>&1 && \
@@ -94,4 +104,5 @@ echo "--- Ctrl-C stops the container. ---"
 "${RUNTIME}" run --rm --name "${CONTAINER}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
     -v "${DATA_DIR}:/data/simulation:ro" \
+    "${STATE_MOUNT[@]}" \
     "${IMAGE}"

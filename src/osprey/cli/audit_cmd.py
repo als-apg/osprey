@@ -202,7 +202,8 @@ def audit(
     TARGET is a .yml/.yaml build profile or a built project directory.
 
     Uses Claude Agent SDK to spawn an AI reviewer that analyzes permissions,
-    safety hooks, MCP server configs, overlay files, and lifecycle scripts.
+    safety hooks, MCP server configs, convention directories, and lifecycle
+    scripts.
 
     \b
     Examples:

@@ -368,11 +368,13 @@ class TestDockerignore:
     def test_secrets_and_host_state_excluded(self, hello_project):
         entries = self._entries(hello_project)
         # secrets, host state, and the regenerated build/ tree (its fresh deploy
-        # stamps must not bust the image cache) are all excluded.
-        for required in (".env", ".venv", ".git", "_agent_data/", "build/"):
+        # stamps must not bust the image cache) are all excluded. The env
+        # exclusion is a glob: `.env` alone let the deploy-generated
+        # `.env.production` into the image.
+        for required in (".env*", ".venv", ".git", "_agent_data/", "build/"):
             assert required in entries, f"{required} missing from .dockerignore"
-        # .env.example is safe and useful inside the image — must NOT be excluded
-        assert ".env.example" not in entries
+        # .env.example is safe and useful inside the image — must be re-included
+        assert "!.env.example" in entries
 
     def test_dockerfile_excluded_but_not_dockerignore(self, hello_project):
         """The wheel layer's ``COPY .dockerignore *.wh[l]`` needs .dockerignore to

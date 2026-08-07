@@ -11,11 +11,18 @@ which points at exactly this container's published port).
 
 Run contract (see docker/virtual-accelerator/README.md for the full version):
 
-    -v <project>/data/simulation:/data/simulation   # the DIRECTORY, never a file
+    -v <project>/data/simulation:/data/simulation             # the DIRECTORY, never a file
+    -v <project>/_agent_data/simulation:/state/simulation:ro  # scenario state
     -p 5064:5064/tcp
 
 ``VA_DATA_DIR`` overrides the mount point (default ``/data/simulation``) for
 local testing without an actual bind mount.
+
+``VA_STATE_DIR`` names the directory holding the ``active_scenarios`` file the
+IOC polls for scenario switches. It is a *separate* mount because the host
+writes it at run time (``osprey sim apply``) while ``data/`` is build-owned and
+checksummed. Unset, it falls back to the data dir — the historical layout, for
+a hand-run container whose state file still sits next to ``machine.json``.
 
 Facility-neutral source configuration (all optional; defaults reproduce the
 historical behaviour exactly):
@@ -262,6 +269,7 @@ def main() -> None:
     configure_logging()
 
     data_dir = Path(os.environ.get("VA_DATA_DIR", DEFAULT_DATA_DIR))
+    state_dir = Path(os.environ.get("VA_STATE_DIR", "").strip() or data_dir)
     machine_path = data_dir / "machine.json"
     if not machine_path.is_file():
         raise SystemExit(
@@ -336,7 +344,7 @@ def main() -> None:
         bridge.bind(records.pyat_coupled)
 
     print(f"Loading simulation engine from {machine_path} ...", flush=True)
-    engine = SimulationEngine.from_file(machine_path)
+    engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
 
     # With no lattice, the engine is the only physics in the process: sync
     # each sp-echo readback into it every tick so machine-file expression
@@ -359,6 +367,7 @@ def main() -> None:
         channels,
         records.static_noisy,
         data_dir,
+        state_dir=state_dir,
         setpoint_echo_records=setpoint_echoes,
     )
 

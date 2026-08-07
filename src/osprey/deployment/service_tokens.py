@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlsplit
 
 
 def _default_token() -> str:
-    """The default secret recipe, also the one ``.env.template`` documents."""
+    """The default secret recipe, also the one ``.env.example`` documents."""
     return secrets.token_urlsafe(32)
 
 
@@ -214,8 +214,11 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
 def _effective_value(var: str, dotenv: dict[str, str]) -> str:
     """The value ``_ensure_service_tokens`` treats as authoritative for ``var``.
 
-    Process env wins over ``.env`` (matches ``docker compose --env-file``);
-    absent from both yields ``""``.
+    Reads process env first, then ``dotenv``, then ``""``. On the CLI deploy
+    path the project ``.env`` has already been loaded into the process env with
+    override (``ConfigBuilder`` treats the file as the source of truth), so a
+    shell export is only visible here when the ``.env`` does not carry the key
+    — the derived file, not the ambient shell, decides a present key's value.
     """
     return os.environ.get(var, dotenv.get(var, ""))
 

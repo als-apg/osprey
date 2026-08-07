@@ -94,8 +94,8 @@ The config block
 
    .. tab-item:: Switching it on
 
-      The whole feature is one config block. This is what the
-      ``control-assistant`` preset renders into ``config.yml``:
+      The whole feature is one config block. This is what a project built from
+      the ``control-assistant`` preset carries in its ``config.yml``:
 
       .. code-block:: yaml
 
@@ -119,11 +119,20 @@ The config block
                readonly:
                  project: control-assistant-readonly
                  project_path: ../control-assistant-readonly
-                 build_profile: control-assistant-readonly
+                 build_profile: personas/readonly.yml
                readwrite:
                  project: control-assistant-readwrite
                  project_path: ../control-assistant-readwrite
-                 build_profile: control-assistant-readwrite
+                 build_profile: personas/readwrite.yml
+
+      Each ``build_profile`` names that persona's **delta** inside the build
+      profile this project was rendered from — the file
+      ``osprey profile new`` writes under ``personas/`` and points the catalog
+      at. The delta merges over that profile, so every persona shares one data
+      tree, one set of secrets, and one set of your own artifacts. A bundled
+      preset name, an absolute path, or a path outside ``personas/`` is
+      rejected by both ``osprey scaffold web-terminals lint`` and
+      ``osprey deploy up``.
 
       The ``users`` list is the roster — the single source of truth for who
       exists. A bare name resolves to ``default_persona``; an entry with an
@@ -146,6 +155,13 @@ The config block
 
       The roster drives everything: edit it, then let ``osprey deploy``
       reconcile reality against it.
+
+      Edit it in the **build profile** — the ``modules.web_terminals.users``
+      entry under ``config:`` in ``profile.yml`` — and rebuild the project with
+      ``--force``. A roster change made directly in the project's ``config.yml``
+      deploys, but the next build overwrites it. Rebuilding also seeds an empty
+      ``web-terminal-context/<user>/`` slot in the profile for each new
+      operator, which is where their per-user context goes.
 
       .. list-table::
          :header-rows: 1
@@ -220,13 +236,16 @@ What ``osprey deploy up`` does for the web tier
 -----------------------------------------------
 
 #. **Auto-renders the two persona projects.** For any persona whose project
-   directory does not yet exist, ``deploy up`` renders it from the persona's
-   ``build_profile`` — landing it as a sibling of the main project
-   (``../control-assistant-readonly`` and ``../control-assistant-readwrite``)
-   and forwarding the choices you made at build time (provider, model). An
-   already-rendered project is user-owned and never overwritten; a
-   half-written one errors with a remediation hint rather than being rebuilt
-   over.
+   directory does not yet exist, ``deploy up`` renders it from that persona's
+   **delta** in the build profile beside your project — landing it as a sibling
+   of the main project (``../control-assistant-readonly`` and
+   ``../control-assistant-readwrite``). Because each delta merges over that
+   profile's ``profile.yml``, both personas share its data tree, secrets and
+   artifacts, and inherit the choices recorded there (provider, model): edit
+   the profile once and both terminals pick the change up from the file rather
+   than from a replayed command line. An already-rendered project is
+   user-owned and never overwritten; a half-written one errors with a
+   remediation hint rather than being rebuilt over.
 
 #. **Builds each persona's image.** In the preset's local mode
    (``image_source: local``), ``deploy up`` builds each persona's image

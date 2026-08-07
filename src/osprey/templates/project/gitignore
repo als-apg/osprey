@@ -17,7 +17,11 @@ dist/
 htmlcov/
 
 # Environment
-.env
+# Every .env variant carries secrets — the deploy-generated .env.production
+# included. .env.example is the documented variable list and carries none, so
+# it is the single exception.
+.env*
+!.env.example
 .venv
 env/
 venv/

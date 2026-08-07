@@ -30,6 +30,18 @@ Create a ready-to-run project in one command:
    osprey build my-first-agent --preset hello-world
    cd my-first-agent
 
+That writes **two** directories side by side:
+
+.. code-block:: text
+
+   my-first-agent-profile/   the profile — your editable source of truth
+   my-first-agent/           the project — rendered from the profile
+
+The first build copies the preset into ``my-first-agent-profile/``; every later
+build reads that directory as it stands. Nothing in this tutorial needs you to
+edit it, but that is where changes go when you want them to survive a rebuild —
+see :doc:`../how-to/build-profiles`.
+
 .. note::
 
    First run may take 1--2 minutes to create a virtual environment and install

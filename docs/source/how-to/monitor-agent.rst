@@ -89,7 +89,8 @@ Keys:
      - Attributes stamped onto every emitted record — useful for separating
        environments or agent instances in your backend.
 
-Set the endpoint in your project ``.env`` and run the agent as usual:
+Set the endpoint in your profile's ``.env`` — the build derives the project's
+from it — then run the agent as usual:
 
 .. code-block:: bash
 
@@ -128,9 +129,10 @@ default. If your project removed it, restore it:
 
 The OpenObserve root account doubles as the OTLP ingest credential. You do not
 have to set it yourself: the first ``osprey deploy up`` mints a strong
-``ZO_ROOT_USER_PASSWORD`` into ``.env`` automatically. Set the two variables
-yourself only if you want specific values — the same pair configures the
-container **and** authenticates the agent's OTLP push, one source of truth:
+``ZO_ROOT_USER_PASSWORD`` into the profile's ``.env`` automatically, and the
+project's ``.env`` is derived from there. Set the two variables yourself (in the
+profile's ``.env``) only if you want specific values — the same pair configures
+the container **and** authenticates the agent's OTLP push, one source of truth:
 
 .. code-block:: bash
 

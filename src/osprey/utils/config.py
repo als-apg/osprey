@@ -27,6 +27,14 @@ from typing import TYPE_CHECKING, Any, overload
 
 import yaml
 
+# Safe at module level despite this module's no-osprey-imports rule below:
+# ``workspace`` imports nothing from osprey itself, so there is no cycle.
+from osprey.utils.workspace import (
+    SIMULATION_STATE_DIR_CONFIG_KEY,
+    anchored_path,
+    dotted_config_str,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
@@ -138,6 +146,53 @@ EXECUTION_METHOD_SUBPROCESS = "subprocess"
 # rather than on every config read (the executor resolves per tool call).
 # Tests reset it via ``osprey.utils.config._container_method_warned = False``.
 _container_method_warned = False
+
+
+#: Directory the build owns end to end: every file under it is rendered from the
+#: profile/preset and checksummed into the manifest.
+BUILD_OWNED_DATA_DIR = "data"
+
+#: Directory runtime state belongs in — excluded from the manifest checksums and
+#: preserved across ``osprey build --force``.
+RUNTIME_STATE_DIR = "_agent_data"
+
+#: Config keys whose value names a path something writes to *at run time*.
+#: These must stay out of ``data/``: that tree is build-owned and checksummed by
+#: :func:`osprey.cli.templates.manifest.calculate_file_checksums`, so a runtime
+#: write landing there reads as project drift and is erased by the next
+#: ``osprey build --force``.
+RUNTIME_WRITE_PATH_KEYS = (
+    SIMULATION_STATE_DIR_CONFIG_KEY,
+    "services.channel_finder.pipelines.hierarchical.feedback.store_path",
+)
+
+
+def find_runtime_write_paths_under_data(
+    config: "Mapping[str, Any]", project_root: Path
+) -> list[tuple[str, str]]:
+    """Find configured runtime-write paths that resolve inside ``<root>/data/``.
+
+    Args:
+        config: Loaded ``config.yml`` mapping.
+        project_root: Directory relative paths in the config resolve against.
+
+    Returns:
+        ``(config_key, configured_value)`` pairs for every offending key, in
+        :data:`RUNTIME_WRITE_PATH_KEYS` order. Empty when the config is clean.
+    """
+    data_root = (project_root / BUILD_OWNED_DATA_DIR).resolve()
+    offenders: list[tuple[str, str]] = []
+
+    for key in RUNTIME_WRITE_PATH_KEYS:
+        value = dotted_config_str(config, key)
+        if value is None:
+            continue
+
+        resolved = anchored_path(value, project_root).resolve()
+        if resolved == data_root or data_root in resolved.parents:
+            offenders.append((key, value))
+
+    return offenders
 
 
 def _describe_config_source(source: str | None) -> str:
@@ -359,8 +414,35 @@ class ConfigBuilder:
 
         self.raw_config, self._unexpanded_config = self._load_config()
 
+        self._warn_on_runtime_write_paths_under_data()
+
         # Pre-compute nested structures for efficient runtime access
         self.configurable = self._build_configurable()
+
+    def _warn_on_runtime_write_paths_under_data(self) -> None:
+        """Warn when a runtime writer is pointed at the build-owned ``data/`` tree.
+
+        Advisory only: the misconfiguration still works until the next
+        ``osprey build --force`` wipes ``data/`` and takes the runtime state
+        with it, so this warns rather than raising.
+        """
+        configured_root = self.raw_config.get("project_root")
+        project_root = (
+            Path(configured_root) if configured_root else self.config_path.parent
+        ).expanduser()
+
+        for key, value in find_runtime_write_paths_under_data(self.raw_config, project_root):
+            logger.warning(
+                "Runtime-write path '%s' = %r resolves inside the build-owned "
+                "'%s/' tree (%s). That directory is re-rendered and checksummed on "
+                "every build, so runtime writes there show up as project drift and "
+                "are erased by 'osprey build --force'. Point it at '%s/' instead.",
+                key,
+                value,
+                BUILD_OWNED_DATA_DIR,
+                self.config_path,
+                RUNTIME_STATE_DIR,
+            )
 
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
         """Load and validate a YAML configuration file."""

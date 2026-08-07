@@ -24,8 +24,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from osprey.connectors.types import MOCK
-from osprey.simulation.engine import SimulationEngine
-from osprey.simulation.machine import DEFAULT_SCENARIO, parse_machine
+from osprey.simulation.engine import (
+    SimulationEngine,
+    resolve_active_scenarios,
+    resolve_state_dir,
+)
+from osprey.simulation.machine import parse_machine
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
@@ -114,8 +118,9 @@ def apply_scenarios(
     """Compose and activate scenarios for a built project; optionally seed its logbook.
 
     Args:
-        project_dir: Root of the built project (holds ``config.yml`` and
-            ``data/simulation/``).
+        project_dir: Root of the built project (holds ``config.yml``, the
+            build-owned ``data/simulation/`` model, and the scenario state
+            under ``_agent_data/simulation/``).
         names: Scenario names to activate (``nominal`` is always implicit).
         seed_logbook: When True (and the project has an ``ariel`` config),
             purge and reseed the ARIEL logbook from the active scenarios'
@@ -146,7 +151,9 @@ def apply_scenarios(
             f"control_system.type '{active_type}' (tried {type_key} and {mock_key}); "
             f"`sim apply` only applies to simulation-backed projects (guards a real DB)."
         )
-    engine = SimulationEngine.from_file(machine_path)
+    engine = SimulationEngine.from_file(
+        machine_path, state_dir=resolve_state_dir(config, project_dir)
+    )
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
     # zone each seeded logbook entry's relative time-of-day resolves into, and it
@@ -228,8 +235,9 @@ def render_scenario_physics_env(
     values at boot.
 
     Args:
-        project_dir: Root of the built project (holds ``config.yml`` and
-            ``data/simulation/``).
+        project_dir: Root of the built project (holds ``config.yml``, the
+            build-owned ``data/simulation/`` model, and the scenario state
+            under ``_agent_data/simulation/``).
         names: Scenario names to activate (``nominal`` is always implicit),
             resolved the same nominal-first, deduped way
             :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
@@ -271,10 +279,7 @@ def render_scenario_physics_env(
         machine = json.load(f)
     model = parse_machine(machine, machine_path)
 
-    resolved: list[str] = [DEFAULT_SCENARIO]
-    for name in names:
-        if name != DEFAULT_SCENARIO and name not in resolved:
-            resolved.append(name)
+    resolved = resolve_active_scenarios(names)
     unknown = [n for n in resolved if n not in model.scenarios]
     if unknown:
         raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(model.scenarios)}")

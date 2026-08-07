@@ -91,6 +91,11 @@ Working with a Bundle
       The ``control-assistant`` preset ships an Example Research Facility bundle
       you can read as a worked example, then replace with your own.
 
+      Author the bundle in your **profile** (``my-profile/data/facility_knowledge/``),
+      not in the built project: each build copies the profile's ``data/`` tree
+      over the project's, so an edit made in the project is lost on the next
+      rebuild. See :doc:`build-profiles`.
+
       .. _authoring-concept-documents:
 
       **Authoring concept documents.** Each concept document is a markdown file

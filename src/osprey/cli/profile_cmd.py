@@ -1,7 +1,7 @@
 """Profile command group — author and inspect build profiles.
 
 A build profile is the editable source a facility owns: a ``profile.yml`` plus
-the overlay and data trees beside it. This group holds the verbs that act on
+the data tree and convention directories beside it. This group holds the verbs that act on
 that source, keeping them separate from ``osprey build``, which consumes a
 profile and derives a project from it.
 
@@ -13,14 +13,16 @@ Usage:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import click
 
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
+
+from .profile_conventions import PER_USER_CONTEXT_DIRNAME
 
 if TYPE_CHECKING:
     # Annotation only — the profile model is imported lazily inside the command
@@ -79,8 +81,9 @@ def validate(target: Path) -> None:
 
     TARGET is a profile directory (its ``profile.yml`` is used) or a path to a
     profile file. Resolves ``extends:`` chains and runs the full consistency
-    check — overlay sources, the ``data:`` tree, service templates, lifecycle
-    steps, env vars — reporting every problem found, not just the first.
+    check — convention directories, the ``data:`` tree, service templates,
+    lifecycle steps, env vars — reporting every problem found, not just the
+    first.
 
     Exits 0 when the profile is valid, 2 with the accumulated errors when it is
     not.
@@ -152,8 +155,8 @@ def new(
 
     TARGET_DIR is created and populated with a standalone ``profile.yml`` (the
     preset's full configuration written out explicitly, no ``extends:``), the
-    preset's data tree, and an overlay seed — the editable source a facility
-    then owns and builds from.
+    preset's data tree, and the profile's own ``.env`` channel — the editable
+    source a facility then owns and builds from.
 
     Examples:
 
@@ -162,7 +165,7 @@ def new(
       $ osprey profile new my-profile --preset hello-world --set model=sonnet
     """
     try:
-        target = _materialize_profile_directory(
+        target, skipped_keys = _materialize_profile_directory(
             target_dir, preset, overrides, set_pairs, force=force
         )
     except BuildProfileError as e:
@@ -178,11 +181,39 @@ def new(
     persona_files = sorted((target / _PERSONA_PROFILE_DIRNAME).glob("*.yml"))
     if persona_files:
         click.echo(
-            f"\nWeb-terminal personas — one profile each, all reading "
-            f"{target.name}/{_PROFILE_DATA_DIRNAME}/:"
+            f"\nWeb-terminal personas — one delta each, merged over {target.name}/profile.yml:"
         )
         for persona_file in persona_files:
             click.echo(f"  {target.name}/{_PERSONA_PROFILE_DIRNAME}/{persona_file.name}")
+
+    # Secrets get their own block: this directory is now where they live, and a
+    # reader has to be able to tell at a glance whether a value was seeded for
+    # them or is still theirs to supply.
+    click.echo(f"\nSecrets — kept out of git by {target.name}/.gitignore:")
+    click.echo(f"  {target.name}/{_PROFILE_ENV_EXAMPLE_FILENAME} — every variable this agent reads")
+    env_path = target / _PROFILE_ENV_FILENAME
+    if env_path.is_file():
+        from osprey.utils.dotenv import parse_dotenv_file
+
+        seeded = ", ".join(sorted(parse_dotenv_file(env_path)))
+        click.echo(f"  {target.name}/{_PROFILE_ENV_FILENAME} — seeded from your shell: {seeded}")
+    else:
+        # Two different absences, and the remedy differs: nothing exported at
+        # all, or keys exported for providers this profile does not use.
+        reason = (
+            "your shell exports no key for the providers it references"
+            if skipped_keys
+            else "your shell exports no provider key"
+        )
+        click.echo(
+            f"  {target.name}/{_PROFILE_ENV_FILENAME} — not written: {reason}. "
+            f"Copy the example and fill it in."
+        )
+    if skipped_keys:
+        # Named rather than dropped in silence: the operator exported these, and
+        # has to be able to tell "seen and not needed" from "lost".
+        click.echo(f"  {_skipped_keys_note(skipped_keys)}")
+
     click.echo("\nNext steps:")
     click.echo(f"  1. Read {target.name}/README.md — it explains what you now own")
     click.echo(f"  2. Edit {target.name}/profile.yml and the files under {target.name}/data/")
@@ -196,12 +227,57 @@ def new(
 # cannot drift apart.
 _PROFILE_DATA_DIRNAME = "data"
 
-# Sibling persona profiles live here, one file per web-terminal persona, and
-# each reads the profile's own data tree one level up (D7a). The whole stack
-# therefore shares ONE facility data tree: edit `<profile>/data/` once and every
-# persona render sees it.
+# Sibling persona deltas live here, one file per web-terminal persona. A file
+# in this directory is merged over the `profile.yml` beside it (FR-10), so the
+# whole stack shares ONE facility data tree and ONE set of convention dirs: edit
+# `<profile>/` once and every persona render sees it.
 _PERSONA_PROFILE_DIRNAME = "personas"
-_PERSONA_DATA_REF = f"../{_PROFILE_DATA_DIRNAME}"
+
+# File name the resolved trigger config gets at the profile root, and the value
+# written to the emitted `dispatch.triggers` key (FR-3). One constant so the
+# copy target and the emitted key cannot drift apart.
+_PROFILE_TRIGGERS_FILENAME = "triggers.yml"
+
+# Convention directory holding one subdirectory of per-user web-terminal context
+# per roster user. Named from the convention table rather than spelled again, so
+# the slots seeded here are the ones the build copies from.
+_CONTEXT_CONVENTION_DIRNAME = PER_USER_CONTEXT_DIRNAME
+
+# The profile's secret channel (FR-1). `.env.example` is the documented variable
+# list, rendered from the SAME template the build renders into a project, so the
+# two can never document different variables. `.env` beside it holds the values,
+# and is what the build derives the project's own `.env` from — which is what
+# makes a secret survive a rebuild.
+_PROFILE_ENV_FILENAME = ".env"
+_PROFILE_ENV_EXAMPLE_FILENAME = ".env.example"
+_ENV_EXAMPLE_TEMPLATE = "project/env.example.j2"
+
+# Section header the shell-harvested keys are written under, distinct from the
+# banner `osprey deploy up` appends its minted service tokens beneath: the two
+# have different origins, and a reader should be able to tell which values came
+# from their own shell.
+_SEEDED_ENV_BANNER = "# ── Seeded by `osprey profile new` from your shell ──"
+
+# The profile's own `.gitignore`. A profile is meant to live in version control
+# — it is the facility's source of truth — so it ships with the one rule that
+# keeps its secrets out. `.env*` deliberately covers every variant the directory
+# accumulates, including the `.env.lock` the write-back path creates beside the
+# `.env` it appends to; `.env.example` carries no values and is the exception.
+_PROFILE_GITIGNORE = """\
+# This profile is your facility's source of truth — keep it in version control.
+# Its secrets are the one thing that must stay out.
+
+# Every .env variant holds values (and .env.lock is the write-back lock file).
+# .env.example is the documented variable list and carries none, so it is the
+# single exception.
+.env*
+!.env.example
+
+# OS / editor noise
+.DS_Store
+*.swp
+*.swo
+"""
 
 # Build exhaust that a source checkout may hold inside a bundle's data tree but
 # a wheel install never does — hatch excludes it from the package (see the
@@ -294,32 +370,376 @@ def _persona_catalog_layer(persona_names: Iterable[str]) -> dict[str, Any]:
     }
 
 
-def _replayed_model_selection(baked: dict[str, Any]) -> tuple[str, ...]:
-    """``--set`` pairs re-applying the caller's baked model selection to a persona.
+def _triggers_source(resolved: BuildProfile, preset_dir: Path) -> Path | None:
+    """The trigger-config file ``resolved``'s ``dispatch:`` block names.
 
-    Only the flattened fallback emission needs this: a delta persona inherits
-    the host profile wholesale, baked model selection included, through its
-    ``extends: ../profile.yml``.
+    ``None`` for a profile that declares no dispatch block — there is nothing to
+    materialize and nothing to repoint.
 
-    Mirrors :func:`osprey.deployment.web_terminals.persona_images._parent_set_override_args`
-    exactly — the same key set (:data:`MODEL_SELECTION_OVERRIDE_KEYS`) and the
-    same ``str | int`` value filter — because the two are the SAME guarantee at
-    two different moments: one parent-level model choice retints the whole
-    stack. That function covers a choice made at ``osprey build`` time; this one
-    covers a choice baked in at ``osprey profile new`` time, which reaches no
-    manifest and would otherwise never reach a persona at all.
+    Resolution mirrors the build's exactly
+    (:func:`~osprey.cli.build_injectors._inject_dispatch`): profile-relative
+    first, then the bundled triggers directory. ``resolve_build_profile`` has
+    already rejected a value that resolves to neither, so a miss here is a
+    packaging problem rather than something the caller could have got wrong.
 
-    Only top-level shorthand keys are replayed, matching
-    :func:`~osprey.cli.build_profile_resolve.explicit_model_override_keys`: a
-    dotted path into ``config:`` addresses the rendered config directly and
-    carries no whole-stack intent.
+    Raises:
+        BuildProfileError: If neither candidate exists.
     """
-    from .build_profile_resolve import MODEL_SELECTION_OVERRIDE_KEYS
+    if resolved.dispatch is None:
+        return None
 
-    return tuple(
-        f"{key}={baked[key]}"
-        for key in MODEL_SELECTION_OVERRIDE_KEYS
-        if isinstance(baked.get(key), str | int) and baked.get(key)
+    from .build_profile_presets import _triggers_dir
+
+    for candidate in (
+        preset_dir / resolved.dispatch.triggers,
+        _triggers_dir() / resolved.dispatch.triggers,
+    ):
+        if candidate.is_file():
+            return candidate
+    raise BuildProfileError(
+        f"dispatch.triggers not found: {resolved.dispatch.triggers!r} — looked in "
+        f"{preset_dir} and the bundled triggers directory."
+    )
+
+
+def _roster_user_names(config: Mapping[str, Any]) -> list[str]:
+    """Web-terminal user names a profile's roster declares, in roster order.
+
+    Empty for a profile with no web-terminal module and for one whose module is
+    switched off — a persona delta, say, which attaches to a hosting project's
+    web tier and stands up no roster of its own.
+
+    Read through the same two helpers the deployment uses
+    (:func:`~.build_profile_emit.effective_web_terminals` for the subtree,
+    :func:`~osprey.deployment.web_terminals.personas.normalize_users` for the
+    entries), so the directories seeded here are exactly the ones the build
+    later looks for.
+    """
+    from osprey.deployment.web_terminals.personas import normalize_users
+
+    from .build_profile_emit import effective_web_terminals
+
+    web_terminals = effective_web_terminals(config)
+    if not web_terminals.get("enabled"):
+        return []
+    return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+
+
+# The two config paths a profile names a provider at. `claude_code.provider`
+# picks the one the agent runs on; every entry under `api.providers` is a
+# provider the profile configures (a proxy's base_url, its model tier map), and
+# a configured provider is a referenced one. Kept as segment tuples because a
+# `config:` block addresses paths, not strings.
+_AGENT_PROVIDER_PATH = ("claude_code", "provider")
+_API_PROVIDERS_PATH = ("api", "providers")
+
+
+def _config_node(path: tuple[str, ...], value: Any, wanted: tuple[str, ...]) -> Any:
+    """What a single ``config:`` key sets at ``wanted``, or ``None``.
+
+    A ``config:`` block addresses paths in whatever spelling its author chose:
+    the dotted key itself (``claude_code.provider``), or an ancestor key
+    (``claude_code``) carrying the path nested inside its value. Both are read
+    here, so a profile cannot hide a provider selection behind a spelling.
+
+    A key DEEPER than ``wanted`` addresses something inside the value rather
+    than the value itself and returns ``None``; :func:`_config_entry_names`
+    handles the one case where that is meaningful.
+    """
+    if path == wanted:
+        return value
+    if wanted[: len(path)] != path:
+        return None
+    probe: Any = value
+    for part in wanted[len(path) :]:
+        probe = probe.get(part) if isinstance(probe, Mapping) else None
+    return probe
+
+
+def _config_entry_names(path: tuple[str, ...], value: Any, wanted: tuple[str, ...]) -> set[str]:
+    """The names a single ``config:`` key puts in the mapping at ``wanted``.
+
+    ``api.providers`` is a mapping keyed by provider name, and a profile may
+    populate it either wholesale (a mapping value) or one leaf at a time
+    (``api.providers.my-proxy.base_url``), so both spellings have to yield the
+    same names.
+    """
+    depth = len(wanted)
+    if path[:depth] == wanted and len(path) > depth:
+        return {path[depth]}
+    node = _config_node(path, value, wanted)
+    if isinstance(node, Mapping):
+        return {name for name in node if isinstance(name, str)}
+    return set()
+
+
+def _providers_named_by(provider: Any, config: Any) -> set[str]:
+    """Provider names one profile layer selects or configures.
+
+    Args:
+        provider: The layer's top-level ``provider:`` key.
+        config: The layer's ``config:`` block.
+
+    Returns:
+        Every provider name the layer references, by any spelling. A union
+        rather than a resolution: this decides which secrets a profile may
+        need, so a name that only one spelling reaches still counts.
+    """
+    names: set[str] = set()
+    if isinstance(provider, str) and provider.strip():
+        names.add(provider.strip())
+    if not isinstance(config, Mapping):
+        return names
+    for key, value in config.items():
+        if not isinstance(key, str):
+            continue
+        path = tuple(key.split("."))
+        selected = _config_node(path, value, _AGENT_PROVIDER_PATH)
+        if isinstance(selected, str) and selected.strip():
+            names.add(selected.strip())
+        names |= _config_entry_names(path, value, _API_PROVIDERS_PATH)
+    return names
+
+
+def _parsed_persona_deltas(persona_texts: Mapping[str, str]) -> dict[str, Mapping[str, Any]]:
+    """Parse every emitted persona delta, naming the file a bad one came from.
+
+    A delta gets no resolution round-trip of its own — it is meaningless without
+    the host beside it — so this parse is the ONLY check that the line-level
+    ``extends:`` surgery (:func:`~.build_profile_emit.emit_persona_delta_yaml`)
+    left valid YAML behind. It therefore happens once, here, and its result
+    serves every later reader: a second parse elsewhere would either raise a
+    bare ``YAMLError`` first or silently disagree with this one.
+
+    A delta that parses to something other than a mapping (an empty file, a
+    stray scalar) is carried as an empty mapping: readers ask it for keys, and
+    the emitted text is written out either way.
+
+    Raises:
+        BuildProfileError: If any delta is not valid YAML.
+    """
+    import yaml
+
+    parsed: dict[str, Mapping[str, Any]] = {}
+    for persona_name, persona_text in persona_texts.items():
+        try:
+            delta = yaml.safe_load(persona_text)
+        except yaml.YAMLError as e:
+            raise BuildProfileError(
+                f"Emitted persona delta {_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml "
+                f"is not valid YAML: {e}"
+            ) from e
+        parsed[persona_name] = delta if isinstance(delta, Mapping) else {}
+    return parsed
+
+
+def _referenced_providers(
+    resolved: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+) -> set[str]:
+    """Every provider the materialized profile — host and personas — references.
+
+    The persona deltas are read too because they share this profile's ``.env``:
+    a delta sits in ``personas/`` and anchors its secrets at the profile root
+    (:func:`~.profile_root.resolve_profile_root`), so a persona that switches
+    provider needs its key in the same file. A delta that overrides neither key
+    inherits the host's selection, which is already counted.
+
+    Args:
+        resolved: The resolved host profile.
+        persona_deltas: The parsed deltas (:func:`_parsed_persona_deltas`).
+            Parsed rather than raw text so the one parse that validates them
+            is the one read here.
+    """
+    names = _providers_named_by(resolved.provider, resolved.config)
+    for delta in persona_deltas.values():
+        names |= _providers_named_by(delta.get("provider"), delta.get("config"))
+    return names
+
+
+class _ShellProviderKeys(NamedTuple):
+    """The exported provider keys, split by whether this profile references them."""
+
+    seeded: dict[str, str]
+    """``{VAR: value}`` to write into the profile ``.env``, in registry order."""
+
+    skipped: tuple[str, ...]
+    """Variables the shell exports for providers the profile never names."""
+
+
+def _exported_provider_keys(providers: Collection[str]) -> _ShellProviderKeys:
+    """Split the shell's provider API keys against the providers ``providers`` names.
+
+    ``os.environ`` is the ONLY source (FR-1). A ``.env`` that happens to sit in
+    whatever directory ``osprey profile new`` was run from is ambient state the
+    profile cannot reproduce, so nothing is harvested from it.
+
+    This is the one place the shell may seed a key, and it seeds the *profile* —
+    the file an operator can read, edit, and account for. ``osprey build`` reads
+    nothing from the environment at all: it derives the project ``.env`` from
+    the profile written here, so a key that reaches a built project was always
+    recorded in the profile first.
+
+    Only the keys of providers the RESOLVED PROFILE references are seeded: a
+    whole-keyring import copies secrets the profile has no use for into a file
+    it then owns forever, which is more surface than the profile needs. The rest
+    are reported by name rather than dropped silently (:func:`_skipped_keys_note`)
+    — they were seen, and the operator decides whether the omission is right.
+
+    The variable list comes from
+    :func:`~.templates.scaffolding.provider_api_key_entries`, the same registry
+    derivation the ``.env.example`` beside it is rendered from, so the file that
+    holds the values and the file that documents them cannot name different
+    variables.
+
+    Args:
+        providers: Provider names the profile references
+            (:func:`_referenced_providers`).
+
+    Returns:
+        The exported keys split into ``seeded`` and ``skipped``. Both are empty
+        when the caller exported none.
+    """
+    import os
+
+    from .templates.scaffolding import provider_api_key_entries
+
+    seeded: dict[str, str] = {}
+    skipped: list[str] = []
+    for entry in provider_api_key_entries():
+        value = os.environ.get(entry["var"])
+        if not value:
+            continue
+        if entry["provider"] in providers:
+            seeded[entry["var"]] = value
+        else:
+            skipped.append(entry["var"])
+    return _ShellProviderKeys(seeded, tuple(skipped))
+
+
+def _skipped_keys_note(skipped: Collection[str]) -> str:
+    """One line naming the exported keys this profile did not take.
+
+    One wording, used by both the materializer's log and ``profile new``'s
+    summary: a skipped secret is a thing the operator has to be able to account
+    for, and two spellings of the same fact read as two different facts.
+    """
+    subject = "this variable" if len(skipped) == 1 else "these variables"
+    return (
+        f"Not seeded: {', '.join(skipped)} — exported by your shell, but this "
+        f"profile references no provider that reads {subject}."
+    )
+
+
+def _write_secret_channel(
+    target: Path,
+    manager: TemplateManager,
+    resolved: BuildProfile,
+    profile_name: str,
+    exported: Mapping[str, str],
+) -> list[str]:
+    """Write the profile's secret channel: ``.env.example``, ``.env``, ``.gitignore``.
+
+    The profile owns its secrets (FR-1): the build derives a project's ``.env``
+    from the one written here, so a value set once survives every rebuild.
+
+    ``.env.example`` is always written, and comes from the project template
+    (:data:`_ENV_EXAMPLE_TEMPLATE`) rather than from prose of its own — one
+    template documents the variable set wherever it is rendered. ``.env`` is
+    written ONLY when ``exported`` is non-empty: an empty secrets file reads as
+    a configured one, and ``cp .env.example .env`` is the honest starting point
+    when there is nothing to seed.
+
+    Args:
+        target: The profile directory, already created.
+        manager: Template manager whose Jinja environment renders the example.
+        resolved: The resolved profile, for the ``env:`` block the example
+            documents.
+        profile_name: Display name, for the example's title line.
+        exported: Provider keys to seed (:attr:`_ShellProviderKeys.seeded`).
+            Passed in rather than read here because the README rendered earlier
+            says whether a ``.env`` was seeded, and the two must agree.
+
+    Returns:
+        Profile-relative names of the files written, for the caller's summary.
+    """
+    from osprey.utils.dotenv import append_profile_env
+
+    from .templates.scaffolding import provider_api_key_entries, service_token_var_entries
+
+    manager.render_template(
+        _ENV_EXAMPLE_TEMPLATE,
+        {
+            "project_name": profile_name,
+            "provider_api_keys": provider_api_key_entries(),
+            "service_token_vars": service_token_var_entries(),
+            # The profile's `env:` block is documentation, not values — the
+            # same two keys `osprey build` feeds this template.
+            "env_required": list(resolved.env.required or []),
+            "env_defaults": dict(resolved.env.defaults or {}),
+            # No project exists yet; the key is a commented hint either way.
+            "project_root": "/path/to/your/project",
+        },
+        target / _PROFILE_ENV_EXAMPLE_FILENAME,
+    )
+    (target / ".gitignore").write_text(_PROFILE_GITIGNORE, encoding="utf-8")
+    written = [_PROFILE_ENV_EXAMPLE_FILENAME, ".gitignore"]
+
+    if exported:
+        # Written through the same append-only, 0600, atomic path `deploy up`
+        # uses for its write-back, so there is one writer discipline for the
+        # profile `.env` rather than a second one that only new profiles get.
+        append_profile_env(target / _PROFILE_ENV_FILENAME, exported, _SEEDED_ENV_BANNER)
+        written.append(_PROFILE_ENV_FILENAME)
+
+    return written
+
+
+def _triggers_layer() -> dict[str, Any]:
+    """A raw profile fragment repointing ``dispatch.triggers`` at the profile's own file.
+
+    The materialized ``triggers.yml`` is what the build must read (FR-3), so the
+    emitted key names it rather than the bundled trigger set it was copied from.
+    Merged through the same channel as every other emitted value, so nothing
+    here is a second path into the resolved content.
+    """
+    return {"dispatch": {"triggers": _PROFILE_TRIGGERS_FILENAME}}
+
+
+def _off_chain_problem(persona_name: str, persona_preset: str, host_preset: str) -> str | None:
+    """Why ``persona_preset`` cannot be emitted as a delta over ``host_preset``.
+
+    ``None`` when it can: its ``extends`` names the host preset directly, so the
+    preset's own layer IS the delta and nothing is lost by dropping the key.
+    Two distinct failures get two distinct messages, because the fix differs —
+    a preset that never reaches the host is pointed somewhere else entirely,
+    while one that reaches it through an intermediate would emit a delta with
+    that intermediate's layer silently missing.
+    """
+    from .build_profile_presets import (
+        _load_preset_raw,
+        _normalize_preset_name,
+        _preset_extends_chain_reaches,
+    )
+
+    raw, _path = _load_preset_raw(persona_preset)
+    parent = raw.get("extends")
+    if isinstance(parent, str) and parent and _normalize_preset_name(parent) == host_preset:
+        return None
+    if _preset_extends_chain_reaches(persona_preset, host_preset):
+        return (
+            f"{persona_name!r}: build_profile {persona_preset!r} reaches {host_preset!r} only "
+            f"through {_normalize_preset_name(str(parent))!r}. A persona file holds its own "
+            f"layer and nothing else, so emitting one here would drop that preset's settings "
+            f"— point the catalog entry at a preset that extends {host_preset!r} directly, or "
+            f"drop this entry from the catalog (a `-O` override removing it), materialize, "
+            f"then hand-write {_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml as a delta over "
+            f"profile.yml and add the entry back to the emitted profile"
+        )
+    return (
+        f"{persona_name!r}: build_profile {persona_preset!r} does not extend {host_preset!r}, "
+        f"so it is not a delta over this profile — a persona file is merged over the profile "
+        f"beside it, and this preset carries its own base. Point the catalog entry at a preset "
+        f"that extends {host_preset!r}, or materialize that preset as a profile of its own"
     )
 
 
@@ -327,42 +747,33 @@ def _persona_profile_texts(
     resolved: BuildProfile,
     profile_name: str,
     profile_dirname: str,
-    baked: dict[str, Any],
     host_preset: str,
 ) -> dict[str, str]:
-    """Emit one sibling profile text per persona the profile deploys.
+    """Emit one delta text per persona the profile deploys.
 
     Empty unless the profile stands up a persona stack of its own (see
     :func:`~osprey.cli.build_profile_emit.emits_persona_profiles`) — a persona
     preset inherits the catalog but disables the module, and emitting from one
     of those would produce personas-of-a-persona.
 
-    A persona whose preset ``extends``-chains through ``host_preset`` (the
-    bundled shape: ``control-assistant-readonly`` over ``control-assistant``)
-    is emitted as a DELTA — ``extends: ../profile.yml`` plus the preset's own
-    few overrides (:func:`~.build_profile_emit.emit_persona_delta_yaml`) — so
-    the host profile stays the single source of truth: edits there, and the
-    caller's baked ``-O``/``--set`` layers with them, reach every persona
-    through resolution instead of being copied around. A catalog entry whose
-    preset sits outside that chain cannot be rebased without changing what it
-    resolves to; it falls back to the flattened standalone emission, with the
-    model-selection subset of the caller's overrides replayed into it
-    (:func:`_replayed_model_selection`) so a whole-stack provider choice still
-    reaches it.
+    Each entry is emitted as a pure DELTA — the persona preset's own layer, no
+    ``extends:`` (:func:`~.build_profile_emit.emit_persona_delta_yaml`) — over
+    the host profile it sits beside. The host therefore stays the single source
+    of truth: edits there, and the caller's baked ``-O``/``--set`` layers with
+    them, reach every persona through the implicit merge instead of being copied
+    around. A catalog entry whose preset is not a delta over ``host_preset``
+    (the bundled shape: ``control-assistant-readonly`` over
+    ``control-assistant``) is rejected rather than approximated — see
+    :func:`_off_chain_problem`.
 
     Raises:
         click.UsageError: With every unusable catalog entry named at once.
     """
     from .build_profile import resolve_build_profile
-    from .build_profile_emit import (
-        emit_persona_delta_yaml,
-        emit_standalone_profile_yaml,
-        persona_catalog,
-    )
-    from .build_profile_presets import _normalize_preset_name, _preset_extends_chain_reaches
+    from .build_profile_emit import emit_persona_delta_yaml, persona_catalog
+    from .build_profile_presets import _normalize_preset_name
 
     catalog = persona_catalog(resolved.config)
-    model_selection = _replayed_model_selection(baked)
     texts: dict[str, str] = {}
     problems: list[str] = []
     for persona_name in sorted(catalog):
@@ -404,21 +815,15 @@ def _persona_profile_texts(
             )
             continue
         persona_preset = _normalize_preset_name(preset_ref)
-        persona_filename = f"{profile_dirname}/{_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml"
-        if _preset_extends_chain_reaches(persona_preset, host_preset):
-            texts[persona_name] = emit_persona_delta_yaml(
-                preset_name=persona_preset,
-                profile_name=f"{profile_name} ({persona_name})",
-                profile_filename=persona_filename,
-            )
-        else:
-            texts[persona_name] = emit_standalone_profile_yaml(
-                preset_name=persona_preset,
-                overrides=(),
-                set_pairs=(f"data={_PERSONA_DATA_REF}", *model_selection),
-                profile_name=f"{profile_name} ({persona_name})",
-                profile_filename=persona_filename,
-            )
+        off_chain = _off_chain_problem(persona_name, persona_preset, host_preset)
+        if off_chain is not None:
+            problems.append(off_chain)
+            continue
+        texts[persona_name] = emit_persona_delta_yaml(
+            preset_name=persona_preset,
+            profile_name=f"{profile_name} ({persona_name})",
+            profile_filename=f"{profile_dirname}/{_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml",
+        )
     if problems:
         raise click.UsageError(
             "Cannot materialize the persona profiles this profile's web-terminal "
@@ -478,6 +883,19 @@ def _packaged_sources(manager: TemplateManager, data_bundle: str) -> tuple[Path,
     return seed_root, data_source
 
 
+class _MaterializedProfile(NamedTuple):
+    """What :func:`_materialize_profile_directory` produced, for the caller's summary."""
+
+    target: Path
+    """The resolved profile directory."""
+
+    skipped_shell_keys: tuple[str, ...]
+    """Exported provider keys left out because the profile references none of
+    their providers (:func:`_exported_provider_keys`). Reported rather than
+    returned as a courtesy: the seeded keys can be read back from the ``.env``,
+    the ones that were deliberately not written cannot."""
+
+
 def _materialize_profile_directory(
     target_dir: Path,
     preset_name: str,
@@ -485,13 +903,14 @@ def _materialize_profile_directory(
     set_pairs: tuple[str, ...] = (),
     *,
     force: bool = False,
-) -> Path:
+) -> _MaterializedProfile:
     """Materialize an editable, standalone profile directory from ``preset_name``.
 
     Writes ``profile.yml`` — the preset's fully resolved content as an
     explicit, self-contained profile (comments preserved, no ``extends:``) —
-    the bundle's ``data/`` tree copied verbatim, the ``overlays/`` seed, and a
-    tutorial ``README.md``. ``-O`` files and ``--set`` pairs are merged with the
+    the bundle's ``data/`` tree copied verbatim, the profile's ``.env`` channel
+    (:func:`_write_secret_channel`), and a tutorial ``README.md`` explaining the
+    convention directories. ``-O`` files and ``--set`` pairs are merged with the
     same layering as the render path, so a validated build one-liner carries
     into the profile without hand-editing.
 
@@ -504,7 +923,8 @@ def _materialize_profile_directory(
     unrelated directory.
 
     Returns:
-        The resolved target directory.
+        The resolved target directory and the exported provider keys that were
+        deliberately not seeded (:class:`_MaterializedProfile`).
 
     Raises:
         click.UsageError: For user errors — existing target, an ``extends``
@@ -514,6 +934,7 @@ def _materialize_profile_directory(
     import shutil
 
     from .build_profile import (
+        EXTENDS_OVERRIDE_REFUSAL,
         _normalize_preset_name,
         merge_cli_overrides,
         resolve_build_profile,
@@ -528,16 +949,15 @@ def _materialize_profile_directory(
     # command materializes the tree, so pointing it elsewhere is a mistake.
     # Everything it rejects is a user error, so it surfaces as one.
     try:
-        resolved, _preset_dir = resolve_build_profile(None, preset_name, overrides, set_pairs)
+        resolved, preset_dir = resolve_build_profile(None, preset_name, overrides, set_pairs)
     except BuildProfileError as e:
         raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
     baked = merge_cli_overrides({}, overrides, set_pairs)
     if "extends" in baked:
-        raise click.UsageError(
-            "`osprey profile new` cannot override 'extends' — the materialized "
-            "profile is standalone and inherits nothing at build time."
-        )
+        # The shared refusal: the same override file must be answered the same
+        # way here and on a later build's write-back into this profile.
+        raise click.UsageError(EXTENDS_OVERRIDE_REFUSAL)
     name_override = baked.get("name")
 
     target = target_dir.resolve()
@@ -572,9 +992,29 @@ def _materialize_profile_directory(
     # repointed at them, so the whole stack reads this profile's data tree
     # rather than the bundled preset's (D7a). Emitted before the first mkdir,
     # like everything else here, so a bad catalog entry fails before mutating.
+    # The trigger config a dispatch profile runs on is facility state, so the
+    # profile owns a copy of it (FR-3) and the emitted key names that copy.
+    # Located before the first mkdir like everything else here.
+    triggers_src = _triggers_source(resolved, preset_dir)
+
     persona_texts = _persona_profile_texts(
-        resolved, profile_name_default, target.name, baked, normalized_preset
+        resolved, profile_name_default, target.name, normalized_preset
     )
+    # Parsed here, before the first mkdir and before `--force` replaces
+    # anything: the parse is what validates the emitted deltas, so a bad one
+    # must cost nothing. Its result is what every later reader sees.
+    persona_deltas = _parsed_persona_deltas(persona_texts)
+
+    extra_layers: tuple[dict[str, Any], ...] = (
+        *((_persona_catalog_layer(persona_texts),) if persona_texts else ()),
+        *((_triggers_layer(),) if triggers_src is not None else ()),
+    )
+
+    # Read once, before anything is written: the README rendered below tells the
+    # reader whether a `.env` was seeded for them, and the seeding itself happens
+    # further down. Two reads of the environment could disagree.
+    shell_keys = _exported_provider_keys(_referenced_providers(resolved, persona_deltas))
+    exported_keys = shell_keys.seeded
 
     # The materialized tree is what the build must read, so `data:` is emitted
     # as an active key — injected through the same --set layering a user would
@@ -585,7 +1025,7 @@ def _materialize_profile_directory(
         set_pairs=(*set_pairs, f"data={_PROFILE_DATA_DIRNAME}"),
         profile_name=profile_name_default,
         profile_filename=profile_filename,
-        extra_layers=(_persona_catalog_layer(persona_texts),) if persona_texts else (),
+        extra_layers=extra_layers,
         include_flow_diagram=True,
     )
 
@@ -618,6 +1058,14 @@ def _materialize_profile_directory(
             # Empty for a profile that deploys no persona stack, so the README
             # never explains a directory the reader does not have.
             "persona_profiles": list(persona_texts),
+            # Same: only a profile with a dispatch block owns a triggers.yml.
+            "has_triggers": triggers_src is not None,
+            # Same again: the per-user context slots exist only for a profile
+            # that stands up a web-terminal roster.
+            "context_users": _roster_user_names(resolved.config),
+            # Whether the reader has a `.env` already, so the README either
+            # explains what was seeded or tells them how to create one.
+            "has_seeded_env": bool(exported_keys),
         }
         _copy_data_tree(seed_root, target, manager.template_root, manager.jinja_env, ctx)
         # Verbatim copy (D1/FR2): staging subdirectories and any stray `.j2`
@@ -631,21 +1079,58 @@ def _materialize_profile_directory(
         )
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
 
-        persona_dir = target / _PERSONA_PROFILE_DIRNAME
+        if triggers_src is not None:
+            shutil.copy2(triggers_src, target / _PROFILE_TRIGGERS_FILENAME)
+            logger.info("  Trigger config: %s", _PROFILE_TRIGGERS_FILENAME)
+
+        # The profile owns its secrets from the first minute (FR-1) — the
+        # documented variable list, whatever the shell already exports, and the
+        # .gitignore that keeps the values out of version control.
+        secret_files = _write_secret_channel(
+            target, manager, resolved, profile_name_default, exported_keys
+        )
+        logger.info("  Secrets: %s", ", ".join(secret_files))
+        if shell_keys.skipped:
+            # Also logged here, not only in `profile new`'s summary: a build
+            # that materializes its own profile takes this path too, and a
+            # skipped secret must be visible wherever the skipping happened.
+            logger.info("  %s", _skipped_keys_note(shell_keys.skipped))
+
+        # One empty slot per roster user, so the per-user context a facility
+        # writes has an obvious home from the first minute (FR-5). Only the
+        # directories are seeded: what goes in them is the facility's, and the
+        # build derives the copy from the roster it resolves at the time, so
+        # nothing about the roster is frozen here.
+        roster = _roster_user_names(resolved.config)
+        for user in roster:
+            user_dir = target / _CONTEXT_CONVENTION_DIRNAME / user
+            user_dir.mkdir(parents=True, exist_ok=True)
+            (user_dir / ".gitkeep").touch()
+        if roster:
+            logger.info(
+                "  Per-user context: %s",
+                ", ".join(f"{_CONTEXT_CONVENTION_DIRNAME}/{user}/" for user in roster),
+            )
+
         if persona_texts:
+            # Validity was settled by `_parsed_persona_deltas` above, before the
+            # first mkdir — nothing reaching here is unparsed, so these writes
+            # need no guard of their own.
+            persona_dir = target / _PERSONA_PROFILE_DIRNAME
             persona_dir.mkdir()
             for persona_name, persona_text in persona_texts.items():
                 (persona_dir / f"{persona_name}.yml").write_text(persona_text, encoding="utf-8")
             logger.info(
-                "  Persona profiles: %s",
+                "  Persona deltas: %s",
                 ", ".join(f"{_PERSONA_PROFILE_DIRNAME}/{name}.yml" for name in persona_texts),
             )
 
-        # The round-trips run last because they validate `data:` against the
-        # trees that must already be on disk — `data: ../data` for a persona.
+        # The round-trip runs last because it validates `data:` against the tree
+        # that must already be on disk. Only the host profile is resolved: a
+        # persona file is a delta, meaningless on its own, and resolving one is
+        # resolving the host with that delta merged in — which the host's own
+        # round-trip already covers.
         resolve_build_profile((target / "profile.yml").resolve(), None)
-        for persona_name in persona_texts:
-            resolve_build_profile((persona_dir / f"{persona_name}.yml").resolve(), None)
     except BuildProfileError as e:
         # Emission round-trips for every bundled preset (guarded by tests), so
         # with layers present they are the thing to look at; without them this
@@ -663,4 +1148,4 @@ def _materialize_profile_directory(
         raise
 
     logger.info("✓ Materialized profile at: %s", target)
-    return target
+    return _MaterializedProfile(target, shell_keys.skipped)

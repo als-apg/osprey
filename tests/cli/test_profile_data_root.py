@@ -8,7 +8,8 @@ replacement, not a layer, and the tree is content rather than templates:
 * neither ``copy_template_data`` branch that reads the bundle contributes a
   file (the ``apps/<bundle>/data`` derivation nor the rglob fallback/merge)
 * the build-time pipeline is otherwise untouched: tier materialization runs
-  against the profile-sourced tree, and overlays copied later still win
+  against the profile-sourced tree, and the project/ mirror applied later still
+  wins
 """
 
 from __future__ import annotations
@@ -179,7 +180,7 @@ class TestFullReplacement:
 
 
 class TestBuildPipelineOrderingHolds:
-    """Materialization and overlays behave as they do for a bundle-sourced tree."""
+    """Materialization and the mirror behave as for a bundle-sourced tree."""
 
     def test_tier_materialization_runs_against_the_profile_tree(self, tmp_path: Path) -> None:
         profile_dir = tmp_path / "profile"
@@ -202,22 +203,19 @@ class TestBuildPipelineOrderingHolds:
             "tiers/ subtree was not pruned from the profile-sourced tree"
         )
 
-    def test_overlay_wins_over_profile_data(self, tmp_path: Path) -> None:
-        """Overlays are copied after the data tree lands, so they overwrite it."""
+    def test_project_mirror_wins_over_profile_data(self, tmp_path: Path) -> None:
+        """The project/ mirror applies after the data tree lands, so it wins."""
         profile_dir = tmp_path / "profile"
-        overlay_src = profile_dir / "overlays" / "in_context.json"
-        overlay_body = '{"channels": {"OVERLAY:CH": {"description": "overlay"}}}\n'
+        mirror_src = profile_dir / "project" / "data" / "channel_databases" / "in_context.json"
+        mirror_body = '{"channels": {"MIRROR:CH": {"description": "mirrored"}}}\n'
 
-        profile_path = _write_profile(
-            profile_dir,
-            overlay={"overlays/in_context.json": "data/channel_databases/in_context.json"},
-        )
-        overlay_src.parent.mkdir(parents=True, exist_ok=True)
-        overlay_src.write_text(overlay_body)
+        profile_path = _write_profile(profile_dir)
+        mirror_src.parent.mkdir(parents=True, exist_ok=True)
+        mirror_src.write_text(mirror_body)
 
         # Both the profile's flat DB and the tier source it is materialized from
         # carry different content, so a passing assertion can only mean the
-        # overlay landed last.
+        # mirror landed last.
         profile_flat = profile_dir / "data" / "channel_databases" / "in_context.json"
         profile_flat.write_text('{"channels": {"PROFILE:FLAT": {}}}\n')
         tier_src = (
@@ -232,6 +230,6 @@ class TestBuildPipelineOrderingHolds:
             "data/ was not sourced from the profile tree — the ordering claim is untested"
         )
         landed = project_dir / "data" / "channel_databases" / "in_context.json"
-        assert landed.read_text() == overlay_body, (
-            "overlay did not win over the profile data tree / tier materialization"
+        assert landed.read_text() == mirror_body, (
+            "project/ mirror did not win over the profile data tree / tier materialization"
         )

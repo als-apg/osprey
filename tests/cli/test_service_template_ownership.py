@@ -1,10 +1,12 @@
 """Tests for the unified services/ ownership regime.
 
 Service compose templates under ``<project>/services/`` are catalog-managed
-directory artifacts: refreshed from the framework by every build unless the
-project claims them via ``osprey scaffold claim services/<name>`` (which
-records ``services/<name>`` in config.yml's ``scaffold.user_owned``, exactly
-like the Claude Code artifacts).
+directory artifacts, refreshed from the framework by every build unless the
+project owns them. Ownership is recorded as ``services/<name>`` in config.yml's
+``scaffold.user_owned``, exactly like the Claude Code artifacts — but the build
+derives it, by scanning what the profile's ``services/`` convention directory
+copied in. ``osprey scaffold claim services/<name>`` is how a service gets
+there: it moves the directory out of the project and into the profile.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.services.build_artifacts.ownership import update_config_add_user_owned
 
 _SERVICE_ARTIFACTS = [
     "services/postgresql",
@@ -253,62 +256,133 @@ class TestProfileServiceTemplateResolution:
 
 
 class TestScaffoldCliDirectoryArtifacts:
-    """scaffold claim/diff/unclaim work on directory (service) artifacts."""
+    """scaffold claim/diff work on directory (service) artifacts.
 
-    def _project(self, tmp_path: Path) -> Path:
+    Claiming a service moves ``<project>/services/<name>/`` into the profile's
+    ``services/`` convention directory, as a whole directory. It does NOT
+    materialize the packaged template into the project, and it does NOT write
+    ``scaffold.user_owned`` — the build's convention scan registers what it
+    copied. Both of those were real capabilities of the previous claim and were
+    removed deliberately; ``test_claim_of_a_catalog_only_service_refuses`` pins
+    the first, and the ownership assertions here pin the second.
+    """
+
+    def _project(self, tmp_path: Path) -> tuple[Path, Path]:
+        """A built project and the profile its manifest names.
+
+        The profile is what makes a claim possible at all: a project with none
+        has nowhere to claim into, and the command says so rather than editing
+        the project.
+        """
+        import json
+
+        from osprey.cli.templates.manifest import MANIFEST_FILENAME
+
+        profile_path = tmp_path / "project-profile"
+        profile_path.mkdir()
+        (profile_path / "profile.yml").write_text("name: test\n", encoding="utf-8")
+
         project_path = tmp_path / "project"
         project_path.mkdir()
         (project_path / "config.yml").write_text("project_name: test\n", encoding="utf-8")
-        return project_path
+        (project_path / MANIFEST_FILENAME).write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "build_args": {"profile_path_abs": str(profile_path / "profile.yml")},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return project_path, profile_path
 
-    def test_claim_copies_missing_directory_and_records_ownership(self, tmp_path: Path):
+    def _seed_service(self, project_path: Path, name: str = "postgresql") -> Path:
+        """Copy the packaged service template into the project, as a build does."""
+        import shutil
+
+        from osprey.cli.build_injectors import _locate_pkg_services
+
+        destination = project_path / "services" / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(_locate_pkg_services() / name, destination)
+        return destination
+
+    def test_claim_moves_the_directory_into_the_profile(self, tmp_path: Path):
         from osprey.cli.scaffold_cmd import claim
 
-        project_path = self._project(tmp_path)
-        result = CliRunner().invoke(claim, ["services/postgresql", "-p", str(project_path)])
-
-        assert result.exit_code == 0, result.output
-        assert (project_path / "services" / "postgresql" / "docker-compose.yml.j2").exists()
-        config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
-        assert "services/postgresql" in config["scaffold"]["user_owned"]
-
-    def test_claim_existing_directory_marks_ownership_only(self, tmp_path: Path):
-        from osprey.cli.scaffold_cmd import claim
-
-        project_path = self._project(tmp_path)
+        project_path, profile_path = self._project(tmp_path)
         existing = project_path / "services" / "postgresql" / "docker-compose.yml.j2"
         existing.parent.mkdir(parents=True)
         existing.write_text("# mine\n", encoding="utf-8")
+        (existing.parent / "nested" / "deep").mkdir(parents=True)
+        (existing.parent / "nested" / "deep" / "extra.conf").write_text("x\n", encoding="utf-8")
 
         result = CliRunner().invoke(claim, ["services/postgresql", "-p", str(project_path)])
 
         assert result.exit_code == 0, result.output
-        assert existing.read_text(encoding="utf-8") == "# mine\n"
+        moved = profile_path / "services" / "postgresql"
+        assert moved.is_dir()
+        assert (moved / "docker-compose.yml.j2").read_text(encoding="utf-8") == "# mine\n"
+        # A service moves as a unit: everything below it comes too.
+        assert (moved / "nested" / "deep" / "extra.conf").is_file()
+        assert not (project_path / "services" / "postgresql").exists()
+
+    def test_claim_writes_no_ownership_into_the_project(self, tmp_path: Path):
+        """Registration belongs to the build's convention scan, not to a claim."""
+        from osprey.cli.scaffold_cmd import claim
+
+        project_path, _ = self._project(tmp_path)
+        self._seed_service(project_path)
+
+        result = CliRunner().invoke(claim, ["services/postgresql", "-p", str(project_path)])
+
+        assert result.exit_code == 0, result.output
         config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
-        assert "services/postgresql" in config["scaffold"]["user_owned"]
+        assert "scaffold" not in config
+
+    def test_claim_of_a_catalog_only_service_refuses(self, tmp_path: Path):
+        """Claim no longer materializes a packaged template — it moves what exists.
+
+        ``services/openobserve`` is a real catalog artifact with a packaged
+        template, so the old claim would have copied it into the project and
+        marked it owned. That affordance was removed on purpose: under the
+        profile model an artifact the project does not have is authored in the
+        profile, and a claim that invented one would put a second copy of the
+        framework's template somewhere nothing reconciles.
+        """
+        from osprey.cli.scaffold_cmd import claim
+
+        project_path, profile_path = self._project(tmp_path)
+
+        result = CliRunner().invoke(claim, ["services/openobserve", "-p", str(project_path)])
+
+        assert result.exit_code != 0
+        assert "Nothing to claim" in result.output
+        assert not (project_path / "services" / "openobserve").exists()
+        assert not (profile_path / "services" / "openobserve").exists()
 
     def test_diff_reports_local_edits_per_file(self, tmp_path: Path):
-        from osprey.cli.scaffold_cmd import claim, diff
+        from osprey.cli.scaffold_cmd import diff
 
-        project_path = self._project(tmp_path)
-        runner = CliRunner()
-        assert runner.invoke(claim, ["services/postgresql", "-p", str(project_path)]).exit_code == 0
+        project_path, _ = self._project(tmp_path)
+        service = self._seed_service(project_path)
+        update_config_add_user_owned(project_path, "services/postgresql")
 
-        target = project_path / "services" / "postgresql" / "docker-compose.yml.j2"
+        target = service / "docker-compose.yml.j2"
         target.write_text(target.read_text(encoding="utf-8") + "# local tweak\n", encoding="utf-8")
 
-        result = runner.invoke(diff, ["services/postgresql", "-p", str(project_path)])
+        result = CliRunner().invoke(diff, ["services/postgresql", "-p", str(project_path)])
         assert result.exit_code == 0, result.output
         assert "# local tweak" in result.output
         assert "services/postgresql/docker-compose.yml.j2" in result.output
 
-    def test_diff_clean_after_claim(self, tmp_path: Path):
-        from osprey.cli.scaffold_cmd import claim, diff
+    def test_diff_clean_for_an_unedited_service(self, tmp_path: Path):
+        from osprey.cli.scaffold_cmd import diff
 
-        project_path = self._project(tmp_path)
-        runner = CliRunner()
-        assert runner.invoke(claim, ["services/postgresql", "-p", str(project_path)]).exit_code == 0
+        project_path, _ = self._project(tmp_path)
+        self._seed_service(project_path)
+        update_config_add_user_owned(project_path, "services/postgresql")
 
-        result = runner.invoke(diff, ["services/postgresql", "-p", str(project_path)])
+        result = CliRunner().invoke(diff, ["services/postgresql", "-p", str(project_path)])
         assert result.exit_code == 0, result.output
         assert "no differences" in result.output

@@ -85,7 +85,7 @@ def _build(profile_path: Path, output_dir: Path, project_name: str = "va-proj") 
 
 @pytest.fixture(autouse=True)
 def detected_provider_key(monkeypatch):
-    """The project ``.env`` is only rendered when a provider key is detected."""
+    """Keep the build's provider-credential summary from warning about a miss."""
     monkeypatch.setenv("CBORG_API_KEY", "test-key")
 
 

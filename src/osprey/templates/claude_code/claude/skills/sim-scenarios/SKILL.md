@@ -43,8 +43,9 @@ Present a table:
 
 ## Show the active scenario set
 
-Run `osprey sim status`, or read the plain-text `active_scenarios` file next to
-the machine file (`data/simulation/active_scenarios`). It holds one scenario
+Run `osprey sim status`, or read the plain-text state file
+(`_agent_data/simulation/active_scenarios` — runtime state, kept out of the
+build-owned `data/` tree). It holds one scenario
 name per line (plus an optional `anchor=<ISO8601>` metadata line). `nominal` is
 always implicitly active. A missing file means only `nominal` is active.
 

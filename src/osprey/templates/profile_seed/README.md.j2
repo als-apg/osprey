@@ -23,19 +23,27 @@ regenerable, and safe to delete and rebuild at any time.
 ```
 {{ profile_dirname }}/
   profile.yml     the full configuration
+  .env.example    every variable the agent reads — documented, no values
+  .env            your values{% if has_seeded_env %} (seeded from your shell){% else %} — create it from the example{% endif %}; never committed
+  .gitignore      keeps .env and friends out of version control
   data/           facility content: channel databases, knowledge, lattice, scenarios
-{% if persona_profiles %}  personas/       one profile per web-terminal persona, each reading ../data
-{% endif %}  overlays/       your own artifacts, copied into the project at build time
-    rules/                  facility rule .md files
-    skills/                 custom skill directories (each with a SKILL.md)
-    agents/                 custom subagent .md files
-    web-terminal-context/   per-user web-terminal persona content
-  README.md       this file
+{% if has_triggers %}  triggers.yml    the events the agent runs on, for the dispatch block above
+{% endif %}{% if persona_profiles %}  personas/       one delta per web-terminal persona, merged over profile.yml
+{% endif %}{% if context_users %}  web-terminal-context/   one seeded directory per operator on the roster
+{% for user in context_users %}    {{ user }}/ — an extra.md here is appended to {{ user }}'s context only
+{% endfor %}{% endif %}  README.md       this file
 ```
 
+Your own artifacts go in convention directories beside those — see
+"Adding your own artifacts" below. Create the ones you need; a directory you
+never create is simply one this profile contributes nothing to.
+
 **OSPREY's — regenerated on every build, never hand-edited in the project:**
-the safety hooks, the `.claude/` scaffolding, `.mcp.json` wiring, the app
-templates, and the container service definitions.
+the `.claude/` scaffolding, `.mcp.json` wiring, the app templates, and the
+container service definitions. (Hook *scripts* are the exception — they have a
+`hooks/` directory of their own, described below. Their generated
+configuration, `hook_config.json`, is not: it is derived from your
+`mcp_servers:` and write-tool settings.)
 
 ## Building a project
 
@@ -43,9 +51,35 @@ templates, and the container service definitions.
 osprey build <PROJECT_NAME> {{ profile_filename }}
 ```
 
-Make durable changes here — in `profile.yml`, `data/`, or `overlays/` — then
-rebuild. Changes made directly inside a built project are lost on the next
-build.
+Make durable changes here — in `profile.yml`, `data/`, or a convention
+directory — then rebuild. Changes made directly inside a built project are lost
+on the next build.
+
+## Secrets
+
+API keys and service credentials belong to this directory, not to the projects
+built from it. `osprey build` derives a project's `.env` from the one here, so
+a value you set once survives every rebuild — and a project you delete takes no
+secret with it.
+
+- `.env.example` lists every variable the agent reads, with no values. It is
+  safe to commit, and it is the file to read when you want to know what can be
+  set.
+{% if has_seeded_env %}- `.env` holds the values. It was created for you from the provider keys your
+  shell already exported, with `0600` permissions. Add anything else you need.
+{% else %}- `.env` holds the values. Nothing was seeded — your shell exported no provider
+  key — so create it yourself:
+
+  ```
+  cp {{ profile_dirname }}/.env.example {{ profile_dirname }}/.env
+  ```
+{% endif %}
+`osprey deploy up` mints service credentials (database passwords, service
+tokens) and writes them back here, so the stack keeps working across redeploys.
+A value already on file is never overwritten.
+
+The generated `.gitignore` keeps every `.env` variant out of git and lets
+`.env.example` through. Keep it that way.
 
 ## About `data/`
 
@@ -62,16 +96,18 @@ Some of what you see is build-time input rather than deployed content:
 
 This deployment gives each operator a web terminal, and each terminal runs
 with a persona — a capability posture, such as read-only versus write-capable.
-One profile per persona was materialized here:
+One file per persona was materialized here:
 
 {% for persona in persona_profiles %}- `personas/{{ persona }}.yml`
 {% endfor %}
-Every one of them carries `data: ../data`, so the whole stack reads the single
-tree above. Edit `data/` once and each persona picks the change up on its next
-build — there is no per-persona copy to keep in sync.
+Each holds only that persona's *differences*. Sitting in `personas/` beside
+`profile.yml` is what makes them personas: the build merges each one over that
+profile, so everything else — the data tree, your artifacts, provider and model
+— comes from the file above and stays in one place. Edit `profile.yml` once and
+every persona picks the change up on its next build.
 
-These are ordinary profiles. Edit one to change what that persona's terminal
-can do, validate it on its own, or build it directly:
+Edit a delta to change what that persona's terminal can do, and see the merged
+result with:
 
 ```
 osprey profile validate {{ profile_dirname }}/personas/{{ persona_profiles[0] }}.yml
@@ -87,25 +123,101 @@ here would have no effect on a deployment:
 
 - the accelerator lattice the virtual accelerator runs (`als_u_ar.mat`) — a
   `data/lattice/` edit here is inert for the running VA;
-- the framework safety layer — hooks and `.claude/` scaffolding;
+- the `.claude/` scaffolding the framework generates from `profile.yml` —
+  `CLAUDE.md`, `settings.json` and `.mcp.json` (hooks are the exception: they
+  have a `hooks/` directory of their own, below);
 - the `docker/` service definitions, and the base context file the framework
   installs at `docker/web-terminal-context/base.md`.
 
-## Adding an overlay artifact
+## Adding your own artifacts
 
-1. Drop the file under `overlays/rules/`, `overlays/skills/<name>/`, or
-   `overlays/agents/`.
-2. Add an entry under `overlay:` in `profile.yml` mapping its
-   profile-relative source path to its destination in the rendered project
-   (typically under `.claude/`).
-3. If the artifact's canonical name needs to appear in the artifact list,
-   also add it under `skills:`, `rules:`, or `agents:`.
+Put the file in the directory that matches what it is, and the build carries it
+into the project. There is nothing to declare in `profile.yml`: the directory
+name *is* the declaration, and where each one lands is fixed.
 
-Per-user web-terminal content works the same way, mapped one user at a time
-(`overlays/web-terminal-context/alice: docker/web-terminal-context/alice`).
-Map each user individually — mapping a directory onto
-`docker/web-terminal-context` itself is rejected at build time, because it
-would replace the framework's own base context.
+| Put it here | It lands here | One entry is |
+| --- | --- | --- |
+| `rules/` | `.claude/rules/` | a `.md` file |
+| `skills/` | `.claude/skills/` | a directory with a `SKILL.md` |
+| `agents/` | `.claude/agents/` | a `.md` file |
+| `commands/` | `.claude/commands/` | a `.md` file |
+| `output-styles/` | `.claude/output-styles/` | a `.md` file |
+| `hooks/` | `.claude/hooks/` | a script, usually `.py` |
+| `web-terminal-context/` | `docker/web-terminal-context/` | a directory named for one operator |
+| `mcp_servers/` | `_mcp_servers/` | a directory per server |
+| `services/` | `services/` | a directory per compose service |
+| `project/` | the project root | any file, mirrored verbatim |
+
+Create only the directories you need — a missing one just means this profile
+contributes nothing of that kind. Nested paths inside a `.md` directory are
+preserved, so `commands/orbit/correct.md` stays namespaced.
+
+`hooks/` is keyed by *filename*, because that is what the generated
+`settings.json` runs. A file named for one of the hooks listed under `hooks:` in
+`profile.yml` replaces that hook — the built-in `writes-check` is
+`osprey_writes_check.py`, so a file of that name is the one the agent runs.
+
+A file under any other name is copied into the project and runs only if you
+*declare* it. Shipping the script and wiring the script are two steps: the
+second is a `config:` key naming the Claude Code event it fires on.
+
+```yaml
+config:
+  claude_code.hooks.PreToolUse:
+    - hook: facility_guard.py
+      matcher: "mcp__controls__.*"   # optional — defaults to every tool call
+      timeout: 10                    # optional — seconds, defaults to 60
+  claude_code.hooks.SessionStart:
+    - facility_banner.py             # shorthand when there is nothing to qualify
+```
+
+The events are Claude Code's own: `PreToolUse`, `PostToolUse`,
+`UserPromptSubmit`, `SessionStart`, `SessionEnd`, `Stop`, `SubagentStop`,
+`Notification`, `PreCompact`.
+
+**Without a declaration the file still never runs.** It sits in
+`.claude/hooks/`, surviving every rebuild, doing nothing. This matters most for
+a safety check, where "present" looks like "enforcing."
+
+Declared wiring is *added* to the framework's, never put in its place. Your
+declaration cannot remove, alter, or displace anything `settings.json` already
+wires — the write-safety gate and the rest render unchanged. Claude Code runs
+every hook whose matcher fits, so a declared hook is one *more* check on top of
+the framework's, never a way to loosen one. A declaration is refused at build
+time — with the reason — if it names a hook this profile does not ship (a
+persona exclusion counts as not shipping it), a built-in hook whose wiring the
+framework already owns, or anything outside `hooks/`.
+
+To unwire a hook in a persona, set the event to `null`:
+
+```yaml
+config:
+  claude_code.hooks.PreToolUse: null   # this event now wires nothing
+  claude_code.hooks: {}                # or: unwire every event at once
+```
+
+`null` is the spelling that works, and it is the one to reach for. **An empty
+list does nothing**: persona lists merge *additively* with the profile's, so
+`claude_code.hooks.PreToolUse: []` adds no entries and leaves the hook wired.
+That matters because a persona that `exclude:`s a shipped hook has to unwire it
+in the same delta — the build refuses a declaration pointing at a hook the
+persona dropped.
+
+One filename is refused: `hook_config.json` is generated from your enabled
+`mcp_servers:` and `control_system.write_tools`, and the write-safety hook
+reads it to decide what counts as a hardware write. A copy here would be
+treated as yours and never regenerate, so the build rejects it and points at
+those keys instead.
+
+`web-terminal-context/` is keyed by operator: a directory has to be named for
+someone on the roster in `profile.yml`, and the build seeds a missing one and
+skips a departed one. Content for *every* operator is the framework's own
+`docker/web-terminal-context/base.md`, which this profile does not carry.
+
+`project/` is the escape hatch for anything without a home above. It cannot
+write paths the build already owns — `config.yml`, `.env`, `.mcp.json`,
+`CLAUDE.md`, `.claude/settings.json` and the rest each have their own channel,
+and a mirror that targets one is rejected at build time with the channel named.
 
 ## Relationship to the preset
 

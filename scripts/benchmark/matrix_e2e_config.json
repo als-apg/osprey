@@ -75,6 +75,10 @@
       "reason": "Real-container deploy-lifecycle mechanics (up/seed/decommission/prune/nuke); no LLM anywhere."
     },
     {
+      "path": "tests/e2e/test_deploy_writeback_e2e.py",
+      "reason": "Real-container proof that deploy-minted secrets survive a wipe-and-rebuild via the owning profile; drives `osprey build`/`osprey deploy up` and reads two upstream stores directly, with no LLM anywhere."
+    },
+    {
       "path": "tests/e2e/test_dispatch_allowlist_parity.py",
       "reason": "Build fixture pinned to als-apg/haiku via subprocess `osprey build`; the dispatch worker never passes through _apply_e2e_overrides, so OSPREY_E2E_FORCE_MODEL is ignored — same fixture pattern and CBORG wrong-credential hang as test_dispatch_tutorial.py."
     },

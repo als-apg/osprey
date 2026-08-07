@@ -71,6 +71,22 @@ def machine_file(tmp_path):
     return path
 
 
+@pytest.fixture
+def state_dir(tmp_path, monkeypatch):
+    """Per-test scenario-state directory, standing in for ``_agent_data/simulation/``.
+
+    Connectors resolve it from the ambient config, which under pytest would be
+    the repo checkout; point it at ``tmp_path`` so activating a scenario here
+    cannot write into the working tree.
+    """
+    from osprey.simulation import engine as engine_module
+
+    path = tmp_path / "_agent_data" / "simulation"
+    path.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(engine_module, "default_state_dir", lambda: path)
+    return path
+
+
 class TestMockConnectorSimulation:
     """MockConnector with a simulation_file configured."""
 
@@ -173,8 +189,8 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_scenario_override_visible_through_connector(self, machine_file):
-        (machine_file.parent / "active_scenario").write_text("quad-drift\n")
+    async def test_scenario_override_visible_through_connector(self, machine_file, state_dir):
+        (state_dir / "active_scenario").write_text("quad-drift\n")
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
@@ -260,8 +276,8 @@ class TestMockArchiverSimulation:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_scenario_step_and_pointwise_expr(self, machine_file):
-        (machine_file.parent / "active_scenario").write_text("quad-drift\n")
+    async def test_scenario_step_and_pointwise_expr(self, machine_file, state_dir):
+        (state_dir / "active_scenario").write_text("quad-drift\n")
         connector = MockArchiverConnector()
         await connector.connect({"simulation_file": str(machine_file)})
 

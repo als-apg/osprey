@@ -56,6 +56,20 @@ def test_unknown_key_is_rejected_with_its_closest_spelling(tmp_path: Path) -> No
     assert "did you mean 'mcp_servers'?" in message
 
 
+def test_removed_overlay_key_is_rejected(tmp_path: Path) -> None:
+    """`overlay:` was removed with FR-5 — a profile still carrying it must fail loudly.
+
+    The hash path resolves a profile without parsing it, so schema removals
+    are invisible there; only the loader can pin that the key stays gone.
+    """
+    profile = _write_yaml(tmp_path / "p.yml", {"name": "p", "overlay": {"rules/x.md": "y"}})
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        load_profile(profile)
+
+    assert "'overlay'" in str(excinfo.value)
+
+
 def test_all_unknown_keys_are_named_in_one_error(tmp_path: Path) -> None:
     """Accumulated, not first-wins — one pass fixes the whole file."""
     profile = _write_yaml(

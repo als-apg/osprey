@@ -12,13 +12,14 @@ assembled its own raw dict.
 from __future__ import annotations
 
 import difflib
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from osprey.errors import BuildProfileError
 
 from .build_profile_document import _normalize_profile_aliases, _read_profile_document
-from .build_profile_merge import _resolve_extends
+from .build_profile_merge import resolve_profile_document
 from .build_profile_model import BuildProfile
 from .build_profile_schema import (
     BlueskyConfig,
@@ -31,9 +32,32 @@ from .build_profile_schema import (
     LifecycleStep,
     McpServerDef,
     NextcloudBridgeProfileConfig,
+    ProfileProvenance,
     ServiceDef,
     VAConfig,
 )
+
+
+@dataclass(frozen=True)
+class LoadedProfile:
+    """A validated profile plus what resolving it revealed.
+
+    Attributes:
+        profile: The parsed, validated profile.
+        profile_dir: The profile ROOT — where every relative path in
+            ``profile`` anchors. For a persona delta this is the directory
+            above ``personas/``, so a persona reads the same data tree and
+            convention directories as the profile it lives under.
+        is_persona_delta: Whether this file was resolved as a persona delta.
+        excluded_artifacts: Convention-dir artifacts to omit, as
+            ``"<source>/<name>"``. The build skips these files and derives
+            ownership from what remains.
+    """
+
+    profile: BuildProfile
+    profile_dir: Path
+    is_persona_delta: bool = False
+    excluded_artifacts: frozenset[str] = field(default_factory=frozenset)
 
 
 def load_profile(path: Path) -> BuildProfile:
@@ -48,6 +72,29 @@ def load_profile(path: Path) -> BuildProfile:
     Raises:
         BuildProfileError: If the file is invalid or validation fails.
     """
+    return load_profile_document(path).profile
+
+
+def load_profile_document(path: Path) -> LoadedProfile:
+    """Load a build profile, keeping what resolution derived alongside it.
+
+    :func:`load_profile` is the answer to "what does this profile say"; this is
+    the answer to "what should the build do with this file", which is more than
+    the model carries. Two things resolution knows and :class:`BuildProfile`
+    does not: the profile ROOT (for a persona delta, the directory above
+    ``personas/`` — every relative path anchors there, not at the file's own
+    parent), and the convention artifacts the profile excludes, which the build
+    omits and ownership derivation scans post-exclusion.
+
+    Args:
+        path: Path to the profile YAML file.
+
+    Returns:
+        The parsed, validated profile with its root and exclusion record.
+
+    Raises:
+        BuildProfileError: If the file is invalid or validation fails.
+    """
     if not path.exists():
         raise BuildProfileError(f"Profile not found: {path}")
 
@@ -56,13 +103,16 @@ def load_profile(path: Path) -> BuildProfile:
     if not isinstance(raw, dict):
         raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
 
-    raw = _resolve_extends(raw, path.resolve())
+    document = resolve_profile_document(raw, path)
 
-    profile = _parse_profile(raw)
-    profile_dir = path.parent
-
-    profile.validate(profile_dir)
-    return profile
+    profile = _parse_profile(document.raw)
+    profile.validate(document.root_dir)
+    return LoadedProfile(
+        profile=profile,
+        profile_dir=document.root_dir,
+        is_persona_delta=document.is_persona_delta,
+        excluded_artifacts=document.excluded_artifacts,
+    )
 
 
 # Minimum OSPREY release that understands the current profile schema — the one
@@ -96,7 +146,6 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "channel_finder_mode",
         "tier",
         "config",
-        "overlay",
         "mcp_servers",
         "services",
         "lifecycle",
@@ -122,6 +171,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "bluesky_panels",
         "nextcloud_bridge",
         "gchat_bridge",
+        "provenance",
     }
 )
 
@@ -386,6 +436,23 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             trigger=gchat_bridge_raw.get("trigger", "gchat-question"),
         )
 
+    provenance_raw = raw.get("provenance")
+    provenance = None
+    if provenance_raw is not None:
+        if not isinstance(provenance_raw, dict):
+            raise BuildProfileError("Profile 'provenance' must be a mapping")
+        missing = [key for key in ("preset", "preset_hash") if not provenance_raw.get(key)]
+        if missing:
+            raise BuildProfileError(
+                f"Profile 'provenance' is missing {', '.join(missing)}. It is written by "
+                f"`osprey profile new` and records what the profile was materialized from; "
+                f"drop the block rather than half-filling it."
+            )
+        provenance = ProfileProvenance(
+            preset=str(provenance_raw["preset"]),
+            preset_hash=str(provenance_raw["preset_hash"]),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
@@ -396,7 +463,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         channel_finder_mode=raw.get("channel_finder_mode"),
         tier=(int(raw["tier"]) if raw.get("tier") is not None else None),
         config=raw.get("config", {}),
-        overlay=raw.get("overlay", {}),
         mcp_servers=mcp_servers,
         services=services,
         lifecycle=lifecycle,
@@ -422,4 +488,5 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky_panels=bluesky_panels,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
+        provenance=provenance,
     )

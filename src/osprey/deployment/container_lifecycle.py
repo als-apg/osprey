@@ -43,8 +43,14 @@ from osprey.deployment.web_terminals.provision import (
     preflight_web_terminals,
 )
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
+from osprey.errors import BuildProfileError
 from osprey.utils.config import ConfigBuilder
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey.utils.dotenv import (
+    append_profile_env,
+    atomic_write,
+    derive_project_env,
+    parse_dotenv_file,
+)
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
 
@@ -116,6 +122,192 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 _VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
 
 
+def _profile_env_path(project_dir: Path) -> Path | None:
+    """The profile ``.env`` that owns this project's secrets, or ``None``.
+
+    The profile is located through the project's own manifest
+    (``build_args.profile_path_abs``, the path ``osprey build`` resolved), and
+    the ``.env`` sits at the profile *root* — a persona delta shares the root
+    profile's secrets rather than keeping its own beside itself.
+
+    ``None`` means there is no profile to write to: a preset-built project, a
+    manifest predating the key, or a persona delta whose root has gone missing.
+    The path is not required to exist — a profile directory that has since been
+    deleted resolves here and fails at the write, which is where the degraded
+    path names it.
+    """
+    from osprey.cli.profile_root import resolve_profile_root
+    from osprey.cli.templates.manifest import manifest_profile_path
+
+    profile_path = manifest_profile_path(project_dir)
+    if profile_path is None:
+        return None
+    try:
+        root_dir, _ = resolve_profile_root(profile_path)
+    except BuildProfileError:
+        # A persona delta whose root profile is gone. Reporting it as "no
+        # profile" is honest — we cannot say which directory the secrets belong
+        # in — and the manifest flag still records that they were not synced.
+        logger.warning(
+            "Cannot locate the profile root for %s (its profile.yml is missing), so the "
+            "service secrets this deploy uses stay in the project .env only.",
+            profile_path,
+        )
+        return None
+    return root_dir / ".env"
+
+
+def _sync_secrets_to_profile(env_path: Path, entries: dict[str, str]) -> None:
+    """Persist the secrets this deploy is running with into the owning profile.
+
+    The profile ``.env`` is the source of truth for facility secrets, but a
+    deploy is where several of them first come into existence (minted tokens,
+    volume-initializing passwords). Writing them back is what makes the project
+    reproducible: a rebuild from the same profile comes up on the same secrets
+    instead of minting a second set the running containers do not trust.
+
+    **Append-only.** A key already in the profile keeps its value — it is pinned
+    by the docker volume initialized with it and by every container already
+    trusting it — and a supplied value that disagrees is reported by name (never
+    by value) for the operator to resolve. The project ``.env`` is then
+    re-derived from the profile in ``deploy`` mode: profile-carried keys refresh
+    in place, keys the project lacks are appended, and nothing is deleted — a
+    deploy must not prune a project it did not build.
+
+    Degraded path — no profile recorded, or one that cannot be written (a
+    registry-mode host, a profile directory that has moved or been deleted): the
+    secrets stay in the project ``.env`` where they were minted, a warning names
+    the path that failed, and ``secrets_synced_to_profile: false`` goes into the
+    manifest so ``osprey build --force`` says so before wiping the only copy.
+
+    Never raises into a deploy: every failure here degrades to that path.
+
+    :param env_path: The project ``.env`` the deploy is writing.
+    :param entries: The effective value of each secret, keyed by var name.
+    """
+    from osprey.cli.templates.manifest import write_secrets_synced_to_profile
+
+    project_dir = env_path.resolve().parent
+    try:
+        _sync_secrets_to_profile_inner(env_path, project_dir, entries)
+    except Exception:
+        logger.warning(
+            "Could not persist this deploy's service secrets to the profile .env; they "
+            "remain in %s only. Re-running osprey deploy up after fixing the profile "
+            "will sync them.",
+            env_path.resolve(),
+            exc_info=True,
+        )
+        try:
+            write_secrets_synced_to_profile(project_dir, False)
+        except OSError:
+            # Whatever stopped the write-back may equally stop the stamp (a
+            # read-only project dir, a full disk). The warning above is already
+            # out; losing the manifest flag on top of it must not be what
+            # finally raises into the deploy.
+            logger.debug(
+                "Could not record secrets_synced_to_profile in the manifest at %s",
+                project_dir,
+                exc_info=True,
+            )
+
+
+def _sync_secrets_to_profile_inner(
+    env_path: Path, project_dir: Path, entries: dict[str, str]
+) -> None:
+    """The write-back half of :func:`_sync_secrets_to_profile`, free to raise."""
+    from osprey.cli.templates.manifest import write_secrets_synced_to_profile
+
+    profile_env = _profile_env_path(project_dir)
+    if profile_env is None:
+        # Not a failure: a preset-built project has no profile to own its
+        # secrets. The flag still records that the project .env is the only
+        # copy, which is what the pre-wipe warning needs to know.
+        write_secrets_synced_to_profile(project_dir, False)
+        return
+
+    try:
+        result = append_profile_env(profile_env, entries)
+    except OSError as exc:
+        logger.warning(
+            "Could not write the service secrets to the profile .env at %s (%s). They "
+            "were minted into %s instead and exist nowhere else — copy them into the "
+            "profile, or re-run osprey deploy up once the profile is reachable.",
+            profile_env,
+            exc,
+            env_path.resolve(),
+        )
+        write_secrets_synced_to_profile(project_dir, False)
+        return
+
+    for conflict in result.conflicts:
+        # Values are never logged: the point is which var disagrees, not what
+        # either side holds.
+        logger.warning(
+            "%s differs between this deploy and the profile .env at %s. The profile's "
+            "value was kept (a minted secret is pinned by the volume and containers "
+            "that adopted it); this deploy keeps using its own. Reconcile them by hand "
+            "if the two stacks are meant to share the secret.",
+            conflict.key,
+            profile_env,
+        )
+
+    if result.added:
+        logger.key_info(
+            "Persisted service secret(s) %s to the profile .env at %s — a rebuild from "
+            "this profile will come up on the same secrets",
+            ", ".join(result.added),
+            profile_env,
+        )
+
+    _derive_project_env_from_profile(env_path, profile_env)
+    write_secrets_synced_to_profile(project_dir, not result.conflicts)
+
+
+def _derive_project_env_from_profile(env_path: Path, profile_env: Path) -> None:
+    """Refresh the project ``.env`` from the profile, overlay-only.
+
+    Deploy-mode derivation: there is no render to compare against here, so the
+    existing project file supplies the whole shape and the profile only updates
+    the keys it carries and appends the ones the project is missing. Written
+    through a temp file and ``os.replace`` — the whole file is rewritten, so a
+    crash mid-write must not truncate an operator's ``.env``.
+    """
+    profile_text = profile_env.read_text(encoding="utf-8") if profile_env.is_file() else ""
+    if not profile_text.strip():
+        return
+    existing_text = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
+    derived = derive_project_env(profile_text, "", existing_text, mode="deploy")
+    if derived == existing_text:
+        return
+
+    atomic_write(env_path, derived)
+
+
+def _append_env_block(env_path: Path, entries: dict[str, str], banner: str) -> None:
+    """Append a banner-headed ``KEY=value`` block to a project ``.env``.
+
+    The two deploy-time writers of derived values — minted service tokens and
+    the auto-configured bluesky substrate — both land here, so they cannot
+    disagree about the file's shape. A file not ending in a newline gets one
+    first: an ``.env`` a previous writer left unterminated would otherwise
+    swallow the banner onto its last value line.
+
+    Args:
+        env_path: The project ``.env``. Created by the append if absent.
+        entries: Keys to write, in the order they should appear.
+        banner: Comment line introducing the block, naming what wrote it.
+    """
+    prefix = ""
+    if env_path.is_file():
+        text = env_path.read_text(encoding="utf-8")
+        if text and not text.endswith("\n"):
+            prefix = "\n"
+    block = "".join(f"{key}={value}\n" for key, value in entries.items())
+    with env_path.open("a", encoding="utf-8") as fh:
+        fh.write(f"{prefix}{banner}\n{block}")
+
+
 def _ensure_service_tokens(
     config: dict, expose_network: bool, env_path: Path | None = None
 ) -> None:
@@ -142,6 +334,13 @@ def _ensure_service_tokens(
     decided at the connector (``writes_enabled`` plus the per-put channel
     limits), which every write path — agent-side and bridge-side alike — must
     still clear. No deploy-time value is read here for safety semantics.
+
+    Whatever the effective values turn out to be — minted here, already in the
+    project ``.env``, or exported in the shell — they are then persisted to the
+    ``.env`` of the profile the project was built from, so a rebuild reproduces
+    this stack rather than minting a second set of tokens its containers do not
+    trust. See :func:`_sync_secrets_to_profile` for the append-only rule and the
+    degraded path when there is no reachable profile.
 
     Independently of the above, every var in ``_VALIDATE_ONLY_VARS``
     (e.g. ``ARIEL_DSN``) is checked against its ``_VAR_VALIDATORS`` constraint
@@ -183,16 +382,9 @@ def _ensure_service_tokens(
             generated[name] = _generate_token(name)
 
         if generated:
-            prefix = ""
-            if env_path.is_file():
-                text = env_path.read_text(encoding="utf-8")
-                if text and not text.endswith("\n"):
-                    prefix = "\n"
-            block = "".join(f"{k}={v}\n" for k, v in generated.items())
-            with env_path.open("a", encoding="utf-8") as fh:
-                fh.write(
-                    f"{prefix}# Auto-generated service auth tokens (osprey deploy up)\n{block}"
-                )
+            _append_env_block(
+                env_path, generated, "# Auto-generated service auth tokens (osprey deploy up)"
+            )
             os.chmod(env_path, 0o600)
             # Log the path and which keys — NEVER the values.
             logger.key_info(
@@ -230,6 +422,17 @@ def _ensure_service_tokens(
         if not _validate_var(name, effective):
             _raise_invalid_var(name)
 
+    # Persist the *effective* secrets — not just the ones minted a moment ago —
+    # into the profile that owns them, so a rebuild reproduces this stack
+    # instead of minting a second set of tokens the running containers reject.
+    # Values already in the profile win; see _sync_secrets_to_profile.
+    if required_vars:
+        effective_secrets = {
+            name: value for name in required_vars if (value := _effective_value(name, post))
+        }
+        if effective_secrets:
+            _sync_secrets_to_profile(env_path, effective_secrets)
+
 
 def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
     """Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
@@ -261,6 +464,13 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     skipped, leaving the bridge to fall back to its own demo-runner default
     (or a manually-set substrate env) exactly as before this function
     existed.
+
+    Deliberately *not* written back to the profile ``.env``, unlike the service
+    secrets ``_ensure_service_tokens`` syncs there. These vars are derived
+    configuration, not state only a deploy can produce: their source is the
+    project's own ``channel_limits.json``. The write-back exists to preserve
+    what nothing else can reproduce, so the profile is the wrong place to pin a
+    device list this function derives.
 
     :param config: Raw deploy config (``deployed_services`` membership).
     :param env_path: Project ``.env`` path; defaults to ``Path(".env")``
@@ -324,16 +534,9 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     if not generated:
         return
 
-    prefix = ""
-    if env_path.is_file():
-        text = env_path.read_text(encoding="utf-8")
-        if text and not text.endswith("\n"):
-            prefix = "\n"
-    block = "".join(f"{k}={v}\n" for k, v in generated.items())
-    with env_path.open("a", encoding="utf-8") as fh:
-        fh.write(
-            f"{prefix}# Auto-configured bluesky bridge scan devices (osprey deploy up)\n{block}"
-        )
+    _append_env_block(
+        env_path, generated, "# Auto-configured bluesky bridge scan devices (osprey deploy up)"
+    )
     logger.key_info(
         "Auto-configured bluesky bridge scan devices %s in %s from the project's "
         "own channel_limits.json",

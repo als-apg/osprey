@@ -175,7 +175,7 @@ ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy nuk
 Operator/CI responsibilities that happen **before** `osprey deploy up` — these are environment prep, not part of the deploy lifecycle itself:
 - **Code checkout** — `git pull` (or whatever CI already does to sync the profile repo) so the running config, compose files, and web-terminal context reflect the pushed commit.
 - **Registry login** — `${config.runtime.engine} login` against `${config.registry.url}` with `${config.ci.token_env_var}`, so `compose pull` can fetch the `:latest` images the release job just tagged.
-- **Secrets provisioning** — `.env` exists on the server with every value `.env.template` lists (see `references/deploy-server.md`).
+- **Secrets provisioning** — `.env` exists on the server with every value `.env.template` expects the operator to supply; the LLM provider key comes from the build profile's `.env`, and the minted service credentials are left blank for `osprey deploy up` to fill (see `references/deploy-server.md`).
 
 `osprey deploy up` assumes all three are already in place; it does not perform them itself.
 
@@ -236,7 +236,7 @@ Every manual step in deployment is a bug — it means the templates or `facility
 |------|-------------|---------------------|
 | Start/stop containers | `lifecycle.post_build:` + compose | Standalone SSH + podman/docker |
 | Install Python deps | `dependencies:` list in profile | `pip install` or `uv pip install` |
-| Copy files to project | `overlay:` section in profile | Manual `cp` into project tree |
+| Copy files to project | convention directory in the profile (`rules/`, `skills/`, `agents/`, `hooks/`, `services/`, `project/`, …) | Manual `cp` into project tree |
 | Set env vars | `env:` section + `.env.production` | Editing `.env` by hand |
 | Index search data | `lifecycle.post_build:` steps | Standalone index commands |
 | Validate deployment | `lifecycle.validate:` | Ad-hoc SSH + test scripts |
@@ -274,14 +274,15 @@ Workflow:
 
 ## Key Mechanics (OSPREY internals operators rely on)
 
-- **Overlay paths**: source relative to the profile YAML's directory, destination relative to project root. No `..` traversal allowed.
+- **Convention directories**: a profile carries files into a build by putting them in the directory that matches what they are (`rules/` → `.claude/rules/`, `skills/` → `.claude/skills/`, `hooks/` → `.claude/hooks/`, `services/` → `services/`, `project/` → project root, and so on). There is nothing to declare in `profile.yml`; the directory name is the declaration. Paths the build already owns (`config.yml`, `.mcp.json`, `CLAUDE.md`, `.claude/settings.json`, `.env`) are refused — each has its own channel.
 - **`{project_root}`**: resolved at build time. **`${ENV_VAR}`**: preserved for runtime substitution.
 - **Config overrides use dot notation**: `control_system.type: epics` → nested `config.yml` key.
 - **Manifest-driven**: only artifacts in the template's `manifest.yml` get generated.
 - **`.env` auto-injection**: OSPREY parses `.env` and passes variables to lifecycle subprocesses via `env=`. Lifecycle commands don't need `set -a; . .env; set +a` preambles.
 - **PYTHONPATH auto-injection**: OSPREY prepends `_mcp_servers` to `PYTHONPATH` for all lifecycle commands. Wrap in `sh -c` only if the command uses `${ENV_VAR}` expansion.
 - **Dependencies**: installed in the project `.venv` and recorded in the generated `pyproject.toml`. Lifecycle commands and MCP servers use this venv automatically; `uv run` inside the project resolves it too.
-- **`osprey build --force` is destructive**: wipes the entire output project directory. Back up `.env` and manual customizations first.
+- **`osprey build --force` re-renders the project in place**: `.env`, `_agent_data/` and `.git` are preserved; everything else is regenerated from the profile, so an edit made in the project tree is lost. It never touches the profile — replace one with `osprey profile new --force`.
+- **The profile is the source of truth**: every build reads a profile directory, and `osprey scaffold claim <name>` *moves* a framework artifact into the profile's matching convention directory so the edit survives. `--set`/`-O`/`--tier` on a build are written into the profile before it is read.
 - **The built assistant is its own git repo**, sibling to the facility profile repo — not nested inside it.
 
 ---
@@ -291,14 +292,14 @@ Workflow:
 When modifying any file in the facility profile repo, verify the change reaches all the places that depend on it:
 
 - **Both profiles** (prod + client) — does the change apply to both?
-- **Overlay entries** — source path exists, destination correct?
+- **Convention directories** — is the file in the directory that matches what it is, and spelled correctly? A misspelled directory is warned about, not read.
 - **MCP server entries** — `PYTHONPATH` set, permissions listed?
 - **MCP tool sync** — if you add, remove, or rename an `@mcp.tool()`, three lists must agree:
   1. `@mcp.tool()` decorators in source
   2. `permissions.allow` in the profile YAML
   3. `EXPECTED_TOOLS` in the integration tests check (if `modules.integration_tests` is enabled)
 - **Lifecycle hooks** — OSPREY auto-injects `_mcp_servers` into PYTHONPATH; only wrap in `sh -c` for `${ENV_VAR}` expansion.
-- **`.env.template`** — if you add a required env var anywhere, it must appear in `.env.template` so operators know to set it.
+- **`.env.template`** — if you add a required env var anywhere, it must appear in `.env.template` so operators know it exists. Listed does not mean hand-filled: the LLM provider key belongs in the build profile's `.env`, and the service credentials `osprey deploy up` mints are listed blank on purpose. See `references/deploy-server.md`, "Who owns which variable".
 - **`facility-config.yml`** — if a new piece of facility-specific data is now needed, extend the schema and ask the user via the interview rather than hardcoding.
 - **After deploy** — run integration health checks to verify.
 

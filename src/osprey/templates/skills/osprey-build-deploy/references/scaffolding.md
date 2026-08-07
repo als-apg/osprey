@@ -199,7 +199,7 @@ Before declaring scaffolding done:
 1. **Compose files parse** — `${runtime.compose_command} -f docker-compose.yml -f <overlays> config` should succeed and produce the merged config without errors.
 2. **`.gitlab-ci.yml` parses** — at minimum, valid YAML and uses no undefined CI variables.
 3. **No leftover placeholders** — grep for `${config.` in generated files; should return nothing. If any survived, that's a rendering bug — surface it.
-4. **`.env.template` covers every secret referenced** in compose, `.gitlab-ci.yml`, and anything `osprey deploy` reads. Every `${ENV_VAR}` reference must have a matching entry.
+4. **`.env.template` covers every secret referenced** in compose, `.gitlab-ci.yml`, and anything `osprey deploy` reads. Every `${ENV_VAR}` reference must have a matching entry — including the ones `osprey deploy up` mints rather than the operator filling in, which are listed but left blank (see `references/deploy-server.md`, "Who owns which variable").
 
 ---
 
@@ -217,6 +217,8 @@ Scaffolding complete. Generated:
 
 Next steps:
   1. cp .env.template .env  AND fill in your secrets
+     (leave the service credentials osprey deploy up mints blank —
+      the LLM provider key belongs in the build profile's .env)
   2. Review the generated files (they're plain text, you can read them)
   3. git add .  &&  git commit  &&  git push to start CI
   4. Watch the pipeline; trigger the manual `release` job when CI lands at it

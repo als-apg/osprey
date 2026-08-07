@@ -86,8 +86,22 @@ def data_dir(tmp_path) -> Path:
 
 
 @pytest.fixture()
-def engine(data_dir) -> SimulationEngine:
-    return SimulationEngine.from_file(data_dir / "machine.json")
+def state_dir(tmp_path) -> Path:
+    """Scenario state directory -- a separate mount from the machine model.
+
+    The container bind-mounts the build-owned data dir (machine.json) and the
+    host's runtime state dir (active_scenarios) independently; the engine and
+    the EngineSource must be pointed at the SAME state dir or they disagree
+    about which scenarios are active.
+    """
+    path = tmp_path / "state"
+    path.mkdir()
+    return path
+
+
+@pytest.fixture()
+def engine(data_dir, state_dir) -> SimulationEngine:
+    return SimulationEngine.from_file(data_dir / "machine.json", state_dir=state_dir)
 
 
 @pytest.fixture()
@@ -96,8 +110,8 @@ def records() -> dict[str, FakeRecord]:
 
 
 @pytest.fixture()
-def source(engine, records, data_dir) -> EngineSource:
-    return EngineSource(engine, CHANNELS, records, data_dir)
+def source(engine, records, data_dir, state_dir) -> EngineSource:
+    return EngineSource(engine, CHANNELS, records, data_dir, state_dir=state_dir)
 
 
 class TestBasicDrive:
@@ -165,8 +179,8 @@ class TestAtomicRenameStillDetected:
     such a swap even when the replacement file's mtime is forced to collide
     with the old one (the edge case content-hash comparison exists for)."""
 
-    def test_inode_swap_with_colliding_mtime_is_still_detected(self, source, records, data_dir):
-        state_path = data_dir / "active_scenarios"
+    def test_inode_swap_with_colliding_mtime_is_still_detected(self, source, records, state_dir):
+        state_path = state_dir / "active_scenarios"
 
         # Establish a baseline signature identical to what set_active_scenarios
         # would have written for the (implicit) nominal set.
@@ -179,7 +193,7 @@ class TestAtomicRenameStillDetected:
         # apply.py/set_active_scenarios uses) to a DIFFERENT scenario, with
         # its mtime forced to collide with the original -- this is the exact
         # scenario mtime-only detection can miss.
-        tmp_path = data_dir / "active_scenarios.tmp"
+        tmp_path = state_dir / "active_scenarios.tmp"
         tmp_path.write_text("leak\n")
         os.utime(tmp_path, ns=(original_mtime_ns, original_mtime_ns))
         os.replace(tmp_path, state_path)
