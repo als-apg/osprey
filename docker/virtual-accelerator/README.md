@@ -1,17 +1,24 @@
-# PyAT Virtual Accelerator — full IOC image
+# PyAT Virtual Accelerator — full image
 
-A single-container EPICS soft-IOC for OSPREY's Control Assistant Tutorial:
-PyAT physics for the SR lattice, `pythonSoftIOC` for Channel Access, and the
-same in-repo `SimulationEngine` the `mock` connector uses for everything
+A single-container EPICS server for OSPREY's Control Assistant Tutorial: PyAT
+physics for the SR lattice, the `lume-pva-apg` serving stack for the wire, and
+the same in-repo `SimulationEngine` the `mock` connector uses for everything
 outside the lattice. Selected via `control_system.type: virtual_accelerator`
 (`mock` stays the default; `epics` remains production-pointed and untouched).
 
-The VA service itself (`manifest/`, `lattice/`, `ioc/`, `entrypoint.py`, and
-the Phase-1 reachability probe `probe/`) lives at
-`src/osprey/services/virtual_accelerator/` and ships as part of the `osprey`
-package; only the `Containerfile` (this **full** image, serving the entire
-manifest namespace) stays here. `probe/` is a minimal toy-ring image
-used only to prove the CA host↔container path works at all.
+One process serves two transports. The facility's whole channel namespace is
+co-hosted on **Channel Access** — the authoritative view of the machine, and
+what `EPICSConnector` reads and writes. The physics model's own variables are
+served natively on **PVAccess** alongside it. A write arriving on either
+transport moves both views; readings reach Channel Access only. See
+`serving/runner.py` for what is and is not synchronised between them.
+
+The VA service itself (`manifest/`, `lattice/`, `ioc/`, `serving/`,
+`entrypoint.py`) lives at `src/osprey/services/virtual_accelerator/` and ships
+as part of the `osprey` package; only the `Containerfile` (this **full** image,
+serving the entire manifest namespace) stays here. A separate, minimal
+toy-ring reachability probe — used only to prove the CA host↔container path
+works at all — lives under `scripts/va/probe_pcaspy/`.
 
 ## Quick start
 
@@ -21,10 +28,11 @@ scripts/va/run_va.sh
 
 Builds the image on first run (cached after that; `OSPREY_VA_REBUILD=1` to
 force a rebuild after editing anything under
-`src/osprey/services/virtual_accelerator/` or this `Containerfile`), then
-serves CA on `localhost:5064` using the packaged control_assistant
-preset's own `data/simulation/` as a zero-argument default. Point it at a
-real project instead:
+`src/osprey/services/virtual_accelerator/`, this `Containerfile`, or the
+`lume-pva` checkout the serving stack is built from), then serves CA on
+`localhost:5064` using the packaged control_assistant preset's own
+`data/simulation/` as a zero-argument default. Point it at a real project
+instead:
 
 ```bash
 scripts/va/run_va.sh /path/to/your/project/data/simulation
@@ -52,9 +60,19 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   (`src/osprey/templates/data/facility_gateways.py`) exactly, so a project
   using it needs no config changes beyond selecting
   `control_system.type: virtual_accelerator`.
+- **The published port and the port the server binds must be the same
+  number.** A CA search reply carries the server's own port, so a remap like
+  `-p 5164:5064` hands every client an address nothing listens on, with no
+  useful error. Pass `EPICS_CA_SERVER_PORT` to move both together; the image
+  derives `EPICS_CAS_SERVER_PORT` from it, which is the variable the CA
+  *server* library actually reads (it does not fall back to the client-side
+  one). The PVAccess server's port is not published — PVA is served inside the
+  container only.
 - The container reports readiness by printing `virtual accelerator IOC
-  serving PVs: <N> channels ...` to stdout; `scripts/va/build_and_boot_check.sh`
-  polls container logs for this line rather than guessing a fixed sleep.
+  serving PVs: <N> channels` to stdout — the whole line, with nothing after
+  the count; the `(<X> pyat-coupled, <Y> static-noisy)` breakdown is its own
+  earlier line. `scripts/va/build_and_boot_check.sh` polls container logs for
+  the readiness line rather than guessing a fixed sleep.
 
 ## What it serves
 
@@ -71,8 +89,8 @@ Three physics-fidelity partitions:
   (`ioc/physics_bridge.py`) — readback-after-write is deterministic, never
   dependent on a polling tick.
 - **sp-echo** (BR/BTS magnets, SR RF/VAC setpoints): writing the setpoint
-  echoes onto its readback immediately, with no physics — wired entirely
-  inside `ioc/records.py`.
+  echoes onto its readback immediately, with no physics — decided in
+  `serving/write_path.py` against the database `serving/pvdb.py` builds.
 - **static-noisy** (everything else — GOLDEN references, status flags,
   temperatures, pressures): driven by the in-image `SimulationEngine`
   (`ioc/engine_source.py`) from the bind-mounted `machine.json`, polling
@@ -83,45 +101,53 @@ Three physics-fidelity partitions:
 
 ## Image contents and why they're pinned this way
 
-- **Base:** `python:3.11-slim`, built and run **native-arch** — no
-  `--platform` pin, so the image matches the host architecture. On x86_64,
-  `accelerator-toolbox` and `softioc` (with softioc's
-  `epicscorelibs`/`pvxslibs` dependencies) install as prebuilt
-  `manylinux2014_x86_64` wheels. On arm64 (Apple Silicon), no
-  `manylinux_aarch64` wheels are published for these packages, so they build
-  from source at image-build time — this pulls in a C toolchain and the
-  EPICS base C library, making the arm64 build slower and heavier, but it
-  runs natively with no emulation overhead.
-- **`accelerator-toolbox==0.7.1`, `softioc==4.7.0`** — *not* the
-  `accelerator-toolbox==0.6.1` / `softioc==4.5.0` pins from the Phase-1
-  probe investigation. Those were fine for the probe (a standalone script
-  with no `osprey` import), but **osprey's own `pyproject.toml` requires
-  Python ≥3.11, while `softioc==4.5.0` publishes wheels no newer than
-  cp310** — the two constraints are mutually exclusive in one interpreter.
-  `softioc` first publishes a cp311 wheel at 4.6.1; 4.7.0 is the latest
-  stable and is the same version already validated by
-  `tests/va/test_record_factory.py`. `accelerator-toolbox` is bumped to
-  0.7.1 to match what this repo's own `uv.lock` already resolves (and what
-  `lattice/response.py` / `ioc/physics_bridge.py` were actually built and
-  tested against), rather than carrying a stale pre-existing pin forward.
+- **Base:** `python:3.11-slim`, pinned to **`linux/amd64`** — deliberately
+  single-arch. `pcaspy`, the Channel Access server underneath the serving
+  stack, publishes no `linux/aarch64` wheel at any interpreter, so an arm64
+  image would have to compile EPICS base and `epics-modules/pcas` from source
+  before it could build `pcaspy` at all, on every cold build. amd64 is also
+  what CI runs. There is no arm64 variant and no source-build path for one;
+  on an Apple Silicon host this image runs emulated, which is the accepted
+  cost of the pin. Everything installs from prebuilt `manylinux_x86_64`
+  wheels, so the image carries no C toolchain.
+- **`lume-pva-apg[ca,pva]`** — the serving stack, installed from a wheel
+  staged into the build context rather than resolved by name, because it is
+  not published yet. `[ca]` brings `pcaspy` (Channel Access), `[pva]` brings
+  `p4p` (PVAccess), and `lume-base` comes with the core — the serving layer
+  imports `lume` at module scope, so even a lattice-free boot needs it and
+  gets `h5py`/`matplotlib`/`scipy` along with it. `pip` is told
+  `--only-binary pcaspy` as a guard: a wheel always exists on this platform,
+  so a build that reaches for the sdist should fail immediately rather than
+  stall inside an EPICS compile.
+- **`accelerator-toolbox==0.7.1`** — matching what this repo's own `uv.lock`
+  resolves, and what `lattice/response.py` and `ioc/physics_bridge.py` were
+  built and tested against. Installed before `osprey` so a resolver backtrack
+  can never silently substitute a different PyAT than the lattice code
+  expects.
 - **`osprey` installed from the repo source**, not PyPI — the image always
   matches whatever checkout built it (this feature may not be released to
-  PyPI yet). Only `SimulationEngine` and `pv_taxonomy` are used from the
-  full package; the rest of osprey's dependency graph (FastAPI, Playwright,
-  scikit-learn, ...) comes along regardless, per the plan's accepted scope
-  ("osprey installed in the image, for SimulationEngine") — a materially
-  heavier image than the toy probe. This is a known, accepted tradeoff for
-  a tutorial container, not an oversight.
+  PyPI yet). The whole dependency graph (FastAPI, Playwright, scikit-learn,
+  ...) comes along regardless, per the plan's accepted scope — a materially
+  heavier image than the toy probe. This is a known, accepted tradeoff for a
+  tutorial container, not an oversight.
 
 ## Building manually
 
 The build context **must** be a staging directory containing exactly
-`pyproject.toml`, `README.md`, `src/`, and
+`pyproject.toml`, `README.md`, `src/`, the built `lume_pva_apg-*.whl`, and
 `docker/virtual-accelerator/Containerfile` — never the repo root, which also
 contains `.venv/`, `.git/`, and worktrees that would make every build re-tar
-gigabytes of unrelated content for no benefit. `scripts/va/run_va.sh` and
-`scripts/va/build_and_boot_check.sh` both stage this automatically; if
-building by hand, reproduce the same staging step first.
+gigabytes of unrelated content for no benefit.
+`scripts/va/run_va.sh` and `scripts/va/build_and_boot_check.sh` both stage this
+automatically; if building by hand, reproduce the same staging step first.
+
+That staging directory deliberately has no `.git`, and osprey's version comes
+from the git tag (hatch-vcs), so the build would otherwise have no version to
+report and would fail outright. The host resolves the version and passes it as
+`--build-arg OSPREY_VERSION=...`; the build stamps it into
+`src/osprey/_version.py`, which is what `osprey.__version__` reports inside the
+container. A build that omits the arg still succeeds but honestly reports an
+unknown version rather than a plausible wrong one.
 
 `manifest/paths.py` locates the channel-finder database JSON files via the
 installed `osprey.templates` package location
@@ -138,9 +164,14 @@ scripts/va/build_and_boot_check.sh [DATA_DIR]
 
 Stages the build context, builds the image, boots a container (bind-mounting
 `DATA_DIR`, defaulting to the packaged control_assistant preset's own
-`data/simulation/`), waits up to 60s for the ready log line, then reads
-`SR:DIAG:BPM:01:POSITION:X` over CA from the host — this PV is seeded by the
-physics bridge's initial closed-orbit solve at boot, so a successful read
-with no write exercises the full
-manifest → records → physics-bridge → lattice chain. Exits 0 only if all of
-that succeeds; tears the container down either way.
+`data/simulation/`), waits up to 60s for the ready log line, then reads a PV
+over CA from the host. Exits 0 only if all of that succeeds; tears the
+container down either way.
+
+A caution for anyone extending it: **reading a BPM position at boot proves
+connectivity, not physics.** The tutorial lattice's closed orbit with no
+correctors excited is exactly zero, so `SR:DIAG:BPM:01:POSITION:X` reads `0`
+on a working IOC — indistinguishable from an unseeded PV. To exercise the
+manifest → serving database → physics bridge → lattice chain, write a
+corrector and watch the orbit move: `SR:MAG:HCM:01:CURRENT:SP` = 0.5 puts
+`SR:DIAG:BPM:01:POSITION:X` at ~4.5e-6.

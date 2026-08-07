@@ -11,9 +11,13 @@
 # use that project's channel_limits.json-scoped scenarios instead.
 #
 # Builds the image if it doesn't already exist (set OSPREY_VA_REBUILD=1 to
-# force a rebuild, e.g. after editing src/osprey/services/virtual_accelerator/**
-# or docker/virtual-accelerator/Containerfile). Runs in the foreground --
-# Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
+# force a rebuild, e.g. after editing src/osprey/services/virtual_accelerator/**,
+# docker/virtual-accelerator/Containerfile, or the lume-pva-apg checkout the
+# serving stack is built from). Runs in the foreground -- Ctrl-C (or
+# `docker stop`) shuts the IOC down cleanly.
+#
+# The image is linux/amd64 (see the Containerfile for why), so on an Apple
+# Silicon host it runs emulated.
 #
 # After it reports ready, point a project at it with:
 #   control_system:
@@ -76,8 +80,32 @@ if [[ "${OSPREY_VA_REBUILD:-0}" == "1" ]] || ! "${RUNTIME}" image inspect "${IMA
     cp "${VA_DIR}/Containerfile" "${STAGING_DIR}/docker/virtual-accelerator/Containerfile"
     find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 
-    echo "--- Building ${IMAGE} (native arch) ---"
+    # The serving stack is a sibling checkout, not a PyPI package: build its
+    # wheel into the context so the image installs the fork you actually have.
+    # `git rev-parse --git-common-dir` resolves to the MAIN checkout's .git even
+    # from a worktree, so this finds the sibling from either.
+    if [[ -z "${LUME_PVA_SRC:-}" ]]; then
+        MAIN_CHECKOUT="$(cd "$(git -C "${WORKTREE_ROOT}" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
+        LUME_PVA_SRC="$(dirname "${MAIN_CHECKOUT}")/lume-pva"
+    fi
+    if [[ ! -f "${LUME_PVA_SRC}/pyproject.toml" ]]; then
+        echo "FATAL: no lume-pva checkout at ${LUME_PVA_SRC}." >&2
+        echo "Set LUME_PVA_SRC to the serving stack's source tree." >&2
+        exit 1
+    fi
+    command -v uv >/dev/null 2>&1 || { echo "FATAL: uv is required to build the serving-stack wheel" >&2; exit 1; }
+    echo "--- Building the serving-stack wheel from ${LUME_PVA_SRC} ---"
+    # Writes only build/ and the generated _version.py inside that checkout,
+    # both of which it ignores -- the same footprint as building it by hand.
+    uv build --wheel --out-dir "${STAGING_DIR}" "${LUME_PVA_SRC}"
+
+    # osprey's version comes from git (hatch-vcs) and the staged context has no
+    # .git, so the host resolves it and passes it in; see the Containerfile.
+    OSPREY_VERSION="$("${WORKTREE_ROOT}/.venv/bin/python" -c 'import osprey; print(osprey.__version__)')"
+
+    echo "--- Building ${IMAGE} (linux/amd64) ---"
     "${RUNTIME}" build \
+        --build-arg "OSPREY_VERSION=${OSPREY_VERSION}" \
         -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
 else
     echo "Reusing existing image ${IMAGE} (set OSPREY_VA_REBUILD=1 to force a rebuild)"
@@ -91,7 +119,13 @@ echo "    export EPICS_CA_NAME_SERVERS=localhost:${CA_PORT}"
 echo "    export EPICS_CA_AUTO_ADDR_LIST=NO"
 echo "--- Ctrl-C stops the container. ---"
 
+# The server port is passed explicitly, from the same CA_PORT the publish maps:
+# a CA search reply carries the server's own port number, so a container bound
+# to one port and published on another hands clients an unreachable address
+# with no useful error. (The image derives EPICS_CAS_SERVER_PORT from this.)
 "${RUNTIME}" run --rm --name "${CONTAINER}" \
+    --platform linux/amd64 \
+    -e "EPICS_CA_SERVER_PORT=${CA_PORT}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
     -v "${DATA_DIR}:/data/simulation:ro" \
     "${IMAGE}"
