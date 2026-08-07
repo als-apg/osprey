@@ -26,6 +26,55 @@ _PRISTINE_LOGGING = {
 }
 
 # ===================================================================
+# Collection-time environment pollution guard
+# ===================================================================
+#
+# Importing a test module can import third-party code that loads a .env at
+# import time — litellm calls dotenv.load_dotenv() on import, and python-dotenv
+# walks UP from its package directory, so on a developer machine it can find an
+# ancestor checkout's .env and inject real credentials, PROJECT_ROOT, and TZ
+# into os.environ before the first test runs. CI has no ancestor .env, so
+# whatever those variables change locally is invisible there.
+#
+# Only that injection is undone. A blanket restore would also strip the
+# coordination variables some test modules legitimately export at import time
+# (tests/va/* set EPICS_CA_SERVER_PORT et al. so the soft-IOC subprocesses they
+# spawn share their ports), so a key is removed only when it BOTH appeared
+# during collection AND carries exactly the value an ancestor .env defines.
+
+_PRE_COLLECTION_ENV = dict(os.environ)
+
+
+def _ancestor_dotenv_values() -> dict[str, str]:
+    """Every assignment an ancestor .env could have injected, keyed by var."""
+    from dotenv import dotenv_values
+
+    injected: dict[str, str] = {}
+    for directory in (_REPO_ROOT, *_REPO_ROOT.parents):
+        candidate = directory / ".env"
+        if candidate.is_file():
+            injected.update({k: v for k, v in dotenv_values(candidate).items() if v is not None})
+    return injected
+
+
+def pytest_collection_finish(session):
+    """Undo ancestor-.env injection performed by imports during collection."""
+    import time
+
+    added = set(os.environ) - set(_PRE_COLLECTION_ENV)
+    if added:
+        injected = _ancestor_dotenv_values()
+        for key in added:
+            if key in injected and os.environ[key] == injected[key]:
+                del os.environ[key]
+    # Re-sync the C library's cached zone with the (possibly restored) TZ.
+    # Collection can leave the two disagreeing (TZ injected, cache not), and
+    # then the first test to call tzset() flips tzname mid-suite and reads as
+    # a leaker to _no_host_timezone_leak below.
+    time.tzset()
+
+
+# ===================================================================
 # Environment guard
 # ===================================================================
 #

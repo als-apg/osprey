@@ -28,8 +28,7 @@ from osprey.errors import BuildProfileError
 
 @pytest.fixture()
 def profile_dir(tmp_path: Path) -> Path:
-    """Create a minimal profile directory with overlay sources."""
-    # Create overlay source files
+    """Create a minimal profile directory with a data tree and an MCP server."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "channels.json").write_text('{"pvs": ["SR:DCCT"]}')
@@ -52,9 +51,6 @@ def minimal_profile_yaml(profile_dir: Path) -> Path:
         "model": "haiku",
         "config": {
             "control_system.type": "mock",
-        },
-        "overlay": {
-            "data/channels.json": "data/channel_databases/channels.json",
         },
         "mcp_servers": {
             "test_server": {
@@ -163,7 +159,6 @@ class TestProfileLoading:
         assert profile.data_bundle == "control_assistant"
         assert profile.provider is None
         assert profile.config == {}
-        assert profile.overlay == {}
         assert profile.mcp_servers == {}
         assert profile.lifecycle == LifecycleConfig()
         assert profile.env == EnvConfig()
@@ -254,12 +249,12 @@ class TestProfileLoading:
 class TestValidation:
     """Tests for BuildProfile.validate()."""
 
-    def test_missing_overlay_source(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            overlay={"nonexistent/file.json": "data/file.json"},
-        )
-        with pytest.raises(BuildProfileError, match="Overlay source not found"):
+    def test_misshapen_convention_source(self, tmp_path: Path):
+        """Convention-directory validation runs as part of profile validation."""
+        (tmp_path / "skills").mkdir()
+        (tmp_path / "skills" / "loose.md").write_text("# not a skill directory\n")
+        profile = BuildProfile(name="Test")
+        with pytest.raises(BuildProfileError, match="one directory per skill"):
             profile.validate(tmp_path)
 
     def test_non_bool_deploy_services_rejected(self, tmp_path: Path):
@@ -268,26 +263,13 @@ class TestValidation:
         with pytest.raises(BuildProfileError, match="deploy_services must be a boolean"):
             profile.validate(tmp_path)
 
-    def test_path_traversal_blocked(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            overlay={},
-        )
-        # Manually add a traversal path
-        profile.overlay["data/x.json"] = "../../../etc/passwd"
-        # Create the source file so we don't hit that error
-        (tmp_path / "data").mkdir()
-        (tmp_path / "data" / "x.json").write_text("{}")
-        with pytest.raises(BuildProfileError, match="must be relative without"):
-            profile.validate(tmp_path)
-
-    def test_absolute_overlay_destination_blocked(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            overlay={"x.json": "/tmp/evil.json"},
-        )
-        (tmp_path / "x.json").write_text("{}")
-        with pytest.raises(BuildProfileError, match="must be relative without"):
+    def test_reserved_mirror_path_blocked(self, tmp_path: Path):
+        """The project/ mirror may not write a path the build owns."""
+        mirror = tmp_path / "project"
+        mirror.mkdir()
+        (mirror / "config.yml").write_text("facility: {}\n")
+        profile = BuildProfile(name="Test")
+        with pytest.raises(BuildProfileError, match="`config:` block"):
             profile.validate(tmp_path)
 
     def test_missing_mcp_server_command_or_url(self, tmp_path: Path):
@@ -467,44 +449,28 @@ class TestBuildHelpers:
         assert entry["permissions"]["allow"] == ["phoebus_launch"]
         assert entry["permissions"]["ask"] == ["dangerous_op"]
 
-    def test_copy_overlay_path_traversal_guard(self, tmp_path: Path):
-        """_copy_overlay_files should reject destinations that escape project root."""
-        from osprey.cli.build_cmd import _copy_overlay_files
+    def test_apply_conventions_mirrors_files(self, tmp_path: Path):
+        """The project/ mirror copies files verbatim onto the project root."""
+        from osprey.cli.build_cmd import _apply_conventions
 
         profile_dir = tmp_path / "profile"
-        profile_dir.mkdir()
-        (profile_dir / "evil.txt").write_text("evil")
+        (profile_dir / "project" / "config").mkdir(parents=True)
+        (profile_dir / "project" / "config" / "data.json").write_text('{"key": "value"}')
 
         project_path = tmp_path / "project"
         project_path.mkdir()
 
-        overlay = {"evil.txt": "../../../tmp/evil.txt"}
-        with pytest.raises(ValueError, match="escapes project root"):
-            _copy_overlay_files(profile_dir, project_path, overlay)
-
-    def test_copy_overlay_files(self, tmp_path: Path):
-        """_copy_overlay_files should copy files into the project."""
-        from osprey.cli.build_cmd import _copy_overlay_files
-
-        profile_dir = tmp_path / "profile"
-        profile_dir.mkdir()
-        (profile_dir / "data.json").write_text('{"key": "value"}')
-
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-
-        overlay = {"data.json": "config/data.json"}
-        _copy_overlay_files(profile_dir, project_path, overlay)
+        _apply_conventions(profile_dir, project_path)
 
         assert (project_path / "config" / "data.json").exists()
         assert json.loads((project_path / "config" / "data.json").read_text()) == {"key": "value"}
 
-    def test_copy_overlay_directory(self, tmp_path: Path):
-        """_copy_overlay_files should handle directory overlays."""
-        from osprey.cli.build_cmd import _copy_overlay_files
+    def test_apply_conventions_copies_whole_directories(self, tmp_path: Path):
+        """An MCP server directory is copied as a unit."""
+        from osprey.cli.build_cmd import _apply_conventions
 
         profile_dir = tmp_path / "profile"
-        src_dir = profile_dir / "server_pkg"
+        src_dir = profile_dir / "mcp_servers" / "server_pkg"
         src_dir.mkdir(parents=True)
         (src_dir / "__init__.py").write_text("")
         (src_dir / "main.py").write_text("# main")
@@ -512,8 +478,7 @@ class TestBuildHelpers:
         project_path = tmp_path / "project"
         project_path.mkdir()
 
-        overlay = {"server_pkg": "_mcp_servers/server_pkg"}
-        _copy_overlay_files(profile_dir, project_path, overlay)
+        _apply_conventions(profile_dir, project_path)
 
         assert (project_path / "_mcp_servers" / "server_pkg" / "__init__.py").exists()
         assert (project_path / "_mcp_servers" / "server_pkg" / "main.py").exists()
@@ -816,50 +781,142 @@ class TestBuildHelpers:
 # ---------------------------------------------------------------------------
 
 
-class TestEnvTemplate:
-    """Tests for _generate_env_template()."""
+def _render_env_example(**context) -> str:
+    """Render ``project/env.example.j2`` with the build's own context defaults."""
+    from osprey.cli.templates import scaffolding
+    from osprey.cli.templates.manager import TemplateManager
 
-    def test_generates_required_vars(self, tmp_path: Path):
-        from osprey.cli.build_cmd import _generate_env_template
+    ctx = {
+        "project_name": "test-project",
+        "project_root": "/tmp/test-project",
+        "provider_api_keys": scaffolding.provider_api_key_entries(),
+        "service_token_vars": scaffolding.service_token_var_entries(),
+        "env_required": [],
+        "env_defaults": {},
+        **context,
+    }
+    return TemplateManager().jinja_env.get_template("project/env.example.j2").render(**ctx)
 
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        env = EnvConfig(required=["API_KEY", "DB_HOST"])
-        _generate_env_template(project_path, env)
 
-        content = (project_path / ".env.template").read_text()
-        assert "# Required" in content
+class TestEnvExample:
+    """``.env.example`` is the one file documenting the whole variable set.
+
+    It replaced ``.env.template``, which listed only the profile's own
+    ``env:`` block and so documented a strict subset of what the agent reads.
+    """
+
+    def test_dot_env_template_is_gone(self):
+        """The generator and its build step are deleted, not merely unused."""
+        from osprey.cli import build_cmd, build_environment
+
+        assert not hasattr(build_environment, "_generate_env_template")
+        assert not hasattr(build_cmd, "_generate_env_template")
+        assert "_generate_env_template" not in build_cmd.__all__
+
+    def test_documents_required_vars(self):
+        content = _render_env_example(env_required=["API_KEY", "DB_HOST"])
+
         assert "API_KEY=" in content
         assert "DB_HOST=" in content
 
-    def test_generates_defaults(self, tmp_path: Path):
-        from osprey.cli.build_cmd import _generate_env_template
+    def test_documents_defaults_with_their_values(self):
+        content = _render_env_example(env_defaults={"LOG_LEVEL": "info", "PORT": "8080"})
 
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        env = EnvConfig(defaults={"LOG_LEVEL": "info", "PORT": "8080"})
-        _generate_env_template(project_path, env)
-
-        content = (project_path / ".env.template").read_text()
-        assert "# Defaults" in content
         assert "LOG_LEVEL=info" in content
         assert "PORT=8080" in content
 
-    def test_generates_both_sections(self, tmp_path: Path):
-        from osprey.cli.build_cmd import _generate_env_template
+    def test_documents_required_and_defaults_together(self):
+        content = _render_env_example(env_required=["API_KEY"], env_defaults={"PORT": "8080"})
 
-        project_path = tmp_path / "project"
-        project_path.mkdir()
-        env = EnvConfig(required=["API_KEY"], defaults={"PORT": "8080"})
-        _generate_env_template(project_path, env)
-
-        content = (project_path / ".env.template").read_text()
-        assert "# Required" in content
         assert "API_KEY=" in content
-        assert "# Defaults" in content
         assert "PORT=8080" in content
-        # Required section comes before defaults
-        assert content.index("# Required") < content.index("# Defaults")
+        assert content.index("API_KEY=") < content.index("PORT=8080")
+
+    def test_documents_every_provider_api_key(self):
+        from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+        content = _render_env_example()
+
+        for var in PROVIDER_API_KEYS.values():
+            if var is not None:
+                assert var in content, f"{var} missing from .env.example"
+
+    def test_documents_every_deploy_minted_variable(self):
+        """Completeness is derived, not curated: a new minted var appears here.
+
+        The list comes from the same ``_SERVICE_TOKEN_VARS`` map the deploy
+        path mints from, so a service token can never ship undocumented.
+        """
+        from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
+
+        content = _render_env_example()
+
+        for token_vars in _SERVICE_TOKEN_VARS.values():
+            for var in token_vars:
+                assert var in content, f"{var} missing from .env.example"
+
+    def test_deploy_minted_variables_are_commented_out(self):
+        """They are minted, not set by hand — an active line would pin an empty
+        value and defeat the mint."""
+        from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
+
+        content = _render_env_example()
+        minted = {v for token_vars in _SERVICE_TOKEN_VARS.values() for v in token_vars}
+
+        for line in content.splitlines():
+            var = line.split("=", 1)[0].strip()
+            if var in minted:
+                pytest.fail(f"{var} must be commented out in .env.example, got: {line!r}")
+
+    def test_profile_with_no_env_block_still_renders(self):
+        content = _render_env_example()
+
+        assert "Environment Configuration" in content
+        assert "CBORG_API_KEY" in content
+
+
+class TestGeneratedProjectEnvExample:
+    """The file the build actually writes into the project."""
+
+    @pytest.fixture()
+    def built_project(self, tmp_path: Path) -> Path:
+        from osprey.cli.templates.manager import TemplateManager
+
+        return TemplateManager().create_project(
+            project_name="env-example-project",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+    def test_env_example_is_written(self, built_project: Path):
+        assert (built_project / ".env.example").is_file()
+
+    def test_no_env_template_is_written(self, built_project: Path):
+        assert not (built_project / ".env.template").exists()
+
+    def test_minted_variables_are_documented(self, built_project: Path):
+        from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
+
+        content = (built_project / ".env.example").read_text(encoding="utf-8")
+
+        for token_vars in _SERVICE_TOKEN_VARS.values():
+            for var in token_vars:
+                assert var in content, f"{var} missing from the built .env.example"
+
+    def test_gitignore_covers_every_env_variant_but_the_example(self, built_project: Path):
+        """`.env` alone left the deploy-generated `.env.production` trackable."""
+        entries = [
+            line.strip()
+            for line in (built_project / ".gitignore").read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+
+        assert ".env*" in entries
+        assert "!.env.example" in entries
+        assert entries.index(".env*") < entries.index("!.env.example"), (
+            "the negation must follow the pattern it re-includes"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1325,8 +1382,7 @@ class TestProfileExtends:
     """Tests for profile inheritance via the ``extends:`` keyword."""
 
     def _make_base(self, tmp_path: Path) -> Path:
-        """Create a base profile with overlay source files."""
-        # Create overlay source so validation passes
+        """Create a base profile with a data tree so validation passes."""
         data_dir = tmp_path / "data"
         data_dir.mkdir(exist_ok=True)
         (data_dir / "channels.json").write_text("{}")
@@ -1343,9 +1399,6 @@ class TestProfileExtends:
                 "config": {
                     "control_system.type": "mock",
                     "archiver.type": "mock",
-                },
-                "overlay": {
-                    "data/channels.json": "data/channels.json",
                 },
                 "mcp_servers": {
                     "server_one": {
@@ -1459,29 +1512,6 @@ class TestProfileExtends:
         assert matlab.url == "http://localhost:8001/sse"
         assert "mml_search" in matlab.permissions["allow"]
         assert "mml_get" in matlab.permissions["allow"]
-
-    def test_overlay_merge(self, tmp_path: Path):
-        """Child adds new overlay entries to base set."""
-        self._make_base(tmp_path)
-        # Create extra overlay source
-        rules_dir = tmp_path / "overlays" / "rules"
-        rules_dir.mkdir(parents=True)
-        (rules_dir / "safety.md").write_text("# Safety")
-
-        child_path = _write_yaml(
-            tmp_path / "child.yml",
-            {
-                "extends": "base.yml",
-                "name": "Child",
-                "overlay": {
-                    "overlays/rules/safety.md": ".claude/rules/safety.md",
-                },
-            },
-        )
-
-        profile = load_profile(child_path)
-        assert "data/channels.json" in profile.overlay  # inherited
-        assert "overlays/rules/safety.md" in profile.overlay  # added
 
     def test_env_merge(self, tmp_path: Path):
         """Env is deep-merged: file overridden, required unioned, defaults merged."""
@@ -1654,7 +1684,6 @@ def _build_for_web_panels(
     from osprey.cli.templates.artifact_library import validate_artifacts
     from osprey.cli.templates.manager import TemplateManager
 
-    # Overlay source required by the control_assistant bundle
     data_dir = tmp_path / "data"
     data_dir.mkdir(exist_ok=True)
     (data_dir / "channels.json").write_text("{}")
@@ -1664,7 +1693,6 @@ def _build_for_web_panels(
         "data_bundle": "control_assistant",
         "provider": "cborg",
         "model": "haiku",
-        "overlay": {"data/channels.json": "data/channels.json"},
     }
     if web_panels is not None:
         profile_data["web_panels"] = web_panels
@@ -2492,3 +2520,104 @@ class TestTierSelectionRules:
         # FileNotFoundError from materialize_tier_artifacts.
         assert result.exit_code == 1, result.output
         assert not isinstance(result.exception, FileNotFoundError)
+
+
+def test_preset_build_never_touches_the_presets_package_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A --preset build sources conventions from the materialized profile only.
+
+    Under profile-always, every build resolves an operator-owned profile root
+    — for ``--preset`` that is the materialized ``<project>-profile/``, never
+    the shared presets package (reading there would pick up neighbouring
+    presets' files, and seeding per-user context would write into the wheel).
+    This pins where the conventions pass reads from and that no entry is
+    added to or removed from the package directory (the seeding risk this
+    guards — a stray ``web-terminal-context/`` at the package root — shows up
+    as a new entry).
+    """
+    from click.testing import CliRunner
+
+    import osprey.cli.build_cmd as build_cmd_module
+    import osprey.profiles.presets as presets_pkg
+    from osprey.cli.build_persistence import _apply_conventions
+    from osprey.cli.main import cli
+
+    presets_dir = Path(presets_pkg.__file__).parent
+    entries_before = sorted(p.name for p in presets_dir.iterdir() if p.name != "__pycache__")
+
+    profile_dirs: list[Path] = []
+
+    def spy(profile_dir: Path, *args, **kwargs):
+        profile_dirs.append(Path(profile_dir).resolve())
+        return _apply_conventions(profile_dir, *args, **kwargs)
+
+    monkeypatch.setattr(build_cmd_module, "_apply_conventions", spy)
+
+    out = tmp_path / "out"
+    out.mkdir()
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "build",
+            "preset-proj",
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"build failed (exit={result.exit_code})\n{result.output}\n{result.exception}"
+    )
+
+    assert profile_dirs, "the conventions pass should run for a --preset build"
+    for profile_dir in profile_dirs:
+        assert not profile_dir.is_relative_to(presets_dir.resolve()), (
+            f"conventions must never be sourced from the presets package: {profile_dir}"
+        )
+        assert profile_dir.is_relative_to(tmp_path.resolve()), (
+            f"conventions should come from the materialized profile: {profile_dir}"
+        )
+    entries_after = sorted(p.name for p in presets_dir.iterdir() if p.name != "__pycache__")
+    assert entries_after == entries_before
+
+
+def test_profile_pointing_into_the_osprey_package_is_refused(tmp_path: Path) -> None:
+    """`osprey build X <installed-preset>.yml` must not treat the package as a profile root.
+
+    Passing the bundled preset file by path sidesteps --preset materialization,
+    so the resolved profile directory is the installed presets package. The
+    conventions pass refuses that by construction — the only protection on
+    this route.
+    """
+    from click.testing import CliRunner
+
+    import osprey.profiles.presets as presets_pkg
+    from osprey.cli.main import cli
+
+    preset_yml = Path(presets_pkg.__file__).parent / "hello-world.yml"
+    assert preset_yml.is_file()
+
+    out = tmp_path / "out"
+    out.mkdir()
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "build",
+            "package-profile-proj",
+            str(preset_yml),
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code != 0, result.output
+    assert "inside the installed osprey package" in result.output
+    assert not (preset_yml.parent / "web-terminal-context").exists()

@@ -163,15 +163,13 @@ def test_new_requires_a_preset(runner: CliRunner, tmp_path: Path) -> None:
 
 
 def test_materialize_helper_writes_a_profile_directory(tmp_path: Path) -> None:
-    """The helper writes the profile, its data tree, and the overlay seed."""
+    """The helper writes the profile, its data tree, and its documentation."""
     target = tmp_path / "my-profile"
     _materialize_profile_directory(target, "hello-world")
 
     assert (target / "profile.yml").is_file()
     assert (target / "README.md").is_file()
     assert (target / "data").is_dir()
-    for kind in ("rules", "skills", "agents", "web-terminal-context"):
-        assert (target / "overlays" / kind / ".gitkeep").is_file()
 
 
 def test_emit_helper_leaves_nothing_behind_on_an_invalid_override(tmp_path: Path) -> None:

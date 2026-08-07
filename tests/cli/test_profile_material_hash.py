@@ -2,10 +2,12 @@
 
 ``compute_profile_hash`` is what the deploy-side staleness advisory compares
 against, so anything a build consumes has to be inside it. A profile's ``data:``
-tree and its ``overlay:`` sources are consumed verbatim by the build, which means
-a facility that edits a channel database or a persona file changes what a project
-would be built from while the profile YAML itself is untouched — invisible to a
-hash over the YAML alone.
+tree is consumed verbatim by the build, which means a facility that edits a
+channel database changes what a project would be built from while the profile
+YAML itself is untouched — invisible to a hash over the YAML alone.
+
+The convention directories and ``triggers.yml`` are folded on the same
+principle; they are pinned separately in ``test_profile_hash_folding.py``.
 
 The digest is pinned to a deterministic shape: every regular file contributes its
 posix path relative to the source plus the SHA-256 of its bytes, entries sorted by
@@ -110,39 +112,8 @@ def test_missing_data_tree_still_hashes(tmp_path):
     assert compute_profile_hash(profile) is not None
 
 
-def test_overlay_file_edit_moves_the_hash(tmp_path):
-    _write(tmp_path / "persona.md", "you are an operator\n")
-    profile = _write(
-        tmp_path / "profile.yml",
-        "name: Overlaid\noverlay:\n  persona.md: .claude/rules/persona.md\n",
-    )
-    before = compute_profile_hash(profile)
-    _write(tmp_path / "persona.md", "you are a physicist\n")
-    assert compute_profile_hash(profile) != before
-
-
-def test_overlay_directory_source_is_recursed(tmp_path):
-    """A directory overlay copies its whole subtree, so the hash must see it all."""
-    _write(tmp_path / "skills" / "diagnose" / "SKILL.md", "steps\n")
-    profile = _write(
-        tmp_path / "profile.yml",
-        "name: Overlaid\noverlay:\n  skills: .claude/skills\n",
-    )
-    before = compute_profile_hash(profile)
-    _write(tmp_path / "skills" / "diagnose" / "SKILL.md", "different steps\n")
-    assert compute_profile_hash(profile) != before
-
-
-def test_missing_overlay_source_still_hashes(tmp_path):
-    profile = _write(
-        tmp_path / "profile.yml",
-        "name: Overlaid\noverlay:\n  absent.md: .claude/absent.md\n",
-    )
-    assert compute_profile_hash(profile) is not None
-
-
 def test_profile_without_file_inputs_is_unaffected_by_neighbouring_files(tmp_path):
-    """No ``data:``/``overlay:`` means no tree material — the YAML alone decides.
+    """No ``data:`` means no tree material — the YAML alone decides.
 
     This is what keeps the bundled presets' pinned digests stable: they declare
     no file inputs, so nothing beside them can move their hash.

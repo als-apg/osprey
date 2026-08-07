@@ -305,17 +305,15 @@ def enable_writes_in_project(project_dir: Path) -> None:
 def activate_scenario(project_dir: Path, scenario: str) -> None:
     """Activate a single scenario's telemetry overlay (no logbook seeding).
 
-    Writes the scenario name into ``data/simulation/active_scenarios``; the
-    simulation engine re-reads the state file on mtime change and clears any
-    session writes (fresh machine state). Telemetry only — for scenarios whose
+    Writes the scenario name into ``_agent_data/simulation/active_scenarios``
+    (runtime state, outside the build-owned ``data/`` tree); the simulation
+    engine re-reads the state file on mtime change and clears any session
+    writes (fresh machine state). Telemetry only — for scenarios whose
     diagnosis needs a seeded logbook, use :func:`activate_scenarios`, which also
     purges and reseeds ARIEL deterministically.
     """
-    state_file = project_dir / "data" / "simulation" / "active_scenarios"
-    assert state_file.exists(), (
-        f"active_scenarios state file missing at {state_file} — "
-        "template simulation overlay incomplete?"
-    )
+    state_file = project_dir / "_agent_data" / "simulation" / "active_scenarios"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(scenario + "\n", encoding="utf-8")
 
 

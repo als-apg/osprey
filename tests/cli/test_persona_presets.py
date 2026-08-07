@@ -244,6 +244,39 @@ def _render_config_overrides(tmp_path: Path, seed: dict, preset: str = "multi-us
         return yaml.safe_load(fh)
 
 
+def _render_deployable_config(tmp_path: Path, preset: str = "multi-user-demo") -> dict:
+    """The config a real build produces from ``preset`` — catalog rewrite included.
+
+    :func:`_render_config_overrides` renders the preset's ``config:`` layer
+    alone, where each persona's ``build_profile`` is still the PRESET NAME the
+    preset author wrote. No build renders a project from that layer: every build
+    materializes a profile first, and materialization emits one
+    ``personas/<name>.yml`` delta per catalog entry and repoints the catalog at
+    it (``_persona_catalog_layer``). A config linted before that rewrite is a
+    shape the pipeline never emits.
+
+    So this applies the same rewrite, through the same function the
+    materializer calls and over the same catalog it derives, keeping the lint
+    tests below a unit-cost check of the real output rather than a pin on an
+    intermediate. (The end-to-end proof that these agree lives in
+    ``tests/cli/test_persona_profile_emission.py``, which drives
+    ``profile new`` → ``build`` for both presets.)
+    """
+    from osprey.cli.build_profile_emit import persona_catalog
+    from osprey.cli.profile_cmd import _persona_catalog_layer
+
+    config_path = tmp_path / "config.yml"
+    resolved = resolve_preset(preset)
+    with config_path.open("w", encoding="utf-8") as fh:
+        yaml.safe_dump({"system": {}}, fh)
+    config_update_fields(config_path, resolved.config)
+    config_update_fields(
+        config_path, _persona_catalog_layer(persona_catalog(resolved.config))["config"]
+    )
+    with config_path.open("r", encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
 def _errors(findings: list[Finding]) -> list[Finding]:
     return [f for f in findings if f.severity == "error"]
 
@@ -291,7 +324,18 @@ class TestBaseWebTerminals:
         """The rendered ``modules.web_terminals`` subtree matches the two-persona
         demo shape: local image source, readonly default, a readonly/readwrite
         catalog whose ``project`` equals its ``project_path`` basename, and a
-        roster mapping alice→readonly and bob→readwrite, both explicit."""
+        roster mapping alice→readonly and bob→readwrite, both explicit.
+
+        Deliberately pins the preset's OWN ``config:`` layer, BEFORE the catalog
+        rewrite every build performs — which is why the ``build_profile`` values
+        asserted below are preset NAMES. That is the first half of a two-stage
+        vocabulary, not stale data: a preset name is what materialization
+        consumes to emit ``personas/<name>.yml``, and only the rewritten value
+        ever reaches a rendered config. Do not "fix" these to the path spelling:
+        the post-rewrite spelling is asserted by this class's own
+        ``test_rendered_config_lints_without_errors`` (via
+        :func:`_render_deployable_config`) and end-to-end by
+        ``tests/cli/test_persona_profile_emission.py``."""
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         wt = rendered["modules"]["web_terminals"]
 
@@ -322,15 +366,19 @@ class TestBaseWebTerminals:
             assert entry["build_profile"] == profile
 
     def test_rendered_config_lints_without_errors(self, tmp_path: Path) -> None:
-        """``lint_web_terminals`` on the freshly-rendered demo config reports
-        zero ERROR findings pre-deploy.
+        """``lint_web_terminals`` on the freshly-built demo config reports zero
+        ERROR findings pre-deploy.
 
         The referenced persona projects do not exist yet at build time; the lint
         demotes those missing-but-auto-renderable paths to informational findings
         (they carry a ``build_profile`` deploy up renders from), so the gate is
         clean before any project is rendered.
+
+        Linted through :func:`_render_deployable_config`, i.e. after the catalog
+        rewrite every build performs — the preset's own ``build_profile`` values
+        are preset names, which no rendered config ever carries.
         """
-        rendered = _render_config_overrides(tmp_path, {"system": {}})
+        rendered = _render_deployable_config(tmp_path)
         assert _errors(lint_web_terminals(rendered)) == []
 
     def test_demo_ships_companion_panels_multi_user(self) -> None:
@@ -570,7 +618,18 @@ class TestControlAssistantWebTier:
         """The rendered subtree matches the two-persona tutorial shape: local
         image source, readonly default, a readonly/readwrite catalog whose
         ``project`` equals its ``project_path`` basename, and a roster mapping
-        alice→readonly (via default) and bob→readwrite."""
+        alice→readonly (via default) and bob→readwrite.
+
+        Deliberately pins the preset's OWN ``config:`` layer, BEFORE the catalog
+        rewrite every build performs — which is why the ``build_profile`` values
+        asserted below are preset NAMES. That is the first half of a two-stage
+        vocabulary, not stale data: a preset name is what materialization
+        consumes to emit ``personas/<name>.yml``, and only the rewritten value
+        ever reaches a rendered config. Do not "fix" these to the path spelling:
+        the post-rewrite spelling is asserted by this class's own
+        ``test_rendered_config_lints_without_errors`` (via
+        :func:`_render_deployable_config`) and end-to-end by
+        ``tests/cli/test_persona_profile_emission.py``."""
         rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
         wt = rendered["modules"]["web_terminals"]
 
@@ -618,11 +677,14 @@ class TestControlAssistantWebTier:
                 )
 
     def test_rendered_config_lints_without_errors(self, tmp_path: Path) -> None:
-        """``lint_web_terminals`` on the freshly-rendered tutorial config
-        reports zero ERROR findings pre-deploy — the persona projects don't
-        exist yet, but each catalog entry carries a ``build_profile`` deploy up
-        auto-renders from, which the lint demotes to informational."""
-        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
+        """``lint_web_terminals`` on the freshly-built tutorial config reports
+        zero ERROR findings pre-deploy — the persona projects don't exist yet,
+        but each catalog entry carries a ``build_profile`` deploy up
+        auto-renders from, which the lint demotes to informational.
+
+        Linted after the catalog rewrite every build performs — see
+        :func:`_render_deployable_config`."""
+        rendered = _render_deployable_config(tmp_path, "control-assistant")
         assert _errors(lint_web_terminals(rendered)) == []
 
     def test_derived_web_container_names_are_valid_docker_names(self, tmp_path: Path) -> None:

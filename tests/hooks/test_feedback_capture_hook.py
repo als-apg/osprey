@@ -29,8 +29,13 @@ def _hook_extra(tmp_path):
 
 
 def _pending_items(tmp_path):
-    """Read items from pending_reviews.json, return dict or empty."""
-    store = tmp_path / "data" / "feedback" / "pending_reviews.json"
+    """Read items from pending_reviews.json, return dict or empty.
+
+    The store lives under ``_agent_data/`` — it is written while the agent runs,
+    and a project's ``data/`` tree is build-owned and cleared by
+    ``osprey build --force``.
+    """
+    store = tmp_path / "_agent_data" / "feedback" / "pending_reviews.json"
     if not store.exists():
         return {}
     data = json.loads(store.read_text())

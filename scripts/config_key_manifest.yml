@@ -40,14 +40,15 @@
 #
 # THE THRESHOLD, and what is left under it. A bare-name `evidence` regex is
 # accepted only if it appears in <= 25 files under src/osprey (check B3 fails
-# the manifest otherwise). 57 entries sit under that line, topping out at
-# `postgresql` (25 files); they are domain identifiers, not English words, so
-# deleting the reader really would drop the count toward zero. Where an obvious
-# anchored form existed it was preferred instead — e.g.
+# the manifest otherwise). The bare entries are domain identifiers, not English
+# words, so deleting the reader really would drop the count toward zero. Where
+# an obvious anchored form existed it was preferred instead — e.g.
 # claude_code.telemetry.backend cites `telemetry_cfg.get("backend") ==
-# "openobserve"` rather than the bare word. The rest have no clean single reader
-# to anchor on (the value is unpacked from a block, or read in several places
-# with different shapes), and forcing an anchor would mean inventing one.
+# "openobserve"` rather than the bare word, and services.postgresql.path cites
+# the compose generator's `service_config["path"]` read after the bare word
+# crossed the ceiling. The rest have no clean single reader to anchor on (the
+# value is unpacked from a block, or read in several places with different
+# shapes), and forcing an anchor would mean inventing one.
 
 # ---------------------------------------------------------------------------
 # keys — every dotted path the five templates render, with its evidence
@@ -100,7 +101,7 @@ keys:
   services.openobserve.port: {evidence: 'openobserve'}
   services.openobserve.retention_days: {evidence: 'retention_days'}
   services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)'}
-  services.postgresql.path: {evidence: 'postgresql'}
+  services.postgresql.path: {evidence: 'service_config\["path"\]'}
   services.postgresql.database_name: {evidence: 'database_name'}
   services.postgresql.username: {covered-by: services.postgresql}
   services.postgresql.port_host: {evidence: 'port_host'}

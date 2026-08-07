@@ -432,6 +432,38 @@ def test_env_production_missing_secret_present_in_shell_env_names_the_fix(tmp_pa
     assert "exported-in-shell" not in message
 
 
+def test_env_production_missing_secret_hint_points_at_the_profile_env(tmp_path, monkeypatch):
+    """When the project records a profile, the durable remedy names it.
+
+    Handing over only ``>> <project>/.env`` unblocks the deploy in front of the
+    operator but names the one file the next build overwrites, so the secret is
+    lost on the next rebuild. Both routes are named because neither alone is
+    the whole answer: the profile write survives but does not reach this deploy
+    until a rebuild, and the project write reaches it but does not survive.
+    """
+    import json
+
+    profile_dir = tmp_path / "proj-profile"
+    profile_dir.mkdir()
+    (tmp_path / ".osprey-manifest.json").write_text(
+        json.dumps({"build_args": {"profile_path_abs": str(profile_dir / "profile.yml")}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ALS_APG_API_KEY", "exported-in-shell")
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with pytest.raises(RuntimeError, match="ALS_APG_API_KEY") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert f">> {profile_dir / '.env'}" in message
+    # The project .env is still offered, but explicitly as the non-surviving one.
+    assert f">> {tmp_path / '.env'}" in message
+    assert "dropped by the next build" in message
+    assert "exported-in-shell" not in message
+
+
 def test_env_production_missing_secret_absent_everywhere_has_no_shell_hint(tmp_path, monkeypatch):
     monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})

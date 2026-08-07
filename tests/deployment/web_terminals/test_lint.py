@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
 
 _CLEAN_CONFIG = {
@@ -1102,7 +1104,7 @@ def test_lint_local_mode_missing_project_path_with_build_profile_is_auto_rendera
                 "assistant": {
                     "project": "als-assistant",
                     "project_path": str(missing_path),
-                    "build_profile": "profiles/assistant.yml",
+                    "build_profile": "personas/assistant.yml",
                 }
             },
         }
@@ -1159,7 +1161,7 @@ def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_pa
                 "assistant": {
                     "project": "als-assistant",
                     "project_path": str(project_dir),
-                    "build_profile": "profiles/assistant.yml",
+                    "build_profile": "personas/assistant.yml",
                 }
             },
         }
@@ -1188,7 +1190,7 @@ def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_pa
                 "assistant": {
                     "project": "als-assistant",
                     "project_path": str(project_dir),
-                    "build_profile": "profiles/assistant.yml",
+                    "build_profile": "personas/assistant.yml",
                 }
             },
         }
@@ -1201,6 +1203,111 @@ def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_pa
     errors = _errors(findings)
     assert any(f.code == "web_terminals.persona_missing_config_yml" for f in errors)
     assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+
+
+def _local_mode_build_profile_config(tmp_path, build_profile: str) -> dict:
+    """Local-mode config whose one persona carries `build_profile`, project_path absent."""
+    return _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "project_path": str(tmp_path / "als-assistant"),
+                    "build_profile": build_profile,
+                }
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "build_profile",
+    [
+        "control-assistant",  # bundled preset name -- the pre-delta spelling
+        "control_assistant",  # same, underscore spelling
+        "/abs/personas/assistant.yml",  # absolute: could name any profile on the host
+        "../elsewhere/personas/assistant.yml",  # climbs out of the profile
+        "personas/../assistant.yml",  # climbs back out through the right directory
+        "profiles/assistant.yml",  # a sibling directory of personas/
+        "assistant.yml",  # the profile root itself, not personas/
+        "personas/nested/assistant.yml",  # deeper than one level: never read as a delta
+    ],
+)
+def test_lint_local_mode_build_profile_that_deploy_rejects_is_an_error(
+    tmp_path, build_profile
+) -> None:
+    """`osprey deploy up` never runs lint, so a value lint blesses and deploy
+    then refuses is a gate that promised the problem away. Both sides share one
+    predicate, so every shape rejected at deploy time is an ERROR here — and the
+    entry is never also reported as "auto-renderable", which it is not."""
+    # Act
+    findings = lint_web_terminals(_local_mode_build_profile_config(tmp_path, build_profile))
+
+    # Assert
+    errors = _errors(findings)
+    bad = [f for f in errors if f.code == "web_terminals.persona_build_profile_not_a_delta"]
+    assert bad, f"{build_profile!r} must be an error"
+    assert any("personas/assistant.yml" in f.message for f in bad)  # names the fix
+    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+
+
+def test_lint_local_mode_build_profile_shape_is_checked_even_when_rendered(tmp_path) -> None:
+    """A rendered directory makes an unusable build_profile harmless only until
+    someone removes it. A verdict that depended on local filesystem state would
+    not be a gate, so the shape error fires for a complete render too."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    config = _local_mode_build_profile_config(tmp_path, "control-assistant")
+
+    # Act
+    errors = _errors(lint_web_terminals(config))
+
+    # Assert
+    assert any(f.code == "web_terminals.persona_build_profile_not_a_delta" for f in errors)
+
+
+def test_lint_local_mode_delta_valued_build_profile_is_accepted(tmp_path) -> None:
+    """The one accepted shape -- what `osprey profile new` emits -- draws no
+    shape finding at all. Lint cannot check the file exists (it holds a config,
+    not the deployed project), and must not pretend otherwise."""
+    # Act
+    findings = lint_web_terminals(
+        _local_mode_build_profile_config(tmp_path, "personas/assistant.yml")
+    )
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_build_profile_not_a_delta" for f in findings)
+    assert any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+
+
+def test_lint_registry_mode_keeps_its_own_build_profile_vocabulary(tmp_path) -> None:
+    """The delta rule is local-mode only. Registry mode feeds `build_profile` to
+    a generated CI job as a committed profile path, so a `profiles/*.yml` value
+    stays valid there and must not inherit the local-mode shape error."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "image_source": "registry",
+            "default_persona": "assistant",
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "build_profile": "profiles/assistant.yml",
+                },
+                "analysis": {"project": "als-analysis", "build_profile": "profiles/analysis.yml"},
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_build_profile_not_a_delta" for f in findings)
 
 
 def test_lint_local_mode_project_path_basename_not_matching_project_is_an_error(tmp_path) -> None:
@@ -1216,7 +1323,7 @@ def test_lint_local_mode_project_path_basename_not_matching_project_is_an_error(
                 "assistant": {
                     "project": "als-assistant",
                     "project_path": str(project_path),
-                    "build_profile": "profiles/assistant.yml",
+                    "build_profile": "personas/assistant.yml",
                 }
             },
         }
