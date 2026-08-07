@@ -88,6 +88,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   unaffected; an out-of-tree connector that overrides `get_data` must
   accept the new keyword (even just to ignore it) to remain
   call-compatible.
+- The chat bridge how-to is now a section, `how-to/chat-bridges/`, with an
+  overview page and a page per chat system. Adds a guide to connecting a
+  service that does not ship with Osprey, such as Slack or email. The old
+  `how-to/deploy-chat-bridge` page is gone; its content moved into the new
+  Nextcloud Talk and Google Chat pages.
 - Ruff moved to 0.16, pinned to one minor in the `dev` extra so the
   pre-commit hook and CI agree on formatting. The formatter skips Markdown,
   leaving documentation snippets as written.
@@ -276,6 +281,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   Code launch paths. Every key is still passed through, unchanged, at those
   points. Code that imports OSPREY as a library and relied on the side effect
   must call `osprey.utils.config.load_project_dotenv()` itself.
+- The `nextcloud_bridge` block in a generated `profile.yml` described itself as
+  turning "a Nextcloud folder" into a trigger source. It answers questions from
+  a Talk room; the comment now says so.
 
 ## [2026.8.0]
 
