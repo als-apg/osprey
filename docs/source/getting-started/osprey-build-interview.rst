@@ -165,7 +165,8 @@ The deploy skill walks you through:
    host, deploy server, container runtime, ports, optional modules) and
    writes them to ``facility-config.yml``
 2. Scaffolding the deploy infrastructure from that config (``docker-compose.yml``,
-   ``.gitlab-ci.yml``, ``scripts/deploy.sh``, ``.env.template``)
+   ``.gitlab-ci.yml``, ``scripts/deploy.sh``, and a template listing the
+   secrets the deploy server needs)
 3. Driving the GitLab pipeline (push → CI builds containers → manual release
    tag → ``deploy.sh`` on the server)
 4. Post-deploy health checks and ongoing release operations

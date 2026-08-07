@@ -81,7 +81,9 @@ delegated to the Osprey agent layer.
             cd my-project
 
          This generates a ready-to-use ``config.yml`` with PostgreSQL, the ARIEL
-         web interface, and all search modules enabled --- skip to Step 2.
+         web interface, and all search modules enabled --- skip to Step 2. It
+         also writes ``my-project-profile/`` beside the project: the profile the
+         build reads, and where your provider keys and durable edits belong.
 
       .. tab-item:: 2. Deploy
 

@@ -117,7 +117,9 @@ The image is defined under ``docker/virtual-accelerator/``; see its
    that the container mounts read-only. It defaults to the *packaged preset's*
    copy, **not** your project — so with no argument, ``osprey sim apply`` in
    your project writes a scenario file the running IOC never sees. Pass your
-   project's directory explicitly to use its scenarios:
+   project's directory explicitly to use its scenarios (the script then also
+   mounts the sibling ``_agent_data/simulation`` state directory, which is what
+   makes scenario switches reach the IOC):
 
    .. code-block:: bash
 
@@ -127,16 +129,19 @@ Scenarios
 =========
 
 ``osprey sim apply <scenario>`` works in Virtual Accelerator mode exactly as it
-does for the mock. Applying a scenario writes the project's ``active_scenarios``
-file; the in-container engine polls it and, within about a second, composed
-channel values reflect the new scenario. One behavioral difference from the
-mock: in VA mode a scenario switch only refreshes the engine-composed channels
-— setpoints you wrote during the session live in the IOC's own records and
-**survive** the switch. (In mock mode, written values are reset.)
+does for the mock. Applying a scenario writes the project's
+``_agent_data/simulation/active_scenarios`` file; the in-container engine polls
+it and, within about a second, composed channel values reflect the new scenario.
+One behavioral difference from the mock: in VA mode a scenario switch only
+refreshes the engine-composed channels — setpoints you wrote during the session
+live in the IOC's own records and **survive** the switch. (In mock mode, written
+values are reset.)
 
-This assumes the IOC is reading the same project's ``data/simulation``. That is
-automatic for the deployed service; if you launched the container by hand, see
-the warning under `Running from a source checkout`_.
+The container mounts two of the project's directories: ``data/simulation`` for
+the machine model (rebuilt from your profile on every build) and
+``_agent_data/simulation`` for that scenario state (written while the system
+runs). Both are automatic for the deployed service; if you launched the
+container by hand, see the warning under `Running from a source checkout`_.
 
 Write limits
 ============

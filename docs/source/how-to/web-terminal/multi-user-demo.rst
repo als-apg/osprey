@@ -12,9 +12,10 @@ per-user builds, no registry.
    :color: primary
    :icon: book
 
-   - Building the demo project from the ``multi-user-demo`` preset
-   - How ``osprey deploy up`` auto-renders both persona projects and builds
-     their images
+   - Building the demo project from the ``multi-user-demo`` preset, and the
+     build profile it materializes beside it
+   - How ``osprey deploy up`` auto-renders both persona projects from that
+     profile's deltas and builds their images
    - The grouped landing page, and what separates the read-only and
      read-write tiers
    - Seeing the write boundary refuse — and approve — a real write
@@ -32,7 +33,7 @@ bring the stack up from inside it:
 
 .. code-block:: bash
 
-   # 1. Render the demo project from the multi-user-demo preset
+   # 1. Materialize a profile from the preset and render the demo project
    osprey build multi-user-demo --preset multi-user-demo
 
    # 2. From inside the project, bring the whole stack up
@@ -43,11 +44,19 @@ That is the entire setup. The ``multi-user-demo`` preset ships a
 ``modules.web_terminals`` block that turns this single project into the
 two-persona product, so no extra flags or configuration are needed.
 
+Step 1 writes **two** directories: the project ``multi-user-demo/``, and beside
+it ``multi-user-demo-profile/`` — the build profile it was rendered from,
+holding ``profile.yml``, the data tree, the secrets, and one persona delta per
+terminal. The profile is the one to keep and edit; the project is regenerable.
+
 .. note::
 
-   The personas' agent needs your provider credentials at run time. Add them to
-   the project's ``.env`` before ``osprey deploy up`` (the preset defaults to
-   Anthropic — set ``ANTHROPIC_API_KEY``).
+   The personas' agent needs your provider credentials. Export
+   ``ANTHROPIC_API_KEY`` (the preset defaults to Anthropic) **before** step 1
+   and the materialization seeds it into ``multi-user-demo-profile/.env`` for
+   you. Otherwise put it in that file afterwards and re-run step 1 with
+   ``--force``; the build derives the project's ``.env`` from the profile's.
+   See :ref:`profile-secrets`.
 
 .. note::
 
@@ -66,12 +75,16 @@ single project you built:
 #. **Auto-renders the two persona projects.** The preset declares a *readonly*
    persona and a *readwrite* persona, each its own rendered OSPREY project. For
    any persona whose project directory does not yet exist, ``deploy up`` renders
-   it from the persona's ``build_profile`` preset — the equivalent of
-   ``osprey build multi-user-demo-readonly --preset multi-user-demo-readonly``
-   — landing it as a sibling of the demo project
-   (``../multi-user-demo-readonly`` and ``../multi-user-demo-readwrite``). An
-   already-rendered project is user-owned and never overwritten; a half-written
-   one errors with a remediation hint rather than being rebuilt over.
+   it from that persona's **delta** in the profile beside your project — the
+   equivalent of ``osprey build multi-user-demo-readonly
+   multi-user-demo-profile/personas/readonly.yml`` — landing it as a sibling of
+   the demo project (``../multi-user-demo-readonly`` and
+   ``../multi-user-demo-readwrite``). Because each delta merges over
+   ``multi-user-demo-profile/profile.yml``, both personas share that profile's
+   data tree, secrets and artifacts: edit the profile once and both terminals
+   pick the change up. An already-rendered project is user-owned and never
+   overwritten; a half-written one errors with a remediation hint rather than
+   being rebuilt over.
 
 #. **Builds each persona's image.** In the preset's local mode
    (``image_source: local``), ``deploy up`` builds each persona's image
