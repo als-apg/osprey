@@ -24,9 +24,16 @@
 #      lattice chain can move a reading, and an unseeded PV stays at zero
 #      through the write. The setpoint is written with put-completion, so
 #      the read that follows cannot race the solve.
-#   4. The runner's own control PVs (RESET, SNAPSHOT) are ABSENT. Paired
-#      with a positive control on a known-good PV, so "absent" cannot be
-#      satisfied by a server that stopped answering altogether.
+#   4. The runner's own control PV is ABSENT. The name is read out of the
+#      serving stack's own constant in the container rather than hardcoded,
+#      because an absence check only means something when the name is one the
+#      server WOULD serve under the opposite configuration -- and the policy
+#      flag is asserted alongside it, so the step knows which configuration it
+#      is testing. Paired with a positive control on a known-good PV, so
+#      "absent" cannot be satisfied by a server that stopped answering.
+#      SNAPSHOT is checked too but is explicitly only a forward regression
+#      guard: no such PV exists in this stack, so its absence is evidence of
+#      nothing by itself.
 #   5. A PVA get of model_info returns the model's real variable roster.
 #   6. A PVA put above the drive limit lands CLAMPED, on both views of the
 #      address -- the value is checked back over PVA and over CA.
@@ -94,9 +101,9 @@ MOVED_THRESHOLD_M="1e-8"
 DRIVE_HIGH="12.0"
 OVER_DRIVE="20.0"
 
-# Control PVs the serving runner is configured NOT to claim: nothing is served
-# that the facility's channel manifest does not describe.
-ABSENT_PVS=("RESET" "SNAPSHOT")
+# The control PV the runner must not claim is NOT named here on purpose: step 4
+# reads it out of the serving stack's own constant, in the container, so the
+# check cannot drift into testing a name the stack no longer uses.
 
 DEFAULT_DATA_DIR="${WORKTREE_ROOT}/src/osprey/templates/apps/control_assistant/data/simulation"
 DATA_DIR="${1:-${DEFAULT_DATA_DIR}}"
@@ -275,6 +282,30 @@ ca_fail() {
     exit 1
 }
 
+# Run a python payload inside the container, with a guard against the payload
+# never arriving. `python -` reading an empty stdin exits 0 and prints nothing,
+# so an exec form that failed to forward the heredoc would let every step below
+# "pass" having asserted precisely nothing -- the exact failure this gate exists
+# to catch, hiding in the gate itself. Each payload therefore ends by printing
+# an `OK:` line, and reaching the end without one is a failure.
+#
+# Extra `exec` arguments (the `-e VAR=value` pairs) are passed through; the
+# payload is read from this function's own stdin.
+in_container_py() {
+    local out rc
+    out="$("${RUNTIME}" exec -i "$@" "${CONTAINER}" python -)"
+    rc=$?
+    printf '%s\n' "${out}"
+    if [[ ${rc} -ne 0 ]]; then
+        return "${rc}"
+    fi
+    if ! printf '%s' "${out}" | grep -q '^OK: '; then
+        echo "FATAL: the in-container payload printed no OK sentinel, so it did not run" >&2
+        return 1
+    fi
+    return 0
+}
+
 echo "--- [2/8] Baseline: reading the quiescent BPMs over Channel Access ---"
 # Not an assertion of correctness -- see the header. With no corrector
 # excited the closed orbit is exactly zero, so this only establishes that CA
@@ -344,17 +375,58 @@ print(f"OK: every BPM moved off its quiescent value when {sp} was excited")
 PY
 
 echo "--- [4/8] Asserting the runner claims no control PVs ---"
-# The serving runner is configured with control_pvs off: nothing is served
-# that the facility's channel manifest does not describe. Absence is only
-# meaningful next to a positive control, so a known-good PV is read in the
-# same configuration first -- otherwise a server that had stopped answering
-# entirely would satisfy this step.
-"${VENV_PY}" - "${EXCITE_PV}" "${ABSENT_PVS[@]}" <<'PY' || ca_fail "control-PV absence check failed"
+# The serving runner is configured with control_pvs off: nothing is served that
+# the facility's channel manifest does not describe.
+#
+# An absence check is worthless unless the name being looked for is one the
+# server WOULD serve under the opposite configuration. So the name is not
+# hardcoded here -- it is read out of the serving stack's own
+# RESET_CONTROL_PV constant, in the running container. If the fork renames its
+# control PV, this check follows it instead of quietly testing a dead string
+# forever. The deployed policy flag is read alongside it, so the step states
+# what configuration it is actually asserting about rather than assuming.
+CONTROL_FACTS="$("${RUNTIME}" exec -i "${CONTAINER}" python - <<'PY'
+from lume_pva_apg.runner import RESET_CONTROL_PV
+from osprey.services.virtual_accelerator.serving.write_path import RUNNER_CONFIG_POLICY
+
+# Printed for the shell to consume; the assertions on these are below.
+print(f"RESET_PV={RESET_CONTROL_PV}")
+print(f"CONTROL_PVS={RUNNER_CONFIG_POLICY.get('control_pvs')!r}")
+PY
+)" || ca_fail "could not read the serving stack's control-PV configuration"
+
+RESET_PV="$(printf '%s\n' "${CONTROL_FACTS}" | sed -n 's/^RESET_PV=//p')"
+CONTROL_PVS="$(printf '%s\n' "${CONTROL_FACTS}" | sed -n 's/^CONTROL_PVS=//p')"
+echo "  serving stack's control PV name: ${RESET_PV:-<none>}"
+echo "  deployed control_pvs policy    : ${CONTROL_PVS:-<unknown>}"
+if [[ -z "${RESET_PV}" ]]; then
+    echo "FATAL: could not resolve the serving stack's control-PV name, so its absence" >&2
+    echo "       from the served namespace would prove nothing" >&2
+    exit 1
+fi
+if [[ "${CONTROL_PVS}" != "False" ]]; then
+    echo "FATAL: control_pvs is ${CONTROL_PVS}, not False -- this deployment claims control" >&2
+    echo "       PVs the channel manifest does not describe" >&2
+    exit 1
+fi
+
+# ${RESET_PV} is the load-bearing assertion: that exact name IS served when
+# control_pvs is on, so its absence here is evidence about this deployment's
+# configuration and not about the name being unknown.
+#
+# SNAPSHOT is a different thing and is labelled as such: no such PV exists
+# anywhere in this serving stack -- it went with the remote-input mode the fork
+# dropped -- so its absence is NOT evidence about control_pvs and must not be
+# read as any. It is kept purely as a forward regression guard, to fail if a
+# future change reintroduces that name into the served namespace.
+"${VENV_PY}" - "${EXCITE_PV}" "${RESET_PV}" "SNAPSHOT" <<'PY' || ca_fail "control-PV absence check failed"
 import sys
 import epics
 
-control, absent = sys.argv[1], sys.argv[2:]
+control, reset_pv, regression_guard = sys.argv[1], sys.argv[2], sys.argv[3]
 
+# Absence is only meaningful next to a positive control: without one, a server
+# that had stopped answering altogether would satisfy every check below.
 if epics.caget(control, timeout=15, use_monitor=False) is None:
     raise SystemExit(
         f"FATAL: positive control {control} did not answer, so this step cannot "
@@ -362,24 +434,32 @@ if epics.caget(control, timeout=15, use_monitor=False) is None:
     )
 print(f"  positive control {control}: answers")
 
-present = []
-for pv in absent:
+
+def served(pv: str) -> bool:
     # Short timeout deliberately: this waits for a connection that must never
     # come, and every second here is spent proving a negative.
-    if epics.caget(pv, timeout=3, connection_timeout=3, use_monitor=False) is not None:
-        present.append(pv)
-    else:
-        print(f"  {pv}: absent, as required")
+    return epics.caget(pv, timeout=3, connection_timeout=3, use_monitor=False) is not None
 
-if present:
+
+if served(reset_pv):
     raise SystemExit(
-        "FATAL: the runner served control PVs it must not claim: " + ", ".join(present)
+        f"FATAL: {reset_pv} is served. It is the serving stack's own control PV, so "
+        "this deployment is claiming a name the channel manifest does not describe."
     )
+print(f"  {reset_pv}: absent, as required (load-bearing)")
+
+if served(regression_guard):
+    raise SystemExit(
+        f"FATAL: {regression_guard} is served. No such PV exists in this serving stack, "
+        "so something has reintroduced it into the served namespace."
+    )
+print(f"  {regression_guard}: absent (regression guard only -- proves nothing on its own)")
+
 print("OK: no control PV is served outside the channel manifest")
 PY
 
 echo "--- [5/8] PVA get of model_info (in-container; PVA is not published) ---"
-"${RUNTIME}" exec -i "${CONTAINER}" python - <<'PY' || ca_fail "PVA get of model_info failed"
+in_container_py <<'PY' || ca_fail "PVA get of model_info failed"
 from p4p.client.thread import Context
 
 ctx = Context("pva")
@@ -399,9 +479,9 @@ print("OK: model_info served over PVA with a populated variable roster")
 PY
 
 echo "--- [6/8] PVA put above the drive limit lands clamped, on both views ---"
-"${RUNTIME}" exec -i \
+in_container_py \
     -e "SP_PV=${EXCITE_PV}" -e "OVER_DRIVE=${OVER_DRIVE}" -e "DRIVE_HIGH=${DRIVE_HIGH}" \
-    "${CONTAINER}" python - <<'PY' || ca_fail "PVA put was not clamped to the drive limit"
+    <<'PY' || ca_fail "PVA put was not clamped to the drive limit"
 import os
 
 from p4p.client.thread import Context
@@ -467,7 +547,7 @@ print(f"{float(v):.17g}")
 PY
 )" || ca_fail "could not read ${GATE_PV} before the refused put"
 
-"${RUNTIME}" exec -i -e "RO_PV=${GATE_PV}" "${CONTAINER}" python - <<'PY' || ca_fail "the read-only PVA put was not refused"
+in_container_py -e "RO_PV=${GATE_PV}" <<'PY' || ca_fail "the read-only PVA put was not refused"
 import os
 
 from p4p.client.thread import Context
@@ -524,7 +604,7 @@ if ! printf '%s' "${PORT_TABLE}" | grep -Eq "(^|[^0-9])${CA_PORT}([^0-9]|\$)"; t
 fi
 # ...and PVA really is running behind that unpublished port, so this step
 # distinguishes "not reachable from the host" from "never started".
-"${RUNTIME}" exec -i -e "PVA_PORT=${PVA_PORT}" "${CONTAINER}" python - <<'PY' || ca_fail "PVA is not listening inside the container"
+in_container_py -e "PVA_PORT=${PVA_PORT}" <<'PY' || ca_fail "PVA is not listening inside the container"
 import os
 import socket
 
