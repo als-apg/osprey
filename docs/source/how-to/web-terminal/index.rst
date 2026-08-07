@@ -48,7 +48,7 @@ between companion tools without ever leaving the page.
       Add your own tools as themed side panels that sit beside the chat.
 
    .. grid-item-card:: Multi-user
-      :link: multi-user
+      :link: ../multi-user
       :link-type: doc
       :shadow: md
 
@@ -61,4 +61,3 @@ between companion tools without ever leaving the page.
    operate
    theming
    panels
-   multi-user
