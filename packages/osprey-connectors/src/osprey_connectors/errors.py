@@ -1,8 +1,8 @@
 """Error classification and handling for the Osprey Framework.
 
 Stability: the exception class names and ``reason`` codes defined here are
-public API — removing or renaming any is a major version bump, additions are
-minor.
+public API. Removing or renaming any of them is a major version bump; adding
+new ones is a minor version bump.
 """
 
 from typing import Any
