@@ -69,6 +69,7 @@
  */
 
 import {
+  familyLabel,
   getFamily,
   getTheme,
   setFamily,
@@ -87,25 +88,6 @@ const STYLE_ID = 'osprey-theme-switcher-style';
 const _themes = /** @type {ThemeEntry[]} */ (THEMES);
 
 /**
- * Human label for a family id: title-case each hyphen-separated word
- * ('osprey' -> 'Osprey', 'high-contrast' -> 'High Contrast'). THEMES
- * carries a label per concrete theme id (e.g. 'High Contrast Dark') but no
- * separate family-level label, so this derives one from the family id
- * itself -- stripping a common mode-word suffix off two member labels
- * would break the moment a family's dark/light labels don't share one
- * (e.g. a themed pair named for its own light/dark variants rather than a
- * shared family word).
- * @param {string} family
- * @returns {string}
- */
-function _familyLabel(family) {
-  return family
-    .split('-')
-    .map((word) => (word.length ? word[0].toUpperCase() + word.slice(1) : word))
-    .join(' ');
-}
-
-/**
  * The available families, deduped, in `THEMES` declaration order -- the
  * same order theme-manager.js's `DEFAULT_FAMILY` fallback uses, so the
  * first `<option>` here is always that same fallback family.
@@ -115,7 +97,7 @@ function _families() {
   /** @type {Map<string, string>} */
   const seen = new Map();
   for (const theme of _themes) {
-    if (!seen.has(theme.family)) seen.set(theme.family, _familyLabel(theme.family));
+    if (!seen.has(theme.family)) seen.set(theme.family, familyLabel(theme.family));
   }
   return Array.from(seen, ([id, label]) => ({ id, label }));
 }

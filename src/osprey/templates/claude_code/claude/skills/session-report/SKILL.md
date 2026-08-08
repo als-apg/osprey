@@ -54,7 +54,7 @@ Based on the operator's intent and the inventory, draft a report structure. Ther
 
 ### 2c. Gather chart data (if needed)
 
-If the structure includes charts and the inventory shows timeseries data, call `archiver_downsample` for each relevant data context entry now. This gives you chart-ready payloads (labels + datasets) that fit inline.
+If the structure includes charts and the inventory shows timeseries data, call `archiver_downsample` for each relevant data context entry now. This gives you chart-ready payloads (per-channel datasets, each carrying its own timestamps) that fit inline.
 
 ---
 

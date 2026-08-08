@@ -54,7 +54,21 @@ def _dotenv_raw_lines(text: str) -> dict[str, str]:
     return raw
 
 
-def merge_env_preserving_existing(rendered_text: str, existing_text: str) -> str:
+# Keys the build derives from the project's own content rather than from the
+# user's environment, and therefore owns outright: preserving them across a
+# re-render would latch them on. A build that can no longer generate a
+# virtual-accelerator manifest must be able to un-write the keys pointing at
+# one -- keeping a stale VA_CHANNELS_FILE would leave the IOC serving a
+# manifest with no drive limits beside it.
+BUILD_DERIVED_KEYS = frozenset({"VA_CHANNELS_FILE", "VA_LATTICE"})
+
+
+def merge_env_preserving_existing(
+    rendered_text: str,
+    existing_text: str,
+    *,
+    build_derived_keys: frozenset[str] = BUILD_DERIVED_KEYS,
+) -> str:
     """Merge a freshly rendered ``.env`` with an existing one; existing wins.
 
     Used when a build re-renders a project in place (``osprey build --force``)
@@ -64,8 +78,15 @@ def merge_env_preserving_existing(rendered_text: str, existing_text: str) -> str
     service tokens/passwords that live containers and docker volumes were
     initialized with). Keys present only in the existing file are appended at
     the end so nothing the user set is ever dropped.
+
+    ``build_derived_keys`` are the exception in both directions: the rendered
+    value wins, and a key the rendered text no longer carries is dropped
+    instead of preserved. Pass an empty set for a merge whose rendered side is
+    a fragment rather than the build's own full render.
     """
     existing = _dotenv_raw_lines(existing_text)
+    for key in build_derived_keys:
+        existing.pop(key, None)
     consumed: set[str] = set()
     out_lines: list[str] = []
     for line in rendered_text.splitlines():

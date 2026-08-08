@@ -113,27 +113,9 @@ describe('createRail', () => {
     expect(entryIds(rail)).toEqual(['okf']);
   });
 
-  test('renders the ＋ add button only when onAdd is given', () => {
+  test('never renders a ＋ inside the rail — the add control is the template\'s sibling #panel-add-btn', () => {
     createRail(rail, PANELS);
     expect(rail.querySelector('.panel-rail-add')).toBeNull();
-
-    createRail(rail, PANELS, { onAdd: () => {} });
-    const add = rail.querySelector('.panel-rail-add');
-    expect(add?.textContent).toBe('＋');
-    expect(add?.getAttribute('aria-label')).toBe('Add panel');
-  });
-
-  test('onAdd fires when the ＋ button is clicked', () => {
-    let clicked = 0;
-    createRail(rail, PANELS, { onAdd: () => { clicked += 1; } });
-    /** @type {HTMLButtonElement} */ (rail.querySelector('.panel-rail-add')).click();
-    expect(clicked).toBe(1);
-  });
-
-  test('the add button stays last, after every entry', () => {
-    createRail(rail, PANELS, { onAdd: () => {} });
-    const last = rail.children[rail.children.length - 1];
-    expect(last.classList.contains('panel-rail-add')).toBe(true);
   });
 });
 
@@ -209,6 +191,101 @@ describe('entry interactions', () => {
     expect(entry.querySelector('.panel-rail-popout')).toBeTruthy();
   });
 
+  test('open-beside affordance renders only when onOpenBeside is provided', () => {
+    createRail(rail, PANELS);
+    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-beside')).toBeNull();
+
+    rail = freshRail();
+    createRail(rail, PANELS, { onOpenBeside: () => {} });
+    expect(getEntry(rail, 'artifacts')?.querySelector('.panel-rail-beside')?.textContent).toBe('⊞');
+  });
+
+  test('clicking open-beside invokes onOpenBeside without activating the entry', () => {
+    /** @type {string[]} */
+    const activated = [];
+    /** @type {string[]} */
+    const beside = [];
+    createRail(rail, PANELS, {
+      onActivate: (id) => activated.push(id),
+      onOpenBeside: (id) => beside.push(id),
+    });
+    /** @type {HTMLElement} */ (
+      /** @type {HTMLElement} */ (getEntry(rail, 'ariel')).querySelector('.panel-rail-beside')
+    ).click();
+    expect(beside).toEqual(['ariel']);
+    expect(activated).toEqual([]);
+  });
+
+});
+
+describe('drag from the rail (onDragStart / onDragEnd)', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  beforeEach(() => {
+    rail = freshRail();
+  });
+
+  /** Build a dragstart-shaped event happy-dom can dispatch (no DragEvent there).
+   *  @param {string} type */
+  function dragEvent(type) {
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    /** @type {any} */ (ev).dataTransfer = {
+      data: /** @type {Record<string, string>} */ ({}),
+      effectAllowed: '',
+      setData(/** @type {string} */ k, /** @type {string} */ v) { this.data[k] = v; },
+    };
+    return ev;
+  }
+
+  test('entries are draggable only when onDragStart is provided', () => {
+    createRail(rail, PANELS);
+    expect(getEntry(rail, 'ariel')?.getAttribute('draggable')).toBeNull();
+
+    rail = freshRail();
+    createRail(rail, PANELS, { onDragStart: () => true });
+    expect(getEntry(rail, 'ariel')?.getAttribute('draggable')).toBe('true');
+  });
+
+  test('dragstart hands (id, dataTransfer) to onDragStart and marks the source entry', () => {
+    /** @type {any[]} */
+    const calls = [];
+    createRail(rail, PANELS, {
+      onDragStart: (id, dt) => { calls.push([id, dt]); return true; },
+    });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    const ev = dragEvent('dragstart');
+    entry.dispatchEvent(ev);
+
+    expect(calls).toEqual([['ariel', /** @type {any} */ (ev).dataTransfer]]);
+    expect(entry.classList.contains('dragging')).toBe(true);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  test('onDragStart returning false cancels the drag (no dragging state, default prevented)', () => {
+    createRail(rail, PANELS, { onDragStart: () => false });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    const ev = dragEvent('dragstart');
+    entry.dispatchEvent(ev);
+
+    expect(entry.classList.contains('dragging')).toBe(false);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test('dragend clears the dragging state and calls onDragEnd', () => {
+    /** @type {string[]} */
+    const ended = [];
+    createRail(rail, PANELS, {
+      onDragStart: () => true,
+      onDragEnd: (id) => ended.push(id),
+    });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    entry.dispatchEvent(dragEvent('dragstart'));
+    expect(entry.classList.contains('dragging')).toBe(true);
+
+    entry.dispatchEvent(dragEvent('dragend'));
+    expect(entry.classList.contains('dragging')).toBe(false);
+    expect(ended).toEqual(['ariel']);
+  });
 });
 
 describe('addEntry (non-destructive)', () => {
@@ -236,11 +313,11 @@ describe('addEntry (non-destructive)', () => {
     expect(artifacts?.classList.contains('disabled')).toBe(false);
   });
 
-  test('inserts before the ＋ button so add stays last', () => {
-    createRail(rail, PANELS, { onAdd: () => {} });
+  test('appends at the end of the rail', () => {
+    createRail(rail, PANELS);
     addEntry(rail, { id: 'lattice', label: 'LATTICE' });
     const last = rail.children[rail.children.length - 1];
-    expect(last.classList.contains('panel-rail-add')).toBe(true);
+    expect(last.getAttribute('data-panel-id')).toBe('lattice');
     expect(entryIds(rail)).toEqual(['artifacts', 'ariel', 'channel-finder', 'lattice']);
   });
 
@@ -266,15 +343,13 @@ describe('removeEntry', () => {
   let rail;
   beforeEach(() => {
     rail = freshRail();
-    createRail(rail, PANELS, { onAdd: () => {} });
+    createRail(rail, PANELS);
   });
 
-  test('removes the entry node, preserving the others and the ＋ button', () => {
+  test('removes the entry node, preserving the others', () => {
     removeEntry(rail, 'ariel');
     expect(entryIds(rail)).toEqual(['artifacts', 'channel-finder']);
     expect(getEntry(rail, 'ariel')).toBeNull();
-    const last = rail.children[rail.children.length - 1];
-    expect(last.classList.contains('panel-rail-add')).toBe(true);
   });
 
   test('a removed entry can be re-added (remove ≠ forget)', () => {

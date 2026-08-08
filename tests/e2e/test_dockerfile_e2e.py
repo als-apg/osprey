@@ -406,9 +406,15 @@ def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
     """Build a local osprey wheel pinned to ``version`` containing a sentinel module.
 
     Copies the minimal build inputs (``pyproject.toml``, ``README.md``,
-    ``src/osprey``) to a scratch tree, stamps ``__version__`` to ``version``,
-    injects ``osprey/_e2e_sentinel.py``, and runs ``python -m build --wheel``.
-    Returns the built wheel path (inside ``work_dir``).
+    ``src/osprey``) to a scratch tree, injects ``osprey/_e2e_sentinel.py``, and
+    runs ``python -m build --wheel``. Returns the built wheel path (inside
+    ``work_dir``).
+
+    The scratch tree has no ``.git``, and the version is derived from git rather
+    than from a literal, so the build is pinned with
+    ``SETUPTOOLS_SCM_PRETEND_VERSION``. The per-package
+    ``SETUPTOOLS_SCM_PRETEND_VERSION_FOR_*`` form does not take here — do not
+    substitute it without re-verifying against the ``osprey-framework`` dist name.
     """
     import osprey as _osprey
 
@@ -423,14 +429,6 @@ def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
     for name in ("pyproject.toml", "README.md"):
         shutil.copy2(source_root / name, wheel_src / name)
 
-    # Stamp the version hatchling reads ([tool.hatch.version] -> __init__.py).
-    init_path = wheel_src / "src" / "osprey" / "__init__.py"
-    stamped, n = re.subn(
-        r'__version__ = "[^"]+"', f'__version__ = "{version}"', init_path.read_text(), count=1
-    )
-    assert n == 1, "could not stamp __version__ in the wheel source copy"
-    init_path.write_text(stamped)
-
     (wheel_src / "src" / "osprey" / "_e2e_sentinel.py").write_text(
         f'SENTINEL = "{SENTINEL_MARKER}"\n'
     )
@@ -441,6 +439,7 @@ def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
         capture_output=True,
         text=True,
         timeout=600,
+        env={**os.environ, "SETUPTOOLS_SCM_PRETEND_VERSION": version},
     )
     assert build.returncode == 0, (
         f"sentinel wheel build failed:\n--- stdout ---\n{build.stdout[-3000:]}"

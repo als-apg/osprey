@@ -7,11 +7,10 @@
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 #
 # Native architecture: the service resolves to the host's arch (no platform
-# pin). On arm64 hosts the four native deps (accelerator-toolbox, softioc,
-# epicscorelibs, pvxslibs) have no manylinux_aarch64 wheels, so they compile
-# from sdist during the image build — a one-time cost of a couple of minutes,
-# no x86 emulation involved — see
-# src/osprey/services/virtual_accelerator/probe/README.md.
+# pin). On arm64 hosts the native deps (accelerator-toolbox and the CA server
+# stack's epicscorelibs/pvxslibs) have no manylinux_aarch64 wheels, so they
+# compile from sdist during the image build — a one-time cost of a couple of
+# minutes, no x86 emulation involved.
 
 services:
   virtual-accelerator:
@@ -81,11 +80,11 @@ services:
     healthcheck:
       # The IOC serves Channel Access on the configured port, not HTTP, so this
       # can't be an HTTP /health probe like the other services. A real `caget`
-      # isn't available either: softioc's base install pulls in epicscorelibs/
-      # pvxslibs (C libraries only), not a Python CA *client* — cothread/aioca
-      # are gated behind softioc's own "useful"/"dev" extras, and adding one
-      # just for this probe would be exactly the kind of extra-package drift
-      # the `[virtual-accelerator]` extra is meant to avoid. So: a raw TCP
+      # isn't available either: the CA server's base install pulls in
+      # epicscorelibs/pvxslibs (C libraries only), not a Python CA *client*,
+      # and adding one just for this probe would be exactly the kind of
+      # extra-package drift the service's dependency set is meant to avoid.
+      # So: a raw TCP
       # connect to the CA port — enough to prove the IOC's listener is up and
       # accepting connections, short of an actual PV read.
       test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('localhost', {{ (services.virtual_accelerator | default({})).port | default(5064) }})); sys.exit(0 if r == 0 else 1)\""]
@@ -94,8 +93,8 @@ services:
       retries: 5
       # Grace period before failed probes count — generous because a first-time
       # native-arch image build (source-compiling the native deps) plus boot
-      # (PyAT lattice load + softioc iocInit) takes a few seconds longer than
-      # the framework's other native-arch services.
+      # (PyAT lattice load + CA server startup) takes a few seconds longer
+      # than the framework's other native-arch services.
       start_period: 20s
 
 networks:

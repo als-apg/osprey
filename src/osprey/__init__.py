@@ -14,11 +14,16 @@ importing the package configures nothing.
 
 from typing import TYPE_CHECKING, Any
 
+from osprey.version import get_running_version
+
 if TYPE_CHECKING:
     from osprey.utils.logger import configure_logging
 
-# Version information
-__version__ = "2026.6.3"
+# Version information. Derived from the git tag at build time and resolved at import
+# by osprey.version — see that module for the resolution chain. Bound eagerly rather
+# than through __getattr__ below so that `from osprey import __version__` and
+# `patch("osprey.__version__", ...)` keep behaving like the plain attribute it was.
+__version__ = get_running_version()
 
 __all__ = ["__version__", "configure_logging"]
 

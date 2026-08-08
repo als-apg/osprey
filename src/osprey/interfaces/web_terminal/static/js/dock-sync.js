@@ -147,61 +147,83 @@ function onDockClickCapture(e) {
 }
 
 /**
- * Resolve the dockview panel id for a `.dv-tab` element. dockview does not stamp
- * the id on the tab DOM, so map by position: the tab's index among its `.dv-tab`
- * siblings indexes into its group's ordered `panels`. Returns null if anything
- * along the chain is missing (resolves to a no-op close).
+ * Resolve the dockview panel id for a `.dv-tab` element. dock-tab.js stamps the
+ * id on every tile bar it renders (`data-panel-id` on the `.tile-tab` root), so
+ * the resolution is an exact read — no positional mapping. Returns null when
+ * the stamp is absent (resolves to a no-op close).
  * @param {Element} tab
  * @returns {string | null}
  */
 function panelIdForTab(tab) {
+  const tile = tab.querySelector('.tile-tab');
+  return (tile instanceof HTMLElement ? tile.dataset.panelId : null) ?? null;
+}
+
+/**
+ * Dock a service panel's placeholder at an explicit position as its own tile —
+ * the shared placement verb behind "open beside" (rail ⊞ / "+" add-menu) and
+ * the rail drag-and-drop drop routing. Creates the placeholder by the
+ * adapter's own id + component so the adapter adopts it in place (its
+ * ensurePlaceholder no-ops when the id already exists), keeping this position.
+ *
+ * An ALREADY-DOCKED placeholder is MOVED to the position (remove + re-add —
+ * safe because placeholders are empty; the overlay iframe simply re-follows
+ * its new rectangle), never duplicated. Two guarded no-op cases: the target
+ * group is the placeholder's own group (removing a tile's sole panel destroys
+ * the group the re-add would reference), and an already-docked panel with no
+ * position at all (nothing meaningful to do).
+ *
+ * No-op in fallback mode and in SIMPLE mode — the locked simple layout has
+ * exactly one service tile, so callers there fall through to the plain show
+ * path and take the tile over like a rail click. Wrapped in the echo guard so
+ * neither the removal's auto-activation nor the add's active-panel change is
+ * read as a human focus — the caller's show path owns the focus POST.
+ * @param {string} serviceId  panel-manager rail id
+ * @param {string} [title]    dock tab title (defaults to the id)
+ * @param {{referenceGroup?: any, direction: string} | null} [position]
+ *   referenceGroup omitted = split against the grid edge in `direction`
+ */
+export function dockPanelAt(serviceId, title = serviceId, position = null) {
   const api = getDockApi();
-  if (!api) return null;
-  const groupEl = tab.closest('.dv-groupview');
-  const container = tab.parentElement;
-  if (!groupEl || !container) return null;
-  const group = api.groups.find(
-    (/** @type {any} */ g) => g.element === groupEl || g.element?.contains?.(tab),
-  );
-  if (!group) return null;
-  const tabs = Array.from(container.children).filter((c) => c.classList.contains('dv-tab'));
-  const index = tabs.indexOf(tab);
-  if (index < 0) return null;
-  return group.panels?.[index]?.id ?? null;
+  if (!api) return;
+  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') return;
+  const placeholderId = PLACEHOLDER_PREFIX + serviceId;
+  const existing = api.getPanel(placeholderId);
+  if (existing) {
+    if (!position) return;
+    if (existing.group && existing.group === position.referenceGroup) return;
+  }
+  /** @type {any} */
+  const opts = { id: placeholderId, component: PLACEHOLDER_COMPONENT, title };
+  if (position) opts.position = position;
+  withEchoSuppressed(() => {
+    try {
+      if (existing) api.removePanel(existing);
+      api.addPanel(opts);
+    } catch (err) {
+      console.error('dock-sync: dockPanelAt failed for', placeholderId, err);
+    }
+  });
 }
 
 /**
  * Dock a service panel's placeholder BESIDE the currently-active group as a
- * NEW tile, so a panel opened from the "+" add-menu splits where the operator
- * is working — the one rail verb that grows the layout (a rail click on the
- * entry itself REPLACES the focused tile's panel instead; see the adapter's
- * ensurePlaceholder). Creates the placeholder by the adapter's own id +
- * component so the adapter adopts it in place (its ensurePlaceholder no-ops
- * when the id already exists), keeping this position. No-op in fallback mode,
- * when the panel is already docked, and in SIMPLE mode — the locked simple
- * layout has exactly one service tile, so an add-menu pick there falls through
- * to the plain show path and takes the tile over like a rail click. Wrapped in
- * the echo guard so the add's active-panel change is not read as a human
- * focus — the add-menu's own show path POSTs the focus.
+ * NEW tile, so a panel opened from the rail's ⊞ corner or the "+" add-menu
+ * splits where the operator is working — the discoverable half of the
+ * open-beside verb (rail drag-and-drop is the precise half; both land in
+ * {@link dockPanelAt}, so an already-open panel is moved, not duplicated). A
+ * rail click on the entry itself still REPLACES the focused tile's panel
+ * instead (the adapter's ensurePlaceholder).
  * @param {string} serviceId  panel-manager rail id
  * @param {string} [title]    dock tab title (defaults to the id)
  */
 export function dockPanelBesideActive(serviceId, title = serviceId) {
   const api = getDockApi();
   if (!api) return;
-  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') return;
-  const placeholderId = PLACEHOLDER_PREFIX + serviceId;
-  if (api.getPanel(placeholderId)) return;
-  /** @type {any} */
-  const opts = { id: placeholderId, component: PLACEHOLDER_COMPONENT, title };
-  if (api.activeGroup) opts.position = { referenceGroup: api.activeGroup, direction: 'right' };
-  withEchoSuppressed(() => {
-    try {
-      api.addPanel(opts);
-    } catch (err) {
-      console.error('dock-sync: dockPanelBesideActive addPanel failed for', placeholderId, err);
-    }
-  });
+  const position = api.activeGroup
+    ? { referenceGroup: api.activeGroup, direction: 'right' }
+    : null;
+  dockPanelAt(serviceId, title, position);
 }
 
 /**

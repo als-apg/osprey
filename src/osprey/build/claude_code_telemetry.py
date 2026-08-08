@@ -198,7 +198,9 @@ def _resolve_telemetry_endpoint(
     return endpoint
 
 
-def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
+def _openobserve_auth_header(
+    telemetry_cfg: dict, *, defer_unresolved: bool = False
+) -> tuple[str, str] | None:
     """Compute the HTTP Basic auth header for an OpenObserve backend.
 
     Both credentials arrive already ``${VAR}``-expanded in the config (the
@@ -206,15 +208,25 @@ def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
     so this reads them straight from the config — never ``os.environ``. The
     base64 header value cannot be expressed as ``${VAR}``; it is computed here.
 
+    Args:
+        telemetry_cfg: The ``claude_code.telemetry`` config section.
+        defer_unresolved: When True, an unresolved ``${VAR}`` credential returns
+            ``None`` (with a warning) instead of raising. Build-time callers set
+            this: they render a scaffold whose credentials belong to the
+            *deployment*, and the runtime re-resolves them at agent-spawn. A
+            missing or blank credential still raises — no later step can fill
+            that in.
+
     Returns:
-        ``("Authorization", "Basic <base64(user:password)>")``.
+        ``("Authorization", "Basic <base64(user:password)>")``, or ``None`` when
+        a credential is deferred.
 
     Raises:
         ValueError: If either credential is missing or blank — an
             unauthenticated exporter to an auth-gated store would silently drop
             every span, so refuse to emit one — or if either credential still
             carries a literal ``${VAR}`` (an unresolved placeholder whose env
-            var is unset).
+            var is unset) and ``defer_unresolved`` is False.
     """
     oo = telemetry_cfg.get("openobserve") or {}
     user = oo.get("user")
@@ -232,6 +244,14 @@ def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
     # instead of failing clearly here at resolve() time.
     for field_name, cred in (("openobserve.user", user), ("openobserve.password", password)):
         if "${" in str(cred):
+            if defer_unresolved:
+                warnings.warn(
+                    f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
+                    "Omitting the OpenObserve auth header from the rendered "
+                    "scaffold; the runtime must resolve it at agent-spawn.",
+                    stacklevel=2,
+                )
+                return None
             raise TelemetryConfigError(
                 f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
                 "The referenced environment variable is unset — refusing to "
@@ -246,6 +266,7 @@ def _build_telemetry_env(
     *,
     in_container: bool = False,
     openobserve_host: str | None = None,
+    defer_unresolved_creds: bool = False,
 ) -> dict[str, str]:
     """Build the OTEL/telemetry env block from the ``claude_code.telemetry`` config.
 
@@ -293,8 +314,9 @@ def _build_telemetry_env(
     if configured:
         headers.update(_parse_header_map(configured))
     if telemetry_cfg.get("backend") == "openobserve":
-        key, value = _openobserve_auth_header(telemetry_cfg)
-        headers[key] = value
+        auth = _openobserve_auth_header(telemetry_cfg, defer_unresolved=defer_unresolved_creds)
+        if auth is not None:
+            headers[auth[0]] = auth[1]
     if headers:
         env["OTEL_EXPORTER_OTLP_HEADERS"] = _render_kv_map(headers)
 

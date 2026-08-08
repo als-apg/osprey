@@ -237,7 +237,8 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        assert df["BEAM:CURRENT"].mean() == pytest.approx(500.0, rel=0.1)
+        current = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
+        assert current.mean() == pytest.approx(500.0, rel=0.1)
 
         await connector.disconnect()
 
@@ -251,7 +252,10 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        assert (df["T:Q1:CUR:SP"] == 42.0).all()
+        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        # Guard against an empty selection making .all() vacuously True.
+        assert len(sp) > 0
+        assert (sp == 42.0).all()
 
         await connector.disconnect()
 
@@ -267,8 +271,10 @@ class TestMockArchiverSimulation:
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
 
-        sp = df["T:Q1:CUR:SP"].to_numpy()
-        trans = df["T:TRANS"].to_numpy()
+        sp_rows = df.loc[df["channel"] == "T:Q1:CUR:SP"].sort_values("timestamp")
+        trans_rows = df.loc[df["channel"] == "T:TRANS"].sort_values("timestamp")
+        sp = sp_rows["value"].to_numpy()
+        trans = trans_rows["value"].to_numpy()
         t = np.linspace(0, 1, len(sp))
 
         # Step at t=0.35 to the override-consistent value
@@ -290,21 +296,33 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        assert (df["T:Q1:CUR:SP"] == 42.0).all()
-        assert df["BEAM:CURRENT"].mean() == pytest.approx(500.0, rel=0.1)
+        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        # Guard against an empty selection making .all() vacuously True.
+        assert len(sp) > 0
+        assert (sp == 42.0).all()
+        current = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
+        assert current.mean() == pytest.approx(500.0, rel=0.1)
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_string_channel_series(self, machine_file):
+    async def test_mixed_numeric_and_string_channels_both_present(self, machine_file):
+        """A single request mixing a numeric channel and a string (enum/status)
+        channel returns rows for both — neither is dropped or coerced."""
         connector = MockArchiverConnector()
         await connector.connect({"simulation_file": str(machine_file)})
 
         df = await connector.get_data(
-            pv_list=["T:MODE"],
+            pv_list=["T:Q1:CUR:SP", "T:MODE"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 0, 10, 0),
         )
-        assert (df["T:MODE"] == "CW").all()
+        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        mode = df.loc[df["channel"] == "T:MODE", "value"]
+
+        assert len(sp) > 0
+        assert len(mode) > 0
+        assert (sp == 42.0).all()
+        assert (mode == "CW").all()
 
         await connector.disconnect()

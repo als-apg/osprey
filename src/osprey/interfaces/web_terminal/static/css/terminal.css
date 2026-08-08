@@ -173,21 +173,25 @@
   color: var(--text-primary);
 }
 
-/* Optional per-deployment name badge (web.app_name) — a bordered chip in the
-   header's right cluster so otherwise-identical terminals are distinguishable. */
-.header-app-name {
+/* Optional per-deployment name (web.app_name / OSPREY_WEB_APP_NAME), sitting
+   with the product name it qualifies. Quiet, unbordered, and separated by a
+   middot: it is a caption on "Web Terminal", not a control, and it must not
+   compete with the identity chip on the right for the eye. */
+.header-deployment {
   font-family: var(--font-display);
   font-size: var(--text-md);
   font-weight: var(--weight-regular);
-  color: var(--text-primary);
-  padding: 5px 10px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  background: var(--bg-panel);
+  color: var(--text-secondary);
   white-space: nowrap;
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.header-deployment::before {
+  content: "·";
+  margin-right: var(--space-2);
+  color: var(--text-muted);
 }
 
 /* Rides the secondary accent: the shell's three always-visible orientation
@@ -207,9 +211,9 @@
 
 /* ---- Header action cluster (bordered chips, frame 2a) ---- */
 
-/* The header's remaining icon button — logout — renders as `.header-icon-btn`
-   (base style in drawer.css); reshape it into a 28px bordered chip only within
-   the header, leaving the drawer's own icon buttons untouched. */
+/* Any `.header-icon-btn` (base style in drawer.css) that lands in the header
+   is reshaped into a 28px bordered chip, leaving the drawer's own icon buttons
+   untouched. */
 .header .header-actions {
   gap: var(--space-2);
 }
@@ -228,6 +232,150 @@
   color: var(--color-accent-light);
   border-color: var(--border-accent);
   background: var(--bg-elevated);
+}
+
+/* ---- Identity chip (who you are + the way out) ----
+
+   One chip replaces the old user-name badge and the standalone logout door
+   button. The trigger states the fact (avatar initial + username); the popover
+   it opens holds the action (Log out) plus the deployment line, so an operator
+   on several terminals can confirm WHICH one they are about to leave before
+   they leave it. Popover grammar — capture-phase outside-click, Escape,
+   aria-expanded mirrored on the trigger — matches display-menu.js and
+   panel-add-menu.js, the shell's other two header popovers. */
+.identity-menu {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.identity-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  max-width: 200px;
+  padding: 0 8px 0 4px;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.identity-trigger:hover,
+.identity-trigger[aria-expanded="true"] {
+  border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+/* The initial disc. Carries the accent so the chip reads as "you" at a glance
+   without needing an avatar image the framework has no way to source. */
+.identity-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-none);
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+}
+
+.identity-name {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.identity-caret {
+  display: block;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+/* The popover: drops below the chip, right-aligned to it — same geometry as
+   the display menu's card. */
+.identity-card {
+  display: none;
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  min-width: 200px;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  overflow: hidden;
+  z-index: var(--z-dropdown);
+}
+
+.identity-card.open {
+  display: flex;
+}
+
+.identity-card-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.identity-card-name {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.identity-card-sub {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.identity-card-logout {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  text-align: left;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.identity-card-logout:hover {
+  color: var(--color-error);
+  background: var(--bg-elevated);
+}
+
+.identity-card-logout[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.identity-card-logout-icon {
+  font-size: var(--text-md);
+  line-height: var(--leading-none);
 }
 
 /* ---- Display menu (the header sliders button) ----
@@ -602,13 +750,14 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 /* Per-entry corner affordances — decorative, revealed on hover. The rail owns
-   a panel's whole lifecycle, so both the close "×" and the popout "↗" live
-   here; the tile's own header bar is a bare drag grip with no controls on it.
-   They take mirrored top corners, clear of the centred icon + label stack. */
+   a panel's MEMBERSHIP lifecycle: close "×" (remove from rail, top-left),
+   popout "↗" (top-right), and open-beside "⊞" (open as a new tile,
+   bottom-right); closing an OPEN tile is the tile header's own "×". The
+   corners sit clear of the centred icon + label stack. */
 .panel-rail-close,
-.panel-rail-popout {
+.panel-rail-popout,
+.panel-rail-beside {
   position: absolute;
-  top: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -624,6 +773,7 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 .panel-rail-close {
+  top: 4px;
   left: 4px;
   font-size: var(--text-lg);
 }
@@ -631,6 +781,16 @@ html[data-ui-mode="simple"] .session-selector {
 /* The arrow is a smaller glyph than the "×" at the same nominal size, so it
    rides one step up the scale to read as the "×"'s equal weight. */
 .panel-rail-popout {
+  top: 4px;
+  right: 4px;
+  font-size: var(--text-base);
+}
+
+/* Open-beside takes the bottom-right corner, below the popout: both "take
+   this panel somewhere" verbs share the right edge, membership removal keeps
+   the left. Same step-up sizing rationale as the popout glyph. */
+.panel-rail-beside {
+  bottom: 4px;
   right: 4px;
   font-size: var(--text-base);
 }
@@ -638,7 +798,8 @@ html[data-ui-mode="simple"] .session-selector {
 /* Revealed on hover only — the active cell stays clean (close via hover or the
    keyboard Delete/Backspace shortcut). */
 .panel-rail-button:hover .panel-rail-close,
-.panel-rail-button:hover .panel-rail-popout { opacity: 0.7; }
+.panel-rail-button:hover .panel-rail-popout,
+.panel-rail-button:hover .panel-rail-beside { opacity: 0.7; }
 
 .panel-rail-close:hover {
   opacity: 1;
@@ -646,12 +807,27 @@ html[data-ui-mode="simple"] .session-selector {
   background: var(--accent-tint-08);
 }
 
-/* Popout is non-destructive, so it lights accent rather than the close's error
-   red — the colour is the only cue distinguishing the two corners on hover. */
-.panel-rail-popout:hover {
+/* Popout and open-beside are non-destructive, so they light accent rather
+   than the close's error red — the colour is the cue distinguishing the
+   corners on hover. */
+.panel-rail-popout:hover,
+.panel-rail-beside:hover {
   opacity: 1;
   color: var(--color-accent-light);
   background: var(--accent-tint-08);
+}
+
+/* The drag source dims while its ghost travels, so "this entry is being
+   dragged" reads at a glance. */
+.panel-rail-button.dragging {
+  opacity: 0.4;
+}
+
+/* Simple mode is a locked layout: growing it is not a simple-mode gesture, so
+   the open-beside corner disappears entirely (rail-drag.js cancels the drag
+   half in JS — CSS cannot suppress draggable). */
+html[data-ui-mode="simple"] .panel-rail-beside {
+  display: none;
 }
 
 /* The design system's `.agent-attention` badge is pinned to the same top-right
@@ -671,19 +847,22 @@ html[data-ui-mode="simple"] .session-selector {
   opacity: 0.6;
 }
 
-/* Popout is the opposite case: a panel whose backend has not come up has no
-   resolved standalone URL yet, so the affordance is hidden rather than offered
-   as a dead click (panel-manager's handler no-ops on a null URL regardless). */
-.panel-rail-button.disabled .panel-rail-popout {
+/* Popout and open-beside are the opposite case: a panel whose backend has not
+   come up has nothing useful to open, so the affordances are hidden rather
+   than offered as a dead click (the JS handlers guard regardless). */
+.panel-rail-button.disabled .panel-rail-popout,
+.panel-rail-button.disabled .panel-rail-beside {
   display: none;
 }
 
 /* The SESSION (terminal) entry is the rail's permanent anchor: it never has a
    membership "×" — its tile is closed/reopened through its own header bar and
    the Delete-key shortcut instead (dock-workspace.js guards the JS paths too).
-   It has no standalone page either, so no "↗". */
+   It has no standalone page either, so no "↗"; its tile reopens via a plain
+   click, so no "⊞" (and panel-manager cancels its drag). */
 .panel-rail-button[data-panel-id="terminal"] .panel-rail-close,
-.panel-rail-button[data-panel-id="terminal"] .panel-rail-popout {
+.panel-rail-button[data-panel-id="terminal"] .panel-rail-popout,
+.panel-rail-button[data-panel-id="terminal"] .panel-rail-beside {
   display: none;
 }
 
@@ -895,6 +1074,11 @@ html[data-rail-position="top"] .panel-rail-popout {
 
 html[data-rail-position="top"] .panel-rail-close {
   left: 2px;
+}
+
+html[data-rail-position="top"] .panel-rail-beside {
+  bottom: 2px;
+  right: 2px;
 }
 
 html[data-rail-position="top"] .panel-rail-popout {

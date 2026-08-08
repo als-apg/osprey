@@ -10,7 +10,7 @@ name: ARIEL Standalone
 
 # Data bundle: ariel-only project skeleton (Postgres+pgvector services block,
 # ARIEL config, no channel/benchmark databases).
-data_bundle: ariel_standalone
+app_template: ariel_standalone
 
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves

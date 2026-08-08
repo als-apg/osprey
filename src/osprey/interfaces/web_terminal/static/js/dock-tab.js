@@ -2,25 +2,23 @@
 /* OSPREY Web Terminal — Tile Header Bar (custom dockview tab renderer)
  *
  * Under the one-panel-per-tile invariant a tile's "tab" can never have
- * siblings, so instead of a tab it renders the tile's HOST HEADER BAR. The
- * two tile kinds get very different bars, because they carry very different
- * amounts of state:
+ * siblings, so instead of a tab it renders the tile's HOST HEADER BAR. Every
+ * tile gets the same bar grammar — drag grip on the left, the tile's
+ * identity in the middle, close on the right — so grabbing, naming and
+ * closing a tile is one gesture learned once:
  *
- *   service tiles — a bare drag GRIP, nothing else. Their title is already on
- *     the rail entry, and their lifecycle controls (close, popout) live on
- *     that entry's hover corners, so a full-height bar per tile was chrome
- *     charged against every panel for affordances used rarely. The strip is
- *     styled down to a grip pill in dockview-overrides.css.
+ *   service tiles — grip + a visible `.tile-tab-title` + close. The close is
+ *     a LOCAL tile close (the panel keeps its rail entry; dock-sync routes
+ *     the click to a vacate handler); membership removal stays the rail
+ *     entry's "×". Popout remains rail-only.
  *   the terminal tile — grip + the adopted live `.terminal-header` + close.
- *     Its bar earns its height: session LED, session id, the session selector
- *     and "+ New" are frequently-used, stateful controls with nowhere better
- *     to live, and this close is the terminal's only pointer close path (its
- *     rail entry deliberately has no "×").
+ *     The header supplies the identity and more: session LED, session id,
+ *     the session selector and "+ New" are frequently-used, stateful
+ *     controls with nowhere better to live.
  *
  * Registered via dockview's createTabComponent/defaultTabComponent
  * (dock-workspace.js), which keeps dockview's native tab DnD, drop
- * hit-testing and close plumbing intact — the bar IS the drag handle, at
- * either height.
+ * hit-testing and close plumbing intact — the bar IS the drag handle.
  */
 
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
@@ -106,8 +104,9 @@ class TileTab {
     grip.setAttribute('aria-hidden', 'true');
     root.appendChild(grip);
 
-    // Service tiles stop here: grip only. Everything else about a service
-    // panel is reachable from its rail entry.
+    /** @type {HTMLElement | null} visible name element (service tiles only) */
+    this._titleEl = null;
+
     if (id === TERMINAL_RAIL_ID) {
       root.classList.add('tile-tab-terminal');
       const header = terminalHeader();
@@ -118,29 +117,34 @@ class TileTab {
         // function's docstring for why attaching per-construction would
         // accumulate listeners).
       }
-
-      const actions = document.createElement('div');
-      actions.className = 'tile-tab-actions';
-      // The DefaultTab idiom: preventDefault on pointerdown keeps an action
-      // press from starting a drag/focus dance; the click still fires.
-      actions.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      });
-      const close = document.createElement('button');
-      close.type = 'button';
-      close.className = 'tile-tab-close';
-      close.textContent = '×';
-      close.title = 'Close tile';
-      close.setAttribute('aria-label', 'Close tile');
-      close.addEventListener('click', (e) => {
-        if (e.defaultPrevented) return;
-        e.preventDefault();
-        this._api?.close?.();
-      });
-      actions.appendChild(close);
-      root.appendChild(actions);
+    } else {
+      const title = document.createElement('span');
+      title.className = 'tile-tab-title';
+      root.appendChild(title);
+      this._titleEl = title;
     }
+
+    const actions = document.createElement('div');
+    actions.className = 'tile-tab-actions';
+    // The DefaultTab idiom: preventDefault on pointerdown keeps an action
+    // press from starting a drag/focus dance; the click still fires.
+    actions.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'tile-tab-close';
+    close.textContent = '×';
+    close.title = 'Close tile';
+    close.setAttribute('aria-label', 'Close tile');
+    close.addEventListener('click', (e) => {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      this._api?.close?.();
+    });
+    actions.appendChild(close);
+    root.appendChild(actions);
 
     this._element = root;
   }
@@ -152,14 +156,15 @@ class TileTab {
   /** @param {any} params  dockview TabPartInitParameters (title, params, api, …) */
   init(params) {
     this._api = params.api;
-    // A service strip is a drag handle carrying no text, which would leave
-    // assistive tech with an unnamed control. The panel title becomes its
-    // accessible name instead of a visible label — kept current, since a
-    // renamed panel would otherwise announce a stale one. The terminal bar is
-    // exempt: the header it adopted names it already.
+    // The panel title is a service bar's visible label AND its accessible
+    // name, kept current so a renamed panel never shows or announces a stale
+    // one. The terminal bar is exempt: the header it adopted names it already.
     if (this._panelId === TERMINAL_RAIL_ID) return;
     /** @param {string} title */
-    const applyName = (title) => this._element.setAttribute('aria-label', title);
+    const applyName = (title) => {
+      if (this._titleEl) this._titleEl.textContent = title;
+      this._element.setAttribute('aria-label', title);
+    };
     applyName(params.title ?? '');
     const sub = params.api?.onDidTitleChange?.((/** @type {any} */ e) => applyName(e?.title ?? ''));
     if (sub?.dispose) this._disposables.push(sub);

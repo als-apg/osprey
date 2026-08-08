@@ -3,10 +3,11 @@
  *
  * A pure DOM-rendering module for the 74px left icon rail that replaces the
  * horizontal header tab strip. It builds one entry per rail MEMBER (icon,
- * label, active accent) plus a trailing `＋` add affordance, and exposes small
+ * label, active accent, hover corners, drag source) and exposes small
  * imperative mutators — set active, enable, attention, append, remove — so
  * `panel-manager.js`'s state machine can drive the rail without owning any DOM
- * specifics.
+ * specifics. (The `＋` add control is NOT the rail's: the template supplies it
+ * as the sibling `#panel-add-btn`.)
  *
  * The rail deliberately carries NO per-panel health readout. Backend liveness
  * is reported in one place — the SYSTEM panel's `web_panels` health category —
@@ -32,14 +33,14 @@
  *
  *   <nav class="panel-rail" role="tablist">
  *     <button class="panel-rail-button disabled" data-panel-id="artifacts"
- *             type="button" role="tab" aria-selected="false" title="WORKSPACE">
+ *             type="button" role="tab" aria-selected="false" title="WORKSPACE"
+ *             draggable="true">                                       (only when onDragStart given)
  *       <span class="panel-rail-icon" data-icon="artifacts" aria-hidden="true"></span>
  *       <span class="panel-rail-label">WORKSPACE</span>
  *       <span class="panel-rail-close" aria-hidden="true">×</span>    (only when onClose given)
  *       <span class="panel-rail-popout" aria-hidden="true">↗</span>   (only when onPopout given)
+ *       <span class="panel-rail-beside" aria-hidden="true">⊞</span>   (only when onOpenBeside given)
  *     </button>
- *     ...
- *     <button class="panel-rail-add" type="button" aria-label="Add panel">＋</button>  (only when onAdd given)
  *   </nav>
  *
  * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
@@ -62,17 +63,22 @@ import { flashElement } from '/design-system/js/highlight.js';
 
 /**
  * Interaction closures injected by the caller so the rail stays a dumb view.
- * Every callback is optional: omit `onClose` / `onPopout` to render no such
- * per-entry corner affordance, omit `onAdd` to render no `＋` button.
+ * Every callback is optional: omit `onClose` / `onPopout` / `onOpenBeside` to
+ * render no such per-entry corner affordance, omit `onDragStart` to render
+ * non-draggable entries. `onDragStart` may return false to cancel the drag for
+ * that entry (the caller's policy — e.g. the terminal entry, simple mode);
+ * this module stays policy-free.
  * @typedef {object} RailOptions
- * @property {(id: string) => void} [onActivate] - an entry was clicked
- * @property {(id: string) => void} [onClose]    - the entry's close "×" was clicked
- * @property {(id: string) => void} [onPopout]   - the entry's popout "↗" was clicked
- * @property {() => void} [onAdd]                 - the trailing `＋` was clicked
+ * @property {(id: string) => void} [onActivate]   - an entry was clicked
+ * @property {(id: string) => void} [onClose]      - the entry's close "×" was clicked
+ * @property {(id: string) => void} [onPopout]     - the entry's popout "↗" was clicked
+ * @property {(id: string) => void} [onOpenBeside] - the entry's "⊞" (open in a new tile) was clicked
+ * @property {(id: string, dataTransfer: DataTransfer | null) => boolean} [onDragStart]
+ *   - a drag left an entry; return false to cancel it
+ * @property {(id: string) => void} [onDragEnd]    - the entry's drag gesture ended (any outcome)
  */
 
 const BUTTON_SELECTOR = '.panel-rail-button';
-const ADD_SELECTOR = '.panel-rail-add';
 
 // ---- Rendering ----
 
@@ -114,10 +120,11 @@ function buildRailButton(panel, options = {}) {
     btn.addEventListener('click', () => onActivate(panel.id));
   }
 
-  // Per-entry corner affordances — the rail owns a panel's whole lifecycle
-  // (open, close, pop out), so both live here rather than on the tile itself,
-  // whose header bar is a bare drag grip. Rendered only when the caller wants
-  // them; close takes the top-left corner, popout the mirrored top-right.
+  // Per-entry corner affordances — the rail owns a panel's MEMBERSHIP
+  // lifecycle (remove from rail, pop out, open as a new tile). Rendered only
+  // when the caller wants them; close takes the top-left corner, popout the
+  // mirrored top-right, open-beside the bottom-right. (Closing an OPEN tile
+  // is the tile header's own "×" — a layout gesture, not a membership one.)
   if (options.onClose) {
     btn.appendChild(
       buildCornerAffordance('panel-rail-close', '×', `Close ${panel.label}`, panel.id, options.onClose)
@@ -129,6 +136,34 @@ function buildRailButton(panel, options = {}) {
         'panel-rail-popout', '↗', `Open ${panel.label} in a new window`, panel.id, options.onPopout
       )
     );
+  }
+  if (options.onOpenBeside) {
+    btn.appendChild(
+      buildCornerAffordance(
+        'panel-rail-beside', '⊞', `Open ${panel.label} in a new tile`, panel.id, options.onOpenBeside
+      )
+    );
+  }
+
+  // Drag source: dragging an entry into the workspace opens the panel as a
+  // NEW tile at the drop position (the precise half of the open-beside verb).
+  // The caller's onDragStart stamps the dataTransfer payload and may cancel
+  // (return false) — e.g. for the terminal entry or a locked simple layout.
+  if (options.onDragStart) {
+    const onDragStart = options.onDragStart;
+    btn.setAttribute('draggable', 'true');
+    btn.addEventListener('dragstart', (e) => {
+      if (!onDragStart(panel.id, e.dataTransfer)) {
+        e.preventDefault();
+        return;
+      }
+      btn.classList.add('dragging');
+    });
+    const onDragEnd = options.onDragEnd;
+    btn.addEventListener('dragend', () => {
+      btn.classList.remove('dragging');
+      onDragEnd?.(panel.id);
+    });
   }
 
   return btn;
@@ -161,24 +196,10 @@ function buildCornerAffordance(className, glyph, title, panelId, handler) {
 }
 
 /**
- * Build the `＋` add affordance that sits after the panel entries.
- * @param {() => void} onAdd
- * @returns {HTMLButtonElement}
- */
-function buildAddButton(onAdd) {
-  const add = document.createElement('button');
-  add.type = 'button';
-  add.className = 'panel-rail-add';
-  add.setAttribute('aria-label', 'Add panel');
-  add.textContent = '＋';
-  add.addEventListener('click', () => onAdd());
-  return add;
-}
-
-/**
  * Render the full rail into `railEl`, replacing any existing content. Entries
- * are appended in `panels` order, followed by the `＋` button when `onAdd` is
- * supplied. Marks `railEl` as `role="tablist"` for assistive tech.
+ * are appended in `panels` order. Marks `railEl` as `role="tablist"` for
+ * assistive tech. (The `＋` add control is the template's sibling
+ * `#panel-add-btn`, outside this nav — never rendered here.)
  *
  * This is the destructive full render — the twin of the tab strip's
  * `renderTabs()`. Use {@link addEntry} / {@link removeEntry} for
@@ -195,22 +216,18 @@ export function createRail(railEl, panels, options = {}) {
   for (const panel of panels) {
     railEl.appendChild(buildRailButton(panel, options));
   }
-  if (options.onAdd) {
-    railEl.appendChild(buildAddButton(options.onAdd));
-  }
 }
 
 /**
  * Append a single entry without disturbing existing ones — the non-destructive
  * path for membership additions (agent show_panel, "+" menu pick, runtime
- * registration). Inserts before the `＋` button when one is present so the add
- * affordance stays last; otherwise appends at the end.
+ * registration).
  *
  * Idempotent by id: if an entry for `panel.id` already exists it is returned
  * unchanged (no duplicate node), mirroring the tab strip's re-register guard.
  * @param {HTMLElement} railEl
  * @param {RailPanel} panel
- * @param {RailOptions} [options] - `onAdd` is ignored here (the rail already owns its `＋`)
+ * @param {RailOptions} [options]
  * @returns {HTMLButtonElement}
  */
 export function addEntry(railEl, panel, options = {}) {
@@ -218,12 +235,7 @@ export function addEntry(railEl, panel, options = {}) {
   if (existing) return existing;
 
   const btn = buildRailButton(panel, options);
-  const addBtn = railEl.querySelector(ADD_SELECTOR);
-  if (addBtn) {
-    railEl.insertBefore(btn, addBtn);
-  } else {
-    railEl.appendChild(btn);
-  }
+  railEl.appendChild(btn);
   return btn;
 }
 

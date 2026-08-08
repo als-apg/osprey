@@ -1,7 +1,14 @@
-# Full Virtual Accelerator image: PyAT + pythonSoftIOC + osprey (the VA
-# service now ships as osprey.services.virtual_accelerator, part of the
-# osprey package itself), assembled by entrypoint.py as
-# manifest -> records -> physics bridge -> engine source, served over CA.
+# check=skip=FromPlatformFlagConstDisallowed
+# (The constant --platform below is the point of this image, not an oversight
+# -- see the FROM comment. Parser directives must lead the file, so this one
+# sits above the header rather than next to what it excuses.)
+
+# Full Virtual Accelerator image: PyAT physics + the LUME serving stack +
+# osprey (the VA service ships as osprey.services.virtual_accelerator, part of
+# the osprey package itself). entrypoint.py assembles it in dependency order --
+# manifest -> serving database -> physics bridge -> runner -> engine source --
+# and one runner then serves the facility's whole channel namespace on Channel
+# Access with the physics model's own variables on PVAccess.
 #
 # Build context MUST be a staging directory containing exactly:
 #   pyproject.toml, README.md, src/, docker/virtual-accelerator/Containerfile
@@ -9,23 +16,29 @@
 # NOT the repo root, which also contains .venv/.git/worktrees and would
 # make every build re-tar gigabytes of unrelated content.
 #
-# Why python:3.11-slim, not python:3.10-slim (the Phase-1 probe's base):
-# osprey's own pyproject.toml requires Python >=3.11, but the originally
-# investigated softioc==4.5.0 publishes wheels no newer than cp310 -- these
-# two constraints are mutually exclusive in one interpreter. softioc first
-# publishes a cp311 wheel at 4.6.1; accelerator-toolbox is bumped to 0.7.1
-# to match what this repo's uv.lock already resolves (and what
-# lattice/response.py and ioc/physics_bridge.py were actually built and
-# tested against) rather than the stale 0.6.1 probe-era pin.
-#
-# Native architecture: no `--platform` pin, so the image resolves to the host
-# arch. accelerator-toolbox/softioc (and softioc's epicscorelibs/pvxslibs deps)
-# publish no manylinux_aarch64 wheels at any version, so on arm64 they compile from
-# sdist at build time using the toolchain installed below (purged in the same
-# RUN layer); on x86_64 the prebuilt wheels install as before -- no emulation.
-FROM python:3.11-slim
+# linux/amd64, pinned -- deliberately single-arch; arm64 is not built, and
+# there is no source-build path for it. pcaspy publishes no linux/aarch64
+# wheel at any interpreter, so an arm64 image would have to compile EPICS base
+# -> epics-modules/pcas -> pcaspy from source on every cold build. amd64 is
+# also what CI runs and the only architecture on which a client importing this
+# stack's CA server extension alongside pyepics has been measured to work.
+# The accepted cost: on an Apple Silicon host the image runs emulated.
+FROM --platform=linux/amd64 python:3.11-slim
 
-# osprey itself -- manifest/lattice/ioc/entrypoint now live under
+# Refuse to build anywhere but amd64. The pin above should make this
+# unreachable, but a `--platform` override on the command line, or someone
+# lifting this recipe into another file, would otherwise produce an image that
+# BUILDS CLEANLY AND CANNOT SERVE: there is no pcaspy wheel for linux/aarch64
+# at any interpreter, and osprey's `virtual-accelerator` extra marks pcaspy
+# `sys_platform == 'linux' and platform_machine == 'x86_64'` -- so on aarch64
+# the Channel Access server is simply not installed, silently, because an
+# unmatched environment marker is not an error. The first sign would be a
+# runtime ImportError on `import pcaspy` in serving/runner.py, long after the
+# build reported success. Fail here instead, where the message can say why.
+RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
+    || { echo "ERROR: the virtual accelerator image is linux/amd64 only (this build is $arch). No pcaspy wheel exists for linux/aarch64 at any interpreter, so an aarch64 image would carry no Channel Access server." >&2; exit 1; }
+
+# osprey itself -- manifest/lattice/ioc/serving/entrypoint live under
 # src/osprey/services/virtual_accelerator/ and install as part of the
 # package, so no separate COPY of a docker/virtual-accelerator source tree
 # is needed. Built from the source copied in below -- never from PyPI -- so
@@ -37,30 +50,85 @@ WORKDIR /opt/osprey
 COPY pyproject.toml README.md /opt/osprey/
 COPY src/ /opt/osprey/src/
 
-# A C toolchain is needed at install time to compile the native deps from sdist
-# on arm64; it is installed and purged in this single RUN layer so it never
-# bloats the final image. build-essential pulls in the perl it needs
-# transitively -- no explicit perl package is required. Both pip installs (the
-# pinned native deps and osprey itself) run while the toolchain is present.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential python3-dev \
-    && pip install --no-cache-dir accelerator-toolbox==0.7.1 softioc==4.7.0 \
-    && pip install --no-cache-dir . \
-    && apt-get purge -y build-essential python3-dev \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
+# osprey's version comes from the git tag (hatch-vcs), and the staged build
+# context has no .git -- deliberately, since staging one would mean copying the
+# repository history into every build. Without a version the build backend
+# refuses to produce metadata at all, so the host passes the version it
+# resolved and setuptools-scm is told to use it verbatim. The un-suffixed
+# SETUPTOOLS_SCM_PRETEND_VERSION is the one that works here: the
+# ``_FOR_<DIST_NAME>`` form needs the backend to hand setuptools-scm a dist
+# name, which hatch-vcs does not, so that form is silently ignored and the
+# build fails as if nothing had been set. Only osprey is built in this layer,
+# so the un-scoped variable reaches exactly one package. The build hook stamps
+# whatever lands here into src/osprey/_version.py, which is what
+# ``osprey.__version__`` reports at runtime -- so a build that does not pass
+# OSPREY_VERSION yields an image that honestly reports an unknown version
+# rather than a plausible wrong one.
+ARG OSPREY_VERSION=0.0.0.dev0+unknown
+
+# The `virtual-accelerator` extra rather than a bare install, matching the
+# service Dockerfile, so both images resolve the serving dependency set the
+# same way. That extra is where the whole serving stack now comes from:
+# `lume-pva-apg[ca,pva]`, exact-pinned, carrying pcaspy for Channel Access and
+# p4p for PVAccess -- the two transports the runner serves. None of the three
+# is declared here as an install target or version constraint, deliberately,
+# so this image cannot pin a serving dependency pyproject.toml disagrees with;
+# the --only-binary guard below names pcaspy but pins nothing. lume-base and
+# lume-pyat need no mention
+# either -- they are exact-pinned core dependencies of osprey, so the resolve
+# can only produce one answer for them.
+#
+# --only-binary pcaspy is a guard, not an optimisation. pcaspy's sdist needs a
+# full EPICS base + epics-modules/pcas build -- minutes, not seconds -- and on
+# amd64 a wheel always exists, so if pip ever reaches for that sdist here
+# something is wrong and the build should say so rather than stall.
+#
+# PyAT is the exception, and the pin is not redundant. pyproject.toml declares
+# `accelerator-toolbox[plot]>=0.7.1` and uv.lock resolves that to 0.7.1 --
+# which is what the dev venv and every unit test run against -- but this image
+# installs with pip, and pip does not read uv.lock. Without the pin the image
+# silently takes the newest release satisfying the floor, so the physics
+# library the container serves from would drift away from the one the lattice
+# code is tested against, with no signal. This line is what keeps the two in
+# step, and it must be bumped together with uv.lock. A lockfile-driven install
+# would make it unnecessary, but that is a change to how the whole image
+# resolves, not a change to this pin.
+#
+# Everything here installs from prebuilt manylinux_x86_64 wheels, so the image
+# carries no C toolchain at all.
+RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.7.1" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
+       pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy
 
 # Channel Access server port. TCP only is required -- CA name-server mode
 # (EPICS_CA_NAME_SERVERS=<host>:5064, EPICS_CA_AUTO_ADDR_LIST=NO on the
 # client side) is the one host<->container configuration proven to work
 # across container runtimes (see
-# src/osprey/services/virtual_accelerator/probe/README.md); UDP broadcast
+# scripts/va/probe_pcaspy/README.md); UDP broadcast
 # discovery is not published because it is not relied upon. 5064 matches the
 # "Local Simulation" gateway preset
 # (src/osprey/templates/data/facility_gateways.py) exactly, so a preset
 # project needs no config changes beyond selecting control_system.type:
 # virtual_accelerator.
+#
+# The published port and the port the server binds must be the SAME number:
+# a CA search reply carries the server's own port, so a remap like
+# -p 5164:5064 hands every client a port it cannot reach, with no useful
+# error. The PVAccess server's port (5075) is deliberately not exposed --
+# PVA is served inside the container only.
 EXPOSE 5064/tcp
 ENV EPICS_CA_SERVER_PORT=5064
 
-CMD ["python", "-u", "-m", "osprey.services.virtual_accelerator.entrypoint"]
+# The entrypoint module is configuration, not a bake-time constant: a facility
+# may supply its own entrypoint module (e.g. one serving a file-backed
+# manifest with no lattice) without rebuilding the image. `exec` replaces the
+# shell so SIGTERM reaches python directly and entrypoint.py's shutdown
+# handlers still run on `docker stop`. `:-` treats the compose passthrough's
+# empty string the same as unset.
+#
+# EPICS_CAS_SERVER_PORT is derived here rather than baked as an ENV, because
+# it has to track EPICS_CA_SERVER_PORT: the CA *server* library reads the CAS
+# variable and does not fall back to the client-side one, so an image whose
+# CAS port were frozen at build time would keep binding 5064 while a
+# `-e EPICS_CA_SERVER_PORT=...` run told its clients some other port.
+CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}"]

@@ -246,7 +246,12 @@ def build_claude_code_context(
 
     api_providers = config.get("api", {}).get("providers", {})
     try:
-        model_spec = ClaudeCodeModelResolver.resolve(claude_code_config, api_providers)
+        # Build time: telemetry credentials may legitimately be the
+        # deployment's to supply (the runtime re-resolves them at agent-spawn),
+        # so an unresolved ${VAR} omits the auth header instead of aborting.
+        model_spec = ClaudeCodeModelResolver.resolve(
+            claude_code_config, api_providers, defer_unresolved_telemetry_creds=True
+        )
     except ValueError as exc:
         warnings.warn(str(exc), stacklevel=2)
         model_spec = None

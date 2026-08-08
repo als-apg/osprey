@@ -8,7 +8,7 @@ name: Hello World
 
 # Minimal bundle: project skeleton and config only (no channel databases,
 # no benchmark data, no logbook seed).
-data_bundle: hello_world
+app_template: hello_world
 
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves

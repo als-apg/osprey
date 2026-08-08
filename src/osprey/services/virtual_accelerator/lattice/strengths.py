@@ -3,9 +3,10 @@
 Owns the per-device nominal-current baseline (read from the scenario-seed
 ``machine.json``, no hardcoded currents) and the current->strength formulas
 for every magnet and corrector family in the real ring. This module is
-deliberately decoupled from the softioc -- it never imports anything from
-:mod:`osprey.services.virtual_accelerator.ioc` -- so a future LUME-based
-physics server can consume it identically.
+deliberately decoupled from the serving layer -- it never imports anything
+from :mod:`osprey.services.virtual_accelerator.ioc` or
+:mod:`osprey.services.virtual_accelerator.serving` -- so any physics server
+can consume it identically.
 
 Apply-current semantics (per family):
 

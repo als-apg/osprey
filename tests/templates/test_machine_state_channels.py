@@ -1,29 +1,41 @@
-"""Render/reconciliation test for ``machine_state_channels.json.j2`` (task 5.1).
+"""Content/reconciliation test for ``machine_state_channels.json``.
 
-Before this task the template branched on ``default_pipeline`` into three
-separate channel lists (fictional FEL names for ``in_context``, ``SR01C:``-
-style names for ``middle_layer``, obsolete bracket names ``MAG:DIPOLE[B01]``
-for ``hierarchical``) -- none of which exist in any channel-finder DB or the
+The file once branched on ``default_pipeline`` into three separate channel
+lists (fictional FEL names for ``in_context``, ``SR01C:``-style names for
+``middle_layer``, obsolete bracket names ``MAG:DIPOLE[B01]`` for
+``hierarchical``) -- none of which exist in any channel-finder DB or the
 namespace-union manifest (see ``tests/va/test_manifest.py`` /
-``osprey.services.virtual_accelerator.manifest``). The template now emits ONE
-canonical channel list, independent of pipeline mode, drawn from real
+``osprey.services.virtual_accelerator.manifest``). It now ships ONE canonical
+channel list, independent of pipeline mode, drawn from real
 ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` addresses that the manifest
-actually contains.
+actually contains -- and, having no Jinja left, ships as plain JSON under its
+final filename rather than as a ``.j2`` template (see
+``test_data_trees_are_not_templates.py``).
 
-This is the CC-4 regression guard: every rendered machine_state channel must
-be a real address in the manifest's namespace.
+This is the CC-4 regression guard: every machine_state channel must be a real
+address in the manifest's namespace.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
-from osprey.cli.templates.manager import TemplateManager
 from osprey.services.virtual_accelerator.manifest import build_manifest
 
-TEMPLATE_PATH = "apps/control_assistant/data/machine_state_channels.json.j2"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CHANNELS_PATH = (
+    REPO_ROOT
+    / "src"
+    / "osprey"
+    / "templates"
+    / "apps"
+    / "control_assistant"
+    / "data"
+    / "machine_state_channels.json"
+)
 
 # Fictional/broken names from the pre-fix template, pinned so they never
 # silently reappear.
@@ -48,16 +60,13 @@ FICTIONAL_ADDRESSES = (
 )
 
 
-def _render_machine_state(**context) -> dict:
-    manager = TemplateManager()
-    template = manager.jinja_env.get_template(TEMPLATE_PATH)
-    rendered = template.render(**context)
-    return json.loads(rendered)
+def _load() -> dict:
+    return json.loads(CHANNELS_PATH.read_text())
 
 
-def _channels(rendered: dict) -> dict:
-    """Rendered entries minus the underscore-prefixed metadata keys."""
-    return {k: v for k, v in rendered.items() if not k.startswith("_")}
+def _channels(loaded: dict) -> dict:
+    """Entries minus the underscore-prefixed metadata keys."""
+    return {k: v for k, v in loaded.items() if not k.startswith("_")}
 
 
 @pytest.fixture(scope="module")
@@ -66,37 +75,38 @@ def manifest_addresses() -> set[str]:
     return {c["address"] for c in manifest["channels"]}
 
 
-class TestRendersAsOneCanonicalList:
-    def test_renders_as_valid_json_with_no_context(self):
-        rendered = _render_machine_state()
-        assert isinstance(rendered, dict)
-        assert _channels(rendered), "expected at least one machine_state channel"
+class TestShipsAsOneCanonicalList:
+    def test_is_plain_json_at_its_final_filename(self):
+        assert CHANNELS_PATH.exists(), f"{CHANNELS_PATH} is missing"
+        assert not CHANNELS_PATH.with_name(CHANNELS_PATH.name + ".j2").exists()
+        loaded = _load()
+        assert isinstance(loaded, dict)
+        assert _channels(loaded), "expected at least one machine_state channel"
 
-    @pytest.mark.parametrize("pipeline_mode", ["in_context", "hierarchical", "middle_layer", None])
-    def test_output_is_identical_regardless_of_pipeline_mode(self, pipeline_mode):
-        """The template no longer branches on default_pipeline -- passing any
-        (or no) pipeline mode must render the same canonical channel set."""
-        baseline = _channels(_render_machine_state())
-        context = {"default_pipeline": pipeline_mode} if pipeline_mode is not None else {}
-        rendered = _channels(_render_machine_state(**context))
-        assert rendered == baseline
+    def test_carries_no_jinja_constructs(self):
+        """No pipeline-mode branching survives -- the list is mode-independent."""
+        text = CHANNELS_PATH.read_text()
+        for construct in ("{{", "{%", "{#"):
+            assert construct not in text, f"Jinja construct {construct!r} reappeared"
+        assert "default_pipeline" not in text
+        assert "channel_finder_mode" not in text
 
 
 class TestManifestConsistency:
-    """CC-4 regression guard: every rendered channel must be a real address."""
+    """CC-4 regression guard: every channel must be a real address."""
 
     def test_every_channel_is_in_the_manifest(self, manifest_addresses):
-        channels = _channels(_render_machine_state())
+        channels = _channels(_load())
         for address in channels:
             assert address in manifest_addresses, f"{address!r} not in manifest namespace"
 
     def test_no_fictional_addresses_remain(self):
-        channels = _channels(_render_machine_state())
+        channels = _channels(_load())
         for fictional in FICTIONAL_ADDRESSES:
             assert fictional not in channels, f"fictional address {fictional!r} reappeared"
 
     def test_addresses_follow_the_real_naming_grammar(self):
-        channels = _channels(_render_machine_state())
+        channels = _channels(_load())
         for address in channels:
             parts = address.split(":")
             assert len(parts) == 6, (
@@ -107,7 +117,7 @@ class TestManifestConsistency:
 
 class TestChannelShape:
     def test_every_entry_has_label_and_group(self):
-        channels = _channels(_render_machine_state())
+        channels = _channels(_load())
         for address, defn in channels.items():
             assert defn.get("label"), f"{address!r} missing a non-empty label"
             assert defn.get("group"), f"{address!r} missing a non-empty group"
@@ -116,7 +126,7 @@ class TestChannelShape:
         """One representative channel per category named in the task:
         DCCT current, RF cavity voltage, a BPM pair, one corrector RB, and a
         representative vacuum pressure."""
-        channels = _channels(_render_machine_state())
+        channels = _channels(_load())
         groups = {defn["group"] for defn in channels.values()}
         assert {"beam", "rf", "orbit", "magnets", "vacuum"} <= groups
 

@@ -386,6 +386,120 @@ def test_check_theme_metadata_accepts_well_formed_metadata() -> None:
     assert check_theme_metadata(tree) == []
 
 
+# --- check_theme_metadata: $extensions.family_label (optional family display name) ---
+
+
+def test_check_theme_metadata_accepts_absent_family_label() -> None:
+    """family_label is optional — consumers derive one from the family id."""
+    tree = _tree(
+        themes={"dark": {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
+    )
+
+    assert check_theme_metadata(tree) == []
+
+
+def test_check_theme_metadata_accepts_declared_family_label() -> None:
+    tree = _tree(
+        themes={"desy-dark": {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={
+            "desy-dark": {
+                "mode": "dark",
+                "id": "desy-dark",
+                "label": "DESY Dark",
+                "family": "desy",
+                "family_label": "DESY",
+            }
+        },
+    )
+
+    assert check_theme_metadata(tree) == []
+
+
+@pytest.mark.parametrize("bad_label", ["", 7, None, ["DESY"]])
+def test_check_theme_metadata_flags_non_string_family_label(bad_label: object) -> None:
+    """Present-but-unusable is an error; absent is not (see the test above)."""
+    tree = _tree(
+        themes={"desy-dark": {"bg.primary": _token("bg.primary", "#000")}},
+        theme_metadata={
+            "desy-dark": {
+                "mode": "dark",
+                "id": "desy-dark",
+                "label": "DESY Dark",
+                "family": "desy",
+                "family_label": bad_label,
+            }
+        },
+    )
+
+    errors = check_theme_metadata(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule is ValidationRule.INVALID_THEME_METADATA
+    assert "family_label" in errors[0].message
+
+
+def test_check_theme_metadata_flags_conflicting_family_labels() -> None:
+    """A family has ONE name; two members disagreeing would make the emitted
+    FAMILY_LABELS map depend on manifest order."""
+    tree = _tree(
+        themes={
+            "desy-dark": {"bg.primary": _token("bg.primary", "#000", source_file=Path("d.json"))},
+            "desy-light": {"bg.primary": _token("bg.primary", "#fff", source_file=Path("l.json"))},
+        },
+        theme_metadata={
+            "desy-dark": {
+                "mode": "dark",
+                "id": "desy-dark",
+                "label": "DESY Dark",
+                "family": "desy",
+                "family_label": "DESY",
+            },
+            "desy-light": {
+                "mode": "light",
+                "id": "desy-light",
+                "label": "DESY Light",
+                "family": "desy",
+                "family_label": "Desy",
+            },
+        },
+    )
+
+    errors = check_theme_metadata(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule is ValidationRule.INVALID_THEME_METADATA
+    assert "conflicting" in errors[0].message
+    assert "'DESY'" in errors[0].message and "'Desy'" in errors[0].message
+
+
+def test_check_theme_metadata_allows_one_member_to_label_the_family() -> None:
+    """Declaring on one member and omitting on the other is not a conflict."""
+    tree = _tree(
+        themes={
+            "desy-dark": {"bg.primary": _token("bg.primary", "#000")},
+            "desy-light": {"bg.primary": _token("bg.primary", "#fff")},
+        },
+        theme_metadata={
+            "desy-dark": {
+                "mode": "dark",
+                "id": "desy-dark",
+                "label": "DESY Dark",
+                "family": "desy",
+                "family_label": "DESY",
+            },
+            "desy-light": {
+                "mode": "light",
+                "id": "desy-light",
+                "label": "DESY Light",
+                "family": "desy",
+            },
+        },
+    )
+
+    assert check_theme_metadata(tree) == []
+
+
 # --- check_theme_metadata: $extensions.family (theme "family" grouping) ---------
 
 

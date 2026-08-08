@@ -1,5 +1,6 @@
 """Base Provider Interface for AI Model Access."""
 
+import os
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -61,6 +62,11 @@ class BaseProvider(ABC):
     supports_proxy: bool = NotImplemented
     default_base_url: str | None = None
     base_url_env_var: str | None = None  # Env var overriding all base_url sources (opt-in)
+    # Whether a missing base_url resolves to default_base_url. Opt-in: for most
+    # providers litellm derives the endpoint from the model prefix, and forcing a
+    # default would redirect them. Only providers that route openai-compatible
+    # (and would otherwise fall through to api.openai.com) turn this on.
+    apply_default_base_url_fallback: bool = False
     default_model_id: str | None = None  # Default model for templates/general use
     health_check_model_id: str | None = None  # Cheapest model for health checks
     available_models: list[str] = []  # List of available models for this provider
@@ -80,6 +86,34 @@ class BaseProvider(ABC):
     #   False -> use OSPREY's prompt-based JSON fallback
     #   None  -> defer to litellm.supports_response_schema() (auto-detect)
     supports_native_structured_output: bool | None = None
+
+    @classmethod
+    def effective_base_url(cls, base_url: str | None) -> str | None:
+        """Resolve the base_url actually used: env override > caller value > default.
+
+        Lives on the base class because two callers must agree on the answer: the
+        adapter that finally calls the endpoint, and whatever validates
+        :attr:`requires_base_url` before it. When only the adapter knew this rule,
+        a provider carrying a perfectly good :attr:`default_base_url` still failed
+        validation for "missing" base_url, and the default it declared was
+        unreachable — visible only once the env override was removed.
+
+        Args:
+            base_url: The caller's value, usually from deployment config. May be
+                ``None``.
+
+        Returns:
+            The URL this provider will use, or ``None`` when it has no source for
+            one — which is the only case a ``requires_base_url`` provider should
+            be rejected for.
+        """
+        if cls.base_url_env_var:
+            override = os.environ.get(cls.base_url_env_var)
+            if override:
+                return override
+        if cls.apply_default_base_url_fallback:
+            return base_url or cls.default_base_url
+        return base_url
 
     @abstractmethod
     def execute_completion(

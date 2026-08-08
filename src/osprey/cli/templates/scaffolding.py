@@ -298,6 +298,7 @@ def copy_template_data(
     data_bundle: str,
     ctx: dict,
     jinja_env=None,
+    data_root: Path | None = None,
 ):
     """Copy data files from template to project root (no src/ package).
 
@@ -313,7 +314,31 @@ def copy_template_data(
         data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
         jinja_env: Optional Jinja2 environment for rendering .j2 data files
+        data_root: Resolved data tree carried by the build profile (its ``data:``
+            key). When given it fully replaces the bundle's data tree — see the
+            profile-mode branch below. Symlinks inside the tree are
+            dereferenced into real files, matching the bundle branch: a built
+            project is self-contained and must not depend on paths under the
+            profile directory surviving.
     """
+    # Profile-sourced data is a full replacement, not a layer: neither the
+    # apps/<bundle>/data derivation nor the rglob fallback below runs, so no
+    # bundle file can leak into the project alongside the facility's own tree.
+    # It is content, not templates — a plain copytree, so a stray ``.j2`` lands
+    # byte-identical. Rendering is not merely skipped but impossible here:
+    # _copy_data_tree addresses templates by their path relative to
+    # ``template_root`` through a package-rooted Jinja loader, which cannot
+    # reach a tree outside the osprey package at all.
+    if data_root is not None:
+        dst_data = project_dir / "data"
+        # dirs_exist_ok is defensive — no build path reaches here with data/ present.
+        shutil.copytree(data_root, dst_data, dirs_exist_ok=True)
+        console.print(
+            f"  [success]✓[/success] Copied profile data files from "
+            f"[path]{data_root}[/path] to [path]{dst_data}[/path]"
+        )
+        return
+
     app_template_dir = template_root / "apps" / data_bundle
 
     # Look for data/ subdirectory in the template
@@ -485,90 +510,6 @@ def prune_csv_build_artifacts(project_dir: Path, channel_finder_mode: str) -> No
         f"  [success]✓[/success] Removed [path]{raw_dir}[/path] "
         f"(no CSV build path for {channel_finder_mode!r} paradigm)"
     )
-
-
-def create_application_code(
-    template_root: Path,
-    jinja_env,
-    src_dir: Path,
-    package_name: str,
-    data_bundle: str,
-    ctx: dict,
-    project_root: Path = None,
-):
-    """Create application code from template.
-
-    Args:
-        template_root: Path to osprey's bundled templates directory
-        jinja_env: Jinja2 environment for template rendering
-        src_dir: src/ directory where package will be created
-        package_name: Python package name (e.g., "my_assistant")
-        data_bundle: Name of the data bundle (apps/ subdirectory) to use
-        ctx: Template context variables
-        project_root: Actual project root (for placing scripts/ at root)
-
-    Note:
-        Special handling: Files in scripts/ directory are placed at project root
-        instead of inside the package to provide convenient CLI access.
-    """
-    app_template_dir = template_root / "apps" / data_bundle
-    app_dir = src_dir / package_name
-    app_dir.mkdir(parents=True)
-
-    # Use src_dir's parent as project_root if not provided
-    if project_root is None:
-        project_root = src_dir.parent
-
-    # Project-level files that should only live at project root, not in src/
-    # These are handled by create_project_structure() and should be skipped here
-    PROJECT_LEVEL_FILES = {
-        "config.yml.j2",
-        "config.yml",
-        "README.md.j2",
-        "README.md",
-        "env.example.j2",
-        "env.example",
-        "env.j2",
-        ".env",
-        "requirements.txt.j2",
-        "requirements.txt",
-        "pyproject.toml.j2",
-        "pyproject.toml",
-    }
-
-    # Process all files in the template
-    for template_file in app_template_dir.rglob("*"):
-        if not template_file.is_file():
-            continue
-
-        rel_path = template_file.relative_to(app_template_dir)
-
-        # Skip project-level files at template root (handled by create_project_structure)
-        if len(rel_path.parts) == 1 and rel_path.name in PROJECT_LEVEL_FILES:
-            continue
-
-        # Special handling for scripts/ directory - place at project root
-        if rel_path.parts[0] == "scripts":
-            base_output_dir = project_root
-            output_rel_path = rel_path
-        else:
-            base_output_dir = app_dir
-            output_rel_path = rel_path
-
-        # Determine output path
-        if template_file.suffix == ".j2":
-            # Template file - render it
-            output_name = template_file.stem  # Remove .j2 extension
-            output_path = base_output_dir / output_rel_path.parent / output_name
-            # Convert Windows backslashes to forward slashes for Jinja2
-            # (harmless on Linux/macOS where paths already use forward slashes)
-            template_path_str = f"apps/{data_bundle}/{rel_path}".replace("\\", "/")
-            render_template(jinja_env, template_path_str, ctx, output_path)
-        else:
-            # Static file - copy directly
-            output_path = base_output_dir / output_rel_path
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(template_file, output_path)
 
 
 def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dict):

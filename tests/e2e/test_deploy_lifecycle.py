@@ -159,13 +159,25 @@ def _run_osprey(
     # forcing it to RUNTIME here structurally couples the deploy-side runtime
     # to the assert-side _runtime_cli runtime, regardless of what the ambient
     # environment (or CI job) does or doesn't set.
+    #
+    # OSPREY_PIP_SPEC is the documented operator escape from the unreleased-
+    # version pin refusal (deploy up from a dev checkout cannot honestly pin a
+    # PyPI release). Every image these tests build is a stub Dockerfile that
+    # never declares the build arg, so the spec is inert — but its VALUE must
+    # stay a loud failure: if a future fixture ever consumes it, pip must
+    # refuse rather than silently install a real release.
     return subprocess.run(
         [str(osprey_bin), *args],
         cwd=str(cwd),
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
+        env={
+            **os.environ,
+            "CLAUDECODE": "",
+            "CONTAINER_RUNTIME": RUNTIME,
+            "OSPREY_PIP_SPEC": "osprey-framework==0.0.0+e2e-stub",
+        },
     )
 
 

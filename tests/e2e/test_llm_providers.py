@@ -152,7 +152,7 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
         (
             "als-apg",
             ["ALS_APG_API_KEY"],
-            os.environ.get("ALS_APG_BASE_URL", "https://llm.gianlucamartino.com"),
+            os.environ.get("ALS_APG_BASE_URL") or "https://llm.gianlucamartino.com",
             "claude-haiku-4-5-20251001",
         ),
     ]

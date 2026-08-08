@@ -8,7 +8,7 @@ providers), run the command and read the live output instead of recalling one.
 
 | Question | Command |
 | --- | --- |
-| Which presets ship with this version? | `osprey build --list-presets` |
+| Which presets ship with this version? | `osprey profile presets` |
 | Which build artifacts does the framework manage? | `osprey scaffold list` |
 | What is the whole config surface, with defaults? | `osprey config export -o defaults.yml` |
 | What does a command accept? | `osprey <command> --help` |
@@ -19,17 +19,19 @@ All of these run from any directory — no OSPREY project and no source checkout
 ## Start an editable profile
 
 ```
-osprey build --emit-profile <dir> --preset <name>
+osprey profile new <dir> --preset <name>
 ```
 
-`--preset` is required; pick one from `--list-presets`. It refuses if `<dir>` exists,
-and refuses project-render flags (`--output-dir`, `--force`, `--set`, `--override`,
-`--stream`, `--skip-lifecycle`, `--skip-deps`, `--tier`) or positional arguments.
+`--preset` is required; pick one from `osprey profile presets`. It refuses if `<dir>`
+exists. `-O <file>` and `--set KEY=VALUE` bake overrides into the written profile.
 
-It writes `profile.yml`, a `README.md`, and `overlays/{rules,skills,agents}/.gitkeep`
-for drop-in overlay files. `profile.yml` is self-documenting — `extends: <preset>`
-plus commented-out `skills:`, `rules:`, `agents:`, `config:`, `env:`, `overlay:`
-sections. Read it; it is the authoritative statement of what a profile can say.
+It writes `profile.yml`, a `README.md`, the preset's `data/` tree copied verbatim, and
+`overlays/{rules,skills,agents,web-terminal-context}/.gitkeep` for drop-in overlay
+files. `profile.yml` is standalone and self-documenting — the preset's whole
+configuration written out explicitly, with its comments, and no `extends:`. Read it; it
+is the authoritative statement of what a profile can say.
+
+Check an edited profile without building: `osprey profile validate <dir>`
 
 `config:` entries use **dotted keys** (`system.timezone: "America/Los_Angeles"`) that
 land at the matching nested path in the rendered `config.yml`; find the key you want

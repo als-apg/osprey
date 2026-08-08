@@ -7,10 +7,12 @@
 
 name: Control Assistant
 
-# The data bundle provides the project skeleton (config.yml, registry, data
-# files, benchmark datasets, etc.).  "control_assistant" is the standard full
-# bundle that includes channel databases, benchmarks, and a logbook seed.
-data_bundle: control_assistant
+# Which packaged project skeleton `osprey build` renders (config.yml,
+# README, Dockerfile). "control_assistant" is the full skeleton. Its data
+# files (channel databases, benchmarks, facility knowledge, logbook seeds)
+# are copied into a materialized profile's data/ directory, and that copy
+# — not the packaged one — is what the build uses from then on.
+app_template: control_assistant
 
 # Default LLM provider and model. Override here or via `osprey build`'s
 # --set provider=... / --set model=... flags; explicit --set overrides are
@@ -198,7 +200,14 @@ config:
     channel_finder_base_port: 9591  # first per-user channel-finder panel port
     default_persona: readonly   # roster entries with no persona resolve here
     users:
-      - alice                   # bare string → default_persona (readonly)
+      # One web terminal per entry. `index` pins the user's port offsets
+      # (each `*_base_port` above + index), so removing an entry never shifts
+      # another user's ports; `persona` names a catalog entry below. A bare
+      # string (`- alice`) is also accepted: it takes its list position as
+      # index and falls back to `default_persona`.
+      - name: alice
+        index: 0
+        persona: readonly
       - name: bob
         index: 1
         persona: readwrite

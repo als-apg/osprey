@@ -63,6 +63,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
+from tests.e2e._deploy_diagnostics import dead_container_logs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
@@ -353,9 +354,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         if up.returncode != 0:
             pytest.fail(
                 f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
+                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
+                f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        try:
+            _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         yield DeployedStack(project_dir=project_dir, pairs=pairs, limits=limits)
     finally:
         down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
@@ -363,6 +368,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+
+
+def _dead_container_logs() -> str:
+    """Logs from every container of this deployment that is not running."""
+    return dead_container_logs(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
 def _wait_for_health(url: str, timeout: float) -> None:

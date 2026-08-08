@@ -17,6 +17,7 @@ import yaml
 
 from osprey.errors import BuildProfileError
 
+from .build_profile_document import _normalize_profile_aliases, _read_profile_document
 from .build_profile_load import _parse_profile
 from .build_profile_merge import _deep_merge, _resolve_extends
 from .build_profile_model import BuildProfile
@@ -55,7 +56,9 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
                 )
             target = existing
         target[parts[-1]] = value
-    return result
+    # ``--set`` is its own authored layer, so it normalizes like a document —
+    # but the value loads above are scalar, not document, reads.
+    return _normalize_profile_aliases(result, "--set")
 
 
 # The model-selection shorthand keys a user can override via `--set` whose
@@ -87,17 +90,14 @@ def merge_cli_overrides(
 
     The shared CLI layering step: override files deep-merge in declaration
     order, then ``--set`` values merge on top. Used by the project-render path
-    (:func:`resolve_build_profile`) and by ``--emit-profile``, which bakes the
-    merged result into the scaffolded ``profile.yml``.
+    (:func:`resolve_build_profile`) and by ``osprey profile new``, which bakes
+    the merged result into the materialized ``profile.yml``.
     """
     raw = base
     for override_path in overrides:
         if not override_path.exists():
             raise BuildProfileError(f"Override not found: {override_path}")
-        try:
-            override_raw = yaml.safe_load(override_path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as e:
-            raise BuildProfileError(f"Invalid YAML in {override_path}: {e}") from e
+        override_raw = _read_profile_document(override_path)
         if override_raw is None:
             continue
         if not isinstance(override_raw, dict):
@@ -131,7 +131,7 @@ def resolve_build_profile(
 
     Raises:
         BuildProfileError: For mutual-exclusion violations, missing files,
-        invalid YAML, or validation failures.
+        invalid YAML, a ``data:`` tree in preset mode, or validation failures.
     """
     if profile_path is not None and preset is not None:
         raise BuildProfileError("Pass either a profile path or --preset, not both.")
@@ -145,10 +145,7 @@ def resolve_build_profile(
         assert profile_path is not None  # narrows for type-checkers
         if not profile_path.exists():
             raise BuildProfileError(f"Profile not found: {profile_path}")
-        try:
-            raw = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as e:
-            raise BuildProfileError(f"Invalid YAML in {profile_path}: {e}") from e
+        raw = _read_profile_document(profile_path)
         if not isinstance(raw, dict):
             raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
         base_anchor = profile_path.resolve()
@@ -157,6 +154,18 @@ def resolve_build_profile(
     raw = merge_cli_overrides(raw, overrides, set_pairs)
 
     raw = _resolve_extends(raw, base_anchor)
+
+    # Checked after extends resolution so no injection path escapes: the preset
+    # itself, a -O file, a --set pair, or an extends parent. A preset has no
+    # profile directory to anchor a data tree against (profile_dir is the
+    # bundled package dir), so carrying one is always a mistake.
+    if preset is not None and raw.get("data") is not None:
+        raise BuildProfileError(
+            f"Profile key 'data' is not supported with --preset (got {raw['data']!r}). "
+            f"A preset carries no profile directory to resolve the data tree against. "
+            f"Materialize the preset first — 'osprey profile new DIR --preset {preset}' — "
+            f"then build from that directory."
+        )
 
     profile = _parse_profile(raw)
     profile.validate(profile_dir)

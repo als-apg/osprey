@@ -1354,10 +1354,11 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "dispatch_worker": {"worker_count": 1, "workspace_mode": "isolated"},
             "bluesky": {"port": 8090},
             "bluesky_panels": {"port": 8095},
-            # The bridge template reads its trigger with no fallback, so the
-            # shared ctx must declare the block or every render through here
-            # raises UndefinedError on `services.nextcloud_bridge`.
+            # Both bridge templates read their trigger with no fallback, so the
+            # shared ctx must declare the blocks or every render through here
+            # raises UndefinedError on `services.<bridge>`.
             "nextcloud_bridge": {"trigger": "t"},
+            "gchat_bridge": {"trigger": "t"},
         },
         "deployment": {},
         "system": {"timezone": "UTC"},
@@ -1621,6 +1622,12 @@ _PREFIXED_IMAGE_SERVICES = [
         "nextcloud-bridge",
         "OSPREY_NEXTCLOUD_BRIDGE_IMAGE",
         "nextcloud-bridge",
+    ),
+    (
+        "gchat_bridge/docker-compose.yml.j2",
+        "gchat-bridge",
+        "OSPREY_GCHAT_BRIDGE_IMAGE",
+        "gchat-bridge",
     ),
 ]
 
@@ -2888,3 +2895,778 @@ def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path:
         ".dockerignore is the guaranteed COPY sibling the Dockerfile's optional "
         "wheel/requirements globs rely on, and it keeps a stale .env out of the image"
     )
+
+
+# ---------------------------------------------------------------------------
+# gchat-bridge service template
+#
+# The Google Chat bridge is the Nextcloud bridge's sibling: a subscriber, not a
+# server, driving the same dispatch pair through the same `osprey.bridges.core`
+# config. Its compose template therefore inherits the same contracts (no bulk
+# .env, project-namespaced image/container name, derived poll budget) and the
+# same three-way environment discipline, checked here the same way:
+#
+#   * bare `${VAR}` for everything a deployment must supply and must never
+#     guess — an unset value stays empty so `require_startup` aborts at boot;
+#   * `${VAR:?}` for the dispatch endpoints when they are NOT co-deployed,
+#     because an unset bare reference would resolve to "" and boot a bridge that
+#     redelivers the same Pub/Sub message forever;
+#   * `${VAR:-}` for anything whose default lives in a config dataclass.
+#
+# Two things differ from the Nextcloud set and get their own tests: the
+# service-account key is a FILE, mounted read-only, and there is no offsets
+# store (the subscription's own ack state is the ingestion cursor).
+# ---------------------------------------------------------------------------
+
+_GCHAT_BRIDGE_TEMPLATE = "templates/services/gchat_bridge/docker-compose.yml.j2"
+
+# Credentials and tokens that must render as bare ``${VAR}``. All five are
+# security- or destination-critical: a default would authenticate the bridge as
+# nobody, point it at another project's Pub/Sub queue, or let it dispatch with a
+# guessable secret. ``DISPATCH_TRIGGER`` is required by ``require_startup`` too
+# but is absent here because the template renders it as a profile-supplied
+# literal, not as an interpolation.
+_GCHAT_FAIL_CLOSED_VARS = [
+    "GCHAT_SA_KEY",
+    "GCHAT_SUBSCRIPTION",
+    "GCHAT_APP_ID",
+    "EVENT_DISPATCHER_TOKEN",
+    "DISPATCH_WORKER_TOKEN",
+]
+
+# A fully-qualified pull subscription. Used wherever a test supplies one so the
+# config's shape check (which warns on a bare subscription id) stays quiet.
+_GCHAT_SUBSCRIPTION = "projects/als-apg/subscriptions/gchat-events"
+
+
+def _render_gchat_bridge_template(
+    *,
+    env_present: bool = True,
+    dispatcher_deployed: bool = True,
+    worker_deployed: bool = True,
+    services: dict | None = None,
+    project_name: str = "p",
+) -> str:
+    """Render the packaged gchat-bridge compose template.
+
+    Loads the packaged template directly (CWD-independent) and renders it with
+    bare ``jinja2.Template``, the same default-Undefined mode
+    ``compose_generator``'s Environment uses, so ``| default(...)`` chains behave
+    exactly as in production.
+    """
+    from importlib import resources
+
+    from jinja2 import Template
+
+    tpl = resources.files("osprey").joinpath(_GCHAT_BRIDGE_TEMPLATE)
+    template = Template(tpl.read_text(encoding="utf-8"))
+    deployed = ["gchat_bridge"]
+    if dispatcher_deployed:
+        deployed.append("event_dispatcher")
+    if worker_deployed:
+        deployed.append("dispatch_worker")
+    if services is None:
+        services = {
+            "gchat_bridge": {"trigger": "gchat-question"},
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        }
+    return template.render(
+        services=services,
+        deployment={},
+        system={"timezone": "UTC"},
+        deployed_services=deployed,
+        osprey_labels={
+            "project_name": project_name,
+            "project_root": f"/r/{project_name}",
+            "deployed_at": "now",
+        },
+        osprey_version="",
+        osprey_env_present=env_present,
+    )
+
+
+def _gchat_bridge_service(**kwargs: object) -> dict:
+    """Return the parsed ``gchat-bridge`` service block."""
+    rendered = yaml.safe_load(_render_gchat_bridge_template(**kwargs))  # type: ignore[arg-type]
+    return rendered["services"]["gchat-bridge"]
+
+
+def _gchat_environment_text(rendered: str) -> str:
+    """The raw text of the rendered ``environment:`` block.
+
+    The fail-closed checks below assert on raw text as well as on parsed values
+    (a parsed-value check alone would pass on ``${VAR:-guess}`` if the YAML
+    parser were ever swapped), but they must be scoped to ``environment:``: the
+    ``volumes:`` block legitimately carries ``${GCHAT_SA_KEY:-/dev/null}``, a
+    mount sentinel that never reaches the container's environment (see
+    ``test_gchat_bridge_sa_key_is_mounted_read_only_at_its_own_path``).
+    """
+    start = rendered.index("    environment:")
+    return rendered[start : rendered.index("    volumes:", start)]
+
+
+def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
+    """image = ${OSPREY_GCHAT_BRIDGE_IMAGE:-<project>-gchat-bridge:local}.
+
+    Same three-level chain as every sibling service (env override wins, then a
+    config-declared image, then the project-namespaced ``:local`` tag that
+    ``osprey deploy up`` builds). The local tag must carry the project name: it
+    is a host-global docker tag, so a static default would make two projects
+    fight over one image.
+    """
+    assert _gchat_bridge_service(project_name="proj-a")["image"] == (
+        "${OSPREY_GCHAT_BRIDGE_IMAGE:-proj-a-gchat-bridge:local}"
+    )
+    assert _gchat_bridge_service(project_name="proj-b")["image"] == (
+        "${OSPREY_GCHAT_BRIDGE_IMAGE:-proj-b-gchat-bridge:local}"
+    )
+
+    # A config-declared image displaces the local tag but stays under the env
+    # override, so an operator can still repoint a published image at deploy
+    # time without a rebuild.
+    pinned = _gchat_bridge_service(
+        services={
+            "gchat_bridge": {
+                "trigger": "gchat-question",
+                "image": "ghcr.io/als-apg/osprey-gchat-bridge:1.2.3",
+            },
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        }
+    )
+    assert pinned["image"] == (
+        "${OSPREY_GCHAT_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-gchat-bridge:1.2.3}"
+    )
+
+
+def test_gchat_bridge_build_context_is_project_dir_relative() -> None:
+    """The image builds from ./gchat_bridge (compose-project-dir relative).
+
+    With multiple ``-f`` compose files every relative path resolves against the
+    FIRST file's dir (build/services/), not this file's own subdir, so a
+    file-relative context ('.', '../gchat_bridge') breaks a fresh
+    ``osprey deploy up`` with "unable to prepare context: path ... not found".
+    """
+    build = _gchat_bridge_service()["build"]
+    assert build["context"] == "./gchat_bridge"
+    assert build["dockerfile"] == "Dockerfile"
+
+
+def test_gchat_bridge_command_runs_the_bridge_module() -> None:
+    """The service runs the bridge entrypoint as an exec-form ``python -m``.
+
+    Exec form (a YAML list) and not a shell string: the container's PID 1 must be
+    python itself so SIGTERM from ``deploy down`` reaches the subscriber's
+    shutdown path (which cancels the streaming-pull future) instead of a shell
+    that never forwards it.
+    """
+    assert _gchat_bridge_service()["command"] == [
+        "python",
+        "-m",
+        "osprey.bridges.google_chat",
+    ]
+
+
+def test_gchat_bridge_state_volume_is_named_and_mounted_at_data() -> None:
+    """/data is a NAMED volume — it holds the dedup ledger and the history store.
+
+    Both state files default to paths under /data (``DEDUP_PATH``,
+    ``HISTORY_PATH``). Without a persisted volume a restart loses the in-flight
+    dedup ledger and the bridge re-answers or drops questions that were mid-run,
+    so this is a correctness requirement, not a convenience. Named rather than a
+    bind mount so it is namespaced per compose project and survives
+    ``deploy down``. Unlike the Nextcloud bridge there is no offsets store: the
+    Pub/Sub subscription's own ack state is the ingestion cursor.
+    """
+    rendered = _render_gchat_bridge_template()
+    parsed = yaml.safe_load(rendered)
+    service = parsed["services"]["gchat-bridge"]
+
+    assert "gchat_bridge_data:/data" in service["volumes"]
+    assert "gchat_bridge_data" in parsed["volumes"], (
+        "the /data mount names gchat_bridge_data, so the compose file must "
+        "declare it as a top-level named volume or `compose up` errors"
+    )
+    assert "OFFSETS_PATH" not in rendered, (
+        "the Pub/Sub subscriber persists no poll offsets — an OFFSETS_PATH here "
+        "would be dead config nothing reads"
+    )
+
+
+def test_gchat_bridge_sa_key_is_mounted_read_only_at_its_own_path() -> None:
+    """The service-account key is bind-mounted READ-ONLY at the path it names.
+
+    One variable, ``GCHAT_SA_KEY``, names the key on the host and in the
+    container: a separate "container path" variable could drift from the mount,
+    and a deployment that updated only one would authenticate against a path
+    that does not exist. Read-only because nothing in the bridge ever writes the
+    key, and it is the credential for every Google call the service makes.
+
+    The mount is also the one place ``GCHAT_SA_KEY`` may carry a ``:-``
+    fallback, and it must: compose rejects the empty spec ``::ro`` outright,
+    with an error that never names the variable, whereas the ``/dev/null``
+    sentinel is a harmless no-op that lets the container come up far enough for
+    ``require_startup`` to name the missing variable itself (asserted by
+    ``test_gchat_bridge_rendered_env_parses_and_fails_closed_without_secrets``).
+    """
+    volumes = _gchat_bridge_service()["volumes"]
+    sa_mounts = [v for v in volumes if "GCHAT_SA_KEY" in str(v)]
+    assert len(sa_mounts) == 1, f"expected exactly one SA-key mount, got {sa_mounts}"
+
+    # Split on the `}:${` boundaries rather than on ":" — a compose default
+    # (`:-`) puts colons inside the interpolation itself.
+    spec = re.fullmatch(
+        r"(?P<source>\$\{[^}]*\}):(?P<target>\$\{[^}]*\}):(?P<mode>[a-z]+)", str(sa_mounts[0])
+    )
+    assert spec is not None, (
+        f"the SA-key mount must be <interpolated source>:<interpolated target>:<mode>, "
+        f"got {sa_mounts[0]!r}"
+    )
+    source, target, mode = spec.group("source"), spec.group("target"), spec.group("mode")
+    assert mode == "ro", f"the service-account key must be mounted read-only, got {mode!r}"
+    assert source == target, (
+        f"the key must be mounted at the path GCHAT_SA_KEY names ({source!r} -> {target!r}) — "
+        "a distinct container path would be a second value that can drift from the env var"
+    )
+
+    # Unset, the sentinel keeps the deploy valid; set, both sides follow the
+    # operator's path so the container opens the file the .env points at.
+    assert source == "${GCHAT_SA_KEY:-/dev/null}"
+    resolved_unset = _resolve_compose_env({"mount": source})
+    assert resolved_unset["mount"] == "/dev/null"
+    resolved_set = _resolve_compose_env(
+        {"mount": source}, host_env={"GCHAT_SA_KEY": "/secrets/gchat-sa.json"}
+    )
+    assert resolved_set["mount"] == "/secrets/gchat-sa.json"
+
+
+@pytest.mark.parametrize("var", _GCHAT_FAIL_CLOSED_VARS)
+def test_gchat_bridge_credentials_render_without_a_default_fallback(var: str) -> None:
+    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
+
+    This is the fail-closed contract. With a fallback, a deployment missing the
+    service-account key or a dispatch token would come up authenticating with a
+    guessable placeholder; bare, the value stays empty and
+    ``GoogleChatBridgeConfig.require_startup`` aborts at boot naming the missing
+    variables. The absence of the fallback is the requirement, so both the parsed
+    value and the raw text of the ``environment:`` block are checked — a
+    substring test for the name alone would pass on the very regression this
+    guards.
+    """
+    rendered = _render_gchat_bridge_template()
+    environment = yaml.safe_load(rendered)["services"]["gchat-bridge"]["environment"]
+
+    assert environment[var] == f"${{{var}}}", (
+        f"{var} must be a bare ${{{var}}} reference (got {environment[var]!r}) so an "
+        "unset value stays empty and the bridge fails closed at boot"
+    )
+    assert f"${{{var}:" not in _gchat_environment_text(rendered), (
+        f"{var} carries a compose default — a missing secret would silently "
+        "resolve to it instead of failing the boot"
+    )
+
+
+def test_gchat_bridge_documents_the_single_subscriber_constraint() -> None:
+    """The template warns, beside ``GCHAT_SUBSCRIPTION``, that ONE bridge may pull it.
+
+    Pub/Sub load-balances a subscription across its consumers, so a second
+    deployment pointed at the same subscription does not duplicate events — it
+    silently splits them, and each half answers only the messages it happened to
+    receive. Nothing in the config surface can detect that, which makes the
+    comment the only place the constraint is stated at deploy time; this pins it
+    so an edit cannot quietly drop it.
+    """
+    rendered = _render_gchat_bridge_template()
+    subscription_line = next(
+        i for i, line in enumerate(rendered.splitlines()) if "GCHAT_SUBSCRIPTION:" in line
+    )
+    preamble = "\n".join(rendered.splitlines()[max(0, subscription_line - 12) : subscription_line])
+
+    assert "SINGLE SUBSCRIBER" in preamble, (
+        "the single-subscriber constraint must be documented directly above "
+        f"GCHAT_SUBSCRIPTION; preceding comment was:\n{preamble}"
+    )
+    assert "SPLIT" in preamble.upper(), (
+        "the comment must say a second consumer SPLITS the events — an operator "
+        "who expects duplicates would deploy a second bridge deliberately"
+    )
+
+
+def test_gchat_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
+    """Optional knobs pass through with an EMPTY ``:-`` default, not a restated value.
+
+    An empty value makes ``CoreConfig.from_env`` (and, for the ``GCS_*`` pair and
+    the version tag, ``GoogleChatBridgeConfig.from_env``) fall back to its own
+    default, so each tunable has exactly one definition — the dataclass —
+    instead of drifting copies in the compose file. The empty default (rather
+    than a bare reference) also keeps ``compose up`` quiet about unset optional
+    vars on every deploy, which matters most for the ``GCS_*`` pair: publishing
+    artifacts is opt-in, so unset is the normal case. ``POLL_BUDGET`` is the
+    deliberate exception — its default is derived from the worker cap (see the
+    poll-budget test below).
+    """
+    environment = _gchat_bridge_service()["environment"]
+    for var in (
+        "POLL_INTERVAL",
+        "DRAIN_INTERVAL",
+        "RETRY_MIN_AGE",
+        "RETRY_GIVE_UP",
+        "RETRY_LIFETIME_CAP",
+        "BRIDGE_TRUST_ENV",
+        "GITLAB_URL",
+        "GITLAB_PROJECT",
+        "GITLAB_ISSUES_TOKEN",
+        "GCS_BUCKET",
+        "GCS_PROJECT",
+        "APP_VERSION_DISPLAY",
+    ):
+        assert environment[var] == f"${{{var}:-}}", (
+            f"{var} must pass through with an empty default so the config dataclass "
+            f"owns its default (got {environment[var]!r})"
+        )
+
+    # The optional Google settings are deliberately NOT fail-closed: an unset
+    # bucket disables image delivery and the bridge still answers text-only, so
+    # require_startup must keep ignoring them.
+    from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
+
+    cfg = GoogleChatBridgeConfig.from_env(_resolve_compose_env(environment))
+    assert (cfg.gcs_bucket, cfg.gcs_project, cfg.version_tag) == ("", "", "")
+
+
+@pytest.mark.parametrize("env_present", [True, False])
+def test_gchat_bridge_never_mounts_the_project_env_in_bulk(env_present: bool) -> None:
+    """The bridge gets named variables only — never the whole project .env.
+
+    The project .env holds the provider keys the dispatch worker needs
+    (``CBORG_API_KEY``, ``OPENAI_API_KEY``, ...). The bridge never calls an LLM
+    and it is the one component holding Google service-account credentials, so
+    handing it the file would widen its blast radius for nothing: every value it
+    actually reads arrives by interpolation into ``environment:``, resolved from
+    that same .env because ``deploy up`` runs compose with ``--env-file .env``
+    (and ``environment:`` outranks ``env_file:`` in compose regardless).
+    Asserted for a .env both present and absent, so reintroducing the mount
+    behind an ``osprey_env_present`` gate does not slip through.
+    """
+    rendered = _render_gchat_bridge_template(env_present=env_present)
+    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered
+    assert "env_file" not in yaml.safe_load(rendered)["services"]["gchat-bridge"]
+
+
+def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
+    """The state paths' compose defaults equal the config dataclass's defaults.
+
+    These two are the only environment vars whose ``:-`` fallback restates a code
+    default instead of passing through empty: their reader is a plain
+    ``e.get(NAME, default)`` call, for which "" is a value the code accepts, so
+    the empty-fallback trick the neutral tunables use would point the stores at
+    the empty path. That duplication is the thing this test exists to bind — the
+    defaults are read back OUT of the real config class (built from an empty
+    environment, so the dataclass defaults are what surface) rather than restated
+    here, so changing either side alone fails.
+    """
+    from osprey.bridges.core import CoreConfig
+
+    core_defaults = CoreConfig.from_env({})
+    code_defaults = {
+        "DEDUP_PATH": core_defaults.dedup_path,
+        "HISTORY_PATH": core_defaults.history_path,
+    }
+
+    environment = _gchat_bridge_service()["environment"]
+    for var, code_default in code_defaults.items():
+        match = _COMPOSE_VAR_RE.match(str(environment[var]))
+        assert match is not None and match.group("default") is not None, (
+            f"{var} must render as ${{{var}:-<default>}} (got {environment[var]!r}) — "
+            "the literal default is what keeps the path set when the var is unset, "
+            "and the interpolation is what keeps it .env-overridable"
+        )
+        assert match.group("default") == code_default, (
+            f"{var} renders {match.group('default')!r} but the config default is "
+            f"{code_default!r}: the compose literal and the dataclass default must "
+            "move together, or a deploy silently writes state somewhere else"
+        )
+
+    # Nothing on the host resolves to the code default, so the stores land on the
+    # mounted volume; a value on the host wins, which is the override path the
+    # absent bulk .env mount would otherwise have provided.
+    resolved = _resolve_compose_env(environment)
+    for var, code_default in code_defaults.items():
+        assert resolved[var] == code_default
+
+    overridden = _resolve_compose_env(
+        environment, host_env={var: f"/srv/state/{var.lower()}.json" for var in code_defaults}
+    )
+    for var in code_defaults:
+        assert overridden[var] == f"/srv/state/{var.lower()}.json"
+
+    # And the override reaches the config object under the names it reads — an
+    # empty value would NOT, which is why these two are not passed through with
+    # an empty fallback.
+    from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
+
+    cfg = GoogleChatBridgeConfig.from_env(overridden)
+    assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
+    assert cfg.core.history_path == "/srv/state/history_path.json"
+
+
+def test_gchat_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
+    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed.
+
+    The bridge reconciles in-flight runs against the dispatcher before accepting
+    a message, so co-deployed it must start after the dispatcher's health probe.
+    A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
+    compose fails hard on a ``depends_on`` naming an undefined service.
+    """
+    with_dispatcher = _gchat_bridge_service(dispatcher_deployed=True)
+    assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
+
+    external = _render_gchat_bridge_template(dispatcher_deployed=False)
+    assert "depends_on:" not in external, (
+        "a bridge deployed without the dispatcher must emit no depends_on — "
+        "compose errors on a dependency naming an undefined service"
+    )
+    assert yaml.safe_load(external)["services"]["gchat-bridge"].get("depends_on") is None
+
+
+def test_gchat_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> None:
+    """In-network URLs use the SAME ports the dispatch templates serve on.
+
+    Derived from the sibling templates' own rendered output rather than restated
+    here, so a port change in the dispatch pair cannot leave the bridge calling a
+    closed port. Service keys (not container names) are the DNS names on
+    osprey-network, and the worker is addressed directly because the bridge polls
+    run status and fetches artifacts from it, not through the dispatcher.
+    """
+    for services, expected_dispatcher_port, expected_worker_port in (
+        # Config-block defaults, and explicitly non-default ports.
+        (
+            {"gchat_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
+            8020,
+            9190,
+        ),
+        (
+            {
+                "gchat_bridge": {"trigger": "t"},
+                "event_dispatcher": {"port": 8031},
+                "dispatch_worker": {"worker_port_base": 9201},
+            },
+            8031,
+            9201,
+        ),
+    ):
+        dispatcher = yaml.safe_load(
+            _render_service_template(
+                "event_dispatcher/docker-compose.yml.j2", "p", services=services
+            )
+        )["services"]["event-dispatcher"]
+        assert dispatcher["environment"]["FASTMCP_PORT"] == str(expected_dispatcher_port), (
+            "test premise: the dispatcher template must serve the port this case expects"
+        )
+
+        environment = _gchat_bridge_service(services=services)["environment"]
+        assert (
+            environment["DISPATCHER_URL"] == f"http://event-dispatcher:{expected_dispatcher_port}"
+        )
+        assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{expected_worker_port}"
+
+
+def test_gchat_bridge_dispatch_urls_pass_through_when_external() -> None:
+    """Without the dispatch pair co-deployed, both URLs are REQUIRED host vars.
+
+    An external dispatcher/worker is reached by whatever address the deploy env
+    supplies; hardcoding the in-network name would make the bridge call a
+    nonexistent host, and the code's localhost default is wrong from inside a
+    container either way. They render in compose's required form
+    (``${VAR:?message}``) rather than as bare references, because compose
+    resolves an unset bare reference to the EMPTY STRING and not to an absent
+    key: ``CoreConfig.from_env``'s localhost default would never fire,
+    ``require_startup`` does not cover these two, so the stack would boot and
+    then POST every dispatch to a protocol-less URL. Since a raising
+    ``handle_event`` deliberately leaves the Pub/Sub message unacknowledged, that
+    turns one missing variable into a subscription redelivering the same event
+    forever. ``:?`` makes it a startup abort instead.
+    """
+    environment = _gchat_bridge_service(
+        dispatcher_deployed=False,
+        worker_deployed=False,
+        services={"gchat_bridge": {"trigger": "t"}},
+    )["environment"]
+    for var in ("DISPATCHER_URL", "WORKER_URL"):
+        assert str(environment[var]).startswith(f"${{{var}:?"), (
+            f"{var} must render as compose's required form ${{{var}:?...}} when the "
+            f"dispatch pair is external (got {environment[var]!r}) — a bare reference "
+            "resolves to an empty string and boots a bridge that can never dispatch"
+        )
+
+    # Nothing on the host: the deploy must be REFUSED, not resolved to "".
+    with pytest.raises(_ComposeRequiredVarUnset, match="DISPATCHER_URL"):
+        _resolve_compose_env(environment)
+
+    # Supplied, they pass through verbatim — the point of the passthrough.
+    resolved = _resolve_compose_env(
+        environment,
+        host_env={
+            "DISPATCHER_URL": "https://dispatch.example.org",
+            "WORKER_URL": "https://worker.example.org",
+        },
+    )
+    assert resolved["DISPATCHER_URL"] == "https://dispatch.example.org"
+    assert resolved["WORKER_URL"] == "https://worker.example.org"
+
+    # The CO-DEPLOYED branch must NOT carry the guard: it renders the in-network
+    # address itself and needs no host variable, so a `:?` there would abort a
+    # perfectly valid single-stack deploy.
+    co_deployed = _gchat_bridge_service()["environment"]
+    for var in ("DISPATCHER_URL", "WORKER_URL"):
+        assert ":?" not in str(co_deployed[var]), (
+            f"{var} is rendered in-network when the dispatch pair is co-deployed; "
+            "requiring a host variable there would break the common deploy"
+        )
+
+
+def test_gchat_bridge_trigger_comes_from_the_profile_and_has_no_template_default() -> None:
+    """``DISPATCH_TRIGGER`` is rendered from the profile block, with no fallback here.
+
+    ``GChatBridgeProfileConfig.trigger`` is the ONLY place the ``gchat-question``
+    default lives (the runtime's ``from_env`` applies none either), so a
+    template-side default would be a second definition that fires some other
+    facility's trigger when the config key goes missing.
+    """
+    from osprey.cli.build_profile import GChatBridgeProfileConfig
+
+    profile_default = GChatBridgeProfileConfig().trigger
+    rendered = _render_gchat_bridge_template(
+        services={
+            "gchat_bridge": {"trigger": profile_default},
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        }
+    )
+    environment = yaml.safe_load(rendered)["services"]["gchat-bridge"]["environment"]
+    assert environment["DISPATCH_TRIGGER"] == profile_default
+
+    # A facility-chosen trigger must render verbatim, and the profile default
+    # must not survive as a template-side fallback.
+    custom = _render_gchat_bridge_template(
+        services={
+            "gchat_bridge": {"trigger": "als-chat-question"},
+            "event_dispatcher": {},
+            "dispatch_worker": {},
+        }
+    )
+    custom_env = yaml.safe_load(custom)["services"]["gchat-bridge"]["environment"]
+    assert custom_env["DISPATCH_TRIGGER"] == "als-chat-question"
+
+    # A config that lost the key must render an EMPTY trigger, so the bridge
+    # aborts at boot naming DISPATCH_TRIGGER. A template-side default would
+    # instead fire whatever name the framework happened to pick.
+    keyless = _render_gchat_bridge_template(
+        services={"gchat_bridge": {}, "event_dispatcher": {}, "dispatch_worker": {}}
+    )
+    keyless_env = yaml.safe_load(keyless)["services"]["gchat-bridge"]["environment"]
+    assert keyless_env["DISPATCH_TRIGGER"] == "", (
+        f"a missing trigger key must render empty, not fall back to {profile_default!r} — "
+        "the profile block is the single source of the trigger name"
+    )
+
+
+def test_gchat_bridge_rendered_env_parses_and_fails_closed_without_secrets() -> None:
+    """The rendered env, resolved with nothing set on the host, refuses to boot.
+
+    Feeds the template's own output through the real
+    ``GoogleChatBridgeConfig.from_env`` — so a renamed variable shows up as dead
+    config here rather than as a bridge that silently ignores it — and asserts
+    ``require_startup`` names exactly the fail-closed variables. The trigger is
+    absent from that list precisely because the template renders it as a literal.
+    """
+    from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
+
+    environment = _gchat_bridge_service()["environment"]
+    cfg = GoogleChatBridgeConfig.from_env(_resolve_compose_env(environment))
+
+    with pytest.raises(ValueError) as excinfo:
+        cfg.require_startup()
+    missing = {name.strip() for name in str(excinfo.value).split(":", 1)[1].split(",")}
+    assert missing == set(_GCHAT_FAIL_CLOSED_VARS), (
+        "with nothing set on the host the bridge must abort naming exactly the "
+        f"bare-reference variables; got {sorted(missing)}"
+    )
+
+
+def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
+    """With the .env supplying the credentials, the same block passes the boot gate.
+
+    Proves the variable NAMES the template renders are the names the runtime
+    reads: the Google settings, both tokens, the trigger, and the in-network
+    dispatch endpoints all arrive on the config object, and the state paths stay
+    on the /data volume. ``require_boot`` (not just ``require_startup``) is what
+    is called, so the dispatcher/worker URLs the co-deployed branch renders are
+    checked too.
+    """
+    from osprey.bridges.google_chat.config import GoogleChatBridgeConfig, require_boot
+
+    environment = _gchat_bridge_service()["environment"]
+    resolved = _resolve_compose_env(
+        environment,
+        host_env={
+            "GCHAT_SA_KEY": "/secrets/gchat-sa.json",
+            "GCHAT_SUBSCRIPTION": _GCHAT_SUBSCRIPTION,
+            "GCHAT_APP_ID": "users/1234567890",
+            "EVENT_DISPATCHER_TOKEN": "dispatcher-token",
+            "DISPATCH_WORKER_TOKEN": "worker-token",
+        },
+    )
+    cfg = GoogleChatBridgeConfig.from_env(resolved)
+    require_boot(cfg)
+
+    assert cfg.sa_key == "/secrets/gchat-sa.json"
+    assert cfg.subscription == _GCHAT_SUBSCRIPTION
+    assert cfg.app_id == "users/1234567890"
+    assert cfg.core.event_dispatcher_token == "dispatcher-token"
+    assert cfg.core.dispatch_worker_token == "worker-token"
+    assert cfg.core.trigger == "gchat-question"
+    assert cfg.core.dispatcher_url == "http://event-dispatcher:8020"
+    assert cfg.core.worker_url == "http://dispatch-worker-1:9190"
+    # Both state files must land on the mounted volume, not the image layer.
+    for path in (cfg.core.dedup_path, cfg.core.history_path):
+        assert path.startswith("/data/"), path
+
+
+@pytest.mark.parametrize("worker_timeout", [None, 600])
+def test_gchat_bridge_poll_budget_default_outlasts_the_worker_cap(
+    worker_timeout: int | None,
+) -> None:
+    """The bridge's poll budget is derived from the worker's cap, not restated.
+
+    ``CoreConfig.__post_init__`` rejects ``poll_budget < worker_timeout``, which
+    would crash-loop the bridge, and both halves read the cap from the same
+    ``services.dispatch_worker.timeout_sec`` key — so raising the cap in one
+    place must raise the budget here too. Constructing the config from the
+    resolved defaults is what proves the relation holds rather than asserting on
+    the numbers alone.
+    """
+    from osprey.bridges.core import CoreConfig
+
+    worker_config = {} if worker_timeout is None else {"timeout_sec": worker_timeout}
+    environment = _gchat_bridge_service(
+        services={
+            "gchat_bridge": {"trigger": "t"},
+            "event_dispatcher": {},
+            "dispatch_worker": worker_config,
+        }
+    )["environment"]
+
+    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
+    expected_timeout = float(worker_timeout if worker_timeout is not None else 300)
+    assert cfg.worker_timeout == expected_timeout
+    assert cfg.poll_budget == expected_timeout + 30, (
+        "the poll budget default must exceed the worker cap it waits out"
+    )
+
+
+def test_gchat_bridge_config_lookups_survive_explicit_null_values() -> None:
+    """A config key present but EMPTY must still render the documented default.
+
+    Jinja's ``default`` filter substitutes only on *Undefined*, so a key written
+    as ``timeout_sec:`` with no value — which YAML loads as ``None`` — sails past
+    a plain ``| default(300)`` and renders the literal string "None".
+    ``CoreConfig.from_env`` then dies on ``float("None")`` at boot, and
+    ``None | int`` silently degrades ``POLL_BUDGET`` to 0. The boolean form
+    (``default(300, true)``) substitutes on any falsy value, which is what keeps
+    a half-written config booting on the defaults instead of crash-looping.
+    """
+    from osprey.bridges.core import CoreConfig
+
+    environment = _gchat_bridge_service(
+        services={
+            "gchat_bridge": {"trigger": "t"},
+            "event_dispatcher": {"port": None},
+            "dispatch_worker": {"timeout_sec": None, "worker_port_base": None},
+        }
+    )["environment"]
+
+    assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
+    assert environment["DISPATCHER_URL"] == "http://event-dispatcher:8020"
+    assert environment["WORKER_URL"] == "http://dispatch-worker-1:9190"
+
+    cfg = CoreConfig.from_env(_resolve_compose_env(environment))
+    assert cfg.worker_timeout == 300.0
+    assert cfg.poll_budget == 330.0
+
+
+def test_gchat_bridge_container_name_is_project_namespaced() -> None:
+    """Two projects render distinct bridge container names.
+
+    ``container_name`` is a HOST-GLOBAL docker identifier, so a static name stops
+    two OSPREY projects from running a bridge on one host. Nothing reaches this
+    service in-network (it only makes outbound calls), so no network alias is
+    needed alongside the rename.
+    """
+    name_a = _gchat_bridge_service(project_name="proj-a")["container_name"]
+    name_b = _gchat_bridge_service(project_name="proj-b")["container_name"]
+    assert (name_a, name_b) == ("proj-a-gchat-bridge", "proj-b-gchat-bridge")
+
+
+def test_gchat_bridge_publishes_no_ports_and_declares_no_healthcheck() -> None:
+    """The bridge is a subscriber: no listening socket, so no ports and no probe.
+
+    Google Chat reaches it through Pub/Sub, never over an inbound HTTP request,
+    so a published port would be dead surface — and a healthcheck against a
+    service that opens no socket would mark a healthy bridge unhealthy, which
+    ``depends_on: service_healthy`` elsewhere would then act on.
+    """
+    service = _gchat_bridge_service()
+    assert "ports" not in service
+    assert "healthcheck" not in service
+    assert service["networks"] == ["osprey-network"]
+    assert service["restart"] == "unless-stopped"
+
+
+def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
+    """``osprey build`` copies the packaged bridge template into the project tree.
+
+    The whole service directory (compose template, Dockerfile, .dockerignore)
+    must ship in the package and be discoverable under the ``gchat_bridge``
+    service key, or ``osprey deploy up`` has nothing to render and no build
+    context to build.
+    """
+    _write_config(tmp_path, deployed_services=["gchat_bridge"])
+
+    assert _copy_service_templates(tmp_path) == 1
+
+    service_dir = tmp_path / "services" / "gchat_bridge"
+    assert (service_dir / "docker-compose.yml.j2").is_file()
+    assert (service_dir / "Dockerfile").is_file(), (
+        "the build context needs its Dockerfile — the compose template declares "
+        "build: ./gchat_bridge with dockerfile: Dockerfile"
+    )
+    assert (service_dir / ".dockerignore").is_file(), (
+        ".dockerignore is the guaranteed COPY sibling the Dockerfile's optional "
+        "wheel/requirements globs rely on, and it keeps a stale .env out of the image"
+    )
+
+
+def test_gchat_bridge_image_installs_the_gchat_extra_on_both_install_lines() -> None:
+    """Both framework installs carry ``[gchat]`` — the pinned one and the dev fallback.
+
+    The Google client libraries (Pub/Sub, Chat, GCS) live behind the extra, so an
+    install without it produces an image whose bridge dies on its first import.
+    The dev fallback matters as much as the pin: ``osprey deploy up --dev``
+    against an unreleased version takes that branch, and it is the branch a
+    plain copy of a sibling service's Dockerfile would leave unextra'd.
+    """
+    from importlib import resources
+
+    dockerfile = (
+        resources.files("osprey")
+        .joinpath("templates/services/gchat_bridge/Dockerfile")
+        .read_text(encoding="utf-8")
+    )
+    assert 'pip install --no-cache-dir "osprey-framework[gchat]==$OSPREY_VERSION"' in dockerfile
+    assert 'pip install --no-cache-dir "osprey-framework[gchat]"' in dockerfile
+    # A bare (extra-less) framework install anywhere would silently win or waste
+    # a layer depending on order, so neither spelling may survive.
+    assert '"osprey-framework==$OSPREY_VERSION"' not in dockerfile
+    assert '"osprey-framework"' not in dockerfile

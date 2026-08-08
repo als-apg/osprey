@@ -35,8 +35,6 @@ the serving layer's decision.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from lume_pyat.exceptions import OrbitSolveError, UnknownElementError
 from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
@@ -44,9 +42,6 @@ from lume_pyat.simulator import PyATSimulator
 from osprey.services.virtual_accelerator.lattice import build_ring
 from osprey.services.virtual_accelerator.lattice.strengths import StrengthMap
 from osprey.services.virtual_accelerator.model.bindings import build_action_variables
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    import at
 
 # An alias, never a subclass. ``CurrentSetpointVariable`` raises
 # ``UnknownElementError`` from inside the write path, and importing this
@@ -109,33 +104,6 @@ class PyATRingModel(LUMEPyATModel):
                 f"lattice without a stable closed orbit at boot ({exc}); reduce the "
                 "misalignment magnitude or remove the fault"
             ) from exc
-
-        self._strength_map = strength_map
-        self._index_by_famname: dict[str, int] = {
-            element.FamName: index for index, element in enumerate(self.lattice)
-        }
-
-    # -- ring-level access -------------------------------------------------
-    #
-    # The physics is pinned white-box: the strength-formula and rollback
-    # tests, and the IOC bridge's own ring accessors, assert on element
-    # attributes and on the baked nominal strengths rather than on any
-    # bookkeeping. These name the lattice and its lookups at the level those
-    # checks actually work at. `_ring` derives from the simulator rather than
-    # holding a second reference, so the two cannot drift apart.
-
-    @property
-    def _ring(self) -> at.Lattice:
-        """The lattice this model drives. See :attr:`lattice`."""
-        return self.lattice
-
-    def _element_index(self, fam_name: str) -> int:
-        """Index of the element named ``fam_name``.
-
-        Raises:
-            UnknownDeviceError: no element carries that name.
-        """
-        return self.element_index(fam_name)
 
 
 __all__ = [

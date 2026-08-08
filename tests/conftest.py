@@ -6,6 +6,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 
 import logging
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -29,10 +30,12 @@ _PRISTINE_LOGGING = {
 # Environment guard
 # ===================================================================
 #
-# Declared first in this module on purpose: autouse fixtures at the same scope
-# are set up in declaration order, so this one is set up before every other
-# fixture and torn down after all of them — including `monkeypatch`, whose undo
-# therefore lands *inside* the snapshot window instead of after it.
+# Ordering note: autouse fixtures of equal scope are set up in *alphabetical*
+# order, not declaration order — `pytest --setup-plan <test>` prints the real
+# sequence. So `_no_host_timezone_leak` is the outermost function-scoped fixture
+# here (leading underscore), not this one, and anything that must sit outside
+# that guard's snapshot window has to be session-scoped rather than merely
+# declared earlier.
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -48,6 +51,7 @@ def restore_environ():
 
     ``OSPREY_CONFIG`` and ``CONFIG_FILE`` are additionally cleared on the way in,
     so a developer who exports either in their shell still gets a pristine run.
+    ``TZ`` is handled once per session instead -- see ``_clear_dotenv_timezone``.
     """
     saved = dict(os.environ)
 
@@ -88,6 +92,60 @@ def reset_state_between_tests():
     # Reset after test
     reset_registry()
     reset_config_cache()
+
+
+# ===================================================================
+# Host-timezone leak guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _clear_dotenv_timezone():
+    """Drop a ``.env``-injected ``TZ`` once, before any test runs.
+
+    litellm calls a bare ``load_dotenv()`` at import, and the bare form searches
+    *parent* directories -- so a worktree with no ``.env`` of its own still
+    inherits the checkout's. That publishes ``TZ`` into ``os.environ`` during
+    collection without a matching ``time.tzset()``, leaving the variable and the
+    C library's cached zone disagreeing. The first test to call ``tzset()`` then
+    reconciles them mid-test, and ``_no_host_timezone_leak`` reports the change
+    against whichever test happened to make the call. It only bites where the
+    host zone differs from the ``.env`` one, which is why CI -- which has no
+    ``.env`` at all -- never sees it.
+
+    Session scope is load-bearing: the clear has to land outside every
+    function-scoped fixture's window, including the guard's own. Autouse
+    fixtures of equal scope are ordered alphabetically, so ``_no_host_timezone``
+    sets up first and tears down last; doing this per test would fall inside
+    that window and read as a leak.
+    """
+    if os.environ.pop("TZ", None) is not None:
+        time.tzset()
+    yield
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _no_host_timezone_leak():
+    """Fail the test that leaves the process on a different host timezone.
+
+    Finalizers run LIFO: a bare ``request.addfinalizer(time.tzset)`` runs
+    *before* monkeypatch restores ``TZ``, leaving every later test on the
+    wrong host zone. This fixture's teardown runs after monkeypatch's own,
+    which is exactly the ordering the bug turns on.
+    """
+    import os as _os
+    import time as _time
+
+    before = (_os.environ.get("TZ"), _time.tzname)
+
+    yield
+
+    after = (_os.environ.get("TZ"), _time.tzname)
+    assert after == before, (
+        f"test leaked the host timezone: TZ/tzname was {before} before the test "
+        f"and {after} after. Undo the monkeypatch *before* calling time.tzset() "
+        f"so the C library re-reads the restored TZ, not the patched one."
+    )
 
 
 # ===================================================================
