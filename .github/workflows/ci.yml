@@ -58,6 +58,9 @@ jobs:
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # The slowest cell (macOS) finishes in ~11 min; without a bound, a single
+    # wedged xdist worker holds the lane at 99% for the 6-hour default.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -130,7 +133,12 @@ jobs:
         else
           COV_ARGS=""
         fi
-        uv run pytest tests/ --ignore=tests/e2e -v --tb=short -n 4 --dist loadgroup $COV_ARGS
+        # faulthandler_timeout: any single test stuck past 5 minutes dumps
+        # every thread's stack to stderr without killing the run — a wedged
+        # worker leaves a diagnosis in the log instead of a silent 99% stall.
+        # Dump-only, so the container-starting files (cold image pulls can
+        # legitimately run long) are never killed by it.
+        uv run pytest tests/ --ignore=tests/e2e -v --tb=short -n 4 --dist loadgroup $COV_ARGS -o faulthandler_timeout=300
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
