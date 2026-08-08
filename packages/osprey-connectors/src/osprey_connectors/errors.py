@@ -1,4 +1,9 @@
-"""Error classification and handling for the Osprey Framework."""
+"""Error classification and handling for the Osprey Framework.
+
+Stability: the exception class names and ``reason`` codes defined here are
+public API — removing or renaming any is a major version bump, additions are
+minor.
+"""
 
 from typing import Any
 
