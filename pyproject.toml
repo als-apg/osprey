@@ -219,6 +219,12 @@ all = [
     "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge]"
 ]
 
+[tool.uv]
+# Supply-chain resolution cutoff. Previously lived only in uv.lock's [options]
+# block (set by a one-off `uv lock --exclude-newer` run); tracked here so any
+# `uv lock`/`uv sync` preserves it regardless of the invoking environment.
+exclude-newer = "2026-07-15T17:48:41.758344Z"
+
 [tool.uv.workspace]
 members = ["packages/osprey-connectors"]
 
