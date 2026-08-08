@@ -136,6 +136,7 @@ dependencies = [
     # `--extra dev` would otherwise satisfy every other --dev precondition and
     # fail only at wheel-build time.
     "build",
+    "osprey-connectors>=0.1.0,<0.2.0",
 ]
 
 [project.optional-dependencies]
@@ -217,6 +218,12 @@ virtual-accelerator = []
 all = [
     "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge]"
 ]
+
+[tool.uv.workspace]
+members = ["packages/osprey-connectors"]
+
+[tool.uv.sources]
+osprey-connectors = { workspace = true }
 
 [project.urls]
 Homepage = "https://als-apg.github.io/osprey"

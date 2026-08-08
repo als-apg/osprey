@@ -16,9 +16,11 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
-[options]
-exclude-newer = "2026-07-15T17:48:41.758344Z"
-exclude-newer-span = "P7D"
+[manifest]
+members = [
+    "osprey-connectors",
+    "osprey-framework",
+]
 
 [[package]]
 name = "accelerator-toolbox"
@@ -3758,6 +3760,31 @@ wheels = [
 ]
 
 [[package]]
+name = "osprey-connectors"
+version = "0.1.0"
+source = { editable = "packages/osprey-connectors" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pyepics" },
+    { name = "python-dateutil" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "rich" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.2.6" },
+    { name = "pandas", specifier = ">=2.2.3" },
+    { name = "pyepics" },
+    { name = "python-dateutil", specifier = ">=2.9.0" },
+    { name = "python-dotenv", specifier = ">=1.1.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "rich", specifier = ">=14.0.0" },
+]
+
+[[package]]
 name = "osprey-framework"
 source = { editable = "." }
 dependencies = [
@@ -3768,6 +3795,7 @@ dependencies = [
     { name = "anthropic" },
     { name = "bluesky" },
     { name = "bokeh" },
+    { name = "build" },
     { name = "certifi" },
     { name = "charset-normalizer" },
     { name = "claude-agent-sdk" },
@@ -3792,6 +3820,7 @@ dependencies = [
     { name = "ollama" },
     { name = "openai" },
     { name = "ophyd-async", extra = ["ca"] },
+    { name = "osprey-connectors" },
     { name = "pandas" },
     { name = "playwright" },
     { name = "plotly" },
@@ -3821,7 +3850,6 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "build" },
     { name = "docker" },
     { name = "graphviz" },
     { name = "gspread" },
@@ -3864,7 +3892,6 @@ ariel-proxy = [
     { name = "aiohttp-socks" },
 ]
 dev = [
-    { name = "build" },
     { name = "docker" },
     { name = "mypy" },
     { name = "pillow" },
@@ -3914,8 +3941,7 @@ requires-dist = [
     { name = "anthropic" },
     { name = "bluesky", specifier = ">=1.15.1" },
     { name = "bokeh", specifier = ">=3.9.1" },
-    { name = "build", marker = "extra == 'all'" },
-    { name = "build", marker = "extra == 'dev'" },
+    { name = "build" },
     { name = "certifi", specifier = ">=2025.4.26" },
     { name = "charset-normalizer", specifier = ">=3.4.2" },
     { name = "claude-agent-sdk", specifier = "==0.2.110" },
@@ -3952,6 +3978,7 @@ requires-dist = [
     { name = "ollama", specifier = ">=0.6.2" },
     { name = "openai", specifier = ">=2.45.0" },
     { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
+    { name = "osprey-connectors", editable = "packages/osprey-connectors" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=12.3.0" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=12.3.0" },
