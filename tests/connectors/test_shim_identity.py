@@ -37,3 +37,12 @@ def test_patching_through_shim_reaches_real_module(monkeypatch):
 
     monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: "patched")
     assert real_config.get_config_value("anything") == "patched"
+
+
+def test_simulation_core_shims_preserve_module_identity():
+    import osprey.simulation
+    import osprey.simulation.engine
+    import osprey_connectors.simulation.engine
+
+    assert osprey.simulation.engine is osprey_connectors.simulation.engine
+    assert osprey.simulation.SimulationEngine is osprey_connectors.simulation.SimulationEngine
