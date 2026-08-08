@@ -13,21 +13,19 @@ def test_osprey_connectors_is_installed():
 
 
 def test_errors_shim_preserves_module_identity():
-    import osprey_connectors.errors
-
     import osprey.errors
+    import osprey_connectors.errors
 
     assert osprey.errors is osprey_connectors.errors
 
 
 def test_utils_shims_preserve_module_identity():
-    import osprey_connectors.config
-    import osprey_connectors.logger
-    import osprey_connectors.relative_time
-
     import osprey.utils.config
     import osprey.utils.logger
     import osprey.utils.relative_time
+    import osprey_connectors.config
+    import osprey_connectors.logger
+    import osprey_connectors.relative_time
 
     assert osprey.utils.config is osprey_connectors.config
     assert osprey.utils.logger is osprey_connectors.logger
@@ -42,23 +40,21 @@ def test_patching_through_shim_reaches_real_module(monkeypatch):
 
 
 def test_simulation_core_shims_preserve_module_identity():
-    import osprey_connectors.simulation.engine
-
     import osprey.simulation
     import osprey.simulation.engine
+    import osprey_connectors.simulation.engine
 
     assert osprey.simulation.engine is osprey_connectors.simulation.engine
     assert osprey.simulation.SimulationEngine is osprey_connectors.simulation.SimulationEngine
 
 
 def test_connector_shims_preserve_module_identity():
-    import osprey_connectors.archiver.base
-    import osprey_connectors.control_system.epics_connector
-    import osprey_connectors.factory
-
     import osprey.connectors.archiver.base
     import osprey.connectors.control_system.epics_connector
     import osprey.connectors.factory
+    import osprey_connectors.archiver.base
+    import osprey_connectors.control_system.epics_connector
+    import osprey_connectors.factory
 
     assert (
         osprey.connectors.control_system.epics_connector
@@ -69,8 +65,7 @@ def test_connector_shims_preserve_module_identity():
 
 
 def test_exception_identity_across_namespaces():
-    from osprey_connectors.errors import ChannelWriteBlockedError as new
-
     from osprey.errors import ChannelWriteBlockedError as old
+    from osprey_connectors.errors import ChannelWriteBlockedError as new
 
     assert old is new

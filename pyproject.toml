@@ -354,7 +354,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "interfaces", "deployment"]
+src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 
 [tool.ruff.lint]
 select = [
@@ -387,7 +387,7 @@ known-first-party = ["osprey", "configs", "applications", "interfaces", "deploym
 
 # Coverage configuration (if using pytest-cov)
 [tool.coverage.run]
-source = ["src", "interfaces", "deployment"]
+source = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

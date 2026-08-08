@@ -8,8 +8,9 @@ ingest``/``quickstart`` for the generic adapter), so the data always lands at a
 recent, deterministic wall-clock position without ever mutating the source file
 at build time.
 
-This is the single shared primitive — kept in :mod:`osprey.utils` so neither
-the simulation engine nor the ARIEL ingestion layer depends on the other.
+This is the single shared primitive, living in :mod:`osprey_connectors` so
+neither the simulation engine nor the ARIEL ingestion layer depends on the
+other.
 """
 
 from dataclasses import dataclass

@@ -93,7 +93,7 @@ jobs:
       # fixing that isolation debt.
       run: |
         if [ "${{ matrix.python-version }}" = "3.11" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
