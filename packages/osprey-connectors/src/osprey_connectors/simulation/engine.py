@@ -32,6 +32,8 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.expressions import ExpressionError, evaluate_channel
 from osprey_connectors.simulation.machine import (
     DEFAULT_SCENARIO,
@@ -47,8 +49,6 @@ from osprey_connectors.simulation.series import (
     ref_value,
     string_series,
 )
-from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.logger import get_logger
 
 logger = get_logger("simulation_engine")
 

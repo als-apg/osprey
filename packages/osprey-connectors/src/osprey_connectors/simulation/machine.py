@@ -19,12 +19,12 @@ from datetime import time as dtime
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.relative_time import RelativeTimestamp
 from osprey_connectors.simulation.expressions import (
     ExpressionError,
     compile_expression,
     extract_channel_refs,
 )
-from osprey_connectors.relative_time import RelativeTimestamp
 
 DEFAULT_SCENARIO = "nominal"
 

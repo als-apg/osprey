@@ -16,6 +16,7 @@ import numpy as np
 if TYPE_CHECKING:
     from osprey_connectors.simulation import SimulationEngine
 
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
@@ -23,10 +24,9 @@ from osprey_connectors.control_system.base import (
     ControlSystemConnector,
     WriteVerification,
 )
+from osprey_connectors.logger import get_logger
 from osprey_connectors.pv_taxonomy import classify_pv
 from osprey_connectors.simulation import engine_serves
-from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.logger import get_logger
 
 logger = get_logger("mock_connector")
 

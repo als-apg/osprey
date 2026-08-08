@@ -13,6 +13,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
@@ -21,7 +22,6 @@ from osprey_connectors.control_system.base import (
     WriteVerification,
 )
 from osprey_connectors.control_system.limits_validator import LimitsValidator
-from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("doocs_connector")
