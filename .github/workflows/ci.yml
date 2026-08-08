@@ -4,7 +4,11 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    # Epic phase branches merge into an epic/<name> integration base, not
+    # main, and their PRs are where the phase's CI certification happens --
+    # the full lane set must run there, not only on the final epic-to-main
+    # PR.
+    branches: [ main, 'epic/**' ]
   workflow_dispatch:
     inputs:
       e2e_filter:
