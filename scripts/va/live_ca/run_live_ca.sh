@@ -6,12 +6,18 @@
 #
 # tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand a real
 # pcaspy Channel Access server up in-process and drive it with a real pyepics
-# client. pcaspy publishes manylinux x86_64 wheels only, so on a developer's
-# Mac those classes skip. This builds a linux/amd64 container that installs the
-# repo's own `virtual-accelerator` extra from the repo's own lockfile, mounts
-# the worktree read-only, and runs the suites there under a gate that FAILS if
-# anything skips (scripts/va/live_ca/gate.py) -- because a skipped live suite
-# proves nothing.
+# client, and tests/va/test_facility_seam.py boots the whole serving assembly
+# on both transports. pcaspy publishes manylinux x86_64 wheels only, so on a
+# developer's Mac all of that skips. This builds a linux/amd64 container that
+# installs the repo's own `virtual-accelerator` extra from the repo's own
+# lockfile, mounts the worktree read-only, and runs the suites there under a
+# gate that FAILS if anything skips (scripts/va/live_ca/gate.py) -- because a
+# skipped live suite proves nothing.
+#
+# The extra now carries the whole serving stack -- pcaspy, lume-pva-apg and
+# p4p -- so one image runs everything. There is no longer a separate PVA layer
+# or a bind-mounted fork checkout: those existed only while lume-pva-apg was
+# unpublished and had nothing to resolve by name.
 #
 # Nothing is published and no host port is claimed. The Channel Access server
 # and its client share one process inside the container's own network
@@ -57,14 +63,6 @@ BUILD_ID="$(cat "${WORKTREE_ROOT}/pyproject.toml" \
                 "${WORKTREE_ROOT}/uv.lock" \
                 "${SCRIPT_DIR}/Containerfile" | "${DIGEST_CMD[@]}" | cut -c1-12)"
 IMAGE="osprey-va-live-ca:${BUILD_ID}"
-
-# The PVA layer gets its own digest, over its own Containerfile as well as the
-# base's inputs. Reusing BUILD_ID alone would leave an edit to Containerfile.pva
-# invisible to the tag, and the stale layer would be silently reused.
-PVA_BUILD_ID="$(cat "${WORKTREE_ROOT}/pyproject.toml" \
-                    "${WORKTREE_ROOT}/uv.lock" \
-                    "${SCRIPT_DIR}/Containerfile" \
-                    "${SCRIPT_DIR}/Containerfile.pva" | "${DIGEST_CMD[@]}" | cut -c1-12)"
 
 # Container runtime. docker is preferred here, the reverse of
 # scripts/va/probe_pcaspy/run_probe.sh: this image is cross-architecture on an
@@ -116,50 +114,14 @@ else
     echo "--- reusing ${IMAGE} (OSPREY_LIVE_CA_REBUILD=1 to rebuild) ---"
 fi
 
-# PVA layer. `serving/runner.py` imports lume_pva_apg and p4p alongside pcaspy,
-# so the *served* boot in tests/va/test_facility_seam.py needs both on top of
-# the CA venue. lume_pva_apg is not published yet, so there is nothing to
-# install and nothing to guess at: point OSPREY_LUME_PVA_PATH at a checkout of
-# the fork and this runs the composed suite set; leave it unset and it runs
-# CA-only.
-#
-# Deliberately opt-in rather than probing likely sibling directories. A guessed
-# path that silently misses would drop back to CA-only while looking like it
-# had run everything, which is the same class of quiet false green this whole
-# script exists to prevent.
-if [[ -n "${OSPREY_LUME_PVA_PATH:-}" ]]; then
-    FORK_PATH="$(cd "${OSPREY_LUME_PVA_PATH}" 2>/dev/null && pwd)" || {
-        echo "FATAL: OSPREY_LUME_PVA_PATH=${OSPREY_LUME_PVA_PATH} is not a directory" >&2
-        exit 1
-    }
-    if [[ ! -d "${FORK_PATH}/lume_pva_apg" ]]; then
-        echo "FATAL: no lume_pva_apg/ package under ${FORK_PATH}" >&2
-        exit 1
-    fi
-
-    PVA_IMAGE="${IMAGE%:*}-pva:${PVA_BUILD_ID}"
-    if [[ "${OSPREY_LIVE_CA_REBUILD:-0}" == "1" ]] || \
-       ! "${RUNTIME}" image inspect "${PVA_IMAGE}" >/dev/null 2>&1; then
-        echo "--- building ${PVA_IMAGE} (PVA layer) ---"
-        "${RUNTIME}" build --platform "${PLATFORM}" \
-            -t "${PVA_IMAGE}" \
-            --build-arg "BASE_IMAGE=${IMAGE}" \
-            -f "${SCRIPT_DIR}/Containerfile.pva" \
-            "${SCRIPT_DIR}"
-    fi
-
-    echo "--- running the composed CA+PVA gate (fork: ${FORK_PATH}) ---"
-    exec "${RUNTIME}" run --rm --platform "${PLATFORM}" \
-        -v "${WORKTREE_ROOT}:/work:ro" \
-        -v "${FORK_PATH}:/fork:ro" \
-        "${PVA_IMAGE}" \
-        python -u scripts/va/live_ca/gate.py --pva "$@"
-fi
-
-echo "--- running the live Channel Access gate (CA only) ---"
-echo "    the served-boot branch of tests/va/test_facility_seam.py is NOT"
-echo "    exercised here -- set OSPREY_LUME_PVA_PATH=<lume-pva checkout> for that."
+# --pva unconditionally, not as a mode. The extra installs all three server
+# roots, so the served-boot branch of tests/va/test_facility_seam.py is
+# reachable in this one image -- and `--pva` is what makes the gate REQUIRE it,
+# by asserting pcaspy, p4p and lume_pva_apg import before pytest starts. That
+# seam test passes on either the served boot or a missing-server-module stop,
+# so without the precondition a green here would not say which branch ran.
+echo "--- running the live Channel Access + PVAccess gate ---"
 exec "${RUNTIME}" run --rm --platform "${PLATFORM}" \
     -v "${WORKTREE_ROOT}:/work:ro" \
     "${IMAGE}" \
-    python -u scripts/va/live_ca/gate.py "$@"
+    python -u scripts/va/live_ca/gate.py --pva "$@"

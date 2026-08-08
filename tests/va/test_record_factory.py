@@ -412,9 +412,25 @@ def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:  # noqa
 
 
 def _caget(address: str) -> Any:
+    """Read one value over the wire, never from pyepics' monitor cache.
+
+    ``use_monitor=False`` is load-bearing, not stylistic. pyepics' ``caget``
+    defaults to returning whatever its monitor subscription last cached, which
+    after a write is whatever arrived BEFORE the write did. Most reads in this
+    module poll through ``_wait_until`` and so retry the stale value away, but
+    the put-completion test deliberately reads once with no settle poll -- that
+    is the property it exists to assert -- and it read back a previous test's
+    0.75 instead of its own -6.5. A fresh one-shot read is also the only kind
+    put-completion actually guarantees anything about.
+
+    Same reasoning, and the same fix, as every read in
+    ``scripts/va/build_and_boot_check.sh``.
+    """
     import epics
 
-    return epics.caget(address, timeout=CA_TIMEOUT_S, connection_timeout=CA_TIMEOUT_S)
+    return epics.caget(
+        address, timeout=CA_TIMEOUT_S, connection_timeout=CA_TIMEOUT_S, use_monitor=False
+    )
 
 
 def _caput(address: str, value: float) -> Any:

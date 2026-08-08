@@ -283,9 +283,24 @@ def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:  # noqa
 
 
 def _caget(address: str) -> Any:
+    """Read one value over the wire, never from pyepics' monitor cache.
+
+    ``use_monitor=False`` is load-bearing, not stylistic: pyepics' ``caget``
+    otherwise returns whatever its monitor subscription last cached, which
+    after a write is whatever arrived BEFORE the write did. This suite asserts
+    what a client sees over a real wire, including that a refused write moved
+    NOTHING -- and a stale cache never moves, so that assertion would pass for
+    free. The sibling live suite was observed reading back a previous test's
+    value for exactly this reason.
+
+    Same reasoning, and the same fix, as every read in
+    ``scripts/va/build_and_boot_check.sh``.
+    """
     import epics
 
-    return epics.caget(address, timeout=CA_TIMEOUT_S, connection_timeout=CA_TIMEOUT_S)
+    return epics.caget(
+        address, timeout=CA_TIMEOUT_S, connection_timeout=CA_TIMEOUT_S, use_monitor=False
+    )
 
 
 def _caput(address: str, value: float) -> Any:

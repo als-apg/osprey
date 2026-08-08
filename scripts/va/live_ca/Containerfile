@@ -60,5 +60,11 @@ ENV PATH=/opt/venv/bin:$PATH \
 
 # /work is the repo, mounted read-only. The gate script is read from there too
 # rather than copied in, so it stays editable without a rebuild.
+#
+# --pva in the default command, matching what run_live_ca.sh passes: the extra
+# installs all three server roots, so this image can always reach the served
+# boot, and --pva is what makes the gate REQUIRE it rather than accept the
+# missing-server-module fallback. A bare `docker run` of this image must not be
+# a weaker check than the script's.
 WORKDIR /work
-CMD ["python", "-u", "scripts/va/live_ca/gate.py"]
+CMD ["python", "-u", "scripts/va/live_ca/gate.py", "--pva"]

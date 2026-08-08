@@ -17,11 +17,34 @@ the terminal reporter's own outcome counts, so it cannot be fooled by a
 formatting change, by ``-q`` versus ``-v``, or by a colour code landing in the
 middle of the word it was grepping for.
 
-Three conditions, all required:
+Three conditions, all required, applied to every module and to the total:
 
 * pytest itself exited 0 -- nothing failed or errored;
 * nothing skipped -- pcaspy loaded and every live class ran;
 * something passed -- an empty or fully deselected run is not a green run.
+
+**Each module runs in a process of its own.** This is the one thing about the
+gate's shape that is not obvious, so: the live modules each pick a Channel
+Access port at import time with
+``os.environ.setdefault("EPICS_CA_SERVER_PORT", _free_port())``. ``setdefault``
+means the FIRST module imported in a process wins, and every later one inherits
+its port -- so in a single combined pytest run, the second module stands a
+second ``pcaspy.SimpleServer`` up on a port the process-wide libca client has
+already latched onto the first server. The observed symptom was every test in
+the second module erroring at fixture setup with "the Channel Access server
+never became reachable", intermittently: twice in roughly twenty-seven combined
+runs, while the same module alone in a fresh process went twenty for twenty.
+
+Running one module per process is what makes that ``setdefault`` do what it
+looks like it does -- each module gets its own free port, its own server and
+its own libca -- and it is also the shape this repo's Channel Access notes
+already point at (one server per process, unique PV names, no ``clear_cache``).
+
+Counts still come from pytest's own terminal reporter rather than its printed
+summary. Each child is this same file re-entered with ``--run-module``, which
+runs ``pytest.main`` under the tally plugin and prints one machine-readable
+sentinel line; the parent sums those. A child that prints no sentinel is
+treated as a failure, so a hard crash cannot be mistaken for a zero-count pass.
 
 Run it directly (``scripts/va/live_ca/run_live_ca.sh``) rather than invoking
 pytest by hand in the container, or the second and third conditions go
@@ -32,6 +55,8 @@ instead: the skip there is expected and this gate would (correctly) reject it.
 from __future__ import annotations
 
 import importlib
+import json
+import subprocess
 import sys
 
 import pytest
@@ -43,7 +68,7 @@ LIVE_SUITES = (
 )
 
 #: Added in --pva mode. Its served-boot branch needs the PVA transport and the
-#: serving fork on top of pcaspy.
+#: serving package on top of pcaspy.
 PVA_SUITES = ("tests/va/test_facility_seam.py",)
 
 #: Modules that must import in --pva mode. This is a precondition, not a
@@ -64,6 +89,18 @@ PVA_REQUIRED_MODULES = ("pcaspy", "p4p", "lume_pva_apg")
 #: reports every non-passing outcome including skip reasons, so a rejected run
 #: says *why* it was empty instead of just reporting a count.
 PYTEST_ARGS = ("-q", "-ra", "--tb=short", "-p", "no:cacheprovider", "-o", "addopts=")
+
+#: Internal flag: run exactly one module and report its counts. Not part of the
+#: gate's interface -- ``main`` re-enters this file with it, once per module.
+RUN_ONE_FLAG = "--run-module"
+
+#: Prefix of the one line a child writes for its parent to read. Distinctive
+#: enough that no pytest output or test print can be mistaken for it.
+COUNTS_SENTINEL = "__GATE_COUNTS__ "
+
+#: The outcomes the verdict is built from. Named so a module that reports none
+#: of them still produces a full, explicit zero row rather than a sparse dict.
+OUTCOMES = ("passed", "skipped", "failed", "error")
 
 
 class _Tally:
@@ -89,10 +126,76 @@ def _check_required_modules(modules: tuple[str, ...]) -> list[str]:
     return missing
 
 
+def _run_one(target: str) -> int:
+    """Child entry point: run one module and print its counts for the parent.
+
+    The tally plugin reads the terminal reporter directly, so the numbers the
+    parent sums are pytest's own -- crossing a process boundary does not
+    downgrade them to a summary-line scrape.
+    """
+    tally = _Tally()
+    status = int(pytest.main([target, *PYTEST_ARGS], plugins=[tally]))
+    counts = {outcome: tally.counts.get(outcome, 0) for outcome in OUTCOMES}
+    print(f"{COUNTS_SENTINEL}{json.dumps(counts)}")
+    return status
+
+
+def _run_module(target: str) -> tuple[dict[str, int], int]:
+    """Run one module in a fresh process; return its counts and exit status.
+
+    A child that dies without printing the sentinel -- a segfault in libca, an
+    OOM kill, an import that took the interpreter down -- is reported as one
+    error rather than as zeroes, because zeroes here would read as "nothing
+    went wrong" to the caller summing them.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-u", __file__, RUN_ONE_FLAG, target],
+        capture_output=True,
+        text=True,
+    )
+    counts: dict[str, int] | None = None
+    for line in proc.stdout.splitlines():
+        if line.startswith(COUNTS_SENTINEL):
+            # Defensive only: the child writes this line itself, and pytest's
+            # fd-level capture keeps test output from interleaving into it. But
+            # a mangled sentinel should fall through to the honest "no counts"
+            # report below -- a JSON traceback from the gate would be a worse
+            # description of what went wrong than the message that branch gives.
+            try:
+                parsed = json.loads(line[len(COUNTS_SENTINEL) :])
+                counts = {outcome: int(parsed[outcome]) for outcome in OUTCOMES}
+            except (ValueError, TypeError, KeyError):
+                counts = None
+        else:
+            print(line)
+    if proc.stderr.strip():
+        print(proc.stderr, end="" if proc.stderr.endswith("\n") else "\n")
+
+    if counts is None:
+        print(f"  !! {target} produced no counts -- the child died before reporting.")
+        return ({"passed": 0, "skipped": 0, "failed": 0, "error": 1}, proc.returncode or 1)
+    return (counts, proc.returncode)
+
+
 def main(argv: list[str]) -> int:
     """Run the suites and return the gate's exit status."""
     pva = "--pva" in argv
     argv = [arg for arg in argv if arg != "--pva"]
+
+    # Every remaining argument is fanned out as its own module path, so a
+    # pytest flag would become a target: `-k foo` would hand one child `-k` and
+    # another `foo`, and pytest exits 4 on the usage error while its siblings
+    # run UNFILTERED -- the opposite of what the flag asked for, reported as a
+    # gate failure. Reject them by name instead of guessing an intent.
+    flags = [arg for arg in argv if arg.startswith("-")]
+    if flags:
+        print(f"gate.py takes module paths only; got {', '.join(flags)}.")
+        print("pytest flags are not passed through: each argument becomes its own")
+        print("pytest process, so a flag would be run as a test path while the")
+        print("other modules ran unfiltered. To filter, invoke pytest directly")
+        print("inside the container -- but note the gate's skip and per-module")
+        print("checks do not apply to a run it did not drive.")
+        return 1
 
     if pva:
         missing = _check_required_modules(PVA_REQUIRED_MODULES)
@@ -103,18 +206,36 @@ def main(argv: list[str]) -> int:
             print("           The served-boot branch cannot run without these, and the")
             print("           seam test PASSES on the fallback branch instead, so")
             print("           continuing would certify the served path without")
-            print("           exercising it. Check that the fork is mounted at /fork.")
+            print("           exercising it. The `virtual-accelerator` extra installs")
+            print("           all three, so this image is not what it claims to be.")
             print("=" * 72)
             return 1
 
     targets = argv or [*LIVE_SUITES, *(PVA_SUITES if pva else ())]
-    tally = _Tally()
-    status = int(pytest.main([*targets, *PYTEST_ARGS], plugins=[tally]))
 
-    passed = tally.counts.get("passed", 0)
-    skipped = tally.counts.get("skipped", 0)
-    failed = tally.counts.get("failed", 0)
-    errors = tally.counts.get("error", 0)
+    # One process per target, and every target is run even after one fails:
+    # the point of the venue is to say what the whole contract did, and
+    # stopping early would hide a second module's state behind the first's.
+    totals = dict.fromkeys(OUTCOMES, 0)
+    status = 0
+    silent: list[str] = []
+    for target in targets:
+        print(f"--- {target} ---")
+        counts, target_status = _run_module(target)
+        for outcome in OUTCOMES:
+            totals[outcome] += counts.get(outcome, 0)
+        status = status or target_status
+        if counts["passed"] == 0:
+            silent.append(target)
+        print(
+            f"  {target}: passed={counts['passed']} skipped={counts['skipped']} "
+            f"failed={counts['failed']} errors={counts['error']} exit={target_status}"
+        )
+
+    passed = totals["passed"]
+    skipped = totals["skipped"]
+    failed = totals["failed"]
+    errors = totals["error"]
 
     print()
     print("=" * 72)
@@ -137,8 +258,16 @@ def main(argv: list[str]) -> int:
         print("=" * 72)
         return 1
 
-    if passed == 0:
-        print("  VERDICT: FAIL -- nothing ran. An empty run is not a green run.")
+    # Per module, not just in total: a module that contributed nothing is a
+    # module whose contract went unchecked, and the other modules' passes would
+    # otherwise carry it to a green aggregate. This also subsumes the old
+    # "nothing ran at all" check: `targets` cannot be empty (argv falls back to
+    # a non-empty constant, and a flags-only argv is rejected above), so an
+    # empty run can only reach here as every module reporting zero passes.
+    if silent:
+        print(f"  VERDICT: FAIL -- {len(silent)} module(s) ran nothing: {', '.join(silent)}.")
+        print("           A module that reports no passes proves nothing about the")
+        print("           contract it owns, whatever the other modules did.")
         print("=" * 72)
         return 1
 
@@ -148,4 +277,6 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == RUN_ONE_FLAG:
+        sys.exit(_run_one(sys.argv[2]))
     sys.exit(main(sys.argv[1:]))
