@@ -231,10 +231,31 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
-# Virtual Accelerator: the Channel Access serving stack. Everything else the VA
-# needs (PyAT, the manifest/lattice layer) is a core dependency, so pcaspy is
-# the only entry here; `osprey-framework[virtual-accelerator]` keeps resolving
-# for every existing reference to it (CI `uv sync --extra`, the VA image).
+# Virtual Accelerator: the serving stack, both transports. Everything else the
+# VA needs (PyAT, the manifest/lattice layer) is a core dependency, so these two
+# entries are the whole extra; `osprey-framework[virtual-accelerator]` keeps
+# resolving for every existing reference to it (CI `uv sync --extra`, both VA
+# images).
+#
+# lume-pva-apg is the serving package `serving/runner.py` subclasses. Its `ca`
+# and `pva` extras are what put the two transports on the wire -- pcaspy for
+# Channel Access, p4p for PVAccess -- and BOTH are required for any serving at
+# all, because the value layer is p4p-typed even on the CA side. p4p arrives
+# only through `pva`: the base package does not depend on it. Exact-pinned for
+# the same reason as lume-base and lume-pyat above -- a young package whose
+# surface is still settling, and the runner subclass is written against the
+# 0.1.2 contract specifically (the extension seams it overrides are not yet a
+# stable API).
+#
+# Both VA images install through the `virtual-accelerator` extra rather than
+# naming its contents -- `.[virtual-accelerator]` in the full image,
+# `osprey-framework[virtual-accelerator]==<version>` and
+# `<wheel>[virtual-accelerator]` in the shipped service template. So neither
+# Dockerfile declares lume-pva-apg, pcaspy or p4p as an install target or
+# constrains its version, and neither can drift from what is declared here.
+# (Both do pass `--only-binary pcaspy`. That is a resolver guard -- refuse the
+# sdist and its EPICS source build -- not a pin: it selects no version and
+# adds no requirement.)
 #
 # pcaspy is the portable Channel Access server. The serving layer hosts one,
 # and tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand
@@ -257,8 +278,22 @@ screen-capture-linux = [
 # Base plus the separate PCAS module, and fail. Marked, those hosts get the
 # honest `importorskip` skip and run the live suites in the container venue
 # under scripts/va/live_ca/ instead.
+#
+# THE SAME MARKER RIDES ON lume-pva-apg, and for the same reason rather than
+# for symmetry: its `ca` extra requires pcaspy with no marker of its own, so an
+# unmarked entry here would pull pcaspy onto every host through the back door
+# and defeat the marker above. Verified, not assumed -- resolving
+# `lume-pva-apg[ca,pva]==0.1.2` for macOS at 3.13 selects pcaspy 0.8.1, whose
+# only artifact at that interpreter and platform is the sdist. The two lines
+# must therefore stay marked together; marking one alone does nothing.
+#
+# The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
+# too. That costs nothing real: `serving/runner.py` imports pcaspy first, so it
+# is unimportable on those hosts regardless of what else is installed, and the
+# suites that reach it already treat all three server roots the same way.
 virtual-accelerator = [
     "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "lume-pva-apg[ca,pva]==0.1.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 # All optional dependencies for complete installation
@@ -285,6 +320,27 @@ osprey = "osprey.cli.main:cli"
 webhook = "osprey.dispatch.sources.webhook:WebhookSource"
 cron = "osprey.dispatch.sources.cron:CronSource"
 epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
+
+# Resolver exemptions for two packages published more recently than the
+# ambient `exclude-newer` window some developer machines set (a rolling
+# "nothing newer than N days" policy). Both are exact pins this project needs
+# by name, so a window that hides them makes the lock unresolvable rather than
+# merely conservative.
+#
+# These must live HERE, in repo config, and not be left to the command line.
+# uv.lock does record what was applied, under `[options.exclude-newer-package]`,
+# but that block is an OUTPUT — a record of the resolve that produced the file,
+# not an input uv reads back. So a lock recorded with a per-package exemption
+# still cannot be REGENERATED without one: a plain `uv lock` or
+# `uv lock --upgrade` fails again unless the exemption is declared, which is
+# why it belongs in the project's own configuration where every contributor
+# and every CI runner picks it up automatically.
+#
+# Each entry may be dropped once the ambient window has moved past that
+# package's upload date; neither is load-bearing beyond making the resolve
+# reproducible.
+[tool.uv]
+exclude-newer-package = { lume-pyat = "2026-08-06T00:00:00Z", lume-pva-apg = "2026-08-08T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.

@@ -17,11 +17,12 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-31T09:50:07.743242Z"
+exclude-newer = "2026-07-31T19:35:16.708687Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
 lume-pyat = "2026-08-06T00:00:00Z"
+lume-pva-apg = "2026-08-08T00:00:00Z"
 
 [[package]]
 name = "accelerator-toolbox"
@@ -2904,6 +2905,27 @@ wheels = [
 ]
 
 [[package]]
+name = "lume-pva-apg"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lume-base", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "numpy", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c0/01/4611d7a2b91c207304d9f6f4364a31190014925802c7145e7ccbdb1c0b91/lume_pva_apg-0.1.2.tar.gz", hash = "sha256:b375db188ecbed91697888f098d6d01364793ea4ba7e822befd150af963d673d", size = 76507, upload-time = "2026-08-07T19:13:48.613Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/4b/12f8d4b30f62264fdfc1d298af4344324d07da75be42f5d348a8bcf90215/lume_pva_apg-0.1.2-py3-none-any.whl", hash = "sha256:36050520b1f93a987aef134b435d0d97081bc0b4a7f1e410cf916b2da4a72d23", size = 65086, upload-time = "2026-08-07T19:13:47.226Z" },
+]
+
+[package.optional-dependencies]
+ca = [
+    { name = "pcaspy", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+]
+pva = [
+    { name = "p4p", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+]
+
+[[package]]
 name = "lume-pyat"
 version = "0.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3614,6 +3636,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nose2"
+version = "0.16.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/b2/73553c0e19c4bfe174940de03c2e1814f407e3524628690800f2536bf7f7/nose2-0.16.0.tar.gz", hash = "sha256:19db5ad20e264501a8ee64e3e157a3766a5e744170e54ceecb4e5ca09b08655a", size = 172667, upload-time = "2026-03-02T00:49:52.122Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/3b/e93d177001ac3ba3cb2ebed7727442e1ee61990271f2bf39caef63798ead/nose2-0.16.0-py3-none-any.whl", hash = "sha256:a637c508b1fff5882c5f0f573226abe6f43b2f8005fef8896f57174d7d0e0c31", size = 213451, upload-time = "2026-03-02T00:49:50.609Z" },
+]
+
+[[package]]
 name = "numba"
 version = "0.65.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4146,6 +4177,7 @@ sheets = [
     { name = "gspread" },
 ]
 virtual-accelerator = [
+    { name = "lume-pva-apg", extra = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "pcaspy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 
@@ -4188,6 +4220,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "litellm", specifier = ">=1.56.0" },
     { name = "lume-base", specifier = "==0.5.0" },
+    { name = "lume-pva-apg", extras = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = "==0.1.2" },
     { name = "lume-pyat", specifier = "==0.1.0" },
     { name = "markdown", specifier = ">=3.5" },
     { name = "markupsafe", specifier = ">=3.0.2" },
@@ -4286,6 +4319,27 @@ requires-dist = [
     { name = "websocket-client", specifier = ">=1.7.0" },
 ]
 provides-extras = ["all", "archiver-mongodb", "ariel", "ariel-proxy", "dev", "docs", "gchat", "knowledge", "screen-capture-linux", "sheets", "virtual-accelerator"]
+
+[[package]]
+name = "p4p"
+version = "4.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "epicscorelibs", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "nose2", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "numpy", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "ply", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "pvxslibs", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/b1/cbb46a39cf571b5fcf8a61ead702f60f324a00d1728ab082307bd47c980f/p4p-4.2.2.tar.gz", hash = "sha256:1685ffab0d0a1a1e3da647dd9f027933a10d57b71b3c4f5dd762fcabeba7e31e", size = 390763, upload-time = "2026-01-08T03:14:25.043Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/cc/30c03930f41cbc7e2911c9f9ee641a5ddd0b93514ddcbcf6ec86262c81ca/p4p-4.2.2-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:90c2fbcc1adc72cc18194f7287c9c97ac4244e03e9c0b4196a3405c6315f48de", size = 412720, upload-time = "2026-01-08T03:14:05.331Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/45/863765ab799e3197d1863c2035bf0ce1f7e925d33a5c1d1153cc01c888e3/p4p-4.2.2-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:a1fbd9c52169e849546dcaf5689a09340bb79ce28eacf4abeff6babf203dac3d", size = 407581, upload-time = "2026-01-08T03:14:08.298Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/fb/4939594c20028eca7ee54cea21de25762ef6934a5fb168b8130599921c88/p4p-4.2.2-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:106b1dc2c54eaf2d90da6d1fbe2a79dadfb8c796341edaaabe9fedac90246e07", size = 407030, upload-time = "2026-01-08T03:14:12.434Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/fb/0e58517f29e3b9b89fd803d7650176992e441b34a543b28beb1769ce9a0a/p4p-4.2.2-cp313-cp313t-manylinux2014_x86_64.whl", hash = "sha256:553a19531a33f49998db0c68b43f86869b139ccb34d01853415ea43696fbbb3d", size = 406459, upload-time = "2026-01-08T03:14:14.132Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/7e/305f9a51190f9573589276b91e7082c6c358a1c0d85f36743bae8219847f/p4p-4.2.2-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:31d5a53e68c633a9d791e74950ac0ce9d336809e6a250e9b66fbe60de7e18e0b", size = 419699, upload-time = "2026-01-08T03:14:16.217Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/00/4e9361380019899f132122982b84f9d1b5e73e6e700686cd8435163663e9/p4p-4.2.2-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:11f9e61162380535a5ef074de6f0cd127e65ef3a6399c7cba16115aedf70b8e1", size = 414490, upload-time = "2026-01-08T03:14:18.24Z" },
+]
 
 [[package]]
 name = "packaging"
@@ -4565,6 +4619,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ply"
+version = "3.11"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/69/882ee5c9d017149285cab114ebeab373308ef0f874fcdac9beb90e0ac4da/ply-3.11.tar.gz", hash = "sha256:00c7c1aaa88358b9c765b6d3000c6eec0ba42abca5351b095321aef446081da3", size = 159130, upload-time = "2018-02-15T19:01:31.097Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/58/35da89ee790598a0700ea49b2a66594140f44dec458c07e8e3d4979137fc/ply-3.11-py2.py3-none-any.whl", hash = "sha256:096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce", size = 49567, upload-time = "2018-02-15T19:01:27.172Z" },
+]
+
+[[package]]
 name = "pre-commit"
 version = "4.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4817,6 +4880,23 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cd/05/0a34433a064256a578f1783a10da6df098ceaa4a57bbeaa96a6c0352786b/pure_eval-0.2.3.tar.gz", hash = "sha256:5f4e983f40564c576c7c8635ae88db5956bb2229d7e9237d03b3c0b0190eaf42", size = 19752, upload-time = "2024-07-21T12:58:21.801Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8e/37/efad0257dc6e593a18957422533ff0f87ede7c9c6ea010a2177d738fb82f/pure_eval-0.2.3-py3-none-any.whl", hash = "sha256:1db8e35b67b3d218d818ae653e27f06c3aa420901fa7b081ca98cbedc874e0d0", size = 11842, upload-time = "2024-07-21T12:58:20.04Z" },
+]
+
+[[package]]
+name = "pvxslibs"
+version = "1.5.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "epicscorelibs", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "setuptools-dso", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2f/42/c84089f3d7a76c2c6027326275be7fdbc4195687b2d9867090700c906520/pvxslibs-1.5.2.tar.gz", hash = "sha256:dcf58897451951e9b7ea1021a001d7d826047d29186bf5b64bb1b4688fdacf5f", size = 667548, upload-time = "2026-06-24T05:01:23.286Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/2c/276d6c0635877af431a7f9108adb834e295bd50eca4a23c3aa17a7cbcb42/pvxslibs-1.5.2-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:3765818f4e825c37002a595267d5f0ece2ef6090eaa83ab1973474fdeb7bc5f5", size = 2664374, upload-time = "2026-06-24T05:01:01.708Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/47/b45332d3d6427811909d934f8675956ee5b9e10e46f689464d6ea23ab858/pvxslibs-1.5.2-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:1a8389e834db03c6b341d21d84cb5456be039ea04cac3be3b2f68c8b5d41cd92", size = 2662862, upload-time = "2026-06-24T05:01:05.944Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/68/c45fbb7bfe21b81ccf923b02549e2b1504539dacdbbb3444c01aa00c2ee2/pvxslibs-1.5.2-cp313-cp313-manylinux2014_x86_64.whl", hash = "sha256:b5721ae340b146e13c44034af48e5d259e1df1a65b9bacb878cde786dd01791f", size = 2662885, upload-time = "2026-06-24T05:01:10.16Z" },
+    { url = "https://files.pythonhosted.org/packages/90/48/e82fba59d1691a7a19aeffbc6a8b2add7b9dcda224da10e8f8e2bc72fc21/pvxslibs-1.5.2-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:7037d85c6d363a09cdd2ab79a78de15262d18482fc0bee0957cd46210811cf9b", size = 2649330, upload-time = "2026-06-24T05:01:14.119Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/24/199815606655bf930d3625060068a8bb8c23724c4f6c5a324287bce0c173/pvxslibs-1.5.2-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:859adec425aa21250eb1e556f1d832fbfde64f025d0f380b2e6871fe8cda5afc", size = 2649360, upload-time = "2026-06-24T05:01:16.831Z" },
 ]
 
 [[package]]

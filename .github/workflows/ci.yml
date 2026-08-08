@@ -75,9 +75,15 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Install dependencies
-      # virtual-accelerator: tests/va/{test_record_factory,test_apply_fault}.py
-      # import softioc, which lives in the virtual-accelerator extra (not dev).
-      # Without it these unit tests error at collection on a fresh runner.
+      # virtual-accelerator: carries the whole serving stack -- pcaspy, and
+      # lume-pva-apg[ca,pva] which brings p4p with it -- none of which is in
+      # dev. tests/va/{test_record_factory,test_apply_fault}.py stand a real
+      # pcaspy Channel Access server up in-process, and tests/va/test_facility_
+      # seam.py boots the serving assembly on both transports. These guard
+      # their imports, so without the extra they SKIP rather than error: the
+      # lane stays green having never touched Channel Access. That is why the
+      # extra is pinned here and why tests/va/test_live_ca_venue_guard.py fails
+      # this lane outright if the server does not import on linux/x86_64.
       #
       # The bluesky stack (bluesky/ophyd-async/tiled) is a core dependency, so
       # plain `uv sync` carries it. tests/services/bluesky_bridge/* guard their
@@ -1070,7 +1076,7 @@ jobs:
     # equivalence-e2e gating). This job needs no secrets — neither the
     # bridge nor the bluesky-panels sidecar shells out to an LLM.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Co-deploys the VA (native PyAT/softioc build, same cold-cache cost as
+    # Co-deploys the VA (native PyAT/serving-stack build, same cold-cache cost as
     # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
     # bluesky-panels sidecar, then drives a real plan end to end through the
     # sidecar's execute route — comparable weight to va-substrate-
@@ -1168,7 +1174,7 @@ jobs:
     # was the lane's second-biggest time sink); same extraction pattern as
     # every other dockerbuild-marked file.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Builds the native PyAT/softioc VA image from source like
+    # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
     # cold image cache can't red the job.
     timeout-minutes: 45
