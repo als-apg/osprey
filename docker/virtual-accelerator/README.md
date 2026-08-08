@@ -29,7 +29,7 @@ scripts/va/run_va.sh
 Builds the image on first run (cached after that; `OSPREY_VA_REBUILD=1` to
 force a rebuild after editing anything under
 `src/osprey/services/virtual_accelerator/`, this `Containerfile`, or the
-`lume-pva` checkout the serving stack is built from), then serves CA on
+`virtual-accelerator` extra in `pyproject.toml`), then serves CA on
 `localhost:5064` using the packaged control_assistant preset's own
 `data/simulation/` as a zero-argument default. Point it at a real project
 instead:
@@ -119,12 +119,16 @@ Three physics-fidelity partitions:
   nothing for it. Without the guard, an aarch64 build would succeed and
   produce an image with **no Channel Access server**, first visible as a
   runtime `ImportError` inside `serving/runner.py`.
-- **`lume-pva-apg[ca,pva]`** — the serving stack, installed from a wheel
-  staged into the build context rather than resolved by name, because it is
-  not published yet. `[ca]` brings `pcaspy` (Channel Access), `[pva]` brings
-  `p4p` (PVAccess), and `lume-base` comes with the core — the serving layer
-  imports `lume` at module scope, so even a lattice-free boot needs it and
-  gets `h5py`/`matplotlib`/`scipy` along with it. `pip` is told
+- **`lume-pva-apg[ca,pva]`** — the serving stack. The `Containerfile` never
+  declares it as an install target or constrains its version: it is an exact
+  pin inside osprey's `virtual-accelerator` extra, so it arrives with
+  `.[virtual-accelerator]` below and this image cannot drift from what
+  `pyproject.toml` declares.
+  `[ca]` brings `pcaspy` (Channel Access), `[pva]` brings `p4p` (PVAccess) —
+  both are required, because the value layer is `p4p`-typed even on the CA
+  side — and `lume-base` comes with the core, since the serving layer imports
+  `lume` at module scope, so even a lattice-free boot needs it and gets
+  `h5py`/`matplotlib`/`scipy` along with it. `pip` is told
   `--only-binary pcaspy` as a guard: a wheel always exists on this platform,
   so a build that reaches for the sdist should fail immediately rather than
   stall inside an EPICS compile.
@@ -143,7 +147,7 @@ Three physics-fidelity partitions:
 ## Building manually
 
 The build context **must** be a staging directory containing exactly
-`pyproject.toml`, `README.md`, `src/`, the built `lume_pva_apg-*.whl`, and
+`pyproject.toml`, `README.md`, `src/`, and
 `docker/virtual-accelerator/Containerfile` — never the repo root, which also
 contains `.venv/`, `.git/`, and worktrees that would make every build re-tar
 gigabytes of unrelated content for no benefit.
