@@ -83,6 +83,16 @@
     nginx_image: str, optional, default "nginx:1.27-alpine"
     facility_timezone: str, optional, default "UTC" -> TZ
 
+    tls_host_cert_dir: str | None, tls_mount_target: str | None
+      Together they render nginx's one optional volume: the operator's
+      certificate directory on the DEPLOY HOST, mounted read-only at the
+      in-container directory `tls.cert` names. Both come from
+      `_auth_tls_context()`; `tls_mount_target` is derived from `tls.cert`
+      rather than configured, so the mount cannot land somewhere other than
+      where the `ssl_certificate` directive looks. When `tls_host_cert_dir` is
+      None the volume list renders byte-identically to a no-TLS deployment and
+      the operator supplies the mount from their own compose file.
+
     AUTH SIDECAR (all from render.py's `_auth_tls_context()`, the single parser
     of `modules.web_terminals.auth`/`tls` — this template re-parses nothing):
 
@@ -203,6 +213,16 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/landing.html:/usr/share/nginx/html/landing.html:ro
+{%- if tls_host_cert_dir and tls_mount_target %}
+      {#- The operator's certificate directory, read-only, landing at the
+         directory `tls.cert` names so nginx's ssl_certificate finds it. Emitted
+         only when `tls.host_cert_dir` is set: without it this list is byte-for-
+         byte what a no-TLS deployment renders, and the operator is expected to
+         supply the mount from a compose file of their own. render.py has
+         already refused a relative source, and a key living outside this
+         directory, so one mount is known to deliver both files. #}
+      - {{ tls_host_cert_dir }}:{{ tls_mount_target }}:ro
+{%- endif %}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:{{ nginx_port }}/ || exit 1"]
       interval: 15s

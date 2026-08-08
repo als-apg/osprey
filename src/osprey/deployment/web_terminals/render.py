@@ -9,6 +9,7 @@ All port arithmetic is delegated to :func:`osprey.deployment.web_terminals.ports
 
 from __future__ import annotations
 
+import posixpath
 import re
 from importlib.resources import as_file, files
 from typing import Any
@@ -190,6 +191,7 @@ def render_web_terminals(config: Any) -> dict[str, str]:
             "set — the gated `listen 443 ssl` seam needs both paths to emit a "
             "coherent ssl_certificate/ssl_certificate_key pair"
         )
+    _check_tls_host_cert_dir(auth_tls_ctx)
     if (
         auth_tls_ctx["auth_method"] != "none"
         and not auth_tls_ctx["tls_enabled"]
@@ -575,7 +577,78 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
         "tls_enabled": bool(tls.get("enabled", False)),
         "tls_cert": tls.get("cert"),
         "tls_key": tls.get("key"),
+        # The HOST directory holding the certificate and key. Optional, and the
+        # only key in this stanza that names a path on the deploy host rather
+        # than one inside the nginx container: setting it makes the overlay
+        # bind-mount that directory read-only at the container-side directory
+        # `tls.cert` sits in, which is the step that otherwise has to be done by
+        # hand. Left unset, nothing is mounted and the operator supplies the
+        # mount themselves — the escape hatch for a facility whose certificates
+        # arrive by some route a directory bind cannot express.
+        "tls_host_cert_dir": _non_empty_str(tls.get("host_cert_dir"), "") or None,
+        # Where that directory lands inside the container: the parent of
+        # `tls.cert`. Derived rather than configured so the mount and the
+        # `ssl_certificate` directive cannot name different places.
+        "tls_mount_target": _tls_mount_target(tls),
     }
+
+
+def _check_tls_host_cert_dir(ctx: dict[str, Any]) -> None:
+    """Refuse a ``tls.host_cert_dir`` that cannot deliver both files.
+
+    One read-only bind mount covers the certificate *and* the key only when the
+    two sit in the same directory inside the container, because the mount lands
+    at the parent of ``tls.cert``. A key elsewhere would leave nginx reading a
+    path nothing supplies — the exact silent failure this key exists to remove —
+    so it is refused at render time rather than at nginx start.
+
+    A relative ``host_cert_dir`` is refused for the same reason: compose
+    resolves it against the project directory, so a deployment moved to another
+    machine would mount a different (or missing) directory without saying so.
+
+    Nothing is checked when the key is unset: that is the supported posture in
+    which the operator supplies the mount themselves.
+    """
+    host_dir = ctx["tls_host_cert_dir"]
+    if not host_dir:
+        return
+    if not ctx["tls_enabled"]:
+        raise ValueError(
+            "modules.web_terminals.tls.host_cert_dir is set but tls.enabled is false — "
+            "the certificate directory would be mounted into an nginx that serves no "
+            "HTTPS. Enable tls, or drop host_cert_dir"
+        )
+    if not posixpath.isabs(host_dir):
+        raise ValueError(
+            f"modules.web_terminals.tls.host_cert_dir {host_dir!r} must be an absolute "
+            "path on the deploy host: compose resolves a relative bind source against "
+            "the project directory, so the same config would mount a different "
+            "directory elsewhere"
+        )
+    cert_dir = ctx["tls_mount_target"]
+    key_dir = posixpath.dirname(_non_empty_str(ctx["tls_key"], "")) or None
+    if cert_dir != key_dir:
+        raise ValueError(
+            "modules.web_terminals.tls.cert and tls.key must sit in the same directory "
+            f"when host_cert_dir is set (cert is in {cert_dir!r}, key in {key_dir!r}): "
+            "host_cert_dir is mounted at the certificate's directory, so a key outside "
+            "it would not be present in the container"
+        )
+
+
+def _tls_mount_target(tls: dict[str, Any]) -> str | None:
+    """The in-container directory ``tls.host_cert_dir`` is mounted at.
+
+    The parent of ``tls.cert``, so a mounted directory always lands exactly
+    where nginx's ``ssl_certificate`` looks. Returns ``None`` when there is
+    nothing to mount or no certificate path to derive it from; the caller
+    validates that ``tls.key`` shares the directory, which is what makes a
+    single mount sufficient for both files.
+    """
+    cert = _non_empty_str(tls.get("cert"), "")
+    if not cert:
+        return None
+    return posixpath.dirname(cert) or None
 
 
 def _positive_int(value: Any, default: int) -> int:

@@ -323,6 +323,7 @@ modules:
         claim: "sub"                      # ID-token claim matched against users[].oidc_subject
     tls:                                  # OPTIONAL — required whenever auth.method != none
       enabled: false                      # default; plain HTTP
+      host_cert_dir: "/etc/ssl/facility"    # dir ON THE DEPLOY HOST; mounted read-only for you
       cert: "/etc/osprey/tls/facility.crt"  # path INSIDE the nginx container; only read when enabled
       key: "/etc/osprey/tls/facility.key"   # path INSIDE the nginx container; only read when enabled
 ```
@@ -355,8 +356,9 @@ modules:
 | `auth.oidc.client_secret_env` | string | no (default `OSPREY_AUTH_OIDC_CLIENT_SECRET`) | Name of the env var holding the client secret, same rule |
 | `auth.oidc.claim` | string | no (**sidecar** default `sub`) | Which ID-token claim carries the identity matched against a roster entry's `oidc_subject`. An identity that maps to no roster user is refused. Unset emits no env var at all and the sidecar's own `sub` default applies — the default lives there, not in the render, so don't document it as a config-layer default |
 | `tls.enabled` | bool | no | Defaults to `false` (plain HTTP). `true` makes the plain port a `301` redirect and serves all content on `listen 443 ssl` |
-| `tls.cert` | string | required if `tls.enabled: true` | Path to the TLS certificate **as seen inside the nginx container**. The rendered overlay mounts only nginx's own config files, so the certificate directory must be mounted into the `nginx` service by a facility-supplied compose file later in `runtime.compose_files` |
+| `tls.cert` | string | required if `tls.enabled: true` | Path to the TLS certificate **as seen inside the nginx container** |
 | `tls.key` | string | required if `tls.enabled: true` | Path to the TLS private key, same rule. `tls.enabled: true` with either path unset refuses to render |
+| `tls.host_cert_dir` | string | no | Absolute directory **on the deploy host** holding the certificate and key. Set it and the overlay bind-mounts that directory read-only at the container-side directory `tls.cert` names, so nginx finds the certificate with no facility-supplied compose file. Because one mount serves both files, `tls.cert` and `tls.key` must share a directory; a relative path, a key outside that directory, or `host_cert_dir` without `tls.enabled` each refuse to render. Omit it to mount nothing and supply the certificate yourself (a compose file later in `runtime.compose_files`, or whatever your certificate management already does) |
 
 Every port-valued field in the table above must be free of collisions with every
 other port allocation in the config: `nginx_port` against `ports.*` (its mirror is

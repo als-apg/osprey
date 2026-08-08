@@ -36,6 +36,7 @@ import copy
 import re
 
 import pytest
+import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
 
@@ -361,6 +362,92 @@ def test_seam_tls_enabled_with_both_cert_and_key_emits_ssl_listen_and_paths() ->
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
     assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in content
     assert "location = / {" in content
+
+
+def _nginx_volumes(config: dict) -> list[str]:
+    """The rendered nginx service's ``volumes`` list, parsed from the overlay."""
+    overlay = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+    return list(overlay["services"]["nginx"]["volumes"])
+
+
+def test_tls_host_cert_dir_mounts_the_certificate_where_nginx_looks_for_it() -> None:
+    """SEAM 2 (the certificate actually reaches the container): `tls.host_cert_dir`
+    renders a read-only bind of that HOST directory at the in-container directory
+    `tls.cert` names. Without it nginx starts, finds no certificate, and dies —
+    the one configuration a facility must get right had no guard behind it."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = {
+        **copy.deepcopy(_TLS_STANZA),
+        "host_cert_dir": "/etc/ssl/dls",
+    }
+
+    # Act
+    volumes = _nginx_volumes(config)
+
+    # Assert — the mount target is DERIVED from tls.cert, so it cannot name a
+    # directory other than the one ssl_certificate reads.
+    assert "/etc/ssl/dls:/etc/nginx/certs:ro" in volumes
+    content = _server_blocks(_render_nginx(config))[1]
+    assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
+
+
+def test_tls_without_host_cert_dir_mounts_nothing_extra() -> None:
+    """The key is optional, and omitting it is a supported posture: a facility
+    whose certificates arrive by a route a directory bind cannot express supplies
+    the mount itself. The nginx volume list must then be exactly what a no-TLS
+    deployment renders, so opting out costs nothing."""
+    # Arrange
+    with_tls = copy.deepcopy(_MULTI_USER_CONFIG)
+    with_tls["modules"]["web_terminals"]["tls"] = copy.deepcopy(_TLS_STANZA)
+
+    # Act / Assert
+    assert _nginx_volumes(with_tls) == _nginx_volumes(_MULTI_USER_CONFIG)
+
+
+@pytest.mark.parametrize(
+    ("stanza", "expected"),
+    [
+        pytest.param(
+            {"enabled": False, "host_cert_dir": "/etc/ssl/dls"},
+            "tls.enabled is false",
+            id="mount-without-tls",
+        ),
+        pytest.param(
+            {**_TLS_STANZA, "host_cert_dir": "certs/dls"},
+            "must be an absolute path",
+            id="relative-source",
+        ),
+        pytest.param(
+            {
+                "enabled": True,
+                "cert": "/etc/nginx/certs/dls.crt",
+                "key": "/etc/nginx/private/dls.key",
+                "host_cert_dir": "/etc/ssl/dls",
+            },
+            "same directory",
+            id="key-outside-the-mount",
+        ),
+    ],
+)
+def test_tls_host_cert_dir_refuses_a_mount_that_cannot_deliver_both_files(
+    stanza: dict, expected: str
+) -> None:
+    """Each rejected shape would otherwise render happily and fail at nginx start.
+
+    A relative source silently follows the project directory; a key outside the
+    mounted directory is simply absent in the container; and mounting a
+    certificate into an nginx serving no HTTPS is a config the operator did not
+    mean. All three are refused at render time, where the message can name the
+    cause.
+    """
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = stanza
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=expected):
+        render_web_terminals(config)
 
 
 def test_seam_auth_surface_exists_only_on_the_tls_content_server() -> None:

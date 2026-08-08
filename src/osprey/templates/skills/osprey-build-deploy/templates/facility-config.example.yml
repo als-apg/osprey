@@ -226,15 +226,18 @@ modules:
     # stack is perimeter-trust plain HTTP, so deploy it that way only on a network
     # you already trust. Uncomment to require a real per-user login — `password`
     # (hashes OSPREY provisions into .env.auth) or `oidc` (your own IdP). Auth
-    # without TLS refuses to render unless auth.allow_insecure_http is set, and
-    # tls.cert/tls.key are paths INSIDE the nginx container, which the facility
-    # mounts there itself. Full reference: facility-config-schema.md §
+    # without TLS refuses to render unless auth.allow_insecure_http is set.
+    # tls.cert/tls.key are paths INSIDE the nginx container; host_cert_dir is the
+    # directory ON THE DEPLOY HOST holding them, which the overlay bind-mounts
+    # read-only where cert sits (omit it to mount nothing and supply the
+    # certificate yourself). Full reference: facility-config-schema.md §
     # "Authentication".
     # auth:
     #   method: "none"                   # none (default) | password | oidc
     #   session_lifetime: 43200          # INTEGER seconds (default 43200 = 12h)
     # tls:
     #   enabled: false                   # default; plain HTTP
+    #   host_cert_dir: "/etc/ssl/dls"    # host-side dir; mounted read-only at cert's dir
     #   cert: "/etc/osprey/tls/dls.crt"  # container-side path; only read when enabled
     #   key: "/etc/osprey/tls/dls.key"   # container-side path; only read when enabled
 

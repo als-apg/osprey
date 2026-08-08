@@ -394,7 +394,8 @@ Choose a method
      web_terminals:
        tls:
          enabled: true
-         cert: /etc/osprey/tls/facility.crt
+         host_cert_dir: /etc/ssl/facility     # host side; mounted for you
+         cert: /etc/osprey/tls/facility.crt   # container side
          key: /etc/osprey/tls/facility.key
        auth:
          method: password
@@ -409,7 +410,8 @@ cannot open this user's terminal:
      web_terminals:
        tls:
          enabled: true
-         cert: /etc/osprey/tls/facility.crt
+         host_cert_dir: /etc/ssl/facility     # host side; mounted for you
+         cert: /etc/osprey/tls/facility.crt   # container side
          key: /etc/osprey/tls/facility.key
        auth:
          method: oidc
@@ -463,19 +465,37 @@ therefore have to pick one of two ways to get the connection encrypted.
 **Let this nginx terminate TLS.** Set ``tls.enabled: true`` with a certificate
 and key, and nginx serves HTTPS on 443, redirects the plain port to it, and
 marks session cookies so browsers only ever send them over HTTPS. Bringing the
-certificate itself is your job, and it takes one step OSPREY does not do for
-you:
+certificate is still your job, but getting it *into* the container is not:
 
-.. important::
+.. code-block:: yaml
 
-   ``tls.cert`` and ``tls.key`` are paths **inside the nginx container**, not on
-   the deploy host, and the generated compose overlay mounts nothing but nginx's
-   own config files. Setting the two keys alone leaves nginx pointing at files
-   that do not exist there, and it will not start. Bind-mount the directory
-   holding your certificate and key into the ``nginx`` service — from a small
-   compose file of your own, listed after the web overlay in
-   ``runtime.compose_files`` — and give ``tls.cert`` / ``tls.key`` the paths as
-   seen *inside* the container.
+   tls:
+     enabled: true
+     host_cert_dir: /etc/ssl/facility          # on the deploy host
+     cert: /etc/osprey/tls/facility.crt        # inside the container
+     key: /etc/osprey/tls/facility.key
+
+``host_cert_dir`` is the only key here that names a path on the **deploy host**;
+``cert`` and ``key`` are paths **inside the nginx container**. Setting
+``host_cert_dir`` bind-mounts that directory, read-only, at the directory
+``cert`` sits in — so the certificate is where nginx looks without you writing
+any compose of your own. Renewals need nothing extra: the mount is a directory,
+so a replaced file is picked up on the next nginx reload.
+
+Because one mount has to deliver both files, ``cert`` and ``key`` must sit in
+the same directory, and ``host_cert_dir`` must be absolute. A deployment that
+breaks either rule is refused at render time, naming the reason — rather than
+starting an nginx that immediately dies looking for a file nobody mounted.
+
+.. note::
+
+   ``host_cert_dir`` is optional. Leave it out and nothing is mounted: the
+   compose overlay renders exactly as it does without TLS, and supplying the
+   certificate is yours to arrange — a bind mount from a small compose file of
+   your own, listed after the web overlay in ``runtime.compose_files``, or
+   whatever your facility's certificate management already does. That is the
+   route to take when a plain directory bind cannot express how certificates
+   reach this host.
 
 **Or terminate TLS in front of this nginx.** If a facility load balancer or
 ingress proxy already presents the certificate and forwards to this host, set
