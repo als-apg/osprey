@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 07, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 08, 2026"/>
   </head>
   
   
@@ -630,7 +630,7 @@ osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
 </pre></div>
 </div>
 <p><strong>Actions:</strong> <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">clean</span></code>, <code class="docutils literal notranslate"><span class="pre">rebuild</span></code>,
-<code class="docutils literal notranslate"><span class="pre">decommission</span></code>, <code class="docutils literal notranslate"><span class="pre">prune</span></code>, <code class="docutils literal notranslate"><span class="pre">nuke</span></code>, <code class="docutils literal notranslate"><span class="pre">seed</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">decommission</span></code>, <code class="docutils literal notranslate"><span class="pre">prune</span></code>, <code class="docutils literal notranslate"><span class="pre">nuke</span></code>, <code class="docutils literal notranslate"><span class="pre">seed</span></code>, <code class="docutils literal notranslate"><span class="pre">passwd</span></code>.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">up</span></code> – Start all configured services.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">down</span></code> – Stop all services.</p></li>
@@ -644,6 +644,8 @@ osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
 <li><p><code class="docutils literal notranslate"><span class="pre">nuke</span></code> – Tear down the entire multi-user web-terminal stack (destructive).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">seed</span> <span class="pre">[USER]</span></code> – (Re)seed web-terminal workspaces from the user index;
 <code class="docutils literal notranslate"><span class="pre">USER</span></code> targets one user, omit to reseed all.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">passwd</span> <span class="pre">USER</span></code> – Change one web-terminal user’s login password (password
+authentication only). Prompts without echoing, and ends that user’s sessions.</p></li>
 </ul>
 <p><strong>Options (apply to all actions):</strong></p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> – Project directory (default: current directory or <code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code>).</p>

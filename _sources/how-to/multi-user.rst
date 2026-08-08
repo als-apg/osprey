@@ -21,6 +21,8 @@ host, brought up with a single ``osprey deploy up``.
    - Standing the two-persona stack up from the ``control-assistant`` preset,
      and watching the write boundary refuse — and approve — a real write
    - Day-to-day operations: adding, reseeding, and removing users
+   - How to require a login — passwords OSPREY manages, or your facility's
+     single sign-on
 
    **Prerequisites:** The concepts need none. To stand the stack up you'll
    want Docker (or Podman) and your model-provider credentials — the
@@ -83,9 +85,10 @@ and builds its container image locally, so no registry or CI is involved.
 
 **One front door.** An nginx reverse proxy serves the landing page and proxies
 ``/u/<name>/`` to that user's container. The per-user containers are pinned to
-the loopback interface, so nginx is the only network path in. The landing
-page's user cards are a convenience for choosing an identity on a trusted
-machine — not authentication (see :ref:`multi-user-require-a-login`).
+the loopback interface, so nginx is the only network path in. The landing page
+lists the roster, and its cards are how someone picks an identity; whether
+clicking a card *lets them in* depends on whether you have turned login on —
+see :ref:`multi-user-require-a-login`.
 
 The config block
 ================
@@ -360,22 +363,239 @@ warm, and returning to the same user reconnects to it.
 Require a login
 ===============
 
-Today the stack ships with **no authentication and no TLS**: anyone who can
-reach the nginx port can open any user's terminal, over plain HTTP. The user
-cards are a convenience for choosing an identity on a shared trusted machine,
-not an access-control boundary — and the persona split is a *capability*
-boundary enforced per project, not an identity one. That posture is right for
-a **single trusted host** — a workstation or control-room machine you already
-trust — and wrong for an untrusted network.
+Out of the box the stack asks for no credentials and speaks plain HTTP:
+clicking a card on the landing page opens that terminal, and anyone who can
+reach the nginx port can click any card. That posture suits a **single trusted
+host** — a workstation or control-room machine you already trust — and nothing
+beyond it. It is the walkthrough's choice, not a limit of the stack: it keeps
+one ``osprey deploy up`` on a laptop free of certificates and identity
+providers. No preset ships with login enabled, so this is something you turn on
+deliberately.
+
+Set ``auth.method`` and every request under ``/u/<name>/`` — pages, APIs and
+the terminal's live connection alike — is refused unless the browser holds a
+valid session for *that* user. The check happens at the front door: a small
+authentication service joins the stack in its own container, and nginx asks it
+about each request before proxying anything. Nothing depends on the per-user
+containers policing themselves.
+
+Note that the persona split is a *capability* boundary, enforced per project —
+it decides what a session may do, never who may open it. Those are separate
+questions, and login answers only the second.
+
+Choose a method
+---------------
+
+**Passwords**, managed by OSPREY. Nothing extra to run or operate:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       tls:
+         enabled: true
+         host_cert_dir: /etc/ssl/facility     # host side; mounted for you
+         cert: /etc/osprey/tls/facility.crt   # container side
+         key: /etc/osprey/tls/facility.key
+       auth:
+         method: password
+
+**OIDC**, against the single sign-on your facility already runs. Each roster
+entry names the identity that maps to it, so a valid login as somebody else
+cannot open this user's terminal:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       tls:
+         enabled: true
+         host_cert_dir: /etc/ssl/facility     # host side; mounted for you
+         cert: /etc/osprey/tls/facility.crt   # container side
+         key: /etc/osprey/tls/facility.key
+       auth:
+         method: oidc
+         oidc:
+           issuer: https://sso.example.org/realms/accelerator
+           client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID
+           client_secret_env: OSPREY_AUTH_OIDC_CLIENT_SECRET
+           claim: sub                       # ID-token claim to match on
+       users:
+         - name: alice
+           index: 0
+           oidc_subject: "8f4c1e02-..."     # alice's value of that claim
+         - name: bob
+           index: 1
+           oidc_subject: "b7d9a340-..."
+
+The ``*_env`` keys hold environment-variable **names**, not credentials: put the
+client id and secret in the project's ``.env`` under those names. The names
+shown are the ones OSPREY reads when you omit the keys, and ``claim`` falls back
+to ``sub`` in the authentication service itself. ``oidc_subject`` is not a
+secret — it is the identifier your provider already publishes for that person.
+
+Three more keys are optional. ``auth.port`` is the port the authentication
+service listens on (default ``9070``); ``auth.session_lifetime`` is how long a
+session stays valid, in **whole seconds** (default ``43200``, twelve hours); and
+``auth.image`` names the service's image, which is **required** when
+``image_source: registry`` — your CI publishes that image the same way it
+publishes the terminal images. In ``image_source: local`` mode
+``osprey deploy up`` builds it for you and ``auth.image`` is not needed.
+
+.. warning::
+
+   ``auth.port`` and ``auth.session_lifetime`` must be plain positive integers.
+   A duration string like ``"12h"``, a decimal, zero or a negative number is
+   **silently replaced by the default** — nothing warns you — so a deployment
+   that meant eight-hour sessions would quietly keep twelve-hour ones.
+
+The service listens on ``127.0.0.1`` on the deploy host itself (the web stack
+uses host networking), so nginx reaches it and nothing off-host does. It is not
+published as a container port, and anyone with a shell on the deploy host can
+reach it — the same as every per-user terminal.
+
+Serve it over HTTPS
+-------------------
+
+A session cookie sent over plain HTTP is readable by anything on the path, so a
+deployment with ``auth.method`` other than ``none`` and ``tls.enabled: false``
+**refuses to render at all** rather than hand out cookies in the clear. You
+therefore have to pick one of two ways to get the connection encrypted.
+
+**Let this nginx terminate TLS.** Set ``tls.enabled: true`` with a certificate
+and key, and nginx serves HTTPS on 443, redirects the plain port to it, and
+marks session cookies so browsers only ever send them over HTTPS. Bringing the
+certificate is still your job, but getting it *into* the container is not:
+
+.. code-block:: yaml
+
+   tls:
+     enabled: true
+     host_cert_dir: /etc/ssl/facility          # on the deploy host
+     cert: /etc/osprey/tls/facility.crt        # inside the container
+     key: /etc/osprey/tls/facility.key
+
+``host_cert_dir`` is the only key here that names a path on the **deploy host**;
+``cert`` and ``key`` are paths **inside the nginx container**. Setting
+``host_cert_dir`` bind-mounts that directory, read-only, at the directory
+``cert`` sits in — so the certificate is where nginx looks without you writing
+any compose of your own. Renewals need nothing extra: the mount is a directory,
+so a replaced file is picked up on the next nginx reload.
+
+Because one mount has to deliver both files, ``cert`` and ``key`` must sit in
+the same directory, and ``host_cert_dir`` must be absolute. A deployment that
+breaks either rule is refused at render time, naming the reason — rather than
+starting an nginx that immediately dies looking for a file nobody mounted.
 
 .. note::
 
-   Per-user login (passwords OSPREY manages for you, or your facility's
-   single sign-on) and TLS are being added and will document themselves in
-   this section. Until then, do not set
-   ``modules.web_terminals.auth.method``: the seam is fail-closed by design,
-   so enabling it locks *every* user out rather than silently authorizing
-   them.
+   ``host_cert_dir`` is optional. Leave it out and nothing is mounted: the
+   compose overlay renders exactly as it does without TLS, and supplying the
+   certificate is yours to arrange — a bind mount from a small compose file of
+   your own, listed after the web overlay in ``runtime.compose_files``, or
+   whatever your facility's certificate management already does. That is the
+   route to take when a plain directory bind cannot express how certificates
+   reach this host.
+
+**Or terminate TLS in front of this nginx.** If a facility load balancer or
+ingress proxy already presents the certificate and forwards to this host, set
+``auth.allow_insecure_http: true`` and leave ``tls.enabled`` off. This is a
+normal deployment, not a workaround: the browser's connection is encrypted by
+the thing in front, and the hop it forwards over is yours to keep private.
+
+What ``allow_insecure_http`` is *not* is a way to postpone certificates on a
+reachable host. With it set and nothing terminating TLS, anyone who can watch
+the traffic can copy a session cookie and become that user. An isolated network
+where you accept that risk is the only other case for it.
+
+Passwords, and where they live
+------------------------------
+
+In password mode ``osprey deploy up`` makes sure every user on the roster has a
+password hash before it starts anything, and aborts before a single container
+starts if it cannot — an unwritable file is caught here rather than becoming a
+stack nobody can log in to. The same check covers the keys used to sign session
+cookies, so an OIDC deployment can abort the same way even though it provisions
+no passwords at all. The usual cause either way is permissions on ``.env.auth``
+or on the project directory.
+
+The hashes and signing keys live in ``.env.auth`` in the project root — mode
+``0600``, listed in the generated ``.gitignore`` next to ``.env.production``,
+and handed to the authentication service alone. No terminal container ever sees
+it.
+
+For each user, in order:
+
+#. An existing hash in ``.env.auth`` is kept. Deploying again never resets
+   anyone's password.
+#. Otherwise, a plaintext ``OSPREY_AUTH_PW_<USER>`` in the project's ``.env`` is
+   hashed into ``.env.auth`` — the way to set a password you already chose. The
+   plaintext stays on the deploy host; only the hash reaches a container.
+#. Otherwise a password is generated, hashed, and **printed once**, on that
+   deploy's output. Nothing can recover it afterwards, so capture it and hand it
+   to the person.
+
+``<USER>`` is the username uppercased with ``-`` turned into ``_``. Because that
+mapping is what keeps one user's password out of another user's terminal, an
+authenticated deployment refuses to render when two roster names collide under
+it (``alice-b`` and ``alice_b``), or when a name falls outside
+``[a-z0-9][a-z0-9_-]*``.
+
+To change a password later:
+
+.. code-block:: bash
+
+   osprey deploy passwd alice
+
+It prompts (never echoing), rewrites that one hash, and restarts the
+authentication service. Alice's existing sessions stop working immediately, and
+nobody else's are touched.
+
+Sessions, logging out, and rolling back
+---------------------------------------
+
+The landing page stays public — it lists the roster so people can find their own
+card, and a card is a prompt, not a door. One browser may hold several unlocked
+users at once, which is what a shared control-room machine needs; logging out
+ends that one user's session and leaves the others alone.
+
+.. note::
+
+   The list of logged-out sessions is held in the authentication service's
+   memory, so restarting that container forgets it. A cookie captured before a
+   logout could be replayed until it expires on its own — within
+   ``auth.session_lifetime``.
+
+Removing someone needs care, because a credential can outlive the person's
+account in three different ways:
+
+**Use** ``osprey deploy decommission alice`` **, not a hand-edit.** Deleting a
+roster entry and running ``osprey deploy up`` removes alice's container, and the
+authentication service stops answering for a name that is no longer on the
+roster — but her hash stays in ``.env.auth``. Add the name back months later and
+her old password works again. ``decommission`` (or ``prune``, for names already
+edited out) is what actually retires the credential.
+
+**A plaintext password in** ``.env`` **survives decommission.** If you seeded
+alice's password by putting ``OSPREY_AUTH_PW_ALICE`` in the project's ``.env``,
+decommissioning her clears the hash but leaves that line — and the next
+``osprey deploy up`` for a new alice hashes it straight back in, handing the new
+person the departed one's password. The decommission warns you, but the warning
+scrolls past in a deploy log weeks before anyone reuses the name. **Delete the**
+``.env`` **line by hand when the person leaves.**
+
+**In OIDC mode,** ``decommission`` **is the verb that ends a session.**
+``prune`` cleans up users already off the roster, but it only restarts the
+authentication service when it actually removed a password entry — and an OIDC
+user has none. Their container is gone either way, so the stale route just
+fails; but if what you need is that person's *session* closed now, run
+``decommission``.
+
+To turn login back off, set ``auth.method: none`` and run ``osprey deploy up``.
+That re-renders nginx and the compose file, drops the authentication service,
+and returns the stack to the open posture described at the top of this section.
+``.env.auth`` is left in place, so turning login on again keeps everyone's
+existing password.
 
 Related pages
 =============
