@@ -84,13 +84,13 @@ jobs:
     - name: Install dependencies
       # virtual-accelerator: carries the whole serving stack -- pcaspy, and
       # lume-pva-apg[ca,pva] which brings p4p with it -- none of which is in
-      # dev. tests/va/{test_record_factory,test_apply_fault}.py stand a real
-      # pcaspy Channel Access server up in-process, and tests/va/test_facility_
-      # seam.py boots the serving assembly on both transports. These guard
-      # their imports, so without the extra they SKIP rather than error: the
-      # lane stays green having never touched Channel Access. That is why the
-      # extra is pinned here and why tests/va/test_live_ca_venue_guard.py fails
-      # this lane outright if the server does not import on linux/x86_64.
+      # dev. The live Channel Access suites (run in their own step below, one
+      # process per module) and tests/va/test_facility_seam.py's served-boot
+      # branch need all of it. These guard their imports, so without the extra
+      # they SKIP rather than error: the lane stays green having never touched
+      # Channel Access. That is why the extra is pinned here and why
+      # tests/va/test_live_ca_venue_guard.py fails this lane outright if the
+      # server does not import on linux/x86_64.
       #
       # The bluesky stack (bluesky/ophyd-async/tiled) is a core dependency, so
       # plain `uv sync` carries it. tests/services/bluesky_bridge/* guard their
@@ -138,7 +138,27 @@ jobs:
         # worker leaves a diagnosis in the log instead of a silent 99% stall.
         # Dump-only, so the container-starting files (cold image pulls can
         # legitimately run long) are never killed by it.
-        uv run pytest tests/ --ignore=tests/e2e -v --tb=short -n 4 --dist loadgroup $COV_ARGS -o faulthandler_timeout=300
+        #
+        # The two live Channel Access modules are excluded here and run in the
+        # isolated step below: libca is process-global and not thread-safe, and
+        # a pyepics PV finalized by the garbage collector — which runs on
+        # whatever thread allocates next — segfaults inside libca. In a
+        # long-lived xdist worker that shares 16k other tests, the crash lands
+        # minutes later in an unrelated test and EPICS' signal handling turns
+        # it into a silent wedge rather than a death. A live CA client/server
+        # pair is only safe in a process of its own.
+        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -v --tb=short -n 4 --dist loadgroup $COV_ARGS -o faulthandler_timeout=300
+
+    - name: Run live Channel Access suites in isolation
+      # One pytest process per module via the live-CA gate — the same venue
+      # rule the local certification uses. --pva asserts pcaspy/p4p/
+      # lume-pva-apg import before running, so the served-boot branch of the
+      # seam test actually executes. The gate fails unless every module exits
+      # 0 with zero skips and at least one pass, which closes the gap the
+      # in-sweep venue guard cannot: a skipped live suite fails THIS step even
+      # if a future marker or fixture skip slips past the import guard.
+      if: matrix.os == 'ubuntu-latest'
+      run: uv run python scripts/va/live_ca/gate.py --pva
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
