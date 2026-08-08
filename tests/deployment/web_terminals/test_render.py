@@ -1356,7 +1356,7 @@ def test_auth_context_never_reads_a_credential_out_of_config() -> None:
             "issuer": "https://sso.dls.example.org/realms/facility",
             "client_secret": "s3cr3t-should-never-render",
         },
-        "password_hash": "scrypt$16384$8$1$salt$hash",
+        "password_hash": "scrypt.16384.8.1.salt.hash",
     }
 
     # Act
@@ -1365,7 +1365,7 @@ def test_auth_context_never_reads_a_credential_out_of_config() -> None:
     # Assert
     rendered_values = " ".join(str(value) for value in context.values())
     assert "s3cr3t-should-never-render" not in rendered_values
-    assert "scrypt$" not in rendered_values
+    assert "scrypt." not in rendered_values
 
 
 def test_render_auth_context_gate_method_without_tls_raises() -> None:

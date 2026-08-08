@@ -1505,14 +1505,14 @@ def test_decommission_purges_the_departed_users_auth_credentials(
     the departed user's. Leaving the hash behind would silently hand the next
     holder of that name the previous holder's credential."""
     monkeypatch.chdir(tmp_path)
-    _seed_env_auth(tmp_path, ALICE="scrypt$alice", BOB="scrypt$bob")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice", BOB="scrypt.bob")
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
 
     lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
 
     stored = parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
     assert f"{PW_HASH_VAR_PREFIX}ALICE" not in stored
-    assert stored[f"{PW_HASH_VAR_PREFIX}BOB"] == "scrypt$bob"  # untouched
+    assert stored[f"{PW_HASH_VAR_PREFIX}BOB"] == "scrypt.bob"  # untouched
 
 
 def test_decommission_reloads_nginx_and_recreates_the_auth_sidecar(
@@ -1523,7 +1523,7 @@ def test_decommission_reloads_nginx_and_recreates_the_auth_sidecar(
     creation. The reload drops the user's routes; the recreate re-reads both and
     ends their live session now rather than at its natural expiry."""
     monkeypatch.chdir(tmp_path)
-    _seed_env_auth(tmp_path, ALICE="scrypt$alice")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
 
     lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
@@ -1561,7 +1561,7 @@ def test_prune_purges_off_roster_auth_credentials_and_recreates(
     # prune re-renders nothing, so the deployed compose file is the one a
     # previous `deploy up` left at the project root.
     (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
-    _seed_env_auth(tmp_path, ALICE="scrypt$alice", CAROL="scrypt$carol")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice", CAROL="scrypt$carol")
     listing["containers"] = ["dls-web-carol"]
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
 
@@ -1569,7 +1569,7 @@ def test_prune_purges_off_roster_auth_credentials_and_recreates(
 
     stored = parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
     assert f"{PW_HASH_VAR_PREFIX}CAROL" not in stored
-    assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"] == "scrypt$alice"  # on-roster, untouched
+    assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"] == "scrypt.alice"  # on-roster, untouched
     assert [cmd for cmd in _web_stack_cmds(calls) if "--force-recreate" in cmd]
 
 
@@ -1585,7 +1585,7 @@ def test_prune_with_no_auth_entries_to_purge_recreates_nothing(
     # suppresses the argv on its own and this test would pass even with the
     # nothing-to-put-into-force guard deleted.
     (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
-    _seed_env_auth(tmp_path, ALICE="scrypt$alice")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
     listing["containers"] = ["dls-web-carol"]  # orphan that never had a credential
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
 
@@ -1604,7 +1604,7 @@ def test_decommission_warns_when_a_departed_users_plaintext_auth_password_surviv
     is operator-owned, so this warns (naming the exact variable) rather than
     silently editing it."""
     monkeypatch.chdir(tmp_path)
-    _seed_env_auth(tmp_path, ALICE="scrypt$alice")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
     (tmp_path / ".env").write_text("SOMETHING=1\nOSPREY_AUTH_PW_ALICE=hunter2\n", encoding="utf-8")
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
 
@@ -1624,7 +1624,7 @@ def test_an_unreadable_env_does_not_become_a_recreate_failure(
     recreate failure, and above all it must not skip the recreate — the step that
     actually puts the purge into force."""
     monkeypatch.chdir(tmp_path)
-    _seed_env_auth(tmp_path, ALICE="scrypt$alice")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
     (tmp_path / ".env").write_text("SOMETHING=1\n", encoding="utf-8")
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
 
@@ -1652,7 +1652,7 @@ def test_decommission_auth_recreate_failure_is_fatal_after_the_volume_policy_run
     from osprey.deployment.web_terminals import provision
 
     monkeypatch.chdir(tmp_path)
-    _seed_env_auth(tmp_path, ALICE="scrypt$alice")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
 
     def _failed_recreate(*args, **kwargs):
@@ -1710,7 +1710,7 @@ def test_decommission_purge_failure_names_the_user_whose_credential_survives(
     container was already removed, with nothing saying the credential survived
     and that the perimeter was never reconciled."""
     monkeypatch.chdir(tmp_path)
-    _seed_env_auth(tmp_path, ALICE="scrypt$alice")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
     config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
 
     def _unwritable(*args, **kwargs):

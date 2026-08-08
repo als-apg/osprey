@@ -162,14 +162,26 @@
      this feature exists to establish. The inverse also holds: the sidecar never
      reads `.env.production` — the per-user containers' shared env file — so no
      provider key or facility credential is in reach of the login surface.
-  2. Secrets travel ONLY as `env_file` entries, never as `environment:` values.
-     Compose passes a service-level `env_file` value through literally, while
-     an `environment:` value goes through `${...}` interpolation — and a stored
-     scrypt hash (`scrypt$16384$8$1$salt$key`) is full of `$`, which
-     interpolation would eat. Non-secret settings (method, lifetime, roster,
-     origin, OIDC issuer and per-user subject mapping) come from the template
-     variables above and are safe in `environment:`; anything secret stays in
-     the file.
+  2. Secrets travel ONLY as `env_file` entries, never as `environment:` values,
+     and every secret VALUE must be free of `$`. Both halves are load-bearing.
+
+     Keeping secrets out of `environment:` keeps them out of the rendered
+     compose file (and out of `docker inspect` output for the per-user
+     services). But do NOT read that as "an env_file value is passed through
+     literally" — it is not. Compose interpolates `${...}` in env_file values
+     too, and every `$` followed by an identifier character is replaced with
+     the empty string. That is why the stored hash is separated by `.` rather
+     than the conventional `$` (osprey.services.auth_sidecar.passwords
+     `FIELD_SEP`): a `$`-separated hash arrives here with its salt and key
+     eaten, verifies against nothing, and refuses every login — silently, and
+     only for the values whose random base64 happens to start with a letter.
+
+     Anything new added to `.env.auth` must therefore encode `$`-free.
+     `tests/deployment/web_terminals/test_auth_credentials.py` pins that as a
+     property of the whole file, not of the hash alone. Non-secret settings
+     (method, lifetime, roster, origin, OIDC issuer and per-user subject
+     mapping) come from the template variables above and stay in
+     `environment:`.
 
   ----------------------------------------------------------------------------
   NETWORKING

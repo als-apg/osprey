@@ -3,12 +3,29 @@
 Passwords are hashed with :func:`hashlib.scrypt` and stored as self-describing
 strings::
 
-    scrypt$<n>$<r>$<p>$<salt>$<hash>
+    scrypt.<n>.<r>.<p>.<salt>.<hash>
 
 Salt and hash are unpadded URL-safe base64. Carrying the cost parameters in the
 stored string means they can be raised later without invalidating credentials
 minted under the old cost: :func:`verify_password` always reads the parameters
 back out of the stored string rather than assuming the current pins.
+
+WHY ``.`` AND NOT THE CONVENTIONAL ``$``
+----------------------------------------
+The PHC-style ``$`` separator cannot survive the trip to the container. A stored
+hash travels to the sidecar as a value in ``.env.auth``, which the rendered
+compose overlay hands over as an ``env_file`` — and Docker Compose performs
+``${VAR}`` interpolation on those values. Every ``$`` followed by a valid
+identifier character is read as a variable reference and replaced with the empty
+string, so ``scrypt$16384$8$1$<salt>$<key>`` arrives as ``scrypt$16384$8$1``:
+the numeric fields survive (a digit cannot begin a variable name) and the salt
+and key — random base64, usually starting with a letter — are silently eaten.
+The credential then verifies against nothing and every login is refused.
+
+``.`` is outside the base64url alphabet (``A-Za-z0-9-_``), so it cannot collide
+with a salt or key, and no shell or compose layer ascribes meaning to it. The
+separator is :data:`FIELD_SEP` rather than a literal so the writer and
+:func:`_parse_stored` cannot drift apart.
 
 The module also mints *credential-generation tags* — truncated one-way digests
 of a stored-hash string. Session cookies are signed but not encrypted, so the
@@ -26,6 +43,15 @@ import secrets
 
 SCHEME = "scrypt"
 """Identifier written as the first field of every stored hash."""
+
+FIELD_SEP = "."
+"""Separator between stored-hash fields.
+
+Deliberately NOT ``$``: these strings travel to the sidecar through a compose
+``env_file``, where ``$`` starts a variable reference and would take the salt
+and key with it (see the module docstring). Must stay outside the base64url
+alphabet so it cannot occur inside a salt or key.
+"""
 
 SCRYPT_N = 2**14
 """CPU/memory cost factor for newly minted hashes."""
@@ -87,7 +113,7 @@ def hash_password(
         p: Parallelisation factor. Defaults to the module pin.
 
     Returns:
-        A string of the form ``scrypt$n$r$p$salt$hash``.
+        A string of the form ``scrypt.n.r.p.salt.hash``.
 
     Raises:
         ValueError: If ``password`` is empty.
@@ -105,7 +131,7 @@ def hash_password(
         maxmem=SCRYPT_MAXMEM,
         dklen=KEY_BYTES,
     )
-    return f"{SCHEME}${n}${r}${p}${_b64encode(salt)}${_b64encode(derived)}"
+    return FIELD_SEP.join((SCHEME, str(n), str(r), str(p), _b64encode(salt), _b64encode(derived)))
 
 
 def _parse_stored(stored: str) -> tuple[int, int, int, bytes, bytes]:
@@ -120,7 +146,7 @@ def _parse_stored(stored: str) -> tuple[int, int, int, bytes, bytes]:
     Raises:
         ValueError: If ``stored`` is not a well-formed scrypt hash string.
     """
-    fields = stored.split("$")
+    fields = stored.split(FIELD_SEP)
     if len(fields) != _FIELD_COUNT:
         raise ValueError(f"stored hash must have {_FIELD_COUNT} fields")
 

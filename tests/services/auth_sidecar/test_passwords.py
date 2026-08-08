@@ -7,6 +7,7 @@ import hashlib
 import pytest
 
 from osprey.services.auth_sidecar.passwords import (
+    FIELD_SEP,
     GENERATION_TAG_CHARS,
     SCHEME,
     SCRYPT_N,
@@ -31,7 +32,7 @@ class TestHashFormat:
     """The stored string carries its own scheme and cost parameters."""
 
     def test_fields_are_scheme_then_pinned_parameters(self, stored: str) -> None:
-        fields = stored.split("$")
+        fields = stored.split(FIELD_SEP)
         assert len(fields) == 6
         scheme, n, r, p = fields[:4]
         assert scheme == SCHEME
@@ -41,7 +42,7 @@ class TestHashFormat:
         assert (SCRYPT_N, SCRYPT_R, SCRYPT_P) == (2**14, 8, 1)
 
     def test_salt_and_hash_are_non_empty(self, stored: str) -> None:
-        salt, digest = stored.split("$")[4:]
+        salt, digest = stored.split(FIELD_SEP)[4:]
         assert salt and digest
 
     def test_plaintext_never_appears_in_the_stored_string(self, stored: str) -> None:
@@ -50,7 +51,7 @@ class TestHashFormat:
     def test_each_hash_draws_a_fresh_salt(self) -> None:
         first, second = hash_password("same"), hash_password("same")
         assert first != second
-        assert first.split("$")[4] != second.split("$")[4]
+        assert first.split(FIELD_SEP)[4] != second.split(FIELD_SEP)[4]
 
     def test_empty_password_is_refused(self) -> None:
         with pytest.raises(ValueError, match="must not be empty"):
@@ -76,7 +77,7 @@ class TestVerify:
     def test_parameters_are_read_from_the_stored_string(self) -> None:
         """A hash minted at a different cost still verifies."""
         legacy = hash_password(PASSWORD, n=2**4, r=1, p=1)
-        assert legacy.split("$")[1:4] == ["16", "1", "1"]
+        assert legacy.split(FIELD_SEP)[1:4] == ["16", "1", "1"]
         assert verify_password(PASSWORD, legacy) is True
         assert verify_password("nope", legacy) is False
 
@@ -85,14 +86,14 @@ class TestVerify:
         [
             "",
             "not-a-hash",
-            "scrypt$16384$8$1$c2FsdA",  # too few fields
-            "scrypt$16384$8$1$c2FsdA$aGFzaA$extra",  # too many fields
-            "bcrypt$16384$8$1$c2FsdA$aGFzaA",  # unknown scheme
-            "scrypt$many$8$1$c2FsdA$aGFzaA",  # non-integer cost
-            "scrypt$0$8$1$c2FsdA$aGFzaA",  # out-of-range cost
-            "scrypt$16384$8$1$!!!$aGFzaA",  # undecodable salt
-            "scrypt$16384$8$1$$aGFzaA",  # empty salt
-            "scrypt$16384$8$1$c2FsdA$",  # empty hash
+            "scrypt.16384.8.1.c2FsdA",  # too few fields
+            "scrypt.16384.8.1.c2FsdA.aGFzaA.extra",  # too many fields
+            "bcrypt.16384.8.1.c2FsdA.aGFzaA",  # unknown scheme
+            "scrypt.many.8.1.c2FsdA.aGFzaA",  # non-integer cost
+            "scrypt.0.8.1.c2FsdA.aGFzaA",  # out-of-range cost
+            "scrypt.16384.8.1.!!!.aGFzaA",  # undecodable salt
+            "scrypt.16384.8.1..aGFzaA",  # empty salt
+            "scrypt.16384.8.1.c2FsdA.",  # empty hash
         ],
     )
     def test_malformed_stored_hash_fails_closed(self, bad: str) -> None:
@@ -116,7 +117,7 @@ class TestGenerationTag:
 
     def test_tag_discloses_neither_the_hash_nor_the_password(self, stored: str) -> None:
         tag = generation_tag(stored)
-        salt, digest = stored.split("$")[4:]
+        salt, digest = stored.split(FIELD_SEP)[4:]
         assert tag not in stored
         assert salt not in tag
         assert digest not in tag

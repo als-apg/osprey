@@ -20,7 +20,12 @@ from osprey.deployment.web_terminals.auth_credentials import (
     purge_auth_credentials,
     set_auth_password,
 )
-from osprey.services.auth_sidecar.passwords import generation_tag, verify_password
+from osprey.services.auth_sidecar.passwords import (
+    FIELD_SEP,
+    SCHEME,
+    generation_tag,
+    verify_password,
+)
 from osprey.utils.dotenv import parse_dotenv_file
 
 pytestmark = pytest.mark.unit
@@ -65,7 +70,32 @@ def test_mints_hash_for_a_user_with_no_credential(tmp_path: Path) -> None:
     assert result.env_auth_path == tmp_path / AUTH_ENV_FILENAME
 
     stored = read_auth_env(tmp_path)[f"{PW_HASH_VAR_PREFIX}ALICE"]
-    assert stored.startswith("scrypt$")
+    assert stored.startswith(f"{SCHEME}{FIELD_SEP}")
+
+
+def test_no_env_auth_value_contains_a_dollar_sign(tmp_path: Path) -> None:
+    """Every value in ``.env.auth`` must encode without ``$`` — a whole-file rule.
+
+    The rendered compose overlay hands this file to the sidecar as an
+    ``env_file``, and Docker Compose interpolates ``${...}`` in env_file values:
+    each ``$`` followed by an identifier character is replaced with the empty
+    string. A ``$``-bearing secret therefore arrives at the container truncated,
+    and the failure is invisible from the host — the file on disk is correct,
+    every unit test that reads it passes, and only the login refuses.
+
+    Asserted over the FILE rather than over the hash alone because the hash was
+    merely the first value to hit it: the signing secrets share this file, and
+    so will anything added later. Base64url (``A-Za-z0-9-_``) and the ``.``
+    separator are both safe; a future encoding that reaches for ``$`` is not.
+    """
+    ensure_auth_credentials(["alice", "bob"], tmp_path, echo=Echo())
+    ensure_auth_session_secrets(tmp_path)
+
+    offenders = {name: value for name, value in read_auth_env(tmp_path).items() if "$" in value}
+    assert offenders == {}, (
+        f"{AUTH_ENV_FILENAME} values containing '$' would be truncated by compose "
+        f"env_file interpolation before the sidecar ever reads them: {sorted(offenders)}"
+    )
 
 
 def test_env_auth_is_created_0600(tmp_path: Path) -> None:
@@ -76,7 +106,7 @@ def test_env_auth_is_created_0600(tmp_path: Path) -> None:
 
 def test_existing_env_auth_with_loose_mode_is_tightened(tmp_path: Path) -> None:
     env_auth = tmp_path / AUTH_ENV_FILENAME
-    env_auth.write_text(f"{PW_HASH_VAR_PREFIX}ALICE=scrypt$16384$8$1$c2FsdA$a2V5\n")
+    env_auth.write_text(f"{PW_HASH_VAR_PREFIX}ALICE=scrypt.16384.8.1.AAAA.AAAB\n")
     env_auth.chmod(0o644)
 
     result = ensure_auth_credentials(["alice"], tmp_path, echo=Echo())
@@ -135,7 +165,7 @@ def test_plaintext_from_project_dotenv_is_hashed_in(tmp_path: Path) -> None:
 
 
 def test_existing_hash_wins_over_plaintext(tmp_path: Path) -> None:
-    existing = f"{PW_HASH_VAR_PREFIX}ALICE=scrypt$16384$8$1$c2FsdA$a2V5"
+    existing = f"{PW_HASH_VAR_PREFIX}ALICE=scrypt.16384.8.1.AAAA.AAAB"
     (tmp_path / AUTH_ENV_FILENAME).write_text(f"{existing}\n")
     (tmp_path / ".env").write_text(f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=operator-choice\n")
 
@@ -181,7 +211,7 @@ def test_only_the_missing_user_is_appended(tmp_path: Path) -> None:
     assert result.minted == ("bob",)
     stored = read_auth_env(tmp_path)
     assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"] == alice_hash
-    assert stored[f"{PW_HASH_VAR_PREFIX}BOB"].startswith("scrypt$")
+    assert stored[f"{PW_HASH_VAR_PREFIX}BOB"].startswith(f"{SCHEME}{FIELD_SEP}")
 
 
 def test_append_to_a_file_without_a_trailing_newline(tmp_path: Path) -> None:
@@ -199,12 +229,12 @@ def test_a_hash_in_the_process_env_does_not_suppress_minting(
 ) -> None:
     # The sidecar reads .env.auth only, so a hash visible just to this process
     # must not stand in for a persisted one.
-    monkeypatch.setenv(f"{PW_HASH_VAR_PREFIX}ALICE", "scrypt$16384$8$1$c2FsdA$a2V5")
+    monkeypatch.setenv(f"{PW_HASH_VAR_PREFIX}ALICE", "scrypt.16384.8.1.AAAA.AAAB")
 
     result = ensure_auth_credentials(["alice"], tmp_path, echo=Echo())
 
     assert result.minted == ("alice",)
-    assert read_auth_env(tmp_path)[f"{PW_HASH_VAR_PREFIX}ALICE"] != "scrypt$16384$8$1$c2FsdA$a2V5"
+    assert read_auth_env(tmp_path)[f"{PW_HASH_VAR_PREFIX}ALICE"] != "scrypt.16384.8.1.AAAA.AAAB"
 
 
 def test_plaintext_is_not_read_from_the_process_env(
@@ -375,8 +405,8 @@ def test_a_failing_chmod_still_returns_a_successful_write(
 def test_purge_normalizes_crlf_input_but_keeps_line_content(tmp_path: Path) -> None:
     (tmp_path / AUTH_ENV_FILENAME).write_bytes(
         b"# header\r\n"
-        b"OSPREY_AUTH_PW_HASH_ALICE=scrypt$16384$8$1$c2FsdA$a2V5\r\n"
-        b"OSPREY_AUTH_PW_HASH_BOB=scrypt$16384$8$1$c2FsdA$Ym9i\r\n"
+        b"OSPREY_AUTH_PW_HASH_ALICE=scrypt.16384.8.1.AAAA.AAAB\r\n"
+        b"OSPREY_AUTH_PW_HASH_BOB=scrypt.16384.8.1.AAAA.AAAC\r\n"
     )
 
     assert purge_auth_credentials("alice", tmp_path) is True
@@ -384,7 +414,7 @@ def test_purge_normalizes_crlf_input_but_keeps_line_content(tmp_path: Path) -> N
     text = (tmp_path / AUTH_ENV_FILENAME).read_text()
     assert "ALICE" not in text
     assert "\r" not in text  # CRLF is normalized to LF on rewrite
-    assert text == "# header\nOSPREY_AUTH_PW_HASH_BOB=scrypt$16384$8$1$c2FsdA$Ym9i\n"
+    assert text == "# header\nOSPREY_AUTH_PW_HASH_BOB=scrypt.16384.8.1.AAAA.AAAC\n"
 
 
 def test_purge_removes_only_the_named_users_entries(tmp_path: Path) -> None:
@@ -402,7 +432,7 @@ def test_purge_removes_only_the_named_users_entries(tmp_path: Path) -> None:
 def test_purge_removes_a_hand_placed_plaintext_entry(tmp_path: Path) -> None:
     (tmp_path / AUTH_ENV_FILENAME).write_text(
         f"{PW_PLAINTEXT_VAR_PREFIX}ALICE=hand-placed\n"
-        f"export {PW_HASH_VAR_PREFIX}ALICE=scrypt$16384$8$1$c2FsdA$a2V5\n"
+        f"export {PW_HASH_VAR_PREFIX}ALICE=scrypt.16384.8.1.AAAA.AAAB\n"
         "# keep me\n"
     )
 
@@ -531,7 +561,7 @@ def test_secrets_coexist_with_password_hashes_in_one_file(tmp_path: Path) -> Non
 
     assert secrets_result.changed is True
     stored = read_auth_env(tmp_path)
-    assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"].startswith("scrypt$")
+    assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"].startswith(f"{SCHEME}{FIELD_SEP}")
     assert stored[SESSION_SECRET_VAR]
     # Order-independent: minting secrets first must not disturb the hashes.
     assert ensure_auth_credentials(["alice"], tmp_path, echo=Echo()).changed is False
