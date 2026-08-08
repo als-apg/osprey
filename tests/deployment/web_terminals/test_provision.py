@@ -1,19 +1,39 @@
 """Unit tests for the web-terminal deploy orchestration entrypoints.
 
 Covers ``osprey.deployment.web_terminals.provision`` in isolation: the web
-stack's own ``compose down`` and the post-``up`` image-drift reconcile. The
+stack's own ``compose down``, the single post-``up`` force-recreate (image
+drift plus caller-requested services), the
+``preflight_web_terminals`` auth-credential provisioning (mint order, the
+fail-closed gate, and the force-recreate signal it returns), and the auth
+sidecar's image production (registry-mode ``auth.image`` requirement,
+local-mode build, pull scoping) plus the shared force-recreate primitive. The
 deploy_up-entry orchestration that wires the provisioning modules together
 lives in ``tests/deployment/test_container_lifecycle.py``; the split-out
 provisioning steps have their own modules and test files
 (``test_persona_images.py``, ``test_env_production.py``,
-``test_postup_hooks.py``).
+``test_auth_credentials.py``, ``test_postup_hooks.py``).
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+import pytest
 
 from osprey.deployment.web_terminals import provision
+from osprey.deployment.web_terminals.auth_credentials import (
+    AUTH_ENV_FILENAME,
+    PW_HASH_VAR_PREFIX,
+    SESSION_SECRET_VARS,
+    AuthCredentialsResult,
+    AuthSecretsResult,
+)
+from osprey.utils.dotenv import parse_dotenv_file
+
+# The unwritable-path cases below rely on the OS honoring a read-only mode.
+# root ignores it, so those assertions would be vacuous there.
+running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0
 
 
 class _FakeCompletedProcess:
@@ -80,7 +100,7 @@ def test_deploy_down_web_terminals_noop_without_web_file(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _reconcile_web_stack_image_drift -- post-`up` force-recreate on digest change
+# _reconcile_web_stack_recreates -- the single post-`up` force-recreate
 # ---------------------------------------------------------------------------
 
 _WEB_COMPOSE = (
@@ -143,7 +163,7 @@ def test_reconcile_force_recreates_only_drifted_services(monkeypatch, tmp_path):
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
 
-    provision._reconcile_web_stack_image_drift({}, _WEB_CMD, _RUN_ENV)
+    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
 
     assert len(recorded) == 1
     cmd, env = recorded[0]
@@ -181,7 +201,7 @@ def test_reconcile_noop_when_all_images_match(monkeypatch, tmp_path):
 
     monkeypatch.setattr(provision.subprocess, "run", _unexpected_run)
 
-    provision._reconcile_web_stack_image_drift({}, _WEB_CMD, _RUN_ENV)
+    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
 
 
 def test_reconcile_skipped_entirely_on_docker(monkeypatch, tmp_path):
@@ -198,7 +218,7 @@ def test_reconcile_skipped_entirely_on_docker(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "get_container_image_id", _boom)
     monkeypatch.setattr(provision.subprocess, "run", _boom)
 
-    provision._reconcile_web_stack_image_drift({}, _WEB_CMD, _RUN_ENV)
+    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
 
 
 def test_reconcile_skips_service_on_inspect_error_without_raising(monkeypatch, tmp_path):
@@ -227,7 +247,7 @@ def test_reconcile_skips_service_on_inspect_error_without_raising(monkeypatch, t
     monkeypatch.setattr(provision.subprocess, "run", _unexpected_run)
 
     # No raise, no compose invocation.
-    provision._reconcile_web_stack_image_drift({}, _WEB_CMD, _RUN_ENV)
+    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
 
 
 def test_reconcile_skipped_when_compose_file_unreadable(monkeypatch, tmp_path):
@@ -242,4 +262,660 @@ def test_reconcile_skipped_when_compose_file_unreadable(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "get_image_id", _boom)
     monkeypatch.setattr(provision.subprocess, "run", _boom)
 
-    provision._reconcile_web_stack_image_drift({}, _WEB_CMD, _RUN_ENV)
+    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
+
+
+# ---------------------------------------------------------------------------
+# preflight_web_terminals -- auth credential provisioning, gate, and signal
+# ---------------------------------------------------------------------------
+
+
+def _auth_config(method: str, users=("alice", "bob"), auth_image="reg/osprey-auth:1") -> dict:
+    """A registry-mode web-terminals config with `method` authentication.
+
+    Carries an `auth.image` by default because registry mode requires one (see
+    the sidecar-image section below); pass None to exercise that requirement.
+    """
+    auth: dict = {"method": method}
+    if auth_image is not None:
+        auth["image"] = auth_image
+    return {
+        "facility": {"prefix": "als"},
+        "modules": {
+            "web_terminals": {
+                "users": list(users),
+                "auth": auth,
+            }
+        },
+    }
+
+
+def _run_preflight(monkeypatch, project_root: Path, config: dict):
+    """Run the preflight from `project_root` with the non-auth steps neutered.
+
+    ``ensure_env_production`` has its own fail-closed gate (and would raise on
+    a registry-mode root with no .env.production); it is covered by
+    test_env_production.py, so stub it out to keep these assertions about auth.
+    """
+    monkeypatch.chdir(project_root)
+    monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
+    return provision.preflight_web_terminals(config, {})
+
+
+def _credentials_result(
+    path: Path, *, changed=False, missing=(), users=()
+) -> AuthCredentialsResult:
+    return AuthCredentialsResult(
+        env_auth_path=path,
+        changed=changed,
+        minted=(),
+        hashed_from_plaintext=(),
+        preexisting=tuple(users),
+        missing=tuple(missing),
+    )
+
+
+def _secrets_result(path: Path, *, changed=False, missing=()) -> AuthSecretsResult:
+    return AuthSecretsResult(
+        env_auth_path=path,
+        changed=changed,
+        minted=(),
+        preexisting=SESSION_SECRET_VARS,
+        missing=tuple(missing),
+    )
+
+
+def _stub_clean_provisioning(monkeypatch, tmp_path):
+    """Both provisioning calls succeed, change nothing, and leave nothing missing."""
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+    monkeypatch.setattr(
+        provision,
+        "ensure_auth_credentials",
+        lambda usernames, root, **kwargs: _credentials_result(env_auth),
+    )
+    monkeypatch.setattr(
+        provision, "ensure_auth_session_secrets", lambda root: _secrets_result(env_auth)
+    )
+
+
+@pytest.mark.parametrize("image_source", ["local", "registry"])
+def test_preflight_mints_credentials_then_secrets_for_the_roster(
+    monkeypatch, tmp_path, image_source
+):
+    """Order is load-bearing and explicit: the roster's password hashes first,
+    then the signing secrets, both keyed off the project root and both handed
+    the plain roster names (never the normalized env-var suffixes).
+
+    Run in BOTH image-source modes: the sidecar needs its credentials whatever
+    the images come from, and only registry mode was exercised until the
+    parametrize was added."""
+    calls: list[tuple] = []
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+
+    def _fake_credentials(usernames, project_root, **kwargs):
+        calls.append(("credentials", list(usernames), str(project_root)))
+        return _credentials_result(env_auth, users=usernames)
+
+    def _fake_secrets(project_root):
+        calls.append(("secrets", str(project_root)))
+        return _secrets_result(env_auth)
+
+    monkeypatch.setattr(provision, "ensure_auth_credentials", _fake_credentials)
+    monkeypatch.setattr(provision, "ensure_auth_session_secrets", _fake_secrets)
+    # Local mode resolves personas and may auto-render; neither is this test's
+    # subject, and local mode needs no auth.image.
+    monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
+    monkeypatch.setattr(provision, "auto_render_missing_personas", lambda *a, **kw: None)
+
+    config = _auth_config("password", users=["alice", {"name": "bob-2", "index": 4}])
+    config["modules"]["web_terminals"]["image_source"] = image_source
+    result = _run_preflight(monkeypatch, tmp_path, config)
+
+    assert [call[0] for call in calls] == ["credentials", "secrets"]
+    assert calls[0][1] == ["alice", "bob-2"]
+    assert calls[0][2] == str(tmp_path)
+    assert calls[1][1] == str(tmp_path)
+    assert result.auth_env_changed is False
+
+
+def test_preflight_with_auth_none_touches_no_credential_state(monkeypatch, tmp_path, caplog):
+    """`auth.method: none` (the default) must behave exactly as it did before
+    authentication existed: nothing minted, no .env.auth, no gitignore warning
+    — even from a project root whose .gitignore does not cover the file."""
+
+    def _unexpected(*args, **kwargs):
+        raise AssertionError("auth provisioning must not run with auth.method: none")
+
+    monkeypatch.setattr(provision, "ensure_auth_credentials", _unexpected)
+    monkeypatch.setattr(provision, "ensure_auth_session_secrets", _unexpected)
+    (tmp_path / ".gitignore").write_text(".env\n", encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        result = _run_preflight(monkeypatch, tmp_path, _auth_config("none"))
+
+    assert result.auth_env_changed is False
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+    assert AUTH_ENV_FILENAME not in caplog.text
+
+
+def test_preflight_provisions_and_reports_changed_then_is_idempotent(monkeypatch, tmp_path):
+    """End to end on a real project root: the first deploy establishes every
+    hash and both signing secrets and reports the force-recreate signal; the
+    second changes nothing, so it must NOT recreate the sidecar again."""
+    config = _auth_config("password", users=("alice", "bob-2"))
+
+    first = _run_preflight(monkeypatch, tmp_path, config)
+
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+    stored = parse_dotenv_file(env_auth)
+    assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"]
+    assert stored[f"{PW_HASH_VAR_PREFIX}BOB_2"]
+    assert all(stored[var] for var in SESSION_SECRET_VARS)
+    assert first.auth_env_changed is True
+
+    before = env_auth.read_text(encoding="utf-8")
+    second = _run_preflight(monkeypatch, tmp_path, config)
+
+    assert second.auth_env_changed is False
+    assert env_auth.read_text(encoding="utf-8") == before
+
+
+def test_preflight_in_oidc_mode_creates_env_auth_with_secrets_and_no_hashes(monkeypatch, tmp_path):
+    """oidc mode still has to WRITE .env.auth: the sidecar's compose service
+    declares `env_file: .env.auth`, so `compose up` hard-fails outright when the
+    file is absent — an oidc stack could not start at all. What it must not
+    contain is password hashes: oidc authenticates at the IdP, and minting
+    passwords nobody will ever type would put credentials on disk for nothing."""
+    result = _run_preflight(monkeypatch, tmp_path, _auth_config("oidc", users=("alice", "bob")))
+
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+    assert env_auth.is_file()
+    stored = parse_dotenv_file(env_auth)
+    assert all(stored[var] for var in SESSION_SECRET_VARS)
+    assert not [var for var in stored if var.startswith(PW_HASH_VAR_PREFIX)]
+    assert result.auth_env_changed is True
+
+
+def test_preflight_does_not_swallow_a_roster_that_cannot_be_keyed(monkeypatch, tmp_path):
+    """`ensure_auth_credentials` raises (writing nothing) when two usernames
+    normalize onto one credential variable — they would share a password, so one
+    operator's credentials would open the other's terminal. Deploy never runs
+    lint, so that raise IS the abort: the preflight must let it propagate."""
+    config = _auth_config("password", users=("alice-b", "alice_b"))
+
+    with pytest.raises(RuntimeError, match="one credential variable"):
+        _run_preflight(monkeypatch, tmp_path, config)
+
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+
+
+@pytest.mark.skipif(running_as_root, reason="root ignores the read-only mode this test relies on")
+def test_preflight_gate_raises_naming_every_user_left_without_a_hash(monkeypatch, tmp_path):
+    """The post-mint invariant: with .env.auth unwritable no password hash can
+    be established, so the deploy aborts HERE — before any compose invocation —
+    naming each password-mode roster user, rather than bringing up terminals
+    nobody can log into."""
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+    env_auth.write_text("# pre-existing\n", encoding="utf-8")
+    os.chmod(env_auth, 0o400)
+    try:
+        with pytest.raises(RuntimeError) as excinfo:
+            _run_preflight(monkeypatch, tmp_path, _auth_config("password", users=("alice", "bob")))
+    finally:
+        os.chmod(env_auth, 0o600)
+
+    message = str(excinfo.value)
+    assert "alice" in message
+    assert "bob" in message
+    assert AUTH_ENV_FILENAME in message
+    assert "auth.method: password" in message
+
+
+@pytest.mark.skipif(running_as_root, reason="root ignores the read-only mode this test relies on")
+def test_preflight_gate_raises_naming_missing_secret_vars_in_oidc_mode(monkeypatch, tmp_path):
+    """A signing secret is required in EVERY method, so an unwritable .env.auth
+    aborts an oidc deploy too, naming the variables. No user is named: oidc
+    provisions no password hash in the first place, and refusing over one would
+    block a deployment that would have worked."""
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    os.chmod(project_root, 0o500)  # nothing can be created inside it
+    try:
+        with pytest.raises(RuntimeError) as excinfo:
+            _run_preflight(monkeypatch, project_root, _auth_config("oidc", users=("alice",)))
+    finally:
+        os.chmod(project_root, 0o700)
+
+    message = str(excinfo.value)
+    for var in SESSION_SECRET_VARS:
+        assert var in message
+    assert "alice" not in message
+
+
+@pytest.mark.parametrize(
+    ("credentials_changed", "secrets_changed", "expected"),
+    [(False, False, False), (True, False, True), (False, True, True), (True, True, True)],
+)
+def test_preflight_force_recreate_signal_ors_both_results(
+    monkeypatch, tmp_path, credentials_changed, secrets_changed, expected
+):
+    """Either write obliges the same action — compose bakes env_file content in
+    at container CREATION, so a sidecar left running would serve the previous
+    file's contents whichever of the two functions appended to it."""
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+    monkeypatch.setattr(
+        provision,
+        "ensure_auth_credentials",
+        lambda usernames, root, **kwargs: _credentials_result(
+            env_auth, changed=credentials_changed
+        ),
+    )
+    monkeypatch.setattr(
+        provision,
+        "ensure_auth_session_secrets",
+        lambda root: _secrets_result(env_auth, changed=secrets_changed),
+    )
+
+    result = _run_preflight(monkeypatch, tmp_path, _auth_config("password"))
+
+    assert result.auth_env_changed is expected
+
+
+@pytest.mark.parametrize(
+    "gitignore",
+    [
+        "# nothing\n",
+        ".env\n.env.production\n",
+        "!.env.auth\n",
+        # git resolves a path against the LAST matching pattern, so this file
+        # is TRACKED despite the earlier glob — the warning must still fire.
+        ".env*\n!.env.auth\n",
+    ],
+)
+def test_preflight_warns_when_gitignore_does_not_cover_env_auth(
+    monkeypatch, tmp_path, caplog, gitignore
+):
+    """Projects scaffolded before auth existed ignore .env but not .env.auth —
+    and gitignore matches literal names, so .env does not cover it. Warn (never
+    block) that a file about to hold hashes and signing secrets is committable."""
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+    (tmp_path / ".gitignore").write_text(gitignore, encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        result = _run_preflight(monkeypatch, tmp_path, _auth_config("password"))
+
+    assert AUTH_ENV_FILENAME in caplog.text
+    assert ".gitignore" in caplog.text
+    assert result.auth_env_changed is False  # warn-only: the deploy continues
+
+
+@pytest.mark.parametrize(
+    "gitignore",
+    [".env.auth\n", "/.env.auth\n", ".env*\n", "!.env.auth\n.env.auth\n"],
+)
+def test_preflight_does_not_warn_when_gitignore_covers_env_auth(
+    monkeypatch, tmp_path, caplog, gitignore
+):
+    """A literal entry, a root-anchored one, or a glob that matches it all count
+    as covered — the warning must not become background noise."""
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+    (tmp_path / ".gitignore").write_text(gitignore, encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        _run_preflight(monkeypatch, tmp_path, _auth_config("password"))
+
+    assert AUTH_ENV_FILENAME not in caplog.text
+
+
+def test_preflight_does_not_warn_without_a_gitignore_at_all(monkeypatch, tmp_path, caplog):
+    """No .gitignore is ordinarily a root nobody commits from; warning there
+    would fire on every deploy about a risk that does not exist."""
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+
+    with caplog.at_level("WARNING"):
+        _run_preflight(monkeypatch, tmp_path, _auth_config("password"))
+
+    assert AUTH_ENV_FILENAME not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Auth sidecar image: the registry-mode requirement and the local-mode build
+# ---------------------------------------------------------------------------
+
+
+def _sidecar_config(image_source: str, *, auth_image=None, method="password") -> dict:
+    """A config in `image_source` mode, with auth.image only when given."""
+    config = _auth_config(method, users=("alice",), auth_image=auth_image)
+    config["modules"]["web_terminals"]["image_source"] = image_source
+    return config
+
+
+def test_registry_mode_without_auth_image_fails_preflight(monkeypatch, tmp_path):
+    """Registry mode builds nothing locally, and the compose overlay falls back
+    to a `:local` tag that mode never produces — so a deployment that forgot
+    auth.image must abort here, naming the key, instead of dying at `pull` on a
+    tag no registry has."""
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+
+    with pytest.raises(RuntimeError, match="auth.image"):
+        _run_preflight(monkeypatch, tmp_path, _sidecar_config("registry"))
+
+
+def test_registry_mode_with_auth_image_passes_preflight(monkeypatch, tmp_path):
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+
+    result = _run_preflight(
+        monkeypatch, tmp_path, _sidecar_config("registry", auth_image="reg/osprey-auth:1.2.3")
+    )
+
+    assert result.auth_env_changed is False
+
+
+def test_local_mode_needs_no_auth_image_at_preflight(monkeypatch, tmp_path):
+    """Local mode produces the tag itself, so the key is optional there."""
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+    monkeypatch.setattr(provision, "auto_render_missing_personas", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
+
+    result = _run_preflight(monkeypatch, tmp_path, _sidecar_config("local"))
+
+    assert result.auth_env_changed is False
+
+
+def test_auth_method_none_needs_no_auth_image(monkeypatch, tmp_path):
+    """With authentication off no sidecar service is rendered at all, so a
+    registry deploy that never opted in must not be asked for an image."""
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+
+    result = _run_preflight(monkeypatch, tmp_path, _sidecar_config("registry", method="none"))
+
+    assert result.auth_env_changed is False
+
+
+def _capture_build(monkeypatch):
+    recorded: list[list[str]] = []
+
+    def _fake_run(cmd, **kwargs):
+        recorded.append(list(cmd))
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
+    return recorded
+
+
+def test_local_mode_builds_the_auth_image_the_compose_overlay_references(monkeypatch, tmp_path):
+    """The tag, the context and the ownership label in one place: compose
+    declares the sidecar with an `image:` and no `build:` block, so this is its
+    only producer — and the tag must be exactly what the overlay renders."""
+    monkeypatch.chdir(tmp_path)
+    recorded = _capture_build(monkeypatch)
+
+    provision.build_auth_sidecar_image(_sidecar_config("local"), False, {})
+
+    assert len(recorded) == 1
+    cmd = recorded[0]
+    context_dir = tmp_path / provision.AUTH_BUILD_CONTEXT
+    assert cmd[:4] == ["podman", "build", "-t", "als-assistant-auth:local"]
+    assert cmd[-1] == str(context_dir)
+    assert "-f" in cmd and cmd[cmd.index("-f") + 1] == str(context_dir / "Dockerfile")
+    # OSPREY_PROJECT_NAME is what stamps com.osprey.project on the image, the
+    # ownership label `nuke` verifies before removing a tag.
+    assert any(arg.startswith("OSPREY_PROJECT_NAME=") and arg.split("=", 1)[1] for arg in cmd)
+    assert any(arg.startswith("OSPREY_VERSION=") and arg.split("=", 1)[1] for arg in cmd)
+    assert "OSPREY_DEV=1" not in cmd
+    # The context is materialized from the bundled template package, including
+    # the .dockerignore the Dockerfile COPYs as its guaranteed glob sibling.
+    assert (context_dir / "Dockerfile").is_file()
+    assert (context_dir / ".dockerignore").is_file()
+
+
+def test_local_mode_dev_build_of_the_auth_image_passes_the_dev_build_arg(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    recorded = _capture_build(monkeypatch)
+    monkeypatch.setattr(provision, "_stage_dev_wheel_for_context", lambda out_dir, dev: True)
+
+    provision.build_auth_sidecar_image(_sidecar_config("local"), True, {})
+
+    assert "OSPREY_DEV=1" in recorded[0]
+
+
+def test_local_mode_with_auth_image_builds_nothing(monkeypatch, tmp_path):
+    """auth.image pins an externally supplied image; building over that pin
+    would produce a tag nothing references."""
+    monkeypatch.chdir(tmp_path)
+    recorded = _capture_build(monkeypatch)
+
+    provision.build_auth_sidecar_image(_sidecar_config("local", auth_image="reg/auth:1"), False, {})
+
+    assert recorded == []
+
+
+def test_registry_mode_builds_no_auth_image_locally(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    recorded = _capture_build(monkeypatch)
+
+    provision.build_auth_sidecar_image(
+        _sidecar_config("registry", auth_image="reg/auth:1"), False, {}
+    )
+
+    assert recorded == []
+
+
+def test_auth_method_none_builds_no_auth_image_locally(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    recorded = _capture_build(monkeypatch)
+
+    provision.build_auth_sidecar_image(_sidecar_config("local", method="none"), False, {})
+
+    assert recorded == []
+
+
+# ---------------------------------------------------------------------------
+# Web-stack invocations: pull scoping and the force-recreate primitive
+# ---------------------------------------------------------------------------
+
+
+def _stub_web_stack(monkeypatch, tmp_path):
+    """Neuter every collaborator of deploy_up_web_terminals and capture argv."""
+    monkeypatch.chdir(tmp_path)
+    recorded: list[list[str]] = []
+
+    def _fake_run(cmd, **kwargs):
+        recorded.append(list(cmd))
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
+    monkeypatch.setattr(provision, "runtime_env", lambda config, env: dict(env))
+    monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
+    monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
+    monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
+    monkeypatch.setattr(provision, "auto_render_missing_personas", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "build_persona_images", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "build_auth_sidecar_image", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "_reconcile_web_stack_recreates", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "reload_nginx_config", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "enable_linger", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "run_verify_script", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "warn_if_web_stack_unreachable", lambda *a, **kw: None)
+    return recorded
+
+
+def test_local_mode_web_stack_never_pulls_the_local_auth_image(monkeypatch, tmp_path):
+    """`compose pull` hard-fails on a tag no registry can serve, and the
+    sidecar's local tag is exactly that — so local mode's web stack must issue
+    no pull at all, which is what keeps the locally built image out of it."""
+    recorded = _stub_web_stack(monkeypatch, tmp_path)
+
+    provision.deploy_up_web_terminals(_sidecar_config("local"), [], False, {}, [])
+
+    assert not any("pull" in cmd for cmd in recorded)
+    assert any(cmd[-2:] == ["up", "-d"] for cmd in recorded)
+
+
+def test_registry_mode_web_stack_still_pulls(monkeypatch, tmp_path):
+    """Registry mode's sidecar image is a published one (preflight required
+    auth.image), so it belongs in the pull like every other web-stack image."""
+    recorded = _stub_web_stack(monkeypatch, tmp_path)
+
+    provision.deploy_up_web_terminals(
+        _sidecar_config("registry", auth_image="reg/auth:1"), [], False, {}, []
+    )
+
+    assert any("pull" in cmd for cmd in recorded)
+
+
+def test_local_mode_builds_the_auth_image_before_any_compose_invocation(monkeypatch, tmp_path):
+    """Ordering is the point: compose `up` on an unbuilt local tag fails with an
+    opaque 'no such image'."""
+    order: list[str] = []
+    recorded = _stub_web_stack(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        provision, "build_auth_sidecar_image", lambda *a, **kw: order.append("build")
+    )
+
+    def _fake_run(cmd, **kwargs):
+        recorded.append(list(cmd))
+        order.append("compose")
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+
+    provision.deploy_up_web_terminals(_sidecar_config("local"), [], False, {}, [])
+
+    assert order[0] == "build"
+
+
+def test_force_recreate_auth_sidecar_targets_only_the_sidecar_service(monkeypatch, tmp_path):
+    """env_file content is baked in at container creation, so only a recreate
+    puts a changed .env.auth in force — scoped to the `auth` service, because
+    recreating the whole stack would bounce every live terminal."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    recorded: list[dict] = []
+
+    def _fake_run(cmd, **kwargs):
+        recorded.append({"cmd": list(cmd), "env": kwargs.get("env")})
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
+
+    provision.force_recreate_auth_sidecar(
+        {"project_name": "myproj"}, ["--env-file", ".env"], env={"X": "1"}
+    )
+
+    assert len(recorded) == 1
+    assert recorded[0]["cmd"] == [
+        "podman",
+        "compose",
+        "-f",
+        "docker-compose.web.yml",
+        "--env-file",
+        ".env",
+        "up",
+        "-d",
+        "--force-recreate",
+        "auth",
+    ]
+    # Same COMPOSE_PROJECT_NAME pin as the `up` that created the stack —
+    # without it compose would address a different project entirely.
+    assert recorded[0]["env"]["COMPOSE_PROJECT_NAME"] == "myproj"
+
+
+def test_changed_env_auth_recreates_the_sidecar_once_even_when_its_image_drifted(
+    monkeypatch, tmp_path
+):
+    """Both reasons resolve into ONE service-scoped recreate: the sidecar's
+    env_file changed AND (podman) its image drifted. Issuing them separately
+    would bounce the same container twice in one deploy."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "docker-compose.web.yml").write_text(
+        "services:\n  auth:\n    image: als-assistant-auth:local\n    container_name: als-auth\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
+    _patch_ids(
+        monkeypatch,
+        image_ids={"als-assistant-auth:local": "idNEW"},
+        container_ids={"als-auth": "idOLD"},  # drifted as well
+    )
+    recorded = []
+
+    def _fake_run(cmd, **kwargs):
+        recorded.append(list(cmd))
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+
+    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV, force_recreate=("auth",))
+
+    assert len(recorded) == 1
+    assert recorded[0][-3:] == ["-d", "--force-recreate", "auth"]
+    assert recorded[0].count("auth") == 1
+
+
+def test_changed_env_auth_recreates_the_sidecar_on_docker_too(monkeypatch, tmp_path):
+    """The podman gate covers IMAGE DRIFT only. No compose implementation
+    recreates a container when its env_file's CONTENT changed, so a
+    caller-requested recreate must fire on docker as well — otherwise every
+    docker deployment would keep serving the previous credentials."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
+    recorded = []
+
+    def _fake_run(cmd, **kwargs):
+        recorded.append(list(cmd))
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+
+    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV, force_recreate=("auth",))
+
+    assert len(recorded) == 1
+    assert recorded[0][-1] == "auth"
+
+
+def test_deploy_up_recreates_the_sidecar_when_preflight_changed_env_auth(monkeypatch, tmp_path):
+    """The seam the deploy flow uses: hand deploy_up_web_terminals the preflight
+    result and the sidecar joins the post-`up` recreate. Without the result
+    (or with the flag clear) the deploy recreates nothing."""
+    recorded = _stub_web_stack(monkeypatch, tmp_path)
+    captured: list[tuple] = []
+    monkeypatch.setattr(
+        provision,
+        "_reconcile_web_stack_recreates",
+        lambda config, web_cmd, run_env, force_recreate=(): captured.append(force_recreate),
+    )
+    config = _sidecar_config("registry", auth_image="reg/auth:1")
+
+    provision.deploy_up_web_terminals(
+        config, [], False, {}, [], provision.WebTerminalPreflightResult(auth_env_changed=True)
+    )
+    provision.deploy_up_web_terminals(
+        config, [], False, {}, [], provision.WebTerminalPreflightResult(auth_env_changed=False)
+    )
+    provision.deploy_up_web_terminals(config, [], False, {}, [])
+
+    assert captured == [("auth",), (), ()]
+    assert recorded  # the stack was still brought up in every case
+
+
+def test_force_recreate_auth_sidecar_is_a_warning_not_a_failure_without_a_stack(
+    monkeypatch, tmp_path, caplog
+):
+    """Nothing was ever deployed from this root: there is no container to
+    recreate, and raising would turn that into a deploy error."""
+    monkeypatch.chdir(tmp_path)
+
+    def _unexpected_run(cmd, **kwargs):
+        raise AssertionError(f"unexpected subprocess.run: {cmd}")
+
+    monkeypatch.setattr(provision.subprocess, "run", _unexpected_run)
+
+    with caplog.at_level("WARNING"):
+        provision.force_recreate_auth_sidecar({"project_name": "myproj"}, [])
+
+    assert "docker-compose.web.yml" in caplog.text

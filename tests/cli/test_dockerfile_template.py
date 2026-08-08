@@ -14,6 +14,7 @@
   shipping a broken recipe.
 """
 
+import fnmatch
 import json
 import os
 import re
@@ -375,6 +376,50 @@ class TestDockerignore:
             assert required in entries, f"{required} missing from .dockerignore"
         # .env.example is safe and useful inside the image — must be re-included
         assert "!.env.example" in entries
+
+    def test_auth_and_production_env_are_excluded(self, hello_project):
+        """Named regression guard for the two files that carry live credentials.
+
+        ``.env.auth`` holds the web-terminal password hashes and the sidecar's
+        session-signing secrets; ``.env.production`` holds the provider secrets
+        a multi-user deploy generates at the project root — the same root the
+        persona images are then built from, so an unexcluded one is baked into
+        every agent image.
+
+        Asserted by **matching** rather than by literal line, and separately
+        from :meth:`test_secrets_and_host_state_excluded`, which pins the
+        template's own spelling. Today one ``.env*`` glob covers both; a future
+        rewrite to explicit entries, or to a narrower pattern, keeps this test
+        meaningful either way, and the names stay written down where the reason
+        for excluding them is.
+
+        Last-match-wins with negation, the way both git and Docker resolve it —
+        a later ``!.env.auth`` would re-expose the file, so polarity is carried
+        through the whole scan rather than returning on the first hit. That
+        makes ORDER load-bearing, which is why this reads the file's lines
+        directly instead of reusing :meth:`_entries`: that helper returns a
+        *set*, and resolving a last-match rule over an unordered collection
+        would decide ``.env.example``'s fate at random.
+        """
+        lines = [
+            line.strip()
+            for line in (hello_project / ".dockerignore").read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+
+        def _ignored(name: str) -> bool:
+            ignored = False
+            for entry in lines:
+                pattern = entry[1:] if entry.startswith("!") else entry
+                if fnmatch.fnmatch(name, pattern.strip("/")):
+                    ignored = not entry.startswith("!")
+            return ignored
+
+        for secret in (".env.auth", ".env.production"):
+            assert _ignored(secret), f"{secret} would be baked into the image"
+        # Positive control: the negation that keeps the documented variable
+        # list in the image must still win over the glob that covers it.
+        assert not _ignored(".env.example"), ".env.example should stay in the image"
 
     def test_dockerfile_excluded_but_not_dockerignore(self, hello_project):
         """The wheel layer's ``COPY .dockerignore *.wh[l]`` needs .dockerignore to

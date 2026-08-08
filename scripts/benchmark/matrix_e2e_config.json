@@ -127,6 +127,10 @@
       "reason": "Boot smoke for the Google Chat bridge's own test fixtures (loopback HTTP fakes and the Pub/Sub emulator container) — it asserts that the fixtures answer, never runs an agent, and contacts no model."
     },
     {
+      "path": "tests/e2e/web_terminals/test_auth_perimeter.py",
+      "reason": "Builds the real auth-sidecar image and drives one `osprey deploy up`, then asserts over plain HTTP that the login perimeter refuses and admits; no LLM anywhere, and the image build would cost every matrix cell minutes for no model signal."
+    },
+    {
       "path": "tests/e2e/web_terminals/test_loopback_chokepoint.py",
       "reason": "No LLM anywhere: launches `osprey web` with --shell true (PTY runs /usr/bin/true, never spawns an agent) and asserts TCP bind behavior via raw socket connects."
     },

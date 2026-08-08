@@ -958,8 +958,16 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # abort on a missing provider secret must say so in seconds, not after
     # the whole project image has been built. deploy_up_web_terminals re-runs
     # the same (idempotent) steps later, unchanged.
+    #
+    # Its result is CAPTURED and threaded into deploy_up_web_terminals below,
+    # not discarded: preflight is the only step that can tell whether THIS
+    # deploy changed `.env.auth`, and compose bakes an `env_file`'s content into
+    # a container at creation time, so the deploy that changed the file is the
+    # one that has to recreate the auth sidecar. Recomputing it later is not an
+    # option — provisioning is idempotent, so a second run reports no change.
+    web_preflight = None
     if web_terminals_enabled:
-        preflight_web_terminals(config, env)
+        web_preflight = preflight_web_terminals(config, env)
 
     # Build the <project>:local image the dispatch worker references. The worker
     # has no compose build block (that would race the event-dispatcher on the
@@ -969,7 +977,9 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     _build_project_image(config, dev_mode, env)
 
     if web_terminals_enabled:
-        deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args())
+        deploy_up_web_terminals(
+            config, compose_files, dev_mode, env, _env_file_args(), web_preflight
+        )
         log_endpoint_summary(config, compose_files)
         return
 

@@ -1341,3 +1341,87 @@ def test_workflow_on_key_parses_to_bool_true_not_string(workflow: dict[str, Any]
     only ever indexes workflow['jobs']."""
     assert True in workflow
     assert "on" not in workflow
+
+
+# ---------------------------------------------------------------------------
+# (h) multi-user login-flow browser test: registered in the lane, and the lane
+# is actually triggered by the code it covers
+# ---------------------------------------------------------------------------
+
+BROWSER_JOB = "visual-theming"
+BROWSER_RUN_STEP = "Run behavioral theming suite"
+BROWSER_FILTER_STEP = "Detect design-system / dispatch dashboard changes"
+AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
+AUTH_SERVING_TEST_FILE = "tests/deployment/web_terminals/test_auth_serving.py"
+AUTH_PERIMETER_PATHS = (
+    "src/osprey/services/auth_sidecar/**",
+    "src/osprey/deployment/web_terminals/**",
+    "src/osprey/templates/modules/web_terminals/**",
+    AUTH_SERVING_TEST_FILE,
+)
+
+
+def _browser_lane_files(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
+
+
+def _browser_lane_filter_paths(wf: dict[str, Any]) -> list[str]:
+    """The `theming` filter's path list, parsed out of the step's `filters` blob.
+
+    dorny/paths-filter takes its filters as a YAML *string*, so the outer
+    safe_load leaves this as text and it has to be parsed a second time —
+    still structurally, never by substring matching.
+    """
+    step = _find_named_step(wf, BROWSER_JOB, BROWSER_FILTER_STEP)
+    return yaml.safe_load(step["with"]["filters"])["theming"]
+
+
+def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
+    """The suite has to be NAMED in the lane's pytest invocation.
+
+    The lane runs an explicit file list, not a directory glob, so a new
+    browser-marked file that nobody adds here is never collected anywhere: the
+    unit lane skips it (no chromium), and this lane never hears of it. It
+    reports green by running nothing at all."""
+    assert AUTH_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+
+
+def test_login_flow_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+    """Removing the file from the invocation must fail the guard — the exact
+    vacuous-green shape above."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
+    assert AUTH_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+
+
+def test_browser_lane_is_triggered_by_the_perimeter_it_covers(workflow: dict[str, Any]) -> None:
+    """Every path the login-flow test actually exercises must arm the lane.
+
+    The filter was written for `interfaces/` and `dispatch/`, but this suite
+    drives the auth sidecar, the rendered nginx config and the shared container
+    fixture — none of which live there. Left unlisted, a PR that changes the
+    login page or the perimeter template skips every gated step in this job,
+    which GitHub reports as a job SUCCESS. The proof would be silently gone at
+    exactly the moment it mattered."""
+    paths = _browser_lane_filter_paths(workflow)
+    missing = [path for path in AUTH_PERIMETER_PATHS if path not in paths]
+    assert missing == [], (
+        f"the '{BROWSER_JOB}' lane is not triggered by {missing}, so a change there would "
+        f"green-skip {AUTH_BROWSER_TEST_FILE} instead of running it"
+    )
+
+
+def test_browser_lane_is_triggered_by_the_perimeter__mutation_drops_the_sidecar_path() -> None:
+    """Dropping the sidecar source from the filter must be reported missing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_FILTER_STEP)
+    filters = yaml.safe_load(step["with"]["filters"])
+    filters["theming"] = [
+        path for path in filters["theming"] if path != "src/osprey/services/auth_sidecar/**"
+    ]
+    step["with"]["filters"] = yaml.safe_dump(filters)
+    paths = _browser_lane_filter_paths(mutated)
+    assert [p for p in AUTH_PERIMETER_PATHS if p not in paths] == [
+        "src/osprey/services/auth_sidecar/**"
+    ]

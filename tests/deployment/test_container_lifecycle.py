@@ -1811,6 +1811,45 @@ def test_deploy_up_runs_web_terminal_preflight_before_image_build(monkeypatch, t
     assert order == ["preflight", "build_image", "web_up"]
 
 
+def test_deploy_up_threads_the_preflight_result_into_the_web_stack(monkeypatch, tmp_path):
+    """The preflight result must reach deploy_up_web_terminals, not be dropped:
+    it is the only thing that knows whether THIS deploy changed .env.auth, and
+    compose baked the old file into the running sidecar at creation time.
+    Provisioning is idempotent, so re-deriving it later would report no change
+    and the sidecar would keep serving the previous credentials."""
+    from osprey.deployment.web_terminals.provision import WebTerminalPreflightResult
+
+    captured: list = []
+    result = WebTerminalPreflightResult(auth_env_changed=True)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {"deployed_services": [], "modules": {"web_terminals": {"enabled": True}}},
+            ["docker-compose.yml"],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: result)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "deploy_up_web_terminals",
+        lambda *args, **kwargs: captured.append((args, kwargs)),
+    )
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert len(captured) == 1
+    args, kwargs = captured[0]
+    assert result in args or kwargs.get("preflight") is result
+
+
 def test_deploy_up_no_web_terminals_skips_preflight(monkeypatch, tmp_path):
     order: list[str] = []
 

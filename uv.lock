@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-31T07:40:24.517242Z"
+exclude-newer = "2026-07-31T12:22:19.29822Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -2299,6 +2299,15 @@ wheels = [
 ]
 
 [[package]]
+name = "itsdangerous"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/cb/8ac0172223afbccb63986cc25049b154ecfb5e85932587206f42317be31d/itsdangerous-2.2.0.tar.gz", hash = "sha256:e0050c0b7da1eea53ffaf149c0cfbb5c6e2e2b69c4bef22c81fa6eb73e5f6173", size = 54410, upload-time = "2024-04-16T21:28:15.614Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl", hash = "sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef", size = 16234, upload-time = "2024-04-16T21:28:14.499Z" },
+]
+
+[[package]]
 name = "jaraco-classes"
 version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3903,6 +3912,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "aiohttp-socks" },
     { name = "anthropic" },
+    { name = "authlib" },
     { name = "bluesky" },
     { name = "bokeh" },
     { name = "build" },
@@ -3917,6 +3927,7 @@ dependencies = [
     { name = "httpx" },
     { name = "idna" },
     { name = "ipywidgets" },
+    { name = "itsdangerous" },
     { name = "jinja2" },
     { name = "litellm" },
     { name = "markdown" },
@@ -3938,6 +3949,7 @@ dependencies = [
     { name = "pyepics" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
+    { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "questionary" },
     { name = "requests" },
@@ -4061,6 +4073,7 @@ requires-dist = [
     { name = "aiohttp-socks", specifier = ">=0.8.0" },
     { name = "aiohttp-socks", marker = "extra == 'ariel-proxy'", specifier = ">=0.8.0" },
     { name = "anthropic" },
+    { name = "authlib", specifier = ">=1.6.5" },
     { name = "bluesky", specifier = ">=1.15.1" },
     { name = "bokeh", specifier = ">=3.9.1" },
     { name = "build" },
@@ -4089,6 +4102,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "idna", specifier = ">=3.18" },
     { name = "ipywidgets" },
+    { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "litellm", specifier = ">=1.56.0" },
     { name = "markdown", specifier = ">=3.5" },
@@ -4147,6 +4161,7 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "python-dateutil", specifier = ">=2.9.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
+    { name = "python-multipart", specifier = ">=0.0.18" },
     { name = "python-xlib", marker = "extra == 'all'", specifier = ">=0.33" },
     { name = "python-xlib", marker = "extra == 'screen-capture-linux'", specifier = ">=0.33" },
     { name = "pyyaml", specifier = ">=6.0.2" },

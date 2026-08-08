@@ -228,6 +228,43 @@ class TestGitIsolation:
         assert ".claude/settings.local.json" in gitignore_content
         assert "CLAUDE.local.md" in gitignore_content
 
+    def test_gitignore_ignores_secret_env_files(self, tmp_path):
+        """Every secret env file is genuinely ignored, and ``.env.example`` is not.
+
+        ``.env.auth`` (the web-terminal password hashes) and ``.env.production``
+        (the provider secrets) hold credentials that must never become
+        committable. Asked of **git itself** rather than by looking for literal
+        lines: the template covers them with a ``.env*`` glob, so a line-by-line
+        check would pass or fail on how the ignore file happens to be spelled
+        rather than on whether these files are actually covered. ``.env.example``
+        is the documented variable list and carries no secrets, so the
+        negation that keeps it tracked is asserted as the positive control —
+        without it, a bare ``.env*`` would swallow it too.
+        """
+        import subprocess
+
+        runner = CliRunner()
+        result = runner.invoke(build, _build_args("secret-env-test", str(tmp_path)))
+
+        assert result.exit_code == 0, result.output
+        project_dir = tmp_path / "secret-env-test"
+
+        def _ignored(name: str) -> bool:
+            # check-ignore resolves pattern matching over path NAMES, so the
+            # files need not exist; exit 0 means "some pattern ignores this".
+            return (
+                subprocess.run(
+                    ["git", "check-ignore", "-q", name],
+                    cwd=project_dir,
+                    capture_output=True,
+                ).returncode
+                == 0
+            )
+
+        for secret in (".env", ".env.auth", ".env.production"):
+            assert _ignored(secret), f"{secret} carries secrets but git would let it be committed"
+        assert not _ignored(".env.example"), ".env.example must stay tracked"
+
     def test_claude_dir_in_initial_commit(self, tmp_path):
         """.claude/ artifacts are included in the initial commit."""
         import subprocess

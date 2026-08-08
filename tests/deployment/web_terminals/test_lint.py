@@ -6,6 +6,7 @@ import copy
 
 import pytest
 
+from osprey.deployment.web_terminals import lint
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
 
 _CLEAN_CONFIG = {
@@ -212,6 +213,25 @@ def test_lint_username_charset_rejects_leading_dash_underscore_space_and_upperca
         assert any(f.code == "web_terminals.invalid_username_charset" for f in errors), (
             f"expected {bad_name!r} to be rejected"
         )
+
+
+def test_lint_username_charset_rejects_a_trailing_newline() -> None:
+    """The charset check is a `fullmatch`, not a `match`.
+
+    Python's `$` also matches *before* a trailing newline, so a `match` would
+    report "alice\\n" as clean — a name that renders into an nginx location key
+    mid-directive.
+    """
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["alice\n"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_username_charset" for f in errors)
 
 
 def test_lint_username_charset_accepts_leading_digit() -> None:
@@ -693,6 +713,22 @@ def test_lint_persona_catalog_bad_charset_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["personas"] = {"Bad Persona": {"project": "als-x"}}
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_persona_charset" for f in errors)
+
+
+def test_lint_persona_charset_rejects_a_trailing_newline() -> None:
+    """Same `fullmatch`-not-`match` rule as the username charset check: a persona
+    key with a trailing newline is not clean."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"ops\n": {"project": "als-x"}}
     config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
 
     # Act
@@ -1782,3 +1818,480 @@ def test_lint_empty_nginx_image_is_a_warning() -> None:
     warnings = _warnings(findings)
     assert any(f.code == "web_terminals.empty_nginx_image" for f in warnings)
     assert not any(f.code == "web_terminals.invalid_nginx_image" for f in _errors(findings))
+
+
+# --- auth seam checks ---------------------------------------------------------
+
+
+def test_username_charset_re_is_public_for_auth_credentials() -> None:
+    """`auth_credentials` imports this regex so the deploy-time charset gate and
+    the lint-time check cannot drift; it is part of this module's public surface."""
+    # Act / Assert
+    assert lint.USERNAME_CHARSET_RE.pattern == r"^[a-z0-9][a-z0-9_-]*$"
+
+
+_AUTH_CODES = frozenset(
+    {
+        "web_terminals.invalid_auth_stanza",
+        "web_terminals.invalid_auth_method_type",
+        "web_terminals.unknown_auth_method",
+        "web_terminals.auth_requires_tls",
+        "web_terminals.auth_insecure_http",
+        "web_terminals.auth_oidc_missing_issuer",
+        "web_terminals.auth_oidc_invalid_client_env",
+        "web_terminals.auth_oidc_unresolvable_origin",
+        "web_terminals.auth_credential_collision",
+    }
+)
+
+
+def _auth_config(auth: object, *, tls: bool = True, fqdn: str | None = "web.example.org") -> dict:
+    """A clean config with an `auth` stanza, TLS on and an origin derivable.
+
+    Those two defaults keep each test to the one thing it is about: with TLS
+    off every auth-on config also reports the transport ERROR, and without
+    `deploy.fqdn` every `oidc` config also reports the origin ERROR.
+    """
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    if fqdn is not None:
+        config["deploy"] = {"fqdn": fqdn}
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["auth"] = auth
+    if tls:
+        web_terminals["tls"] = {
+            "enabled": True,
+            "cert": "/etc/osprey/tls/facility.crt",
+            "key": "/etc/osprey/tls/facility.key",
+        }
+    return config
+
+
+def _auth_findings(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if f.code in _AUTH_CODES]
+
+
+def test_lint_clean_password_auth_config_reports_no_auth_findings() -> None:
+    """Password auth over TLS with an unambiguous roster is a valid deployment."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _auth_findings(findings) == []
+    assert _errors(findings) == []
+
+
+def test_lint_absent_auth_stanza_reports_no_auth_findings() -> None:
+    """The inert default (no `auth` stanza at all) must stay silent."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _auth_findings(findings) == []
+
+
+def test_lint_auth_method_none_reports_no_auth_findings() -> None:
+    """`method: none` is the explicit spelling of the default, over plain HTTP."""
+    # Arrange
+    config = _auth_config({"method": "none"}, tls=False, fqdn=None)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _auth_findings(findings) == []
+
+
+def test_lint_auth_method_written_with_no_value_reports_no_auth_findings() -> None:
+    """`method:` with nothing after it parses to None — an omitted value, which
+    is the documented default, not a typo to reject."""
+    # Arrange
+    config = _auth_config({"method": None}, tls=False, fqdn=None)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _auth_findings(findings) == []
+
+
+def test_lint_unknown_auth_method_is_an_error() -> None:
+    """A method the sidecar cannot serve would emit an auth seam nothing answers."""
+    # Arrange
+    config = _auth_config({"method": "basic"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.unknown_auth_method" for f in errors)
+    assert any("'basic'" in f.message for f in errors)
+
+
+def test_lint_empty_auth_method_string_is_an_error() -> None:
+    """An empty `method` silently falls back to 'none' at render time (auth off),
+    so lint is where an operator learns the stanza is inert."""
+    # Arrange
+    config = _auth_config({"method": ""})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.unknown_auth_method" for f in _errors(findings))
+
+
+def test_lint_non_string_auth_method_is_an_error() -> None:
+    """render reads `method` defensively, so a wrong-typed one renders auth
+    silently OFF — lint is the only surface that catches the type mistake."""
+    # Arrange
+    config = _auth_config({"method": {"password": True}})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_auth_method_type" for f in errors)
+    assert not any(f.code == "web_terminals.unknown_auth_method" for f in errors)
+
+
+def test_lint_non_mapping_auth_stanza_is_an_error() -> None:
+    """`auth: password` (a scalar where the mapping belongs) is read as no auth
+    stanza at all — the same silent-off failure, one level up."""
+    # Arrange
+    config = _auth_config("password")
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_auth_stanza" for f in _errors(findings))
+
+
+def test_lint_unknown_auth_method_suppresses_downstream_auth_findings() -> None:
+    """A method render cannot parse makes every method-keyed check meaningless;
+    only the unknown-method ERROR is reported, not confused follow-ons."""
+    # Arrange — no TLS and no fqdn, which would otherwise add two more findings
+    config = _auth_config({"method": "basic"}, tls=False, fqdn=None)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert [f.code for f in _auth_findings(findings)] == ["web_terminals.unknown_auth_method"]
+
+
+def test_lint_auth_port_joins_the_port_overlap_set() -> None:
+    """With auth enabled, the sidecar's listener is a real published port and
+    collides with any other source claiming it."""
+    # Arrange — put the sidecar on nginx's own published port
+    config = _auth_config({"method": "password", "port": 9080})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("web_terminals.auth.port" in f.message for f in overlap_findings)
+    assert any("9080" in f.message for f in overlap_findings)
+
+
+def test_lint_default_auth_port_joins_the_port_overlap_set() -> None:
+    """The default sidecar port (9070) is claimed just as an explicit one is."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+    config["ports"]["conflicting"] = 9070
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("web_terminals.auth.port" in f.message for f in overlap_findings)
+
+
+def test_lint_auth_port_absent_from_overlap_set_when_method_is_none() -> None:
+    """No sidecar is rendered for `method: none`, so its port must not be
+    reserved against an ordinary config that happens to use 9070."""
+    # Arrange
+    config = _auth_config({"method": "none", "port": 9070}, tls=False, fqdn=None)
+    config["ports"]["conflicting"] = 9070
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert not any("web_terminals.auth.port" in f.message for f in overlap_findings)
+
+
+def test_lint_auth_without_tls_is_an_error() -> None:
+    """Session cookies over cleartext HTTP is refused at render time; lint says
+    so at scaffold time."""
+    # Arrange
+    config = _auth_config({"method": "password"}, tls=False)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.auth_requires_tls" for f in errors)
+    assert not any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+
+
+def test_lint_auth_without_tls_and_allow_insecure_http_is_a_warning() -> None:
+    """The escape hatch makes the config renderable — the risk is restated as a
+    warning at every lint, not silently accepted once."""
+    # Arrange
+    config = _auth_config({"method": "password", "allow_insecure_http": True}, tls=False)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
+
+
+def test_lint_auth_with_tls_reports_no_transport_finding() -> None:
+    """With TLS on, `allow_insecure_http` is inert and nothing is reported."""
+    # Arrange
+    config = _auth_config({"method": "password", "allow_insecure_http": True})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
+
+
+def test_lint_auth_method_none_without_tls_reports_no_transport_finding() -> None:
+    """Plain HTTP is only a finding once there is a session cookie to protect."""
+    # Arrange
+    config = _auth_config({"method": "none"}, tls=False, fqdn=None)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
+
+
+def test_lint_clean_oidc_auth_config_reports_no_auth_findings() -> None:
+    """A complete OIDC stanza over TLS with a derivable origin is valid."""
+    # Arrange
+    config = _auth_config(
+        {
+            "method": "oidc",
+            "oidc": {
+                "issuer": "https://idp.example.org/realms/osprey",
+                "client_id_env": "FACILITY_OIDC_CLIENT_ID",
+                "client_secret_env": "FACILITY_OIDC_CLIENT_SECRET",
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _auth_findings(findings) == []
+
+
+def test_lint_auth_oidc_without_issuer_is_an_error() -> None:
+    """The issuer has no default: without it there is no IdP to redirect to."""
+    # Arrange
+    config = _auth_config({"method": "oidc"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_oidc_missing_issuer" for f in _errors(findings))
+
+
+def test_lint_auth_oidc_with_empty_issuer_is_an_error() -> None:
+    """An empty issuer is as unusable as an absent one."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": ""}})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_oidc_missing_issuer" for f in _errors(findings))
+
+
+def test_lint_auth_oidc_omitted_client_env_names_report_no_error() -> None:
+    """Both env-var names carry a documented OSPREY_AUTH_OIDC_* default, so
+    omitting them is a valid config, not a missing field."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(
+        f.code == "web_terminals.auth_oidc_invalid_client_env" for f in _errors(findings)
+    )
+
+
+def test_lint_auth_oidc_empty_client_id_env_is_an_error() -> None:
+    """An unusable name silently restores the default variable, which this
+    deployment has not set — the sidecar would read an unset credential."""
+    # Arrange
+    config = _auth_config(
+        {"method": "oidc", "oidc": {"issuer": "https://idp.example.org", "client_id_env": "  "}}
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.auth_oidc_invalid_client_env" for f in errors)
+    assert any("client_id_env" in f.message for f in errors)
+
+
+def test_lint_auth_oidc_non_string_client_secret_env_is_an_error() -> None:
+    """The field names an environment variable; a non-string is the same silent
+    fallback as an empty one."""
+    # Arrange
+    config = _auth_config(
+        {
+            "method": "oidc",
+            "oidc": {"issuer": "https://idp.example.org", "client_secret_env": ["A", "B"]},
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.auth_oidc_invalid_client_env" for f in errors)
+    assert any("client_secret_env" in f.message for f in errors)
+
+
+def test_lint_auth_oidc_without_deploy_fqdn_is_an_error() -> None:
+    """The redirect_uri is built from the deployment's external origin; without
+    `deploy.fqdn` there is no origin, so no login can complete."""
+    # Arrange
+    config = _auth_config(
+        {"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}}, fqdn=None
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_oidc_unresolvable_origin" for f in _errors(findings))
+
+
+def test_lint_auth_password_mode_without_deploy_fqdn_reports_no_origin_error() -> None:
+    """Only the OIDC callback needs an absolute origin; password mode's flow is
+    same-origin and relative throughout."""
+    # Arrange
+    config = _auth_config({"method": "password"}, fqdn=None)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(
+        f.code == "web_terminals.auth_oidc_unresolvable_origin" for f in _errors(findings)
+    )
+
+
+def test_lint_auth_password_mode_reports_no_oidc_findings() -> None:
+    """The whole OIDC block is unread in password mode."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code.startswith("web_terminals.auth_oidc") for f in findings)
+
+
+def test_lint_auth_credential_collision_is_an_error() -> None:
+    """`alice-b` and `alice_b` normalize onto one OSPREY_AUTH_PW_HASH_ALICE_B
+    entry — one operator's password would open the other's terminal."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+    config["modules"]["web_terminals"]["users"] = ["alice-b", "alice_b"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    collisions = [f for f in errors if f.code == "web_terminals.auth_credential_collision"]
+    assert collisions
+    assert "OSPREY_AUTH_PW_HASH_ALICE_B" in collisions[0].message
+    assert "'alice-b'" in collisions[0].message and "'alice_b'" in collisions[0].message
+
+
+def test_lint_auth_credential_collision_covers_object_form_users() -> None:
+    """The roster's object form keys credentials exactly as the bare form does."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice-b", "index": 0},
+        {"name": "alice_b", "index": 1},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_credential_collision" for f in _errors(findings))
+
+
+def test_lint_distinct_usernames_report_no_auth_credential_collision() -> None:
+    """A roster whose names map onto distinct suffixes is unambiguous."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_credential_collision" for f in _errors(findings))
+
+
+def test_lint_auth_credential_collision_not_reported_in_oidc_mode() -> None:
+    """OIDC deployments hold no per-user credential variable to collide on."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = ["alice-b", "alice_b"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_credential_collision" for f in _errors(findings))
+
+
+def test_lint_auth_credential_collision_not_reported_when_auth_is_off() -> None:
+    """No auth means no credential file; the roster keys nothing."""
+    # Arrange
+    config = _auth_config({"method": "none"}, tls=False, fqdn=None)
+    config["modules"]["web_terminals"]["users"] = ["alice-b", "alice_b"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_credential_collision" for f in _errors(findings))

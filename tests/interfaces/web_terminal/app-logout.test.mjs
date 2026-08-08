@@ -183,6 +183,168 @@ describe('initLogoutButton: click flow', () => {
   });
 });
 
+describe('initLogoutButton: auth-session chaining', () => {
+  /** Every fetch the click made, in order. */
+  function captureFetches() {
+    /** @type {string[]} */
+    const urls = [];
+    const fetchMock = vi.fn(async (/** @type {string} */ url) => {
+      urls.push(url);
+      return { ok: true, status: 200, statusText: 'OK', json: async () => ({ status: 'ok' }) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return { urls, fetchMock };
+  }
+
+  test('ends the auth session after the PTY teardown, before navigating', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const btn = renderLogoutButton('/landing');
+    const { urls } = captureFetches();
+    const assign = vi.fn();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
+
+    initLogoutButton();
+    btn.click();
+
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    // Order matters: the terminal is torn down first, so a session that
+    // outlives the request cannot still be driving a live PTY.
+    expect(urls).toEqual(['/u/alice/api/terminal/logout', '/auth/logout?user=alice']);
+  });
+
+  test('addresses the sidecar at the origin root, never under the user prefix', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const btn = renderLogoutButton('/landing');
+    const { urls } = captureFetches();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign: vi.fn() });
+
+    initLogoutButton();
+    btn.click();
+
+    // `/u/alice/auth/logout` would be proxied to this container and 404 —
+    // nginx serves the sidecar's public surface at the origin root.
+    await vi.waitFor(() => expect(urls).toHaveLength(2));
+    expect(urls[1]).toBe('/auth/logout?user=alice');
+    expect(urls[1].startsWith('/auth/')).toBe(true);
+  });
+
+  test('sends exactly one user parameter, percent-encoded', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice-b';
+    const btn = renderLogoutButton('/landing');
+    const { urls } = captureFetches();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign: vi.fn() });
+
+    initLogoutButton();
+    btn.click();
+
+    await vi.waitFor(() => expect(urls).toHaveLength(2));
+    const query = new URL(urls[1], 'http://localhost:5000').searchParams;
+    // The route refuses a repeated `user` outright rather than picking one.
+    expect(query.getAll('user')).toEqual(['alice-b']);
+  });
+
+  test('carries same-origin credentials, or the session cookie never arrives', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const btn = renderLogoutButton('/landing');
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ status: 'ok' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign: vi.fn() });
+
+    initLogoutButton();
+    btn.click();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenLastCalledWith('/auth/logout?user=alice', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  });
+
+  test('skips the sidecar entirely without a per-user prefix (plain `osprey web`)', async () => {
+    const btn = renderLogoutButton('/landing');
+    const { urls } = captureFetches();
+    const assign = vi.fn();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
+
+    initLogoutButton();
+    btn.click();
+
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    expect(urls).toEqual(['/api/terminal/logout']);
+  });
+
+  test('still navigates when the sidecar answers 404 (authentication is off)', async () => {
+    // The regression this shape exists to prevent: `location /auth/` is only
+    // rendered when `auth.method != "none"`, and the app cannot tell the two
+    // postures apart, so a *navigation* would strand a no-auth deployment on a
+    // 404 instead of the landing page.
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const btn = renderLogoutButton('/landing');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) =>
+        url.startsWith('/auth/')
+          ? { ok: false, status: 404, statusText: 'Not Found' }
+          : { ok: true, status: 200, statusText: 'OK', json: async () => ({ status: 'ok' }) }
+      )
+    );
+    const assign = vi.fn();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    initLogoutButton();
+    btn.click();
+
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    expect(assign).toHaveBeenCalledWith('/landing');
+    // A 404 here is the expected answer, not a fault to shout about.
+    expect(errSpy).not.toHaveBeenCalled();
+  });
+
+  test('still clears storage and navigates when the sidecar is unreachable', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    localStorage.setItem(STORAGE_KEY, 'warm-session-id');
+    const btn = renderLogoutButton('/landing');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url.startsWith('/auth/')) throw new Error('sidecar down');
+        return { ok: true, status: 200, statusText: 'OK', json: async () => ({ status: 'ok' }) };
+      })
+    );
+    const assign = vi.fn();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    initLogoutButton();
+    btn.click();
+
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(assign).toHaveBeenCalledWith('/landing');
+  });
+
+  test('an unsafe landing_url still stops everything, sidecar included', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const btn = renderLogoutButton('javascript:alert(1)');
+    const { fetchMock } = captureFetches();
+    const assign = vi.fn();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    initLogoutButton();
+    btn.click();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+  });
+});
+
 describe('post-logout: a fresh load does not auto-resume', () => {
   /** Minimal fake xterm.js Terminal -- just enough surface for initTerminal(). */
   class FakeTerminal {

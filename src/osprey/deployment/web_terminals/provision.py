@@ -3,21 +3,30 @@
 Extracts the web-terminal-only provisioning logic ``osprey deploy up`` runs
 before and around the compose invocation for a ``modules.web_terminals``
 deploy: per-persona local image builds (rendering any missing persona project
-on demand), ``.env.production`` generation for local-mode deploys, rootless-
-podman ``loginctl`` linger, the advisory post-up ``verify.sh`` smoke check, and
-the dual-compose (backend-services + web stack) orchestration itself.
+on demand), ``.env.production`` generation for local-mode deploys, ``.env.auth``
+credential provisioning and its fail-closed gate when authentication is on,
+rootless-podman ``loginctl`` linger, the advisory post-up ``verify.sh`` smoke
+check, and the dual-compose (backend-services + web stack) orchestration itself.
 
 ``osprey.deployment.container_lifecycle.deploy_up`` delegates the whole
 web-terminal branch to :func:`deploy_up_web_terminals` here; everything generic
 or shared with the plain (non-web) deploy path stays in ``container_lifecycle``.
 """
 
+import fnmatch
 import os
+import shutil
 import subprocess
+from dataclasses import dataclass
+from importlib.resources import as_file, files
 from pathlib import Path
 
 import yaml
 
+from osprey.deployment.compose_generator import (
+    _stage_dev_wheel_for_context,
+    resolve_project_name,
+)
 from osprey.deployment.runtime_helper import (
     get_container_image_id,
     get_image_id,
@@ -25,42 +34,106 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
 )
 from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
+from osprey.deployment.web_terminals.auth_credentials import (
+    AUTH_ENV_FILENAME,
+    AuthCredentialsResult,
+    AuthSecretsResult,
+    ensure_auth_credentials,
+    ensure_auth_session_secrets,
+)
 from osprey.deployment.web_terminals.env_production import ensure_env_production
 from osprey.deployment.web_terminals.persona_images import (
     auto_render_missing_personas,
     build_persona_images,
 )
-from osprey.deployment.web_terminals.personas import effective_image_source, resolve_personas
+from osprey.deployment.web_terminals.personas import (
+    effective_image_source,
+    normalize_users,
+    resolve_personas,
+)
 from osprey.deployment.web_terminals.postup_hooks import (
     enable_linger,
     reload_nginx_config,
     run_verify_script,
     warn_if_web_stack_unreachable,
 )
+from osprey.deployment.web_terminals.render import _auth_tls_context
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 
 
-def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
+@dataclass(frozen=True)
+class WebTerminalPreflightResult:
+    """What :func:`preflight_web_terminals` established that the rest of the
+    deploy still has to act on.
+
+    A state object rather than a bare bool so a later preflight step can report
+    its own decision without changing every caller's signature — the same reason
+    ``auth_credentials`` returns result dataclasses instead of tuples.
+
+    ``auth_env_changed`` is the deterministic sidecar force-recreate signal: it
+    is ``True`` exactly when this preflight added content to ``.env.auth``
+    (a freshly minted hash, a hash derived from a plaintext password, or a
+    signing secret). Compose bakes ``env_file`` content into a container at
+    CREATION time and podman-compose never recreates a container on a
+    content-only change, so a sidecar that is merely left running — or even
+    restarted — would keep serving the *previous* file's credentials. The deploy
+    that changed the file is therefore the deploy that must recreate the
+    sidecar; deferring it to "the next deploy" would leave a user unable to log
+    in with the password this very deploy just printed.
+
+    CONTRACT FOR THE CONSUMER (``deploy_up``'s web-terminal branch in
+    ``osprey.deployment.container_lifecycle``): pass this object straight into
+    :func:`deploy_up_web_terminals`'s ``preflight`` parameter — that function
+    already unions the sidecar into its single post-``up`` recreate when the
+    flag is set, so the consumer needs no compose invocation of its own. The
+    ``lifecycle`` re-render verbs reach the same conclusion by a different route
+    (``purge_auth_credentials`` returning ``True``) and call
+    :func:`force_recreate_auth_sidecar` directly, since they issue no ``up``.
+
+    ``False`` must leave the deploy exactly as it is today — a no-op redeploy
+    still recreates zero containers, which is what keeps live terminals from
+    being bounced on every deploy.
+    """
+
+    auth_env_changed: bool = False
+
+
+def preflight_web_terminals(config: dict, env: dict[str, str]) -> WebTerminalPreflightResult:
     """Fail-fast web-terminal preflight, run BEFORE any image build.
 
     ``deploy_up`` invokes this ahead of its (minutes-long) project-image
-    build so the two deploy aborts that need no image at all — an
-    unresolvable persona catalog and a missing provider auth secret
-    (:func:`ensure_env_production`'s fail-closed gate) — surface in seconds.
-    Local mode first renders any missing persona project (the credential
-    sweep reads each rendered persona's ``config.yml``), from the persona
-    deltas in this deployment's own profile — exactly as the main provisioning
-    path does, which is why ``project_root`` is passed to both: it is where the
-    manifest naming that profile lives.
+    build so the deploy aborts that need no image at all — an
+    unresolvable persona catalog, a missing provider auth secret
+    (:func:`ensure_env_production`'s fail-closed gate), a registry-mode
+    deployment with no ``auth.image`` (:func:`_require_auth_sidecar_image`) and
+    an auth credential that could not be established
+    (:func:`_provision_auth_secrets`) — surface in seconds. Local mode first
+    renders any missing persona project (the credential sweep reads each
+    rendered persona's ``config.yml``), from the persona deltas in this
+    deployment's own profile — exactly as the main provisioning path does,
+    which is why ``project_root`` is passed to both: it is where the manifest
+    naming that profile lives.
+
+    Auth provisioning runs LAST, and in both image-source modes: the sidecar's
+    credentials are needed whatever the images come from, but minting them for
+    a deploy that :func:`ensure_env_production` is about to abort would write
+    (and print) passwords for a stack that never comes up.
 
     Every step is idempotent, so :func:`deploy_up_web_terminals` re-running
     the same sequence later is a cheap no-op: rendered personas are
     user-owned and skipped, and an existing ``.env.production`` is returned
-    as-is. Assumes the project-root cwd every other step of ``osprey deploy
-    up`` already relies on.
+    as-is. Auth provisioning is idempotent in the same sense — an established
+    hash or secret is never rewritten — which is also why it lives here and
+    NOT in :func:`deploy_up_web_terminals`: a second run would report nothing
+    changed and the force-recreate signal would be lost. Assumes the
+    project-root cwd every other step of ``osprey deploy up`` already relies on.
+
+    :returns: A :class:`WebTerminalPreflightResult` whose ``auth_env_changed``
+        tells the caller whether this deploy must force-recreate the auth
+        sidecar — see that class for the full contract.
     """
     project_root = os.getcwd()
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
@@ -70,6 +143,457 @@ def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
         resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
         auto_render_missing_personas(config, resolved_users, env, project_root=Path(project_root))
     ensure_env_production(config, project_root)
+    # BEFORE the mint, deliberately: a registry-mode deploy that forgot
+    # auth.image is already doomed, and minting here first would write (and
+    # print, once) a password for a stack that never comes up. Moving this call
+    # below _provision_auth_secrets silently loses that property.
+    _require_auth_sidecar_image(web_terminals)
+    return WebTerminalPreflightResult(
+        auth_env_changed=_provision_auth_secrets(web_terminals, project_root)
+    )
+
+
+def _provision_auth_secrets(web_terminals: dict, project_root: str) -> bool:
+    """Establish every auth credential this deployment needs, then gate on it.
+
+    A no-op when ``modules.web_terminals.auth.method`` is ``none`` (the
+    default): nothing is read, written or warned about, so an unauthenticated
+    deployment behaves byte-for-byte as it did before authentication existed.
+
+    Otherwise, in this order:
+
+    1. **Mint** — :func:`~osprey.deployment.web_terminals.auth_credentials.ensure_auth_credentials`
+       for the roster (``password`` mode only: it is the sole method that
+       consults a stored hash, and an ``oidc`` deployment must not accumulate
+       passwords nobody will ever type), then
+       :func:`~osprey.deployment.web_terminals.auth_credentials.ensure_auth_session_secrets`,
+       which runs in EVERY method. The latter is not optional in ``oidc`` mode
+       for two independent reasons: the sidecar 503s without a cookie-signing
+       secret, and the sidecar's compose service declares ``env_file:
+       .env.auth`` — ``compose up`` hard-fails when that file does not exist,
+       so this call is also what brings the file into being on a fresh root.
+    2. **Gate** — :func:`_raise_if_auth_provisioning_incomplete`, as a
+       post-mint invariant. Deliberately after the mint, never instead of it:
+       the question is not "was a credential configured?" but "does one exist
+       now?", and only the mint can answer that.
+
+    Nothing wraps the mint in ``try``/``except``: ``ensure_auth_credentials``
+    raises (writing nothing) on a roster it cannot key — a charset violation,
+    or two usernames colliding onto one credential variable — and that raise IS
+    the deploy abort. ``osprey deploy`` never runs lint, so swallowing it would
+    silently deploy a stack where one operator's password opens another's
+    terminal.
+
+    The method is read through
+    :func:`~osprey.deployment.web_terminals.render._auth_tls_context` rather
+    than off the raw stanza, so the deploy path and the rendered artifacts can
+    never disagree about what ``auth`` means — and an unsupported method raises
+    here as well, ahead of the render that would otherwise be the first to
+    notice.
+
+    :param web_terminals: The already-unwrapped ``modules.web_terminals`` dict.
+    :param project_root: Directory holding ``.env``, ``.env.auth`` and
+        ``.gitignore``.
+    :returns: Whether ``.env.auth`` gained content — the caller's
+        ``auth_env_changed``.
+    :raises RuntimeError: If a credential could not be established (see the
+        gate), or if the roster cannot be keyed (charset violation or two
+        usernames colliding onto one credential variable, both raised by
+        ``ensure_auth_credentials``).
+    """
+    auth_method = _auth_tls_context(web_terminals)["auth_method"]
+    if auth_method == "none":
+        return False
+
+    _warn_if_env_auth_not_gitignored(Path(project_root))
+
+    credentials = None
+    if auth_method == "password":
+        usernames = [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+        credentials = ensure_auth_credentials(usernames, project_root)
+    session_secrets = ensure_auth_session_secrets(project_root)
+    _raise_if_auth_provisioning_incomplete(auth_method, credentials, session_secrets)
+    return bool(credentials and credentials.changed) or session_secrets.changed
+
+
+def _raise_if_auth_provisioning_incomplete(
+    auth_method: str,
+    credentials: AuthCredentialsResult | None,
+    secrets: AuthSecretsResult,
+) -> None:
+    """Fail-closed deploy gate: abort before compose when a credential is missing.
+
+    Both provisioning functions *report* a write failure through their
+    ``missing`` tuple rather than raising, so this is the single place the
+    deploy actually stops — early enough that no container has been created and
+    the operator is left with the stack they already had, rather than one whose
+    login nobody can pass. BOTH tuples are checked: skipping either would let an
+    unwritable ``.env.auth`` log a complaint and proceed to compose anyway.
+
+    A missing password hash can only arise in ``password`` mode, the only mode
+    that provisions one at all — hence the ``None`` credentials result
+    elsewhere. A missing signing secret counts in every method: without it the
+    sidecar answers every request with 503 and the whole deployment is locked
+    out.
+
+    :param auth_method: The parsed ``auth.method`` (never ``"none"`` here).
+    :param credentials: The :func:`ensure_auth_credentials` result, or ``None``
+        when the method provisions no password hashes.
+    :param secrets: The :func:`ensure_auth_session_secrets` result.
+    :raises RuntimeError: If either ``missing`` tuple is non-empty. The message
+        names each affected user and variable — never a password or a hash.
+    """
+    problems: list[str] = []
+    if credentials is not None and credentials.missing:
+        problems.append(
+            "no login password could be established for web-terminal user(s) "
+            f"{', '.join(sorted(credentials.missing))}"
+        )
+    if secrets.missing:
+        problems.append(f"no value could be established for {', '.join(sorted(secrets.missing))}")
+    if not problems:
+        return
+    raise RuntimeError(
+        f"Cannot deploy with modules.web_terminals.auth.method: {auth_method} — "
+        f"{'; '.join(problems)}. {secrets.env_auth_path} could not be written "
+        "(check the file's permissions and the project root's, then re-run). "
+        "Aborting before any container is started: bringing the stack up would "
+        "leave the affected user(s) unable to log in at all."
+    )
+
+
+def _warn_if_env_auth_not_gitignored(project_root: Path) -> None:
+    """Warn — never block — when ``.gitignore`` does not cover ``.env.auth``.
+
+    Projects scaffolded before authentication existed have a ``.gitignore``
+    that lists ``.env`` and ``.env.production`` but not ``.env.auth``, and
+    gitignore matches literal names rather than prefixes, so ``.env`` does not
+    cover it. The file this preflight is about to write holds password hashes
+    and the sidecar's signing secrets; committing it would publish them.
+
+    Coverage is decided by the LAST matching pattern, the way git decides it: a
+    later ``!.env.auth`` un-ignores what an earlier ``.env*`` covered, and that
+    file IS tracked, so it must still warn.
+
+    Warn-only by design: the file is written with mode 0600 either way, the
+    credentials are only *at risk* if someone stages them, and refusing to
+    deploy over the contents of a file the operator may not even track would
+    make the auth feature unusable outside a git checkout for no security gain.
+
+    A project root with no ``.gitignore`` at all is left alone: that is
+    ordinarily a directory nobody commits from, and a deploy is not the place
+    to press an operator into starting a gitignore they never had.
+    """
+    gitignore_path = project_root / ".gitignore"
+    if not gitignore_path.is_file():
+        return
+    try:
+        lines = gitignore_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        # Unreadable .gitignore — nothing to say that would be trustworthy.
+        return
+    # git resolves a path against the LAST pattern that matches it, not the
+    # first — so `.env*` followed by `!.env.auth` leaves the file TRACKED. Scan
+    # every line and keep the polarity of the last match rather than returning
+    # on the first: returning early would go quiet on exactly the arrangement
+    # that re-exposes the credentials.
+    ignored = False
+    for line in lines:
+        pattern = line.strip()
+        if not pattern or pattern.startswith("#"):
+            continue
+        negated = pattern.startswith("!")
+        if negated:
+            pattern = pattern[1:]
+        # Match the way git does for a root-anchored plain file: leading and
+        # trailing "/" are structural, and a pattern may be a glob, so `.env*`
+        # counts as covering the file just as `.env.auth` does.
+        if fnmatch.fnmatch(AUTH_ENV_FILENAME, pattern.strip("/")):
+            ignored = not negated
+    if ignored:
+        return
+    logger.warning(
+        "%s does not ignore %s. That file holds this deployment's web-terminal "
+        "password hashes and session-signing secrets — add a %s line to %s so it "
+        "cannot be committed.",
+        gitignore_path,
+        AUTH_ENV_FILENAME,
+        AUTH_ENV_FILENAME,
+        gitignore_path.name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Auth sidecar: image production and the shared force-recreate primitive
+# ---------------------------------------------------------------------------
+
+#: The auth sidecar's compose service key, as rendered by
+#: ``docker-compose.web.yml.j2``. Every invocation that addresses the sidecar by
+#: name reads it from here rather than restating the literal, so the deploy path
+#: and the rendered artifact cannot drift apart.
+AUTH_SERVICE_NAME = "auth"
+
+#: Build-context directory (relative to the project root) the bundled sidecar
+#: Dockerfile is materialized into. Under ``build/`` with every other service's
+#: context, so it is regenerable and already gitignored.
+AUTH_BUILD_CONTEXT = Path("build") / "services" / "auth_sidecar"
+
+#: Files copied out of the bundled template package to form that context. The
+#: ``.dockerignore`` is not optional: the Dockerfile COPYs it as the guaranteed
+#: sibling that keeps its optional ``*.wh[l]`` glob matching.
+_AUTH_CONTEXT_FILES = ("Dockerfile", ".dockerignore")
+
+#: Package-relative location of those bundled files. Resolved through
+#: importlib.resources rather than ``Path(__file__)`` so it works from an
+#: installed wheel too, matching render.py's convention for the .j2 sources.
+#:
+#: They live beside the module's other templates rather than under
+#: ``templates/services/``: that tree is catalog-bound (every directory there
+#: must be a registered, project-copied build artifact — see
+#: ``BuildArtifactCatalog``), and the sidecar is a web-terminals stack member,
+#: not a service a project declares under ``services:``.
+_AUTH_TEMPLATE_PACKAGE_PATH = "templates/modules/web_terminals/auth_sidecar"
+
+
+def auth_sidecar_local_tag(config: dict) -> str:
+    """The image tag a local-mode deploy builds for the sidecar.
+
+    Must equal what ``docker-compose.web.yml.j2`` renders when ``auth.image``
+    is unset (``{{ auth_image | default(facility_prefix ~ "-assistant-auth:local",
+    true) }}``) — a mismatch would leave compose referencing a tag nothing
+    built, failing at ``up`` with an opaque "no such image".
+    """
+    facility_prefix = (config.get("facility") or {}).get("prefix") or ""
+    return f"{facility_prefix}-assistant-auth:local"
+
+
+def _require_auth_sidecar_image(web_terminals: dict) -> None:
+    """Registry-mode gate: ``auth.image`` must name a published sidecar image.
+
+    Registry mode builds nothing locally, and the compose overlay falls back to
+    the ``:local`` tag when ``auth.image`` is unset — a tag that mode never
+    produces. Without this the deploy would reach ``compose pull``/``up`` and
+    die on a tag no registry has, with nothing to say which key was missing.
+    Publishing the image is the facility CI's contract, exactly like
+    ``.env.production``; OSPREY only checks that the deployment names one.
+
+    A no-op when authentication is off (no sidecar is rendered at all) and in
+    local mode (:func:`build_auth_sidecar_image` produces the tag there).
+
+    :raises RuntimeError: Registry mode, authentication on, ``auth.image`` unset.
+    """
+    if _auth_tls_context(web_terminals)["auth_method"] == "none":
+        return
+    if effective_image_source(web_terminals) == "local":
+        return
+    if _auth_tls_context(web_terminals)["auth_image"]:
+        return
+    raise RuntimeError(
+        "modules.web_terminals.auth.image is not set. A registry-mode deploy "
+        "(modules.web_terminals.image_source: registry, the default) never builds "
+        "the auth sidecar's image locally, so it must name a published one — "
+        "building it and pushing it is the facility CI's job, like .env.production. "
+        "Either set modules.web_terminals.auth.image, or set "
+        "modules.web_terminals.image_source: local to have `osprey deploy up` build "
+        "the sidecar image on this host."
+    )
+
+
+def _materialize_auth_build_context(project_root: Path, dev_mode: bool) -> Path:
+    """Write the bundled sidecar Dockerfile into this project's build tree.
+
+    The sidecar has no rendered project of its own (unlike a persona) and no
+    compose ``build:`` block (unlike a backend service), so its build context is
+    materialized here from the template package. Overwritten on every deploy: it
+    holds no operator-owned content, only the bundled files plus whatever
+    ``--dev`` stages beside them.
+
+    :returns: The build-context directory.
+    """
+    context_dir = project_root / AUTH_BUILD_CONTEXT
+    context_dir.mkdir(parents=True, exist_ok=True)
+    template_dir = files("osprey").joinpath(_AUTH_TEMPLATE_PACKAGE_PATH)
+    for name in _AUTH_CONTEXT_FILES:
+        with as_file(template_dir.joinpath(name)) as source:
+            shutil.copyfile(source, context_dir / name)
+    # Same wheel-drop convention every service build context uses: under --dev
+    # the locally-built wheel lands beside the Dockerfile and its optional COPY
+    # glob picks it up. Fail-loud rather than silently deploying the pinned PyPI
+    # release under a flag that means "run my local code".
+    _stage_dev_wheel_for_context(str(context_dir), dev_mode)
+    return context_dir
+
+
+def build_auth_sidecar_image(config: dict, dev_mode: bool, env: dict[str, str]) -> None:
+    """Build the sidecar's ``<facility_prefix>-assistant-auth:local`` image.
+
+    The local-mode counterpart of :func:`_require_auth_sidecar_image`, and the
+    only producer of that tag: the web compose overlay declares the sidecar with
+    an ``image:`` and no ``build:`` block, so nothing else would ever create it.
+    Called from :func:`deploy_up_web_terminals`'s local branch, beside
+    :func:`build_persona_images` and before any compose invocation.
+
+    The tag is deliberately local-only, which is exactly why the web stack's
+    ``pull`` runs in registry mode ONLY (see :func:`deploy_up_web_terminals`'s
+    MODE BRANCH): ``compose pull`` hard-fails on a tag no registry can serve, so
+    a local-mode pull would abort the deploy on this image alone.
+
+    Three no-op cases, each deliberate:
+
+    * authentication off — no sidecar service is rendered, so nothing to build;
+    * registry mode — the image comes from ``auth.image`` (preflight already
+      required it);
+    * ``auth.image`` set in local mode — the deployment pinned an external
+      image, and building over that pin would produce a tag nothing references.
+
+    :param config: Raw deploy config.
+    :param dev_mode: Whether ``--dev`` was passed — stages a locally-built wheel
+        into the build context, exactly like every other service image.
+    :param env: Environment for the build subprocess.
+    """
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    auth_ctx = _auth_tls_context(web_terminals)
+    if auth_ctx["auth_method"] == "none":
+        return
+    if effective_image_source(web_terminals) != "local":
+        return
+    if auth_ctx["auth_image"]:
+        logger.info(
+            "Skipping the local auth-sidecar build: modules.web_terminals.auth.image "
+            "pins %s, so the deployment supplies the image.",
+            auth_ctx["auth_image"],
+        )
+        return
+
+    project_root = Path(os.getcwd())
+    context_dir = _materialize_auth_build_context(project_root, dev_mode)
+
+    from osprey import __version__ as osprey_version
+
+    tag = auth_sidecar_local_tag(config)
+    project_label = resolve_project_name(config)
+    cmd = [
+        get_runtime_command(config)[0],
+        "build",
+        "-t",
+        tag,
+        "-f",
+        str(context_dir / "Dockerfile"),
+        # OSPREY_PROJECT_NAME is what stamps `com.osprey.project` on the image
+        # (the Dockerfile's final metadata-only layer), the same ownership label
+        # persona images carry — `nuke` verifies it before removing a tag, so an
+        # unlabeled image here would be left behind by a full teardown.
+        "--build-arg",
+        f"OSPREY_PROJECT_NAME={project_label}",
+        "--build-arg",
+        f"OSPREY_VERSION={osprey_version}",
+    ]
+    if dev_mode:
+        cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    cmd.append(str(context_dir))
+
+    logger.key_info("Building auth sidecar image %s:", tag)
+    logger.info("Running command:\n    %s", " ".join(cmd))
+    subprocess.run(cmd, env=env, check=True)
+
+
+def web_stack_compose_cmd(config: dict, env_file_args: list[str] | None = None) -> list[str]:
+    """The web stack's ``<runtime> compose -f docker-compose.web.yml [...]`` base argv.
+
+    One builder for every invocation against the web compose project — the
+    deploy path's ``pull``/``up``/recreate, ``deploy_down_web_terminals``, and
+    the lifecycle verbs' nginx reload and sidecar recreate — so no caller can
+    fork the argv and drift from it (the project directory the web file's
+    relative paths resolve against is decided by this ``-f`` list; see
+    :func:`deploy_up_web_terminals`'s WHY TWO INVOCATIONS note).
+
+    :param env_file_args: The ``["--env-file", ".env"]`` (or ``[]``) fragment
+        the caller already resolved. ``None`` resolves it here through
+        ``container_lifecycle._env_file_args``, for the lifecycle verbs that are
+        entered straight from the CLI and never had one to thread down — so the
+        rule (and its "no .env" warning) keeps a single definition.
+    """
+    if env_file_args is None:
+        # Function-local import: container_lifecycle imports this module at its
+        # top level, so importing it back at module scope would be a cycle
+        # (same reason persona_images imports _resolve_pip_spec locally).
+        from osprey.deployment.container_lifecycle import _env_file_args
+
+        env_file_args = _env_file_args()
+    cmd = get_runtime_command(config)
+    cmd.extend(("-f", "docker-compose.web.yml"))
+    cmd.extend(env_file_args)
+    return cmd
+
+
+def force_recreate_auth_sidecar(
+    config: dict,
+    env_file_args: list[str] | None = None,
+    *,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Recreate the auth sidecar container so it re-reads ``.env.auth``.
+
+    Compose bakes ``env_file`` CONTENT into a container at creation time, and
+    podman-compose never recreates a container whose service definition is
+    unchanged — so after ``.env.auth`` changes, neither a plain ``up -d`` nor a
+    restart puts the new credentials in force. Only a recreate does.
+
+    One function because there are three callers that must all do it identically:
+
+    1. the deploy path, whenever preflight reports
+       :attr:`WebTerminalPreflightResult.auth_env_changed`;
+    2. the lifecycle verbs (``decommission_user``/``prune_users``), which purge
+       a departed user's entries and must kill that user's sessions at once;
+    3. ``osprey deploy passwd <user>``, so a rotated password takes effect
+       immediately rather than at the next full deploy.
+
+    Scoped to the single ``auth`` service: recreating the whole stack would
+    bounce every live terminal for a change none of them can see.
+
+    A no-op (with a warning) when no ``docker-compose.web.yml`` has been
+    rendered at the project root — there is no stack to recreate, and failing
+    here would turn "nothing was deployed yet" into a deploy error.
+
+    :param config: Raw deploy config (selects the runtime and the pinned
+        compose project).
+    :param env_file_args: The ``["--env-file", ".env"]`` (or ``[]``) argv
+        fragment the caller resolved, exactly as the ``up``/``down`` paths take
+        it; ``None`` lets :func:`web_stack_compose_cmd` resolve it, which is what
+        the lifecycle verbs (``passwd``, ``decommission``, ``prune``) pass since
+        they are entered straight from the CLI.
+    :param env: Base environment for the subprocess; defaults to this process's
+        own. Pinned with ``COMPOSE_PROJECT_NAME`` here either way, so the
+        recreate addresses the same compose project the stack was brought up in.
+    """
+    if not Path("docker-compose.web.yml").exists():
+        logger.warning(
+            "No docker-compose.web.yml at the project root — skipping the auth "
+            "sidecar recreate. Any %s change takes effect at the next "
+            "`osprey deploy up`.",
+            AUTH_ENV_FILENAME,
+        )
+        return
+    _force_recreate_services(
+        web_stack_compose_cmd(config, env_file_args),
+        runtime_env(config, env if env is not None else dict(os.environ)),
+        [AUTH_SERVICE_NAME],
+    )
+
+
+def _force_recreate_services(
+    web_cmd: list[str], run_env: dict[str, str], services: list[str]
+) -> None:
+    """Run one service-scoped ``up -d --force-recreate`` for ``services``.
+
+    The single place that argv is built. Always service-scoped: a bare
+    ``up -d --force-recreate`` would bounce every live terminal in the stack,
+    which is exactly what both callers (the post-``up`` reconcile and
+    :func:`force_recreate_auth_sidecar`) exist to avoid.
+    """
+    cmd = web_cmd + ["up", "-d", "--force-recreate", *services]
+    logger.info(f"Running command:\n    {' '.join(cmd)}")
+    subprocess.run(cmd, env=run_env, check=True)
 
 
 def deploy_up_web_terminals(
@@ -78,6 +602,7 @@ def deploy_up_web_terminals(
     dev_mode: bool,
     env: dict[str, str],
     env_file_args: list[str],
+    preflight: WebTerminalPreflightResult | None = None,
 ) -> None:
     """Reconcile the web-terminal stack (plus any co-deployed backend services).
 
@@ -209,6 +734,12 @@ def deploy_up_web_terminals(
         rather than recomputed here so the "no .env" warning stays defined in
         one place and this module needs no import back into
         ``container_lifecycle``.
+    :param preflight: What :func:`preflight_web_terminals` returned for THIS
+        deploy. Its ``auth_env_changed`` adds the auth sidecar to the post-``up``
+        recreate set — the deploy that changed ``.env.auth`` is the deploy that
+        must put those credentials in force. ``None`` (the default) keeps the
+        pre-authentication behavior exactly: nothing is force-recreated beyond
+        podman's own image drift.
     """
     write_web_terminal_artifacts(config)
 
@@ -243,6 +774,10 @@ def deploy_up_web_terminals(
         # only once `up` runs.
         ensure_env_production(config, project_root)
         build_persona_images(config, resolved_users, dev_mode, env)
+        # The sidecar's own local-only tag, produced by the same rule and at the
+        # same point as the persona images: nothing else builds it, and the web
+        # stack's `up` below would otherwise die on a tag that does not exist.
+        build_auth_sidecar_image(config, dev_mode, env)
     else:
         # Registry mode has no auto-render; the same before-compose rule holds.
         ensure_env_production(config, project_root)
@@ -286,9 +821,7 @@ def deploy_up_web_terminals(
         subprocess.run(services_cmd, env=run_env, check=True)
 
     # ---- web-terminal stack (own compose project directory: project root) --
-    web_cmd = get_runtime_command(config)
-    web_cmd.extend(("-f", "docker-compose.web.yml"))
-    web_cmd.extend(env_file_args)
+    web_cmd = web_stack_compose_cmd(config, env_file_args)
 
     # Same stale-container preflight as the services stack above (and same
     # no-`--remove-orphans` constraint — see that comment).
@@ -309,14 +842,17 @@ def deploy_up_web_terminals(
     logger.info(f"Running command:\n    {' '.join(up_cmd)}")
     subprocess.run(up_cmd, env=run_env, check=True)
 
-    # podman-compose 1.0.6 never recreates a container on a same-tag digest
-    # change, so a re-pulled `:latest` (or any moving tag) leaves the previous
-    # image's container running after the `up` above. Reconcile that drift by
-    # force-recreating only the services whose running image ID no longer
-    # matches their tag's freshly resolved image ID. No-op on docker (its
-    # compose already recreates after a pull — double-recreating would bounce
-    # live terminals).
-    _reconcile_web_stack_image_drift(config, web_cmd, run_env)
+    # One post-`up` recreate covering both reasons a container can still be
+    # stale: podman's same-tag image drift, and — when preflight changed
+    # `.env.auth` — the auth sidecar, whose env_file content compose baked in at
+    # creation time. Unioned rather than issued separately so a sidecar that
+    # qualifies both ways is recreated once, not twice.
+    _reconcile_web_stack_recreates(
+        config,
+        web_cmd,
+        run_env,
+        force_recreate=(AUTH_SERVICE_NAME,) if preflight and preflight.auth_env_changed else (),
+    )
 
     # Hot-reload nginx: `up -d` never restarts a running nginx whose
     # bind-mounted nginx.conf/landing.html CONTENT changed — the container
@@ -344,27 +880,37 @@ def deploy_up_web_terminals(
     warn_if_web_stack_unreachable(config)
 
 
-def _reconcile_web_stack_image_drift(
-    config: dict, web_cmd: list[str], run_env: dict[str, str]
+def _reconcile_web_stack_recreates(
+    config: dict,
+    web_cmd: list[str],
+    run_env: dict[str, str],
+    force_recreate: tuple[str, ...] = (),
 ) -> None:
-    """Force-recreate web-stack containers whose running image ID drifted from
-    their tag.
+    """Issue the one post-``up`` force-recreate this deploy needs.
 
-    ``podman-compose`` 1.0.6 treats a container as up-to-date whenever its
-    service definition is unchanged, so a same-tag digest change (a re-pulled
-    ``:latest``, or any moving tag) never triggers a recreate — ``up -d`` leaves
-    the container running the previous image. This inspects, for each service
-    the rendered ``docker-compose.web.yml`` declares, the image ID its ``image:``
-    reference now resolves to versus the image ID its running container was
-    created from, and runs ``up -d --force-recreate`` for exactly the services
-    that differ.
+    Two independent reasons a container can be stale after ``up -d``, resolved
+    into a SINGLE service-scoped recreate so no container is bounced twice:
 
-    Gated to podman: ``docker compose`` already recreates a service after its
-    image is re-pulled, so a second forced recreate here would needlessly bounce
-    a live terminal. Every inspection is advisory — a service whose image or
-    container can't be inspected (missing image, container not yet created) is
-    skipped, never aborting the deploy — and an all-match run issues no compose
-    command at all.
+    1. **Image drift** (podman only). ``podman-compose`` 1.0.6 treats a
+       container as up-to-date whenever its service definition is unchanged, so
+       a same-tag digest change (a re-pulled ``:latest``, or any moving tag)
+       never triggers a recreate — ``up -d`` leaves the container running the
+       previous image. This inspects, for each service the rendered
+       ``docker-compose.web.yml`` declares, the image ID its ``image:``
+       reference now resolves to versus the image ID its running container was
+       created from. Gated to podman: ``docker compose`` already recreates a
+       service after its image is re-pulled, so a second forced recreate would
+       needlessly bounce a live terminal. Every inspection is advisory — a
+       service whose image or container can't be inspected (missing image,
+       container not yet created) is skipped, never aborting the deploy.
+    2. **``force_recreate``, from the caller** — today the auth sidecar when
+       preflight changed ``.env.auth``, whose content compose baked into the
+       running container at creation time. This reason is runtime-independent:
+       unlike drift, no compose implementation recreates on an ``env_file``
+       content change, so these services are recreated on docker too and the
+       podman gate above deliberately does not cover them.
+
+    An all-match run with no ``force_recreate`` issues no compose command at all.
 
     :param config: Raw deploy config (selects the runtime).
     :param web_cmd: The web stack's ``<runtime> compose -f docker-compose.web.yml
@@ -372,46 +918,47 @@ def _reconcile_web_stack_image_drift(
         against the same compose project as the preceding ``up``.
     :param run_env: The ``COMPOSE_PROJECT_NAME``-pinned environment shared by
         every web-stack invocation.
+    :param force_recreate: Service keys to recreate regardless of image drift
+        and regardless of runtime. Unioned with the drifted set (order
+        preserved, no duplicates) so a service that qualifies both ways is
+        recreated exactly once.
     """
+    changed: list[str] = list(force_recreate)
+
     runtime = get_runtime_command(config)[0]
-    if runtime != "podman":
-        return
+    if runtime == "podman":
+        # The rendered compose file (written at the top of
+        # deploy_up_web_terminals) is the single source of truth for which
+        # services exist and what image / container name each carries -- reading
+        # it here keeps this reconcile free of any per-service name
+        # reconstruction and covers nginx and every per-user terminal uniformly.
+        try:
+            compose_doc = yaml.safe_load(Path("docker-compose.web.yml").read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            logger.warning(
+                "image-drift reconcile skipped: could not read docker-compose.web.yml: %s", exc
+            )
+            compose_doc = None
 
-    # The rendered compose file (written at the top of deploy_up_web_terminals)
-    # is the single source of truth for which services exist and what image /
-    # container name each carries -- reading it here keeps this reconcile free
-    # of any per-service name reconstruction and covers nginx and every
-    # per-user terminal uniformly.
-    try:
-        compose_doc = yaml.safe_load(Path("docker-compose.web.yml").read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
-        logger.warning(
-            "image-drift reconcile skipped: could not read docker-compose.web.yml: %s", exc
-        )
-        return
-
-    services = (compose_doc or {}).get("services") or {}
-    changed: list[str] = []
-    for service_name, service in services.items():
-        service = service or {}
-        image = service.get("image")
-        container = service.get("container_name")
-        if not image or not container:
-            continue
-        tag_id = get_image_id(runtime, image, env=run_env)
-        running_id = get_container_image_id(runtime, container, env=run_env)
-        if tag_id is None or running_id is None:
-            # Missing image or not-yet-created container -- advisory skip.
-            continue
-        if tag_id != running_id:
-            changed.append(service_name)
+        services = (compose_doc or {}).get("services") or {}
+        for service_name, service in services.items():
+            service = service or {}
+            image = service.get("image")
+            container = service.get("container_name")
+            if not image or not container or service_name in changed:
+                continue
+            tag_id = get_image_id(runtime, image, env=run_env)
+            running_id = get_container_image_id(runtime, container, env=run_env)
+            if tag_id is None or running_id is None:
+                # Missing image or not-yet-created container -- advisory skip.
+                continue
+            if tag_id != running_id:
+                changed.append(service_name)
 
     if not changed:
         return
 
-    recreate_cmd = web_cmd + ["up", "-d", "--force-recreate", *changed]
-    logger.info(f"Running command:\n    {' '.join(recreate_cmd)}")
-    subprocess.run(recreate_cmd, env=run_env, check=True)
+    _force_recreate_services(web_cmd, run_env, changed)
 
 
 def deploy_down_web_terminals(
@@ -452,9 +999,7 @@ def deploy_down_web_terminals(
     """
     if not Path("docker-compose.web.yml").exists():
         return
-    down_cmd = get_runtime_command(config)
-    down_cmd.extend(("-f", "docker-compose.web.yml"))
-    down_cmd.extend(env_file_args)
+    down_cmd = web_stack_compose_cmd(config, env_file_args)
     down_cmd.append("down")
     logger.info(f"Running command:\n    {' '.join(down_cmd)}")
     result = subprocess.run(
