@@ -8,8 +8,8 @@ underlying control system.
 
 """
 
-from osprey.connectors.factory import ConnectorFactory
-from osprey.connectors.types import (
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.types import (
     EPICS,
     EPICS_ARCHIVER,
     MOCK,

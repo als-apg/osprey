@@ -46,3 +46,26 @@ def test_simulation_core_shims_preserve_module_identity():
 
     assert osprey.simulation.engine is osprey_connectors.simulation.engine
     assert osprey.simulation.SimulationEngine is osprey_connectors.simulation.SimulationEngine
+
+
+def test_connector_shims_preserve_module_identity():
+    import osprey.connectors.control_system.epics_connector
+    import osprey.connectors.archiver.base
+    import osprey.connectors.factory
+    import osprey_connectors.archiver.base
+    import osprey_connectors.control_system.epics_connector
+    import osprey_connectors.factory
+
+    assert (
+        osprey.connectors.control_system.epics_connector
+        is osprey_connectors.control_system.epics_connector
+    )
+    assert osprey.connectors.archiver.base is osprey_connectors.archiver.base
+    assert osprey.connectors.factory is osprey_connectors.factory
+
+
+def test_exception_identity_across_namespaces():
+    from osprey.errors import ChannelWriteBlockedError as old
+    from osprey_connectors.errors import ChannelWriteBlockedError as new
+
+    assert old is new
