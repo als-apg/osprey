@@ -765,6 +765,7 @@ jobs:
             --ignore=tests/e2e/test_nextcloud_talk_bridge_e2e.py \
             --ignore=tests/e2e/test_gchat_bridge_e2e.py \
             --ignore=tests/e2e/fixtures/test_gchat_fixture_smoke.py \
+            --ignore=tests/e2e/web_terminals/test_auth_perimeter.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py
         fi
 
@@ -1792,6 +1793,68 @@ jobs:
         docker rm -f e2e-nginx || true
         docker rm -f osprey-e2e-mus-p3-registry || true
         docker compose -p osprey-e2e-mus-p3 down || true
+
+  auth-perimeter-e2e:
+    name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
+    runs-on: ubuntu-latest
+    # Same PR scoping as the lifecycle lanes above: same-repo PRs into main
+    # only, since this drives real container lifecycle against the runtime.
+    #
+    # DELIBERATELY ITS OWN LANE. This is the only job in the repo that builds
+    # the deployed auth-sidecar Dockerfile, which is a real
+    # `pip install osprey-framework` with a C toolchain — minutes, cold, every
+    # run. The multi-user lifecycle lanes are all-stub and fast; folding this
+    # into them would have made every lifecycle run pay that build. Keeping it
+    # separate also means the cost shows up on its own line rather than as an
+    # unexplained slowdown in a neighbouring job.
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    # `deploy up --dev` builds the sidecar image and stages a locally-built
+    # wheel into its context, so the whole run exercises THIS branch's code
+    # rather than a published release.
+    - name: Run auth perimeter E2E
+      run: |
+        uv run pytest tests/e2e/web_terminals/test_auth_perimeter.py -v --tb=short
+
+    # Belt-and-suspenders on top of the test's own try/finally teardown. Every
+    # resource named here is exact — never a prune, an -a/--all sweep, or a
+    # wildcard — matching the test module's container-ops safety guardrail.
+    - name: Clean up any stranded auth-perimeter resources
+      if: always()
+      run: |
+        for user in alice bob; do
+          docker rm -f "authe2e-web-${user}" || true
+          docker volume rm "osprey-e2e-auth-perimeter_${user}-claude-config" || true
+          docker volume rm "osprey-e2e-auth-perimeter_${user}-agent-data" || true
+        done
+        docker rm -f authe2e-auth || true
+        docker rm -f authe2e-nginx || true
+        docker compose -p osprey-e2e-auth-perimeter down || true
+        docker rmi -f authe2e-assistant-auth:local || true
+        docker rmi -f authe2e-operator:local || true
 
   multi-user-deploy-lifecycle-e2e-podman:
     name: Multi-User Deploy Lifecycle E2E (PRs into main, podman runtime)
