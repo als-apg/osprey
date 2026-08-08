@@ -1429,7 +1429,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, dockerfile-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, dockerfile-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, lean-wheel]
     runs-on: ubuntu-latest
     if: always()
 
@@ -1478,6 +1478,10 @@ jobs:
         fi
         if [[ "${{ needs.build-boot-smoke.result }}" != "success" ]]; then
           echo "❌ Tier 1 build + boot smoke failed"
+          exit 1
+        fi
+        if [[ "${{ needs.lean-wheel.result }}" != "success" ]]; then
+          echo "❌ Lean connectors wheel check failed"
           exit 1
         fi
         check_pr_lane() {
