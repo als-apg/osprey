@@ -11,3 +11,6 @@
 # Compose files + templates are runtime/deploy artifacts, not image inputs.
 docker-compose.yml
 *.j2
+# Same class: the RE Manager's plan/device permissions are bind-mounted into
+# the queueserver container at runtime, never read at image-build time.
+user_group_permissions.yaml

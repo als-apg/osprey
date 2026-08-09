@@ -1,0 +1,61 @@
+# Plan/device permissions for the bluesky-queueserver RE Manager.
+#
+# WHY THIS FILE EXISTS AT ALL: the manager checks every queue item against the
+# permissions of the requesting user group, and `bluesky-queueserver-api`'s
+# default group is `primary`. With no permissions file the manager builds a
+# single `root` group, so every request from the bridge is rejected outright
+# with "Unknown user group: 'primary'" — plans that were scanned correctly and
+# exist in the worker namespace simply cannot be enqueued.
+#
+# WHY THE PLAN RULES ARE PERMISSIVE: this is not the safety boundary and must
+# not be mistaken for one. The worker namespace contains exactly the plans
+# OSPREY's own plan_loader put there (bounded by BLUESKY_PLAN_DIRS and
+# BLUESKY_EXCLUDED_PLANS), the plan names are generated from the facility
+# catalog and so cannot be enumerated here, and every write those plans perform
+# still passes the connector's per-put reference monitor and the bridge's
+# arming + limits facade. An allowlist of literal plan names here would go
+# stale the moment a facility adds a plan, and would buy nothing the catalog
+# does not already bound.
+#
+# WHAT IS ACTUALLY LOCKED DOWN: functions. `allowed_functions: []` selects
+# nothing, and because `root` acts as the preliminary filter for every group,
+# an empty list there denies function execution globally. That closes
+# queueserver's `function_execute` API — arbitrary callables run in the worker
+# namespace, outside the plan path and outside every check named above. The
+# bridge never calls it. If some future task genuinely needs a worker-side
+# function, this is the line to change, deliberately and with review; do not
+# widen it as a debugging shortcut.
+#
+# Script upload (the session-plan path) is a separate API and is NOT gated by
+# these function rules.
+
+user_groups:
+  # `root` is required — the manager raises if it is missing — and acts as the
+  # preliminary filter applied to every other group.
+  root:
+    allowed_plans:
+      - null # Allow all plans present in the worker namespace.
+    forbidden_plans:
+      - ":^_" # Never expose private names.
+    allowed_devices:
+      - null # Allow all devices the startup script built.
+    forbidden_devices:
+      - ":^_:?.*"
+    allowed_functions: [] # Deny every function, globally. See the note above.
+    forbidden_functions:
+      - null
+
+  # `primary` is the group `bluesky-queueserver-api` sends by default, so this
+  # is the group the bridge's QueueBackend actually operates as.
+  primary:
+    allowed_plans:
+      - ":.*"
+    forbidden_plans:
+      - null
+    allowed_devices:
+      - ":?.*:depth=5"
+    forbidden_devices:
+      - null
+    allowed_functions: []
+    forbidden_functions:
+      - null
