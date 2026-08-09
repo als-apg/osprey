@@ -31,6 +31,7 @@ logger = get_logger("simulation_machine")
 
 DEFAULT_SCENARIO = "nominal"
 
+
 # Non-position keys required per event shape. Position is validated
 # separately: exactly one of 'at' (window fraction), 'at_offset' (seconds
 # relative to scenario-activation time), or 'at_time' (daily 'HH:MM:SS'

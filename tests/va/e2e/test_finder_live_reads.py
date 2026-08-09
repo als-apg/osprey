@@ -1,7 +1,8 @@
 """SC6 acceptance: every address a channel-finder pipeline surfaces is live over CA.
 
-The Control Assistant preset ships the SAME ~1,228-address namespace in three
-interchangeable channel-finder paradigms
+The Control Assistant preset ships the SAME full manifest namespace -- a few
+thousand addresses; ``channel_manifest.json``'s ``_metadata.total_channels``
+is the authoritative count -- in three interchangeable channel-finder paradigms
 (``osprey.services.virtual_accelerator.manifest``'s own build step
 cross-checks this: ``build_manifest()`` raises ``ParadigmMismatchError`` if
 the three tier-3 DBs ever disagree on their expanded address set -- see

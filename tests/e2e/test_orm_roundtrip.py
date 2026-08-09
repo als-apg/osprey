@@ -63,8 +63,10 @@ from typing import Any
 import numpy as np
 import pytest
 
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
 from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_diagnostics import dead_container_logs
 
 pytestmark = [
     pytest.mark.e2e,
@@ -78,6 +80,17 @@ pytestmark = [
 ]
 
 BRIDGE_URL = f"http://localhost:{_orm_stack.BRIDGE_PORT}"
+
+#: Compose project this suite deploys under. Container names follow
+#: ``<project>-<service>``, so the failure diagnostics below need the same name
+#: the build is given -- hence one constant rather than two literals.
+PROJECT_NAME = "orm-roundtrip"
+
+
+def _dead_container_logs() -> str:
+    """Logs from every container of this deployment that is not running."""
+    return dead_container_logs(resolve_project_name({"project_name": PROJECT_NAME}))
+
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
@@ -164,7 +177,7 @@ class DeployedOrmStack:
 def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedOrmStack]:
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
     project_dir = _orm_stack.build_project_subprocess(
-        "orm-roundtrip", output_dir=base, timeout=BUILD_TIMEOUT_SEC
+        PROJECT_NAME, output_dir=base, timeout=BUILD_TIMEOUT_SEC
     )
 
     limits = _channel_limits(project_dir)
@@ -203,9 +216,13 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         if up.returncode != 0:
             pytest.fail(
                 f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
+                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
+                f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        try:
+            _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         yield DeployedOrmStack(project_dir=project_dir, correctors=correctors, bpms=bpms)
     finally:
         down = subprocess.run(

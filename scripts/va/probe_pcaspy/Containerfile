@@ -1,0 +1,49 @@
+# Minimal pcaspy portable-CAS probe image for the phase-4 transport gate.
+#
+# Version note: pcaspy 0.8.0 cannot serve an asynchronous write at all -- its
+# `SimplePV.writeNotify` passes the wrong object to `startAsyncWrite`, which
+# aborts the server process. The fix needs `casClientInfo.ctx`, a binding that
+# only exists in the 0.8.1 compiled extension, so 0.8.1 is the floor.
+#
+# Wheel note: 0.8.1 publishes manylinux wheels for x86_64 only -- there is no
+# aarch64 wheel. On arm64 the install therefore falls back to a source build,
+# which needs EPICS base plus the separate PCAS module (PCAS was removed from
+# base in EPICS 7). That build takes roughly nine minutes cold and is then
+# layer-cached. amd64 installs the wheel and skips all of it.
+FROM python:3.11-slim
+
+ARG PCASPY_VERSION=0.8.1
+ARG EPICS_BASE_TAG=R7.0.9
+
+WORKDIR /probe
+
+RUN pip install --no-cache-dir --only-binary pcaspy "pcaspy==${PCASPY_VERSION}" \
+    || ( \
+        set -eux; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends \
+            build-essential perl git ca-certificates swig; \
+        git clone --depth 1 --branch "${EPICS_BASE_TAG}" --recursive \
+            https://github.com/epics-base/epics-base.git /opt/epics/base; \
+        export EPICS_HOST_ARCH="linux-$(uname -m)"; \
+        export EPICS_BASE=/opt/epics/base; \
+        make -C /opt/epics/base -j"$(nproc)" > /dev/null; \
+        git clone --depth 1 https://github.com/epics-modules/pcas.git /opt/epics/pcas; \
+        echo "EPICS_BASE=${EPICS_BASE}" > /opt/epics/pcas/configure/RELEASE.local; \
+        make -C /opt/epics/pcas -j"$(nproc)" > /dev/null; \
+        export PCAS=/opt/epics/pcas; \
+        pip install --no-cache-dir --no-binary pcaspy "pcaspy==${PCASPY_VERSION}"; \
+        rm -rf /var/lib/apt/lists/*; \
+    )
+
+COPY probe_server.py /probe/probe_server.py
+
+# Channel Access is served over TCP only. UDP is deliberately not exposed:
+# the gate must exercise the CA name-server transport, not broadcast search.
+EXPOSE 5164/tcp
+
+# Port and timings are overridden at run time by run_probe.sh.
+ENV EPICS_CA_SERVER_PORT=5164 \
+    EPICS_CAS_SERVER_PORT=5164
+
+CMD ["python", "-u", "probe_server.py"]

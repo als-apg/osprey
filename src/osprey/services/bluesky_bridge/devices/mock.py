@@ -23,9 +23,8 @@ OSPREY connector rather than speaking Channel Access directly.
 Reimplements the shape of ``ophyd_async.sim.SimMotor``/``SimPointDetector``
 (soft position signal with instant "move"; a triggerable soft readout) rather
 than importing ``ophyd_async.sim`` directly: that package's ``__init__``
-eagerly imports ``SimBlobDetector``, which pulls in ``h5py`` — a dependency
-OSPREY's core dependencies do not declare and this bridge does not need for
-a plain motor + detector.
+eagerly imports ``SimBlobDetector``, which pulls in ``h5py`` — a heavy
+dependency this bridge does not need for a plain motor + detector.
 
 Imports ophyd-async (a core dependency), so this module (like the rest of
 ``devices/``) is kept out of the bridge lifecycle core's import path

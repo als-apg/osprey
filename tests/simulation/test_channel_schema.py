@@ -93,11 +93,11 @@ def test_analog_current_subfields_are_double_amps():
                 assert meta.description.strip()
 
 
-def test_analog_bpm_subfields_are_double_mm():
+def test_analog_bpm_subfields_are_double_meters():
     for field_name in ("POSITION", "GOLDEN", "OFFSET"):
         for sub, meta in CHANNEL_SCHEMA["BPM"].fields[field_name].items():
             assert meta.data_type == "double", (field_name, sub)
-            assert meta.hw_units == "mm", (field_name, sub)
+            assert meta.hw_units == "m", (field_name, sub)
             assert meta.description.strip()
 
 

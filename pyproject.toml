@@ -133,14 +133,21 @@ dependencies = [
     # Floor-pinned for the save_mat/load_mat(use='RING'), disable_6d, and
     # get_optics(get_chrom=) surface the shared ALS-U AR ring relies on.
     "accelerator-toolbox[plot]>=0.7.1",
-    # Virtual Accelerator soft-IOC (osprey.services.virtual_accelerator): the
-    # in-process EPICS soft-IOC the record factory builds against. Core, not
-    # optional — the VA is exercised in almost all deployments, and PyAT
-    # (accelerator-toolbox above) is already core, so the IOC toolkit joins it.
-    "softioc",
+    # LUMEModel physics-backend contract for the VA (osprey.services.virtual_accelerator).
+    # Exact-pinned: young/fast-moving API (8 releases between 0.3.2 and 0.5.0) and the
+    # adapter code is written against the 0.5.0 contract specifically. Core, not optional —
+    # same reasoning as PyAT above.
+    "lume-base==0.5.0",
+    # pyAT physics backend implementing the LUMEModel contract above
+    # (osprey.services.virtual_accelerator.model). Exact-pinned for the same
+    # reason as lume-base: a young package whose surface is still settling, and
+    # the facility adapter is written against the 0.1.0 contract specifically —
+    # the persistent-lattice simulator, the atomic multi-variable set, and the
+    # rollback-on-lost-orbit guarantee the VA's write path depends on.
+    "lume-pyat==0.1.0",
     # Bluesky scan stack (osprey.services.bluesky_bridge): RunEngine, ophyd-async
     # devices, and the Tiled writer/reader. Core, not optional — Bluesky is a
-    # core part of OSPREY, joining PyAT/softioc above. ophyd-async's [ca] brings
+    # core part of OSPREY, joining PyAT above. ophyd-async's [ca] brings
     # the aioca Channel Access backend the EPICS substrate devices need.
     "bluesky>=1.15.1",
     "ophyd-async[ca]>=0.16,<1.0",
@@ -246,12 +253,70 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
-# Virtual Accelerator: kept as an empty alias for back-compat. `softioc` is now
-# a core dependency (see [project] dependencies), so this extra installs nothing
-# extra. Retained so existing `osprey-framework[virtual-accelerator]` references
-# (CI `uv sync --extra`, the VA image Dockerfile, and pinned older-version image
-# builds where softioc was still gated here) keep resolving.
-virtual-accelerator = []
+# Virtual Accelerator: the serving stack, both transports. Everything else the
+# VA needs (PyAT, the manifest/lattice layer) is a core dependency, so these two
+# entries are the whole extra; `osprey-framework[virtual-accelerator]` keeps
+# resolving for every existing reference to it (CI `uv sync --extra`, both VA
+# images).
+#
+# lume-pva-apg is the serving package `serving/runner.py` subclasses. Its `ca`
+# and `pva` extras are what put the two transports on the wire -- pcaspy for
+# Channel Access, p4p for PVAccess -- and BOTH are required for any serving at
+# all, because the value layer is p4p-typed even on the CA side. p4p arrives
+# only through `pva`: the base package does not depend on it. Exact-pinned for
+# the same reason as lume-base and lume-pyat above -- a young package whose
+# surface is still settling, and the runner subclass is written against the
+# 0.1.2 contract specifically (the extension seams it overrides are not yet a
+# stable API).
+#
+# Both VA images install through the `virtual-accelerator` extra rather than
+# naming its contents -- `.[virtual-accelerator]` in the full image,
+# `osprey-framework[virtual-accelerator]==<version>` and
+# `<wheel>[virtual-accelerator]` in the shipped service template. So neither
+# Dockerfile declares lume-pva-apg, pcaspy or p4p as an install target or
+# constrains its version, and neither can drift from what is declared here.
+# (Both do pass `--only-binary pcaspy`. That is a resolver guard -- refuse the
+# sdist and its EPICS source build -- not a pin: it selects no version and
+# adds no requirement.)
+#
+# pcaspy is the portable Channel Access server. The serving layer hosts one,
+# and tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand
+# one up in-process to assert the write contract from the far side of the wire;
+# without pcaspy installed both suites skip, and a skipped live suite proves
+# nothing.
+#
+# `>=0.8.1` is a hard floor, not a preference. 0.8.0's `SimplePV.writeNotify`
+# hands `startAsyncWrite` the wrong object and aborts the server process on any
+# asynchronous write, and the client is not told: `caput -w` returns success in
+# tens of milliseconds for a value that never landed. The fix needs
+# `casClientInfo.ctx`, a binding that only exists in the 0.8.1 extension.
+#
+# The environment marker is load-bearing. pcaspy publishes manylinux x86_64
+# wheels at every interpreter, but nothing else that loads: cp313/cp314 are
+# x86_64-only, there is no linux aarch64 wheel at any interpreter, and the
+# macosx_11_0_arm64 wheels are broken as shipped (they link
+# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). Unmarked, this
+# requirement would send a developer's Mac into a source build that needs EPICS
+# Base plus the separate PCAS module, and fail. Marked, those hosts get the
+# honest `importorskip` skip and run the live suites in the container venue
+# under scripts/va/live_ca/ instead.
+#
+# THE SAME MARKER RIDES ON lume-pva-apg, and for the same reason rather than
+# for symmetry: its `ca` extra requires pcaspy with no marker of its own, so an
+# unmarked entry here would pull pcaspy onto every host through the back door
+# and defeat the marker above. Verified, not assumed -- resolving
+# `lume-pva-apg[ca,pva]==0.1.2` for macOS at 3.13 selects pcaspy 0.8.1, whose
+# only artifact at that interpreter and platform is the sdist. The two lines
+# must therefore stay marked together; marking one alone does nothing.
+#
+# The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
+# too. That costs nothing real: `serving/runner.py` imports pcaspy first, so it
+# is unimportable on those hosts regardless of what else is installed, and the
+# suites that reach it already treat all three server roots the same way.
+virtual-accelerator = [
+    "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "lume-pva-apg[ca,pva]==0.1.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 
 # All optional dependencies for complete installation
 all = [
@@ -277,6 +342,27 @@ osprey = "osprey.cli.main:cli"
 webhook = "osprey.dispatch.sources.webhook:WebhookSource"
 cron = "osprey.dispatch.sources.cron:CronSource"
 epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
+
+# Resolver exemptions for two packages published more recently than the
+# ambient `exclude-newer` window some developer machines set (a rolling
+# "nothing newer than N days" policy). Both are exact pins this project needs
+# by name, so a window that hides them makes the lock unresolvable rather than
+# merely conservative.
+#
+# These must live HERE, in repo config, and not be left to the command line.
+# uv.lock does record what was applied, under `[options.exclude-newer-package]`,
+# but that block is an OUTPUT — a record of the resolve that produced the file,
+# not an input uv reads back. So a lock recorded with a per-package exemption
+# still cannot be REGENERATED without one: a plain `uv lock` or
+# `uv lock --upgrade` fails again unless the exemption is declared, which is
+# why it belongs in the project's own configuration where every contributor
+# and every CI runner picks it up automatically.
+#
+# Each entry may be dropped once the ambient window has moved past that
+# package's upload date; neither is load-bearing beyond making the resolve
+# reproducible.
+[tool.uv]
+exclude-newer-package = { lume-pyat = "2026-08-06T00:00:00Z", lume-pva-apg = "2026-08-08T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.

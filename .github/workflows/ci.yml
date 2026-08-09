@@ -4,7 +4,11 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    # Epic phase branches merge into an epic/<name> integration base, not
+    # main, and their PRs are where the phase's CI certification happens --
+    # the full lane set must run there, not only on the final epic-to-main
+    # PR.
+    branches: [ main, 'epic/**' ]
   workflow_dispatch:
     inputs:
       e2e_filter:
@@ -54,6 +58,9 @@ jobs:
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # The slowest cell (macOS) finishes in ~11 min; without a bound, a single
+    # wedged xdist worker holds the lane at 99% for the 6-hour default.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -75,9 +82,15 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Install dependencies
-      # virtual-accelerator: tests/va/{test_record_factory,test_apply_fault}.py
-      # import softioc, which lives in the virtual-accelerator extra (not dev).
-      # Without it these unit tests error at collection on a fresh runner.
+      # virtual-accelerator: carries the whole serving stack -- pcaspy, and
+      # lume-pva-apg[ca,pva] which brings p4p with it -- none of which is in
+      # dev. The live Channel Access suites (run in their own step below, one
+      # process per module) and tests/va/test_facility_seam.py's served-boot
+      # branch need all of it. These guard their imports, so without the extra
+      # they SKIP rather than error: the lane stays green having never touched
+      # Channel Access. That is why the extra is pinned here and why
+      # tests/va/test_live_ca_venue_guard.py fails this lane outright if the
+      # server does not import on linux/x86_64.
       #
       # The bluesky stack (bluesky/ophyd-async/tiled) is a core dependency, so
       # plain `uv sync` carries it. tests/services/bluesky_bridge/* guard their
@@ -120,7 +133,32 @@ jobs:
         else
           COV_ARGS=""
         fi
-        uv run pytest tests/ --ignore=tests/e2e -v --tb=short -n 4 --dist loadgroup $COV_ARGS
+        # faulthandler_timeout: any single test stuck past 5 minutes dumps
+        # every thread's stack to stderr without killing the run — a wedged
+        # worker leaves a diagnosis in the log instead of a silent 99% stall.
+        # Dump-only, so the container-starting files (cold image pulls can
+        # legitimately run long) are never killed by it.
+        #
+        # The two live Channel Access modules are excluded here and run in the
+        # isolated step below: libca is process-global and not thread-safe, and
+        # a pyepics PV finalized by the garbage collector — which runs on
+        # whatever thread allocates next — segfaults inside libca. In a
+        # long-lived xdist worker that shares 16k other tests, the crash lands
+        # minutes later in an unrelated test and EPICS' signal handling turns
+        # it into a silent wedge rather than a death. A live CA client/server
+        # pair is only safe in a process of its own.
+        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -v --tb=short -n 4 --dist loadgroup $COV_ARGS -o faulthandler_timeout=300
+
+    - name: Run live Channel Access suites in isolation
+      # One pytest process per module via the live-CA gate — the same venue
+      # rule the local certification uses. --pva asserts pcaspy/p4p/
+      # lume-pva-apg import before running, so the served-boot branch of the
+      # seam test actually executes. The gate fails unless every module exits
+      # 0 with zero skips and at least one pass, which closes the gap the
+      # in-sweep venue guard cannot: a skipped live suite fails THIS step even
+      # if a future marker or fixture skip slips past the import guard.
+      if: matrix.os == 'ubuntu-latest'
+      run: uv run python scripts/va/live_ca/gate.py --pva
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
@@ -1089,7 +1127,7 @@ jobs:
     # equivalence-e2e gating). This job needs no secrets — neither the
     # bridge nor the bluesky-panels sidecar shells out to an LLM.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Co-deploys the VA (native PyAT/softioc build, same cold-cache cost as
+    # Co-deploys the VA (native PyAT/serving-stack build, same cold-cache cost as
     # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
     # bluesky-panels sidecar, then drives a real plan end to end through the
     # sidecar's execute route — comparable weight to va-substrate-
@@ -1187,7 +1225,7 @@ jobs:
     # was the lane's second-biggest time sink); same extraction pattern as
     # every other dockerbuild-marked file.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Builds the native PyAT/softioc VA image from source like
+    # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
     # cold image cache can't red the job.
     timeout-minutes: 45

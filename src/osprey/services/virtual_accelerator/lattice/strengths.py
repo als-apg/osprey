@@ -3,9 +3,10 @@
 Owns the per-device nominal-current baseline (read from the scenario-seed
 ``machine.json``, no hardcoded currents) and the current->strength formulas
 for every magnet and corrector family in the real ring. This module is
-deliberately decoupled from the softioc -- it never imports anything from
-:mod:`osprey.services.virtual_accelerator.ioc` -- so a future LUME-based
-physics server can consume it identically.
+deliberately decoupled from the serving layer -- it never imports anything
+from :mod:`osprey.services.virtual_accelerator.ioc` or
+:mod:`osprey.services.virtual_accelerator.serving` -- so any physics server
+can consume it identically.
 
 Apply-current semantics (per family):
 
@@ -27,20 +28,39 @@ Apply-current semantics (per family):
 
 Baked strengths are snapshotted once, from the ring passed to
 :class:`StrengthMap`'s constructor, before any current is applied.
+
+The element-level write-rollback primitives (:class:`ElementState`,
+:func:`snapshot_element`, :func:`restore_element`) are facility-agnostic and
+live in :mod:`lume_pyat.simulator`; they are re-exported here so a caller
+already holding this module for the mapping does not need a second import
+to roll a write back.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
 import at
+from lume_pyat.simulator import ElementState, restore_element, snapshot_element
 
 from osprey.services.virtual_accelerator.manifest.loaders import (
     load_machine_json_channels,
 )
 
 from .calibration import AMPS_PER_RADIAN_KICK
+
+__all__ = [
+    "CORRECTOR_FAMILIES",
+    "DIPOLE_FAMILY",
+    "QUADRUPOLE_FAMILIES",
+    "SEXTUPOLE_FAMILIES",
+    "ElementState",
+    "StrengthMap",
+    "current_address",
+    "restore_element",
+    "snapshot_element",
+    "split_fam_name",
+]
 
 # Families dispatched by formula (see module docstring). Every magnet/
 # corrector family the facility spec declares must appear in exactly one of
@@ -83,38 +103,6 @@ def current_address(family: str, device_id: str) -> str:
     storage ring this service simulates.
     """
     return f"SR:MAG:{family}:{device_id}:CURRENT:SP"
-
-
-@dataclass(frozen=True)
-class ElementState:
-    """Snapshot of one ring element's mutable strength fields.
-
-    ``polynom_b`` and ``kick_angle`` are ``None`` when the element doesn't
-    carry that field (correctors have no ``PolynomB``; magnets have no
-    ``KickAngle``).
-    """
-
-    polynom_b: list[float] | None
-    kick_angle: list[float] | None
-
-
-def snapshot_element(element: at.Element) -> ElementState:
-    """Capture ``element``'s current ``PolynomB``/``KickAngle`` state.
-
-    For later write-rollback: pair with :func:`restore_element`.
-    """
-    return ElementState(
-        polynom_b=list(element.PolynomB) if hasattr(element, "PolynomB") else None,
-        kick_angle=list(element.KickAngle) if hasattr(element, "KickAngle") else None,
-    )
-
-
-def restore_element(element: at.Element, state: ElementState) -> None:
-    """Write a previously captured :class:`ElementState` back onto ``element``."""
-    if state.polynom_b is not None:
-        element.PolynomB = list(state.polynom_b)
-    if state.kick_angle is not None:
-        element.KickAngle = list(state.kick_angle)
 
 
 class StrengthMap:

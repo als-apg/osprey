@@ -246,6 +246,11 @@ class _Subfamily:
 #     ~0, where distinctness is meaningless and a longer period would only
 #     flatten the ripple.
 # One shared value would serve one job and break the other.
+#
+# `noise_abs` and `texture.amplitude` are absolute, in the channel's declared
+# units, so the BPM magnitudes read small: those channels are labelled in meters
+# (the bridge serves closed orbit in meters), making them 1 um noise on a 30 um
+# wander. The corrector readbacks are in amperes and unrelated in scale.
 _SUBFAMILIES: dict[str, _Subfamily] = {
     "SR BPM POSITION:X": _Subfamily(
         prefix="SR:DIAG:BPM:",
@@ -253,12 +258,12 @@ _SUBFAMILIES: dict[str, _Subfamily] = {
         count=72,
         entry={
             "value": 0.0,
-            "noise_abs": 0.001,
-            "texture": {"kind": "wander", "amplitude": 0.03, "period_s": 43200.0},
-            "units": "mm",
+            "noise_abs": 1e-06,
+            "texture": {"kind": "wander", "amplitude": 3e-05, "period_s": 43200.0},
+            "units": "m",
             "description": (
                 "Storage-ring BPM {index} horizontal position readback (pyat-coupled -- "
-                "recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+                "recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
             ),
         },
     ),
@@ -268,12 +273,12 @@ _SUBFAMILIES: dict[str, _Subfamily] = {
         count=72,
         entry={
             "value": 0.0,
-            "noise_abs": 0.001,
-            "texture": {"kind": "wander", "amplitude": 0.03, "period_s": 43200.0},
-            "units": "mm",
+            "noise_abs": 1e-06,
+            "texture": {"kind": "wander", "amplitude": 3e-05, "period_s": 43200.0},
+            "units": "m",
             "description": (
                 "Storage-ring BPM {index} vertical position readback (pyat-coupled -- "
-                "recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
+                "recomputed from the AT lattice model; ideal closed orbit, 0.0 m baseline)"
             ),
         },
     ),

@@ -45,6 +45,7 @@ from typing import Any
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
 
 CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
@@ -103,6 +104,11 @@ def _load_workflow() -> dict[str, Any]:
 @pytest.fixture()
 def workflow() -> dict[str, Any]:
     return _load_workflow()
+
+
+@pytest.fixture()
+def pyproject() -> dict[str, Any]:
+    return _load_pyproject()
 
 
 def _jobs(wf: dict[str, Any]) -> dict[str, Any]:
@@ -324,9 +330,11 @@ def _unit_test_install_cmd(wf: dict[str, Any]) -> str:
 
 
 def test_unit_test_job_installs_required_extras(workflow: dict[str, Any]) -> None:
-    """tests/va/* import softioc unguarded and error at collection without the
-    `virtual-accelerator` extra (an empty back-compat alias today, but pinned so
-    older-version builds keep resolving); `dev` carries pytest itself."""
+    """The `virtual-accelerator` extra carries the serving stack the live
+    tests/va suites need — pcaspy, and `lume-pva-apg[ca,pva]` which brings p4p
+    with it. Those suites guard their imports, so without the extra they SKIP
+    rather than error and the lane reports green having never touched Channel
+    Access; `dev` carries pytest itself."""
     cmd = _unit_test_install_cmd(workflow)
     for extra in ("dev", "virtual-accelerator"):
         assert f"--extra {extra}" in cmd, (
@@ -356,6 +364,225 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
         assert any(dep.startswith(stack_dep) for dep in core_deps), (
             f"{stack_dep} must be a core dependency"
         )
+
+
+def test_lume_pyat_is_a_core_dependency() -> None:
+    """`model.pyat` imports lume_pyat at module level — PyATRingModel subclasses
+    LUMEPyATModel — so the VA cannot boot without it. Placement, not just
+    presence, is what this guards: the dev-wheel channel builds the VA image's
+    dependency manifest from the wheel's base `Requires-Dist` only
+    (`wheel_build._wheel_base_requirements` drops every entry gated behind an
+    extra). A pin parked in an optional extra would therefore vanish from
+    `osprey-local-requirements.txt` silently, and the image would build green
+    and fail at runtime on the first model import."""
+    pyproject = tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
+    core_deps = pyproject["project"]["dependencies"]
+    assert any(dep.startswith("lume-pyat") for dep in core_deps), (
+        "lume-pyat must be a core dependency, not an extra"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The serving package is pinned in the `virtual-accelerator` extra, with both
+# transports and the platform marker its Channel Access half needs
+# ---------------------------------------------------------------------------
+#
+# The placement is the opposite of lume-pyat's above, and deliberately so.
+# lume-pyat has to be core because the VA cannot boot without it on any host;
+# the serving stack can only be installed where pcaspy loads, so it belongs in
+# the extra that already carries that constraint. Both Dockerfiles install
+# `[virtual-accelerator]` rather than naming the package, so this extra is the
+# only place either image can learn the pin — which is what these guards
+# protect.
+
+
+#: The one platform with a loadable Channel Access server wheel, and therefore
+#: the marker both serving entries must carry. Spelled with DOUBLE quotes
+#: because this is compared against ``str(Requirement(...).marker)``, which is
+#: packaging's normalised rendering — pyproject.toml itself writes the same
+#: marker with single quotes, and both parse to this.
+LIVE_CA_MARKER = 'sys_platform == "linux" and platform_machine == "x86_64"'
+
+
+def _load_pyproject() -> dict[str, Any]:
+    return tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
+
+
+def _va_extra(pyproject: dict[str, Any]) -> list[str]:
+    return pyproject["project"]["optional-dependencies"]["virtual-accelerator"]
+
+
+def _requirement(deps: list[str], name: str) -> Requirement | None:
+    """The single requirement in ``deps`` naming ``name``, or None.
+
+    Parsed rather than string-matched: every property asserted below (extras,
+    specifier, marker) lives in a different part of the grammar, and a
+    ``startswith`` check would be satisfied by a line that carries none of
+    them.
+    """
+    matches = [req for dep in deps if (req := Requirement(dep)).name == name]
+    assert len(matches) <= 1, f"{name} declared more than once: {matches}"
+    return matches[0] if matches else None
+
+
+def test_lume_pva_is_pinned_in_the_va_extra(pyproject: dict[str, Any]) -> None:
+    """The extra is what puts the serving stack in both VA images: neither
+    Dockerfile names lume-pva-apg, so an entry that is not here reaches no
+    image at all. Core placement would be worse than absent — the `ca` extra
+    requires pcaspy unconditionally, so a core pin would drag the Channel
+    Access server onto every plain `uv sync`, including the macOS hosts the
+    pcaspy marker beside it exists to keep clear of a source build."""
+    assert _requirement(_va_extra(pyproject), "lume-pva-apg") is not None, (
+        "lume-pva-apg must be pinned in the `virtual-accelerator` extra"
+    )
+    assert _requirement(pyproject["project"]["dependencies"], "lume-pva-apg") is None, (
+        "lume-pva-apg must not be a core dependency — see the docstring"
+    )
+
+
+def test_lume_pva_is_pinned_in_the_va_extra__mutation_drops_the_pin() -> None:
+    """Dropping the entry must fail — otherwise the guard is decorative."""
+    mutated = _load_pyproject()
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        dep for dep in _va_extra(mutated) if Requirement(dep).name != "lume-pva-apg"
+    ]
+    with pytest.raises(AssertionError):
+        test_lume_pva_is_pinned_in_the_va_extra(mutated)
+
+
+def test_lume_pva_is_pinned_in_the_va_extra__mutation_also_declares_it_in_core() -> None:
+    """A core declaration must fail even with the extra entry left intact.
+
+    The extra is deliberately NOT disturbed here. Removing it as well would
+    trip the presence half of the assertion and the mutation would pass for a
+    reason that has nothing to do with placement — leaving the core-exclusion
+    half never exercised. Copying instead of moving is what aims this mutation
+    at the assertion it is named for."""
+    mutated = _load_pyproject()
+    copied = [dep for dep in _va_extra(mutated) if Requirement(dep).name == "lume-pva-apg"]
+    assert copied, "no lume-pva-apg in the extra — mutation is stale"
+    mutated["project"]["dependencies"] = [*mutated["project"]["dependencies"], *copied]
+    with pytest.raises(AssertionError, match="must not be a core dependency"):
+        test_lume_pva_is_pinned_in_the_va_extra(mutated)
+
+
+def test_lume_pva_pin_carries_both_transports(pyproject: dict[str, Any]) -> None:
+    """`serving/runner.py` imports pcaspy, lume_pva_apg AND p4p at module
+    scope, and the base package pulls neither transport — pcaspy arrives only
+    through the `ca` extra and p4p only through `pva`. Either one missing is
+    not a degraded serve, it is an ImportError at runner import, long after a
+    green image build."""
+    req = _requirement(_va_extra(pyproject), "lume-pva-apg")
+    assert req is not None and req.extras == {"ca", "pva"}, (
+        f"lume-pva-apg must carry both the `ca` and `pva` extras; got {req}"
+    )
+
+
+@pytest.mark.parametrize("dropped", ["ca", "pva"])
+def test_lume_pva_pin_carries_both_transports__mutation_drops_one(dropped: str) -> None:
+    """Dropping either transport must fail — a guard that only noticed the
+    loss of both would let the p4p-typed value layer go missing silently."""
+    kept = "pva" if dropped == "ca" else "ca"
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        dep.replace("[ca,pva]", f"[{kept}]") if Requirement(dep).name == "lume-pva-apg" else dep
+        for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the extras spelling moved"
+    )
+    with pytest.raises(AssertionError):
+        test_lume_pva_pin_carries_both_transports(mutated)
+
+
+def test_lume_pva_pin_shares_the_pcaspy_platform_marker(pyproject: dict[str, Any]) -> None:
+    """The two entries must be marked identically or the marker on pcaspy is
+    decorative: `lume-pva-apg[ca]` requires pcaspy with no marker of its own,
+    so an unmarked serving pin re-introduces it on exactly the hosts the
+    pcaspy line excludes — verified, not assumed (resolving
+    `lume-pva-apg[ca,pva]` for macOS at 3.13 selects pcaspy 0.8.1, whose only
+    artifact there is the sdist, i.e. the EPICS source build)."""
+    extra = _va_extra(pyproject)
+    pcaspy = _requirement(extra, "pcaspy")
+    lume_pva = _requirement(extra, "lume-pva-apg")
+    # Anchored absolutely, not only to each other. Parity alone would be
+    # satisfied by two entries edited together to some other platform, which
+    # is the one way this pair can drift and still agree.
+    assert pcaspy is not None and str(pcaspy.marker) == LIVE_CA_MARKER, (
+        f"pcaspy must stay marked {LIVE_CA_MARKER!r} — the one platform with a "
+        f"loadable Channel Access server wheel; got {pcaspy.marker}"
+    )
+    assert lume_pva is not None and str(lume_pva.marker) == str(pcaspy.marker), (
+        f"lume-pva-apg must carry pcaspy's marker ({pcaspy.marker}); got {lume_pva.marker}"
+    )
+
+
+def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_unmarks_it() -> None:
+    """An unmarked serving pin must fail."""
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        dep.split(";", 1)[0].strip() if Requirement(dep).name == "lume-pva-apg" else dep
+        for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the marker is already absent"
+    )
+    with pytest.raises(AssertionError):
+        test_lume_pva_pin_shares_the_pcaspy_platform_marker(mutated)
+
+
+def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_moves_both_to_another_platform() -> (
+    None
+):
+    """Retargeting BOTH entries together must fail.
+
+    This is the mutation the parity check alone could not catch: two markers
+    edited in step still agree with each other, so only the absolute anchor
+    rejects them. Darwin is the pointed choice — it is where pcaspy's wheels
+    exist but do not load, so a plausible edit could land here."""
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'darwin'" for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the markers are already not the pinned pair"
+    )
+    with pytest.raises(AssertionError, match="pcaspy must stay marked"):
+        test_lume_pva_pin_shares_the_pcaspy_platform_marker(mutated)
+
+
+def test_lume_pva_pin_is_exact(pyproject: dict[str, Any]) -> None:
+    """Exact-pinned for the same reason as lume-base and lume-pyat: the runner
+    subclass is written against one contract of a package whose extension
+    seams are not yet a stable API, and a floor would let a resolve pick up a
+    surface it was never written against. The version itself is not asserted —
+    only that a bump is a deliberate edit rather than a resolver's choice."""
+    req = _requirement(_va_extra(pyproject), "lume-pva-apg")
+    assert req is not None
+    assert [spec.operator for spec in req.specifier] == ["=="], (
+        f"lume-pva-apg must be exact-pinned; got {req.specifier}"
+    )
+
+
+def test_lume_pva_pin_is_exact__mutation_relaxes_to_a_floor() -> None:
+    """A `>=` floor must fail."""
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        dep.replace("==", ">=") if Requirement(dep).name == "lume-pva-apg" else dep for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the pin is already not exact"
+    )
+    with pytest.raises(AssertionError):
+        test_lume_pva_pin_is_exact(mutated)
 
 
 # ---------------------------------------------------------------------------

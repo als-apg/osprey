@@ -616,7 +616,7 @@ class SimulationEngine:
                 else:
                     logger.warning(f"Unknown scenario {raw!r} in {state_file}; ignoring")
 
-        resolved = [DEFAULT_SCENARIO] + [n for n in names if n != DEFAULT_SCENARIO]
+        resolved = resolve_active_scenarios(names)
         problems = self.validate_composition(resolved)
         if problems:
             logger.error(

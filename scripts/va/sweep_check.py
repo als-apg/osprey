@@ -21,9 +21,10 @@ Usable two ways:
   sweep function against its own container fixture without duplicating the
   bulk-read logic.
 
-Never imports ``softioc``/``ioc.records`` -- this process (like any of this
+Never imports the CA *server* stack -- this process (like any of this
 suite's CA clients) must stay eligible to act as a pyepics Channel Access
-client (see the poisoning caveat documented in ``tests/va/test_record_factory.py``).
+client (see the poisoning caveat documented in
+``scripts/va/probe_pcaspy/coexistence_check.py``).
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from dataclasses import dataclass, field
 
 
 def all_manifest_addresses() -> list[str]:
-    """Return every address in the namespace-union manifest (softioc-free import)."""
+    """Return every address in the namespace-union manifest (server-free import)."""
     from osprey.services.virtual_accelerator.manifest import build_manifest
 
     return [c["address"] for c in build_manifest()["channels"]]

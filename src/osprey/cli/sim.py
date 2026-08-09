@@ -79,6 +79,30 @@ def _load_project_engine():
     return project_dir, config, engine
 
 
+def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
+    """Tell the user a changed physics fault needs a container recreate.
+
+    Called only when the ``.env``'s physics block actually changed -- in either
+    direction, since a *cleared* fault is still live in the running container
+    until it is recreated.
+
+    Gated on the virtual accelerator being deployed rather than on
+    ``control_system.type``: the reference preset's default shape is mock-type
+    *with* the VA deployed and bridge-driven, and it is the container, not the
+    connector, that consumes these vars at boot. A project that deploys no VA
+    has nothing reading them, so the notice stays silent there.
+    """
+    if "virtual_accelerator" not in (config.get("deployed_services") or []):
+        return
+    if rendered:
+        click.echo("! Physics fault rendered to .env: " + ", ".join(sorted(rendered)) + ".")
+    else:
+        click.echo("! Cleared the previous scenario's physics fault from .env.")
+    click.echo("  The virtual accelerator reads this only at container boot — run")
+    click.echo("  'osprey deploy up' to recreate it. A plain 'docker restart' keeps")
+    click.echo("  the old environment.")
+
+
 # ---------------------------------------------------------------------------
 # Group
 # ---------------------------------------------------------------------------
@@ -144,13 +168,47 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
 
     Active scenarios must touch disjoint channel sets. Seeding purges and
     reseeds the ARIEL logbook so the narrative matches the active telemetry.
+    A scenario's ``physics`` block is rendered into the project ``.env`` for the
+    virtual accelerator to pick up at its next container boot.
     """
-    from osprey.simulation.apply import apply_scenarios
+    from osprey.simulation.apply import (
+        apply_scenarios,
+        compute_scenario_physics_env,
+        resolve_simulation_file,
+        write_scenario_physics_env,
+    )
+    from osprey.simulation.engine import resolve_active_scenarios
 
     now = _parse_now(now_iso) if now_iso else None
     project_dir = Path.cwd()
     config = load_config(str(project_dir / "config.yml"))
     ariel_config = config.get("ariel")
+
+    # Validate pure, write last: every check that can reject the requested set
+    # runs here, ahead of the purge prompt and of the first write, so a
+    # collision or an aborted prompt leaves the project completely untouched.
+    # A project with no simulation file has neither an engine to validate nor
+    # physics to render -- apply_scenarios below raises the canonical
+    # "not simulation-backed" error for it, which the handler turns into exit 1.
+    machine_path, *_ = resolve_simulation_file(config, project_dir)
+    physics: dict[str, str] | None = None
+    if machine_path is not None:
+        from osprey.simulation.engine import SimulationEngine, resolve_state_dir
+
+        engine = SimulationEngine.from_file(
+            machine_path, state_dir=resolve_state_dir(config, project_dir)
+        )
+        # validate_composition RETURNS its problems (unknown names, channel
+        # collisions) rather than raising; an empty list is the only "OK".
+        problems = engine.validate_composition(resolve_active_scenarios(names))
+        if problems:
+            click.echo("Error: cannot activate scenarios: " + "; ".join(problems), err=True)
+            raise SystemExit(1)
+        try:
+            physics = compute_scenario_physics_env(project_dir, list(names))
+        except ValueError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            raise SystemExit(1) from None
 
     if not no_seed and not yes and ariel_config:
         from osprey.services.ariel_search.cli_operations import get_purge_info
@@ -166,6 +224,12 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
                 f"active scenarios."
             )
             click.confirm("Continue?", abort=True)
+
+    # Past the last abort point: write the physics vars, then say so immediately.
+    # Emitting the notice here rather than after apply_scenarios means a failed
+    # logbook seed can never swallow it.
+    if physics is not None and write_scenario_physics_env(project_dir, physics):
+        _echo_physics_notice(config, physics)
 
     try:
         result = apply_scenarios(project_dir, list(names), seed_logbook=not no_seed, now=now)
