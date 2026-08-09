@@ -304,6 +304,10 @@ Next Steps
 You've built a production-shaped control assistant with channel finding, logbook
 search, historical plotting, and operator skills. Where to go next:
 
+- **Run your first scan**: this project can run real measurement scans — ask
+  the agent for a grid scan, review it in the PLAN panel, and start it from
+  the BLUESKY panel, all against the Virtual Accelerator.
+  :doc:`../how-to/bluesky/run-first-scan` walks through it in ten minutes.
 - **Channel finder in depth**: :doc:`../how-to/use-channel-finder` compares the
   hierarchical, in-context, and middle-layer strategies and explains the database
   format.

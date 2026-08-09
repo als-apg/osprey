@@ -64,7 +64,7 @@ puts the exact revision on screen into the scan queue.
 **BLUESKY** (``/bluesky/``) is the queue and the results. Its top half lists
 what the queue server is holding, with **Start queue**, **Stop after current
 item** and **Abort running plan**; its bottom half shows the selected run's
-table and live chart. :doc:`/how-to/run-scan-queue` covers what those controls
+table and live chart. :doc:`/how-to/bluesky/queue` covers what those controls
 do.
 
 .. note::

@@ -174,19 +174,13 @@ Bundled Services & Tutorials
       Run the Control Assistant tutorial against a containerized PyAT soft-IOC that
       serves real EPICS Channel Access with live storage-ring physics.
 
-   .. grid-item-card:: Agent-Assisted Grid Scan Tutorial
-      :link: agent-assisted-grid-scan
+   .. grid-item-card:: Bluesky Scans
+      :link: bluesky/index
       :link-type: doc
 
-      Ask the Osprey agent to compose an n-dimensional grid scan, watch it fill
-      the PLAN panel live, then queue it and watch points land in BLUESKY.
-
-   .. grid-item-card:: Run Scans Through the Queue
-      :link: run-scan-queue
-      :link-type: doc
-
-      How scans execute: the two-step add-then-start flow, what is armed, how
-      to read a refusal, and the difference between stopping and aborting.
+      Run measurement scans through a durable queue — compose with the Osprey
+      agent, review in the PLAN panel, start and stop in BLUESKY, and add
+      scan plans of your own.
 
 .. seealso::
 
@@ -216,6 +210,5 @@ Bundled Services & Tutorials
    use-channel-finder
    ariel/index
    use-virtual-accelerator
-   agent-assisted-grid-scan
-   run-scan-queue
+   bluesky/index
    /cli-reference/index
