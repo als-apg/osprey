@@ -361,9 +361,10 @@ TARGETS: list[VisualTarget] = [
     # Dispatch dashboard has no live dispatcher backend behind it here, so it
     # renders its genuine no-data empty state — a legitimate, stable baseline.
     VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/", modes=MODES),
-    # Scan panels (Phase-6): mounted at /plan, /results by the
-    # sidecar (see ``_PANEL_MOUNTS`` in ``osprey.interfaces.bluesky_panels.app``);
-    # each wait_selector is a static top-level element present in the shell's
+    # Scan panels: mounted at /plan and /bluesky by the sidecar, with
+    # /results kept as a deprecated alias of /bluesky for one release (see
+    # ``_PANEL_MOUNTS`` in ``osprey.interfaces.bluesky_panels.app``); each
+    # wait_selector is a static top-level element present in the shell's
     # initial markup (not injected by JS), so it attaches even though no
     # bridge is running behind this sidecar and every panel's fetch fails.
     VisualTarget(
@@ -374,10 +375,10 @@ TARGETS: list[VisualTarget] = [
         modes=MODES,
     ),
     VisualTarget(
-        "scan_panel_results",
+        "scan_panel_bluesky",
         _bluesky_panels_server,
-        path="/results/",
-        wait_selector="#run-picker",
+        path="/bluesky/",
+        wait_selector="#queue-card",
         modes=MODES,
     ),
 ]

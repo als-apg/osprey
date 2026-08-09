@@ -261,7 +261,7 @@ _KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset(
         # they only entered the fleet-wide scan when the package moved from
         # services/ to interfaces/ (layering fix).
         ("src/osprey/interfaces/bluesky_panels/panels/plan/panel.css", "…"),
-        ("src/osprey/interfaces/bluesky_panels/panels/results/panel.css", "…"),
+        ("src/osprey/interfaces/bluesky_panels/panels/bluesky/panel.css", "…"),
     }
 )
 

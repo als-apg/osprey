@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Pre-paint theme boot FIRST: a plain (non-module) script that resolves and
+  applies data-theme before first paint, so the panel never flashes the
+  wrong theme.
+-->
+<script src="/design-system/js/theme-boot.js"></script>
+<!--
+  Pre-paint UI-mode boot: stamps data-ui-mode (expert|simple) from the host's
+  `?mode=` before first paint, the same zero-dep contract as theme-boot above.
+  Live Expert<->Simple flips arrive as the hub's `osprey-mode-change`
+  postMessage, handled in panel.js.
+-->
+<script src="/design-system/js/mode-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<!-- Self-hosted brand fonts, root-absolute so it resolves against the
+     serving host in every embedding context. -->
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="panel.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bluesky</title>
+<script type="module">
+  // Follower role: this panel is never the theme hub (the web terminal is).
+  // It applies its own `?theme=` query param when the host appends one,
+  // otherwise trusts whatever theme-boot.js already set pre-paint, and
+  // thereafter obeys the hub's broadcasts. applyEmbedded() reads
+  // `?embedded=true` and hides the standalone chrome when framed.
+  import { initTheme } from '/design-system/js/theme-manager.js';
+  import { applyEmbedded } from '/design-system/js/frame-params.js';
+  initTheme({ role: 'follower' });
+  applyEmbedded();
+</script>
+</head>
+<body>
+<div class="panel">
+  <header class="panel-chrome">
+    <h1>Bluesky</h1>
+    <span class="panel-kicker">OSPREY Bluesky Panels</span>
+  </header>
+
+  <p class="lead">
+    What the queue server is holding, and what one run produced. Plans are
+    composed in the PLAN panel; this panel orders them, starts and stops the
+    queue, aborts a plan that has to stop now, and follows the results.
+  </p>
+
+  <!-- ---- Top half: the live queue ---- -->
+
+  <section class="card" id="queue-card">
+    <div class="card-head">
+      <h2>Queue</h2>
+      <span id="queue-state-badge" class="badge warn">connecting&hellip;</span>
+      <span class="card-head-spacer"></span>
+      <button type="button" id="start-btn" class="btn" disabled>Start queue</button>
+      <!-- NEVER add `disabled` here. The halt has no disabled state (see
+           queueControls in queue-client.js), and panel.js sets no `disabled`
+           property on this button, so anything set here would survive every
+           render forever. It must also be live from FIRST PAINT: the window
+           before the first frame arrives is exactly when a queue may already
+           be executing. The class is the resting one — stopButtonClass adds
+           `confirm` only for the armed withdrawal. -->
+      <button type="button" id="stop-btn" class="btn">Stop after current item</button>
+      <!-- The emergency halt. NEVER add `disabled` here either, and for a
+           stronger version of the same reason: this is the only control that
+           stops a plan already moving hardware, and panel.js sets no
+           `disabled` property on it, so an attribute here would be permanent.
+           Live from FIRST PAINT for the same reason. The class is the resting
+           one — abortButtonClass adds `confirm` only on the armed second
+           click (see abortButtonLabel for why this one confirms and the plain
+           stop does not). -->
+      <button type="button" id="abort-btn" class="btn">Abort running plan</button>
+    </div>
+    <p id="queue-note" class="queue-note" hidden></p>
+    <p id="stop-note" class="queue-note stop-note" hidden></p>
+    <p id="abort-note" class="queue-note stop-note" hidden></p>
+    <div id="queue-banner" class="banner" hidden></div>
+
+    <div id="running-card" class="running" hidden>
+      <div class="running-head">
+        <span class="running-kicker">running</span>
+        <button type="button" id="running-select" class="queue-label">
+          <span id="running-name" class="queue-name"></span>
+          <span id="running-params" class="queue-params"></span>
+        </button>
+      </div>
+      <div id="running-progress-bar" class="progress" role="progressbar" aria-valuemin="0"
+           aria-valuemax="100" aria-labelledby="running-progress-label">
+        <div id="running-progress-fill" class="progress-fill"></div>
+      </div>
+      <p id="running-progress-label" class="progress-label"></p>
+    </div>
+
+    <ul id="queue-items" class="queue-items"></ul>
+    <!-- Pre-script text is the UNKNOWN wording, not "Nothing queued." — before
+         the first frame lands the panel has read nothing, and the empty state
+         must never assert contents it has not seen (panel.js replaces this on
+         every render). -->
+    <p id="queue-empty" class="queue-empty">Queue contents unknown &mdash; the manager could not be read.</p>
+  </section>
+
+  <section class="card" id="history-card">
+    <h2>Completed runs</h2>
+    <ul id="history-items" class="queue-items"></ul>
+    <p id="history-empty" class="queue-empty">Completed runs could not be loaded.</p>
+  </section>
+
+  <!-- ---- Bottom half: the selected run's results ---- -->
+
+  <section class="card" id="results-card">
+    <div class="card-head">
+      <h2>Results</h2>
+      <span id="run-status-badge" class="badge info" hidden></span>
+    </div>
+    <p id="run-meta" class="run-meta" hidden></p>
+    <p id="run-note" class="run-note" hidden></p>
+
+    <div id="results-empty" class="empty-state">
+      Select a queued or completed run to see its results.
+    </div>
+
+    <div id="table-card" hidden>
+      <p id="table-note" class="table-note"></p>
+      <div class="table-scroll">
+        <table id="results-table">
+          <thead><tr id="table-head-row"></tr></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="chart-card" hidden>
+      <p class="chart-caption">
+        Each numeric column, min&ndash;max normalized and plotted against row
+        order.
+      </p>
+      <div class="chart-scroll">
+        <svg id="results-chart" viewBox="0 0 640 220" preserveAspectRatio="none" role="img" aria-label="Scan data trace"></svg>
+      </div>
+      <ul id="chart-legend" class="chart-legend"></ul>
+    </div>
+  </section>
+</div>
+<script type="module" src="panel.js"></script>
+</body>
+</html>

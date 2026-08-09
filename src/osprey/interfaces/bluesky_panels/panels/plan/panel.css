@@ -306,6 +306,13 @@ body.embedded .panel-chrome { display: none; }
   border-color: var(--color-error);
   outline: none;
 }
+/* Armed (second click deletes the shared draft): the danger colour is no
+   longer only a hover hint. */
+.draft-discard-btn.confirm {
+  color: var(--color-on-accent);
+  background: var(--color-error);
+  border-color: var(--color-error);
+}
 .draft-affordance {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -891,6 +898,50 @@ select.field-input { cursor: pointer; }
   background: var(--color-accent-secondary-hover);
 }
 
+/* Secondary footer action (Reset): same geometry as .btn, deliberately
+   quieter than the primary Add-to-queue so the consequential action reads
+   first. */
+.btn-quiet {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: var(--border-default);
+}
+.btn-quiet:hover:not(:disabled),
+.btn-quiet:focus-visible:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--neutral-tint-08);
+}
+
+.foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* Launched-run banner: the fact, then the action that switches the workspace
+   to the BLUESKY panel where the queue and the run's rows live. */
+.launch-banner-text { margin-right: 8px; }
+.launch-run-link {
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-success);
+  background: transparent;
+  border: 1px solid var(--color-success);
+  border-radius: 5px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.launch-run-link:hover,
+.launch-run-link:focus-visible {
+  background: var(--success-tint-08);
+}
+
+/* The Discard confirm note: a warn banner, but it sits inside the draft row's
+   flow rather than the footer's, so it carries the row's tighter spacing. */
+#draft-discard-note { margin: 6px 0 0; }
+
 code {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -942,17 +993,23 @@ html[data-ui-mode="simple"] .tabs,
 html[data-ui-mode="simple"] .status-line,
 html[data-ui-mode="simple"] #session-note,
 html[data-ui-mode="simple"] .draft-status,
+html[data-ui-mode="simple"] #draft-discard-note,
 html[data-ui-mode="simple"] #draft-unknown-banner,
 html[data-ui-mode="simple"] .detail-foot .footnote {
   display: none;
 }
 
-/* Promote Launch to a single, prominent, full-width primary action. */
-html[data-ui-mode="simple"] .foot-row {
+/* Promote Add-to-queue to a single, prominent, full-width primary action,
+ * with Reset stacked beneath it as the quiet escape hatch. The capability
+ * banner is NOT hidden here: "this deployment cannot execute plans" is the
+ * plain-language explanation for a disabled button, which Simple needs more
+ * than Expert does, not less. */
+html[data-ui-mode="simple"] .foot-row,
+html[data-ui-mode="simple"] .foot-actions {
   flex-direction: column;
   align-items: stretch;
 }
-html[data-ui-mode="simple"] #launch-btn {
+html[data-ui-mode="simple"] #queue-add-btn {
   width: 100%;
   font-size: 15px;
   padding: 12px 18px;

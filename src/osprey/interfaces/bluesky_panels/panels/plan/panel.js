@@ -2,20 +2,21 @@
 /**
  * Plan panel — a two-pane operator console for the registered scan plans.
  *
- * LEFT (sidebar): a dense, file-browser-style selector. Plans are grouped
- * under collapsible provenance folders and filterable; each row is name-first
- * with trust/validation compressed into a single status dot (full detail in
- * the tooltip and the detail header). The first plan is auto-selected on load
- * so the panel never opens onto an empty pane.
+ * LEFT (sidebar): a dense, file-browser-style selector (plan-browser.js).
+ * Plans are grouped under collapsible provenance folders and filterable; each
+ * row is name-first with trust/validation compressed into a single status dot
+ * (full detail in the tooltip and the detail header). The first plan is
+ * auto-selected on load so the panel never opens onto an empty pane.
  *
  * RIGHT (detail): the selected plan under a two-tab strip —
  *   - Parameters: a 2-D GUI generated from the plan's JSON Schema
  *     (schema-form.js): chip editors for device lists, an editable table for
- *     grid axes, typed inputs for scalars — arranged by a per-plan layout
- *     (PLAN_LAYOUTS) with a live readout (PLAN_SUMMARIES) that recomputes on
- *     every edit, e.g. "2 correctors × 7 points = 14 sweep points".
+ *     grid axes, typed inputs for scalars — arranged by a per-plan layout and
+ *     carrying a per-plan live readout that recomputes on every edit, e.g.
+ *     "2 correctors × 7 points = 14 sweep points" (both from
+ *     plan-presentation.js).
  *   - Source: the plan's source code.
- * plus the deterministic Launch action in the footer.
+ * plus the local Reset and the deterministic Add-to-queue action in the footer.
  *
  * Plans absent from the two registries still render fully — the schema-driven
  * form auto-flows their fields — so facility/session plans need no panel-side
@@ -23,22 +24,44 @@
  *
  * Reached through the web-terminal reverse proxy at `/panel/plan/…`, so every
  * fetch is derived from this panel's own URL prefix and issued prefix-relative
- * — never an absolute `/plans` path (the proxy does not rewrite those).
+ * — never an absolute `/plans` path (the proxy does not rewrite those). The
+ * one exception is the host's own panel-focus API (`panelFocusUrl`), which by
+ * construction lives one level ABOVE this panel's mount.
  *
- * Launching is deterministic: no agent/LLM in this path. The sidecar's sole
- * write route (`POST /runs/launch`) composes the pending-run create + launch
- * server-side; the browser never sees or sends a launch token. `Launch`
+ * Queueing is deterministic: no agent/LLM in this path. The panel POSTs the
+ * sidecar's `/queue/items` relay with a pinned draft revision; the sidecar
+ * attaches the launch token, so the browser never sees or sends one. Adding
  * requires a two-step in-panel confirm and is enabled only when the selected
- * plan's `validated` flag (from the source response) is `true`.
+ * plan's `validated` flag (from the source response) is `true` AND the
+ * bridge's capability record says this deployment can execute plans at all.
  *
- * The whole UI is built with createElement/textContent (see schema-form.js
- * and the local `h` helper) — no innerHTML sink anywhere — so plan-authored
+ * Three actions, three different blast radii — kept visibly distinct because
+ * confusing them is the expensive mistake:
+ *   - Reset (footer) is LOCAL: re-renders this form from schema defaults and
+ *     sends nothing anywhere. It does record that the form now diverges from
+ *     the shared draft, so a later enqueue pushes what is on screen rather
+ *     than pinning a stale revision.
+ *   - Discard (draft row) is SHARED: deletes the draft on the bridge, for
+ *     every panel and for the agent. Two-step confirm, with the consequence
+ *     spelled out.
+ *   - Add to queue is SHARED and consequential: the queued item runs as soon
+ *     as someone starts the queue.
+ *
+ * The whole UI is built with createElement/textContent (via the shared `h`
+ * helper in hyperscript.js) — no innerHTML sink anywhere — so plan-authored
  * strings (names, descriptions, source, enum values) are never interpreted as
  * markup.
  *
  * @module panel
  */
 
+import { h } from './hyperscript.js';
+import {
+  dotClass,
+  groupByProvenance,
+  renderPlanTree as renderPlanTreeInto,
+} from './plan-browser.js';
+import { planLayout, summarizePlanArgs } from './plan-presentation.js';
 import { renderSchemaForm } from './schema-form.js';
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
@@ -47,21 +70,23 @@ import {
   createDraftClient,
   resolvePinnedRevision,
   generateClientId,
-  buildLaunchRequestBody,
-  classifyLaunchResponse,
+  buildQueueAddBody,
+  buildDraftReplaceBody,
+  describeDraftReplaceFailure,
+  classifyQueueAddResponse,
+  queueOutcomeBanner,
+  classifyCapability,
+  capabilityBanner,
+  resetNoticeMessage,
+  DISCARD_CONFIRM_NOTICE,
+  REASON_BRIDGE_UNREACHABLE,
   buildLaunchBanner,
   buildAgentDraftBanner,
-  resultsPanelUrl,
+  panelFocusUrl,
+  BLUESKY_PANEL_ID,
 } from './draft-client.js';
 
-/**
- * @typedef {object} PlanSummary
- * @property {string} name
- * @property {string} [description]
- * @property {import('./schema-form.js').JsonSchemaNode} [schema]
- * @property {unknown} [metadata]
- * @property {string} provenance
- */
+/** @typedef {import('./plan-browser.js').PlanSummary} PlanSummary */
 
 /**
  * @typedef {object} PlanSource
@@ -109,100 +134,6 @@ async function fetchJson(path, init) {
   return { ok: response.ok, status: response.status, body };
 }
 
-/**
- * Tiny hyperscript helper (mirrors schema-form's) so this module builds DOM
- * without any innerHTML. Strings become text nodes.
- *
- * @param {string} tag
- * @param {Record<string, unknown>} [props]
- * @param {...(Node|string|number|null|undefined)} children
- * @returns {HTMLElement}
- */
-function h(tag, props, ...children) {
-  const node = document.createElement(tag);
-  if (props) {
-    for (const [key, value] of Object.entries(props)) {
-      if (value === null || value === undefined || value === false) continue;
-      if (key === 'class') node.className = String(value);
-      else if (key === 'text') node.textContent = String(value);
-      else if (key in node) /** @type {any} */ (node)[key] = value;
-      else node.setAttribute(key, String(value));
-    }
-  }
-  for (const child of children) {
-    if (child === null || child === undefined) continue;
-    node.appendChild(typeof child === 'object' ? child : document.createTextNode(String(child)));
-  }
-  return node;
-}
-
-// Provenance folders, in trust order. Any provenance the bridge reports that
-// isn't listed here falls into a trailing "other" group so nothing is dropped.
-const PROVENANCE_ORDER = ['shipped', 'preset', 'facility', 'session', 'unreviewed'];
-
-/**
- * Per-plan 2-D field placement: rows of side-by-side field names, passed to
- * renderSchemaForm as its layout option. Names not in the plan's schema are
- * ignored; schema fields missing here are auto-flowed after these rows —
- * so this is a presentation hint, never a gate.
- *
- * @type {Record<string, string[][]>}
- */
-const PLAN_LAYOUTS = {
-  orm: [
-    ['correctors', 'detectors'],
-    ['span_a', 'num'],
-    ['sweep'],
-  ],
-  grid_scan: [['axes'], ['detectors', 'snake_axes']],
-};
-
-/**
- * Per-plan live readout, computed from the currently-collected plan_args on
- * every edit. Returns '' when there is nothing meaningful to show yet.
- * Plans without an entry fall back to a generic "N parameters set".
- *
- * @type {Record<string, (args: Record<string, any>) => string>}
- */
-const PLAN_SUMMARIES = {
-  orm(args) {
-    const c = Array.isArray(args.correctors) ? args.correctors.length : 0;
-    const d = Array.isArray(args.detectors) ? args.detectors.length : 0;
-    const n = typeof args.num === 'number' ? args.num : 0;
-    const span = typeof args.span_a === 'number' ? args.span_a : null;
-    /** @type {string[]} */
-    const parts = [];
-    const sweep = typeof args.sweep === 'string' ? args.sweep : null;
-    if (c) parts.push(`${c} corrector${c === 1 ? '' : 's'}`);
-    if (d) parts.push(`${d} BPM${d === 1 ? '' : 's'}`);
-    if (span !== null) {
-      // Monodirectional sweeps [0, +span]; bidirectional the symmetric ±span.
-      parts.push(sweep === 'monodirectional' ? `0…${span} A` : `±${span} A`);
-    }
-    if (c && n) parts.push(`${c} × ${n} = ${c * n} sweep points`);
-    else if (n) parts.push(`${n} points`);
-    return parts.join(' · ');
-  },
-  grid_scan(args) {
-    const axes = Array.isArray(args.axes) ? args.axes : [];
-    const d = Array.isArray(args.detectors) ? args.detectors.length : 0;
-    /** @type {string[]} */
-    const parts = [];
-    if (axes.length) {
-      const nums = axes.map((axis) =>
-        axis && typeof axis.num_points === 'number' ? axis.num_points : 0
-      );
-      parts.push(`${axes.length} ax${axes.length === 1 ? 'is' : 'es'}`);
-      if (nums.every((v) => v > 0)) {
-        const total = nums.reduce((product, v) => product * v, 1);
-        parts.push(`${nums.join(' × ')} = ${total} grid points`);
-      }
-    }
-    if (d) parts.push(`${d} detector${d === 1 ? '' : 's'}`);
-    return parts.join(' · ');
-  },
-};
-
 /** @type {PlanSummary[]} */
 let plans = [];
 /** @type {string|null} */
@@ -213,10 +144,46 @@ let selectedSource = null;
 let collectPlanArgs = null;
 let filterText = '';
 let confirmArmed = false;
-let launching = false;
+let discardArmed = false;
+let queueing = false;
+
+/**
+ * Whether the form may differ from the shared draft in a way no incremental
+ * flush can express — set by Reset, which blanks fields back to schema
+ * defaults WITHOUT marking pending keys (that is what makes Reset local).
+ *
+ * Load-bearing for the enqueue: `flushNow()` would find nothing pending and
+ * pin the PRE-reset revision, so the bridge would enqueue values the operator
+ * can no longer see. While this is set, the enqueue pushes the whole form
+ * instead of pinning a baseline. Cleared once that push lands, on a bind
+ * (which re-applies the draft over the form wholesale), and on plan
+ * selection. Left set on a FAILED push — the divergence is still real.
+ */
+let formResetSincePatch = false;
 /** @type {ReturnType<typeof setTimeout>|null} */
 let draftRejectedTimer = null;
 const DRAFT_REJECTED_NOTE_TIMEOUT_MS = 5000;
+
+/**
+ * Whether this deployment can execute plans, from the bridge's capability
+ * record. Starts as cannot-execute with the unreachable sentinel so the panel
+ * fails CLOSED: Add-to-queue stays disabled until a real `/bridge/health`
+ * answer says otherwise, rather than being briefly live during boot.
+ *
+ * @type {import('./draft-client.js').CapabilityRecord}
+ */
+let capability = {
+  canExecute: false,
+  reason: REASON_BRIDGE_UNREACHABLE,
+  detail: 'Checking whether this deployment can execute plans…',
+};
+
+// The capability record is re-read on a slow interval, not only at boot: the
+// connector/config reasons are settled until a redeploy (which reloads this
+// panel anyway), but `manager_unreachable` clears on its own the moment a
+// restarted queueserver comes back — and an operator staring at a disabled
+// button should not have to reload to find that out.
+const CAPABILITY_REFRESH_MS = 30000;
 
 // ---- element lookups ----
 
@@ -239,8 +206,12 @@ const paramSummaryEl = /** @type {HTMLElement} */ (document.getElementById('para
 const launchOutcomeBannerEl = /** @type {HTMLElement} */ (
   document.getElementById('launch-outcome-banner')
 );
+const capabilityBannerEl = /** @type {HTMLElement} */ (
+  document.getElementById('capability-banner')
+);
 const unvalidatedNoteEl = /** @type {HTMLElement} */ (document.getElementById('unvalidated-note'));
-const launchBtnEl = /** @type {HTMLButtonElement} */ (document.getElementById('launch-btn'));
+const queueAddBtnEl = /** @type {HTMLButtonElement} */ (document.getElementById('queue-add-btn'));
+const resetBtnEl = /** @type {HTMLButtonElement} */ (document.getElementById('reset-btn'));
 const tabParamsEl = /** @type {HTMLButtonElement} */ (document.getElementById('tab-params'));
 const tabSourceEl = /** @type {HTMLButtonElement} */ (document.getElementById('tab-source'));
 const panelParamsEl = /** @type {HTMLElement} */ (document.getElementById('panel-params'));
@@ -252,6 +223,9 @@ const draftIndicatorEl = /** @type {HTMLElement} */ (document.getElementById('dr
 const draftDiscardBtnEl = /** @type {HTMLButtonElement} */ (
   document.getElementById('draft-discard-btn')
 );
+const draftDiscardNoteEl = /** @type {HTMLElement} */ (
+  document.getElementById('draft-discard-note')
+);
 const draftAffordanceEl = /** @type {HTMLButtonElement} */ (
   document.getElementById('draft-affordance')
 );
@@ -259,7 +233,7 @@ const draftAgentNoteEl = /** @type {HTMLElement} */ (document.getElementById('dr
 const draftRejectedBannerEl = /** @type {HTMLElement} */ (
   document.getElementById('draft-rejected-banner')
 );
-// The launched-banner (FR8) has no static markup in index.html — it is a
+// The launched-banner has no static markup in index.html — it is a
 // transient, SSE-driven note, so build it once here and hang it beside the
 // launch-outcome banner (both live in the detail footer). Created via `h`
 // (createElement/textContent) like everything else in this panel.
@@ -281,36 +255,6 @@ const agentDraftBannerEl = h('div', {
 });
 draftAffordanceEl.insertAdjacentElement('afterend', agentDraftBannerEl);
 
-// ---- status presentation ----
-
-/**
- * The status-dot class for a provenance tier. Trust tiers with unconditional
- * bridge-side validation read as OK; session is caution; unreviewed (or any
- * unknown tier) is danger.
- *
- * @param {string} provenance
- * @returns {string}
- */
-function dotClass(provenance) {
-  if (provenance === 'shipped' || provenance === 'preset' || provenance === 'facility') {
-    return 'ok';
-  }
-  if (provenance === 'session') return 'warn';
-  return 'err';
-}
-
-/**
- * Tooltip for a sidebar row: description plus the trust tier, so the row
- * itself stays name-only.
- *
- * @param {PlanSummary} plan
- * @returns {string}
- */
-function rowTooltip(plan) {
-  const desc = plan.description ? `${plan.description} — ` : '';
-  return `${desc}${plan.provenance}`;
-}
-
 // ---- root error ----
 
 /** @param {string} message */
@@ -327,90 +271,21 @@ function clearRootError() {
 // ---- sidebar (plan browser) ----
 
 /**
- * Group the (filtered) plans by provenance, preserving trust order and
- * appending any unknown tiers under "other".
+ * Re-render the sidebar from the current catalog, selection and filter.
  *
- * @param {PlanSummary[]} list
- * @returns {Array<{provenance: string, items: PlanSummary[]}>}
+ * The tree itself lives in plan-browser.js and holds no state — this binds it
+ * to the panel's elements and module-level state, so every caller here stays a
+ * bare `renderPlanTree()`.
  */
-function groupByProvenance(list) {
-  /** @type {Map<string, PlanSummary[]>} */
-  const groups = new Map();
-  for (const plan of list) {
-    const key = PROVENANCE_ORDER.includes(plan.provenance) ? plan.provenance : 'other';
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(plan);
-    else groups.set(key, [plan]);
-  }
-  /** @type {Array<{provenance: string, items: PlanSummary[]}>} */
-  const ordered = [];
-  for (const key of [...PROVENANCE_ORDER, 'other']) {
-    const items = groups.get(key);
-    if (items && items.length) ordered.push({ provenance: key, items });
-  }
-  return ordered;
-}
-
-/**
- * @param {PlanSummary} plan
- * @returns {boolean}
- */
-function matchesFilter(plan) {
-  if (!filterText) return true;
-  const needle = filterText.toLowerCase();
-  return (
-    plan.name.toLowerCase().includes(needle) ||
-    (plan.description || '').toLowerCase().includes(needle)
-  );
-}
-
 function renderPlanTree() {
-  planTreeEl.replaceChildren();
-
-  if (plans.length === 0) {
-    plansEmptyEl.hidden = false;
-    plansFilteredEmptyEl.hidden = true;
-    return;
-  }
-  plansEmptyEl.hidden = true;
-
-  const visible = plans.filter(matchesFilter);
-  if (visible.length === 0) {
-    plansFilteredEmptyEl.hidden = false;
-    return;
-  }
-  plansFilteredEmptyEl.hidden = true;
-
-  for (const group of groupByProvenance(visible)) {
-    const summary = h(
-      'summary',
-      { class: 'folder-summary' },
-      h('span', { class: 'folder-name', text: group.provenance }),
-      h('span', { class: 'folder-count', text: String(group.items.length) })
-    );
-    const folder = h('details', { class: 'folder', open: true }, summary);
-    const items = h('div', { class: 'folder-items', role: 'group' });
-    for (const plan of group.items) {
-      const isSelected = plan.name === selectedName;
-      items.appendChild(
-        h(
-          'button',
-          {
-            type: 'button',
-            class: `plan-row${isSelected ? ' selected' : ''}`,
-            role: 'treeitem',
-            'aria-selected': isSelected ? 'true' : 'false',
-            'data-plan-name': plan.name,
-            title: rowTooltip(plan),
-          },
-          h('span', { class: `dot ${dotClass(plan.provenance)}` }),
-          h('span', { class: 'plan-row-name', text: plan.name })
-        )
-      );
-    }
-    folder.appendChild(items);
-    planTreeEl.appendChild(folder);
-  }
+  renderPlanTreeInto({
+    treeEl: planTreeEl,
+    emptyEl: plansEmptyEl,
+    filteredEmptyEl: plansFilteredEmptyEl,
+    plans,
+    selectedName,
+    filterText,
+  });
 }
 
 // ---- tabs ----
@@ -433,13 +308,7 @@ function updateSummary() {
     paramSummaryEl.hidden = true;
     return;
   }
-  const args = collectPlanArgs();
-  const custom = PLAN_SUMMARIES[selectedName];
-  let text = custom ? custom(args) : '';
-  if (!text) {
-    const count = Object.keys(args).length;
-    text = count > 0 ? `${count} parameter${count === 1 ? '' : 's'} set` : '';
-  }
+  const text = summarizePlanArgs(selectedName, collectPlanArgs());
   paramSummaryEl.textContent = text;
   paramSummaryEl.hidden = !text;
 }
@@ -472,45 +341,115 @@ function renderDetail(plan, source) {
   sessionNoteEl.hidden = source.provenance !== 'session';
   detailSourceEl.textContent = source.source;
 
-  collectPlanArgs = renderSchemaForm(paramFormEl, plan && plan.schema ? plan.schema : undefined, {
-    layout: PLAN_LAYOUTS[source.name],
-  });
+  renderParamForm(plan, source);
 
   // A freshly-selected plan always opens on Parameters — the operator's
-  // primary task — and resets the transient launch gate + banner.
+  // primary task — and resets both transient confirm gates + the banner.
   setActiveTab('params');
-  launchOutcomeBannerEl.hidden = true;
-  launchOutcomeBannerEl.textContent = '';
-  launchOutcomeBannerEl.className = 'banner';
+  clearQueueOutcome();
   confirmArmed = false;
+  discardArmed = false;
+  // A brand-new form for a newly-selected plan is not a reset divergence.
+  formResetSincePatch = false;
+  updateDiscardButton();
   unvalidatedNoteEl.hidden = source.validated;
   updateSummary();
-  updateLaunchButton();
+  updateQueueButton();
 }
 
-function updateLaunchButton() {
+/**
+ * (Re)build the parameter form from the plan's schema and adopt its collector.
+ * Shared by plan selection and the local Reset action — `renderSchemaForm`
+ * dispatches no events of its own (only its `applyValues` does), so a rebuild
+ * marks no pending keys and PATCHes nothing, which is exactly what makes
+ * Reset local.
+ *
+ * @param {PlanSummary|undefined} plan
+ * @param {PlanSource} source
+ */
+function renderParamForm(plan, source) {
+  collectPlanArgs = renderSchemaForm(paramFormEl, plan && plan.schema ? plan.schema : undefined, {
+    layout: planLayout(source.name),
+  });
+}
+
+function updateQueueButton() {
   const validated = Boolean(selectedSource && selectedSource.validated);
-  launchBtnEl.disabled = !validated || launching;
-  if (launching) {
-    launchBtnEl.textContent = 'Launching…';
-    launchBtnEl.classList.remove('confirm');
+  queueAddBtnEl.disabled = !validated || !capability.canExecute || queueing;
+  resetBtnEl.disabled = collectPlanArgs === null;
+  if (queueing) {
+    queueAddBtnEl.textContent = 'Adding…';
+    queueAddBtnEl.classList.remove('confirm');
   } else if (confirmArmed) {
-    launchBtnEl.textContent = 'Confirm launch';
-    launchBtnEl.classList.add('confirm');
+    // The label is derived from the SAME predicate that drives the behavior
+    // (`queueAddReplacesDraft`), never from a separate reading of the state —
+    // so the confirm can never promise one thing while the enqueue does
+    // another, in any binding/reset combination.
+    queueAddBtnEl.textContent = queueAddReplacesDraft()
+      ? 'Confirm — replaces shared draft'
+      : 'Confirm add';
+    queueAddBtnEl.classList.add('confirm');
   } else {
-    launchBtnEl.textContent = 'Launch plan';
-    launchBtnEl.classList.remove('confirm');
+    queueAddBtnEl.textContent = 'Add to queue';
+    queueAddBtnEl.classList.remove('confirm');
   }
+}
+
+function updateDiscardButton() {
+  draftDiscardBtnEl.textContent = discardArmed ? 'Confirm discard' : 'Discard shared draft';
+  draftDiscardBtnEl.classList.toggle('confirm', discardArmed);
+  setNote(draftDiscardNoteEl, discardArmed ? DISCARD_CONFIRM_NOTICE : '');
+}
+
+/**
+ * Show `banner` in `el`, or hide and reset it on `null` — the one place a
+ * `.banner` element's hidden/tone/text are set, shared by the outcome and
+ * capability banners so they cannot drift apart.
+ *
+ * @param {HTMLElement} el
+ * @param {{kind: string, message: string}|null} banner
+ */
+function applyBanner(el, banner) {
+  el.hidden = banner === null;
+  el.className = banner === null ? 'banner' : `banner banner-${banner.kind}`;
+  el.textContent = banner === null ? '' : banner.message;
 }
 
 /**
  * @param {'ok'|'warn'|'err'|'info'} kind
  * @param {string} message
  */
-function showLaunchOutcome(kind, message) {
-  launchOutcomeBannerEl.hidden = false;
-  launchOutcomeBannerEl.className = `banner banner-${kind}`;
-  launchOutcomeBannerEl.textContent = message;
+function showQueueOutcome(kind, message) {
+  applyBanner(launchOutcomeBannerEl, { kind, message });
+}
+
+function clearQueueOutcome() {
+  applyBanner(launchOutcomeBannerEl, null);
+}
+
+// ---- capability (can this deployment execute plans at all?) ----
+
+/**
+ * Re-read `GET /bridge/health` and republish the capability state.
+ *
+ * The two capability invariants are honored here rather than inside
+ * `classifyCapability`'s callers: a throw (sidecar unreachable) is classified
+ * exactly like a non-200, and `status: "ok"` is never consulted — liveness and
+ * executability are independent facts.
+ */
+async function refreshCapability() {
+  try {
+    const { status, body } = await fetchJson('/bridge/health');
+    capability = classifyCapability(status, body);
+  } catch {
+    capability = classifyCapability(0, null);
+  }
+  renderCapability();
+}
+
+function renderCapability() {
+  applyBanner(capabilityBannerEl, capabilityBanner(capability));
+  updateQueueButton();
 }
 
 // ---- data loading ----
@@ -580,7 +519,7 @@ async function selectPlan(name) {
   selectedSource = null;
   collectPlanArgs = null;
   confirmArmed = false;
-  updateLaunchButton();
+  updateQueueButton();
   renderPlanTree();
   try {
     // Ask for the bridge's max source allowance: the default (4000 chars) is
@@ -603,10 +542,10 @@ async function selectPlan(name) {
       paramFormEl.replaceChildren();
       collectPlanArgs = null;
       setActiveTab('params');
-      showLaunchOutcome('err', `could not load plan source (HTTP ${response.status})`);
+      showQueueOutcome('err', `could not load plan source (HTTP ${response.status})`);
       unvalidatedNoteEl.hidden = true;
       updateSummary();
-      updateLaunchButton();
+      updateQueueButton();
       return;
     }
     /** @type {PlanSource} */
@@ -616,90 +555,165 @@ async function selectPlan(name) {
     renderDetail(plan, source);
     // Draft-binding check: only ever a consequence of this explicit
     // selection (or the affordance click below) — never of a frame alone
-    // (PROPOSAL.md "Selection/binding precedence").
+    // (selection/binding precedence).
     await draftClient.onPlanSelected(name);
   } catch {
     selectedSource = null;
     confirmArmed = false;
     detailEmptyEl.hidden = true;
     detailBodyEl.hidden = false;
-    showLaunchOutcome('err', 'could not reach the bluesky panels sidecar');
-    updateLaunchButton();
+    showQueueOutcome('err', 'could not reach the bluesky panels sidecar');
+    updateQueueButton();
   }
 }
 
-// ---- launch flow ----
+// ---- local reset (never touches the shared draft) ----
 
-async function doLaunch() {
+/**
+ * Re-render the parameter form from the plan's schema defaults.
+ *
+ * Deliberately local and silent on the wire: nothing is PATCHed, nothing is
+ * deleted, and the shared draft on the bridge is left exactly as it was.
+ *
+ * That divergence is recorded in `formResetSincePatch`, because a reset marks
+ * no pending keys: without it the next enqueue would flush nothing and pin
+ * the pre-reset revision, running values the operator can no longer see.
+ */
+function resetForm() {
+  if (!selectedSource) return;
+  const source = selectedSource;
+  renderParamForm(
+    plans.find((candidate) => candidate.name === source.name),
+    source
+  );
+  formResetSincePatch = true;
+  updateSummary();
+  updateQueueButton();
+  showQueueOutcome('info', resetNoticeMessage(draftClient.isBound()));
+}
+
+// ---- queue flow ----
+
+/**
+ * Whether adding to the queue will overwrite the shared draft with this
+ * form — the single predicate behind both the confirm label and the enqueue's
+ * own branch, so the two cannot disagree.
+ *
+ * True in exactly two cases. Unbound: the form was never the shared draft, so
+ * it must become it. Bound-after-Reset: Reset blanks fields without marking
+ * pending keys, so a flush would express none of it.
+ *
+ * @returns {boolean}
+ */
+function queueAddReplacesDraft() {
+  return !draftClient.isBound() || formResetSincePatch;
+}
+
+/**
+ * Make the shared draft EQUAL this form, and return the revision that write
+ * minted. See `buildDraftReplaceBody` for why the `remove` list (built from
+ * the draft's current keys) is what makes this a replacement rather than a
+ * merge — a merge would silently enqueue the previous writer's values for
+ * every field the operator had cleared.
+ *
+ * @param {string} planName
+ * @returns {Promise<{revision: number|null}|{error: string}>}
+ */
+async function replaceSharedDraftWithForm(planName) {
+  const planArgs = collectPlanArgs ? collectPlanArgs() : {};
+  const replaced = await fetchJson('/draft', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(
+      buildDraftReplaceBody({
+        planName,
+        planArgs,
+        draftArgKeys: draftClient.getDraftArgKeys(),
+        clientId: draftClientId,
+      })
+    ),
+  });
+  if (!replaced.ok) {
+    // Left diverged on purpose: the push did not land, so the form still
+    // differs from the draft and the next attempt must push again.
+    return { error: describeDraftReplaceFailure(replaced.status, replaced.body) };
+  }
+  formResetSincePatch = false;
+  const revision =
+    replaced.body && typeof replaced.body.revision === 'number' ? replaced.body.revision : null;
+  return { revision };
+}
+
+/**
+ * Resolve the draft revision to enqueue.
+ *
+ * `POST /queue/items` takes a pinned `draft_revision` and NOTHING else — the
+ * enqueued plan_name/plan_args come exclusively from the bridge's own snapshot
+ * at that revision. So whatever is pinned here IS what runs, and the panel's
+ * only job is to guarantee the snapshot matches the screen.
+ *
+ * @param {string} planName
+ * @returns {Promise<{revision: number|null}|{error: string}>}
+ */
+async function resolveRevisionToEnqueue(planName) {
+  if (queueAddReplacesDraft()) return replaceSharedDraftWithForm(planName);
+  // Bound with the form mirroring the draft: flush pending edits, then pin
+  // the revision from that flush's PATCH response — falling back to the
+  // last-applied frame/hello baseline when nothing was pending (the launch
+  // revision gate).
+  const flushResult = await draftClient.flushNow();
+  return { revision: resolvePinnedRevision(flushResult, draftClient.getLastAppliedRevision()) };
+}
+
+async function doQueueAdd() {
   if (!selectedName || !selectedSource || !selectedSource.validated) return;
+  // Local mirror of the bridge's own refusal, so a browse-only deployment
+  // never even asks. The bridge still answers for itself — a capability that
+  // went stale between the last refresh and this click comes back as a
+  // `cannot_execute` refusal below, which republishes the record.
+  if (!capability.canExecute) return;
   // Captured now (a `const`, never reassigned) rather than read again after
   // the `await`s below — `selectedName` is a module-level `let` that another
   // concurrent selection could reassign, and re-reading it would both risk
   // acting on the wrong plan and widen back to `string|null` for tsc.
   const planName = selectedName;
-  launching = true;
-  updateLaunchButton();
+  queueing = true;
+  updateQueueButton();
   try {
-    const bound = draftClient.isBound();
-    /** @type {Record<string, unknown>} */
-    let requestBody;
-    if (bound) {
-      // Flush pending edits first, then pin the revision from that flush's
-      // PATCH response — falling back to the last-applied frame/hello
-      // baseline when nothing was pending (the launch revision gate). The
-      // launched plan_name/plan_args come from the bridge's own
-      // pinned-revision snapshot, never from this request body.
-      const flushResult = await draftClient.flushNow();
-      const pinned = resolvePinnedRevision(flushResult, draftClient.getLastAppliedRevision());
-      requestBody = buildLaunchRequestBody({ bound, pinnedRevision: pinned, planName, planArgs: {} });
-    } else {
-      const planArgs = collectPlanArgs ? collectPlanArgs() : {};
-      requestBody = buildLaunchRequestBody({ bound, pinnedRevision: null, planName, planArgs });
+    const pinned = await resolveRevisionToEnqueue(planName);
+    if ('error' in pinned) {
+      showQueueOutcome('err', `could not stage the draft: ${pinned.error}`);
+      return;
     }
 
-    const { status, body } = await fetchJson('/runs/launch', {
+
+    const { status, body } = await fetchJson('/queue/items', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(buildQueueAddBody({ revision: pinned.revision })),
     });
 
-    const outcome = classifyLaunchResponse(status, body);
-    switch (outcome.type) {
-      case 'writes_not_armed':
-        showLaunchOutcome('info', 'writes not armed on this deployment');
-        break;
-      case 'run_started':
-        showLaunchOutcome('ok', `run started: ${outcome.runId}`);
-        break;
-      case 'stale_draft_revision':
-        // The draft moved on since the pinned snapshot; resync and make the
-        // operator look again before retrying (the launch revision gate
-        // handles the stale-revision 409 by resyncing and asking again).
-        await draftClient.resync();
-        showLaunchOutcome('err', 'the draft changed since you last saw it — refreshed, review and launch again');
-        break;
-      case 'draft_revision_already_launched':
-        // Not a stale draft — this exact revision already ran (a re-click or
-        // a race with the agent). No resync (nothing changed); the operator
-        // must edit the draft to mint a new revision before relaunching.
-        showLaunchOutcome('err', 'this revision was already launched — edit the draft to launch a new run');
-        break;
-      case 'conflict':
-        showLaunchOutcome('err', `conflict: ${outcome.detail}`);
-        break;
-      case 'bridge_unreachable':
-        showLaunchOutcome('err', 'bridge unreachable');
-        break;
-      case 'error':
-        showLaunchOutcome('err', `launch failed: ${outcome.detail}`);
-        break;
+    const outcome = classifyQueueAddResponse(status, body);
+    if (outcome.type === 'stale_draft_revision') {
+      // The draft moved on since the pinned snapshot; resync so the operator
+      // is looking at the current draft before retrying (the launch revision
+      // gate handles the stale-revision 409 by resyncing and asking again).
+      await draftClient.resync();
+    } else if (outcome.type === 'cannot_execute') {
+      // The refusal carries the authoritative capability record; adopt it so
+      // the banner and the disabled button agree with the bridge immediately,
+      // without waiting for the refresh interval.
+      capability = { canExecute: false, reason: outcome.reason, detail: outcome.detail };
+      renderCapability();
     }
+    const banner = queueOutcomeBanner(outcome);
+    showQueueOutcome(banner.kind, banner.message);
   } catch {
-    showLaunchOutcome('err', 'bridge unreachable');
+    showQueueOutcome('err', 'bridge unreachable');
   } finally {
-    launching = false;
+    queueing = false;
     confirmArmed = false;
-    updateLaunchButton();
+    updateQueueButton();
   }
 }
 
@@ -718,18 +732,33 @@ function setNote(el, text) {
 }
 
 // Per-tab id: the frame `origin`/PATCH `client_id` other subscribers use for
-// echo suppression (PROPOSAL.md "Echo loops" risk mitigation).
+// echo suppression, so a panel never re-applies its own edit as a frame.
 const draftClientId = generateClientId();
 
 /**
- * The results-panel deep link for a run, resolved against this panel's own
- * proxy mount prefix (see resultsPanelUrl).
+ * Ask the web terminal to switch the workspace to the BLUESKY panel — where
+ * the queue and the run's live rows are.
  *
- * @param {string} runId
- * @returns {string}
+ * Goes to the HOST's panel-focus API (one level above this panel's own mount,
+ * hence `panelFocusUrl(PREFIX)` rather than `api(...)`), which broadcasts the
+ * `panel_focus` event its panel manager turns into `showPanel`. Targeting the
+ * registered panel id — not a hand-built sibling URL — is what makes this
+ * survive how and where panels are mounted.
+ *
+ * A failure here is cosmetic: the run is queued either way and the panel is
+ * one rail click away, so it degrades to a note rather than an error.
  */
-function launchResultsUrl(runId) {
-  return resultsPanelUrl(PREFIX, runId);
+async function openBlueskyPanel() {
+  try {
+    const response = await fetch(panelFocusUrl(PREFIX), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ panel: BLUESKY_PANEL_ID }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  } catch {
+    showQueueOutcome('info', 'could not switch panels from here — open BLUESKY from the panel rail');
+  }
 }
 
 /** @param {Record<string, unknown>} body */
@@ -783,6 +812,19 @@ const draftClient = createDraftClient({
   deleteDraft,
   onBoundChange(bound) {
     draftIndicatorEl.hidden = !bound;
+    // Binding re-applies the whole draft over the form, so whatever a Reset
+    // had blanked is gone from the screen too — the divergence it recorded
+    // no longer exists.
+    if (bound) formResetSincePatch = false;
+    // Unbinding hides the Discard button; a confirm left armed behind it
+    // would silently re-arm the next time the indicator reappears.
+    if (!bound && discardArmed) {
+      discardArmed = false;
+      updateDiscardButton();
+    }
+    // The confirm label distinguishes bound from unbound (the unbound add
+    // replaces the shared draft), so it has to be recomputed on the flip.
+    updateQueueButton();
   },
   onAffordance(planName) {
     setNote(
@@ -822,7 +864,11 @@ const draftClient = createDraftClient({
       launchBannerEl.replaceChildren();
       return;
     }
-    launchBannerEl.replaceChildren(buildLaunchBanner(document, banner, launchResultsUrl));
+    launchBannerEl.replaceChildren(
+      buildLaunchBanner(document, banner, () => {
+        void openBlueskyPanel();
+      })
+    );
     launchBannerEl.hidden = false;
   },
   onPatchRejected(detail) {
@@ -865,21 +911,37 @@ paramFormEl.addEventListener('input', updateSummary);
 paramFormEl.addEventListener('change', updateSummary);
 paramFormEl.addEventListener('form-change', updateSummary);
 
-launchBtnEl.addEventListener('click', () => {
-  if (launchBtnEl.disabled) return;
+queueAddBtnEl.addEventListener('click', () => {
+  if (queueAddBtnEl.disabled) return;
   if (!confirmArmed) {
     confirmArmed = true;
-    updateLaunchButton();
+    updateQueueButton();
     return;
   }
-  void doLaunch();
+  void doQueueAdd();
+});
+
+resetBtnEl.addEventListener('click', () => {
+  if (resetBtnEl.disabled) return;
+  resetForm();
 });
 
 paramFormEl.addEventListener('submit', (event) => {
   event.preventDefault();
 });
 
+// Two-step, like Add-to-queue: the first click only arms the confirm and
+// spells out that this deletes the SHARED draft (the agent's too), because
+// "Discard" next to a form reads like "clear my form" and the mistake is not
+// undoable.
 draftDiscardBtnEl.addEventListener('click', () => {
+  if (!discardArmed) {
+    discardArmed = true;
+    updateDiscardButton();
+    return;
+  }
+  discardArmed = false;
+  updateDiscardButton();
   void draftClient.onDiscardClick();
 });
 
@@ -890,7 +952,7 @@ draftAffordanceEl.addEventListener('click', () => {
 // Live Expert<->Simple flip broadcast by the hub. mode-boot.js set the initial
 // data-ui-mode pre-paint; this is the runtime flip. Every layout delta is CSS
 // (Simple hides the Source tab, draft chrome, and trust internals, and promotes
-// Launch); the one behavioral concern is that Simple hides the Source tab —
+// Add-to-queue); the one behavioral concern is that Simple hides the Source tab —
 // force the Parameters view so a flip made while Source was active doesn't leave
 // the operator on a now-hidden pane.
 onModeChange((mode) => {
@@ -913,4 +975,13 @@ initSplitter({
   collapsedSize: 0,
 }).restoreSize();
 
+// Publish the fail-closed placeholder before any network call, so the footer
+// explains the disabled button from the first paint rather than after it.
+renderCapability();
+updateDiscardButton();
+
 void loadPlans();
+void refreshCapability();
+setInterval(() => {
+  void refreshCapability();
+}, CAPABILITY_REFRESH_MS);
