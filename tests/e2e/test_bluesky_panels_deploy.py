@@ -538,6 +538,11 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
         assert token not in json.dumps(payload), f"launch token leaked into the sidecar {label}"
 
     # --- compose the draft through the sidecar's draft relay ---------------
+    # Clear the shared draft first: a PATCH that re-states the current content
+    # is a no-op that does NOT bump the revision, so a rerun (or a sibling test
+    # staging the same plan) would pin an already-consumed revision and the
+    # enqueue below would 409 draft_revision_already_launched.
+    _request(BLUESKY_PANELS_URL, "/draft?client_id=panels-deploy-e2e", "DELETE")
     status, patched = _request(
         BLUESKY_PANELS_URL,
         "/draft",
@@ -604,6 +609,10 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
     """
     token = _minted_token(deployed_stack.project_dir)
 
+    # Clear the shared draft first — the sidecar test stages these same args,
+    # and a same-content PATCH is a no-op that keeps the consumed revision
+    # (409 draft_revision_already_launched on the enqueue otherwise).
+    _request(BRIDGE_URL, "/draft?client_id=panels-deploy-e2e-direct", "DELETE")
     status, patched = _request(
         BRIDGE_URL,
         "/draft",
@@ -669,9 +678,13 @@ def test_sidecar_runs_surface_is_read_only(deployed_stack: DeployedStack) -> Non
     status, body = _sidecar_post("/runs/not-a-real-run-id/stop", {})
     assert status == 404, f"expected no POST /runs/{{id}}/stop route, got {status}: {body}"
 
-    # The retired direct-execute route must not be back.
+    # The retired direct-execute route must not be back. The PATH still
+    # matches a registered template — GET /runs/{run_id} binds "launch" as a
+    # run id — so the router answers wrong-verb 405 here, not 404. That 405 is
+    # exactly the proof wanted: the path resolves, and no POST is registered
+    # on it.
     status, body = _sidecar_post("/runs/launch", {"plan_name": "grid_scan", "plan_args": {}})
-    assert status == 404, (
+    assert status == 405, (
         f"POST /runs/launch is retired; execution goes through the queue: {status} {body}"
     )
     status, body = _sidecar_post("/runs/not-a-real-run-id/launch", {})
