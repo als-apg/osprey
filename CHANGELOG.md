@@ -46,6 +46,30 @@ Compatibility is documented in release notes, not encoded in the version string.
   valid with `processing="raw"` (an aggregate has no bin to aggregate
   over); a non-raw `processing` with `bin_size=0`, or a negative
   `bin_size`, is a validation error.
+- Bluesky scans now run in a queue server instead of inside the bridge
+  process. Execution is two steps — add the composed plan to the queue, then
+  start the queue — so a queue can be assembled and reviewed before anything
+  moves. Adding to an idle queue needs no launch token; starting requires one,
+  and with `control_system.writes_enabled` off the agent's `queue_add` and
+  `queue_start` are denied outright. A queue survives a bridge restart, and a
+  deployment that cannot execute plans refuses to hold items rather than
+  accepting work it could never run. New guide: How-To → Run Scans Through
+  the Queue.
+- Emergency abort for a scan already moving hardware: **Abort running plan** in
+  the BLUESKY panel, `stop_run` for the agent, `POST /queue/abort` for
+  integrations. It is ungated on every surface — no launch token, no writes
+  switch — so a halt stays available on a stack with writes disabled. It is
+  distinct from stopping the queue, which lets the running scan finish first.
+  An abort leaves hardware wherever the scan had moved it, and says plainly
+  when it did not manage to stop the plan.
+- An interrupted plan — aborted, halted, or failed — stays in the queue, reports
+  as `stopped` (`error` for a failure) rather than as pending work, and blocks
+  the next queue start until it is removed. Removing it is what unblocks the
+  queue; to run it again, remove it first and then stage and add it afresh.
+- `connector:` is a new top-level build-profile key and the short spelling of
+  `config: {control_system.type: ...}`, so a connector can be chosen from the
+  command line with `--set connector=epics`. Giving both spellings on one
+  command line is an error rather than a silent last-one-wins.
 
 ### Changed
 
@@ -157,6 +181,24 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Ruff moved to 0.16, pinned to one minor in the `dev` extra so the
   pre-commit hook and CI agree on formatting. The formatter skips Markdown,
   leaving documentation snippets as written.
+- The `control-assistant` preset now defaults to the `virtual_accelerator`
+  connector instead of `mock`, so its scans drive the soft-IOC the same stack
+  already deploys and run end to end out of the box. `mock` remains the
+  fallback for environments with no containers to depend on, where scans are
+  browse-only — plans compose and validate, but the queue will not hold them.
+  Switch with `osprey config set-control-system mock`.
+- The Bluesky **RESULTS** panel is now **BLUESKY**, and holds the scan queue as
+  well as the selected run's results. The sidecar serves the same bundle at
+  `/results/` for one more release so existing bookmarks and panel entries keep
+  resolving; move your own `web.panels.results.*` entries to
+  `web.panels.bluesky.*` before then. The preset rename changes its resolved
+  content, so an already-deployed project reports staleness on its next
+  `osprey deploy up`. That is the correct signal rather than noise — the tab a
+  user sees is renamed — and rebuilding picks it up.
+- Unknown keys in a build profile's `bluesky:` block now fail the build, naming
+  the valid keys (`excluded_plans`, `plan_dir`, `port`, `tiled_enabled`,
+  `tiled_port`). They used to be dropped in silence, so a typo — or a key a
+  later release removed — took effect as "unset" with no warning anywhere.
 
 ### Removed
 
@@ -180,6 +222,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   a fixed `np.linspace` grid and forward-filled onto it with a zero-order hold,
   which the "nothing is manufactured" contract forbids, and no production
   caller could reach it — the connector always passed `None`.
+
+- Removed direct execution of Bluesky plans inside the bridge process. `POST
+  /runs`, `POST /runs/{id}/launch`, `POST /draft/run` and `POST
+  /runs/{id}/stop` now answer `410 Gone` with a refusal naming their queue
+  replacement. The queue is the only path to hardware: enqueue with `POST
+  /queue/items`, start with `POST /queue/start`, and halt with `POST
+  /queue/stop` or `POST /queue/abort`.
+
+- Removed the `bluesky.demo_runner` build-profile knob and the in-bridge runner
+  it switched on. A profile that still sets it now fails the build with the
+  list of valid `bluesky:` keys, rather than dropping the key silently.
 
 ### Fixed
 

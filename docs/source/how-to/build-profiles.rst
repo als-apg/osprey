@@ -574,6 +574,15 @@ Profile YAML reference
      - derived
      - Channel-database tier (1 or 3). Defaults from the channel finder mode;
        tier 1 is ``in_context``-only.
+   * - ``connector``
+     - string
+     - *from preset*
+     - Control-system connector (``mock``, ``virtual_accelerator``, ``epics``,
+       …). Shorthand for ``config: {control_system.type: ...}``, so it can be
+       set from the command line as ``--set connector=epics``. Setting both
+       spellings on one command line is an error rather than a silent
+       last-one-wins; a custom connector is still addressed by its dotted
+       module path under ``config``.
    * - ``config``
      - mapping
      - ``{}``

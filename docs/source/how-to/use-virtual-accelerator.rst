@@ -13,6 +13,7 @@ behind the storage-ring lattice channels, so correctors move and BPMs respond.
    - What the Virtual Accelerator is (and is not)
    - The three-state ``control_system.type`` switch
    - Pointing a project at the soft-IOC the stack already deploys
+   - Switching back to the mock, and why scans go browse-only there
    - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
    - Write limits, and the archiver live-vs-history divergence
 
@@ -31,15 +32,15 @@ backends, selected by a single ``control_system.type`` value:
 
    * - ``type``
      - Backend
-   * - ``mock`` *(default)*
+   * - ``mock``
      - The in-process simulation. No container, no network — every channel
-       returns a synthesized value. This is the tutorial's default and needs no
-       setup.
-   * - ``virtual_accelerator``
+       returns a synthesized value. The fallback for environments with no
+       containers to depend on; scans are browse-only there (below).
+   * - ``virtual_accelerator`` *(default)*
      - A containerized PyAT soft-IOC serving real EPICS Channel Access. Storage-
        ring magnet setpoints drive a live lattice and BPM readbacks respond;
        every other channel is composed by the same simulation engine the mock
-       uses. Requires the container (below).
+       uses. The tutorial's default, and deployed as part of its stack.
    * - ``epics``
      - Production EPICS, pointed at the facility gateway. Untouched by this
        guide.
@@ -51,40 +52,60 @@ exactly as it does the mock or a real machine; only the backend changes.
 Quickstart
 ==========
 
-The Control Assistant stack **already deploys** the Virtual Accelerator: the
-preset's ``virtual_accelerator:`` block renders a compose service, so
-``osprey deploy up`` brings the soft-IOC up alongside the rest of the stack.
-What ships pointed at ``mock`` is the *connector*, not the container — so
-switching backends is a config change, not a new deployment.
+The Control Assistant stack ships pointed at the Virtual Accelerator and
+**already deploys** it: the preset's ``virtual_accelerator:`` block renders a
+compose service, so ``osprey deploy up`` brings the soft-IOC up alongside the
+rest of the stack and the connector is already talking to it. There is nothing
+to switch on.
 
 .. code-block:: bash
 
-   # 1. Point the project at the soft-IOC it already deploys
-   osprey config set-control-system virtual_accelerator
-
-   # 2. Re-deploy so the running services pick up the new connector
-   osprey deploy up
-
-   # 3. Run the assistant as usual — the agent now talks to real Channel Access
-   osprey web
+   osprey deploy up   # brings up the soft-IOC with the rest of the stack
+   osprey web         # the agent talks to real Channel Access
 
 The very first ``osprey deploy up`` that includes the Virtual Accelerator
 builds its container image from source (compiling PyAT and the soft-IOC), so
 expect it to take several minutes — it is building, not hanging. Later deploys
 reuse the image.
 
-Switch back to the mock at any time with
-``osprey config set-control-system mock``. The ``epics`` block keeps its
-production values throughout.
+If your project was built from an older preset (or a profile that sets it),
+point it at the soft-IOC explicitly:
+
+.. code-block:: bash
+
+   osprey config set-control-system virtual_accelerator
+   osprey deploy up
 
 .. note::
 
-   Step 2 is what makes the switch take effect for **deployed services**.
-   ``set-control-system`` edits the project's ``config.yml``, but services do
-   not read that file directly — each gets a copy staged into its own directory
-   at deploy time. A purely local ``osprey web`` run picks the change up
-   immediately; anything already running in a container does not, until you
-   re-deploy. No image rebuild is involved either way.
+   The second command is what makes a switch take effect for **deployed
+   services**. ``set-control-system`` edits the project's ``config.yml``, but
+   services do not read that file directly — each gets a copy staged into its
+   own directory at deploy time. A purely local ``osprey web`` run picks the
+   change up immediately; anything already running in a container does not,
+   until you re-deploy. No image rebuild is involved either way.
+
+Switching back to the mock
+==========================
+
+An environment with no containers to depend on can run the tutorial on the
+in-process simulation instead:
+
+.. code-block:: bash
+
+   osprey config set-control-system mock
+   osprey deploy up
+
+Read one consequence before you do: **scans become browse-only.** The mock
+does not settle-wait a corrector's readback against its setpoint, which every
+scan plan needs between grid points, so a scan started there would never
+complete. Rather than let one start and hang, the stack refuses earlier — plans
+can still be listed, authored, validated and staged into the shared draft, but
+the queue will not hold them, and both the panels and the agent report a
+browse-only deployment with the exact command that flips it back. Everything
+that is not a scan — channel reads and writes, the archiver, the Channel
+Finder — works as before. The ``epics`` block keeps its production values
+throughout.
 
 Connecting to the IOC
 =====================
