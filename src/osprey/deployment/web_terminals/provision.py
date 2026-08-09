@@ -40,6 +40,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AuthSecretsResult,
     ensure_auth_credentials,
     ensure_auth_session_secrets,
+    raise_if_env_auth_would_be_interpolated,
 )
 from osprey.deployment.web_terminals.env_production import ensure_env_production
 from osprey.deployment.web_terminals.persona_images import (
@@ -213,6 +214,13 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> bool:
         credentials = ensure_auth_credentials(usernames, project_root)
     session_secrets = ensure_auth_session_secrets(project_root)
     _raise_if_auth_provisioning_incomplete(auth_method, credentials, session_secrets)
+    # After the mint rather than before it, uniquely on this path: on a fresh
+    # root .env.auth does not exist until ensure_auth_session_secrets creates
+    # it, so there would be nothing to scan. Safe here because the mint is
+    # idempotent and appends only `$`-free values — a refusal leaves the file
+    # exactly as a re-run would rebuild it, unlike the credential-removing
+    # verbs (see the function's own docstring for why they scan up front).
+    raise_if_env_auth_would_be_interpolated(project_root)
     return bool(credentials and credentials.changed) or session_secrets.changed
 
 
@@ -574,6 +582,14 @@ def force_recreate_auth_sidecar(
             AUTH_ENV_FILENAME,
         )
         return
+    # Deliberately NOT scanned here, though this is the one line every path
+    # that re-bakes .env.auth passes through. A recreate is always the step
+    # that puts an ALREADY-APPLIED file change into force, so refusing at this
+    # point would leave the file and the running sidecar disagreeing — for
+    # `decommission`/`prune`, the file would say a departed user is gone while
+    # the sidecar still accepts their password, which is the precise divergence
+    # those verbs exist to close. The scan runs ahead of each mutation instead;
+    # see auth_credentials.raise_if_env_auth_would_be_interpolated.
     _force_recreate_services(
         web_stack_compose_cmd(config, env_file_args),
         runtime_env(config, env if env is not None else dict(os.environ)),

@@ -54,6 +54,36 @@ def parse_dotenv_text(text: str) -> dict[str, str]:
     return env
 
 
+def compose_unsafe_vars(values: Mapping[str, str]) -> list[str]:
+    """Names of vars whose value a compose ``env_file:`` would not deliver intact.
+
+    Compose interpolates the *values* it reads from an ``env_file:``, not just
+    the compose document. A ``$`` followed by an identifier character is
+    replaced with the named variable's value — the empty string when that name
+    is unset — so the container receives a truncated secret while the file on
+    disk stays byte-perfect. Two forms carry no warning whatsoever: ``$$``
+    collapses to a single ``$``, and a ``$`` followed by a name that *is* set on
+    the deploy host splices the host's value into the secret.
+
+    The test is "contains ``$``", not "contains an interpolating ``$``".
+    ``trailing$`` and ``$1`` survive Docker Compose, but podman-compose is the
+    documented default for facility deploys and is not guaranteed to agree, and
+    escaping cannot bridge the two: writing ``$$`` yields ``$`` under a runtime
+    that interpolates and a literal ``$$`` under one that does not, so no single
+    file is correct for both. Refusing ``$`` outright is the only
+    runtime-independent rule — and the one the codebase already designs to
+    (``auth_sidecar.passwords.FIELD_SEP``, the minted alphabets in
+    :mod:`osprey.deployment.service_tokens`).
+
+    Returns variable *names*, sorted — deliberately never the values, so that no
+    caller can accidentally render a secret into an error message or a log line.
+
+    :param values: Parsed ``KEY=VALUE`` pairs bound for a compose ``env_file:``.
+    :return: Sorted names of the offending variables; empty when all are safe.
+    """
+    return sorted(name for name, value in values.items() if "$" in value)
+
+
 def dotenv_line_var(line: str) -> str | None:
     """The variable a raw ``.env`` line assigns, or ``None`` for a non-assignment.
 

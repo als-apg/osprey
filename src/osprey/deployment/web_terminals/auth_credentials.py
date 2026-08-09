@@ -39,6 +39,7 @@ from pathlib import Path
 # The service-token recipes are imported rather than restated so the signing
 # secrets below are minted and validated exactly like every other deploy-time
 # secret, and pick up any constraint registered for them later.
+from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.service_tokens import (
     _generate_token,
     _raise_invalid_var,
@@ -55,7 +56,7 @@ from osprey.deployment.web_terminals.personas import (
     env_var_suffix_collisions,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey.utils.dotenv import dotenv_line_var, parse_dotenv_file
+from osprey.utils.dotenv import compose_unsafe_vars, dotenv_line_var, parse_dotenv_file
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -206,6 +207,43 @@ def _normalize_mode(env_auth_path: Path) -> None:
             env_auth_path,
             exc,
         )
+
+
+def raise_if_env_auth_would_be_interpolated(project_root: str | Path) -> None:
+    """Refuse to act on a ``.env.auth`` holding a ``$``-bearing value.
+
+    Scans the file *as it exists on disk*, which is the whole point. Everything
+    this module writes is ``$``-free by construction — base64url hashes joined
+    by :data:`~osprey.services.auth_sidecar.passwords.FIELD_SEP`,
+    ``token_urlsafe`` signing secrets — and a unit test already pins that. The
+    value this catches is the one OSPREY never writes: the OIDC client secret,
+    which the compose template references by *name* only and the operator
+    appends by hand, minted by an IdP whose alphabet routinely includes
+    punctuation. There is no write boundary to hook, and the generator-side test
+    cannot see it because that test calls the generators. Reading the finished
+    file is the only place both the minted and the hand-added lines are visible
+    at once.
+
+    Note the sidecar's own startup check tests the client secret for
+    *emptiness*. A fully-eaten secret trips it; a partially truncated one is
+    non-empty, clears startup, and fails later against the IdP with an opaque
+    token-endpoint rejection. This scan is what closes that gap.
+
+    CALL THIS BEFORE MUTATING ``.env.auth``, never between a mutation and the
+    sidecar recreate that puts it into force. ``decommission``/``prune`` remove
+    a departed user's hash and then recreate; a refusal wedged in between would
+    leave the file saying the user is gone while the running sidecar still
+    accepts their password — the exact divergence those verbs exist to prevent,
+    traded for an unrelated secret. Refusing *before* any mutation costs
+    nothing, and a corrupt value left in place is still caught by the next
+    ``osprey deploy up``.
+    """
+    env_auth = Path(project_root) / AUTH_ENV_FILENAME
+    if not env_auth.is_file():
+        return
+    offenders = compose_unsafe_vars(parse_dotenv_file(env_auth))
+    if offenders:
+        raise ComposeInterpolationError(offenders, env_auth)
 
 
 def ensure_auth_credentials(
@@ -462,7 +500,7 @@ def ensure_auth_session_secrets(project_root: str | Path) -> AuthSecretsResult:
             continue
         effective = post.get(var, "")
         if effective and not _validate_var(var, effective):
-            _raise_invalid_var(var)
+            _raise_invalid_var(var, effective)
 
     return AuthSecretsResult(
         env_auth_path=env_auth_path,

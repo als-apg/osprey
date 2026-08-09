@@ -162,13 +162,18 @@ def _validate_openobserve_password(value: str) -> bool:
 # at the deploy boundary (see ``_ensure_service_tokens``), regardless of
 # whether that value was freshly minted, carried over from an existing
 # ``.env``, supplied by the operator, or overridden in the process
-# environment. A var absent from this map has no registered constraint and
-# ``_validate_var`` returns True for it — deliberately fail-open. Opting a var
-# *into* a format constraint is additive hardening (it turns a downstream
+# environment. A var absent from this map has no registered *format* constraint
+# and ``_validate_var`` returns True for it — deliberately fail-open. Opting a
+# var *into* a format constraint is additive hardening (it turns a downstream
 # crash-loop into a clear deploy-time error), not a prerequisite the deploy
 # must clear, so withholding it by default must not block an otherwise-working
 # deploy. Adding an entry here is opt-in per var, exactly like
 # ``_VAR_GENERATORS``.
+#
+# The one rule this fail-open posture does NOT cover is ``$``, which
+# ``_validate_var`` applies to every var ahead of this map: a ``$`` is
+# corrupted by how compose loads the file, not by what any one service
+# accepts, so it cannot be a per-var opt-in. See ``_validate_var``.
 _VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
     # Tiled rejects a non-alphanumeric --api-key at startup (see
     # _VAR_GENERATORS above); reject it here too so an *operator-supplied*
@@ -224,21 +229,49 @@ def _effective_value(var: str, dotenv: dict[str, str]) -> str:
 
 
 def _validate_var(var: str, value: str) -> bool:
-    """Check ``value`` against ``var``'s registered constraint, if any.
+    """Check ``value`` against the universal ``$`` rule, then ``var``'s own.
 
-    Returns True (pass) for any var with no registered validator in
-    ``_VAR_VALIDATORS`` — see that dict's docstring for the fail-open
-    rationale.
+    Two layers, and the order matters. Every var here ends up in the project
+    ``.env``, which the dispatch worker receives *in its entirety* via
+    ``env_file: ../../.env`` — so a ``$`` in any of them is truncated on the way
+    into the container regardless of which var it is. That check is therefore
+    universal and runs first, ahead of the per-var lookup.
+
+    Per-*format* constraints stay opt-in and fail-open, as ``_VAR_VALIDATORS``
+    documents: a var absent from that dict still passes. Only the ``$`` rule is
+    unconditional, because it is a property of how compose loads the file rather
+    than of what any one service accepts. The three registered validators that
+    reason about character safety — ``_validate_ariel_dsn`` and the
+    ``ARIEL_DB_PASSWORD`` lambda, which reject the URI-reserved ``@:/?#``, and
+    ``_validate_openobserve_password``, whose "at least one special character"
+    requirement a ``$`` actively *satisfied* — all admitted ``$`` on their own.
+    Layering it here fixes those three and every var added later in one place.
     """
+    if "$" in value:
+        return False
     validator = _VAR_VALIDATORS.get(var)
     if validator is None:
         return True
     return validator(value)
 
 
-def _raise_invalid_var(var: str) -> None:
-    """Raise the standard "invalid var" RuntimeError, never the value."""
-    constraint = _VAR_VALIDATOR_DESCRIPTIONS.get(
-        var, "does not satisfy its registered format constraint"
-    )
+def _raise_invalid_var(var: str, value: str = "") -> None:
+    """Raise the standard "invalid var" RuntimeError, never the value.
+
+    ``value`` is inspected only to pick the right explanation — a ``$`` failure
+    and a format failure are different problems with different fixes, and the
+    generic "does not satisfy its registered format constraint" text sends an
+    operator hunting through a validator that is not the one that rejected them.
+    It is never rendered into the message.
+    """
+    if "$" in value:
+        constraint = (
+            "must not contain '$' — compose interpolates env_file values, so the "
+            "container would receive a truncated secret while .env still reads "
+            "correctly ('$' cannot be escaped portably here)"
+        )
+    else:
+        constraint = _VAR_VALIDATOR_DESCRIPTIONS.get(
+            var, "does not satisfy its registered format constraint"
+        )
     raise RuntimeError(f"{var} is invalid: {constraint}. Refusing to deploy. (Value not shown.)")

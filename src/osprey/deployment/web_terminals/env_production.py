@@ -11,8 +11,9 @@ from pathlib import Path
 
 import yaml
 
+from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.web_terminals.personas import effective_image_source
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey.utils.dotenv import compose_unsafe_vars, parse_dotenv_file
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -283,6 +284,17 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     env_production_path = root / ".env.production"
     if env_production_path.is_file():
         _warn_if_env_production_lacks_credentials(config, root, env_production_path)
+        # Scan the file we are about to hand to every web terminal, not just
+        # one this run generated. Registry mode -- the DEFAULT -- never reaches
+        # the generator below at all: CI assembles .env.production from masked
+        # variables and ships it beside the image. An operator-authored file
+        # takes the same path, since an existing one is never regenerated. Both
+        # carry values OSPREY never saw, which is exactly the case the
+        # generate-path check cannot cover (same reasoning as
+        # provision._raise_if_auth_env_would_be_interpolated).
+        offenders = compose_unsafe_vars(parse_dotenv_file(env_production_path))
+        if offenders:
+            raise ComposeInterpolationError(offenders, env_production_path)
         return env_production_path
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
@@ -369,6 +381,17 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
         )
 
     subset = _build_env_production_subset(config, dotenv, {**required_cc_vars, **extra_cc_vars})
+
+    # Every value above is a verbatim copy out of the operator's .env (or, for
+    # ARIEL_DSN, straight out of facility config), and this file is handed to
+    # every per-user web terminal as `env_file: .env.production`. A `$` in any
+    # of them is interpolated away en route to the container. Checked before the
+    # open() below, not after: a refused deploy must not leave a half-written
+    # secrets file that a later run would mistake for one the operator authored
+    # (an existing .env.production is never regenerated).
+    offenders = compose_unsafe_vars(subset)
+    if offenders:
+        raise ComposeInterpolationError(offenders, env_production_path)
 
     lines = "".join(f"{key}={value}\n" for key, value in subset.items())
     # Create with mode 0600 from the FIRST byte on disk, not write-then-chmod:
