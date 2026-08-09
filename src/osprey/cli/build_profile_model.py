@@ -492,11 +492,28 @@ class BuildProfile:
             # url-less here — accept it rather than aborting the build.
             if panel == "events" and self.dispatch is not None:
                 continue
-            # The three panel ids' URLs are likewise derived post-build
+            # The bluesky-panel ids' URLs are likewise derived post-build
             # (``_inject_bluesky_panels`` in build_cmd.py, which runs after this
             # validator) from the bluesky_panels sidecar's port — so they are
             # legitimately url-less here when a bluesky_panels block is present.
-            if panel in ("plan", "results", "health") and self.bluesky_panels is not None:
+            # ``results`` is the pre-rename spelling of ``bluesky``, accepted
+            # for one release rather than failing the build of a profile that
+            # predates the rename; the sidecar serves the same bundle at both
+            # /results/ and /bluesky/ for exactly that window.
+            if (
+                panel in ("plan", "bluesky", "results", "health")
+                and self.bluesky_panels is not None
+            ):
+                if panel == "results":
+                    warnings.warn(
+                        "web_panels entry 'results' is deprecated: the RESULTS panel is now "
+                        "BLUESKY. Rename it to 'bluesky' (and any web.panels.results.* config "
+                        "override to web.panels.bluesky.*). The old id keeps working for ONE "
+                        "release — the bluesky-panels sidecar serves the same bundle at "
+                        "/results/ — and is removed after that.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
                 continue
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
