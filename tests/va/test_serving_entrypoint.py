@@ -467,7 +467,7 @@ class TestBootOrder:
         state_dir = tmp_path / "va-state"
         state_dir.mkdir()
         boot = _boot(monkeypatch, facility, env={"VA_STATE_DIR": str(state_dir)})
-        source = boot.engine_source()
+        source = boot.engine_source
         assert source.state_dir == state_dir
         source.engine.set_active_scenarios([])
         assert (state_dir / "active_scenarios").is_file()
@@ -478,7 +478,7 @@ class TestBootOrder:
         """The documented fallback: no ``VA_STATE_DIR`` means the data dir is
         also the state dir, which is what every pre-relocation deploy shipped."""
         boot = _boot(monkeypatch, facility)
-        source = boot.engine_source()
+        source = boot.engine_source
         assert source.state_dir == facility
 
     def test_logging_is_configured_first(
