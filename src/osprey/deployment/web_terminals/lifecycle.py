@@ -77,6 +77,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     PW_PLAINTEXT_VAR_PREFIX,
     purge_auth_credentials,
+    raise_if_env_auth_would_be_interpolated,
     set_auth_password,
 )
 from osprey.deployment.web_terminals.naming import web_container_name, web_container_prefix
@@ -826,6 +827,14 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
     # against CWD (see the module's CWD CONTRACT), and the two must agree or a
     # caller off the project root would store the hash in one place and
     # recreate against another.
+    # BEFORE the write, not after: a rotation that stores the new hash and is
+    # then refused would leave the operator holding a password the sidecar has
+    # not been given. An operator who has just pasted an IdP client secret into
+    # `.env.auth` and reaches for `passwd` is the likeliest way a `$`-bearing
+    # value meets a deploy verb, so this is where catching it is worth the
+    # check — the removal verbs deliberately do not, see the function docstring.
+    raise_if_env_auth_would_be_interpolated(Path.cwd())
+
     set_auth_password(user, password, Path.cwd())
 
     # The shared primitive, imported rather than re-implemented: provision.py

@@ -15,6 +15,7 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
+from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.host_ports import (
     find_port_conflicts,
@@ -48,6 +49,7 @@ from osprey.utils.config import ConfigBuilder
 from osprey.utils.dotenv import (
     append_profile_env,
     atomic_write,
+    compose_unsafe_vars,
     derive_project_env,
     parse_dotenv_file,
 )
@@ -370,6 +372,37 @@ def _ensure_service_tokens(
     if env_path is None:
         env_path = Path(".env")
 
+    # Scan the WHOLE file, ahead of everything else, because compose mangles a
+    # `$` on BOTH routes out of this file and every deploy uses both:
+    #
+    #   * `--env-file .env` (see _env_file_args) makes it the substitution
+    #     source for the compose DOCUMENT, so every `environment: - X=${X}`
+    #     entry — how most services here receive their secrets — resolves
+    #     through it;
+    #   * the dispatch worker additionally gets the file entire, via
+    #     `env_file: ../../.env` in its compose template.
+    #
+    # Measured on compose v2.34: `h0rse$battery` substitutes to `h0rse`, and
+    # `secret$HOME` to the deploy host's home path with NO warning at all.
+    # So the check cannot be per-var — _validate_var below only ever sees the
+    # deployed services' _SERVICE_TOKEN_VARS plus _VALIDATE_ONLY_VARS, while
+    # the provider API key, the olog password and the wiki-search token all
+    # travel in this file and are in neither set.
+    #
+    # Before the mint, deliberately. Scanning after would leave freshly minted
+    # tokens appended to .env while the raise skips _sync_secrets_to_profile,
+    # so the next `osprey build` re-derives .env from the profile, drops them,
+    # and mints a second set. Nothing is lost by checking early: every minted
+    # value is `$`-free by construction (see the alphabets in service_tokens),
+    # which the generator self-rejection test pins.
+    #
+    # The file — not the effective value — is what matters: compose reads it
+    # off disk, so a process-env override never reaches a container this way.
+    if env_path.is_file():
+        offenders = compose_unsafe_vars(parse_dotenv_file(env_path))
+        if offenders:
+            raise ComposeInterpolationError(offenders, env_path)
+
     if required_vars:
         existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
 
@@ -409,7 +442,7 @@ def _ensure_service_tokens(
                 f"empty token. Set {name} in .env to a strong secret."
             )
         if effective and not _validate_var(name, effective):
-            _raise_invalid_var(name)
+            _raise_invalid_var(name, effective)
 
     # Validate-only vars (ARIEL_DSN): checked when present in the same
     # effective-value sense as required_vars above, but never minted when
@@ -420,7 +453,7 @@ def _ensure_service_tokens(
         if not effective:
             continue  # absent — never fabricated, never minted
         if not _validate_var(name, effective):
-            _raise_invalid_var(name)
+            _raise_invalid_var(name, effective)
 
     # Persist the *effective* secrets — not just the ones minted a moment ago —
     # into the profile that owns them, so a rebuild reproduces this stack

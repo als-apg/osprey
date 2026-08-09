@@ -183,6 +183,18 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A secret containing `$` no longer reaches a container truncated. Compose
+  substitutes `$` sequences inside env-file values, so `secret$abc` arrived as
+  `secret` and `P@$$w0rd` as `P@$w0rd` — while the file on disk still read
+  correctly, leaving a login that refused for no visible reason. `osprey
+  deploy` now refuses such a stack and names the offending variables (never
+  their values). All three files a deploy reads secrets from are checked —
+  `.env`, `.env.production` and `.env.auth` — including ones OSPREY did not
+  write itself, so a CI-built `.env.production` and a hand-added OIDC client
+  secret are covered. `deploy passwd` checks before storing a new password.
+- The OIDC section of the multi-user guide named `.env` as the file to put
+  client credentials in. It is `.env.auth` — credentials placed as documented
+  never reached the login service.
 - The settings drawer's `CLAUDE.md` section now has a help tooltip. Its help
   text was filed under a category name no gallery ever displays, so the button
   silently never rendered — on the one artifact that matters most.
