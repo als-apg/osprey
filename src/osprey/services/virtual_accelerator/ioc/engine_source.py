@@ -1,6 +1,6 @@
 """Drives partition (c) ("static/noisy") IOC records from the in-image
-SimulationEngine, and detects scenario switches on the bind-mounted
-``data/simulation/`` directory.
+SimulationEngine, and detects scenario switches on the bind-mounted scenario
+state directory.
 
 Partition (c) is everything the record factory (``serving.pvdb``) builds as a
 plain read-only record with no wired write behavior -- GOLDEN references,
@@ -64,9 +64,14 @@ class EngineSource:
             record shim. This instance drives exactly these records; addresses in
             ``channels`` that aren't also keys here are ignored.
         data_dir: The bind-mounted ``data/simulation/`` directory (the mount
-            unit). ``active_scenarios`` is read from directly under it, fresh
+            unit holding ``machine.json``).
+        state_dir: Directory holding the ``active_scenarios`` file, read fresh
             on every poll tick -- never through a cached file handle, so a
-            directory-level atomic-rename swap is always observed.
+            directory-level atomic-rename swap is always observed. Defaults to
+            ``data_dir`` (the historical layout). The VA entrypoint points it
+            at the separately mounted ``_agent_data/simulation/`` the host
+            writes, and passes the SAME directory to the engine, so the two
+            never disagree about which scenarios are active.
         noise_level: Relative noise fraction for the legacy-fallback
             synthesis path (mirrors ``MockConnector``'s own default).
         setpoint_echo_records: Optional ``address -> record`` map of sp-echo
@@ -89,6 +94,7 @@ class EngineSource:
         static_noisy_records: dict[str, Any],
         data_dir: Path,
         *,
+        state_dir: Path | None = None,
         noise_level: float = DEFAULT_NOISE_LEVEL,
         setpoint_echo_records: dict[str, Any] | None = None,
     ) -> None:
@@ -110,7 +116,9 @@ class EngineSource:
             if c["partition"] == PARTITION_STATIC_NOISY and c["address"] in self._records
         }
 
-        self._state_path = Path(data_dir) / ACTIVE_SCENARIOS_FILENAME
+        self._state_path = Path(state_dir if state_dir is not None else data_dir) / (
+            ACTIVE_SCENARIOS_FILENAME
+        )
         self._last_signature: _Signature | None = None
 
     def poll_once(self) -> bool:

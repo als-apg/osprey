@@ -62,6 +62,56 @@ def _initialize_registry(verbose: bool = False):
         initialize_registry(silent=True)
 
 
+# Where a generated channel database lands inside a data tree. The build copies
+# the profile's data tree onto the project's ``data/``, so one relative path
+# names the file in both places — writing it into the profile is enough for the
+# next build to deploy it.
+_GENERATED_DB_RELPATH = ("processed", "channel_database.json")
+
+
+def _profile_data_root(project_dir):
+    """The data tree of the profile a project was built from, if one resolves.
+
+    Resolves the profile the way the build does — ``extends`` chain followed,
+    persona delta merged over its root, everything anchored at the profile root
+    — rather than reading the one YAML file the manifest names. A generated
+    database has to land where the *build* will read it from, and a raw read
+    sees neither an inherited ``data:`` nor the root a delta belongs to.
+
+    Args:
+        project_dir: Project root whose manifest names the profile.
+
+    Returns:
+        The profile's data tree, or ``None`` when the project names no profile
+        (preset-built, legacy or absent manifest), the profile file is gone, it
+        cannot be read, or the resolved profile declares no ``data:`` tree at
+        all — every one of which is a normal state the caller falls back from
+        rather than an error to raise. Never a guessed ``<root>/data``: a
+        directory the build does not read is worse than an honest fallback,
+        because the caller would announce it as deployable.
+    """
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import resolve_profile_document
+    from osprey.cli.build_profile_model import BuildProfile
+    from osprey.cli.templates.manifest import manifest_profile_path
+    from osprey.errors import BuildProfileError
+
+    profile_file = manifest_profile_path(project_dir)
+    if profile_file is None or not profile_file.is_file():
+        return None
+
+    try:
+        raw = _read_profile_document(profile_file)
+        if not isinstance(raw, dict):
+            return None
+        document = resolve_profile_document(raw, profile_file)
+    except (BuildProfileError, OSError):
+        return None
+
+    declared = document.raw.get("data")
+    return BuildProfile(name="", data=declared).resolved_data_root(document.root_dir)
+
+
 @click.group("channel-finder")
 @click.option(
     "--project",
@@ -100,8 +150,11 @@ def channel_finder(ctx, project: str | None, verbose: bool):
 @click.option(
     "--output",
     type=click.Path(dir_okay=False),
-    default="data/processed/channel_database.json",
-    help="Output JSON file (default: data/processed/channel_database.json)",
+    default=None,
+    help=(
+        "Output JSON file (default: processed/channel_database.json inside the "
+        "profile's data tree, or the project's data/ tree when no profile resolves)"
+    ),
 )
 @click.option(
     "--use-llm",
@@ -121,11 +174,29 @@ def channel_finder(ctx, project: str | None, verbose: bool):
     default=",",
     help="CSV field delimiter (default: ',')",
 )
-def build_database(csv: str, output: str, use_llm: bool, config_path: str | None, delimiter: str):
+@click.pass_context
+def build_database(
+    ctx, csv: str, output: str | None, use_llm: bool, config_path: str | None, delimiter: str
+):
     """Build a channel database from a CSV file.
 
     Reads a CSV with columns: address, description, family_name, instances, sub_channel.
     Rows with family_name are grouped into templates; rows without are standalone channels.
+
+    The database is written into the profile the project was built from, not
+    into the project: the profile is the source of truth, so a generated
+    database belongs beside the inputs it came from and survives a rebuild.
+    That deliberately marks the built project stale, and the sequence is meant
+    to run to completion:
+
+    \b
+      build-database   -> writes the database into the profile
+      (project reports its build as stale)
+      build --force    -> copies the profile's data tree into the project
+      (advisory clears)
+
+    The staleness advisory is the reminder that the new database has not been
+    deployed yet — it is not a problem to fix.
 
     Examples:
 
@@ -142,8 +213,27 @@ def build_database(csv: str, output: str, use_llm: bool, config_path: str | None
         build_database as do_build,
     )
 
+    from .project_utils import resolve_project_path
+
     csv_path = Path(csv)
-    output_path = Path(output)
+    project_dir = resolve_project_path(ctx.obj.get("project"))
+
+    wrote_to_profile = False
+    if output:
+        output_path = Path(output)
+    else:
+        data_root = _profile_data_root(project_dir)
+        wrote_to_profile = data_root is not None
+        if data_root is None:
+            console.print(
+                Messages.warning(
+                    "No profile data tree resolved for this project — writing into the "
+                    "project's data tree. A later 'osprey build --force' regenerates that "
+                    "tree and overwrites this database; pass --output to keep it elsewhere."
+                )
+            )
+            data_root = project_dir / "data"
+        output_path = data_root.joinpath(*_GENERATED_DB_RELPATH)
 
     try:
         do_build(
@@ -156,6 +246,14 @@ def build_database(csv: str, output: str, use_llm: bool, config_path: str | None
     except Exception as e:
         console.print(f"\n{Messages.error(str(e))}")
         raise click.Abort() from None
+
+    if wrote_to_profile:
+        console.print(
+            Messages.info(
+                "Next step: the project now reports its build as stale — run "
+                "'osprey build --force' to deploy the new database."
+            )
+        )
 
 
 @channel_finder.command("validate")

@@ -1,19 +1,17 @@
-"""Tests for the multi-user demo persona presets.
+"""Tests for the control-assistant multi-user persona presets.
 
-The ``multi-user-demo`` base preset is the hosting project for the multi-user
-web-terminal demo: nginx, the landing page, and one terminal container per
-roster user — deliberately scan-free (no Bluesky bridge, no Virtual
-Accelerator, no panels sidecar). Two persona presets extend it to carve out
-capability postures that differ on exactly one axis,
-``control_system.writes_enabled``:
+The ``control-assistant`` preset hosts its own multi-user web tier — nginx,
+the landing page, and one terminal container per roster user — alongside the
+full scan stack. Two persona presets extend it to carve out capability
+postures that differ on exactly one axis, ``control_system.writes_enabled``:
 
-* ``multi-user-demo-readwrite`` — write-capable tier; channel writes pass the
-  ordinary safety chain (writes-check, limits, human approval).
-* ``multi-user-demo-readonly`` — read-only tier; every write surface refuses.
+* ``control-assistant-readwrite`` — write-capable tier; channel writes pass
+  the ordinary safety chain (writes-check, limits, human approval).
+* ``control-assistant-readonly`` — read-only tier; every write surface
+  refuses.
 
-The base's own ``web_terminals`` roster block is also exercised here. Each
-persona owns its own test section below; shared render helpers live at the top
-so new sections append without restructuring.
+The base's own ``web_terminals`` roster block is also exercised here. Shared
+render helpers live at the top so new sections append without restructuring.
 """
 
 from __future__ import annotations
@@ -36,6 +34,15 @@ from osprey.utils.config_writer import config_update_fields
 # monitor's master write switch (see osprey.connectors.control_system.base).
 WRITES_KEY = "control_system.writes_enabled"
 
+# The literal dotted key the hosting preset must carry: the whole web-terminals
+# module subtree addressed as one leaf so config_writer sets only this leaf and
+# never wholesale-replaces the rendered ``modules`` subtree.
+WEB_TERMINALS_KEY = "modules.web_terminals"
+
+# A valid Docker container/object name: must start with an alphanumeric, then
+# alphanumerics plus `_`, `.`, `-` (see docker/docker daemon name validation).
+DOCKER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+
 
 def resolve_preset(name: str) -> BuildProfile:
     """Resolve a bundled preset by name, fully merging its ``extends`` chain.
@@ -50,178 +57,7 @@ def resolve_preset(name: str) -> BuildProfile:
     return profile
 
 
-# ---------------------------------------------------------------------------
-# Read-write persona (write-capable tier)
-# ---------------------------------------------------------------------------
-
-
-class TestReadwritePersona:
-    """The readwrite preset extends the base and arms the write path."""
-
-    def test_extends_multi_user_demo_base(self) -> None:
-        """The readwrite preset inherits the base's identity fields."""
-        profile = resolve_preset("multi-user-demo-readwrite")
-        # Child wins on name; base flows through for the rest.
-        assert profile.name == "Multi-User Demo (Read-Write)"
-        assert profile.data_bundle == "control_assistant"
-        assert profile.provider == "anthropic"
-
-    def test_enables_writes(self) -> None:
-        """The write switch is armed via the literal dotted config key."""
-        profile = resolve_preset("multi-user-demo-readwrite")
-        assert profile.config.get(WRITES_KEY) is True
-
-    def test_writes_key_is_flat_not_nested(self) -> None:
-        """The override is a flat dotted key, never nested YAML under ``config:``.
-
-        Nested YAML would deep-merge into and clobber the base's rendered config
-        subtree, so the persona must carry the literal ``key.path`` form.
-        """
-        profile = resolve_preset("multi-user-demo-readwrite")
-        assert WRITES_KEY in profile.config
-        assert "control_system" not in profile.config
-
-    def test_retains_base_config_overrides(self) -> None:
-        """Arming writes must not drop the base's own config overrides."""
-        profile = resolve_preset("multi-user-demo-readwrite")
-        # A representative base override survives the merge.
-        assert profile.config.get("control_system.type") == "mock"
-
-
-# ---------------------------------------------------------------------------
-# Read-only persona (observation tier)
-# ---------------------------------------------------------------------------
-
-
-class TestReadonlyPersona:
-    """The readonly preset extends the base and pins the write switch off."""
-
-    def test_extends_multi_user_demo_base(self) -> None:
-        """The readonly preset inherits the base's identity fields."""
-        profile = resolve_preset("multi-user-demo-readonly")
-        # Child wins on name; base flows through for the rest.
-        assert profile.name == "Multi-User Demo (Read-Only)"
-        assert profile.data_bundle == "control_assistant"
-        assert profile.provider == "anthropic"
-
-    def test_disables_writes(self) -> None:
-        """The write switch is pinned off via the literal dotted config key.
-
-        The base already defaults it false; the persona pins it explicitly so
-        the tier boundary cannot drift silently if the base's default changes.
-        """
-        profile = resolve_preset("multi-user-demo-readonly")
-        assert profile.config.get(WRITES_KEY) is False
-
-    def test_writes_key_is_flat_not_nested(self) -> None:
-        """The override is a flat dotted key, never nested YAML under ``config:``."""
-        profile = resolve_preset("multi-user-demo-readonly")
-        assert WRITES_KEY in profile.config
-        assert "control_system" not in profile.config
-
-    def test_retains_base_config_overrides(self) -> None:
-        """Pinning writes off must not drop the base's own config overrides."""
-        profile = resolve_preset("multi-user-demo-readonly")
-        # A representative base override survives the merge.
-        assert profile.config.get("control_system.type") == "mock"
-
-
-# ---------------------------------------------------------------------------
-# The single-axis invariant
-# ---------------------------------------------------------------------------
-
-
-class TestSingleAxis:
-    """The demo's whole point: the two tiers are identical projects except for
-    the one write-switch key. Any second difference that creeps in would turn
-    the demo's story ("one switch, every write surface") into a lie, so the
-    invariant is asserted wholesale rather than key-by-key.
-    """
-
-    def test_personas_differ_only_on_writes_enabled(self) -> None:
-        readonly = resolve_preset("multi-user-demo-readonly")
-        readwrite = resolve_preset("multi-user-demo-readwrite")
-
-        ro_cfg = dict(readonly.config)
-        rw_cfg = dict(readwrite.config)
-        assert ro_cfg.pop(WRITES_KEY) is False
-        assert rw_cfg.pop(WRITES_KEY) is True
-        # With the axis key removed, the rendered config overrides are identical.
-        assert ro_cfg == rw_cfg
-
-    def test_personas_share_every_artifact_list(self) -> None:
-        """No tier is defined by artifact removal — both inherit the base's
-        artifact set verbatim (the boundary is enforcement, not absence)."""
-        readonly = resolve_preset("multi-user-demo-readonly")
-        readwrite = resolve_preset("multi-user-demo-readwrite")
-        base = resolve_preset("multi-user-demo")
-        for persona in (readonly, readwrite):
-            assert persona.skills == base.skills
-            assert persona.rules == base.rules
-            assert persona.hooks == base.hooks
-            assert persona.agents == base.agents
-            assert persona.output_styles == base.output_styles
-            assert persona.web_panels == base.web_panels
-
-    def test_safety_chain_hooks_are_shipped(self) -> None:
-        """The write-capable tier is supervised, not unguarded: the hooks that
-        gate a write (writes-check, limits, approval) ship in the base and are
-        inherited by both personas."""
-        base = resolve_preset("multi-user-demo")
-        for hook in ("writes-check", "limits", "approval"):
-            assert hook in base.hooks
-
-
-# ---------------------------------------------------------------------------
-# Persona attachment (deploy_services: false) + scan-free posture
-# ---------------------------------------------------------------------------
-
-
-class TestPersonaAttachment:
-    """Both personas are attached projects: they build per-user terminal images
-    only and connect to the shared web tier the base project deploys, so they
-    must set ``deploy_services: false`` while the base leaves it defaulted true.
-    """
-
-    def test_base_is_self_contained(self) -> None:
-        """The base preset deploys its own web tier (default posture)."""
-        assert resolve_preset("multi-user-demo").deploy_services is True
-
-    def test_readonly_is_attached(self) -> None:
-        assert resolve_preset("multi-user-demo-readonly").deploy_services is False
-
-    def test_readwrite_is_attached(self) -> None:
-        assert resolve_preset("multi-user-demo-readwrite").deploy_services is False
-
-    def test_family_is_scan_free(self) -> None:
-        """The demo family deliberately ships no scan stack: no Bluesky bridge,
-        no Virtual Accelerator, no panels sidecar, no event dispatch. The full
-        scan stack lives in ``control-assistant``; keeping it out of this family
-        is what keeps the multi-user demo about multi-user provisioning.
-        """
-        for name in (
-            "multi-user-demo",
-            "multi-user-demo-readonly",
-            "multi-user-demo-readwrite",
-        ):
-            profile = resolve_preset(name)
-            assert profile.bluesky is None
-            assert profile.virtual_accelerator is None
-            assert profile.bluesky_panels is None
-            assert profile.dispatch is None
-
-
-# ---------------------------------------------------------------------------
-# Base preset: multi-user web-terminal block
-# ---------------------------------------------------------------------------
-
-# The literal dotted key the base preset must carry: the whole web-terminals
-# module subtree addressed as one leaf so config_writer sets only this leaf and
-# never wholesale-replaces the rendered ``modules`` subtree.
-WEB_TERMINALS_KEY = "modules.web_terminals"
-
-
-def _render_config_overrides(tmp_path: Path, seed: dict, preset: str = "multi-user-demo") -> dict:
+def _render_config_overrides(tmp_path: Path, seed: dict, preset: str = "control-assistant") -> dict:
     """Render a hosting preset's ``config:`` overrides onto ``seed`` exactly as
     the build pipeline does — via :func:`config_update_fields`, the same
     dot-notation writer ``_apply_config_overrides`` calls — and reload the
@@ -244,12 +80,51 @@ def _render_config_overrides(tmp_path: Path, seed: dict, preset: str = "multi-us
         return yaml.safe_load(fh)
 
 
+def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant") -> dict:
+    """The config a real build produces from ``preset`` — catalog rewrite included.
+
+    :func:`_render_config_overrides` renders the preset's ``config:`` layer
+    alone, where each persona's ``build_profile`` is still the PRESET NAME the
+    preset author wrote. No build renders a project from that layer: every build
+    materializes a profile first, and materialization emits one
+    ``personas/<name>.yml`` delta per catalog entry and repoints the catalog at
+    it (``_persona_catalog_layer``). A config linted before that rewrite is a
+    shape the pipeline never emits.
+
+    So this applies the same rewrite, through the same function the
+    materializer calls and over the same catalog it derives, keeping the lint
+    tests below a unit-cost check of the real output rather than a pin on an
+    intermediate. (The end-to-end proof that these agree lives in
+    ``tests/cli/test_persona_profile_emission.py``, which drives
+    ``profile new`` → ``build`` for every persona-bearing preset.)
+    """
+    from osprey.cli.build_profile_emit import persona_catalog
+    from osprey.cli.profile_cmd import _persona_catalog_layer
+
+    config_path = tmp_path / "config.yml"
+    resolved = resolve_preset(preset)
+    with config_path.open("w", encoding="utf-8") as fh:
+        yaml.safe_dump({"system": {}}, fh)
+    config_update_fields(config_path, resolved.config)
+    config_update_fields(
+        config_path, _persona_catalog_layer(persona_catalog(resolved.config))["config"]
+    )
+    with config_path.open("r", encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
 def _errors(findings: list[Finding]) -> list[Finding]:
     return [f for f in findings if f.severity == "error"]
 
 
-class TestBaseWebTerminals:
-    """The base preset ships the two-persona multi-user web-terminal stack."""
+# ---------------------------------------------------------------------------
+# Hosting preset: multi-user web-terminal block
+# ---------------------------------------------------------------------------
+
+
+class TestControlAssistantWebTier:
+    """The tutorial preset hosts its own web tier: block shape, port families
+    clear of the tutorial's own service ports, and a lint-clean render."""
 
     def test_web_terminals_is_one_literal_dotted_key(self) -> None:
         """The block is carried as the single literal ``modules.web_terminals``
@@ -258,9 +133,21 @@ class TestBaseWebTerminals:
         A nested mapping would deep-merge over the rendered ``modules`` subtree
         and drop sibling modules; the literal dotted key sets only its own leaf.
         """
-        base = resolve_preset("multi-user-demo")
+        base = resolve_preset("control-assistant")
         assert WEB_TERMINALS_KEY in base.config
         assert "modules" not in base.config
+        assert "facility" not in base.config
+        assert "deploy" not in base.config
+
+    def test_hosts_its_own_web_tier(self) -> None:
+        """The preset carries the web-terminals block plus the web-tier
+        companion keys (``facility.prefix`` for container names,
+        ``deploy.fqdn`` for the landing URL) — the hosting posture the persona
+        family below attaches to."""
+        base = resolve_preset("control-assistant")
+        assert WEB_TERMINALS_KEY in base.config
+        assert "facility.prefix" in base.config
+        assert "deploy.fqdn" in base.config
 
     def test_rendered_config_keeps_sibling_modules(self, tmp_path: Path) -> None:
         """Rendering the overrides adds ``modules.web_terminals`` without
@@ -289,9 +176,21 @@ class TestBaseWebTerminals:
 
     def test_rendered_web_terminals_shape(self, tmp_path: Path) -> None:
         """The rendered ``modules.web_terminals`` subtree matches the two-persona
-        demo shape: local image source, readonly default, a readonly/readwrite
-        catalog whose ``project`` equals its ``project_path`` basename, and a
-        roster mapping alice→readonly and bob→readwrite, both explicit."""
+        tutorial shape: local image source, readonly default, a
+        readonly/readwrite catalog whose ``project`` equals its ``project_path``
+        basename, and a roster mapping alice→readonly and bob→readwrite, both
+        explicit.
+
+        Deliberately pins the preset's OWN ``config:`` layer, BEFORE the catalog
+        rewrite every build performs — which is why the ``build_profile`` values
+        asserted below are preset NAMES. That is the first half of a two-stage
+        vocabulary, not stale data: a preset name is what materialization
+        consumes to emit ``personas/<name>.yml``, and only the rewritten value
+        ever reaches a rendered config. Do not "fix" these to the path spelling:
+        the post-rewrite spelling is asserted by this class's own
+        ``test_rendered_config_lints_without_errors`` (via
+        :func:`_render_deployable_config`) and end-to-end by
+        ``tests/cli/test_persona_profile_emission.py``."""
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         wt = rendered["modules"]["web_terminals"]
 
@@ -299,146 +198,179 @@ class TestBaseWebTerminals:
         assert wt["image_source"] == "local"
         assert wt["default_persona"] == "readonly"
         assert wt["nginx_port"] == 9080
-        assert wt["web_base_port"] == 9091
-        assert wt["artifact_base_port"] == 9291
-        assert wt["ariel_base_port"] == 9391
-        assert wt["lattice_base_port"] == 9491
-        assert wt["channel_finder_base_port"] == 9591
 
-        # Roster: both entries ship fully explicit — name, index, persona —
-        # so the config states outright what normalization would derive.
         assert wt["users"][0] == {"name": "alice", "index": 0, "persona": "readonly"}
         assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "readwrite"}
 
         personas = wt["personas"]
         assert set(personas) == {"readonly", "readwrite"}
         for name, profile in (
-            ("readonly", "multi-user-demo-readonly"),
-            ("readwrite", "multi-user-demo-readwrite"),
+            ("readonly", "control-assistant-readonly"),
+            ("readwrite", "control-assistant-readwrite"),
         ):
             entry = personas[name]
             # Name invariant: project == basename(project_path).
             assert entry["project"] == os.path.basename(entry["project_path"])
             assert entry["build_profile"] == profile
 
+    def test_port_families_clear_tutorial_service_ports(self, tmp_path: Path) -> None:
+        """Every per-user port family sits above the tutorial's own published
+        service ports (VA 5064, dispatcher 8020, bluesky 8090/8091, panels
+        8095) — the containers share the host network namespace, so a family
+        landing on a service port would collide at deploy time."""
+        rendered = _render_config_overrides(tmp_path, {"system": {}})
+        wt = rendered["modules"]["web_terminals"]
+        service_ports = {5064, 8020, 8090, 8091, 8095}
+        n_users = len(wt["users"])
+        for family in (
+            "nginx_port",
+            "web_base_port",
+            "artifact_base_port",
+            "ariel_base_port",
+            "lattice_base_port",
+            "channel_finder_base_port",
+        ):
+            base_port = wt[family]
+            spread = 1 if family == "nginx_port" else n_users
+            for offset in range(spread):
+                assert base_port + offset not in service_ports, (
+                    f"{family} collides with a tutorial service port"
+                )
+
     def test_rendered_config_lints_without_errors(self, tmp_path: Path) -> None:
-        """``lint_web_terminals`` on the freshly-rendered demo config reports
+        """``lint_web_terminals`` on the freshly-built tutorial config reports
         zero ERROR findings pre-deploy.
 
         The referenced persona projects do not exist yet at build time; the lint
         demotes those missing-but-auto-renderable paths to informational findings
         (they carry a ``build_profile`` deploy up renders from), so the gate is
         clean before any project is rendered.
+
+        Linted through :func:`_render_deployable_config`, i.e. after the catalog
+        rewrite every build performs — the preset's own ``build_profile`` values
+        are preset names, which no rendered config ever carries.
         """
-        rendered = _render_config_overrides(tmp_path, {"system": {}})
+        rendered = _render_deployable_config(tmp_path)
         assert _errors(lint_web_terminals(rendered)) == []
 
-    def test_demo_ships_companion_panels_multi_user(self) -> None:
+    def test_ships_companion_panels_multi_user(self) -> None:
         """Feature parity: multi-user must not shed single-user companion panels.
 
-        The channel-finder panel was once dropped from this preset to dodge a
-        per-user port collision (its family was missing from the port-family
+        The channel-finder panel was once dropped from a hosting preset to dodge
+        a per-user port collision (its family was missing from the port-family
         derivation) — the fix is per-user ports, never removing the feature.
         """
-        base = resolve_preset("multi-user-demo")
+        base = resolve_preset("control-assistant")
         assert "channel-finder" in base.web_panels
         assert "ariel" in base.web_panels
 
-    def test_control_assistant_hosts_its_own_web_tier(self) -> None:
-        """The scan tutorial preset ships natively multi-user: it carries its
-        own web-terminals block (plus the web-tier companion keys) alongside
-        the full scan stack. Its persona family is tested in its own sections
-        below; this asserts the hosting posture exists at all."""
-        base = resolve_preset("control-assistant")
-        assert WEB_TERMINALS_KEY in base.config
-        assert "facility.prefix" in base.config
-        assert "deploy.fqdn" in base.config
-
-
-# ---------------------------------------------------------------------------
-# Facility prefix (web container-name prefix)
-# ---------------------------------------------------------------------------
-
-# The key config_writer stores the base preset's facility-prefix override under,
-# and the leaf it renders to in the nested config.
-FACILITY_PREFIX_KEY = "facility.prefix"
-
-# A valid Docker container/object name: must start with an alphanumeric, then
-# alphanumerics plus `_`, `.`, `-` (see docker/docker daemon name validation).
-DOCKER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
-
-
-class TestFacilityPrefix:
-    """The base preset sets a non-empty ``facility.prefix`` so the web stack's
-    container names are valid Docker names.
-
-    Web container names are ``<facility_prefix>-nginx`` and
-    ``<facility_prefix>-web-<user>`` (see
-    ``osprey.deployment.web_terminals.seeding`` / the compose template). An empty
-    prefix renders leading-dash names like ``-nginx``, which Docker rejects and
-    ``osprey deploy up`` fails the web stack on — the defect this guards against.
-    """
-
-    def test_base_config_sets_nonempty_facility_prefix(self) -> None:
-        """The override is carried as the literal ``facility.prefix`` dotted key
-        (never a nested ``facility:`` mapping) with a non-empty value."""
-        base = resolve_preset("multi-user-demo")
-        assert FACILITY_PREFIX_KEY in base.config
-        assert "facility" not in base.config
-        prefix = base.config[FACILITY_PREFIX_KEY]
-        assert isinstance(prefix, str) and prefix != ""
-
-    def test_rendered_config_has_nonempty_facility_prefix(self, tmp_path: Path) -> None:
-        """Rendering the base overrides lands a non-empty ``facility.prefix`` leaf
-        in the nested config the deploy pipeline reads."""
-        rendered = _render_config_overrides(tmp_path, {"system": {}})
-        prefix = rendered["facility"]["prefix"]
-        assert isinstance(prefix, str) and prefix != ""
-
     def test_derived_web_container_names_are_valid_docker_names(self, tmp_path: Path) -> None:
-        """The container names derived from the rendered prefix — ``<prefix>-nginx``
-        and ``<prefix>-web-<user>`` for each demo user — all match the Docker name
-        grammar (start alphanumeric, no leading dash)."""
+        """The container names derived from the rendered prefix —
+        ``<prefix>-nginx`` and ``<prefix>-web-<user>`` for the tutorial roster
+        — all match the Docker name grammar (start alphanumeric, no leading
+        dash). An empty prefix renders leading-dash names like ``-nginx``,
+        which Docker rejects and ``osprey deploy up`` fails the web stack on.
+        """
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         prefix = rendered["facility"]["prefix"]
-
-        container_names = [
-            f"{prefix}-nginx",
-            f"{prefix}-web-alice",
-            f"{prefix}-web-bob",
-        ]
-        for name in container_names:
+        assert isinstance(prefix, str) and prefix != ""
+        for name in (f"{prefix}-nginx", f"{prefix}-web-alice", f"{prefix}-web-bob"):
             assert DOCKER_NAME_RE.match(name), f"invalid Docker container name: {name!r}"
 
-
-# ---------------------------------------------------------------------------
-# Deploy target (landing URL origin)
-# ---------------------------------------------------------------------------
-
-
-class TestDeployFqdn:
-    """The base preset sets ``deploy.fqdn`` so the web-terminals render step
-    can build the landing URL (``OSPREY_TERMINAL_LANDING_URL``) without manual
-    config edits — ``_landing_url`` raises without it, aborting
-    ``osprey deploy up`` for the otherwise zero-config demo."""
-
-    def test_base_config_sets_deploy_fqdn(self) -> None:
-        """Carried as the literal ``deploy.fqdn`` dotted key (never a nested
-        ``deploy:`` mapping) with a non-empty string value."""
-        base = resolve_preset("multi-user-demo")
-        assert "deploy.fqdn" in base.config
-        assert "deploy" not in base.config
-        fqdn = base.config["deploy.fqdn"]
-        assert isinstance(fqdn, str) and fqdn != ""
-
     def test_rendered_config_satisfies_landing_url(self, tmp_path: Path) -> None:
-        """The rendered config passes the exact check ``deploy up`` runs."""
+        """The rendered config passes the exact check ``deploy up`` runs —
+        ``_landing_url`` raises without ``deploy.fqdn``, aborting
+        ``osprey deploy up`` for the otherwise zero-config tutorial."""
         from osprey.deployment.web_terminals.render import _landing_url
 
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         fqdn = rendered["deploy"]["fqdn"]
         nginx_port = rendered["modules"]["web_terminals"]["nginx_port"]
         assert _landing_url(rendered, nginx_port) == f"http://{fqdn}:{nginx_port}"
+
+
+# ---------------------------------------------------------------------------
+# The persona pair: single-axis contract
+# ---------------------------------------------------------------------------
+
+
+class TestControlAssistantPersonas:
+    """The readonly/readwrite pair: identical projects except for the one
+    write-switch key. Any second difference that creeps in would turn the
+    multi-user story ("one switch, every write surface") into a lie, so the
+    invariant is asserted wholesale rather than key-by-key."""
+
+    def test_readonly_extends_base_and_disables_writes(self) -> None:
+        profile = resolve_preset("control-assistant-readonly")
+        assert profile.name == "Control Assistant (Read-Only)"
+        assert profile.data_bundle == "control_assistant"
+        assert profile.config.get(WRITES_KEY) is False
+        # Flat dotted key, never nested YAML under config:.
+        assert "control_system" not in profile.config
+
+    def test_readwrite_extends_base_and_enables_writes(self) -> None:
+        profile = resolve_preset("control-assistant-readwrite")
+        assert profile.name == "Control Assistant (Read-Write)"
+        assert profile.data_bundle == "control_assistant"
+        assert profile.config.get(WRITES_KEY) is True
+        assert "control_system" not in profile.config
+
+    def test_personas_retain_base_config_overrides(self) -> None:
+        """Toggling the write switch must not drop the base's own config
+        overrides — a representative base override survives both merges."""
+        for name in ("control-assistant-readonly", "control-assistant-readwrite"):
+            profile = resolve_preset(name)
+            assert profile.config.get("control_system.type") == "virtual_accelerator"
+
+    def test_personas_differ_only_on_writes_enabled(self) -> None:
+        readonly = resolve_preset("control-assistant-readonly")
+        readwrite = resolve_preset("control-assistant-readwrite")
+
+        ro_cfg = dict(readonly.config)
+        rw_cfg = dict(readwrite.config)
+        assert ro_cfg.pop(WRITES_KEY) is False
+        assert rw_cfg.pop(WRITES_KEY) is True
+        # With the axis key removed, the rendered config overrides are identical.
+        assert ro_cfg == rw_cfg
+
+    def test_personas_share_every_artifact_list(self) -> None:
+        """No tier is defined by artifact removal — both inherit the tutorial's
+        full artifact set verbatim, scan skills and panels included (the
+        boundary is enforcement, not absence)."""
+        readonly = resolve_preset("control-assistant-readonly")
+        readwrite = resolve_preset("control-assistant-readwrite")
+        base = resolve_preset("control-assistant")
+        for persona in (readonly, readwrite):
+            assert persona.skills == base.skills
+            assert persona.rules == base.rules
+            assert persona.hooks == base.hooks
+            assert persona.agents == base.agents
+            assert persona.output_styles == base.output_styles
+            assert persona.web_panels == base.web_panels
+
+    def test_safety_chain_hooks_are_shipped(self) -> None:
+        """The write-capable tier is supervised, not unguarded: the hooks that
+        gate a write (writes-check, limits, approval) ship in the base and are
+        inherited by both personas."""
+        base = resolve_preset("control-assistant")
+        for hook in ("writes-check", "limits", "approval"):
+            assert hook in base.hooks
+
+    def test_personas_are_attached(self) -> None:
+        """Both personas set ``deploy_services: false`` — they build terminal
+        images only, and the scan/VA/dispatch injector blocks inherited from
+        the base are gated on this flag and skip cleanly. The hosting base
+        keeps the default self-contained posture."""
+        assert resolve_preset("control-assistant").deploy_services is True
+        assert resolve_preset("control-assistant-readonly").deploy_services is False
+        assert resolve_preset("control-assistant-readwrite").deploy_services is False
+
+    def test_personas_do_not_host_a_second_web_tier(self) -> None:
+        """Each persona pins ``modules.web_terminals.enabled: false`` so a
+        persona-dir deploy never races the hosting project for the web ports."""
+        for name in ("control-assistant-readonly", "control-assistant-readwrite"):
+            profile = resolve_preset(name)
+            assert profile.config.get("modules.web_terminals.enabled") is False
 
 
 # ---------------------------------------------------------------------------
@@ -541,165 +473,3 @@ class TestWebTerminalContextShipped:
         )
 
         assert seeded == [base_content.encode("utf-8")]
-
-
-# ---------------------------------------------------------------------------
-# Control-assistant multi-user family (built-in web tier + persona pair)
-# ---------------------------------------------------------------------------
-
-# The control-assistant tutorial ships natively multi-user: the same hosting
-# pattern as the demo family above, but alongside the full scan stack, with the
-# tiers named for their write posture — readonly (the default) and
-# readwrite (write-capable through the ordinary safety chain).
-
-
-class TestControlAssistantWebTier:
-    """The tutorial preset hosts its own web tier: block shape, port families
-    clear of the tutorial's own service ports, and a lint-clean render."""
-
-    def test_web_terminals_is_one_literal_dotted_key(self) -> None:
-        """Same flat-key invariant as the demo base: a nested ``modules:``
-        mapping would clobber sibling modules in the rendered config."""
-        base = resolve_preset("control-assistant")
-        assert WEB_TERMINALS_KEY in base.config
-        assert "modules" not in base.config
-        assert "facility" not in base.config
-        assert "deploy" not in base.config
-
-    def test_rendered_web_terminals_shape(self, tmp_path: Path) -> None:
-        """The rendered subtree matches the two-persona tutorial shape: local
-        image source, readonly default, a readonly/readwrite catalog whose
-        ``project`` equals its ``project_path`` basename, and a roster mapping
-        alice→readonly (via default) and bob→readwrite."""
-        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
-        wt = rendered["modules"]["web_terminals"]
-
-        assert wt["enabled"] is True
-        assert wt["image_source"] == "local"
-        assert wt["default_persona"] == "readonly"
-        assert wt["nginx_port"] == 9080
-
-        assert wt["users"][0] == {"name": "alice", "index": 0, "persona": "readonly"}
-        assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "readwrite"}
-
-        personas = wt["personas"]
-        assert set(personas) == {"readonly", "readwrite"}
-        for name, profile in (
-            ("readonly", "control-assistant-readonly"),
-            ("readwrite", "control-assistant-readwrite"),
-        ):
-            entry = personas[name]
-            # Name invariant: project == basename(project_path).
-            assert entry["project"] == os.path.basename(entry["project_path"])
-            assert entry["build_profile"] == profile
-
-    def test_port_families_clear_tutorial_service_ports(self, tmp_path: Path) -> None:
-        """Every per-user port family sits above the tutorial's own published
-        service ports (VA 5064, dispatcher 8020, bluesky 8090/8091, panels
-        8095) — the containers share the host network namespace, so a family
-        landing on a service port would collide at deploy time."""
-        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
-        wt = rendered["modules"]["web_terminals"]
-        service_ports = {5064, 8020, 8090, 8091, 8095}
-        n_users = len(wt["users"])
-        for family in (
-            "nginx_port",
-            "web_base_port",
-            "artifact_base_port",
-            "ariel_base_port",
-            "lattice_base_port",
-            "channel_finder_base_port",
-        ):
-            base_port = wt[family]
-            spread = 1 if family == "nginx_port" else n_users
-            for offset in range(spread):
-                assert base_port + offset not in service_ports, (
-                    f"{family} collides with a tutorial service port"
-                )
-
-    def test_rendered_config_lints_without_errors(self, tmp_path: Path) -> None:
-        """``lint_web_terminals`` on the freshly-rendered tutorial config
-        reports zero ERROR findings pre-deploy — the persona projects don't
-        exist yet, but each catalog entry carries a ``build_profile`` deploy up
-        auto-renders from, which the lint demotes to informational."""
-        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
-        assert _errors(lint_web_terminals(rendered)) == []
-
-    def test_derived_web_container_names_are_valid_docker_names(self, tmp_path: Path) -> None:
-        """``<prefix>-nginx`` and ``<prefix>-web-<user>`` for the tutorial
-        roster all match the Docker name grammar."""
-        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
-        prefix = rendered["facility"]["prefix"]
-        for name in (f"{prefix}-nginx", f"{prefix}-web-alice", f"{prefix}-web-bob"):
-            assert DOCKER_NAME_RE.match(name), f"invalid Docker container name: {name!r}"
-
-    def test_rendered_config_satisfies_landing_url(self, tmp_path: Path) -> None:
-        """The rendered config passes the exact check ``deploy up`` runs."""
-        from osprey.deployment.web_terminals.render import _landing_url
-
-        rendered = _render_config_overrides(tmp_path, {"system": {}}, "control-assistant")
-        fqdn = rendered["deploy"]["fqdn"]
-        nginx_port = rendered["modules"]["web_terminals"]["nginx_port"]
-        assert _landing_url(rendered, nginx_port) == f"http://{fqdn}:{nginx_port}"
-
-
-class TestControlAssistantPersonas:
-    """The readonly/readwrite pair: same single-axis contract as the demo
-    family — identical projects except ``control_system.writes_enabled``."""
-
-    def test_readonly_extends_base_and_disables_writes(self) -> None:
-        profile = resolve_preset("control-assistant-readonly")
-        assert profile.name == "Control Assistant (Read-Only)"
-        assert profile.data_bundle == "control_assistant"
-        assert profile.config.get(WRITES_KEY) is False
-        # Flat dotted key, never nested YAML under config:.
-        assert "control_system" not in profile.config
-
-    def test_readwrite_extends_base_and_enables_writes(self) -> None:
-        profile = resolve_preset("control-assistant-readwrite")
-        assert profile.name == "Control Assistant (Read-Write)"
-        assert profile.data_bundle == "control_assistant"
-        assert profile.config.get(WRITES_KEY) is True
-        assert "control_system" not in profile.config
-
-    def test_personas_differ_only_on_writes_enabled(self) -> None:
-        readonly = resolve_preset("control-assistant-readonly")
-        readwrite = resolve_preset("control-assistant-readwrite")
-
-        ro_cfg = dict(readonly.config)
-        rw_cfg = dict(readwrite.config)
-        assert ro_cfg.pop(WRITES_KEY) is False
-        assert rw_cfg.pop(WRITES_KEY) is True
-        # With the axis key removed, the rendered config overrides are identical.
-        assert ro_cfg == rw_cfg
-
-    def test_personas_share_every_artifact_list(self) -> None:
-        """No tier is defined by artifact removal — both inherit the tutorial's
-        full artifact set verbatim, scan skills and panels included (the
-        boundary is enforcement, not absence)."""
-        readonly = resolve_preset("control-assistant-readonly")
-        readwrite = resolve_preset("control-assistant-readwrite")
-        base = resolve_preset("control-assistant")
-        for persona in (readonly, readwrite):
-            assert persona.skills == base.skills
-            assert persona.rules == base.rules
-            assert persona.hooks == base.hooks
-            assert persona.agents == base.agents
-            assert persona.output_styles == base.output_styles
-            assert persona.web_panels == base.web_panels
-
-    def test_personas_are_attached(self) -> None:
-        """Both personas set ``deploy_services: false`` — they build terminal
-        images only, and the scan/VA/dispatch injector blocks inherited from
-        the base are gated on this flag and skip cleanly. The hosting base
-        keeps the default self-contained posture."""
-        assert resolve_preset("control-assistant").deploy_services is True
-        assert resolve_preset("control-assistant-readonly").deploy_services is False
-        assert resolve_preset("control-assistant-readwrite").deploy_services is False
-
-    def test_personas_do_not_host_a_second_web_tier(self) -> None:
-        """Each persona pins ``modules.web_terminals.enabled: false`` so a
-        persona-dir deploy never races the hosting project for the web ports."""
-        for name in ("control-assistant-readonly", "control-assistant-readwrite"):
-            profile = resolve_preset(name)
-            assert profile.config.get("modules.web_terminals.enabled") is False

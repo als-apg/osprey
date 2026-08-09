@@ -20,6 +20,24 @@ from typing import Any, Literal
 
 
 @dataclass
+class ProfileProvenance:
+    """What a materialized profile was emitted from (``provenance:``).
+
+    Written by ``osprey profile new`` and never by hand. It is the
+    MACHINE-READABLE record of the profile's source — the emitted header says
+    the same thing in prose, for people — and it is what a later build compares
+    against the installed preset to notice that the preset has moved on since
+    the profile was materialized (FR-6). That comparison is advisory: a profile
+    is the source of truth once it exists, so drift is reported, never enforced.
+    """
+
+    preset: str
+    """Bundled preset name the profile was materialized from."""
+    preset_hash: str
+    """Content hash of that preset as resolved at materialization time."""
+
+
+@dataclass
 class McpServerDef:
     """Definition of an MCP server to inject into a built project."""
 
@@ -184,15 +202,6 @@ class BlueskyConfig:
     port: int = 8090
     tiled_enabled: bool = False
     tiled_port: int = 8091
-    demo_runner: bool = False
-    """Opt-in only for the deploy-smoke-demo / tutorial case: wires the
-    container's bridge process to a real bluesky RunEngine against mock
-    ophyd-async devices (``devices/mock.py``) via app.py's guarded startup
-    hook (task 2.14a), instead of the Phase 1 no-op ``FakePlanRunner`` default.
-    MUST stay False for any facility wiring real EPICS hardware — turning
-    this on would silently override real device/plan wiring with an
-    in-memory mock runner.
-    """
     plan_dir: str | None = None
     """Optional host directory of facility plan files (Task 1.4),
     bind-mounted read-only into the bridge container and surfaced to the

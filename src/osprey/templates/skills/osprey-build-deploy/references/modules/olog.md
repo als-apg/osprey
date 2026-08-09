@@ -79,7 +79,7 @@ OLOG_WRITE_TEST_ENABLED=0
 
 ### Other files
 
-None. If the facility writes a custom adapter, it lives in the facility profile repo (typically `mcp_servers/<adapter_name>/` or `overlays/`), and is wired into the assistant via the standard MCP server pattern — not via this module.
+None. If the facility writes a custom adapter, it lives in the profile's `mcp_servers/<adapter_name>/` convention directory, and is wired into the assistant via the standard MCP server pattern — not via this module.
 
 ---
 

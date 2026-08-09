@@ -102,6 +102,19 @@ dependencies = [
     # ARIEL Web Interface (FastAPI server)
     "fastapi>=0.140.0",
     "uvicorn[standard]>=0.51.0",
+    # OIDC client + JOSE (token verification) for the multi-user web-terminal
+    # auth sidecar. Declared explicitly rather than relied on as fastmcp's
+    # transitive dependency — the sidecar imports it directly.
+    "authlib>=1.6.5",
+    # Signed session cookies for the auth sidecar (login session id + unlocked-user set).
+    "itsdangerous>=2.2.0",
+    # Form parsing for the auth sidecar's login POST. Starlette requires this for
+    # EVERY form body, urlencoded included — not only multipart — so without it a
+    # login POST fails at request time rather than at import. Declared explicitly
+    # for the same reason as authlib above: it reaches us today only as `mcp`'s
+    # transitive dependency, and a sidecar image built from a narrower set would
+    # serve a login page whose form can never be submitted.
+    "python-multipart>=0.0.18",
     # Utilities
     "unique-namer>=0.1.0",
     # EPICS Channel Access client (used by control_system connector,
@@ -139,6 +152,12 @@ dependencies = [
     "bluesky>=1.15.1",
     "ophyd-async[ca]>=0.16,<1.0",
     "tiled[client]>=0.2.14",
+    # Queue-server client the bridge's `QueueBackend` speaks to the RE manager
+    # with. Exact-pinned (not floor-pinned like the rest of the stack): the
+    # 0.0.x API still moves between patch releases, and the adapter is the only
+    # thing standing between that surface and every queue route. Bumps go
+    # through dependabot so the adapter's contract tests gate them.
+    "bluesky-queueserver-api==0.0.13",
     "duckdb>=1.5.4",
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
@@ -175,7 +194,10 @@ dev = [
     "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
     "mypy",
     "pre-commit",
-    "ruff",
+    # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
+    # changes between minors, so an unpinned floor lets CI and the local hook
+    # disagree about what "formatted" means.
+    "ruff>=0.16.1,<0.17",
     "testcontainers[postgres]>=4.14.2",  # Real PostgreSQL for integration tests
     "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
@@ -399,10 +421,10 @@ module = [
 ]
 ignore_missing_imports = true
 
-# Bluesky bridge (osprey.services.bluesky_bridge): the lifecycle core (runs.py,
-# app.py, security.py, plan_runner.py) stays import-clean of these, but Phase 2's
-# submodules (plan_runner_bluesky.py, devices/epics.py, plans.py, ...) import
-# them from the bluesky stack (now a core dependency).
+# Bluesky bridge (osprey.services.bluesky_bridge): the bridge's own HTTP core
+# (app.py, runs.py, security.py) stays import-clean of these, but the modules
+# that run inside the queueserver worker (qserver_startup.py, devices/, plans/)
+# import them from the bluesky stack (a core dependency).
 [[tool.mypy.overrides]]
 module = [
     "bluesky.*",
@@ -461,6 +483,13 @@ src = ["src", "interfaces", "deployment"]
 # Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
 # enforce, and it is present in any built or editable-installed tree.
 extend-exclude = ["src/osprey/_version.py"]
+
+[tool.ruff.format]
+# Ruff >=0.16 also formats Python code blocks embedded in Markdown. The snippets
+# in the shipped agent rules and skill references are documentation, not code we
+# run: they are hand-aligned for readability and are sometimes deliberately
+# partial. Reformatting them serves no one, so the formatter stays out of prose.
+exclude = ["**/*.md"]
 
 [tool.ruff.lint]
 select = [

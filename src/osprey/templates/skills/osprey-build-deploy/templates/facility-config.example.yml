@@ -222,18 +222,24 @@ modules:
               url: "https://elog.dls.example.org"
             - label: "Status Page"
               url: "https://status.dls.example.org"
-    # auth/tls below are OPTIONAL, forward-looking, config-gated seams — INERT with
-    # these (default) values. No auth backend or TLS is implemented in this phase;
-    # the stack is perimeter-trust plain HTTP, identical to Phase 1. C1
-    # (authentication) and C2 (cleartext HTTP) remain OPEN/deferred — see
-    # facility-config-schema.md for the full note. Uncomment/edit only once a
-    # later phase actually wires an auth_request backend + cert provisioning.
+    # auth/tls below are OPTIONAL and OFF by default: with no `auth:` stanza the
+    # stack is perimeter-trust plain HTTP, so deploy it that way only on a network
+    # you already trust. Uncomment to require a real per-user login — `password`
+    # (hashes OSPREY provisions into .env.auth) or `oidc` (your own IdP). Auth
+    # without TLS refuses to render unless auth.allow_insecure_http is set.
+    # tls.cert/tls.key are paths INSIDE the nginx container; host_cert_dir is the
+    # directory ON THE DEPLOY HOST holding them, which the overlay bind-mounts
+    # read-only where cert sits (omit it to mount nothing and supply the
+    # certificate yourself). Full reference: facility-config-schema.md §
+    # "Authentication".
     # auth:
-    #   method: "none"                   # none (default) — no other value is exercised yet
+    #   method: "none"                   # none (default) | password | oidc
+    #   session_lifetime: 43200          # INTEGER seconds (default 43200 = 12h)
     # tls:
-    #   enabled: false                   # default; v1 ships plain HTTP only
-    #   cert: "/etc/osprey/tls/dls.crt"  # only read when enabled: true
-    #   key: "/etc/osprey/tls/dls.key"   # only read when enabled: true
+    #   enabled: false                   # default; plain HTTP
+    #   host_cert_dir: "/etc/ssl/dls"    # host-side dir; mounted read-only at cert's dir
+    #   cert: "/etc/osprey/tls/dls.crt"  # container-side path; only read when enabled
+    #   key: "/etc/osprey/tls/dls.key"   # container-side path; only read when enabled
 
   # ---------------------------------------------------------------------------
   # Electronic logbook integration.

@@ -1,8 +1,9 @@
 """Tests for the profile-carried ``data:`` tree and its preset-mode rejection.
 
 ``data: <dir>`` names the facility data tree a profile carries, anchored on the
-profile directory and free to resolve above it (sibling persona profiles share
-their parent's tree via ``data: ../data``). It is meaningless for ``--preset``
+profile *root* — which for a persona delta under ``personas/`` is the directory
+holding the root ``profile.yml``, not the delta's own parent, so personas share
+the root's tree without spelling a traversal. It is meaningless for ``--preset``
 builds, which have no profile directory to anchor against.
 """
 
@@ -21,6 +22,7 @@ from osprey.cli.build_profile import (
     load_profile,
     resolve_build_profile,
 )
+from osprey.cli.profile_root import resolve_profile_root
 from osprey.errors import BuildProfileError
 
 
@@ -57,15 +59,27 @@ def test_data_directory_beside_the_profile_validates(tmp_path: Path) -> None:
     assert load_profile(profile).data == "data"
 
 
-def test_data_may_resolve_above_the_profile_directory(tmp_path: Path) -> None:
-    """The persona layout: a sibling profile sharing its parent's tree."""
+def test_persona_data_anchors_at_the_profile_root(tmp_path: Path) -> None:
+    """The persona layout: a delta under ``personas/`` sharing the root's tree."""
     (tmp_path / "data").mkdir()
-    profile = _write_yaml(tmp_path / "personas" / "alice.yml", {"name": "alice", "data": "../data"})
+    _write_yaml(tmp_path / "profile.yml", {"name": "root", "data": "data"})
+    profile = _write_yaml(tmp_path / "personas" / "alice.yml", {"name": "alice", "data": "data"})
 
     loaded = load_profile(profile)
 
-    assert loaded.data == "../data"
-    assert loaded.resolved_data_root(profile.parent) == (tmp_path / "data").resolve()
+    assert loaded.data == "data"
+    root_dir, is_persona_delta = resolve_profile_root(profile)
+    assert is_persona_delta is True
+    assert loaded.resolved_data_root(root_dir) == (tmp_path / "data").resolve()
+
+
+def test_persona_file_without_a_profile_root_is_rejected(tmp_path: Path) -> None:
+    """A ``personas/`` file with no root cannot anchor, so it never loads."""
+    (tmp_path / "data").mkdir()
+    profile = _write_yaml(tmp_path / "personas" / "alice.yml", {"name": "alice", "data": "data"})
+
+    with pytest.raises(BuildProfileError, match="profile root is missing"):
+        load_profile(profile)
 
 
 def test_missing_data_directory_is_reported_with_both_paths(tmp_path: Path) -> None:

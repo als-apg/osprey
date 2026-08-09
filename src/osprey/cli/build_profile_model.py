@@ -37,9 +37,11 @@ from .build_profile_schema import (
     LifecycleConfig,
     McpServerDef,
     NextcloudBridgeProfileConfig,
+    ProfileProvenance,
     ServiceDef,
     VAConfig,
 )
+from .profile_conventions import validate_convention_sources
 
 # VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
 # imported from the build-time kernel (osprey.build.build_tiers) so the
@@ -90,7 +92,6 @@ class BuildProfile:
     DB they overlay overwrites whatever the preset put there.
     """
     config: dict[str, Any] = field(default_factory=dict)
-    overlay: dict[str, str] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
     services: dict[str, ServiceDef] = field(default_factory=dict)
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
@@ -128,9 +129,9 @@ class BuildProfile:
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
     (default: "CLAUDE.md.j2"). Lets a preset pick an alternate persona
-    (e.g. "CLAUDE.ariel.md.j2" for the logbook-research bundle). Internal
-    preset-author primitive — facility profiles override CLAUDE.md via
-    overlay, not via this key.
+    (e.g. "CLAUDE.ariel.md.j2" for the logbook-research bundle). This is the
+    one channel for the rendered CLAUDE.md: the project copy is build-owned, so
+    the ``project/`` mirror rejects a hand-written one.
     """
     artifact_server: dict[str, Any] = field(default_factory=dict)
     """Overrides merged into config.yml's ``artifact_server`` block (the
@@ -145,6 +146,14 @@ class BuildProfile:
     bluesky_panels: BlueskyPanelsConfig | None = None
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
+    provenance: ProfileProvenance | None = None
+    """What ``osprey profile new`` materialized this profile from (``provenance:``).
+
+    ``None`` for a bundled preset and for a hand-written profile, neither of
+    which was materialized from anything. Carried through resolution unchanged:
+    the build reads it to compare against the installed preset, and never
+    rewrites it — the profile records its own origin, not the last build's.
+    """
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -388,17 +397,13 @@ class BuildProfile:
                 elif not data_root.is_dir():
                     errors.append(f"data must be a directory: {self.data} (resolved: {data_root})")
 
-        # Validate overlay source paths exist
-        for src, _dst in self.overlay.items():
-            src_path = profile_dir / src
-            if not src_path.exists():
-                errors.append(f"Overlay source not found: {src} (resolved: {src_path})")
-
-        # Path traversal guard on overlay destinations
-        for _src, dst in self.overlay.items():
-            normalized = Path(dst)
-            if normalized.is_absolute() or ".." in normalized.parts:
-                errors.append(f"Overlay destination must be relative without '..': {dst}")
+        # Validate the profile's convention directories (shape of each source,
+        # plus the reserved paths the project/ mirror may not write). Reported
+        # as one entry so its own multi-problem message stays intact.
+        try:
+            validate_convention_sources(profile_dir)
+        except BuildProfileError as e:
+            errors.append(str(e))
 
         # Validate MCP server definitions
         for name, server in self.mcp_servers.items():
@@ -487,11 +492,28 @@ class BuildProfile:
             # url-less here — accept it rather than aborting the build.
             if panel == "events" and self.dispatch is not None:
                 continue
-            # The three panel ids' URLs are likewise derived post-build
+            # The bluesky-panel ids' URLs are likewise derived post-build
             # (``_inject_bluesky_panels`` in build_cmd.py, which runs after this
             # validator) from the bluesky_panels sidecar's port — so they are
             # legitimately url-less here when a bluesky_panels block is present.
-            if panel in ("plan", "results", "health") and self.bluesky_panels is not None:
+            # ``results`` is the pre-rename spelling of ``bluesky``, accepted
+            # for one release rather than failing the build of a profile that
+            # predates the rename; the sidecar serves the same bundle at both
+            # /results/ and /bluesky/ for exactly that window.
+            if (
+                panel in ("plan", "bluesky", "results", "health")
+                and self.bluesky_panels is not None
+            ):
+                if panel == "results":
+                    warnings.warn(
+                        "web_panels entry 'results' is deprecated: the RESULTS panel is now "
+                        "BLUESKY. Rename it to 'bluesky' (and any web.panels.results.* config "
+                        "override to web.panels.bluesky.*). The old id keeps working for ONE "
+                        "release — the bluesky-panels sidecar serves the same bundle at "
+                        "/results/ — and is removed after that.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
                 continue
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "

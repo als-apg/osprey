@@ -64,9 +64,13 @@ services:
       # Reach the co-deployed bluesky bridge by its in-network compose service
       # key `bluesky-bridge` — never the host-published port.
       BLUESKY_BRIDGE_URL: http://bluesky-bridge:{{ services.bluesky.port | default(8090) }}
-      # No :-default — an unset token must stay EMPTY so the sidecar's
-      # POST /runs/launch route stays inert (mirrors the bridge's own
-      # launch-token convention) rather than booting with a guessable secret.
+      # No :-default — an unset token must stay EMPTY rather than booting with
+      # a guessable secret (mirrors the bridge's own launch-token convention).
+      # The sidecar attaches this token to every queue WRITE it relays (add,
+      # start, stop — including the `cancel: true` withdrawal — and abort) and
+      # to no read, letting the bridge hold the only copy of which writes need
+      # arming. An empty value simply omits the header, so the bridge refuses
+      # the writes it gates instead of accepting a guessed credential.
       # `osprey deploy up` auto-generates a strong random token into the
       # project .env when unset (see container_lifecycle.py's per-service
       # token-mint map).

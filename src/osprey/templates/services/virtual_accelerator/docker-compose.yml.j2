@@ -67,14 +67,25 @@ services:
       VA_ENTRYPOINT_MODULE: "${VA_ENTRYPOINT_MODULE:-}"
       VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"
       VA_LATTICE: "${VA_LATTICE:-}"
+      # Where the IOC polls active_scenarios — the second mount below, not the
+      # build-owned data dir.
+      VA_STATE_DIR: /state/simulation
       TZ: {{ system.timezone }}
-    # Bind-mount source is relative to the compose project directory
+    # Bind-mount sources are relative to the compose project directory
     # (build/services/), not this file's own subdir — hence the ../../ prefix
-    # to reach the project root's data/simulation/ (see entrypoint.py's run
-    # contract: the IOC SystemExits without a machine.json here). Read-only —
-    # the IOC only ever reads the simulation model, never writes it.
+    # to reach the project root (see entrypoint.py's run contract: the IOC
+    # SystemExits without a machine.json in the data dir). Both read-only —
+    # the IOC only ever reads.
+    #
+    # Two mounts because the two directories have different owners: the
+    # simulation model in data/ is build-owned (re-rendered and checksummed
+    # every build), while the active-scenario state under the agent-data root
+    # is written at run time by `osprey sim apply` on the host and polled here.
+    # That second source is rendered from agent_data.base_dir rather than
+    # hardcoded, so it follows a project that relocates its agent-data root.
     volumes:
       - ../../data/simulation:/data/simulation:ro
+      - {{ osprey_state_mount_source }}:/state/simulation:ro
     networks:
       - osprey-network
     healthcheck:

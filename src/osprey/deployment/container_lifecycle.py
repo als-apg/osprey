@@ -6,6 +6,7 @@ Docker or Podman compose.
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 from osprey.deployment.compose_generator import (
@@ -15,6 +16,7 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
+from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.host_ports import (
     find_port_conflicts,
@@ -43,8 +45,15 @@ from osprey.deployment.web_terminals.provision import (
     preflight_web_terminals,
 )
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
+from osprey.errors import BuildProfileError
 from osprey.utils.config import ConfigBuilder
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey.utils.dotenv import (
+    append_profile_env,
+    atomic_write,
+    compose_unsafe_vars,
+    derive_project_env,
+    parse_dotenv_file,
+)
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
 
@@ -115,6 +124,225 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 # with a named-var/no-value error.
 _VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
 
+# Document-plane CURVE certificate layout, relative to the project directory.
+# Fixed by the read-only mounts the bluesky compose template declares
+# (``../../data/bluesky_curve/<side>`` -> ``/app/curve``) together with the
+# certificate paths it hardcodes into each container's environment, so this
+# constant and that template are one contract: change either and the bridge
+# refuses to bind its proxy.
+#
+# Split per side rather than per file so neither container can read the
+# secret it is not supposed to hold. The bridge (which binds the proxy, and
+# so holds the SERVER half) gets the proxy's secret certificate plus a
+# ``clients/`` directory of the publisher public keys it will accept; the
+# queueserver (the publishing CLIENT) gets the publisher's secret certificate
+# plus the proxy's public one.
+_BLUESKY_CURVE_DIR = Path("data") / "bluesky_curve"
+
+# Control-plane (RE Manager 0MQ control socket) CURVE keypair. Unlike the
+# document plane's certificates these are z85 key *strings*, not files:
+# ``start-re-manager`` and ``bluesky-queueserver-api`` both read them straight
+# out of the environment, so the compose template passes them through from the
+# project ``.env`` under these OSPREY-namespaced names.
+_QSERVER_ZMQ_PRIVATE_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY"
+_QSERVER_ZMQ_PUBLIC_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY"
+
+
+def _append_env_block(env_path: Path, comment: str, values: dict[str, str]) -> None:
+    """Append a commented block of ``KEY=value`` lines to the project ``.env``.
+
+    The single write convention for every deploy-time provisioner that adds to
+    the project ``.env``: keep any trailing newline sane, append rather than
+    rewrite (an operator's own entries are never touched), and ``chmod 0o600``
+    afterwards.
+
+    The ``chmod`` is unconditional even for blocks whose own values are not
+    secret (the EPICS-substrate device names, say). The project ``.env`` is
+    secrets-destined by construction — service auth tokens and the RE manager's
+    control-socket private key land in the same file — so the mode is a
+    property of the file, not of any one block. Keeping it here means no call
+    site has to judge whether its own values are sensitive, and a provisioner
+    that happens to be the one that *creates* ``.env`` cannot leave a
+    world-readable file behind for a later block to fill with secrets.
+
+    Args:
+        env_path: Project ``.env`` path.
+        comment: Header comment for the appended block, written verbatim after
+            a ``# `` prefix.
+        values: Variables to append, in the order they should be written.
+    """
+    prefix = ""
+    if env_path.is_file():
+        text = env_path.read_text(encoding="utf-8")
+        if text and not text.endswith("\n"):
+            prefix = "\n"
+    block = "".join(f"{k}={v}\n" for k, v in values.items())
+    with env_path.open("a", encoding="utf-8") as fh:
+        fh.write(f"{prefix}# {comment}\n{block}")
+    os.chmod(env_path, 0o600)
+
+
+def _profile_env_path(project_dir: Path) -> Path | None:
+    """The profile ``.env`` that owns this project's secrets, or ``None``.
+
+    The profile is located through the project's own manifest
+    (``build_args.profile_path_abs``, the path ``osprey build`` resolved), and
+    the ``.env`` sits at the profile *root* — a persona delta shares the root
+    profile's secrets rather than keeping its own beside itself.
+
+    ``None`` means there is no profile to write to: a preset-built project, a
+    manifest predating the key, or a persona delta whose root has gone missing.
+    The path is not required to exist — a profile directory that has since been
+    deleted resolves here and fails at the write, which is where the degraded
+    path names it.
+    """
+    from osprey.cli.profile_root import resolve_profile_root
+    from osprey.cli.templates.manifest import manifest_profile_path
+
+    profile_path = manifest_profile_path(project_dir)
+    if profile_path is None:
+        return None
+    try:
+        root_dir, _ = resolve_profile_root(profile_path)
+    except BuildProfileError:
+        # A persona delta whose root profile is gone. Reporting it as "no
+        # profile" is honest — we cannot say which directory the secrets belong
+        # in — and the manifest flag still records that they were not synced.
+        logger.warning(
+            "Cannot locate the profile root for %s (its profile.yml is missing), so the "
+            "service secrets this deploy uses stay in the project .env only.",
+            profile_path,
+        )
+        return None
+    return root_dir / ".env"
+
+
+def _sync_secrets_to_profile(env_path: Path, entries: dict[str, str]) -> None:
+    """Persist the secrets this deploy is running with into the owning profile.
+
+    The profile ``.env`` is the source of truth for facility secrets, but a
+    deploy is where several of them first come into existence (minted tokens,
+    volume-initializing passwords). Writing them back is what makes the project
+    reproducible: a rebuild from the same profile comes up on the same secrets
+    instead of minting a second set the running containers do not trust.
+
+    **Append-only.** A key already in the profile keeps its value — it is pinned
+    by the docker volume initialized with it and by every container already
+    trusting it — and a supplied value that disagrees is reported by name (never
+    by value) for the operator to resolve. The project ``.env`` is then
+    re-derived from the profile in ``deploy`` mode: profile-carried keys refresh
+    in place, keys the project lacks are appended, and nothing is deleted — a
+    deploy must not prune a project it did not build.
+
+    Degraded path — no profile recorded, or one that cannot be written (a
+    registry-mode host, a profile directory that has moved or been deleted): the
+    secrets stay in the project ``.env`` where they were minted, a warning names
+    the path that failed, and ``secrets_synced_to_profile: false`` goes into the
+    manifest so ``osprey build --force`` says so before wiping the only copy.
+
+    Never raises into a deploy: every failure here degrades to that path.
+
+    :param env_path: The project ``.env`` the deploy is writing.
+    :param entries: The effective value of each secret, keyed by var name.
+    """
+    from osprey.cli.templates.manifest import write_secrets_synced_to_profile
+
+    project_dir = env_path.resolve().parent
+    try:
+        _sync_secrets_to_profile_inner(env_path, project_dir, entries)
+    except Exception:
+        logger.warning(
+            "Could not persist this deploy's service secrets to the profile .env; they "
+            "remain in %s only. Re-running osprey deploy up after fixing the profile "
+            "will sync them.",
+            env_path.resolve(),
+            exc_info=True,
+        )
+        try:
+            write_secrets_synced_to_profile(project_dir, False)
+        except OSError:
+            # Whatever stopped the write-back may equally stop the stamp (a
+            # read-only project dir, a full disk). The warning above is already
+            # out; losing the manifest flag on top of it must not be what
+            # finally raises into the deploy.
+            logger.debug(
+                "Could not record secrets_synced_to_profile in the manifest at %s",
+                project_dir,
+                exc_info=True,
+            )
+
+
+def _sync_secrets_to_profile_inner(
+    env_path: Path, project_dir: Path, entries: dict[str, str]
+) -> None:
+    """The write-back half of :func:`_sync_secrets_to_profile`, free to raise."""
+    from osprey.cli.templates.manifest import write_secrets_synced_to_profile
+
+    profile_env = _profile_env_path(project_dir)
+    if profile_env is None:
+        # Not a failure: a preset-built project has no profile to own its
+        # secrets. The flag still records that the project .env is the only
+        # copy, which is what the pre-wipe warning needs to know.
+        write_secrets_synced_to_profile(project_dir, False)
+        return
+
+    try:
+        result = append_profile_env(profile_env, entries)
+    except OSError as exc:
+        logger.warning(
+            "Could not write the service secrets to the profile .env at %s (%s). They "
+            "were minted into %s instead and exist nowhere else — copy them into the "
+            "profile, or re-run osprey deploy up once the profile is reachable.",
+            profile_env,
+            exc,
+            env_path.resolve(),
+        )
+        write_secrets_synced_to_profile(project_dir, False)
+        return
+
+    for conflict in result.conflicts:
+        # Values are never logged: the point is which var disagrees, not what
+        # either side holds.
+        logger.warning(
+            "%s differs between this deploy and the profile .env at %s. The profile's "
+            "value was kept (a minted secret is pinned by the volume and containers "
+            "that adopted it); this deploy keeps using its own. Reconcile them by hand "
+            "if the two stacks are meant to share the secret.",
+            conflict.key,
+            profile_env,
+        )
+
+    if result.added:
+        logger.key_info(
+            "Persisted service secret(s) %s to the profile .env at %s — a rebuild from "
+            "this profile will come up on the same secrets",
+            ", ".join(result.added),
+            profile_env,
+        )
+
+    _derive_project_env_from_profile(env_path, profile_env)
+    write_secrets_synced_to_profile(project_dir, not result.conflicts)
+
+
+def _derive_project_env_from_profile(env_path: Path, profile_env: Path) -> None:
+    """Refresh the project ``.env`` from the profile, overlay-only.
+
+    Deploy-mode derivation: there is no render to compare against here, so the
+    existing project file supplies the whole shape and the profile only updates
+    the keys it carries and appends the ones the project is missing. Written
+    through a temp file and ``os.replace`` — the whole file is rewritten, so a
+    crash mid-write must not truncate an operator's ``.env``.
+    """
+    profile_text = profile_env.read_text(encoding="utf-8") if profile_env.is_file() else ""
+    if not profile_text.strip():
+        return
+    existing_text = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
+    derived = derive_project_env(profile_text, "", existing_text, mode="deploy")
+    if derived == existing_text:
+        return
+
+    atomic_write(env_path, derived)
+
 
 def _ensure_service_tokens(
     config: dict, expose_network: bool, env_path: Path | None = None
@@ -142,6 +370,13 @@ def _ensure_service_tokens(
     decided at the connector (``writes_enabled`` plus the per-put channel
     limits), which every write path — agent-side and bridge-side alike — must
     still clear. No deploy-time value is read here for safety semantics.
+
+    Whatever the effective values turn out to be — minted here, already in the
+    project ``.env``, or exported in the shell — they are then persisted to the
+    ``.env`` of the profile the project was built from, so a rebuild reproduces
+    this stack rather than minting a second set of tokens its containers do not
+    trust. See :func:`_sync_secrets_to_profile` for the append-only rule and the
+    degraded path when there is no reachable profile.
 
     Independently of the above, every var in ``_VALIDATE_ONLY_VARS``
     (e.g. ``ARIEL_DSN``) is checked against its ``_VAR_VALIDATORS`` constraint
@@ -171,6 +406,37 @@ def _ensure_service_tokens(
     if env_path is None:
         env_path = Path(".env")
 
+    # Scan the WHOLE file, ahead of everything else, because compose mangles a
+    # `$` on BOTH routes out of this file and every deploy uses both:
+    #
+    #   * `--env-file .env` (see _env_file_args) makes it the substitution
+    #     source for the compose DOCUMENT, so every `environment: - X=${X}`
+    #     entry — how most services here receive their secrets — resolves
+    #     through it;
+    #   * the dispatch worker additionally gets the file entire, via
+    #     `env_file: ../../.env` in its compose template.
+    #
+    # Measured on compose v2.34: `h0rse$battery` substitutes to `h0rse`, and
+    # `secret$HOME` to the deploy host's home path with NO warning at all.
+    # So the check cannot be per-var — _validate_var below only ever sees the
+    # deployed services' _SERVICE_TOKEN_VARS plus _VALIDATE_ONLY_VARS, while
+    # the provider API key, the olog password and the wiki-search token all
+    # travel in this file and are in neither set.
+    #
+    # Before the mint, deliberately. Scanning after would leave freshly minted
+    # tokens appended to .env while the raise skips _sync_secrets_to_profile,
+    # so the next `osprey build` re-derives .env from the profile, drops them,
+    # and mints a second set. Nothing is lost by checking early: every minted
+    # value is `$`-free by construction (see the alphabets in service_tokens),
+    # which the generator self-rejection test pins.
+    #
+    # The file — not the effective value — is what matters: compose reads it
+    # off disk, so a process-env override never reaches a container this way.
+    if env_path.is_file():
+        offenders = compose_unsafe_vars(parse_dotenv_file(env_path))
+        if offenders:
+            raise ComposeInterpolationError(offenders, env_path)
+
     if required_vars:
         existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
 
@@ -183,17 +449,11 @@ def _ensure_service_tokens(
             generated[name] = _generate_token(name)
 
         if generated:
-            prefix = ""
-            if env_path.is_file():
-                text = env_path.read_text(encoding="utf-8")
-                if text and not text.endswith("\n"):
-                    prefix = "\n"
-            block = "".join(f"{k}={v}\n" for k, v in generated.items())
-            with env_path.open("a", encoding="utf-8") as fh:
-                fh.write(
-                    f"{prefix}# Auto-generated service auth tokens (osprey deploy up)\n{block}"
-                )
-            os.chmod(env_path, 0o600)
+            _append_env_block(
+                env_path,
+                "Auto-generated service auth tokens (osprey deploy up)",
+                generated,
+            )
             # Log the path and which keys — NEVER the values.
             logger.key_info(
                 "Generated auth token(s) %s in %s (gitignored) — keep them secret",
@@ -217,7 +477,7 @@ def _ensure_service_tokens(
                 f"empty token. Set {name} in .env to a strong secret."
             )
         if effective and not _validate_var(name, effective):
-            _raise_invalid_var(name)
+            _raise_invalid_var(name, effective)
 
     # Validate-only vars (ARIEL_DSN): checked when present in the same
     # effective-value sense as required_vars above, but never minted when
@@ -228,7 +488,18 @@ def _ensure_service_tokens(
         if not effective:
             continue  # absent — never fabricated, never minted
         if not _validate_var(name, effective):
-            _raise_invalid_var(name)
+            _raise_invalid_var(name, effective)
+
+    # Persist the *effective* secrets — not just the ones minted a moment ago —
+    # into the profile that owns them, so a rebuild reproduces this stack
+    # instead of minting a second set of tokens the running containers reject.
+    # Values already in the profile win; see _sync_secrets_to_profile.
+    if required_vars:
+        effective_secrets = {
+            name: value for name in required_vars if (value := _effective_value(name, post))
+        }
+        if effective_secrets:
+            _sync_secrets_to_profile(env_path, effective_secrets)
 
 
 def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
@@ -258,9 +529,16 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
 
     Never raises into a deploy: a missing/unreadable ``channel_limits.json``
     or a derivation that yields no correctors/BPMs logs a warning and is
-    skipped, leaving the bridge to fall back to its own demo-runner default
-    (or a manually-set substrate env) exactly as before this function
-    existed.
+    skipped, leaving the bridge and the queueserver worker with an empty
+    device namespace — browse-only, exactly as if no substrate env had ever
+    been set — unless an operator supplies one by hand.
+
+    Deliberately *not* written back to the profile ``.env``, unlike the service
+    secrets ``_ensure_service_tokens`` syncs there. These vars are derived
+    configuration, not state only a deploy can produce: their source is the
+    project's own ``channel_limits.json``. The write-back exists to preserve
+    what nothing else can reproduce, so the profile is the wrong place to pin a
+    device list this function derives.
 
     :param config: Raw deploy config (``deployed_services`` membership).
     :param env_path: Project ``.env`` path; defaults to ``Path(".env")``
@@ -273,20 +551,22 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     if "bluesky" not in services or "virtual_accelerator" not in services:
         return
 
-    # The substrate runner drives real Channel Access devices, which only
+    # The substrate devices are ophyd-async Channel Access devices, which only
     # exist behind a real or virtual IOC. A ``mock`` control system speaks no
-    # CA, so a mock deploy must stay on the bridge's demo runner -- the
-    # documented "mock = safe browse/demo, virtual_accelerator = real run"
-    # contract. Arming substrate here would win over an explicit demo_runner
-    # (see ``bluesky_bridge.app``'s substrate-vs-demo precedence) and leave the
-    # bridge trying to resolve scan devices that only the mock demo provides.
-    # Only auto-configure substrate for a control system that actually speaks CA.
+    # CA, so there is nothing to point them at -- the documented "mock =
+    # browse-only, virtual_accelerator = real run" contract. Deriving a
+    # substrate here would hand the queueserver worker device names it can
+    # never connect to, turning a clean browse-only deployment into one whose
+    # environment fails to open. Only auto-configure substrate for a control
+    # system that actually speaks CA.
     control_system_type = str(config.get("control_system", {}).get("type", "mock")).strip().lower()
     if control_system_type == "mock":
         logger.info(
-            "control_system.type is 'mock'; leaving the bluesky bridge on its demo "
-            "runner and skipping BLUESKY_EPICS_SUBSTRATE auto-configuration "
-            "(substrate mode needs a real or virtual IOC to speak CA to)."
+            "control_system.type is 'mock': this deployment is browse-only -- plans can "
+            "be listed and composed but never executed. Skipping "
+            "BLUESKY_EPICS_SUBSTRATE auto-configuration (scan devices need an "
+            "EPICS-like connector to speak Channel Access to). Flip it with "
+            "`osprey config set-control-system virtual_accelerator`."
         )
         return
 
@@ -324,21 +604,523 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     if not generated:
         return
 
-    prefix = ""
-    if env_path.is_file():
-        text = env_path.read_text(encoding="utf-8")
-        if text and not text.endswith("\n"):
-            prefix = "\n"
-    block = "".join(f"{k}={v}\n" for k, v in generated.items())
-    with env_path.open("a", encoding="utf-8") as fh:
-        fh.write(
-            f"{prefix}# Auto-configured bluesky bridge scan devices (osprey deploy up)\n{block}"
-        )
+    _append_env_block(
+        env_path,
+        "Auto-configured bluesky bridge scan devices (osprey deploy up)",
+        generated,
+    )
     logger.key_info(
         "Auto-configured bluesky bridge scan devices %s in %s from the project's "
         "own channel_limits.json",
         ", ".join(generated),
         env_path.resolve(),
+    )
+
+
+def _bluesky_curve_paths(project_dir: Path) -> dict[str, Path]:
+    """The document-plane certificate paths for one project, by role.
+
+    Args:
+        project_dir: Project directory (the parent of the project ``.env``).
+
+    Returns:
+        Mapping of role name to path. ``bridge``/``queueserver``/
+        ``bridge_clients`` are directories (the compose mount sources); the
+        four remaining entries are the certificate files each side reads.
+    """
+    base = project_dir / _BLUESKY_CURVE_DIR
+    bridge = base / "bridge"
+    queueserver = base / "queueserver"
+    clients = bridge / "clients"
+    return {
+        "bridge": bridge,
+        "bridge_clients": clients,
+        "queueserver": queueserver,
+        # Server half — held only by the bridge, which binds the proxy.
+        "proxy_secret": bridge / "proxy.key_secret",
+        # Client half — held only by the queueserver, which publishes.
+        "publisher_secret": queueserver / "publisher.key_secret",
+        # Public halves, crossed over: each side pins the other's identity.
+        "proxy_public": queueserver / "proxy.key",
+        "publisher_public": clients / "publisher.key",
+    }
+
+
+def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = None) -> None:
+    """Generate the document plane's CURVE certificates into the project tree.
+
+    The bridge binds a ``bluesky.callbacks.zmq`` Proxy that the queueserver's
+    Publisher pushes run documents at. Both containers are dual-homed onto
+    ``osprey-network`` (they need the Virtual Accelerator and Tiled), so
+    network placement alone cannot keep a rogue container from injecting
+    forged run documents — key authentication is what does, and that needs
+    certificate material on disk before ``compose up`` mounts it.
+
+    Generation is **unconditional** for any deploy carrying the ``bluesky``
+    service, and deliberately NOT gated on the connector being EPICS-like the
+    way substrate derivation is. A mock deploy never opens the RE worker
+    environment, so empty certificate directories would cost it nothing today
+    — but they are not free: the moment an operator flips the connector to
+    ``virtual_accelerator`` and restarts without a full redeploy, the bridge
+    finds no secret certificate and refuses to bind the plane at all (see
+    ``DocumentPlaneConfig.from_env``), which reads as "live rows silently
+    stopped working" rather than as a missing deploy step. Missing certificates
+    degrade to no document publishing with a loud log, never to an
+    unauthenticated socket, so generating them everywhere buys capability with
+    no safety cost.
+
+    Idempotent and existing-material-wins: a complete set is left exactly as
+    it is, so redeploying never rotates keys out from under a running stack.
+    An *incomplete* set is regenerated whole — a certificate's secret half
+    cannot be recovered from its public one, so a half-present set is
+    unusable and repairing it in place is not possible.
+
+    Never raises into a deploy: any failure logs a warning and leaves the
+    stack to come up without a document plane (no live rows), which is the
+    same degradation the bridge already handles.
+
+    Args:
+        config: Raw deploy config (``deployed_services`` membership).
+        env_path: Project ``.env`` path, used only to locate the project
+            directory; defaults to ``Path(".env")`` like every other
+            provisioning step here.
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if "bluesky" not in services:
+        return
+
+    if env_path is None:
+        env_path = Path(".env")
+    paths = _bluesky_curve_paths(env_path.resolve().parent)
+
+    certs = ("proxy_secret", "publisher_secret", "proxy_public", "publisher_public")
+    present = [name for name in certs if paths[name].is_file()]
+    if len(present) == len(certs):
+        logger.info(
+            "Bluesky document-plane CURVE certificates already present in %s — keeping them",
+            paths["bridge"].parent,
+        )
+        return
+    if present:
+        logger.warning(
+            "Bluesky document-plane CURVE certificates in %s are incomplete (%d of %d "
+            "present) — regenerating the whole set, since a certificate's secret half "
+            "cannot be rebuilt from its public one. Every container currently running "
+            "against the old set must be recreated to pick these up: pyzmq's CURVE "
+            "authenticator reads the accepted-client directory once, when the socket is "
+            "configured, so dropping a key in beside a running bridge changes nothing "
+            "and the publisher stays refused.",
+            paths["bridge"].parent,
+            len(present),
+            len(certs),
+        )
+
+    try:
+        _generate_bluesky_curve_certs(paths)
+    except Exception:
+        logger.warning(
+            "Could not generate the bluesky document-plane CURVE certificates under %s. "
+            "The stack will still come up, but the bridge will refuse to bind its "
+            "document proxy, so scans will report no live rows.",
+            paths["bridge"].parent,
+            exc_info=True,
+        )
+        return
+
+    logger.key_info(
+        "Generated bluesky document-plane CURVE certificates under %s (gitignored, like "
+        "the project .env). Both containers read them at startup, so certificates written "
+        "or replaced while the stack is running take effect only after the bridge and "
+        "queueserver containers are recreated.",
+        paths["bridge"].parent,
+    )
+
+
+def _generate_bluesky_curve_certs(paths: dict[str, Path]) -> None:
+    """Mint both document-plane keypairs and place them per ``paths``.
+
+    Certificates are minted into a scratch directory and then moved into
+    place, so a failure part-way through cannot leave one side holding a key
+    that no longer pairs with the other's.
+
+    Args:
+        paths: Role-to-path mapping from :func:`_bluesky_curve_paths`.
+    """
+    # Lazy import: pyzmq arrives with the core bluesky dependency, but keep it
+    # off the import path of every non-bluesky deploy.
+    from zmq.auth import create_certificates
+
+    for key in ("bridge", "bridge_clients", "queueserver"):
+        paths[key].mkdir(parents=True, exist_ok=True)
+        os.chmod(paths[key], 0o700)
+
+    with tempfile.TemporaryDirectory(dir=paths["bridge"].parent) as scratch:
+        scratch_dir = Path(scratch)
+        proxy_public, proxy_secret = create_certificates(scratch_dir, "proxy")
+        publisher_public, publisher_secret = create_certificates(scratch_dir, "publisher")
+        for source, target in (
+            (proxy_secret, paths["proxy_secret"]),
+            (publisher_secret, paths["publisher_secret"]),
+            (proxy_public, paths["proxy_public"]),
+            (publisher_public, paths["publisher_public"]),
+        ):
+            os.replace(source, target)
+
+    # `create_certificates` writes world-readable files. The public halves are
+    # not secrets and stay that way; the secret halves get .env's 0600.
+    os.chmod(paths["proxy_secret"], 0o600)
+    os.chmod(paths["publisher_secret"], 0o600)
+
+
+def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = None) -> None:
+    """Mint the RE Manager's control-socket CURVE keypair into the project ``.env``.
+
+    The manager's 0MQ control socket is the one route to plan execution that
+    does not pass the bridge's launch-token gate, and that gate is only
+    meaningful if it is the sole way in. The socket publishes no port, but the
+    queueserver container has to sit on ``osprey-network`` as well as the
+    internal one, so key authentication — not network placement — is what
+    keeps another container on that network from driving the manager directly.
+
+    The two halves must pair, which is why this cannot ride on
+    ``_ensure_service_tokens``: ``_VAR_GENERATORS``' recipes take no arguments
+    and mint each variable independently, so there is no way to express "this
+    value is derived from that one" — and two independently random keys are
+    exactly a broken CURVE handshake. A pair-aware hook in that map would have
+    to reach across variables mid-loop; a separate step is the smaller change,
+    and it leaves that function's minting, ``--expose`` and validation
+    semantics untouched.
+
+    **Both halves are secrets.** The public key is not the usual
+    "public keys are safe to publish" case: upstream ``bluesky-queueserver``
+    clients authenticate with a fixed, publicly-known client keypair, so
+    holding the manager's public key is by itself enough to reach its control
+    socket. Both values therefore go into the 0600 ``.env`` and neither is
+    ever logged — only the variable names are.
+
+    Existing values win, in the same "process env, then ``.env``" precedence
+    ``_ensure_service_tokens`` uses, with one repair: when only the private
+    key is set, the public half is *derived* from it rather than minted, so an
+    operator who supplied their own manager key gets a matching pair instead
+    of a silent handshake failure. The reverse (a public key with no private
+    half) cannot be repaired — a secret key is not recoverable from a public
+    one — so it warns rather than fabricating a key that would not pair.
+
+    **Plaintext is not a supported mode.** An explicitly empty private key is
+    treated as unset, not as "encryption off": the compose template expands
+    this variable with a ``:?`` guard, which fails on empty exactly as it does
+    on unset, so an empty value cannot produce a running stack — only a
+    confusing abort deep inside ``compose``. Refusing here turns that into an
+    actionable message. The operator override story is to supply a valid pair
+    of their own, never to switch encryption off.
+
+    Raises into a deploy only for that one case — a deliberate empty value,
+    which is unsatisfiable. Everything else (a malformed key, an unavailable
+    ``zmq``) logs a warning and returns, leaving the ``:?`` guard to stop the
+    deploy rather than this function.
+
+    Args:
+        config: Raw deploy config (``deployed_services`` membership).
+        env_path: Project ``.env`` path; defaults to ``Path(".env")``.
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if "bluesky" not in services:
+        return
+
+    if env_path is None:
+        env_path = Path(".env")
+    existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
+
+    def _is_set(name: str) -> bool:
+        """Present with a non-empty value.
+
+        Unlike ``_ensure_service_tokens``, an empty value is NOT honoured as a
+        deliberate "leave it alone" here: a plaintext control socket is not a
+        supported mode for this stack, and the compose template's ``:?`` guard
+        rejects empty exactly as it rejects unset.
+        """
+        return bool(_effective_value(name, existing).strip())
+
+    # An explicitly empty value for EITHER half is unsatisfiable, so refuse it
+    # here where the message can be actionable. Empty is not "encryption off":
+    # for the private key the compose template's `:?` guard rejects it exactly
+    # as it rejects unset, and an empty public half leaves the bridge unable to
+    # authenticate to a manager that does have a key. Minting over either one
+    # would contradict a value the operator deliberately set.
+    for var in (_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR):
+        if (var in os.environ or var in existing) and not _effective_value(var, existing).strip():
+            raise RuntimeError(
+                f"{var} is set but empty. An empty value would run the bluesky RE manager's "
+                "control socket in plaintext, which is not a supported mode: the manager is "
+                "the one route to plan execution that does not pass the bridge's launch-token "
+                "gate, and its container shares a network with every other service. Either "
+                f"unset {var} and let `osprey deploy up` mint a keypair, or set "
+                f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} to the private half of a CURVE keypair of "
+                "your own."
+            )
+
+    # A value containing `$` is unusable no matter how well-formed it is: the
+    # project .env goes through docker compose's interpolation, which would
+    # rewrite it on the way to the container (see
+    # `_assert_env_interpolation_safe`). Checked BEFORE the pairing check
+    # below, so an operator whose key has this problem hears about the real
+    # cause rather than a mismatched-pair message about a value neither side
+    # ever sees. Existing values are never overwritten, so refusing is the only
+    # honest option here — minting over an operator's deliberate key is not.
+    for var in (_QSERVER_ZMQ_PRIVATE_KEY_VAR, _QSERVER_ZMQ_PUBLIC_KEY_VAR):
+        _assert_env_interpolation_safe(var, _effective_value(var, existing))
+
+    has_private = _is_set(_QSERVER_ZMQ_PRIVATE_KEY_VAR)
+    has_public = _is_set(_QSERVER_ZMQ_PUBLIC_KEY_VAR)
+    if has_private and has_public:
+        # Both present is the "operator supplied their own" path, and it is the
+        # one shape the compose `:?` guards cannot check: two well-formed keys
+        # that simply do not belong together satisfy every guard and then fail
+        # at runtime as a control-socket timeout with nothing pointing at the
+        # keys. Verify the pairing here, where the message can name the cause.
+        _verify_qserver_keypair_pairs(
+            _effective_value(_QSERVER_ZMQ_PRIVATE_KEY_VAR, existing),
+            _effective_value(_QSERVER_ZMQ_PUBLIC_KEY_VAR, existing),
+        )
+        return
+    if has_public and not has_private:
+        logger.warning(
+            "%s is set but %s is not. A CURVE public key cannot be turned back into its "
+            "private half, and minting a fresh private key would silently orphan the "
+            "public one you set, so nothing is generated here — the deploy will stop at "
+            "the compose template's fail-closed guard on the private key rather than "
+            "start the manager in plaintext. Set %s to the private half of that keypair, "
+            "or unset %s to let `osprey deploy up` mint a fresh pair.",
+            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+        )
+        return
+
+    try:
+        generated = _derive_qserver_keypair(
+            _effective_value(_QSERVER_ZMQ_PRIVATE_KEY_VAR, existing)
+        )
+    except EnvInterpolationUnsafeError:
+        # NOT swallowed like the failures below: the compose `:?` guard cannot
+        # catch a value that is present-but-rewritten, so degrading this to a
+        # warning would hand the operator a control-socket timeout with nothing
+        # pointing at the key. See EnvInterpolationUnsafeError.
+        raise
+    except Exception:
+        logger.warning(
+            "Could not provision the bluesky RE manager's control-socket CURVE keypair "
+            "(%s / %s). No key is written, so the compose template's fail-closed guard "
+            "on the private key will stop the deploy rather than start the manager in "
+            "plaintext.",
+            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            exc_info=True,
+        )
+        return
+
+    if has_private and _QSERVER_ZMQ_PRIVATE_KEY_VAR in os.environ:
+        # The private half lives only in this shell, so writing its derived
+        # public half to .env would leave a half-state on disk: the next deploy
+        # from a clean shell would find a public key with no private one, hit
+        # the orphan branch above, and abort at the compose guard. Export it for
+        # this deploy instead and re-derive it every time — the pair then always
+        # comes from the same source, and nothing on disk can go stale.
+        os.environ.update(generated)
+        logger.key_info(
+            "Derived %s from the %s in this environment for this deploy only; not written "
+            "to %s, since the private half is not there either and a lone public key on "
+            "disk would fail the next deploy from a clean shell.",
+            ", ".join(generated),
+            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+            env_path.resolve(),
+        )
+        return
+
+    _append_env_block(
+        env_path,
+        "Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",
+        generated,
+    )
+    # Names only, never values -- and that applies to BOTH halves, not just the
+    # private one (see the function docstring on why the public key is bearer
+    # material here). Matches _ensure_service_tokens' "log which keys, never
+    # what they are" convention.
+    logger.key_info(
+        "Generated bluesky RE manager control-socket keypair %s in %s (gitignored). "
+        "Treat both values as secrets — the public half alone is enough to reach the "
+        "manager's control socket.",
+        ", ".join(generated),
+        env_path.resolve(),
+    )
+
+
+def _verify_qserver_keypair_pairs(private_key: str, public_key: str) -> None:
+    """Refuse a configured keypair whose two halves do not belong together.
+
+    Both halves being present is the operator-supplied path, and a mismatched
+    pair is the one failure the compose ``:?`` guards cannot catch: two
+    well-formed z85 keys satisfy every guard, so the deploy comes up and the
+    bridge's every control-socket call then times out with nothing in any log
+    pointing at the keys. Checking the pairing at deploy time turns that into
+    a named cause.
+
+    Args:
+        private_key: The effective ``BLUESKY_QSERVER_ZMQ_PRIVATE_KEY``.
+        public_key: The effective ``BLUESKY_QSERVER_ZMQ_PUBLIC_KEY``.
+
+    Raises:
+        RuntimeError: The public key is not the one derived from the private
+            key. Names both variables and never echoes either value.
+    """
+    import zmq
+
+    try:
+        derived = zmq.curve_public(private_key.encode()).decode()
+    except Exception:
+        # Malformed private key: same policy as everywhere else here — warn and
+        # leave the compose guard to stop the deploy. Nothing can be verified
+        # against a key that will not parse, and raising would pre-empt the
+        # clearer failure the operator is about to get from their own value.
+        logger.warning(
+            "Could not check that %s pairs with %s: the private key does not parse as a "
+            "CURVE key. The deploy continues, but the manager will reject every "
+            "control-socket call until that value is a valid z85 private key.",
+            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
+            _QSERVER_ZMQ_PUBLIC_KEY_VAR,
+            exc_info=True,
+        )
+        return
+
+    if derived != public_key.strip():
+        raise RuntimeError(
+            f"{_QSERVER_ZMQ_PUBLIC_KEY_VAR} is not the public half of "
+            f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR}. Both values are well-formed, so every "
+            "compose guard would pass and the stack would start — but the bridge could "
+            "never complete a CURVE handshake with the RE manager, and every queue call "
+            "would fail as an unexplained control-socket timeout. Set "
+            f"{_QSERVER_ZMQ_PUBLIC_KEY_VAR} to the public half of that keypair, or unset "
+            "both and let `osprey deploy up` mint a matched pair."
+        )
+
+
+# How many keypairs to draw before giving up on finding one free of `$`.
+# `$` is one of Z85's 85 characters, so a single 40-character key carries one
+# with probability 1 - (84/85)**40 ≈ 38%; a draw is a PAIR (private + public,
+# 80 characters together) and is rejected if EITHER half does, i.e. ≈61% of the
+# time. The chance of 40 consecutive rejections is therefore ≈3e-9 — the bound
+# exists so a broken generator cannot spin forever, not because exhaustion is
+# expected.
+_QSERVER_KEYPAIR_MINT_ATTEMPTS = 40
+
+
+class EnvInterpolationUnsafeError(RuntimeError):
+    """A ``.env`` value docker compose would rewrite on its way to the container.
+
+    Its own type, not a bare ``RuntimeError``, for one reason: the keypair
+    provisioning path deliberately swallows exceptions into a warning and lets
+    the compose ``:?`` guard stop the deploy. That is right for "zmq is missing"
+    or "this key is malformed", where the guard's message is as good as any.
+    It is wrong here — the guard cannot fire on a value that IS set, and the
+    operator would be left with an opaque control-socket timeout — so this one
+    is re-raised.
+    """
+
+
+def _assert_env_interpolation_safe(var: str, value: str) -> None:
+    """Refuse a ``.env`` value docker compose would silently rewrite.
+
+    Compose INTERPOLATES the env-file it is given: a ``$`` followed by an
+    identifier is expanded as a variable reference, and an unset variable
+    expands to the empty string. So a secret containing ``$`` reaches the
+    container SHORTER AND DIFFERENT than what was written, with nothing but a
+    ``level=warning ... variable is not set`` line to say so.
+
+    That is not hypothetical here. The RE manager's control-socket keys are
+    Z85, whose alphabet includes ``$``: a real deploy wrote a valid 40-character
+    public key and the bridge received 38 characters, failing with "the key must
+    be a 40 byte z85 encoded string" — intermittently, because it depends on
+    what the mint happened to draw.
+
+    Every OTHER secret this module mints already avoids the problem by
+    construction (``token_urlsafe``/``token_hex`` alphabets, and OpenObserve's
+    recipe explicitly excludes ``$`` for exactly this family of reasons), so
+    this guard exists for values whose alphabet is not ours to choose: an
+    operator-supplied key, or a public half derived from one. Freshly minted
+    pairs are re-drawn instead of refused — see `_derive_qserver_keypair`.
+
+    Rejects ANY ``$``, not only the sequences compose currently expands: which
+    forms are treated as references is compose's business and may widen, and a
+    key is opaque random material, so there is no cost to being strict.
+
+    Raises:
+        RuntimeError: ``value`` contains ``$``.
+    """
+    if "$" not in value:
+        return
+    raise EnvInterpolationUnsafeError(
+        f"{var} contains a '$', which docker compose would expand as a variable "
+        "reference when it reads the project .env — the container would receive a "
+        "truncated, invalid key and the bluesky RE manager's control socket would "
+        "fail to authenticate, with only a 'variable is not set' warning to explain "
+        "it. This value cannot be used as-is. Supply a CURVE keypair whose halves "
+        f"contain no '$' (unset {var} to let `osprey deploy up` mint one), or set "
+        f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} to a private key whose derived public half "
+        "is also '$'-free."
+    )
+
+
+def _derive_qserver_keypair(private_key: str) -> dict[str, str]:
+    """The control-plane variables to append, given any private key already set.
+
+    Freshly minted pairs are drawn until BOTH halves are free of ``$`` (see
+    `_assert_env_interpolation_safe` for why that character is disqualifying).
+    Rejection sampling rather than escaping: writing ``$$`` into ``.env`` would
+    be correct only for compose, and every other reader of that file — osprey's
+    own ``parse_dotenv_file``, the "existing value wins" check on the next
+    deploy, an operator — would see a literal ``$$`` and a different key. It
+    costs well under one bit against a 256-bit secret.
+
+    A public half DERIVED from an operator's private key cannot be re-drawn, so
+    that path is checked and refused instead.
+
+    Args:
+        private_key: The effective ``BLUESKY_QSERVER_ZMQ_PRIVATE_KEY``, or an
+            empty string when none is set. An empty value never reaches here —
+            the caller refuses it outright, since plaintext is not a supported
+            mode.
+
+    Returns:
+        The public half alone when a private key is already set (derived from
+        it, so the operator's own manager key is kept); a freshly minted pair
+        otherwise.
+
+    Raises:
+        RuntimeError: A derived public half contains ``$``, or no ``$``-free
+            pair could be drawn within `_QSERVER_KEYPAIR_MINT_ATTEMPTS`.
+    """
+    import zmq
+
+    if private_key.strip():
+        public = zmq.curve_public(private_key.encode()).decode()
+        # Not re-drawable: this half is determined by the operator's own key.
+        _assert_env_interpolation_safe(_QSERVER_ZMQ_PUBLIC_KEY_VAR, public)
+        return {_QSERVER_ZMQ_PUBLIC_KEY_VAR: public}
+
+    for _ in range(_QSERVER_KEYPAIR_MINT_ATTEMPTS):
+        public_bytes, secret_bytes = zmq.curve_keypair()
+        public, secret = public_bytes.decode(), secret_bytes.decode()
+        if "$" not in public and "$" not in secret:
+            return {
+                _QSERVER_ZMQ_PRIVATE_KEY_VAR: secret,
+                _QSERVER_ZMQ_PUBLIC_KEY_VAR: public,
+            }
+    raise EnvInterpolationUnsafeError(
+        f"could not mint a bluesky RE manager keypair free of '$' in "
+        f"{_QSERVER_KEYPAIR_MINT_ATTEMPTS} attempts — every draw contained a character "
+        "docker compose would expand out of the project .env. This should be "
+        "vanishingly unlikely; suspect the key generator rather than bad luck."
     )
 
 
@@ -744,6 +1526,17 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
     _ensure_bluesky_substrate_env(config)
 
+    # Provision the bluesky scan stack's 0MQ key material before compose mounts
+    # it: the RE manager's control-socket keypair into .env, and the document
+    # plane's CURVE certificates into data/bluesky_curve/. Both are no-ops
+    # without the bluesky service, and both are additive (existing material
+    # always wins) so a redeploy never rotates keys under a running stack.
+    # Neither is gated on the connector -- see
+    # _ensure_bluesky_document_plane_certs for why a browse-only deploy still
+    # gets its certificates.
+    _ensure_bluesky_control_plane_keys(config)
+    _ensure_bluesky_document_plane_certs(config)
+
     # Set up environment for containers
     env = os.environ.copy()
     if dev_mode:
@@ -755,8 +1548,16 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # abort on a missing provider secret must say so in seconds, not after
     # the whole project image has been built. deploy_up_web_terminals re-runs
     # the same (idempotent) steps later, unchanged.
+    #
+    # Its result is CAPTURED and threaded into deploy_up_web_terminals below,
+    # not discarded: preflight is the only step that can tell whether THIS
+    # deploy changed `.env.auth`, and compose bakes an `env_file`'s content into
+    # a container at creation time, so the deploy that changed the file is the
+    # one that has to recreate the auth sidecar. Recomputing it later is not an
+    # option — provisioning is idempotent, so a second run reports no change.
+    web_preflight = None
     if web_terminals_enabled:
-        preflight_web_terminals(config, env)
+        web_preflight = preflight_web_terminals(config, env)
 
     # Build the <project>:local image the dispatch worker references. The worker
     # has no compose build block (that would race the event-dispatcher on the
@@ -766,7 +1567,9 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     _build_project_image(config, dev_mode, env)
 
     if web_terminals_enabled:
-        deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args())
+        deploy_up_web_terminals(
+            config, compose_files, dev_mode, env, _env_file_args(), web_preflight
+        )
         log_endpoint_summary(config, compose_files)
         return
 
@@ -913,6 +1716,16 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     # Honor the same fail-closed/expose guard as deploy_up when re-rendering with
     # a (possibly newly exposed) bind address.
     _ensure_service_tokens(config, expose_network)
+
+    # Same reason the token mint above runs on this path: the bluesky compose
+    # template expands the manager's private key with a `:?` guard, so an unset
+    # value aborts the whole `compose restart` rather than degrading. A project
+    # whose .env predates this feature has no key, and restarting it must not
+    # be the thing that breaks it. The document-plane certificates are NOT
+    # provisioned here -- they are bind-mount sources, and `compose restart`
+    # reuses each container's existing config rather than re-resolving mounts,
+    # so generating them would change nothing until the next `deploy up`.
+    _ensure_bluesky_control_plane_keys(config)
 
     cmd = get_runtime_command(config)
     for compose_file in compose_files:

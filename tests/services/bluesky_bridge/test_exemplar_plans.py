@@ -1,4 +1,4 @@
-"""Coverage for the shipped accelerator plans (task 1.5):
+"""Coverage for the shipped accelerator plans:
 ``plans_core/orm.py`` and ``plans_core/grid_scan.py``.
 
 Runs ONLY in a bluesky-capable environment — `bluesky`/`ophyd-async` are
@@ -14,10 +14,10 @@ bluesky installed at all. To actually run this file:
 Two things are proven for each plan: (1) it registers through the real
 layered-directory loader (`plan_loader.get_facility_plans`) with valid
 metadata and `provenance == "shipped"` — i.e. the file satisfies the catalog
-contract, not a hand-built `PlanSpec`; and (2) its `build_plan` drives a real
-bluesky `RunEngine` (via `BlueskyPlanRunner`, mirroring
-`test_runengine_integration.py`'s harness) to completion against mock
-devices, emitting documents. `orm`'s own restore-in-`finally` abort-safety
+contract, not a hand-built `PlanSpec`; and (2) it drives a real bluesky
+`RunEngine` to completion against mock devices, emitting documents — through
+`bluesky_plan_drive.run_plan`, which wraps each plan exactly as the queueserver
+worker's namespace does, so what runs here is the production call shape. `orm`'s own restore-in-`finally` abort-safety
 (the FAILURE path) is covered separately by `test_builtin_plans.py`, which
 drives its generator directly rather than through this registration path.
 """
@@ -25,7 +25,6 @@ drives its generator directly rather than through this registration path.
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
@@ -34,15 +33,8 @@ ophyd_async = pytest.importorskip("ophyd_async")
 
 from osprey.services.bluesky_bridge import live_rows, plan_loader  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E402
-from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner  # noqa: E402
 
-
-def _wait_until_idle(runner: BlueskyPlanRunner, timeout: float = 15.0) -> None:
-    deadline = time.monotonic() + timeout
-    while runner.is_run_active():
-        if time.monotonic() > deadline:
-            raise AssertionError("scan did not finish within the timeout")
-        time.sleep(0.05)
+from .bluesky_plan_drive import run_plan  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -97,28 +89,19 @@ def orm_devices() -> dict:
 
 def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None:
     facility = plan_loader.get_facility_plans()
-    runner = BlueskyPlanRunner(devices=orm_devices, plans=facility.plans)
-    exec_config = {
-        "plan_name": "orm",
-        "plan_args": {
+    run_uid = run_plan(
+        "orm",
+        {
             "correctors": ["hcm1", "hcm2"],
             "detectors": ["bpm1", "bpm2"],
             "span_a": 2.0,
             "num": 3,
         },
-    }
+        devices=orm_devices,
+        plans=facility.plans,
+    )
 
-    assert runner.reinitialize(exec_config) is True
-    assert runner.current_state == "armed"
-
-    runner.start_run_thread()
-    _wait_until_idle(runner)
-
-    assert runner.error_message is None
-    assert runner.current_state == "completed"
-    assert runner.last_run_uid is not None
-
-    buf = live_rows.get(runner.last_run_uid)
+    buf = live_rows.get(run_uid)
     assert buf is not None
     # 2 correctors x 3 points each = one event (row) per (corrector, current).
     assert buf["total_seen"] == 6
@@ -143,30 +126,20 @@ def gs_devices() -> dict:
 
 def test_grid_scan_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) -> None:
     facility = plan_loader.get_facility_plans()
-    runner = BlueskyPlanRunner(devices=gs_devices, plans=facility.plans)
-    exec_config = {
-        "plan_name": "grid_scan",
-        "plan_args": {
+    run_uid = run_plan(
+        "grid_scan",
+        {
             "detectors": ["det1"],
             "axes": [
                 {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 2},
                 {"setpoint": "motor2", "start": 0.0, "stop": 1.0, "num_points": 3},
             ],
         },
-    }
+        devices=gs_devices,
+        plans=facility.plans,
+    )
 
-    assert runner.reinitialize(exec_config) is True
-    assert runner.current_state == "armed"
-
-    runner.start_run_thread()
-    _wait_until_idle(runner)
-
-    assert runner.error_message is None
-    assert runner.current_state == "completed"
-    assert runner.last_run_uid is not None
-    assert runner.estimate_current_completion() == 1.0
-
-    buf = live_rows.get(runner.last_run_uid)
+    buf = live_rows.get(run_uid)
     assert buf is not None
     # 2 x 3 grid = 6 total points.
     assert buf["total_seen"] == 6

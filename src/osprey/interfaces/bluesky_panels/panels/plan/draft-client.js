@@ -103,8 +103,9 @@ import { flashElement } from '/design-system/js/highlight.js';
  *   always-in-the-past (see `shouldAutoSwitch`).
  * @property {{runId: string, revision: number}|null} launchBanner  The last
  *   observed `launched` frame's run — the fact behind the "revision N
- *   launched -> run <id>" banner (FR8: the launch moment is visible whether
- *   the panel or the agent triggered it). `null` until the first launch.
+ *   queued -> run <id>" banner (the moment a revision becomes a run is
+ *   visible whether the panel or the agent triggered it). `null` until the
+ *   first launch.
  */
 
 /**
@@ -128,9 +129,9 @@ export function createInitialState(clientId) {
 
 /**
  * Apply a hello frame or a post-resync `GET /draft` snapshot: unconditionally
- * resets the last-applied baseline, including backward (PROPOSAL.md: the
- * revision counter is per-process, so a bridge restart must not leave every
- * subsequent frame looking "stale").
+ * resets the last-applied baseline, including backward: the revision counter
+ * is per-process, so a bridge restart must not leave every subsequent frame
+ * looking "stale".
  *
  * @param {DraftState} state
  * @param {DraftGetResponse} snapshot
@@ -157,8 +158,8 @@ export function reduceReset(state, snapshot) {
  */
 
 /**
- * The revision state machine (PROPOSAL.md "revision handling"): a `hello`
- * frame always resets the baseline unconditionally; otherwise `revision <=
+ * The revision state machine: a `hello` frame always resets the baseline
+ * unconditionally; otherwise `revision <=
  * last applied` is dropped, `== last + 1` is applied, and `> last + 1`
  * triggers a resync (the caller must `GET /draft` and feed the result to
  * `reduceReset`). An own-origin frame (matching `clientId`) still advances
@@ -317,8 +318,8 @@ export function shouldAutoSwitch(prevState, reduced) {
 /**
  * Minimal-delta PATCH body pieces for a set of pending (user-touched) keys:
  * a key present (non-OMIT) in `fullArgs` goes into `plan_args_patch`; a key
- * absent (blanked by the user) goes into `remove[]` (PROPOSAL.md: "blank
- * transitions -> remove[]"; removal is never expressed as a null value).
+ * absent (blanked by the user) goes into `remove[]` — a blank transition is a
+ * removal, never expressed as a null value.
  *
  * @param {Record<string, unknown>} fullArgs  The collector's current full read.
  * @param {Iterable<string>} pendingKeys
@@ -340,8 +341,8 @@ export function computeDelta(fullArgs, pendingKeys) {
 }
 
 /**
- * Resolve the `draft_revision` to pin for Launch: the just-flushed PATCH's
- * own response revision when a flush actually happened, else the last
+ * Resolve the `draft_revision` to pin for the enqueue: the just-flushed
+ * PATCH's own response revision when a flush actually happened, else the last
  * applied frame/hello baseline (the launch revision gate).
  *
  * @param {{patched: boolean, revision: number|null}} flushResult
@@ -369,114 +370,436 @@ export function generateClientId() {
 }
 
 /**
- * The panel's own Launch request body for the two mutually-exclusive launch
- * modes (the launch revision gate): bound mode sends only
- * `{draft_revision}` — never `plan_name`/`plan_args` alongside, so the
- * launched args always come from the bridge's pinned-revision snapshot, not
- * this body; unbound (manual) mode sends the collected form args exactly as
- * it did before draft mode existed.
+ * The `POST /queue/items` body: the pinned draft revision and nothing else.
+ * The enqueued `plan_name`/`plan_args` come exclusively from the bridge's own
+ * draft snapshot at exactly this revision, so there is deliberately no
+ * `plan_name`/`plan_args` alternative — a body that carried them would be a
+ * second, drifting source for what actually runs.
  *
- * @param {{bound: boolean, pinnedRevision: number|null, planName: string, planArgs: Record<string, unknown>}} input
+ * @param {{revision: number|null}} input
  * @returns {Record<string, unknown>}
  */
-export function buildLaunchRequestBody({ bound, pinnedRevision, planName, planArgs }) {
-  return bound ? { draft_revision: pinnedRevision } : { plan_name: planName, plan_args: planArgs };
+export function buildQueueAddBody({ revision }) {
+  return { draft_revision: revision };
 }
 
 /**
- * @typedef {{type: 'writes_not_armed'}
- *   | {type: 'run_started', runId: string}
+ * The `PATCH /draft` body that makes the shared draft EQUAL a local form, so
+ * the form can then be enqueued at a revision (the queue surface has no
+ * plan-args-in-the-body mode — see `buildQueueAddBody`).
+ *
+ * `plan_name` is always sent: it creates the draft when none exists (the
+ * bridge's `no_draft` 409 names exactly this remedy) and switches it —
+ * clearing the previous plan's args — when the shared draft is on a different
+ * plan.
+ *
+ * `remove` is what makes this a REPLACEMENT rather than a merge, and it is
+ * load-bearing for safety. When the draft is already on this plan, the bridge
+ * merges `plan_args_patch` over the existing args
+ * (draft.py: `new_args = dict(old_args)`), and the form's collector OMITS
+ * blank fields so plan-side defaults apply. Without `remove`, a field the
+ * operator deliberately cleared would silently keep the PREVIOUS writer's
+ * value — an emptied corrector list would enqueue the agent's magnets — and
+ * the enqueue would succeed. So every key the draft currently holds that the
+ * form no longer supplies is removed explicitly, the same principle
+ * `computeDelta` applies to incremental edits: a cleared field is a removal,
+ * never a null value. Removing a key the draft does not hold is a no-op
+ * upstream (`new_args.pop(key, None)`), so this is safe on the
+ * plan-switch/create paths too.
+ *
+ * @param {{planName: string, planArgs: Record<string, unknown>, draftArgKeys: string[], clientId: string}} input
+ * @returns {Record<string, unknown>}
+ */
+export function buildDraftReplaceBody({ planName, planArgs, draftArgKeys, clientId }) {
+  const remove = draftArgKeys.filter(
+    (key) => !Object.prototype.hasOwnProperty.call(planArgs, key)
+  );
+  return { plan_name: planName, plan_args_patch: planArgs, remove, client_id: clientId };
+}
+
+/**
+ * The capability reason codes that mean "this deployment cannot execute
+ * plans, and retrying changes nothing" — the connector/config half of
+ * queue_backend's reason constants (409s on the queue surface). The manager
+ * half (`manager_not_configured`, `manager_unreachable`) is a 503: genuinely
+ * retryable, so it is classified separately below.
+ *
+ * @type {ReadonlySet<string>}
+ */
+const DEPLOYMENT_CAPABILITY_CODES = new Set([
+  'browse_only_connector',
+  'unsupported_connector',
+  'config_unreadable',
+]);
+
+/** @type {ReadonlySet<string>} */
+const MANAGER_CAPABILITY_CODES = new Set(['manager_not_configured', 'manager_unreachable']);
+
+/** @type {ReadonlySet<string>} */
+const SESSION_PLAN_CODES = new Set(['session_plan_unvalidated', 'session_plan_not_in_namespace']);
+
+/**
+ * The machine-readable refusal record out of a queue-surface response body.
+ *
+ * BINDING CONTRACT: the sidecar's queue relay does NOT unwrap the bridge's
+ * refusal envelope (unlike the legacy launch relay, which lifted `code` to the
+ * top level) — every refusal arrives as `{detail: {code, detail, ...extras}}`,
+ * deep-equal to what the bridge minted. Classifying on a top-level `code`
+ * here would silently match nothing and send every refusal down the generic
+ * error branch, so this is the one place that reaches into `detail`.
+ *
+ * Returns `null` when the body carries no such record — including the
+ * sidecar's own `{detail: "bluesky bridge unreachable"}` 502, whose `detail`
+ * is a bare string.
+ *
+ * @param {any} body
+ * @returns {{code?: string, detail?: string, [key: string]: any}|null}
+ */
+export function queueRefusalDetail(body) {
+  const detail = body && typeof body === 'object' ? body.detail : null;
+  return detail && typeof detail === 'object' && !Array.isArray(detail) ? detail : null;
+}
+
+/**
+ * @typedef {{type: 'queued', runId: string, revision: number|null}
  *   | {type: 'stale_draft_revision'}
  *   | {type: 'draft_revision_already_launched'}
- *   | {type: 'conflict', detail: string}
+ *   | {type: 'not_armed', detail: string, managerState: string|null, itemLeftBehind: boolean}
+ *   | {type: 'cannot_execute', reason: string, detail: string}
+ *   | {type: 'session_plan_not_ready', detail: string, plan: string|null}
+ *   | {type: 'queue_rejected', detail: string}
  *   | {type: 'bridge_unreachable'}
- *   | {type: 'error', detail: string}} LaunchOutcome
+ *   | {type: 'error', detail: string}} QueueAddOutcome
  */
 
 /**
- * Classify `POST /runs/launch`'s response into a display-ready outcome —
- * pure and DOM/fetch-free, so the status/`code` branching (in particular
- * distinguishing the machine-readable `stale_draft_revision` and
- * `draft_revision_already_launched` discriminators from a bare bridge-relayed
- * 409) is unit-testable without a real panel.
+ * Classify `POST /queue/items`'s response into a display-ready outcome —
+ * pure and DOM/fetch-free, so the whole `detail.code` branch table is
+ * unit-testable without a real panel or bridge.
+ *
+ * The status code is used only where it genuinely discriminates (200 success,
+ * 502 sidecar-unreachable); every refusal branch keys on `detail.code`, which
+ * the bridge guarantees on all of them and which — unlike the status — tells
+ * `launch_token_required` (403 armed-wrong-token AND 503 unarmed, one code)
+ * apart from the other 403/503 refusals.
  *
  * @param {number} status
  * @param {any} body
- * @returns {LaunchOutcome}
+ * @returns {QueueAddOutcome}
  */
-export function classifyLaunchResponse(status, body) {
-  if (status === 200 && body && body.status === 'writes_not_armed') return { type: 'writes_not_armed' };
-  if (status === 200 && body && body.run_id) return { type: 'run_started', runId: String(body.run_id) };
-  if (status === 409 && body && body.code === 'stale_draft_revision') return { type: 'stale_draft_revision' };
-  if (status === 409 && body && body.code === 'draft_revision_already_launched') {
-    // Distinct from stale: the draft did NOT change — this exact revision was
-    // already launched (a double-fire / re-click). The remedy is not a
-    // resync (there's nothing new to see) but to edit the draft, which mints
-    // a fresh revision the bridge will accept.
-    return { type: 'draft_revision_already_launched' };
-  }
-  if (status === 409) {
-    return { type: 'conflict', detail: (body && body.detail) || 'the bridge reported a conflict' };
+export function classifyQueueAddResponse(status, body) {
+  // Any 2xx, not just 200: the bridge answers 200 today, but a route that
+  // later answers 201 would otherwise have its SUCCESS silently reclassified
+  // as a generic error — the one misreading that turns a queued run into a
+  // "nothing happened" banner. The run_id is the real success discriminator.
+  if (status >= 200 && status < 300 && body && body.run_id) {
+    const revision = typeof body.revision === 'number' ? body.revision : null;
+    return { type: 'queued', runId: String(body.run_id), revision };
   }
   if (status === 502) return { type: 'bridge_unreachable' };
-  return { type: 'error', detail: (body && body.detail) || `HTTP ${status}` };
+
+  const refusal = queueRefusalDetail(body);
+  const code = refusal && typeof refusal.code === 'string' ? refusal.code : '';
+  const sentence = refusal && typeof refusal.detail === 'string' ? refusal.detail : '';
+
+  if (code === 'stale_draft_revision') return { type: 'stale_draft_revision' };
+  if (code === 'draft_revision_already_launched') {
+    // Distinct from stale: the draft did NOT change — this exact revision was
+    // already enqueued (a double-fire / re-click). The remedy is not a resync
+    // (there's nothing new to see) but to edit the draft, which mints a fresh
+    // revision the bridge will accept.
+    return { type: 'draft_revision_already_launched' };
+  }
+  if (code === 'launch_token_required') {
+    // Only enqueue-while-the-queue-is-draining is token-gated; enqueue onto an
+    // idle queue succeeds unarmed by design. `item_left_behind` means the
+    // bridge could not withdraw the item it had already added — the operator
+    // needs to know an unarmed item is sitting in an armed queue.
+    return {
+      type: 'not_armed',
+      detail: sentence,
+      managerState:
+        refusal && typeof refusal.manager_state === 'string' ? refusal.manager_state : null,
+      itemLeftBehind: Boolean(refusal && refusal.item_left_behind),
+    };
+  }
+  if (DEPLOYMENT_CAPABILITY_CODES.has(code) || MANAGER_CAPABILITY_CODES.has(code)) {
+    // The bridge attaches the whole capability record to these; prefer its
+    // operator-facing `detail` (it carries the flip command) over the
+    // refusal's own sentence.
+    const capability = refusal && refusal.capability;
+    const capabilityDetail =
+      capability && typeof capability.detail === 'string' ? capability.detail : '';
+    return { type: 'cannot_execute', reason: code, detail: capabilityDetail || sentence };
+  }
+  if (SESSION_PLAN_CODES.has(code)) {
+    return {
+      type: 'session_plan_not_ready',
+      detail: sentence,
+      plan: refusal && typeof refusal.plan === 'string' ? refusal.plan : null,
+    };
+  }
+  if (code === 'queue_request_rejected' || code === 'environment_unavailable') {
+    return { type: 'queue_rejected', detail: sentence };
+  }
+  return { type: 'error', detail: sentence || `HTTP ${status}` };
 }
 
-// ---------------------------------------------------------------------------
-// Launch banner (FR8) — a launched-frame becomes a visible "revision N
-// launched -> run <id>" note that deep-links to the sibling results panel.
-// Both pieces below are pure (a URL builder and a detached-DOM builder) so
-// the link target and the sink-hardened rendering are unit-testable without
-// the live panel, exactly like the reducers/classify above.
-// ---------------------------------------------------------------------------
-
-const RESULTS_PANEL_ID = 'scan-results';
+/**
+ * @typedef {object} CapabilityRecord
+ * @property {boolean} canExecute
+ * @property {string} reason  A queue_backend reason constant, or the local
+ *   `bridge_unreachable` sentinel below when the health surface itself could
+ *   not be read.
+ * @property {string} detail  The operator-facing sentence, shown VERBATIM —
+ *   it carries the flip command for a browse-only deployment.
+ */
 
 /**
- * The URL of the sibling results panel, deep-linked to `runId`. The plan and
- * results panels are served as siblings under the web terminal's
- * `/panel/<id>/` reverse-proxy mount, so swap the plan panel's own trailing
- * id segment for the results panel's and hang the run on the `?run_id=` deep
- * link the results panel already honors (results/panel.js
- * `initialRunIdFromUrl`). `prefix` is the plan panel's mount prefix
- * (`/panel/plan`), or `''` when the panel is served directly with no shell —
- * in which case a best-effort absolute `/panel/<results>` is still produced.
+ * The reason code used when `GET /bridge/health` itself could not be read.
+ * Not a bridge constant: the bridge answers 200 with `can_execute: false`
+ * even on unforeseen probe errors, so any non-200 (including the sidecar's
+ * own 502) means the health surface is unreachable, which the capability
+ * contract requires consumers to treat as cannot-execute.
+ */
+export const REASON_BRIDGE_UNREACHABLE = 'bridge_unreachable';
+
+/**
+ * Classify `GET /bridge/health` into the panel's capability state.
  *
- * @param {string} prefix
- * @param {string} runId
+ * Two invariants from the capability wire contract are load-bearing here:
+ * `status: "ok"` says NOTHING about executability (so `body.status` is never
+ * read), and a non-200 — including the sidecar's 502 when the bridge is
+ * unreachable — must be treated as cannot-execute. A 200 whose body carries
+ * no usable `capability` object is treated the same way: an unreadable
+ * capability is not permission to enqueue.
+ *
+ * @param {number} status
+ * @param {any} body
+ * @returns {CapabilityRecord}
+ */
+export function classifyCapability(status, body) {
+  const capability = status === 200 && body && typeof body === 'object' ? body.capability : null;
+  if (!capability || typeof capability !== 'object') {
+    return {
+      canExecute: false,
+      reason: REASON_BRIDGE_UNREACHABLE,
+      detail: 'Could not read the bridge capability, so plans cannot be queued from here yet.',
+    };
+  }
+  return {
+    canExecute: capability.can_execute === true,
+    reason: typeof capability.reason === 'string' ? capability.reason : REASON_BRIDGE_UNREACHABLE,
+    detail: typeof capability.detail === 'string' ? capability.detail : '',
+  };
+}
+
+/**
+ * The banner an enqueue outcome earns: its tone and the sentence shown to the
+ * operator.
+ *
+ * Pure, and separate from `classifyQueueAddResponse`, so the copy itself is
+ * assertable — a refusal the panel classifies correctly but describes as a
+ * success would be exactly as harmful as a misclassification, and only this
+ * function makes that testable. Wherever the bridge supplied an
+ * operator-facing sentence it is preferred verbatim; the local strings are
+ * fallbacks for a refusal that carried none.
+ *
+ * @param {QueueAddOutcome} outcome
+ * @returns {{kind: 'ok'|'warn'|'err'|'info', message: string}}
+ */
+export function queueOutcomeBanner(outcome) {
+  switch (outcome.type) {
+    case 'queued':
+      return {
+        kind: 'ok',
+        message: `added to the queue — run ${outcome.runId}. It runs when the queue is started.`,
+      };
+    case 'stale_draft_revision':
+      return {
+        kind: 'err',
+        message: 'the draft changed since you last saw it — refreshed, review and add again',
+      };
+    case 'draft_revision_already_launched':
+      // Not a stale draft — this exact revision is already on the queue (a
+      // re-click, or a race with the agent). The remedy is not a resync
+      // (nothing changed) but an edit, which mints a fresh revision.
+      return {
+        kind: 'err',
+        message: 'this revision is already on the queue — edit the draft to queue another run',
+      };
+    case 'not_armed':
+      // Only enqueue-while-draining is token-gated, so this never fires on an
+      // idle queue: reaching it means the queue is actually running.
+      return {
+        kind: 'warn',
+        message: outcome.itemLeftBehind
+          ? `${outcome.detail} The bridge could not withdraw the item it had already added — check the queue in the BLUESKY panel.`
+          : outcome.detail ||
+            'the queue is running, so adding to it needs a launch token the bridge did not accept',
+      };
+    case 'cannot_execute':
+      return {
+        kind: 'warn',
+        message: outcome.detail || 'this deployment cannot execute plans, so nothing was queued',
+      };
+    case 'session_plan_not_ready':
+      return {
+        kind: 'err',
+        message:
+          outcome.detail ||
+          `${outcome.plan || 'this session plan'} has no current passing validation — validate it again`,
+      };
+    case 'queue_rejected':
+      return { kind: 'err', message: outcome.detail || 'the bridge refused the request' };
+    case 'bridge_unreachable':
+      return { kind: 'err', message: 'bridge unreachable' };
+    default:
+      return { kind: 'err', message: `could not add to the queue: ${outcome.detail}` };
+  }
+}
+
+/**
+ * The capability banner: `null` when this deployment can execute plans (there
+ * is nothing to say), else the tone and the sentence explaining the disabled
+ * Add-to-queue button.
+ *
+ * Tone: a connector/config reason is a settled property of how this
+ * deployment was built — browse-only is a legitimate, fully-supported way to
+ * run the panel, so it reads as information, not breakage. A manager reason
+ * (or an unreadable health surface) is an outage or a missing piece of the
+ * deployment: something the operator may well need to act on, so it warns.
+ *
+ * The message is the bridge's own `detail` VERBATIM — it carries the command
+ * that flips a browse-only deployment, and paraphrasing it would strand the
+ * operator. The local string is a fallback for a record that carried none.
+ *
+ * @param {CapabilityRecord} capability
+ * @returns {{kind: 'info'|'warn', message: string}|null}
+ */
+export function capabilityBanner(capability) {
+  if (capability.canExecute) return null;
+  return {
+    kind: DEPLOYMENT_CAPABILITY_CODES.has(capability.reason) ? 'info' : 'warn',
+    message: capability.detail || 'This deployment cannot execute plans right now.',
+  };
+}
+
+/**
+ * What the armed Discard confirm tells the operator.
+ *
+ * The three facts it must carry, because "Discard" sitting next to a form
+ * reads like "clear my form" and the mistake is not undoable: the draft is
+ * deleted on the BRIDGE, every other reader loses it INCLUDING the agent, and
+ * this form's own values are NOT what is being thrown away.
+ */
+export const DISCARD_CONFIRM_NOTICE =
+  'This deletes the shared draft on the bridge — this panel, any other open panel, and the agent all lose it. The values in this form stay as they are.';
+
+/**
+ * What Reset tells the operator. Bound is the case worth spelling out: the
+ * shared draft still holds the old values, and the enqueue — not the Reset —
+ * is what will overwrite them.
+ *
+ * @param {boolean} bound
  * @returns {string}
  */
-export function resultsPanelUrl(prefix, runId) {
-  const base = prefix ? prefix.replace(/[^/]+$/, RESULTS_PANEL_ID) : `/panel/${RESULTS_PANEL_ID}`;
-  return `${base}/?run_id=${encodeURIComponent(runId)}`;
+export function resetNoticeMessage(bound) {
+  return bound
+    ? 'form reset to this plan’s defaults — the shared draft still holds the old values, and adding to the queue will replace it with what you see here'
+    : 'form reset to this plan’s defaults — nothing was sent to the bridge';
 }
 
 /**
- * Build the launch banner's detached content: a text prefix plus an anchor
- * to the results panel. Rendered with createElement/textContent only — this
- * panel keeps a strict no-innerHTML posture (see panel.js's module
- * docstring), so an agent/other-tab-supplied `run_id` reaches the DOM only as
- * a text node and inside a URL-encoded `href`, never as parsed markup. The
- * anchor navigates natively (no inline handler, no delegated script needed);
+ * A display sentence for a failed `PATCH /draft` replacement (the
+ * add-to-queue path's first hop whenever the form is not already the shared
+ * draft). Kept pure and beside the other classifiers because the draft
+ * relay's refusal shapes differ per status: a 409 carries `{code, detail}`
+ * (`no_draft`, `plan_name_mismatch`), while a 422 field rejection carries
+ * `{field, error}` with no sentence at all.
+ *
+ * @param {number} status
+ * @param {any} body
+ * @returns {string}
+ */
+export function describeDraftReplaceFailure(status, body) {
+  const refusal = queueRefusalDetail(body);
+  if (refusal && typeof refusal.field === 'string') {
+    return `${refusal.field}: ${String(refusal.error)}`;
+  }
+  if (refusal && typeof refusal.detail === 'string' && refusal.detail) return refusal.detail;
+  if (body && typeof body.detail === 'string' && body.detail) return body.detail;
+  return `HTTP ${status}`;
+}
+
+// ---------------------------------------------------------------------------
+// Launch banner — a launched-frame becomes a visible "revision N queued
+// -> run <id>" note whose action switches the workspace to the BLUESKY panel,
+// where the queue and the run's live rows are. Both pieces below are pure (an
+// endpoint builder and a detached-DOM builder) so the navigation target and
+// the sink-hardened rendering are unit-testable without the live panel,
+// exactly like the reducers/classify above.
+// ---------------------------------------------------------------------------
+
+/**
+ * The web terminal's registered id for the BLUESKY panel — the queue/results
+ * surface a queued run belongs to. Panels are switched by id through the
+ * host, never by guessing a sibling panel's URL.
+ */
+export const BLUESKY_PANEL_ID = 'bluesky';
+
+/**
+ * The web terminal's panel-focus endpoint, derived from this panel's own
+ * proxy mount prefix.
+ *
+ * A `POST {panel}` there sets the active panel and broadcasts the host's
+ * `panel_focus` event, which its panel manager turns into the same
+ * `showPanel` call the command palette uses. That indirection is the point:
+ * the host owns tab activation, lazy iframe creation, and rail state, none of
+ * which a sibling panel can reproduce by navigating to a URL — and a panel id
+ * survives changes to how panels are mounted, where a hand-built path does
+ * not.
+ *
+ * `prefix` is this panel's mount prefix (`/panel/plan`, or `/u/<user>/panel/
+ * plan` under a multi-user mount): dropping its trailing `/panel/<id>` yields
+ * the host root the API hangs off, so the multi-user prefix is preserved
+ * automatically. An empty prefix (panel served directly, no shell) yields the
+ * root-absolute path, which simply has no host behind it.
+ *
+ * @param {string} prefix
+ * @returns {string}
+ */
+export function panelFocusUrl(prefix) {
+  return `${prefix.replace(/\/panel\/[^/]+$/, '')}/api/panel-focus`;
+}
+
+/**
+ * Build the launch banner's detached content: a text prefix plus the action
+ * that switches the workspace to the BLUESKY panel. Rendered with
+ * createElement/textContent only — this panel keeps a strict no-innerHTML
+ * posture (see panel.js's module docstring), so an agent/other-tab-supplied
+ * `run_id` reaches the DOM only as a text node, never as parsed markup.
  * `data-run-id` is carried for parity with the panel's other data-* rows and
  * for test assertions.
  *
  * @param {Document} doc
  * @param {{runId: string, revision: number}} banner
- * @param {(runId: string) => string} resultsUrlFor
+ * @param {(runId: string) => void} onOpen
  * @returns {DocumentFragment}
  */
-export function buildLaunchBanner(doc, banner, resultsUrlFor) {
+export function buildLaunchBanner(doc, banner, onOpen) {
   const frag = doc.createDocumentFragment();
-  frag.appendChild(doc.createTextNode(`revision ${banner.revision} launched → `));
-  const link = doc.createElement('a');
-  link.className = 'launch-run-link';
-  link.textContent = `run ${banner.runId}`;
-  link.setAttribute('href', resultsUrlFor(banner.runId));
-  link.dataset.runId = banner.runId;
-  link.target = '_blank';
-  link.rel = 'noopener';
-  frag.appendChild(link);
+  const text = doc.createElement('span');
+  text.className = 'launch-banner-text';
+  text.textContent = `revision ${banner.revision} queued → run ${banner.runId}`;
+  frag.appendChild(text);
+  const open = doc.createElement('button');
+  open.type = 'button';
+  open.className = 'launch-run-link';
+  open.textContent = 'Open BLUESKY';
+  open.dataset.runId = banner.runId;
+  open.addEventListener('click', () => onOpen(banner.runId));
+  frag.appendChild(open);
   return frag;
 }
 
@@ -610,7 +933,7 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  * @property {(planName: string|null) => void} onUnknownPlanBanner
  * @property {(keys: string[]) => void} onAgentEditNote
  * @property {(banner: {runId: string, revision: number}|null) => void} onLaunchBanner
- *   A `launched` frame landed — surface the "revision N launched -> run <id>"
+ *   A `launched` frame landed — surface the "revision N queued -> run <id>"
  *   banner (or clear it on `null`). Fires for every launch on the shared
  *   draft, whichever surface (panel or agent) triggered it.
  * @property {(detail: any) => void} onPatchRejected  A 422 from the flush
@@ -633,7 +956,7 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  *   `draft.plan_name`; there is no fresh "selection" event to hook this to).
  * @property {() => Promise<{patched: boolean, revision: number|null}>} flushNow
  * @property {() => Promise<void>} resync  Force a `GET /draft` resync (e.g.
- *   after Launch's own `stale_draft_revision` 409).
+ *   after the enqueue's own `stale_draft_revision` 409).
  * @property {() => boolean} isBound
  * @property {() => string|null} getAgentDraftBannerPlan  The agent-draft
  *   banner DECISION (shouldShowAgentDraftBanner): the draft's plan name when
@@ -641,6 +964,11 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  *   `onAgentDraftBanner` deps callback; this exposes the same display-ready
  *   decision for tests and callers.
  * @property {() => number|null} getLastAppliedRevision
+ * @property {() => string[]} getDraftArgKeys  The top-level arg keys the
+ *   shared draft currently holds (empty when there is no draft). Feeds
+ *   `buildDraftReplaceBody`'s `remove` list, which is what makes a
+ *   form-to-draft push a replacement instead of a merge — see that function
+ *   for why merging is a safety bug.
  * @property {() => void} destroy
  */
 
@@ -690,8 +1018,8 @@ export function createDraftClient(deps) {
 
   /**
    * Whenever the draft's plan_name changes to a non-null value, confirm it's
-   * still in the loaded catalog (PROPOSAL.md: unknown plan_name -> refetch
-   * `/plans` once, then a visible banner if it's still missing). Independent
+   * still in the loaded catalog: an unknown plan_name refetches `/plans` once,
+   * then raises a visible banner if it is still missing. Independent
    * of bound/selected state — this is a fact about the draft as a whole.
    *
    * @returns {Promise<boolean>} whether the plan is known (after the refetch).
@@ -799,8 +1127,8 @@ export function createDraftClient(deps) {
 
   /**
    * Bind to the currently-selected plan against a fresh `GET /draft`
-   * snapshot (PROPOSAL.md: binding "seeds the form from GET /draft, never
-   * from bare schema defaults"). Used by both the auto-bind-on-selection path
+   * snapshot — binding seeds the form from `GET /draft`, never from bare
+   * schema defaults. Used by both the auto-bind-on-selection path
    * and the affordance click.
    */
   async function bindFromFreshSnapshot() {
@@ -1108,7 +1436,7 @@ export function createDraftClient(deps) {
       }
       // 409 (no_draft / plan_name_mismatch), a network failure, or any other
       // unexpected failure status: drop the edit and resync to ground truth
-      // (PROPOSAL.md pending-key rule).
+      // (the pending-key rule).
       const prevState = state;
       const applied = await fetchAndApplyReset();
       if (applied) await afterReset(prevState);
@@ -1207,6 +1535,10 @@ export function createDraftClient(deps) {
 
     getLastAppliedRevision() {
       return state.lastAppliedRevision;
+    },
+
+    getDraftArgKeys() {
+      return state.draftArgs ? Object.keys(state.draftArgs) : [];
     },
 
     destroy() {

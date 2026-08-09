@@ -42,14 +42,22 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 
 ## Run contract
 
-- **Bind-mount `data/simulation/` — the directory, never a single file** —
-  to `/data/simulation` in the container (`VA_DATA_DIR` env var overrides the
-  mount point). `active_scenarios` lives inside it and is bind-mounted so an
-  `osprey sim apply NAME` on the host (which atomic-renames a new
-  `active_scenarios` into place) is visible to the container without a
-  restart: mounting the *directory* means the rename's inode swap survives
-  the mount; mounting a single file would not (the old inode would stay
-  bind-mounted while the host swapped to a new one).
+- **Bind-mount `data/simulation/`** to `/data/simulation` in the container
+  (`VA_DATA_DIR` env var overrides the mount point). This is the build-owned
+  simulation model — `machine.json` and its `scenarios/` bundles — re-rendered
+  from the project's profile on every build. Read-only; the IOC never writes
+  it.
+- **Bind-mount the project's `_agent_data/simulation/`** to `/state/simulation`
+  and point `VA_STATE_DIR` at it. It holds `active_scenarios`, which
+  `osprey sim apply NAME` rewrites on the host while the system runs — hence a
+  mount separate from the build-owned `data/` tree. **Mount the directory,
+  never the single file:** `sim apply` atomic-renames a new `active_scenarios`
+  into place, and a directory mount lets that inode swap through, so a scenario
+  switch reaches the IOC within about a second with no restart; a single-file
+  mount would keep the old inode bound while the host swapped to a new one.
+  With `VA_STATE_DIR` unset the IOC reads the state from the data dir instead —
+  the historical layout, for a hand-run container whose state file still sits
+  next to `machine.json`.
 - **Port `5064/tcp`**, Channel Access name-server mode
   (`EPICS_CA_NAME_SERVERS=<host>:5064`, `EPICS_CA_AUTO_ADDR_LIST=NO` on the
   connecting client) — the one host↔container CA configuration proven to

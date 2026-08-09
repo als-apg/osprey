@@ -51,7 +51,7 @@ def _load_project_engine():
     """
     from osprey.connectors.types import MOCK
     from osprey.simulation.apply import resolve_simulation_file
-    from osprey.simulation.engine import SimulationEngine
+    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
 
     project_dir = Path.cwd()
     config_path = project_dir / "config.yml"
@@ -73,7 +73,10 @@ def _load_project_engine():
             )
         click.echo("This project does not use the simulation engine.", err=True)
         raise SystemExit(1)
-    return project_dir, config, SimulationEngine.from_file(machine_path)
+    engine = SimulationEngine.from_file(
+        machine_path, state_dir=resolve_state_dir(config, project_dir)
+    )
+    return project_dir, config, engine
 
 
 def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
@@ -174,7 +177,7 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
         resolve_simulation_file,
         write_scenario_physics_env,
     )
-    from osprey.simulation.machine import resolve_active_scenario_names
+    from osprey.simulation.engine import resolve_active_scenarios
 
     now = _parse_now(now_iso) if now_iso else None
     project_dir = Path.cwd()
@@ -190,12 +193,14 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
     machine_path, *_ = resolve_simulation_file(config, project_dir)
     physics: dict[str, str] | None = None
     if machine_path is not None:
-        from osprey.simulation.engine import SimulationEngine
+        from osprey.simulation.engine import SimulationEngine, resolve_state_dir
 
-        engine = SimulationEngine.from_file(machine_path)
+        engine = SimulationEngine.from_file(
+            machine_path, state_dir=resolve_state_dir(config, project_dir)
+        )
         # validate_composition RETURNS its problems (unknown names, channel
         # collisions) rather than raising; an empty list is the only "OK".
-        problems = engine.validate_composition(resolve_active_scenario_names(names))
+        problems = engine.validate_composition(resolve_active_scenarios(names))
         if problems:
             click.echo("Error: cannot activate scenarios: " + "; ".join(problems), err=True)
             raise SystemExit(1)

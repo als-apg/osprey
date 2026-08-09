@@ -727,6 +727,21 @@ def _create_lifespan(
 
         reset_config_cache()
 
+        # Put volume-owned artifact bodies back into the project tree before
+        # anything reads it. In a deployed container the tree comes back
+        # image-fresh on every recreation, while the operator's claimed
+        # versions live on the claude-config volume; without this the agent
+        # would run the framework's originals while the gallery showed the
+        # operator's, and nothing would report the divergence. No-op elsewhere.
+        from osprey.interfaces.web_terminal.scaffold_gallery_service import (
+            restore_scaffold_bodies,
+        )
+
+        try:
+            restore_scaffold_bodies(Path(app.state.project_cwd))
+        except Exception as exc:  # noqa: BLE001 - never block startup on this
+            logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
+
         # Resolve and store config_path for the settings API
         resolved_config_path = None
         for candidate in [

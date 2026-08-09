@@ -9,18 +9,27 @@ image, reading its own filesystem layers -- actually serves the same catalog
 over HTTP. This is the other half: it deploys a real bluesky-bridge container
 and asserts the layered catalog (the shipped plans + an externally-injected
 facility plan) is discoverable via ``GET /plans`` with correct
-provenance/metadata, and that a facility-injected plan file is not just
-discoverable but actually executable end to end (launch -> read).
+provenance/metadata, and that the browse-only surface around it is honest.
 
-Uses the ``hello-world`` preset with ``services.bluesky.demo_runner=true``
-(real bluesky RunEngine, MOCK ophyd-async devices -- ``devices/mock.py``, no
-EPICS/Virtual Accelerator at all) rather than the VA-backed stack
-``tests/e2e/_orm_stack.py`` builds -- this test's point is the plan catalog,
-not accelerator physics, so it skips the VA image's amd64-emulated build
-entirely (mirrors ``test_bluesky_deploy.py``'s identical rationale). The one
-facility plan (``facility_probe``, below) is authored against the demo
-scanner's fixed mock device names (``motor1``/``det1``) so it can actually
-run against this stack.
+SCOPE, deliberately narrowed: this file proves DISCOVERY, not execution.
+Execution has exactly one owner now -- ``tests/e2e/test_bluesky_queue_e2e.py``,
+which deploys the whole queue stack (queueserver + Redis + Tiled + the Virtual
+Accelerator) and drives real scans through arming, drain, abort and restart.
+A facility-injected plan is a catalog entry like any other by the time it
+reaches the queue, so re-proving execution here would mean standing up a second
+VA-backed stack to re-test what that file already covers, at real wall-clock
+cost. What this file uniquely proves is that a plan file dropped into a
+facility layer is SERVED by a deployed container with the right provenance --
+and that the deployment says plainly what it can and cannot do with it.
+
+Uses the ``hello-world`` preset, whose ``control_system.type`` is ``mock``,
+rather than the VA-backed stack ``tests/e2e/_orm_stack.py`` builds: the catalog
+is connector-independent, so this skips the VA image's slow build entirely
+(mirrors ``test_bluesky_deploy.py``'s identical rationale). A mock deployment
+is BROWSE-ONLY, which is not a limitation here but part of the subject: plans
+are discoverable and composable, the capability record says
+``browse_only_connector`` and names the command that flips it, and the queue
+refuses to hold work it could never run.
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
@@ -48,6 +57,7 @@ from typing import Any
 
 import pytest
 
+from osprey.services.bluesky_bridge.queue_backend import REASON_BROWSE_ONLY_CONNECTOR
 from tests.e2e import _orm_stack
 
 pytestmark = [
@@ -66,12 +76,10 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 DEPLOY_UP_TIMEOUT_SEC = 600
 HEALTH_TIMEOUT_SEC = 120.0
-SCAN_TIMEOUT_SEC = 60.0
 
-# Authored against `devices/mock.py`'s `build_devices()` defaults -- the
-# demo scanner's fixed single motor/detector pair -- so this plan can
-# actually run against the deployed stack (no BLUESKY_EPICS_MOTORS/_DETECTORS
-# wiring applies to the demo-scanner branch; see app.py's `_lifespan`).
+# An ordinary, well-formed facility-tier plan. Its job here is to be FOUND --
+# correct provenance, correct metadata, correct schema over HTTP -- so nothing
+# below resolves its device names against a live worker.
 _FACILITY_PLAN_SOURCE = '''"""Test-authored facility-tier plan for the layered plan catalog e2e
 (tests/e2e/test_bluesky_catalog_e2e.py).
 
@@ -81,11 +89,10 @@ host directory and injected via `services.bluesky.plan_dir`
 layer (plan_loader.py). Named `facility_probe` -- distinct from every
 shipped/built-in plan name, so it never collides at the `GET /plans` merge.
 
-Authored against the demo scanner's mock device names (`devices/mock.py`'s
-`build_devices()` defaults: a single `motor1`/`det1` pair), since this e2e
-deploys with `services.bluesky.demo_runner=true` (no EPICS/Virtual
-Accelerator) -- the point is proving an externally-injected plan file is
-discoverable AND executable, not exercising accelerator physics.
+Its parameter names are ordinary device-name strings; nothing here resolves
+them against a live device, because this file proves DISCOVERY only (see the
+module docstring). Execution of catalog plans -- facility-tier included -- is
+`tests/e2e/test_bluesky_queue_e2e.py`'s subject.
 """
 
 from __future__ import annotations
@@ -144,17 +151,6 @@ def _wait_for_health(url: str, timeout: float) -> None:
     raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
-def _minted_token(project_dir: Path) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
-
-    env_path = project_dir / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
-    env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
-    return token
-
-
 def _get(path: str) -> tuple[int, Any]:
     req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310
     try:
@@ -164,16 +160,21 @@ def _get(path: str) -> tuple[int, Any]:
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
-def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
-    data = json.dumps(body).encode("utf-8")
+def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any]:
+    """One request against the bridge, returning ``(status, parsed_body)``.
+
+    Refusal bodies are what this module asserts on, so an ``HTTPError`` is a
+    normal result here rather than an exception to propagate.
+    """
+    data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(  # noqa: S310
         f"{BRIDGE_URL}{path}",
         data=data,
-        method="POST",
-        headers={"Content-Type": "application/json", **(headers or {})},
+        method=method,
+        headers={"Content-Type": "application/json"} if data is not None else {},
     )
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=20.0) as resp:  # noqa: S310
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -181,12 +182,13 @@ def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict
 
 @pytest.fixture(scope="module")
 def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build + ``osprey deploy up --dev`` a demo-scanner bluesky-bridge
-    project with one facility-injected plan file; tear down after.
+    """Build + ``osprey deploy up --dev`` a bluesky-bridge project with one
+    facility-injected plan file; tear down after.
 
-    ``hello-world`` + ``bluesky.demo_runner=true`` (mirrors
-    ``test_bluesky_deploy.py``): no VA co-deploy, no LLM secret needed, no
-    amd64-emulated image build. ``bluesky.plan_dir`` points at a throwaway
+    ``hello-world`` (mirrors ``test_bluesky_deploy.py``): no VA co-deploy, no
+    LLM secret needed, no amd64-emulated image build. The preset's
+    ``control_system.type`` is ``mock``, so this deployment is browse-only --
+    which is part of what the tests below assert, not a gap in them. ``bluesky.plan_dir`` points at a throwaway
     host directory containing ``_FACILITY_PLAN_SOURCE`` -- the deploy wiring
     (Task 1.4) bind-mounts it read-only and sets ``BLUESKY_PLAN_DIRS``, so
     ``plan_loader.py`` scans it as a ``facility``-tier layer.
@@ -204,8 +206,6 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             "proj",
             "--preset",
             "hello-world",
-            "--set",
-            "bluesky.demo_runner=true",
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
@@ -315,45 +315,82 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
 
 
 # ---------------------------------------------------------------------------
-# Scan-drive: the facility-injected plan is not just discoverable, it runs.
+# The browse-only surface around the catalog: composable, and honest about it.
+#
+# Replaces a launch->read round trip that used to run here on the removed
+# demo-runner knob. Execution -- for facility-tier plans as much as any other
+# -- now belongs to tests/e2e/test_bluesky_queue_e2e.py, which drives real
+# scans against a real queue server. What is left here is the half that is
+# genuinely about the catalog: a discovered plan can be composed, and the
+# deployment tells the truth about what it will do with it.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
-def test_facility_probe_launch_read_round_trip(deployed_catalog_stack: Path) -> None:
-    """Drive ``facility_probe`` -- the facility-injected plan (not a
-    built-in) -- through the full deployed launch -> read path.
+def test_deployment_reports_browse_only_and_names_the_flip(
+    deployed_catalog_stack: Path,
+) -> None:
+    """A mock deployment is HEALTHY and says plainly that it cannot execute.
 
-    ``motor1``/``det1`` are the demo scanner's fixed mock device names
-    (``devices/mock.py``'s ``build_devices()`` defaults), which is exactly
-    what ``facility_probe`` was authored against.
+    ``status: "ok"`` is deliberately independent of ``can_execute``: a
+    browse-only deployment is a working deployment, and gating liveness on
+    capability would flap the container healthcheck over a configuration doing
+    exactly what it was told.
     """
-    token = _minted_token(deployed_catalog_stack)
+    status, body = _get("/health")
+    assert status == 200, f"GET /health failed: {status} {body}"
+    assert body["status"] == "ok", f"a browse-only bridge must still be ok: {body}"
 
-    plan_args = {"motor": "motor1", "detector": "det1", "start": 0.0, "stop": 2.0, "num": 3}
-    status, body = _post("/runs", {"plan_name": "facility_probe", "plan_args": plan_args})
-    assert status == 200, f"POST /runs failed: {status} {body}"
-    run_id = body["id"]
-
-    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
-    assert status == 200, f"launch failed: {status} {body}"
-
-    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
-    status_body: dict = {}
-    while time.monotonic() < deadline:
-        _, status_body = _get(f"/runs/{run_id}")
-        if status_body.get("status") in ("completed", "error", "stopped"):
-            break
-        time.sleep(0.5)
-    assert status_body.get("status") == "completed", (
-        f"facility_probe scan did not complete within {SCAN_TIMEOUT_SEC:.0f}s "
-        f"(status={status_body})"
+    capability = body["capability"]
+    assert capability["can_execute"] is False, f"mock cannot execute plans: {capability}"
+    assert capability["reason"] == REASON_BROWSE_ONLY_CONNECTOR, f"wrong reason: {capability}"
+    assert "set-control-system virtual_accelerator" in capability["detail"], (
+        f"the browse-only detail must name the command that flips it: {capability}"
     )
 
-    status, data = _get(f"/runs/{run_id}/data")
-    assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
-    expected_rows = plan_args["num"]
-    assert data["row_count"] == expected_rows, (
-        f"expected {expected_rows} rows, got {data['row_count']}: {data}"
+
+def test_a_facility_plan_is_composable_but_unqueueable(deployed_catalog_stack: Path) -> None:
+    """The facility-injected plan reaches the draft, and stops at the queue.
+
+    This is the discovery claim carried one step further than ``GET /plans``:
+    the plan is not merely listed, its schema resolves well enough for the
+    shared draft to accept real arguments for it -- which is what an operator
+    or the agent would do first. The enqueue then refuses with the capability
+    record attached, because a deployment that cannot execute must never HOLD
+    queue items: an item sitting in a queue reads as work that will happen.
+
+    Asserted on ``detail.code``; a status-code-only check would keep passing
+    while the refusal body drifted.
+    """
+    status, patched = _request(
+        "/draft",
+        "PATCH",
+        {
+            "plan_name": "facility_probe",
+            "plan_args_patch": {
+                "motor": "motor1",
+                "detector": "det1",
+                "start": 0.0,
+                "stop": 2.0,
+                "num": 3,
+            },
+            "client_id": "catalog-e2e",
+        },
     )
-    assert len(data["rows"]) == expected_rows
+    assert status == 200, f"PATCH /draft failed for the facility plan: {status} {patched}"
+    assert patched["plan_name"] == "facility_probe"
+
+    status, refusal = _request("/queue/items", "POST", {"draft_revision": patched["revision"]})
+    assert status == 409, f"a browse-only enqueue must be refused: {status} {refusal}"
+    detail = refusal.get("detail") if isinstance(refusal, dict) else None
+    assert isinstance(detail, dict) and detail.get("code") == REASON_BROWSE_ONLY_CONNECTOR, (
+        f"wrong refusal code on a browse-only enqueue: {refusal}"
+    )
+    assert isinstance(detail.get("capability"), dict), (
+        f"the refusal must carry the capability record the status surface publishes: {refusal}"
+    )
+
+    status, queue = _get("/queue")
+    assert status == 200, f"GET /queue failed: {status} {queue}"
+    assert queue["status"]["items_in_queue"] == 0, (
+        f"a browse-only deployment is holding queue items: {queue}"
+    )

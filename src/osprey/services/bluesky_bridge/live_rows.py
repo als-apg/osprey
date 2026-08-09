@@ -1,13 +1,12 @@
 """Bounded live-row buffer for run data still in flight or just completed.
 
-Task 2.2's ``GET /runs/{id}/data`` route needs a source of truth for run data
-before (or in place of) a Tiled server: the scan itself runs inside this
-bridge process (``runs.do_launch`` owns the runner/RunEngine), so this
-module subscribes a plain-dict document callback to that same RunEngine and
-keeps translated rows in a bounded, run_uid-keyed buffer. Real RunEngine
-wiring lands in task 2.7 (``real-runengine-integration``) — this module is
-deliberately import-clean of bluesky so it can be built and unit-tested with
-synthetic documents beforehand. Generalizes the concept in BELLA's
+The ``GET /runs/{id}/data`` route needs a source of truth for run data before
+(or in place of) a Tiled server. Scans run in the queueserver worker, which
+publishes its document stream over 0MQ; the bridge's document plane
+(``document_plane.py``) subscribes to that stream and feeds the plain-dict
+callback below, which keeps translated rows in a bounded buffer. This module is
+deliberately import-clean of bluesky, so it can be unit-tested with synthetic
+documents and no worker at all. Generalizes the concept in BELLA's
 ``services/experiment_config/live_rows.py``: this version has no
 GEECS-specific legacy column mapping, and explicitly RETAINS completed runs
 rather than evicting at a small run count, so a read arriving after the scan
@@ -15,7 +14,9 @@ finishes still succeeds without a Tiled server.
 
 Document handling (bluesky's plain-dict document protocol):
 
-- ``start``: begins a new buffer for ``doc["uid"]``, marked partial.
+- ``start``: begins a new buffer for ``doc["uid"]`` — or for the recorder's
+  explicit ``key``, when the caller keys buffers by something other than the
+  RunEngine's own uid (see :class:`LiveRowRecorder`) — marked partial.
 - ``event``: each event's ``doc["data"]`` becomes one row; columns are
   discovered incrementally in first-seen order across events. A key seen for
   the first time extends the column list and backfills every already-stored
@@ -31,7 +32,8 @@ Bounding uses two independent knobs:
 
 - ``_MAX_ROWS_PER_RUN``: a hard cap on stored rows per run, so a runaway scan
   cannot grow the buffer without limit. ``total_seen`` keeps counting every
-  event past this cap — Task 2.2's ``row_count`` reports this *true* total
+  event past this cap — the ``row_count`` on the run-data route reports this
+  *true* total
   even when the tail beyond the cap was never stored (a documented trade-off
   for a pathological never-ending run, not the common case).
 - ``_MAX_RUNS``: number of run buffers retained at all, oldest-evicted
@@ -91,12 +93,22 @@ def _clear() -> None:
 class LiveRowRecorder:
     """Bluesky document callback recording rows into the bounded live buffer.
 
-    One instance per launched run (mirrors BELLA's contract): subscribe it to
-    the RunEngine between ``reinitialize()`` and ``start_run_thread()``
-    (task 2.7) so the start doc is never missed.
+    One instance per run (mirrors BELLA's contract): it must see the run's
+    start document, so it is opened at that document rather than partway
+    through the stream.
+
+    Args:
+        key: Buffer key to record under, instead of the start document's own
+            ``uid``. The document plane (``document_plane.py``) sets it to the
+            OSPREY run id carried in the start document, because a run executed
+            in the queueserver container has a RunEngine uid the bridge never
+            chose and cannot map back to the item an operator enqueued. Left
+            ``None``, the run uid IS the identity the read path looks up —
+            which is the honest key for a run that carries no OSPREY id.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, key: str | None = None) -> None:
+        self._key = key
         self._uid: str | None = None
 
     def __call__(self, name: str, doc: dict[str, Any]) -> None:
@@ -112,7 +124,7 @@ class LiveRowRecorder:
             logger.warning("live-row recorder failed on %r doc", name, exc_info=True)
 
     def _on_start(self, doc: dict[str, Any]) -> None:
-        uid = doc.get("uid")
+        uid = self._key or doc.get("uid")
         if not uid:
             return
         self._uid = uid

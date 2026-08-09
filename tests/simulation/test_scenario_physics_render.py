@@ -30,8 +30,7 @@ from osprey.simulation.apply import (
     render_scenario_physics_env,
     write_scenario_physics_env,
 )
-from osprey.simulation.engine import SimulationEngine
-from osprey.simulation.machine import resolve_active_scenario_names
+from osprey.simulation.engine import SimulationEngine, resolve_active_scenarios
 
 TEMPLATE_SIM = (
     Path(__file__).resolve().parents[2]
@@ -301,7 +300,7 @@ class TestSharedActiveSetResolution:
         engine.set_active_scenarios(names)
 
         assert seen, "set_active_scenarios never validated the set it activates"
-        assert seen[0] == resolve_active_scenario_names(names)
+        assert seen[0] == resolve_active_scenarios(names)
 
     @pytest.mark.parametrize(
         "names",
@@ -319,10 +318,10 @@ class TestSharedActiveSetResolution:
 
         active = engine.set_active_scenarios(names)
 
-        assert list(active) == resolve_active_scenario_names(names)
+        assert list(active) == resolve_active_scenarios(names)
 
     def test_duplicates_and_explicit_nominal_collapse(self):
-        assert resolve_active_scenario_names(["a", "a", "nominal", "b"]) == ["nominal", "a", "b"]
+        assert resolve_active_scenarios(["a", "a", "nominal", "b"]) == ["nominal", "a", "b"]
 
 
 class TestComputeIsPure:

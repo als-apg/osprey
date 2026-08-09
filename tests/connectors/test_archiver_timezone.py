@@ -23,12 +23,25 @@ TEMPLATE_SIM = (
 SR07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 
 
+@pytest.fixture(autouse=True)
+def _state_dir(tmp_path, monkeypatch):
+    """Scenario state resolves from the ambient config; keep it inside tmp_path."""
+    from osprey.simulation import engine as engine_module
+
+    path = tmp_path / "_agent_data" / "simulation"
+    path.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(engine_module, "default_state_dir", lambda: path)
+    return path
+
+
 def _vacuum_burst_machine(tmp_path: Path) -> Path:
     """Copy the shipped machine + scenario bundle, pinned to ``vacuum-burst``."""
     machine = tmp_path / "machine.json"
     shutil.copy(TEMPLATE_SIM / "machine.json", machine)
     shutil.copytree(TEMPLATE_SIM / "scenarios", tmp_path / "scenarios")
-    (tmp_path / "active_scenarios").write_text("nominal\nvacuum-burst\n")
+    state_dir = tmp_path / "_agent_data" / "simulation"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "active_scenarios").write_text("nominal\nvacuum-burst\n")
     return machine
 
 

@@ -1,11 +1,11 @@
 """The Bluesky bridge's launch-token gate.
 
-``verify_launch_token`` guards the bridge's two launch routes —
-``POST /runs/{run_id}/launch`` and ``POST /draft/run`` (both in ``app.py``),
-the only routes that reach ``runs.do_launch`` and start a real scan.
+``verify_launch_token`` guards the bridge's arming routes — enqueuing onto an
+already-draining queue, and ``POST /queue/start``/``POST /queue/stop``'s
+cancel (all in ``queue.py``), the only routes that can set hardware moving.
 Fail-closed by design: if ``BLUESKY_LAUNCH_TOKEN`` isn't set in the bridge
-process's environment, neither route is armed, regardless of what header a
-caller sends. Mirrors BELLA's ``runs.require_armed`` / ``launch_intent``
+process's environment, no route is armed, regardless of what header a caller
+sends. Mirrors BELLA's ``runs.require_armed`` / ``launch_intent``
 token check.
 
 **What the token is.** Authentication for network callers on a shared
@@ -29,8 +29,8 @@ enabled but its database is missing or unparseable
 (``validation._assert_limits_readable_if_writable``).
 
 **The approval prompt is best-effort UX defense, on both write paths.** The
-human approval prompt on ``launch_run`` and that tool's in-tool
-``writes_enabled`` re-read (``osprey/mcp_server/bluesky/tools/launch.py``)
+human approval prompt on the queue's arming tools and their in-tool
+``writes_enabled`` re-read (``osprey/mcp_server/bluesky/tools/queue.py``)
 are worth having, but they are not a boundary: code the agent authors and
 runs through the python executor can POST these routes directly, or drive
 channels directly, without any prompt. Both paths converge on the connector,

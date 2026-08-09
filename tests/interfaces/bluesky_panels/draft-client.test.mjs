@@ -16,6 +16,9 @@
  *    constructing a real `EventSource`.
  */
 
+import { readFileSync } from 'node:fs';
+import { cwd } from 'node:process';
+
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
@@ -30,9 +33,19 @@ import {
   createDraftClient,
   createSSEConnection,
   generateClientId,
-  buildLaunchRequestBody,
-  classifyLaunchResponse,
-  resultsPanelUrl,
+  buildQueueAddBody,
+  buildDraftReplaceBody,
+  describeDraftReplaceFailure,
+  classifyQueueAddResponse,
+  queueOutcomeBanner,
+  queueRefusalDetail,
+  classifyCapability,
+  capabilityBanner,
+  resetNoticeMessage,
+  DISCARD_CONFIRM_NOTICE,
+  REASON_BRIDGE_UNREACHABLE,
+  panelFocusUrl,
+  BLUESKY_PANEL_ID,
   buildLaunchBanner,
   buildAgentDraftBanner,
 } from '../../../src/osprey/interfaces/bluesky_panels/panels/plan/draft-client.js';
@@ -1798,146 +1811,569 @@ describe('generateClientId', () => {
   });
 });
 
-describe('buildLaunchRequestBody', () => {
-  test('bound mode sends only draft_revision, never plan_name/plan_args', () => {
-    const body = buildLaunchRequestBody({
-      bound: true,
-      pinnedRevision: 7,
-      planName: 'orm',
-      planArgs: { num: 1 },
-    });
-    expect(body).toEqual({ draft_revision: 7 });
+describe('buildQueueAddBody', () => {
+  test('sends only the pinned draft revision', () => {
+    expect(buildQueueAddBody({ revision: 7 })).toEqual({ draft_revision: 7 });
   });
 
-  test('unbound (manual) mode sends the collected plan_name/plan_args', () => {
-    const body = buildLaunchRequestBody({
-      bound: false,
-      pinnedRevision: null,
-      planName: 'orm',
-      planArgs: { num: 1 },
-    });
-    expect(body).toEqual({ plan_name: 'orm', plan_args: { num: 1 } });
+  test('a null revision still goes on the wire — the bridge, not the panel, refuses it', () => {
+    expect(buildQueueAddBody({ revision: null })).toEqual({ draft_revision: null });
   });
 });
 
-describe('classifyLaunchResponse', () => {
-  test('200 writes_not_armed', () => {
-    expect(classifyLaunchResponse(200, { status: 'writes_not_armed' })).toEqual({ type: 'writes_not_armed' });
-  });
-
-  test('200 with a run_id', () => {
-    expect(classifyLaunchResponse(200, { run_id: 'run-123' })).toEqual({ type: 'run_started', runId: 'run-123' });
-  });
-
-  test('409 with code stale_draft_revision is distinguished from a bare 409', () => {
-    expect(classifyLaunchResponse(409, { code: 'stale_draft_revision' })).toEqual({
-      type: 'stale_draft_revision',
+describe('buildDraftReplaceBody', () => {
+  test('always carries plan_name, so an absent draft is created rather than 409ing', () => {
+    const body = buildDraftReplaceBody({
+      planName: 'orm',
+      planArgs: { num: 5 },
+      draftArgKeys: [],
+      clientId: 'tab-1',
+    });
+    expect(body).toEqual({
+      plan_name: 'orm',
+      plan_args_patch: { num: 5 },
+      remove: [],
+      client_id: 'tab-1',
     });
   });
 
-  test('409 with code draft_revision_already_launched is its own outcome, distinct from stale', () => {
-    expect(classifyLaunchResponse(409, { code: 'draft_revision_already_launched' })).toEqual({
-      type: 'draft_revision_already_launched',
+  // THE safety property. The bridge merges plan_args_patch over the existing
+  // args when the draft is already on this plan, and the collector omits blank
+  // fields — so without `remove`, a field the operator cleared silently keeps
+  // the previous writer's value and gets enqueued.
+  test('a same-plan replace CLEARS a key the form left blank', () => {
+    const body = buildDraftReplaceBody({
+      planName: 'orm',
+      // The operator emptied `correctors` and `detectors`; the collector omits
+      // both, so only `num` survives the read.
+      planArgs: { num: 5 },
+      draftArgKeys: ['correctors', 'detectors', 'num'],
+      clientId: 'tab-1',
     });
+    expect(body.remove).toEqual(['correctors', 'detectors']);
+    // Never expressed as a null value — a removal is a removal.
+    expect(body.plan_args_patch).toEqual({ num: 5 });
+  });
+
+  test('a key the form still supplies is never removed', () => {
+    const body = buildDraftReplaceBody({
+      planName: 'orm',
+      planArgs: { correctors: [], num: 5 },
+      draftArgKeys: ['correctors', 'num'],
+      clientId: 'tab-1',
+    });
+    // An explicitly-present empty array is a VALUE, not an omission.
+    expect(body.remove).toEqual([]);
+  });
+
+  test('with no draft yet, there is nothing to remove', () => {
+    expect(
+      buildDraftReplaceBody({
+        planName: 'orm',
+        planArgs: { num: 5 },
+        draftArgKeys: [],
+        clientId: 'tab-1',
+      }).remove
+    ).toEqual([]);
+  });
+});
+
+describe('describeDraftReplaceFailure', () => {
+  test('a 409 refusal reads its sentence out of the nested detail', () => {
+    expect(
+      describeDraftReplaceFailure(409, {
+        detail: { code: 'plan_name_mismatch', detail: 'the draft is on grid_scan' },
+      })
+    ).toBe('the draft is on grid_scan');
+  });
+
+  test('a 422 field rejection has no sentence — the field and error are composed instead', () => {
+    expect(
+      describeDraftReplaceFailure(422, { detail: { field: 'num', error: 'must be >= 3' } })
+    ).toBe('num: must be >= 3');
+  });
+
+  test('a bare string detail (the sidecar 502) passes through', () => {
+    expect(describeDraftReplaceFailure(502, { detail: 'bluesky bridge unreachable' })).toBe(
+      'bluesky bridge unreachable'
+    );
+  });
+
+  test('an unrecognizable body falls back to the status', () => {
+    expect(describeDraftReplaceFailure(500, null)).toBe('HTTP 500');
+  });
+});
+
+describe('queueRefusalDetail', () => {
+  test('reads the nested refusal record the queue relay does NOT unwrap', () => {
+    expect(queueRefusalDetail({ detail: { code: 'stale_draft_revision', detail: 'x' } })).toEqual({
+      code: 'stale_draft_revision',
+      detail: 'x',
+    });
+  });
+
+  test('a bare-string detail (the sidecar unreachable body) is not a refusal record', () => {
+    expect(queueRefusalDetail({ detail: 'bluesky bridge unreachable' })).toBeNull();
+    expect(queueRefusalDetail(null)).toBeNull();
+    expect(queueRefusalDetail({ detail: ['nope'] })).toBeNull();
+  });
+});
+
+describe('classifyQueueAddResponse', () => {
+  test('any 2xx with a run_id is a queued outcome carrying the pinned revision', () => {
+    for (const status of [200, 201, 202]) {
+      expect(classifyQueueAddResponse(status, { run_id: 'run-123', revision: 4, item: {} })).toEqual({
+        type: 'queued',
+        runId: 'run-123',
+        revision: 4,
+      });
+    }
+  });
+
+  test('a 2xx without a run_id is NOT a success — run_id is the discriminator', () => {
+    expect(classifyQueueAddResponse(200, { revision: 4 })).toEqual({
+      type: 'error',
+      detail: 'HTTP 200',
+    });
+  });
+
+  // The binding contract: the queue relay leaves the bridge's envelope intact,
+  // so the discriminator lives at detail.code. A panel that read a TOP-LEVEL
+  // `code` (as the legacy launch relay exposed) would match nothing and send
+  // every refusal down the generic error branch — silently.
+  test('a top-level code is NOT a refusal discriminator on the queue surface', () => {
+    expect(classifyQueueAddResponse(409, { code: 'stale_draft_revision' })).toEqual({
+      type: 'error',
+      detail: 'HTTP 409',
+    });
+  });
+
+  test('detail.code stale_draft_revision', () => {
+    expect(
+      classifyQueueAddResponse(409, {
+        detail: { code: 'stale_draft_revision', detail: 'x', revision: 3 },
+      })
+    ).toEqual({ type: 'stale_draft_revision' });
+  });
+
+  test('detail.code draft_revision_already_launched is its own outcome, distinct from stale', () => {
+    expect(
+      classifyQueueAddResponse(409, {
+        detail: { code: 'draft_revision_already_launched', detail: 'x', revision: 3 },
+      })
+    ).toEqual({ type: 'draft_revision_already_launched' });
     // The two 409 discriminators must never collapse into each other.
-    expect(classifyLaunchResponse(409, { code: 'stale_draft_revision' })).toEqual({
-      type: 'stale_draft_revision',
+    expect(
+      classifyQueueAddResponse(409, { detail: { code: 'stale_draft_revision', detail: 'x' } })
+    ).toEqual({ type: 'stale_draft_revision' });
+  });
+
+  test('launch_token_required is one outcome across BOTH its status codes', () => {
+    const body = {
+      detail: {
+        code: 'launch_token_required',
+        detail: 'the queue is running…',
+        manager_state: 'executing_queue',
+      },
+    };
+    const expected = {
+      type: 'not_armed',
+      detail: 'the queue is running…',
+      managerState: 'executing_queue',
+      itemLeftBehind: false,
+    };
+    expect(classifyQueueAddResponse(403, body)).toEqual(expected);
+    expect(classifyQueueAddResponse(503, body)).toEqual(expected);
+  });
+
+  test('a stranded item is reported, not swallowed', () => {
+    expect(
+      classifyQueueAddResponse(403, {
+        detail: {
+          code: 'launch_token_required',
+          detail: 'nope',
+          manager_state: 'executing_queue',
+          item_left_behind: true,
+          item_uid: 'uid-9',
+        },
+      })
+    ).toEqual({
+      type: 'not_armed',
+      detail: 'nope',
+      managerState: 'executing_queue',
+      itemLeftBehind: true,
     });
   });
 
-  test('409 without a code is a generic conflict', () => {
-    expect(classifyLaunchResponse(409, { detail: 'already running' })).toEqual({
-      type: 'conflict',
-      detail: 'already running',
+  test('every capability code — connector/config 409s and manager 503s — is cannot_execute', () => {
+    for (const [status, reason] of /** @type {Array<[number, string]>} */ ([
+      [409, 'browse_only_connector'],
+      [409, 'unsupported_connector'],
+      [409, 'config_unreadable'],
+      [503, 'manager_not_configured'],
+      [503, 'manager_unreachable'],
+    ])) {
+      expect(
+        classifyQueueAddResponse(status, {
+          detail: {
+            code: reason,
+            detail: 'refused',
+            capability: { can_execute: false, reason, detail: 'run `osprey config …`' },
+          },
+        })
+      ).toEqual({ type: 'cannot_execute', reason, detail: 'run `osprey config …`' });
+    }
+  });
+
+  test('cannot_execute falls back to the refusal sentence when no capability rides along', () => {
+    expect(
+      classifyQueueAddResponse(409, {
+        detail: { code: 'browse_only_connector', detail: 'the mock connector cannot move hardware' },
+      })
+    ).toEqual({
+      type: 'cannot_execute',
+      reason: 'browse_only_connector',
+      detail: 'the mock connector cannot move hardware',
     });
   });
 
-  test('502 is bridge_unreachable', () => {
-    expect(classifyLaunchResponse(502, null)).toEqual({ type: 'bridge_unreachable' });
+  test('both session-plan codes classify together and name the plan', () => {
+    for (const code of ['session_plan_unvalidated', 'session_plan_not_in_namespace']) {
+      expect(
+        classifyQueueAddResponse(409, {
+          detail: { code, reason: code, detail: 'validate it again', plan: 'my_scan' },
+        })
+      ).toEqual({ type: 'session_plan_not_ready', detail: 'validate it again', plan: 'my_scan' });
+    }
   });
 
-  test('any other status is a generic error carrying the detail or status', () => {
-    expect(classifyLaunchResponse(500, { detail: 'boom' })).toEqual({ type: 'error', detail: 'boom' });
-    expect(classifyLaunchResponse(500, null)).toEqual({ type: 'error', detail: 'HTTP 500' });
-  });
-});
-
-describe('createDraftClient — launched banner', () => {
-  /** @type {any} */
-  let harness;
-
-  beforeEach(() => {
-    harness = makeHarness();
-  });
-
-  afterEach(() => {
-    harness.client.destroy();
-    document.body.replaceChildren();
+  test('queue_request_rejected and environment_unavailable share the rejected outcome', () => {
+    expect(
+      classifyQueueAddResponse(409, {
+        detail: { code: 'queue_request_rejected', detail: 'manager said no' },
+      })
+    ).toEqual({ type: 'queue_rejected', detail: 'manager said no' });
+    expect(
+      classifyQueueAddResponse(503, {
+        detail: { code: 'environment_unavailable', detail: 'no worker' },
+      })
+    ).toEqual({ type: 'queue_rejected', detail: 'no worker' });
   });
 
-  test('a launched frame surfaces the banner via onLaunchBanner', async () => {
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: {} }, revision: 1 });
-    await flushMicrotasks();
-    harness.push({ type: 'launched', draft: null, revision: 1, run_id: 'run-xyz' });
-    await flushMicrotasks();
-    expect(harness.deps.onLaunchBanner).toHaveBeenCalledWith({ runId: 'run-xyz', revision: 1 });
+  test('502 is bridge_unreachable, ahead of any detail parsing', () => {
+    expect(classifyQueueAddResponse(502, { detail: 'bluesky bridge unreachable' })).toEqual({
+      type: 'bridge_unreachable',
+    });
   });
 
-  test('a malformed launched frame (no run_id) is dropped — onLaunchBanner never fires', async () => {
-    harness.push({ type: 'hello', draft: null, revision: 1 });
-    await flushMicrotasks();
-    harness.push({ type: 'launched', draft: null, revision: 2 });
-    await flushMicrotasks();
-    expect(harness.deps.onLaunchBanner).not.toHaveBeenCalled();
+  test('an unknown code is a generic error carrying the sentence, else the status', () => {
+    expect(
+      classifyQueueAddResponse(500, { detail: { code: 'something_new', detail: 'boom' } })
+    ).toEqual({ type: 'error', detail: 'boom' });
+    expect(classifyQueueAddResponse(500, null)).toEqual({ type: 'error', detail: 'HTTP 500' });
   });
 });
 
-describe('resultsPanelUrl', () => {
-  test('swaps the plan panel segment for the results panel and deep-links the run', () => {
-    expect(resultsPanelUrl('/panel/plan', 'run-1')).toBe('/panel/scan-results/?run_id=run-1');
+describe('queueOutcomeBanner', () => {
+  test('only a queued outcome reads as success — no refusal may', () => {
+    /** @type {import('../../../src/osprey/interfaces/bluesky_panels/panels/plan/draft-client.js').QueueAddOutcome[]} */
+    const refusals = [
+      { type: 'stale_draft_revision' },
+      { type: 'draft_revision_already_launched' },
+      { type: 'not_armed', detail: '', managerState: null, itemLeftBehind: false },
+      { type: 'cannot_execute', reason: 'browse_only_connector', detail: '' },
+      { type: 'session_plan_not_ready', detail: '', plan: null },
+      { type: 'queue_rejected', detail: '' },
+      { type: 'bridge_unreachable' },
+      { type: 'error', detail: 'boom' },
+    ];
+    expect(queueOutcomeBanner({ type: 'queued', runId: 'r1', revision: 2 }).kind).toBe('ok');
+    for (const outcome of refusals) {
+      const banner = queueOutcomeBanner(outcome);
+      expect(banner.kind).not.toBe('ok');
+      // Every refusal says something; a silent banner would read as success.
+      expect(banner.message.length).toBeGreaterThan(0);
+    }
   });
 
-  test('falls back to an absolute results path when served without a proxy prefix', () => {
-    expect(resultsPanelUrl('', 'run-1')).toBe('/panel/scan-results/?run_id=run-1');
+  test('the queued banner names the run and says a start is still required', () => {
+    const banner = queueOutcomeBanner({ type: 'queued', runId: 'run-5', revision: 2 });
+    expect(banner.message).toContain('run-5');
+    expect(banner.message).toContain('started');
   });
 
-  test('URL-encodes the run id', () => {
-    expect(resultsPanelUrl('/panel/plan', 'a b/c?d')).toBe('/panel/scan-results/?run_id=a%20b%2Fc%3Fd');
+  test('stale and already-queued give DIFFERENT remedies', () => {
+    const stale = queueOutcomeBanner({ type: 'stale_draft_revision' }).message;
+    const already = queueOutcomeBanner({ type: 'draft_revision_already_launched' }).message;
+    expect(stale).not.toBe(already);
+    expect(already).toContain('edit the draft');
+  });
+
+  test('a bridge sentence is shown verbatim, and a stranded item is called out', () => {
+    expect(
+      queueOutcomeBanner({
+        type: 'not_armed',
+        detail: 'the queue is running…',
+        managerState: 'executing_queue',
+        itemLeftBehind: false,
+      }).message
+    ).toBe('the queue is running…');
+    const stranded = queueOutcomeBanner({
+      type: 'not_armed',
+      detail: 'the queue is running…',
+      managerState: 'executing_queue',
+      itemLeftBehind: true,
+    }).message;
+    expect(stranded).toContain('the queue is running…');
+    expect(stranded).toContain('could not withdraw');
+  });
+
+  test('the cannot-execute banner carries the capability detail verbatim (it holds the flip command)', () => {
+    const detail = 'run `osprey config set-control-system virtual_accelerator` and redeploy.';
+    expect(
+      queueOutcomeBanner({ type: 'cannot_execute', reason: 'browse_only_connector', detail }).message
+    ).toBe(detail);
+  });
+
+  test('a detail-less session refusal still names the plan', () => {
+    expect(
+      queueOutcomeBanner({ type: 'session_plan_not_ready', detail: '', plan: 'my_scan' }).message
+    ).toContain('my_scan');
+  });
+});
+
+describe('classifyCapability', () => {
+  test('an executable deployment', () => {
+    expect(
+      classifyCapability(200, {
+        status: 'ok',
+        capability: {
+          can_execute: true,
+          reason: 'executable',
+          detail: "Plans execute against the 'virtual_accelerator' connector.",
+        },
+      })
+    ).toEqual({
+      canExecute: true,
+      reason: 'executable',
+      detail: "Plans execute against the 'virtual_accelerator' connector.",
+    });
+  });
+
+  test('a browse-only deployment keeps the flip command verbatim', () => {
+    const detail =
+      'This deployment uses the mock connector … run `osprey config set-control-system virtual_accelerator` and redeploy.';
+    expect(
+      classifyCapability(200, {
+        status: 'ok',
+        capability: { can_execute: false, reason: 'browse_only_connector', detail },
+      })
+    ).toEqual({ canExecute: false, reason: 'browse_only_connector', detail });
+  });
+
+  // Invariant (a) of the capability wire contract: liveness and executability
+  // are independent, so `status: "ok"` must never be read as permission.
+  test('status "ok" alongside can_execute false is still cannot-execute', () => {
+    const record = classifyCapability(200, {
+      status: 'ok',
+      capability: { can_execute: false, reason: 'manager_unreachable', detail: 'no manager' },
+    });
+    expect(record.canExecute).toBe(false);
+  });
+
+  // Invariant (b): a non-200 — including the sidecar's own 502 — is
+  // cannot-execute, never "unknown, proceed".
+  test('a non-200 (incl. the sidecar 502) is cannot-execute', () => {
+    for (const status of [0, 404, 500, 502, 503]) {
+      const record = classifyCapability(status, { detail: 'bluesky bridge unreachable' });
+      expect(record.canExecute).toBe(false);
+      expect(record.reason).toBe(REASON_BRIDGE_UNREACHABLE);
+      expect(record.detail).not.toBe('');
+    }
+  });
+
+  test('a 200 with no usable capability object is cannot-execute too', () => {
+    expect(classifyCapability(200, { status: 'ok' }).canExecute).toBe(false);
+    expect(classifyCapability(200, { status: 'ok', capability: 'nope' }).canExecute).toBe(false);
+    expect(classifyCapability(200, null).canExecute).toBe(false);
+  });
+
+  test('a truthy-but-not-true can_execute is not permission', () => {
+    expect(
+      classifyCapability(200, { capability: { can_execute: 'yes', reason: 'executable' } })
+        .canExecute
+    ).toBe(false);
+  });
+});
+
+describe('capabilityBanner', () => {
+  /**
+   * @param {string} reason
+   * @param {string} [detail]
+   * @returns {import('../../../src/osprey/interfaces/bluesky_panels/panels/plan/draft-client.js').CapabilityRecord}
+   */
+  const cannot = (reason, detail = 'because') => ({ canExecute: false, reason, detail });
+
+  test('an executable deployment says nothing at all', () => {
+    expect(
+      capabilityBanner({ canExecute: true, reason: 'executable', detail: 'all good' })
+    ).toBeNull();
+  });
+
+  test('connector/config reasons read as information — browse-only is a supported way to run', () => {
+    for (const reason of ['browse_only_connector', 'unsupported_connector', 'config_unreadable']) {
+      expect(capabilityBanner(cannot(reason))?.kind).toBe('info');
+    }
+  });
+
+  test('manager reasons and an unreadable health surface warn', () => {
+    for (const reason of ['manager_not_configured', 'manager_unreachable', REASON_BRIDGE_UNREACHABLE]) {
+      expect(capabilityBanner(cannot(reason))?.kind).toBe('warn');
+    }
+  });
+
+  test('the bridge sentence is shown verbatim — it carries the flip command', () => {
+    const detail = 'run `osprey config set-control-system virtual_accelerator` and redeploy.';
+    expect(capabilityBanner(cannot('browse_only_connector', detail))?.message).toBe(detail);
+  });
+
+  test('a record with no detail still explains the disabled button', () => {
+    const banner = capabilityBanner(cannot('browse_only_connector', ''));
+    expect(banner?.message.length).toBeGreaterThan(0);
+  });
+});
+
+describe('DISCARD_CONFIRM_NOTICE', () => {
+  // Item 2's whole point is that the consequence is unmistakable, so the copy
+  // itself is pinned: "Discard" next to a form otherwise reads as "clear my
+  // form", and the mistake cannot be undone.
+  test('names the bridge, the agent, and the fact that this form is kept', () => {
+    expect(DISCARD_CONFIRM_NOTICE).toContain('shared draft');
+    expect(DISCARD_CONFIRM_NOTICE).toContain('bridge');
+    expect(DISCARD_CONFIRM_NOTICE).toContain('agent');
+    expect(DISCARD_CONFIRM_NOTICE).toMatch(/form stay as they are|form stay/);
+  });
+
+  test('never describes itself as local or reversible', () => {
+    expect(DISCARD_CONFIRM_NOTICE.toLowerCase()).not.toContain('local');
+    expect(DISCARD_CONFIRM_NOTICE.toLowerCase()).not.toContain('undo');
+  });
+});
+
+describe('resetNoticeMessage', () => {
+  test('the bound notice names the enqueue, not the Reset, as what overwrites the draft', () => {
+    const message = resetNoticeMessage(true);
+    expect(message).toContain('shared draft still holds the old values');
+    expect(message).toContain('adding to the queue will replace it');
+  });
+
+  test('the unbound notice states that nothing left the panel', () => {
+    expect(resetNoticeMessage(false)).toContain('nothing was sent to the bridge');
+  });
+
+  test('the two cases never collapse into one sentence', () => {
+    expect(resetNoticeMessage(true)).not.toBe(resetNoticeMessage(false));
+  });
+});
+
+describe('panelFocusUrl', () => {
+  test('drops this panel’s own /panel/<id> mount to reach the host’s focus API', () => {
+    expect(panelFocusUrl('/panel/plan')).toBe('/api/panel-focus');
+  });
+
+  test('preserves a multi-user mount prefix', () => {
+    expect(panelFocusUrl('/u/alice/panel/plan')).toBe('/u/alice/api/panel-focus');
+  });
+
+  test('served with no shell, the root-absolute path is still well-formed', () => {
+    expect(panelFocusUrl('')).toBe('/api/panel-focus');
+  });
+
+  test('the target is a registered panel ID, never a hand-built sibling URL', () => {
+    expect(BLUESKY_PANEL_ID).toBe('bluesky');
+    // Nothing about the destination is encoded in the endpoint: the id is the
+    // whole address, so a change to where panels are mounted cannot break it.
+    expect(panelFocusUrl('/panel/plan')).not.toContain(BLUESKY_PANEL_ID);
   });
 });
 
 describe('buildLaunchBanner', () => {
-  test('renders the revision prefix and a results-panel link (run_id via textContent)', () => {
-    const frag = buildLaunchBanner(
-      document,
-      { runId: 'run-77', revision: 9 },
-      (id) => `/panel/scan-results/?run_id=${id}`
-    );
+  test('renders the queued fact and an action that asks the host to switch panels', () => {
+    const onOpen = vi.fn();
+    const frag = buildLaunchBanner(document, { runId: 'run-77', revision: 9 }, onOpen);
     const host = document.createElement('div');
     host.appendChild(frag);
-    expect(host.textContent).toBe('revision 9 launched → run run-77');
-    const link = /** @type {HTMLAnchorElement|null} */ (host.querySelector('a.launch-run-link'));
-    expect(link).not.toBeNull();
-    if (!link) throw new Error('unreachable: link asserted non-null');
-    expect(link.getAttribute('href')).toBe('/panel/scan-results/?run_id=run-77');
-    expect(link.dataset.runId).toBe('run-77');
-    expect(link.target).toBe('_blank');
+    expect(host.textContent).toBe('revision 9 queued → run run-77Open BLUESKY');
+    const open = /** @type {HTMLButtonElement|null} */ (host.querySelector('button.launch-run-link'));
+    expect(open).not.toBeNull();
+    if (!open) throw new Error('unreachable: button asserted non-null');
+    expect(open.dataset.runId).toBe('run-77');
+    open.click();
+    expect(onOpen).toHaveBeenCalledWith('run-77');
   });
 
-  test('an HTML-bearing run_id never becomes markup — only a text node and an encoded href', () => {
+  test('no href/anchor survives — navigation goes through the host, not a URL', () => {
+    const frag = buildLaunchBanner(document, { runId: 'run-77', revision: 9 }, () => {});
+    const host = document.createElement('div');
+    host.appendChild(frag);
+    expect(host.querySelector('a')).toBeNull();
+    expect(host.querySelector('[href]')).toBeNull();
+  });
+
+  test('an HTML-bearing run_id never becomes markup — only a text node', () => {
     const evil = '<img src=x onerror=alert(1)>';
-    const frag = buildLaunchBanner(document, { runId: evil, revision: 1 }, (id) =>
-      resultsPanelUrl('/panel/plan', id)
-    );
+    const frag = buildLaunchBanner(document, { runId: evil, revision: 1 }, () => {});
     const host = document.createElement('div');
     host.appendChild(frag);
     // Nothing was parsed from the payload; it survives verbatim as text.
     expect(host.querySelector('img')).toBeNull();
-    const link = /** @type {HTMLAnchorElement|null} */ (host.querySelector('a.launch-run-link'));
-    expect(link).not.toBeNull();
-    if (!link) throw new Error('unreachable: link asserted non-null');
-    expect(link.textContent).toBe(`run ${evil}`);
-    expect(link.getAttribute('href')).toBe(`/panel/scan-results/?run_id=${encodeURIComponent(evil)}`);
+    const text = host.querySelector('.launch-banner-text');
+    expect(text).not.toBeNull();
+    if (!text) throw new Error('unreachable: text asserted non-null');
+    expect(text.textContent).toBe(`revision 1 queued → run ${evil}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bundle integrity
+//
+// panel.js itself cannot be imported under test: it runs its DOM lookups and
+// boot fetches at module scope. This drift-net covers the failure that costs
+// the most for the least — a renamed element id — by reading the two files as
+// text. Ported from the sibling BLUESKY panel suite so both bundles are held
+// to the same guard; it lives in this file because it is the plan bundle's
+// only vitest home.
+// ---------------------------------------------------------------------------
+
+describe('plan bundle wiring', () => {
+  // Resolved from the repo root rather than from `import.meta.url`: under
+  // happy-dom the document's origin is `http://localhost`, so a URL relative
+  // to this module is not a file path at all. Vitest always runs from the
+  // repo root.
+  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/plan/`;
+
+  test('every element id panel.js looks up exists in index.html', () => {
+    // The bundle has no build step and is served as authored, so a renamed id
+    // fails only at runtime, in the operator's browser, as a silently dead
+    // control. This is the drift-net for that.
+    const source = readFileSync(`${BUNDLE}panel.js`, 'utf-8');
+    const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
+
+    const referenced = [...source.matchAll(/(?:byId|getElementById)\(\s*'([^']+)'/g)].map(
+      (match) => match[1]
+    );
+    const declared = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]));
+
+    expect(referenced.length).toBeGreaterThan(10);
+    expect(referenced.filter((id) => !declared.has(id))).toEqual([]);
+  });
+
+  test('the retired direct-launch surface is gone from the bundle', () => {
+    // The panel now reaches the queue relay only; a reintroduced /runs/launch
+    // call would bypass the whole queue contract silently.
+    const source = readFileSync(`${BUNDLE}panel.js`, 'utf-8');
+    expect(source).not.toContain('/runs/launch');
+    expect(source).toContain('/queue/items');
   });
 });
 

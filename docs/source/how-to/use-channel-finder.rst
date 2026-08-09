@@ -77,12 +77,22 @@ Build a database from CSV, then validate and preview:
 
 .. note::
 
-   ``build-database`` writes to ``data/processed/channel_database.json`` by
-   default, while the pipelines — and a bare ``validate`` / ``preview`` — read
-   the database referenced in ``config.yml`` (under
-   ``data/channel_databases/``). After building, either point the commands at
-   the new file with ``--database`` or update the config path — otherwise you
-   are silently validating the old database.
+   ``build-database`` writes into the **profile** the project was built from
+   (``processed/channel_database.json`` inside its ``data/`` tree), not into the
+   project — a generated database belongs beside the inputs it came from, and
+   survives a rebuild there. That deliberately marks the project stale; clear
+   the advisory by rebuilding:
+
+   .. code-block:: bash
+
+      osprey channel-finder build-database
+      osprey build my-project my-profile/profile.yml --force
+
+   The pipelines — and a bare ``validate`` / ``preview`` — read the database
+   referenced in ``config.yml`` (under ``data/channel_databases/``). If you
+   built to a different name, either point the commands at it with
+   ``--database`` or update the config path; otherwise you are silently
+   validating the old database.
 
 
 Hierarchical Pipeline

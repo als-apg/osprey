@@ -11,10 +11,11 @@ dict identity, etc.), a real execution catches it where a mocked one would
 not.
 
 Threat model: ``BLUESKY_LAUNCH_TOKEN`` authenticates callers of the Bluesky
-bridge's ``/runs/{id}/launch`` endpoint. If agent-generated code running in
-this sandbox could read that token from its environment, it could bypass
-``launch_run``'s in-tool ``writes_enabled`` re-check and POST directly to
-``/launch``. This test proves that path is closed at the environment layer.
+bridge's arming endpoints (``/queue/start``, and ``/queue/items`` onto a
+running queue). If agent-generated code running in this sandbox could read that
+token from its environment, it could bypass the queue tools' in-tool
+``writes_enabled`` re-check and POST directly to the bridge. This test proves
+that path is closed at the environment layer.
 """
 
 import json

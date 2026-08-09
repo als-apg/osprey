@@ -4,7 +4,7 @@ A multi-user web terminal stack lets named operators reach the built assistant f
 
 **Enabled when**: `modules.web_terminals.enabled: true` in `facility-config.yml`.
 
-> **Loopback-bound apps behind a single chokepoint — still perimeter-trust only.** Every per-user service (the web family plus every companion-panel family) binds `127.0.0.1` inside its container, so nginx is the **only** process that can reach them from outside — hitting a per-user host port directly no longer reaches anything. That does **not** mean the stack is authenticated or encrypted: `modules.web_terminals.auth` and `.tls` exist as config-gated seams, but with their defaults (`auth.method: none`, `tls.enabled: false`) traffic reaching nginx is still unauthenticated, cleartext HTTP, open to anyone who reaches the deploy host. Enabling `auth.method` to anything other than `none` fails **closed** — every request gets `403` — rather than allow-all, since no real auth backend exists behind the seam yet. Only deploy this module on a network you already trust (VPN-only segment, firewalled lab subnet, etc.) until a real auth backend and real TLS certificates are configured.
+> **Loopback-bound apps behind a single chokepoint; authentication is opt-in.** Every per-user service (the web family plus every companion-panel family) binds `127.0.0.1` inside its container, so nginx is the **only** process that can reach them from outside — hitting a per-user host port directly no longer reaches anything. What that chokepoint *asks* of a request is a configuration choice. At the shipped defaults (`auth.method: none`, `tls.enabled: false` — every preset) traffic reaching nginx is unauthenticated cleartext HTTP, open to anyone who reaches the deploy host, so deploy it that way only on a network you already trust (VPN-only segment, firewalled lab subnet). Setting `modules.web_terminals.auth.method` to `password` or `oidc` brings up the auth sidecar and requires a real per-user login for every `/u/<user>/` request; `modules.web_terminals.tls.enabled: true` adds HTTPS, and auth without it refuses to render unless `auth.allow_insecure_http: true`. Full field reference and the fail-closed rules: `references/facility-config-schema.md` § "Authentication".
 
 ---
 
@@ -309,6 +309,7 @@ A compose overlay (`docker-compose.web.yml` by default; added to `${config.runti
 
 - One `nginx` service (container name `${config.facility.prefix}-nginx`) listening on `0.0.0.0:${config.modules.web_terminals.nginx_port}`, from image `${config.modules.web_terminals.nginx_image}` (default `nginx:1.27-alpine`). This is the one image in the stack pulled from a public registry rather than built from the facility's own project, so on hosts locked to a private mirror set `nginx_image` to the mirrored reference or the service is unpullable. Mounts `./nginx/nginx.conf` and `./nginx/landing.html` read-only.
 - An anchor `&web-terminal` block holding image, restart policy, env_file, network — extended by every per-user service.
+- One `auth` service (container name `${config.facility.prefix}-auth`), **only** when `auth.method != none` — the sidecar nginx's `auth_request` calls. Like every other service here it runs `network_mode: host`, binding `127.0.0.1:${config.modules.web_terminals.auth.port}` on the deploy host rather than publishing a compose port. Single uvicorn process by design (the revocation list and login throttle are in-memory). Its `env_file` is `.env.auth` and nothing else carries those variables. At `auth.method: none` the block is suppressed entirely and the overlay is byte-identical to a pre-authentication render.
 - One service per user, each publishing all four `*_base_port + index` host ports (per the Architecture table above) with `OSPREY_TERMINAL_USER=<user>` and the other three `OSPREY_*_PORT` env vars set alongside it — plus a paired `<user>-claude-config` / `<user>-agent-data` named volume per user, living on the container engine's local graphroot, **not** on any NFS mount. (Deliberate: rootless container UIDs don't survive NFS write paths reliably, but Claude Code writes to its config dir continuously during a session.)
 
 **These artifacts are generated deterministically, not hand-rendered by the scaffolding skill.** Run:
@@ -345,6 +346,8 @@ Neither `osprey deploy up` nor `osprey deploy seed` HTTP-probes the per-user ser
 ### .env.template
 
 No new entries are required by this module on its own — web terminals reuse the LLM provider key and any other secrets the assistant already needs. If `modules.event_dispatcher` is also enabled, the sidecar token env var is propagated into each terminal so it can call sidecar endpoints.
+
+With authentication on, two optional `.env` entries apply: an `OSPREY_AUTH_PW_<USER>` plaintext to seed a chosen password for that user (hashed into `.env.auth` at deploy time, never shipped to a container), and — in `oidc` mode — the client id/secret under the names `auth.oidc.client_id_env` / `client_secret_env` point at. The generated password hashes and session secrets live in `.env.auth`, which the deploy writes. Three ignore templates keep it out of images and history: the project `.gitignore` and `.dockerignore` (both of which also list `.env.production`), plus the auth sidecar's own build-context `.dockerignore`. Never commit `.env.auth` or `.env.production`.
 
 ### Other files
 
@@ -417,7 +420,7 @@ curl -X POST 'http://${config.deploy.host}:<port>/api/chat?stream=false' \
 
 1. Append the new login to `modules.web_terminals.users` in `facility-config.yml` (re-run the interview, or hand-edit and skip ahead).
 2. Re-scaffold: regenerates the compose overlay with the new service + named volumes, and adds a row to the nginx upstream block.
-3. Create the per-user context stub: `mkdir -p docker/web-terminal-context/<new_user> && touch docker/web-terminal-context/<new_user>/extra.md`. (The legacy flat `docker/web-terminal-context/<new_user>.md` still works, but new facilities should use the directory form so a `skills/` overlay can be added later without restructuring.)
+3. Create the per-user context stub: `mkdir -p docker/web-terminal-context/<new_user> && touch docker/web-terminal-context/<new_user>/extra.md`. (The legacy flat `docker/web-terminal-context/<new_user>.md` still works, but new facilities should use the directory form so a `skills/` overlay can be added later without restructuring.) Author it in the **profile's** `web-terminal-context/<new_user>/` if the assistant is rebuilt from a profile — the build copies that directory to `docker/web-terminal-context/`, so a stub created only in the project is lost on the next build.
 4. Commit and push. CI rebuilds nothing image-side (the user list isn't baked into the image), but the new container only appears after a deploy.
 5. Deploy: `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy up"`. The seeding step creates the user's CLAUDE.md on first run.
 
@@ -439,6 +442,14 @@ The equivalent by hand, if you're editing `facility-config.yml` directly instead
    ```
 
 To clean up users that were removed from the roster this second way (bypassing `decommission`) and left as orphans, run `osprey deploy prune [--dry-run] [--archive|--purge]` — it discovers containers/volumes not on the current roster and removes them the same way `decommission` would.
+
+With authentication on, both verbs also purge that user's `OSPREY_AUTH_PW_*` entries from `.env.auth`, so a later user of the same name is minted a fresh credential rather than inheriting the departed one. `decommission` additionally reloads nginx and force-recreates the sidecar unconditionally (its roster arrives as a compose `environment` entry baked in at container creation), which is what kills the removed user's live session immediately. `prune` re-renders nothing and recreates **only** when a purge actually changed `.env.auth` — so in `oidc` mode, where an orphan has no password entry to purge, prune ends no session. Reach for `decommission` when closing access is the point.
+
+Neither happens on a plain `deploy up` after a hand-edited roster: the user's container and routes go away, but their hash stays in `.env.auth` and re-establishes the old password if the name is ever re-added. A plaintext `OSPREY_AUTH_PW_<USER>` in the project `.env` survives even `decommission` — the next deploy re-hashes it — so remove that line by hand when someone leaves (the decommission warns when one is still present).
+
+### Change a user's password
+
+`osprey deploy passwd <user>` (password mode only): prompts for the new password without echoing it, rewrites that one `OSPREY_AUTH_PW_HASH_<USER>` entry in `.env.auth`, and force-recreates the sidecar so the change takes effect. That user's existing sessions stop working immediately; no other user is affected. There is no self-service password change from the browser.
 
 ### Inspect a user's session state
 

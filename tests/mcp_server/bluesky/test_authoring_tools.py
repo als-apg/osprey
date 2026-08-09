@@ -1,4 +1,4 @@
-"""Tests for the session-plan authoring/validation surface (task 2.3):
+"""Tests for the session-plan authoring/validation surface:
 `write_plan` / `validate_plan` MCP tools, their bridge routes
 (`POST /plans/session`, `POST /plans/validate`), and their permission tier.
 
@@ -6,7 +6,7 @@ Two layers are covered:
 
 - MCP-tool level (`osprey.mcp_server.bluesky.tools.authoring`): payload shape and
   error-envelope mapping, with `_http_post_json` mocked out (no bridge process
-  needed) — mirrors `test_launch_run.py`'s conventions.
+  needed) — mirrors `test_queue_tools.py`'s conventions.
 - Bridge-route level (`osprey.services.bluesky_bridge.app`): exercised via
   FastAPI's `TestClient` against the real routes, proving the write path never
   imports/execs the authored body, the HASH CONTRACT (the bytes validated are
@@ -68,7 +68,7 @@ _BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "detectors": ["d1"], "num": 3}
 
 
 # =========================================================================
-# Registry permission tier (task 2.3's (D)): both tools approval-only, no
+# Registry permission tier: both tools approval-only, no
 # _WRITES_CHECK — must work identically whether writes_enabled is on or off.
 # =========================================================================
 
@@ -93,14 +93,11 @@ def test_both_tools_are_approval_ask_tier_never_writes_checked():
 
 def test_both_tools_get_distinct_independently_allowlistable_short_names():
     scan = FRAMEWORK_SERVERS["bluesky"]
-    # Distinct from launch_run/stop_run's own tier, and from each other.
-    assert len({"launch_run", "stop_run", "write_plan", "validate_plan"}) == 4
-    assert set(scan.permissions_ask) >= {
-        "write_plan",
-        "validate_plan",
-        "launch_run",
-        "stop_run",
-    }
+    # Distinct from the queue/stop tools' own tier, and from each other, so an
+    # operator can permit authoring without also permitting execution.
+    names = {"queue_add", "queue_start", "queue_stop", "stop_run", "write_plan", "validate_plan"}
+    assert len(names) == 6
+    assert set(scan.permissions_ask) >= names
 
 
 # =========================================================================

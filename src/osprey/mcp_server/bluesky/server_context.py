@@ -48,11 +48,16 @@ _UNREACHABLE_HINTS = [
     "Check the BLUESKY_BRIDGE_URL env var or bluesky.bridge_url in config.yml.",
 ]
 
-# Shared by every tool module (read_tools, launch, stop): the hint
-# attached to a 404 from the bridge's in-memory run registry.
+# Shared by every tool module (read_tools, queue, stop): the hint attached to
+# a 404 for a run id the manager no longer holds. Deliberately does NOT say
+# the run's data is gone — the queue and its history are durable, and a run
+# rotated out of that history can still be read by get_run_data from durable
+# storage. A hint claiming otherwise would stop an agent from reading data
+# that is right there.
 UNKNOWN_RUN_HINTS = [
-    "The bridge's run registry is in-memory only; a restart forgets prior runs.",
-    "List currently-tracked runs with list_runs.",
+    "The queue manager no longer holds this run — usually rotated out of its history.",
+    "This does not mean the data is gone: try get_run_data, which also reads durable storage.",
+    "List the runs the manager still knows about with list_runs.",
 ]
 
 
@@ -125,17 +130,28 @@ def reset_server_context() -> None:
 # HTTP boundary (patched in tests)
 # ---------------------------------------------------------------------------
 def _request_json(
-    request: Callable[..., httpx.Response], path: str, **kwargs: Any
+    request: Callable[..., httpx.Response],
+    path: str,
+    *,
+    timeout: float | None = None,
+    **kwargs: Any,
 ) -> tuple[int, Any]:
     """Shared core of the ``_http_*_json`` helpers: dispatch, parse, unreachable handling.
 
     ``request`` is the ``httpx`` verb function to call. The public wrappers
     below look it up (``httpx.get``/``httpx.post``/...) at call time, so tests
     that patch those module attributes still intercept the request.
+
+    ``timeout`` overrides :data:`_TIMEOUT` for one call. It exists for the
+    handful of bridge routes whose server-side work is a composition of manager
+    calls rather than a single one -- the emergency abort behind ``stop_run`` --
+    where the shared default would report an unreachable bridge while the bridge
+    was still working. It is per-call on purpose: raising ``_TIMEOUT`` globally
+    would make every ordinary tool sit on a dead bridge for minutes.
     """
     url = f"{get_server_context().bridge_url}{path}"
     try:
-        resp = request(url, timeout=_TIMEOUT, **kwargs)
+        resp = request(url, timeout=_TIMEOUT if timeout is None else timeout, **kwargs)
     except httpx.HTTPError as exc:
         make_error(
             "bluesky_bridge_unreachable",
@@ -164,13 +180,19 @@ def _http_get_json(path: str) -> tuple[int, dict | list]:
 
 
 def _http_post_json(
-    path: str, payload: dict, *, headers: dict[str, str] | None = None
+    path: str,
+    payload: dict,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float | None = None,
 ) -> tuple[int, dict]:
     """POST ``payload`` as JSON to ``path`` on the Bluesky bridge.
 
     Same unreachable-bridge/error-body contract as :func:`_http_get_json`.
+    ``timeout`` overrides the shared :data:`_TIMEOUT` for this one request; see
+    :func:`_request_json`.
     """
-    return _request_json(httpx.post, path, json=payload, headers=headers)
+    return _request_json(httpx.post, path, json=payload, headers=headers, timeout=timeout)
 
 
 def _http_patch_json(

@@ -2,7 +2,7 @@
 
 The verb that turns a bundled preset into an editable profile directory: an
 explicit standalone ``profile.yml``, the bundle's data tree copied verbatim,
-the overlay seed, and a tutorial README. Carries the whole scaffolding contract
+the secret channel, and a tutorial README. Carries the whole scaffolding contract
 the removed ``osprey build`` scaffold flag was held to, extended with the
 data-tree materialization it never did and the preset-parity checks that prove
 nothing is lost on the way from preset to profile.
@@ -60,8 +60,18 @@ def test_writes_expected_tree(runner: CliRunner, tmp_path: Path) -> None:
     assert (target / "profile.yml").is_file()
     assert (target / "README.md").is_file()
     assert (target / "data").is_dir()
-    for seed in ("rules", "skills", "agents", "web-terminal-context"):
-        assert (target / "overlays" / seed / ".gitkeep").is_file(), seed
+
+
+def test_no_overlays_tree_is_seeded(runner: CliRunner, tmp_path: Path) -> None:
+    """`overlay:` was removed with FR-5 — it now hard-errors at load, so a
+    seeded `overlays/` would be a directory nothing reads and the README's
+    instructions would point operators at a mechanism that no longer exists.
+    Artifacts go in convention directories at the profile root instead."""
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    assert not (target / "overlays").exists()
 
 
 def test_profile_is_standalone(runner: CliRunner, tmp_path: Path) -> None:
@@ -127,6 +137,406 @@ def test_preset_comments_survive(runner: CliRunner, tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Trigger config (FR-3: the profile owns the file its dispatch block runs on)
+# ---------------------------------------------------------------------------
+
+
+def _bundled_triggers(name: str) -> Path:
+    from osprey.cli.build_profile import _triggers_dir
+
+    return _triggers_dir() / name
+
+
+def test_bundled_triggers_are_materialized_and_repointed(runner: CliRunner, tmp_path: Path) -> None:
+    """A preset naming a bundled trigger set gets its own copy, and the emitted
+    ``dispatch.triggers`` names that copy rather than the bundled name."""
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "control-assistant").exit_code == 0
+
+    materialized = target / "triggers.yml"
+    assert materialized.is_file()
+    assert materialized.read_bytes() == _bundled_triggers("tutorial_triggers.yml").read_bytes()
+    parsed = yaml.safe_load((target / "profile.yml").read_text())
+    assert parsed["dispatch"]["triggers"] == "triggers.yml"
+
+
+def test_profile_without_a_dispatch_block_materializes_no_triggers(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Nothing to own, so nothing is written — and no dispatch block appears."""
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    assert not (target / "triggers.yml").exists()
+    assert yaml.safe_load((target / "profile.yml").read_text()).get("dispatch") is None
+
+
+def test_emitted_triggers_reference_resolves_inside_the_profile(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The whole point of FR-3: after materialization the profile names only
+    profile-local files, so the directory is movable and buildable on its own."""
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "control-assistant").exit_code == 0
+
+    resolved, profile_dir = resolve_build_profile((target / "profile.yml").resolve(), None)
+    assert resolved.dispatch is not None
+    named = (profile_dir / resolved.dispatch.triggers).resolve()
+    assert named == (target / "triggers.yml").resolve()
+    assert named.is_file()
+
+
+def test_persona_deltas_do_not_restate_the_triggers_reference(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The host owns ``triggers.yml`` for the whole stack. A persona delta
+    carries only its own keys, so it neither repeats the dispatch block nor
+    re-anchors the path — the implicit merge resolves it against the host."""
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "control-assistant").exit_code == 0
+
+    for persona_file in sorted((target / "personas").glob("*.yml")):
+        parsed = yaml.safe_load(persona_file.read_text())
+        assert "dispatch" not in parsed, persona_file.name
+        assert not (target / "personas" / "triggers.yml").exists()
+
+
+# ---------------------------------------------------------------------------
+# Per-user context slots (FR-5: seeded from the roster, never frozen)
+# ---------------------------------------------------------------------------
+
+
+def _roster_names(preset: str) -> list[str]:
+    from osprey.cli.build_profile_emit import effective_web_terminals
+    from osprey.deployment.web_terminals.personas import normalize_users
+
+    resolved, _dir = resolve_build_profile(None, preset)
+    web_terminals = effective_web_terminals(resolved.config)
+    return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+
+
+@pytest.mark.parametrize("preset", ["control-assistant"])
+def test_per_user_context_directories_are_seeded_from_the_roster(
+    runner: CliRunner, tmp_path: Path, preset: str
+) -> None:
+    """One empty slot per roster user, so a facility writing per-user context
+    has an obvious home for it from the first minute."""
+    target = tmp_path / "my-profile"
+    expected = _roster_names(preset)
+    assert expected  # the assertion below must not pass vacuously
+
+    assert _new(runner, target, preset).exit_code == 0
+
+    context_dir = target / "web-terminal-context"
+    assert sorted(p.name for p in context_dir.iterdir()) == sorted(expected)
+    for user in expected:
+        assert (context_dir / user).is_dir()
+
+
+def test_seeded_context_directories_carry_no_content(runner: CliRunner, tmp_path: Path) -> None:
+    """Slots, not literals. Anything written here would become context the
+    agent reads, and would freeze at materialization time — the build derives
+    what to copy from the roster it resolves then."""
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "control-assistant").exit_code == 0
+
+    for user_dir in (target / "web-terminal-context").iterdir():
+        assert [p.name for p in user_dir.iterdir()] == [".gitkeep"]
+
+
+def test_profile_without_a_web_terminal_module_seeds_no_context(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    assert not (target / "web-terminal-context").exists()
+
+
+# ---------------------------------------------------------------------------
+# Secrets: the profile owns them (FR-1)
+# ---------------------------------------------------------------------------
+
+
+def _provider_key_vars() -> list[str]:
+    """Every provider API-key variable, from the registry the seeding reads."""
+    from osprey.cli.templates.scaffolding import provider_api_key_entries
+
+    return [entry["var"] for entry in provider_api_key_entries()]
+
+
+@pytest.fixture
+def no_provider_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset every provider key, so a developer's own exports cannot leak in.
+
+    The seeding reads ``os.environ`` directly, so a real ``ANTHROPIC_API_KEY``
+    in the session running the suite would otherwise decide the outcome.
+    """
+    for var in _provider_key_vars():
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_only_keys_of_referenced_providers_are_seeded(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+) -> None:
+    """The keys of the providers this profile names, and nothing else — the
+    profile is now where a facility's secrets live, so what lands there must be
+    predictable, and importing a whole shell keyring is more than it needs."""
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+    target = tmp_path / "my-profile"
+
+    # hello-world runs on `provider: anthropic`; it names openai nowhere.
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    env_path = target / ".env"
+    assert env_path.is_file()
+    assert parse_dotenv_file(env_path) == {"ANTHROPIC_API_KEY": "sk-ant-test"}
+
+
+def test_a_switched_provider_takes_its_own_key(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+) -> None:
+    """The rule reads the RESOLVED profile, so a `--set provider=` that the
+    emitted profile.yml records moves which key is seeded with it."""
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "hello-world", "--set", "provider=openai").exit_code == 0
+
+    assert parse_dotenv_file(target / ".env") == {"OPENAI_API_KEY": "sk-openai-test"}
+
+
+def test_a_provider_configured_under_api_providers_is_referenced(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+) -> None:
+    """A profile that configures a provider's endpoint intends to reach it, so
+    its key is seeded even when the agent runs on a different one."""
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-test")
+    target = tmp_path / "my-profile"
+
+    result = _new(
+        runner,
+        target,
+        "hello-world",
+        "--set",
+        "config={api.providers.cborg.base_url: https://example.invalid}",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert parse_dotenv_file(target / ".env") == {
+        "ANTHROPIC_API_KEY": "sk-ant-test",
+        "CBORG_API_KEY": "sk-cborg-test",
+    }
+
+
+def test_persona_deltas_contribute_their_own_providers() -> None:
+    """A persona delta anchors its secrets at the profile root, so it reads the
+    SAME `.env` — a persona that switches provider needs its key in there too."""
+    from osprey.cli.build_profile_model import BuildProfile
+    from osprey.cli.profile_cmd import _referenced_providers
+
+    host = BuildProfile(name="Host", provider="anthropic")
+
+    assert _referenced_providers(host, {"ops": {"provider": "cborg"}}) == {"anthropic", "cborg"}
+    # A delta that overrides neither key inherits the host's selection.
+    assert _referenced_providers(host, {"ops": {"model": "sonnet"}}) == {"anthropic"}
+
+
+def test_a_malformed_persona_delta_is_reported_before_anything_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One parse validates the emitted deltas and feeds every later reader, so a
+    bad one gets the diagnostic naming its file rather than a raw YAML
+    traceback — and gets it before the target directory exists."""
+    import osprey.cli.build_profile_emit as emit_mod
+    from osprey.cli.profile_cmd import _materialize_profile_directory
+
+    monkeypatch.setattr(
+        emit_mod, "emit_persona_delta_yaml", lambda **kwargs: "provider: [unclosed\n"
+    )
+    target = tmp_path / "my-profile"
+
+    with pytest.raises(BuildProfileError, match="is not valid YAML"):
+        _materialize_profile_directory(target, "control-assistant")
+
+    assert not target.exists()
+
+
+def test_unreferenced_exported_keys_are_named_not_dropped_silently(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+) -> None:
+    """Seen and skipped has to read differently from lost: the operator exported
+    these, and is told which ones the profile had no use for."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+    target = tmp_path / "my-profile"
+
+    result = _new(runner, target, "hello-world")
+
+    assert result.exit_code == 0, result.output
+    assert "Not seeded: OPENAI_API_KEY" in result.output
+
+
+def test_only_unreferenced_keys_exported_writes_no_env_and_says_why(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+) -> None:
+    """Nothing exported at all and nothing this profile can use are different
+    situations with different remedies, so they are not reported the same way."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+    target = tmp_path / "my-profile"
+
+    result = _new(runner, target, "hello-world")
+
+    assert result.exit_code == 0, result.output
+    assert not (target / ".env").exists()
+    assert "no key for the providers it references" in result.output
+    assert "Not seeded: OPENAI_API_KEY" in result.output
+
+
+def test_seeded_env_file_is_owner_only(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    assert (target / ".env").stat().st_mode & 0o777 == 0o600
+
+
+def test_no_exported_keys_writes_the_example_but_no_env(
+    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+) -> None:
+    """An empty ``.env`` reads as a configured one. With nothing to seed, the
+    documented variable list is the whole deliverable."""
+    target = tmp_path / "my-profile"
+
+    result = _new(runner, target, "hello-world")
+
+    assert result.exit_code == 0, result.output
+    assert not (target / ".env").exists()
+    assert (target / ".env.example").is_file()
+
+
+def test_env_example_documents_the_whole_variable_set(
+    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+) -> None:
+    """One template renders this file into a profile and into a project, so the
+    two cannot document different variables."""
+    from osprey.cli.templates.scaffolding import service_token_var_entries
+
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    content = (target / ".env.example").read_text(encoding="utf-8")
+    for var in _provider_key_vars():
+        assert var in content, f"{var} missing from the profile .env.example"
+    for entry in service_token_var_entries():
+        assert entry["var"] in content, f"{entry['var']} missing from the profile .env.example"
+
+
+def test_env_example_documents_the_profiles_own_env_block(
+    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+) -> None:
+    """The `env:` block is documentation, not values — required vars arrive
+    bare, declared defaults arrive with theirs."""
+    target = tmp_path / "my-profile"
+
+    result = _new(
+        runner,
+        target,
+        "hello-world",
+        "--set",
+        "env.required=[FACILITY_ENDPOINT]",
+        "--set",
+        "env.defaults={LOG_LEVEL: info}",
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = (target / ".env.example").read_text(encoding="utf-8").splitlines()
+    assert "FACILITY_ENDPOINT=" in lines
+    assert "LOG_LEVEL=info" in lines
+
+
+def test_gitignore_covers_every_env_variant_except_the_example(
+    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+) -> None:
+    """`.env*` rather than `.env`: the directory also accumulates the
+    `.env.lock` the write-back path creates, and neither belongs in git."""
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    entries = (target / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ".env*" in entries
+    assert "!.env.example" in entries
+
+
+def test_summary_names_the_secret_files_it_wrote(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+) -> None:
+    """The caller is told where their secrets now live, and which keys were
+    taken from their shell."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    target = tmp_path / "my-profile"
+
+    result = _new(runner, target, "hello-world")
+
+    assert result.exit_code == 0, result.output
+    assert ".env.example" in result.output
+    assert "ANTHROPIC_API_KEY" in result.output
+
+
+def test_summary_says_no_env_was_written_when_nothing_was_exported(
+    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+) -> None:
+    target = tmp_path / "my-profile"
+
+    result = _new(runner, target, "hello-world")
+
+    assert result.exit_code == 0, result.output
+    assert "not written" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Provenance (FR-6)
+# ---------------------------------------------------------------------------
+
+
+def test_materialized_profile_records_the_preset_it_came_from(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    from osprey.cli.build_profile_merge import compute_preset_hash
+
+    target = tmp_path / "my-profile"
+
+    assert _new(runner, target, "control_assistant").exit_code == 0
+
+    resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
+    assert resolved.provenance is not None
+    # Normalized, not the underscored spelling the caller typed: what is
+    # recorded has to be a name a later build can look the preset up by.
+    assert resolved.provenance.preset == "control-assistant"
+    assert resolved.provenance.preset_hash == compute_preset_hash("control-assistant")
+
+
+# ---------------------------------------------------------------------------
 # Data materialization (D1/FR2: literal copy, no render steps)
 # ---------------------------------------------------------------------------
 
@@ -182,6 +592,24 @@ def test_readme_describes_only_staging_dirs_the_bundle_ships(
     lean_readme = (lean / "README.md").read_text()
     assert "build-time input" not in lean_readme
     assert "tiers/" not in lean_readme
+
+
+def test_readme_teaches_convention_dirs_not_the_removed_overlay_key(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """This README is the first thing an operator reads. `overlay:` now hard-
+    errors at load, so instructions to write one would break every new profile
+    on its first build."""
+    from osprey.cli.profile_conventions import CONVENTION_SOURCES
+
+    target = tmp_path / "my-profile"
+    assert _new(runner, target, "hello-world").exit_code == 0
+
+    readme = (target / "README.md").read_text()
+    for source in CONVENTION_SOURCES:
+        assert f"`{source}/`" in readme, f"{source}/ is not documented"
+    assert "overlay:" not in readme
+    assert "overlays/" not in readme
 
 
 def test_stray_j2_in_bundle_data_is_not_rendered(
@@ -637,6 +1065,20 @@ def _take_persona_build_profiles(applied: dict) -> dict[str, str]:
     }
 
 
+def _take_dispatch_triggers(resolved: dict) -> str | None:
+    """Remove and return the dispatch block's ``triggers`` value, if any.
+
+    The other field materialization deliberately rewrites (FR-3): the profile
+    owns a copy of the trigger config, so the emitted key names that copy and
+    cannot match the preset's bundled name. Lifted out so the rest of the
+    dispatch block — worker count, ports, timeouts — is still compared strictly.
+    """
+    dispatch = resolved.get("dispatch")
+    if not isinstance(dispatch, dict):
+        return None
+    return dispatch.pop("triggers", None)
+
+
 @pytest.mark.parametrize("preset", list_presets())
 def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, preset: str) -> None:
     """Full-field parity: the materialized profile resolves to the same
@@ -648,18 +1090,22 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     ``requires_osprey_version`` is excluded by contract, not by convenience: a
     materialized profile outlives the release that wrote it, so it stamps the
     schema floor a future reader needs. Presets carry no stamp because they ship
-    with the release that understands them. ``data`` differs by design — the
-    profile reads its own copied tree, which is the point of the verb.
+    with the release that understands them. ``provenance`` is the same shape of
+    exclusion — a preset was not materialized from anything — and is asserted
+    rather than merely dropped. ``data`` differs by design: the profile reads
+    its own copied tree, which is the point of the verb.
 
     ``config`` is compared by what it writes rather than key-for-key: emission
     collapses a key pair like ``modules.web_terminals`` +
     ``modules.web_terminals.enabled`` into one key, which is a different dict
-    spelling of the same config.yml. Its persona ``build_profile`` values are
-    compared separately, against the rewrite the verb is specified to perform.
+    spelling of the same config.yml. Its persona ``build_profile`` values and
+    ``dispatch.triggers`` are compared separately, against the rewrites the verb
+    is specified to perform.
     """
     import dataclasses
 
     from osprey.cli.build_profile_emit import emits_persona_profiles
+    from osprey.cli.build_profile_merge import compute_preset_hash
 
     target = tmp_path / "profile"
     assert _new(runner, target, preset).exit_code == 0
@@ -668,9 +1114,20 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     from_materialized, _ = resolve_build_profile((target / "profile.yml").resolve(), preset=None)
     d_preset = dataclasses.asdict(from_preset)
     d_new = dataclasses.asdict(from_materialized)
+    # A preset was not materialized from anything; the profile records exactly
+    # the preset it came from and that preset's hash at materialization time.
+    assert d_preset.pop("provenance") is None
+    assert d_new.pop("provenance") == {
+        "preset": preset,
+        "preset_hash": compute_preset_hash(preset),
+    }
     for stamped in ("name", "requires_osprey_version", "data"):
         d_preset.pop(stamped)
         d_new.pop(stamped)
+
+    preset_triggers = _take_dispatch_triggers(d_preset)
+    # Rewritten to the profile's own copy wherever the preset declares dispatch.
+    assert _take_dispatch_triggers(d_new) == ("triggers.yml" if preset_triggers else None)
 
     new_config = _applied_config(tmp_path / "new.yml", d_new.pop("config"))
     preset_config = _applied_config(tmp_path / "preset.yml", d_preset.pop("config"))

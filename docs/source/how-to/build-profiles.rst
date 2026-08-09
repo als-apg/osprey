@@ -4,124 +4,372 @@
 Build Profiles
 ==============
 
-Assemble facility-specific assistants from OSPREY templates using declarative YAML profiles.
-Build profiles separate **facility-specific inputs** (channel data, safety limits,
-custom MCP servers) from **what OSPREY provides** (agents, rules, hooks, safety infrastructure).
+A **build profile** is the directory your facility owns: one ``profile.yml``, your
+data tree, your secrets, and any rules, skills or scripts you write. ``osprey build``
+reads that directory and renders a project from it.
+
+The profile is the source of truth. The project is a derived artifact — regenerable,
+and safe to delete and rebuild at any time.
 
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book
 
-   - Writing build profile YAML files for your facility
-   - Overlaying facility data onto OSPREY templates
-   - Injecting custom MCP servers into the built project
-   - Using config overrides, lifecycle commands, and environment templates
-   - Structuring a facility profiles repository
+   - Creating a profile directory and building projects from it
+   - What lives in a profile: the convention directories, ``data/``, secrets, personas
+   - Moving an artifact you want to own out of the project and into the profile
+   - Shipping and wiring your own hook scripts
+   - Keeping a profile and its project in step
 
    **Prerequisites:** A working OSPREY installation (``uv sync``).
 
-   **Time:** 15--30 minutes for a basic profile; varies for custom MCP servers.
-
-Overview
-========
-
-The ``osprey build`` command takes a YAML profile and produces a standalone Osprey agent
-project. The profile declares:
-
-- **App template** to start from (``control_assistant``, ``hello_world``, or ``ariel_standalone``)
-- **Config overrides** for the generated ``config.yml`` (dot-notation)
-- **File overlays** that copy facility data into the project
-- **MCP server definitions** to inject custom tools
-- **Lifecycle commands** to run before/after the build
-- **Environment templates** for required variables and defaults
-- **Dependencies** to install into the project environment
-
-.. mermaid::
-
-   flowchart LR
-      P[profile.yml] --> B[osprey build]
-      T[Base Template] --> B
-      D[Facility Data] --> B
-      S[Custom MCP Servers] --> B
-      B --> O[Standalone Project]
-
-The built project is **wipe-and-rebuild safe** — regenerating from the same profile
-produces the same output, and user-owned files (like ``facility.md``) are tracked
-separately.
+   **Time:** 15--30 minutes for a basic profile.
 
 
 Preset → Profile → Project
 ==========================
 
-OSPREY's build inputs form a three-layer hierarchy:
+.. mermaid::
 
-- **Preset** — bundled upstream, lives in ``src/osprey/profiles/presets/``.
-  Edited only by PR'ing OSPREY itself. A preset may itself extend another
-  preset (e.g. ``operator`` extends ``control-assistant``).
-  Examples: ``hello-world``, ``control-assistant``, ``ariel-standalone``,
-  ``channel-finder-standalone``.
-- **Profile** — user-owned, lives in *your* repo as a directory. Has
-  ``extends: <preset-name>`` (or a path) and overrides only what your
-  facility needs. This is your durable source-of-truth for customizations.
-- **Project** — the rendered output of ``osprey build``. Derived; regenerable;
-  treat it as a build artifact and avoid editing it in place.
+   flowchart LR
+      P["Preset<br/>(bundled with OSPREY)"] -- materialize --> F["Profile directory<br/>(yours)"]
+      F -- osprey build --> J["Project<br/>(derived)"]
+      J -- osprey deploy --> R["Running containers"]
 
-The three steps that move between those layers:
+- **Preset** — a bundled starting point, shipped inside OSPREY
+  (``src/osprey/profiles/presets/``). Examples: ``hello-world``,
+  ``control-assistant``, ``ariel-standalone``, ``channel-finder-standalone``.
+  Run ``osprey profile presets`` to list them.
+- **Profile** — your facility's directory. Created once from a preset, then
+  edited and kept in version control. Everything the preset configured is
+  written out here explicitly: nothing is inherited at build time.
+- **Project** — the output of ``osprey build``. Never edit it in place; the next
+  build overwrites what you changed.
+
+Because nothing is inherited, a later OSPREY release that improves a preset does
+**not** change your profile. To see what moved, materialize a fresh profile into
+a scratch directory and diff it:
+
+.. code-block:: bash
+
+   osprey profile new /tmp/fresh --preset control-assistant
+   diff -u /tmp/fresh/profile.yml my-profile/profile.yml
+
+
+Creating a profile
+==================
+
+Two commands get you a profile; both produce the same kind of directory.
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 38 40
+   :widths: 45 55
 
-   * - Step
-     - Command
-     - When to use
-   * - Quick start
-     - ``osprey build my-project --preset X``
-     - Trying a preset; no customizations needed.
-   * - Materialize a profile
-     - ``osprey profile new my-profile --preset X``
-     - Starting facility-specific customization. Writes an editable,
-       **standalone** profile directory — no project rendered yet. The
-       preset's full configuration is materialized into ``profile.yml``
-       (comments preserved, no ``extends:``) alongside a copy of the
-       preset's data tree, and any ``--set`` / ``-O`` values are applied
-       in place, so a validated build one-liner carries straight into
-       the profile.
-   * - Build from profile
-     - ``osprey build my-project my-profile/profile.yml``
-     - Rendering a project from your profile (the everyday command after
-       the profile exists).
+   * - Command
+     - What it does
+   * - ``osprey profile new my-profile --preset X``
+     - Writes the profile directory and stops. Use it when you want to look at
+       and edit the profile before building anything.
+   * - ``osprey build my-project --preset X``
+     - Writes ``my-project-profile/`` beside the project on the *first* run,
+       then builds from it. Every later run reuses that directory as it stands.
 
-``osprey profile new`` writes:
+After the profile exists, the everyday command names it directly:
+
+.. code-block:: bash
+
+   osprey build my-project my-profile/profile.yml
+
+.. admonition:: Every build reads a profile
+   :class: important
+
+   There is no build that renders a project straight out of a bundled preset.
+   ``--preset`` on a project that already has a profile directory reuses that
+   directory verbatim — the preset is not re-applied. Naming a *different*
+   preset for an existing profile is refused: the profile would be built either
+   way, and the label would lie about what was built.
+
+   A preset that has changed since your profile was made is reported as a
+   warning, never re-applied.
+
+What ``osprey profile new`` writes
+----------------------------------
 
 .. code-block:: text
 
    my-profile/
-     profile.yml          # the preset's full configuration, materialized — edit freely
-     data/                # the preset's data tree, copied verbatim — edit freely
-     overlays/
-       rules/                 .gitkeep  # drop facility-specific rule .md files here
-       skills/                .gitkeep  # drop custom skill directories here
-       agents/                .gitkeep  # drop custom subagent .md files here
-       web-terminal-context/  .gitkeep  # drop per-user web-terminal content here
-     README.md            # explains the layout
+     profile.yml     the full configuration — edit freely
+     data/           facility content: channel databases, knowledge, lattice
+     .env.example    every variable the agent reads, documented, no values
+     .env            your values (only when your shell had keys to seed)
+     .gitignore      keeps .env out of version control
+     README.md       explains the layout, for whoever opens the directory next
+     triggers.yml    the events the agent runs on (dispatch profiles only)
+     personas/       one delta per web-terminal persona (persona presets only)
+     web-terminal-context/  one seeded directory per operator on the roster
 
-The materialized ``profile.yml`` is fully self-sufficient: every section the preset
-configures (artifact lists, ``config:`` overrides, service blocks like
-``bluesky:`` / ``virtual_accelerator:`` / ``dispatch:``, ``env:`` wiring) is
-written out explicitly with the preset's own comments, and nothing is
-inherited at build time. Upstream preset improvements in later OSPREY releases
-do **not** flow in automatically — materialize a fresh profile into a scratch
-directory and diff to pick them up.
+The last three appear only when the preset calls for them — a ``hello-world``
+profile has none of them.
 
-Persona profiles
-----------------
+Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
+**not** created up front. Create the ones you need; a directory you never create
+simply means the profile contributes nothing of that kind.
+
+
+Convention directories
+======================
+
+Put a file in the directory that matches what it is, and the build carries it
+into the project. There is nothing to declare in ``profile.yml``: the directory
+name *is* the declaration, and where each one lands is fixed.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 30 44
+
+   * - Put it here
+     - It lands here
+     - One entry is
+   * - ``rules/``
+     - ``.claude/rules/``
+     - a ``.md`` file
+   * - ``skills/``
+     - ``.claude/skills/``
+     - a directory with a ``SKILL.md``
+   * - ``agents/``
+     - ``.claude/agents/``
+     - a ``.md`` file
+   * - ``commands/``
+     - ``.claude/commands/``
+     - a ``.md`` file
+   * - ``output-styles/``
+     - ``.claude/output-styles/``
+     - a ``.md`` file
+   * - ``hooks/``
+     - ``.claude/hooks/``
+     - a script, usually ``.py``
+   * - ``web-terminal-context/``
+     - ``docker/web-terminal-context/``
+     - a directory named for one operator
+   * - ``mcp_servers/``
+     - ``_mcp_servers/``
+     - a directory per server
+   * - ``services/``
+     - ``services/``
+     - a directory per compose service
+   * - ``project/``
+     - the project root
+     - any file, mirrored verbatim
+
+Nested paths inside a markdown directory are preserved, so
+``commands/orbit/correct.md`` stays namespaced. Skills, MCP servers, services
+and per-user context copy as whole directories — the directory *is* the entry,
+and a build replaces it wholesale.
+
+A file you ship this way is registered as **yours** in the project: later
+re-renders never overwrite it, and cleanup never removes it. Name a file after
+something the framework also renders (``rules/safety.md``) and yours wins.
+
+Ownership is *derived* from what the build actually copied, after exclusions
+are applied — there is no list to maintain. An artifact a persona delta
+excludes is not copied and therefore not owned, so the framework's own version
+renders in its place.
+
+.. admonition:: A misspelled directory is silent
+   :class: important
+
+   ``rule/`` is not ``rules/``, and nothing reads it. The build warns about
+   unrecognized top-level entries in a profile for exactly this reason — read
+   that warning rather than wondering why an artifact never arrived.
+
+Paths the profile may not write
+-------------------------------
+
+``project/`` is the escape hatch for anything without a home in the table above.
+It cannot write paths the build already owns, because each of those has its own
+channel:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Path
+     - Written by
+   * - ``config.yml``
+     - the profile's ``config:`` block
+   * - ``.claude/settings.json``
+     - ``config:`` keys — ``claude_code.permissions``, ``claude_code.hooks``
+   * - ``.claude/hooks/hook_config.json``
+     - the build, from your ``mcp_servers:`` and ``control_system.write_tools``
+   * - ``.mcp.json``
+     - the profile's ``mcp_servers:`` block
+   * - ``CLAUDE.md``
+     - the profile's ``claude_md_template:`` key
+   * - ``.env`` / ``.env.example``
+     - the profile's own ``.env`` file and ``env:`` keys
+   * - ``.osprey-manifest.json``
+     - the build itself
+   * - ``data/simulation/channel_manifest.json``, ``channel_limits.json``
+     - the profile's ``data/`` directory
+
+A profile that targets one of these is rejected at build time, with the owning
+channel named. The same refusal applies to a claim (below).
+
+``hook_config.json`` is the one worth understanding: the write-safety hook reads
+it to decide what counts as a hardware write. A hand-written copy would be
+treated as yours and never regenerate, quietly freezing that decision.
+
+
+.. _profile-claim:
+
+Taking ownership of a framework artifact
+========================================
+
+To customize something OSPREY generates — a rule, an agent, a service template
+— move it into the profile:
+
+.. code-block:: bash
+
+   cd my-project
+   osprey scaffold claim rules/safety
+   osprey scaffold claim agents/channel-finder
+   osprey scaffold claim services/postgresql
+
+The artifact is **moved** into the matching convention slot of the profile the
+project was built from. Edit it there, then rebuild:
+
+.. code-block:: bash
+
+   osprey build my-project my-profile/profile.yml --force
+
+The next build copies it back and registers it as yours. There is no YAML to
+edit — ownership is derived from what the build copied, not declared.
+
+.. code-block:: bash
+
+   osprey scaffold list                     # what is framework-managed, what is yours
+   osprey scaffold diff rules/safety        # how far your copy has drifted
+   osprey scaffold unclaim rules/safety     # give it back to the framework
+
+``unclaim`` holds only until the next build: while the profile still supplies the
+file, the build copies it in and registers it again. To give an artifact up for
+good, delete it from the profile.
+
+A claim is refused, with the reason, when:
+
+- the project names no profile to claim into (nothing would keep the edit);
+- the artifact is **generated**, not authored — ``hook_config.json``,
+  ``settings.json``, ``.mcp.json``, ``CLAUDE.md``. The message names the config
+  key that *does* control it;
+- the file is a symlink pointing outside the project (a profile must be
+  self-contained to be reproducible);
+- the profile slot is already occupied. A claim never overwrites profile
+  material.
+
+Before reaching for a claim, check whether a config key already covers your need
+— most service knobs (ports, images, credentials, retention) are configurable
+without owning the template.
+
+
+Custom hooks
+============
+
+A hook is a script the agent runs at a defined moment — before a tool call, at
+session start. Ship yours through ``hooks/``:
+
+.. code-block:: text
+
+   my-profile/
+     hooks/
+       facility_guard.py
+
+That copies the script to ``.claude/hooks/facility_guard.py``. **It does not make
+the script run.** Shipping and wiring are two steps; the second is a ``config:``
+key naming the event it fires on:
+
+.. code-block:: yaml
+
+   config:
+     claude_code.hooks.PreToolUse:
+       - hook: facility_guard.py
+         matcher: "mcp__controls__.*"   # optional — defaults to every tool call
+         timeout: 10                    # optional — seconds, defaults to 60
+     claude_code.hooks.SessionStart:
+       - facility_banner.py             # shorthand when there is nothing to qualify
+
+Valid events: ``PreToolUse``, ``PostToolUse``, ``UserPromptSubmit``,
+``SessionStart``, ``SessionEnd``, ``Stop``, ``SubagentStop``, ``Notification``,
+``PreCompact``.
+
+.. admonition:: An undeclared hook never runs
+   :class: important
+
+   Without a declaration the script still lands in ``.claude/hooks/`` and
+   survives every rebuild — doing nothing. This matters most for a safety check,
+   where "present" looks like "enforcing."
+
+Declared wiring is **added** to the framework's, never put in its place. Your
+declaration cannot remove, alter, or displace anything the generated settings
+already wire — the write-safety gate and the rest render unchanged. Every hook
+whose matcher fits runs, so a declared hook is one *more* check on top of the
+framework's, never a substitute for one.
+
+A declaration is refused at build time, with the reason, if it names a hook the
+resolved profile does not ship, a built-in hook whose wiring the framework
+already owns, or anything outside ``hooks/``.
+
+.. _profile-unwire-hook:
+
+Unwiring a hook in a persona
+----------------------------
+
+The wiring is a ``config:`` key, so a persona delta overrides it — but you have
+to use the right spelling:
+
+.. code-block:: yaml
+
+   config:
+     claude_code.hooks.PreToolUse: null   # this event now wires nothing
+     claude_code.hooks: {}                # or: unwire every event at once
+
+Either form leaves the script itself in place: unwired, not unshipped.
+
+.. admonition:: An empty list does nothing
+   :class: important
+
+   Persona lists merge **additively** with the profile's, so
+   ``claude_code.hooks.PreToolUse: []`` adds no entries and leaves the hook
+   wired — silently. ``null`` is the spelling that works.
+
+   This matters because a persona that ``exclude:``\ s a shipped hook **must**
+   unwire it in the same delta: the build refuses a declaration pointing at a
+   hook the persona dropped. That refusal prints the exact ``null`` line to
+   paste, so if you reach for ``[]`` on an excluded hook the build hands you the
+   correction rather than letting it pass.
+
+Replacing a built-in hook
+-------------------------
+
+Shipping and declaring behave differently for the framework's own hooks.
+
+**Shipping** a file named for a built-in *replaces* it: ``hooks/`` is keyed by
+filename, because that is what the generated settings run. The built-in
+``writes-check`` hook is ``osprey_writes_check.py``, so a profile file of that
+name is the one the agent runs wherever the framework already wired that name.
+
+**Declaring** a built-in hook is refused. The framework wires its own hooks from
+the profile's ``hooks:`` selection, so a declaration naming one would invoke it
+twice. Select or unselect a built-in through ``hooks:``; never through
+``claude_code.hooks``.
+
+
+Personas
+========
 
 Some presets give each operator their own web terminal, and each terminal runs
 with a persona — a capability posture, such as read-only versus write-capable.
-For those presets (``control-assistant`` and ``multi-user-demo``),
-``osprey profile new`` writes one profile per persona into a ``personas/``
-directory alongside ``profile.yml``:
+For those presets (``control-assistant``), ``osprey profile new`` writes one
+file per persona:
 
 .. code-block:: text
 
@@ -132,164 +380,160 @@ directory alongside ``profile.yml``:
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
 
-Each persona profile is a small *delta* over the host: it begins with
-``extends: ../profile.yml``, so every setting in the host profile — including
-any edit you make there later — applies to the persona too, and the persona
-file lists only what makes it different (for the read-only persona, chiefly
-``control_system.writes_enabled: false``). It also carries ``data: ../data``,
-so the whole stack reads the single data tree above it — edit ``data/`` once
-and every persona picks the change up on its next build. The host
-``profile.yml`` points at these files by path, so keep the names in step if
-you rename one, and note that renaming or moving ``profile.yml`` itself breaks
-the personas' ``extends`` reference.
+Each file holds only that persona's **differences** — for the read-only persona,
+chiefly ``control_system.writes_enabled: false``. Sitting in ``personas/`` beside
+``profile.yml`` is what makes it a persona: the build merges it over that profile
+automatically. There is no ``extends:`` line to maintain, and no second data tree
+or set of convention directories — everything else comes from the profile above
+and stays in one place.
 
-They are ordinary profiles: edit one to change what that persona's terminal
-can do, validate it on its own to see the fully resolved result, or build it
-directly.
+Edit a delta to change what that persona's terminal can do, and see the merged
+result with:
 
 .. code-block:: bash
 
    osprey profile validate my-profile/personas/readonly.yml
 
-At deployment time, the persona projects are rendered from these files.
-
-Inheriting from a preset
-------------------------
-
-``extends:`` accepts either a bundled preset name or a filesystem path:
-
-.. code-block:: yaml
-
-   # By bundled preset name (recommended for new profiles).
-   extends: control-assistant
-
-   # By relative path (e.g. multi-profile facility repos with a shared base).
-   extends: ./als-base.yml
-
-Path-shaped values containing ``.yml`` always resolve as filesystem paths,
-so existing multi-file layouts (like the ALS profiles repo) keep working
-unchanged. A preset-name probe is tried first; if it misses, path
-resolution runs.
+``profile.yml`` points at these files by path — its web-terminal catalog carries
+``build_profile: personas/<name>.yml`` for each one — so keep the names in step
+if you rename one. That is also what ``osprey deploy up`` reads: it renders any
+persona project that does not exist yet from the named delta. A bundled preset
+name in that field is rejected, because a persona built from a preset of its own
+would not share this profile's data tree, secrets or artifacts.
 
 
 .. _profile-exclude:
 
-Excluding inherited entries
----------------------------
+Removing something a profile brings
+-----------------------------------
 
-``extends:`` union-merges your string lists onto the base's, so a child can only
-*add* to the sets it inherits — never remove an entry the base contributed. The
-``exclude:`` key subtracts entries from those inherited lists:
+``exclude:`` subtracts entries, and the spelling decides what it removes:
 
 .. code-block:: yaml
 
-   extends: control-assistant
-
    exclude:
      skills:
-       - writing-bluesky-plans
+       - writing-bluesky-plans        # bare: stop selecting the built-in skill
+     agents:
+       - agents/channel-finder        # qualified: drop the profile's own file
 
-``exclude:`` maps a field name to a list of entries to remove. It accepts only
-the string-list fields a profile inherits: ``skills``, ``rules``, ``hooks``,
-``agents``, ``output_styles``, ``web_panels``, and ``dependencies``. Naming any
-other field (e.g. the ``config`` mapping) is a load-time error.
+A **bare** name unselects a built-in artifact, so it is no longer installed. A
+**qualified** name (``<directory>/<name>``) omits the profile's own file for that
+name — which is how a persona that wants the stock version back gets it: drop
+your shadowing copy, and the still-selected built-in renders again.
 
-**Layering.** ``exclude:`` is applied after each ``extends`` merge, against that
-layer's merged result. Two consequences follow, and the second is easy to trip
-over:
+Bare exclusion accepts ``skills``, ``rules``, ``hooks``, ``agents``,
+``output_styles``, ``web_panels`` and ``dependencies``; qualified exclusion
+accepts any convention directory. Excluding something that is not there is a
+silent no-op.
 
-- A *deeper* ``extends`` layer that re-declares an excluded entry wins. If a
-  base lists ``[a, b, c]``, a middle profile excludes ``b``, and a profile that
-  extends the middle profile re-adds ``b``, then ``b`` survives — the re-add
-  merges in after the exclusion ran.
-- An **override file** (``-O``) or a **``--set``** value cannot re-add an
-  excluded entry. Both merge into the top profile layer *before* ``extends`` is
-  resolved, so the same exclusion strips them out again. To restore an excluded
-  entry you must edit the profile that declares the ``exclude:`` (or a layer
-  deeper than it) — you cannot layer it back on from the command line.
+Excluding a **declared hook** takes one more line: the same delta has to unwire
+it with ``claude_code.hooks.<Event>: null``, or the build refuses the wiring
+that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.
 
-Excluding an entry the base never declared is a silent no-op. Declaring
-``exclude:`` in a profile that has no ``extends:`` only sees the profile's own
-lists — there is nothing inherited to remove — so it does nothing useful.
+.. admonition:: The mistake worth knowing about
+   :class: important
 
-**Worked example: a scan-free tier.** A facility profile can build a
-restricted tier on top of ``control-assistant`` by excluding the scan-related
-skills:
-
-.. code-block:: yaml
-
-   name: Control Assistant (No Scans)
-   extends: control-assistant
-
-   exclude:
-     skills:
-       - writing-bluesky-plans
-       - operating-bluesky-scans
-
-   config:
-     claude_code.servers.bluesky.enabled: false
-
-The ``exclude:`` drops the scan skills from the inherited skill set, so this
-tier never enters the scan-plan workflow; the ``config:`` override keeps the
-bluesky MCP server off as well. Because a user building from this profile
-cannot re-add a skill with ``--set skills=[writing-bluesky-plans]`` (that
-merges pre-exclusion and is stripped again), the restriction holds unless the
-profile itself is edited.
+   Use the **bare** spelling on a name your profile also ships a file for, and
+   the exclusion does nothing visible: the built-in is unselected, but your file
+   still renders, so the project comes out byte-identical and the build
+   succeeds. The build warns when it sees this and names the qualified spelling
+   that would actually drop the file. Read that warning rather than trusting a
+   green build as proof the exclusion took.
 
 .. note::
 
    ``exclude:`` carves a tier by *removing* capability. When the boundary you
    want is "may not write," prefer flipping the enforcement switch instead —
-   the bundled ``multi-user-demo-readonly`` preset differs from its
+   the bundled ``control-assistant-readonly`` preset differs from its
    write-capable sibling only on ``control_system.writes_enabled``, leaving
-   the tool surface identical (see :doc:`web-terminal/multi-user-demo`).
+   the tool surface identical (see :doc:`multi-user`).
 
 To keep the scan server **on** while hiding an individual plan, set
-``bluesky.excluded_plans`` on the deploying project's profile:
+``bluesky.excluded_plans`` instead:
 
 .. code-block:: yaml
 
    bluesky:
      excluded_plans: [orm]
 
-The named plan is then invisible to the agent and non-runnable. The deploy render
-carries it to the bridge as ``BLUESKY_EXCLUDED_PLANS`` (the config key alone is a
-dev-only convenience).
+The named plan is then invisible to the agent and non-runnable.
 
 
-Quick Start
-===========
+.. _profile-secrets:
 
-Create a minimal profile and build:
+Secrets
+=======
 
-.. code-block:: yaml
+API keys and service credentials belong to the profile directory, not to the
+projects built from it. ``osprey build`` derives a project's ``.env`` from the
+profile's ``.env``, so a value you set once survives every rebuild — and a
+project you delete takes no secret with it.
 
-   # my-facility-dev.yml
-   name: "My Facility (Dev)"
-   app_template: control_assistant
-   provider: anthropic
-   model: sonnet
-   channel_finder_mode: in_context
-   requires_osprey_version: ">=2026.5.0"
+Two files, and the difference matters:
 
-   config:
-     control_system.type: mock
-     system.timezone: America/New_York
+- ``.env.example`` lists every variable the agent reads, with no values. It is
+  safe to commit, and it is the file to read when you want to know what can be
+  set. The project gets a copy of this same file, so the two can never document
+  different variables.
+- ``.env`` holds the values. The generated ``.gitignore`` keeps it out of git.
+
+Seeding, once
+-------------
+
+Materializing a profile — ``osprey profile new``, or the first ``--preset``
+build, which materializes one — seeds the new profile's ``.env`` from your
+shell, and only the keys of providers this profile actually references. Keys
+you exported for other providers are named in the summary rather than copied
+in, so you can tell "seen and not needed" from "lost". If your shell exported
+nothing usable, no ``.env`` is written at all (an empty secrets file reads as a
+configured one); start it yourself:
 
 .. code-block:: bash
 
-   osprey build my-facility my-facility-dev.yml -o /tmp --force
+   cp my-profile/.env.example my-profile/.env
 
-This renders the ``control_assistant`` template with a mock control system and produces
-a complete Osprey agent project at ``/tmp/my-facility/``.
+.. admonition:: This is the only moment a shell export reaches a profile
+   :class: important
+
+   It happens **once**, at materialization, and what it took is written into
+   the profile's ``.env`` under a "Seeded by ``osprey profile new`` from your
+   shell" heading — so the file itself records where each value came from.
+   Nothing else in the pipeline reads your environment for secrets:
+   ``osprey build`` derives the project's ``.env`` from the profile and from
+   nothing else, and a later build never re-reads your shell. A key that
+   reaches a built project was recorded in the profile first, where you can
+   audit it.
+
+   The practical consequence: exporting a key *after* the profile exists does
+   not get it in. Put it in the profile's ``.env`` and rebuild.
+
+Service credentials
+-------------------
+
+``osprey deploy up`` mints the credentials that only a deploy can produce —
+database passwords, service tokens — and writes them back into the profile
+``.env`` under a "Minted by deploy" heading. The project's ``.env`` is then
+re-derived from the profile, so a rebuild comes up on the *same* secrets instead
+of minting a second set the running containers do not trust.
+
+The write-back is **append-only**. A key already in the profile keeps its value —
+it is pinned by the docker volume that was initialized with it — and a value that
+disagrees is reported by name (never by value) for you to resolve by hand.
+
+If the profile cannot be reached — it has moved, or the project was built before
+this mechanism existed — the deploy still works. The secrets stay in the project
+``.env``, a warning names the path that failed, and the project records that its
+``.env`` is the only copy. A later ``osprey build --force`` repeats that warning
+before touching the directory.
 
 
-Profile YAML Schema
-====================
+Profile YAML reference
+======================
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 12 15 53
+   :widths: 22 12 14 52
 
    * - Field
      - Type
@@ -302,32 +546,57 @@ Profile YAML Schema
    * - ``app_template``
      - string
      - ``control_assistant``
-     - App template (data bundle) to use. Valid: ``control_assistant``,
-       ``hello_world``, ``ariel_standalone``. See ``src/osprey/templates/apps/``.
+     - App template (data bundle) to render. Valid: ``control_assistant``,
+       ``hello_world``, ``ariel_standalone``.
+   * - ``data``
+     - string
+     - ``None``
+     - Facility data tree, relative to the profile directory (``data`` in a
+       materialized profile). Replaces the bundled tree wholesale.
    * - ``provider``
      - string
      - *required*
-     - LLM provider for the agent. Built-ins: ``anthropic``, ``cborg``,
-       ``als-apg``; any custom provider declared under ``api.providers``
-       also works. The build aborts if the resolved profile sets no
-       provider (presets already set one).
+     - LLM provider. Built-ins: ``anthropic``, ``cborg``, ``als-apg``; any
+       provider declared under ``api.providers`` also works. The build aborts
+       if none is set.
    * - ``model``
      - string
      - ``None``
-     - Default model for the agent: a tier name (``haiku``, ``sonnet``,
-       ``opus``) or a full provider model ID (e.g. ``claude-haiku-4-5``).
+     - Default model: a tier name (``haiku``, ``sonnet``, ``opus``) or a full
+       provider model ID.
    * - ``channel_finder_mode``
      - string
      - ``None``
-     - Channel finder pipeline (``hierarchical``, ``middle_layer``, ``in_context``).
+     - Channel finder pipeline (``hierarchical``, ``middle_layer``,
+       ``in_context``).
+   * - ``tier``
+     - int
+     - derived
+     - Channel-database tier (1 or 3). Defaults from the channel finder mode;
+       tier 1 is ``in_context``-only.
+   * - ``connector``
+     - string
+     - *from preset*
+     - Control-system connector (``mock``, ``virtual_accelerator``, ``epics``,
+       …). Shorthand for ``config: {control_system.type: ...}``, so it can be
+       set from the command line as ``--set connector=epics``. Setting both
+       spellings on one command line is an error rather than a silent
+       last-one-wins; a custom connector is still addressed by its dotted
+       module path under ``config``.
    * - ``config``
      - mapping
      - ``{}``
-     - Dot-notation overrides for ``config.yml``.
-   * - ``overlay``
+     - Dot-notation overrides for the generated ``config.yml``.
+   * - ``exclude``
      - mapping
      - ``{}``
-     - File/directory overlays (source → destination).
+     - Entries to subtract from what this profile would otherwise bring
+       (see :ref:`profile-exclude`).
+   * - ``hooks`` / ``rules`` / ``skills`` / ``agents`` / ``output_styles``
+     - list
+     - ``[]``
+     - Built-in artifacts to install. Your own files go in the matching
+       convention directory instead.
    * - ``mcp_servers``
      - mapping
      - ``{}``
@@ -335,56 +604,60 @@ Profile YAML Schema
    * - ``services``
      - mapping
      - ``{}``
-     - Container service definitions for ``osprey deploy`` (see :ref:`profile-services`).
+     - Container services for ``osprey deploy`` (see :ref:`profile-services`).
    * - ``lifecycle``
      - mapping
      - ``{}``
-     - Commands to run at build phases (``pre_build``, ``post_build``, ``validate``).
+     - Commands to run at build phases (``pre_build``, ``post_build``,
+       ``validate``).
    * - ``env``
      - mapping
      - ``{}``
-     - Environment variable template (``required``, ``defaults``, ``file``).
+     - Variables the deployment needs: ``required``, ``defaults``, ``file``.
    * - ``dependencies``
      - list
      - ``[]``
-     - Python packages to install into the project venv and record in
-       ``pyproject.toml``.
+     - Python packages to install into the project venv.
    * - ``environment``
      - mapping
      - ``{}``
-     - Base interpreter the project environment is built from, plus extra
-       packages (see :ref:`profile-environment`).
+     - Base interpreter the project environment is built from
+       (see :ref:`profile-environment`).
    * - ``requires_osprey_version``
      - string
      - ``None``
-     - PEP 440 version specifier (e.g. ``>=2026.5.0``). Build aborts if not satisfied.
+     - PEP 440 specifier (e.g. ``>=2026.5.0``). The build aborts if unsatisfied.
    * - ``osprey_install``
      - string
      - ``local``
-     - How to install OSPREY in the project venv: ``local`` (source tree), ``pip`` (PyPI), or a PEP 508 spec.
+     - How to install OSPREY in the project venv: ``local``, ``pip``, or a
+       PEP 508 spec.
    * - ``python_env``
      - string
      - ``project``
-     - Python used by MCP servers: ``project`` (project venv), ``build`` (build-time Python), or an absolute path.
+     - Python used by MCP servers: ``project``, ``build``, or an absolute path.
+   * - ``provenance``
+     - mapping
+     - *written*
+     - Which preset this profile was materialized from, and that preset's hash.
+       Written by the materialization; do not edit it.
 
 
-Configuration Overrides
+Configuration overrides
 =======================
 
-The ``config:`` section uses **dot notation** to override any key in the generated
-``config.yml``. The base set of keys is in
+The ``config:`` section uses **dot notation** to override any key in the
+generated ``config.yml``. The base keys are in
 ``src/osprey/templates/project/config.yml.j2``; app data bundles add further
-sections (e.g. ``archiver``, ``channel_finder``) in their own ``config.yml.j2``
-under ``src/osprey/templates/apps/<bundle>/``.
+sections in their own ``config.yml.j2``.
 
 .. warning::
 
-   Always write overrides as **dotted keys**, one per line, exactly as shown
-   below — never as nested YAML. A nested block counts as *one* override whose
-   value replaces the entire subtree in the rendered config. For example,
-   ``config: {claude_code: {model: opus}}`` wipes out everything else under
-   ``claude_code`` (servers, permissions, …), silently. The dotted form
-   ``claude_code.model: opus`` changes just that one setting.
+   Always write overrides as **dotted keys**, one per line — never as nested
+   YAML. A nested block counts as *one* override whose value replaces the entire
+   subtree. ``config: {claude_code: {model: opus}}`` wipes out everything else
+   under ``claude_code`` (servers, permissions, …), silently. The dotted form
+   ``claude_code.model: opus`` changes just that setting.
 
 .. code-block:: yaml
 
@@ -393,77 +666,24 @@ under ``src/osprey/templates/apps/<bundle>/``.
      control_system.type: epics
      control_system.writes_enabled: true
      control_system.limits_checking.enabled: true
-     control_system.connector.epics.timeout: 10.0
 
      # Archiver
      archiver.type: epics_archiver
      archiver.epics_archiver.url: https://archiver.facility.org
 
-     # System
      # Set your real facility zone: it governs how the agent reads operator
-     # times (parsed as facility-local) and renders every timestamp (with an
-     # explicit offset) — not just a display label.
+     # times (parsed as facility-local) and renders every timestamp — not
+     # just a display label.
      system.timezone: America/Los_Angeles
 
      # Channel finder
      channel_finder.pipeline_mode: middle_layer
 
-     # Container runtime
-     container_runtime: podman
-
      # Approval policy
      approval.default_policy: always
 
 
-File Overlays
-=============
-
-Overlays copy facility-specific files into the built project, replacing template
-defaults. Keys are source paths relative to the profile YAML directory; values are
-destination paths relative to the project root.
-
-.. code-block:: yaml
-
-   overlay:
-     data/channels.json: data/channel_databases/channels.json
-     data/limits.json: data/channel_limits.json
-     mcp_servers/custom: _mcp_servers/custom
-     prompts/facility.md: .claude/rules/facility.md
-
-Common overlay targets:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 40 30
-
-   * - Purpose
-     - Destination
-     - Notes
-   * - Channel database
-     - ``data/channel_databases/{name}.json``
-     - Replaces template example
-   * - Channel safety limits
-     - ``data/channel_limits.json``
-     - Min/max/step per channel
-   * - Custom MCP server
-     - ``_mcp_servers/{name}/``
-     - Directory copy
-   * - Facility rule
-     - ``.claude/rules/{name}.md``
-     - Custom agent rule
-   * - Benchmark data
-     - ``data/benchmarks/{name}.json``
-     - Evaluation datasets
-
-.. admonition:: Path Safety
-   :class: important
-
-   Overlay destinations must be **relative paths** without ``..`` components. Absolute
-   paths and path traversal are blocked. Source paths that don't exist on disk cause a
-   validation error at load time.
-
-
-MCP Server Injection
+MCP server injection
 ====================
 
 Custom MCP servers are recorded in the project's ``config.yml`` (under
@@ -496,35 +716,35 @@ Server-Sent Events):
        url: "http://localhost:8008/mcp"
        permissions:
          allow: ["mml_search"]
-     legacy_api:
-       transport: sse
-       url: "http://appsdev2:8001/sse"
 
 ``command`` and ``url`` are mutually exclusive, and stdio servers must not set
-``transport`` (launching via ``command`` *is* the transport) — the profile
-loader rejects both combinations at load time.
+``transport`` (launching via ``command`` *is* the transport).
 
-**Placeholder resolution:**
+**Placeholders:** ``{project_root}`` resolves at build time to the absolute
+project path; ``${ENV_VAR}`` is preserved for the container or shell to resolve
+at runtime.
 
-- ``{project_root}`` — resolved at **build time** to the absolute project path
-- ``${ENV_VAR}`` — preserved for **runtime** resolution (not expanded during build)
+**Permission wiring:** for a server named ``my_server`` with
+``allow: ["safe_tool"]``, the build adds ``mcp__my_server__safe_tool`` to the
+allow list.
 
-**Permission wiring:** For a server named ``my_server`` with ``allow: ["safe_tool"]``,
-the build adds ``mcp__my_server__safe_tool`` to the allow list in
-``.claude/settings.json``.
+Shipping the server's code
+--------------------------
 
-The recommended pattern for facility MCP servers:
+Put the package in the profile's ``mcp_servers/`` directory — one directory per
+server. The build copies it to ``_mcp_servers/`` in the project, so the launch
+command finds it:
 
-1. Write the server as a standalone Python package with ``__main__.py``
-2. Place it in ``mcp_servers/{name}/`` in your profiles repo
-3. Overlay it to ``_mcp_servers/{name}/`` in the project
-4. Set ``PYTHONPATH: "{project_root}/_mcp_servers"`` so ``python -m {name}`` resolves
+.. code-block:: text
+
+   my-profile/
+     mcp_servers/
+       phoebus/
+         __init__.py
+         __main__.py
+         server.py
 
 .. code-block:: yaml
-
-   # Two-step wiring: overlay copies code, mcp_servers entry launches it
-   overlay:
-     mcp_servers/phoebus: _mcp_servers/phoebus
 
    mcp_servers:
      phoebus:
@@ -536,29 +756,26 @@ The recommended pattern for facility MCP servers:
        permissions:
          allow: ["phoebus_launch"]
 
+The directory name and the ``mcp_servers:`` key are independent: the directory
+delivers the code, the key launches it.
+
 
 .. _profile-tool-permissions:
 
-Tool Permissions
+Tool permissions
 ================
 
-By default OSPREY writes a deny list into ``.claude/settings.json`` that blocks a
-handful of general-purpose tools — ``Bash``, ``Edit``, ``WebFetch``, ``WebSearch``,
-and the Playwright/Context7 plugins — so a stock control-operator agent cannot shell
-out or browse the web. These defaults are **overridable per facility** from your
-profile's ``config:`` section, using dotted keys (merged on top of the framework
-defaults at build time). A top-level ``claude_code:`` block in a profile is *not*
-a recognized profile field and would be ignored with a warning — always go
-through ``config:``:
+By default OSPREY blocks a handful of general-purpose tools — ``Bash``,
+``Edit``, ``WebFetch``, ``WebSearch``, and the Playwright/Context7 plugins — so a
+stock control-operator agent cannot shell out or browse the web. These defaults
+are overridable per facility from ``config:``, using dotted keys:
 
 .. code-block:: yaml
 
    config:
-     claude_code.permissions.remove_deny: ["Bash", "WebSearch"]  # drop from the default deny list
+     claude_code.permissions.remove_deny: ["Bash", "WebSearch"]  # drop from the deny list
      claude_code.permissions.allow: ["WebSearch"]                # then allow outright
      claude_code.permissions.ask: ["Bash"]                       # or route to human approval
-
-Supported keys:
 
 .. list-table::
    :header-rows: 1
@@ -567,7 +784,7 @@ Supported keys:
    * - Key
      - Effect
    * - ``remove_deny``
-     - Remove entries from the built-in deny defaults (e.g. unblock ``Bash``)
+     - Remove entries from the built-in deny defaults
    * - ``deny``
      - Add facility-specific deny entries
    * - ``allow``
@@ -580,11 +797,9 @@ Supported keys:
 .. admonition:: Deny wins, and it wins at runtime too
    :class: important
 
-   The agent resolves permissions as **deny > ask > allow**, and a static ``deny``
-   entry cannot be overridden during a session. While a tool sits in the deny list,
-   an in-session ``/permissions`` "allow once" will **not** unblock it — you must
-   ``remove_deny`` it and rebuild. Use ``ask`` instead of ``deny`` for tools you want
-   gated but still reachable on a per-call basis.
+   Permissions resolve as **deny > ask > allow**, and a static ``deny`` entry
+   cannot be overridden during a session — an in-session "allow once" will not
+   unblock it. Use ``ask`` for tools you want gated but still reachable.
 
 
 .. _profile-services:
@@ -592,35 +807,35 @@ Supported keys:
 Services
 ========
 
-The ``services`` section defines facility-specific containers that ``osprey deploy``
-will manage alongside OSPREY's built-in services (e.g. PostgreSQL).
-
-Each service points to a template directory containing a ``docker-compose.yml.j2``
-template. The template directory is copied into the project's ``services/`` tree, and
-the service is registered in ``config.yml`` under ``services`` and
-``deployed_services``.
+The ``services`` section defines facility containers that ``osprey deploy``
+manages alongside OSPREY's built-in ones.
 
 .. code-block:: yaml
 
    services:
      typesense:
-       template: services/typesense     # Relative to profile directory
+       template: services/typesense     # relative to the profile directory
        config:
          port: 8108
          api_key: "${TYPESENSE_API_KEY}"
 
-The ``template`` directory must contain at least ``docker-compose.yml.j2``. Optional
-``config`` values are written to ``config.yml`` under ``services.<name>``.
+The ``template`` directory must contain at least ``docker-compose.yml.j2``. It is
+copied into the project's ``services/`` tree, and the service is registered in
+``config.yml``. Optional ``config`` values land under ``services.<name>``.
+
+A service directory placed in the profile's ``services/`` convention directory is
+carried across the same way and marked as yours — that is what
+``osprey scaffold claim services/<name>`` produces.
 
 
-Lifecycle Commands
+Lifecycle commands
 ==================
 
-Lifecycle commands run shell commands at three phases of the build pipeline:
+Lifecycle commands run shell commands at three phases of the build:
 
-- **pre_build** — runs before template rendering (cwd defaults to profile directory)
-- **post_build** — runs after git init (cwd defaults to project directory)
-- **validate** — advisory checks that warn but don't abort (cwd defaults to project directory)
+- **pre_build** — before rendering (cwd: profile directory)
+- **post_build** — after git init (cwd: project directory)
+- **validate** — advisory checks that warn but don't abort (cwd: project directory)
 
 .. code-block:: yaml
 
@@ -632,36 +847,24 @@ Lifecycle commands run shell commands at three phases of the build pipeline:
        - name: "Build search index"
          run: "python scripts/build_index.py"
          cwd: "data"
-       - name: "Run integration tests"
-         run: "pytest tests/ --junitxml={project_root}/check_results.xml"
          timeout: 300
          stream: true
-     validate:
-       - name: "Smoke test"
-         run: "python -c 'import osprey; print(osprey.__version__)'"
 
-Each step requires ``name`` and ``run``. Optional fields:
+Each step requires ``name`` and ``run``. Optional: ``cwd`` (relative to the phase
+default), ``timeout`` (seconds, default 120), and ``stream`` (print output live;
+also available for all steps via ``--stream``).
 
-- ``cwd`` — resolved relative to the phase default directory.
-- ``timeout`` — seconds before the step is killed (default: 120).
-- ``stream`` — if ``true``, stdout is printed in real time instead of captured. Can also
-  be enabled for all steps via the ``--stream`` CLI flag.
-
-The ``{project_root}`` placeholder is replaced with the built project's absolute path.
-
-Shell metacharacters (``|``, ``&&``, ``||``, ``$(``, backticks) trigger shell execution;
-simple commands use ``shlex.split()`` for safer argument handling.
-
-The project venv's ``bin/`` directory is prepended to ``PATH``, so ``python`` and
-``pytest`` inside lifecycle commands resolve to the project's Python (with profile
-dependencies installed), not the OSPREY build environment.
+``{project_root}`` is replaced with the built project's absolute path. The
+project venv's ``bin/`` is prepended to ``PATH``, so ``python`` and ``pytest``
+resolve to the project's own Python.
 
 
-Environment Templates
+Environment variables
 =====================
 
-The ``env`` section generates a ``.env.template`` file in the built project, reminding
-users which environment variables to set.
+The ``env`` section declares what the deployment needs. It documents variables;
+it does not carry values — values live in the profile's ``.env``
+(see :ref:`profile-secrets`).
 
 .. code-block:: yaml
 
@@ -671,39 +874,25 @@ users which environment variables to set.
        - DB_HOST
      defaults:
        LOG_LEVEL: info
-       PORT: "8080"
 
-This produces a ``.env.template`` with:
+Both lists are rendered into the profile's ``.env.example``, so an operator
+opening that file sees them alongside every other variable. Required names must
+match ``^[A-Z_][A-Z0-9_]*$``.
 
-.. code-block:: text
-
-   # Required
-   API_KEY=
-   DB_HOST=
-
-   # Defaults
-   LOG_LEVEL=info
-   PORT=8080
-
-Required variable names must match ``^[A-Z_][A-Z0-9_]*$``.
-
-To ship a pre-populated ``.env`` file (e.g. for non-secret defaults), use the ``file``
-key. The path is relative to the profile directory:
+To ship a pre-populated ``.env`` (non-secret defaults, say), use the ``file``
+key — a path relative to the profile directory:
 
 .. code-block:: yaml
 
    env:
-     file: envs/dev.env        # Copied to .env in the built project
-     required: [SECRET_KEY]     # .env.template is still generated
+     file: envs/dev.env        # copied to .env in the built project
 
 
 Dependencies
 ============
 
-The ``dependencies`` list adds Python package specifiers to the built project.
-They are installed into the project venv and recorded in the project's generated
-``pyproject.toml``, so facility-specific packages are tracked alongside framework
-dependencies.
+``dependencies`` adds Python package specifiers to the built project. They are
+installed into the project venv and recorded in its generated ``pyproject.toml``:
 
 .. code-block:: yaml
 
@@ -712,14 +901,10 @@ dependencies.
      - pandas
      - scipy~=1.11
 
-The build installs these automatically. Because the generated ``pyproject.toml``
-declares the same set, ``uv run`` inside the project resolves the project's own
-``.venv``, and ``uv sync`` rebuilds it from scratch:
-
 .. code-block:: bash
 
-   cd my-assistant
-   uv run osprey web     # uses my-assistant/.venv
+   cd my-project
+   uv run osprey web     # uses my-project/.venv
    uv sync               # rebuilds it from pyproject.toml
 
 Builds run with ``--skip-deps`` create no environment and no ``pyproject.toml``;
@@ -727,14 +912,13 @@ install dependencies yourself in that mode.
 
 .. _profile-environment:
 
-The Execution Environment
+The execution environment
 -------------------------
 
 ``dependencies`` says what *else* to install. The ``environment:`` block says
 what the project environment is built *on top of* — which interpreter it starts
 from, and, when that interpreter belongs to a virtual environment your facility
-already maintains, which of its packages to carry over. This is the environment
-the agent's Python code runs in.
+already maintains, which of its packages to carry over.
 
 .. code-block:: yaml
 
@@ -749,266 +933,242 @@ All three keys are optional; the block as a whole can be omitted.
 
 ``python``
    The base interpreter, as an absolute path. It may be a plain interpreter
-   (``/usr/bin/python3.12``) or the interpreter inside a virtual environment
-   (``.../analysis-env/bin/python``) — the syntax is the same and there is no
-   mode to select. The build aborts if the path does not exist or is not
-   executable. Leave the key out and the build uses its own interpreter.
+   (``/usr/bin/python3.12``) or the interpreter inside a virtual environment —
+   the syntax is the same. The build aborts if the path does not exist or is not
+   executable.
 
 ``packages``
-   Extra requirements (PEP 508 specifiers) installed into the project
-   environment. Additive in both cases: pointing ``python`` at a facility
-   environment does not stop you adding packages on top. ``packages`` and
-   ``dependencies`` are resolved in the same install, so they cannot disagree;
-   where both name the same distribution, a pinned version wins over a bare
-   name, and between two pinned versions ``packages`` wins.
+   Extra requirements installed into the project environment. Resolved in the
+   same install as ``dependencies``, so the two cannot disagree; where both name
+   the same distribution, a pinned version wins over a bare name, and between two
+   pins ``packages`` wins.
 
 ``inherit_exclude``
-   Distribution names to leave out of the freeze described below. It is only
-   meaningful with a virtual environment base; declaring it against a plain
-   interpreter, or with no ``python`` at all, is rejected at validation time
-   rather than silently doing nothing.
+   Distribution names to leave out of the freeze described below. Only meaningful
+   with a virtual environment base; declaring it otherwise is rejected at
+   validation time rather than silently ignored.
 
-**Carrying a virtual environment's packages over.** Basing a project on a
-virtual environment's *interpreter* does not inherit that environment's
-*packages* — creating a new environment from another one's interpreter yields
-an empty one. What carries them over is a **freeze**: when
-``environment.python`` names a virtual environment's interpreter, the build
-records that environment's installed distributions as exact ``name==version``
-requirements in the project's generated ``pyproject.toml``. The project venv,
-and any container image built from it, install that same set — so the built
-project matches the environment it was based on.
+**Carrying a virtual environment's packages over.** Basing a project on a virtual
+environment's *interpreter* does not inherit its *packages*. What carries them
+over is a **freeze**: when ``environment.python`` names a virtual environment's
+interpreter, the build records that environment's installed distributions as
+exact ``name==version`` requirements in the project's ``pyproject.toml``. The
+project venv — and any container image built from it — installs that same set.
 
-A pin written in ``dependencies`` or ``packages`` overrides the version the
-base happened to carry, so you can base a project on a facility environment and
-still choose a different version of one package.
+A pin in ``dependencies`` or ``packages`` overrides the version the base
+happened to carry.
 
 The freeze runs **only when a base interpreter is declared**. Without
-``environment.python`` the base is whatever interpreter OSPREY itself happens
-to be installed into — an accident of how the framework was installed, not a
-curated environment — and its packages are deliberately not carried over.
+``environment.python`` the base is whatever interpreter OSPREY itself was
+installed into — an accident, not a curated environment — and its packages are
+deliberately not carried over.
 
-**The build stops if a package cannot be reproduced.** A freeze that would not
-survive the move fails the build rather than producing a project that quietly
-differs from its base. Two cases are refused:
-
-- **No package-index coordinate.** A distribution installed from a local path,
-  a VCS checkout, or a bare archive URL — an editable install, for instance —
-  has no ``name==version`` that would reinstall it anywhere else.
-- **A version OSPREY itself forbids.** If the base carries a version outside
-  OSPREY's own requirement for that package, both cannot hold. OSPREY's
-  requirement is authoritative.
-
-Every offending package is named in a single message, along with the
-``inherit_exclude`` block that clears all of them, so you fix them in one edit
-instead of one build at a time. Excluding a conflicting package leaves OSPREY's
-own version in place.
+**The build stops if a package cannot be reproduced.** Two cases are refused: a
+distribution with no package-index coordinate (installed from a local path, a
+VCS checkout, or a bare archive URL), and a version outside OSPREY's own
+requirement for that package. Every offending package is named in a single
+message, along with the ``inherit_exclude`` block that clears all of them.
 
 
-Repository Structure
-====================
+Regenerating a channel database
+===============================
 
-A facility profiles repository should follow this layout:
+``osprey channel-finder build-database`` writes the generated database **into the
+profile**, not into the project — beside the CSV inputs it came from, where it
+survives a rebuild. The sequence is meant to run to completion:
 
-.. code-block:: text
+.. code-block:: bash
 
-   my-profiles/
-   ├── .gitignore
-   ├── facility-dev.yml               # Dev profile (mock control system)
-   ├── facility-prod.yml              # Production profile (real hardware)
-   ├── data/
-   │   ├── channels.json              # Channel database
-   │   ├── channel_limits.json        # Safety limits
-   │   └── benchmarks/
-   │       └── pv_finder_benchmark.json
-   ├── prompts/                       # Facility-specific agent rules
-   │   ├── facility.md
-   │   └── domain-knowledge.md
-   └── mcp_servers/                   # Custom MCP server packages
-       └── my_server/
-           ├── __init__.py
-           ├── __main__.py
-           ├── server.py
-           └── tools/
-               ├── __init__.py
-               └── my_tool.py
+   osprey channel-finder build-database
+   # the project now reports its build as stale
+   osprey build my-project my-profile/profile.yml --force
+   # the advisory clears
 
-This repository is consumed by ``osprey build`` but kept separate from the OSPREY
-framework itself — any facility can create their own equivalent.
+The staleness advisory in between is the reminder that the new database has not
+been deployed yet — not a problem to fix. Use ``--output`` to write somewhere
+else; a project that resolves no profile falls back to its own ``data/`` tree
+and warns that the next build will overwrite it.
 
 
-CLI Reference
-=============
+Building
+========
 
 .. code-block:: text
 
    osprey build PROJECT_NAME [PROFILE] [OPTIONS]
 
-**Arguments:**
+**Arguments**
 
 - ``PROJECT_NAME`` — name of the project directory to create
-- ``PROFILE`` — *optional* path to a YAML build profile. Mutually exclusive
-  with ``--preset``; exactly one of the two must be provided.
+- ``PROFILE`` — path to a profile YAML. Mutually exclusive with ``--preset``;
+  exactly one of the two is required.
 
-**Options:**
+**Options**
 
 .. list-table::
    :widths: 30 70
 
    * - ``--preset NAME``
-     - Use a bundled preset profile instead of a positional ``PROFILE`` path.
-       Run ``osprey build --list-presets`` to see what ships.
+     - Materialize ``<PROJECT_NAME>-profile/`` from a bundled preset and build
+       from it. Reused as-is if it already exists.
    * - ``-O, --override FILE``
-     - Layer a YAML override file on top of the base profile/preset. May be
-       repeated; files apply in declaration order. Top-level keys deep-merge;
-       string lists union-dedup.
+     - Layer a YAML file on top of the profile (repeatable, applied in order).
    * - ``--set KEY.PATH=VALUE``
-     - Inline scalar/list override. RHS is parsed as YAML, so
-       ``--set tier=3`` lands an int and
-       ``--set hooks=[memory-guard]`` lands a list. May be repeated.
-       ``--set`` wins over ``-O`` files at the same key.
+     - Inline override. The right-hand side is parsed as YAML, so
+       ``--set tier=3`` lands an int and ``--set hooks=[memory-guard]`` a list.
+   * - ``--tier {1,3}``
+     - Channel-database tier. Overrides the default derived from the channel
+       finder mode (``in_context`` → tier 1, otherwise tier 3).
    * - ``--list-presets``
-     - List bundled preset names and exit (eager — no ``PROJECT_NAME`` needed).
+     - List bundled preset names and exit.
    * - ``-o, --output-dir DIR``
      - Output directory (default: current directory).
    * - ``-f, --force``
-     - Re-render an existing project directory in place. Everything
-       framework-owned is rebuilt; ``.env``, ``_agent_data/``, and ``.git``
-       are preserved.
-   * - ``--tier {1,3}``
-     - Channel-database tier: selects which
-       ``data/channel_databases/tiers/tier{N}/`` database the rendered config
-       points at. Advanced — overrides the default derived from the channel
-       finder paradigm (``in_context`` → tier 1, ``hierarchical`` /
-       ``middle_layer`` → tier 3). Tier 1 is ``in_context``-only.
+     - Re-render an existing project directory in place.
    * - ``-s, --stream``
      - Stream lifecycle step output in real time.
    * - ``--skip-lifecycle``
-     - Skip ``pre_build``, ``post_build``, and ``validate`` phases.
+     - Skip ``pre_build``, ``post_build``, and ``validate``.
    * - ``--skip-deps``
      - Skip venv creation and dependency installation (CI mode).
    * - ``--runtime-root PATH``
-     - Override ``project_root`` in the rendered config. Useful when the
-       build path differs from the runtime path (e.g. container builds).
+     - Override ``project_root`` in the rendered config, for container builds.
 
-**Layer ordering:** base preset/profile → ``-O`` override file(s) in
-declaration order → ``--set`` pairs.
+.. admonition:: ``--set``, ``-O`` and ``--tier`` edit the profile
+   :class: important
 
-**Examples:**
+   They are not build-time layers that vanish afterwards. On a build from an
+   existing profile they are **written into that profile** before it is read,
+   replacing the value at each dotted key — because the profile has to keep
+   describing the project. On the first ``--preset`` build they are baked into
+   the profile being materialized.
+
+   Comments and formatting are preserved, and a build that then fails puts the
+   file back exactly as it was, so a typo never leaves a stuck profile behind.
+
+``--force`` re-renders everything framework-owned and preserves what you own:
+``.env``, ``_agent_data/``, and the project's ``.git``. It never touches the
+profile — only ``osprey profile new --force`` replaces one of those.
+
+**Examples**
 
 .. code-block:: bash
 
    # See what presets ship
    osprey build --list-presets
 
-   # Build from a bundled preset
-   osprey build my-assistant --preset hello-world
+   # First build: materializes my-assistant-profile/ and builds from it
+   osprey build my-assistant --preset control-assistant
 
-   # Build from a profile file
-   osprey build als-test ~/als-profiles/als-dev.yml
+   # Later builds reuse that profile directory
+   osprey build my-assistant --preset control-assistant --force
 
-   # Layer overrides on a preset
-   osprey build als-test --preset control-assistant \
-       -O als-overrides.yml \
+   # Build from a profile you keep elsewhere
+   osprey build als-test ~/als-profiles/als-dev/profile.yml
+
+   # Write a setting into the profile as part of the build
+   osprey build als-test ~/als-profiles/als-dev/profile.yml \
        --set model=claude-sonnet-4-6
 
-   # Materialize a facility profile with those same overrides baked in
-   osprey profile new als-profile --preset control-assistant \
-       --set provider=als-apg --set model=opus
+Checking a profile without building
+-----------------------------------
+
+.. code-block:: bash
+
+   osprey profile validate my-profile/
+   osprey profile validate my-profile/personas/readonly.yml
+
+Resolves the profile and runs the full consistency check — convention
+directories, the data tree, service templates, lifecycle steps, environment
+variables — reporting every problem found, not just the first.
 
 
-Build Pipeline
-==============
-
-When ``osprey build`` runs, it executes these steps in order:
-
-1. **Load and validate** the YAML profile (schema check, path existence)
-2. **Check version constraint** — abort if ``requires_osprey_version`` is not satisfied
-3. **Resolve output path** and handle ``--force`` (re-render in place,
-   preserving ``.env``, ``_agent_data/``, and ``.git``)
-4. **Run pre_build commands** (cwd: profile directory)
-5. **Clear Osprey agent state** for the target directory
-6. **Create project venv** — install OSPREY (per ``osprey_install``) and profile dependencies
-7. **Build context** from profile fields (provider, model, python_env, channel finder mode)
-8. **Render base template** via ``TemplateManager.create_project()``
-9. **Apply config overrides** using dot-notation → nested key updates
-10. **Copy service templates** (built-in containers for ``osprey deploy``)
-11. **Inject profile services** (facility containers from ``services:``)
-12. **Copy overlay files** from the profile directory into the project
-13. **Inject MCP servers** — recorded in ``config.yml`` under
-    ``claude_code.servers``, then rendered into ``.mcp.json`` and
-    ``.claude/settings.json``
-14. **Copy .env file** (if ``env.file`` is set)
-15. **Generate .env.template** from ``env.required`` and ``env.defaults``
-16. **Generate manifest** (``.osprey-manifest.json``) for migration tracking
-17. **Initialize git** and create an initial commit
-18. **Run post_build commands** (cwd: project directory)
-19. **Run validate commands** (advisory, cwd: project directory)
-
-.. note::
-
-   The project venv (step 6) is created **before** template rendering so that
-   templates can reference the resolved Python path. Lifecycle commands in
-   ``post_build`` and ``validate`` automatically use the project venv's Python.
-
-The generated project contains everything the Osprey agent needs to run — no dependency on
-the profiles repository at runtime.
-
-
-What Gets Generated
+What the build does
 ===================
 
-After building, the project contains:
+1. Settle the profile (materialize from a preset on first use, or read the one
+   you named), writing any ``--set`` / ``-O`` / ``--tier`` into it.
+2. Resolve and validate the profile, including any persona delta merged over it.
+3. Check ``requires_osprey_version``; abort if unsatisfied.
+4. Handle ``--force`` — clear the rendered files, keeping ``.env``,
+   ``_agent_data/`` and ``.git``.
+5. Run ``pre_build`` commands.
+6. Create the project venv and install OSPREY plus the profile's dependencies.
+7. Render the base template and the profile's ``data/`` tree; derive the
+   project's ``.env`` from the profile's.
+8. Apply the ``config:`` overrides.
+9. Copy service templates and inject the profile's own services.
+10. Apply the convention directories, and register what was copied as yours.
+11. Persist ``mcp_servers:`` into ``config.yml``.
+12. Stamp the manifest (``.osprey-manifest.json``), including the profile path
+    the deploy later writes secrets back to.
+13. Re-render the agent artifacts against the complete config, and validate that
+    every tool an agent declares is backed by a permission.
+14. Initialize git, then run ``post_build`` and ``validate`` commands.
+
+The venv is created before rendering so templates can reference the resolved
+Python path. The generated project runs standalone — nothing reaches back to the
+profile at runtime.
+
+
+What gets generated
+===================
 
 .. code-block:: text
 
-   built-project/
+   my-project/
    ├── .claude/
-   │   ├── agents/           # From preset profile (channel-finder, data-visualizer, ...)
-   │   ├── rules/            # From preset profile (safety, error-handling, ...)
-   │   ├── hooks/            # From preset profile (approval, writes-check, limits, ...)
-   │   ├── skills/           # From preset profile (diagnose, session-report, ...)
-   │   ├── output-styles/    # From preset profile (control-operator)
-   │   └── settings.json     # Permissions, hooks, model config
+   │   ├── agents/           # built-ins, plus anything from the profile's agents/
+   │   ├── rules/            # built-ins, plus the profile's rules/
+   │   ├── hooks/            # hook scripts, plus the generated hook_config.json
+   │   ├── skills/
+   │   ├── output-styles/
+   │   └── settings.json     # permissions, hook wiring, model config
    ├── .mcp.json             # MCP server configurations
-   ├── CLAUDE.md             # Generated system prompt
-   ├── config.yml            # Config with overrides applied
-   ├── data/                 # Template data + overlays
-   ├── _mcp_servers/         # Custom server code (from overlays)
-   └── ...
+   ├── CLAUDE.md             # generated system prompt
+   ├── config.yml            # config with the profile's overrides applied
+   ├── data/                 # the profile's data tree, materialized
+   ├── _mcp_servers/         # facility server code from the profile
+   ├── .env                  # derived from the profile's .env
+   └── .env.example          # a copy of the profile's
 
-Which agents, rules, hooks, and skills are included starts from the
-bundled preset profile (``src/osprey/profiles/presets/<preset>.yml``),
-but your user profile can customize it: ``agents:``, ``rules:``,
-``hooks:``, and ``skills:`` are first-class profile fields, and
-``extends:`` union-merges your additions with the preset's set. To
-drop a preset artifact entirely, subtract it with ``exclude:`` (see
-:ref:`profile-exclude`), build from a standalone profile, or edit the
-preset directly.
+Which built-in agents, rules, hooks and skills are installed comes from the
+``agents:``, ``rules:``, ``hooks:`` and ``skills:`` lists in ``profile.yml``.
+Your own files come from the convention directories and are marked as yours.
 
 
 Troubleshooting
 ===============
 
-**"Profile 'name' is required"** — Add a ``name:`` field to your profile YAML.
+**"Either a profile path or --preset is required"** — every build reads a
+profile. Name one, or ``--preset`` to have one materialized.
 
-**"Overlay source not found"** — Check that the source path exists relative to the
-profile YAML's directory, not the current working directory.
+**"was materialized from preset X, but this build asks for Y"** — the profile
+directory beside this project came from a different preset. Build ``Y`` under a
+different project name so it gets a profile of its own.
 
-**"Overlay destination must be relative without '..'"** — Destination paths cannot
-be absolute or contain ``..``.
+**"Profile convention directories are invalid"** — a convention directory has
+the wrong shape: a ``.md`` directory holding something else, a skill that is a
+file rather than a directory, or a symlink pointing outside the profile. Every
+problem is listed at once.
 
-**"MCP server 'X' missing 'command' or 'url'"** — Every MCP server definition
-needs a ``command`` (stdio) or a ``url`` (HTTP) field.
+**"project/ mirror writes N build-owned path(s)"** — the mirror targets a path
+another channel owns. The message names the channel, and the exact move where
+one exists.
 
-**"Directory 'X' already exists"** — Use ``--force`` to rebuild it in place
-(your ``.env``, ``_agent_data/``, and ``.git`` are preserved), or pick a
-different project name.
+**"Profile has N unrecognized top-level entry/entries"** — a warning, not an
+error: a directory in the profile that nothing copies. Usually a typo of a
+convention directory name.
 
-**"OSPREY X does not satisfy requires_osprey_version"** — Upgrade OSPREY to a
-version matching the profile's specifier, or remove the constraint.
+**"Unknown profile key(s): 'overlay'"** — profiles no longer have an overlay
+section. Move the files into the convention directory that matches what they
+are (see the table above), or into ``project/`` for anything without one.
 
-**"Service 'X' template dir missing docker-compose.yml.j2"** — The service template
-directory must contain a ``docker-compose.yml.j2`` file.
+**"Directory 'X' already exists"** — use ``--force`` to rebuild the project in
+place, or pick a different project name. ``--force`` never replaces the profile.
+
+**"OSPREY X does not satisfy requires_osprey_version"** — upgrade OSPREY, or
+relax the constraint in the profile.
 
 
 .. seealso::

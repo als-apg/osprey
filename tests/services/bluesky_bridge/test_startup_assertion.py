@@ -1,4 +1,4 @@
-"""Tests for the fail-OPEN startup assertion (task 3.1).
+"""Tests for the fail-OPEN startup assertion.
 
 `app.py`'s `_lifespan` hook refuses to start *writable* against an unreadable
 limits source: it raises IFF ALL of `control_system.writes_enabled` is true,
@@ -7,7 +7,12 @@ limits source: it raises IFF ALL of `control_system.writes_enabled` is true,
 unparseable. Every other combination starts normally — most importantly,
 writes disabled must start read-only REGARDLESS of limits readability, and
 must never even probe the database. See `_assert_limits_readable_if_writable`'s
-docstring in `app.py` for the full condition and rationale.
+docstring in `validation.py` for the full condition and rationale.
+
+The guard runs on EVERY startup, not only when some wiring flag is set: the
+posture it refuses is a property of the project config, so a deployment that
+never touches the queue must be checked exactly like one that does. That is
+what `test_guard_runs_with_no_bluesky_env_set_at_all` pins.
 
 Exercised here:
 
@@ -26,75 +31,53 @@ Exercised here:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge.app import app, set_runner_factory
-from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
-from osprey.services.bluesky_bridge.runs import registry
+from osprey.services.bluesky_bridge.app import app, set_queue_backend
 
 _SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-_DEMO_ENV = "BLUESKY_DEMO_RUNNER"
 _MOTORS_ENV = "BLUESKY_EPICS_MOTORS"
 _DETECTORS_ENV = "BLUESKY_EPICS_DETECTORS"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 
+class _InertBackend:
+    """A pre-injected queue backend, so the lifespan owns no queue lifecycle.
+
+    Injecting one is what tells `_lifespan` a caller owns the backend's whole
+    lifecycle, which skips the background environment open entirely — this file
+    is about the limits guard, and a startup probe of a manager that isn't
+    there would only add noise to it.
+    """
+
+    async def close(self) -> None:
+        return None
+
+
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean flag set, registry, runner factory, and connector global.
+    """Every test starts from a clean env and an inert, pre-injected backend.
 
-    The EPICS-substrate branch (where `_assert_limits_readable_if_writable`
-    lives) only runs when `BLUESKY_EPICS_SUBSTRATE` is truthy, so this
-    fixture enables it for every test in this file.
+    The substrate/Tiled variables are cleared rather than set: the guard is no
+    longer reached through any of them, and leaving one set from the ambient
+    environment would only obscure that.
     """
     for var in (
         _SUBSTRATE_ENV,
-        _DEMO_ENV,
         _MOTORS_ENV,
         _DETECTORS_ENV,
         _TILED_URI_ENV,
         _TILED_API_KEY_ENV,
     ):
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv(_SUBSTRATE_ENV, "true")
-    registry._runs.clear()
-    set_runner_factory(FakePlanRunner)
-    app_module._connector = None
+    set_queue_backend(_InertBackend())
     yield
-    registry._runs.clear()
-    set_runner_factory(FakePlanRunner)
-    app_module._connector = None
-
-
-@pytest.fixture(autouse=True)
-def _spy_connector_factory(monkeypatch: pytest.MonkeyPatch):
-    """Stub out the real CA connector — this file probes the limits guard, not the connector.
-
-    Requires bluesky/ophyd-async importable (same guard `_lifespan`'s
-    EPICS-substrate branch itself requires); skipped, not failed, when the
-    extra is absent.
-    """
-    pytest.importorskip("bluesky")
-    pytest.importorskip("ophyd_async")
-    from osprey.connectors.factory import ConnectorFactory
-
-    class _SpyConnector:
-        async def disconnect(self) -> None:
-            return None
-
-    async def fake_create_control_system_connector(config):
-        return _SpyConnector()
-
-    monkeypatch.setattr(
-        ConnectorFactory,
-        "create_control_system_connector",
-        fake_create_control_system_connector,
-    )
+    set_queue_backend(None)
 
 
 def _patch_config(
@@ -153,6 +136,28 @@ def test_writable_with_missing_limits_db_refuses_startup(
     message = str(excinfo.value)
     assert "writes_enabled" in message
     assert "limits_checking.enabled" in message
+
+
+def test_guard_runs_with_no_bluesky_env_set_at_all(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The guard is unconditional, not gated on any wiring flag.
+
+    It used to live inside the EPICS-substrate runner branch, so a deployment
+    that never set `BLUESKY_EPICS_SUBSTRATE` was never checked — a writable
+    project with an unreadable limits database came up clean. The autouse
+    fixture clears every one of those variables, so this test failing means the
+    guard has been re-gated on something.
+    """
+    for var in (_SUBSTRATE_ENV, _MOTORS_ENV, _DETECTORS_ENV, _TILED_URI_ENV):
+        assert var not in os.environ
+
+    missing = tmp_path / "does_not_exist.json"
+    _patch_config(monkeypatch, writes_enabled=True, limits_enabled=True, db_path=str(missing))
+
+    with pytest.raises(RuntimeError):
+        with TestClient(app):
+            pass
 
 
 def test_writable_with_unparseable_limits_db_refuses_startup(

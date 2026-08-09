@@ -57,8 +57,6 @@ GATE_JOB = "all-checks-passed"
 SECRET_TOKEN = "secrets.ALS_APG_API_KEY"
 TILED_TEST_FILE = "tests/e2e/test_tiled_roundtrip.py"
 VA_TEST_FILE = "tests/e2e/test_va_substrate_equivalence.py"
-DEMO_JOB = "multi-user-demo-e2e"
-DEMO_TEST_FILE = "tests/e2e/test_multi_user_demo.py"
 LIFECYCLE_TEST_FILE = "tests/e2e/test_deploy_lifecycle.py"
 ORM_JOB = "orm-roundtrip-e2e"
 ORM_TEST_FILE = "tests/e2e/test_orm_roundtrip.py"
@@ -737,34 +735,8 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (e) multi-user-demo-e2e lane + the dockerbuild --ignore guard
+# (e) the dockerbuild --ignore guard
 # ---------------------------------------------------------------------------
-
-
-def test_multi_user_demo_job_exists(workflow: dict[str, Any]) -> None:
-    assert DEMO_JOB in _jobs(workflow)
-
-
-def test_multi_user_demo_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][DEMO_JOB]
-    with pytest.raises(AssertionError):
-        assert DEMO_JOB in _jobs(mutated)
-
-
-def test_multi_user_demo_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    assert not _job_declares_secret(workflow, DEMO_JOB, SECRET_TOKEN)
-
-
-def test_all_checks_passed_needs_multi_user_demo(workflow: dict[str, Any]) -> None:
-    assert DEMO_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-def test_all_checks_passed_needs_multi_user_demo__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(DEMO_JOB)
-    with pytest.raises(AssertionError):
-        assert DEMO_JOB in _jobs(mutated)[GATE_JOB]["needs"]
 
 
 def _dockerbuild_marked_e2e_files() -> list[str]:
@@ -812,7 +784,7 @@ def test_every_dockerbuild_marked_file_is_ignored__mutation_drops_one_ignore() -
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], LIFECYCLE_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [DEMO_TEST_FILE]) == []  # others survive
+    assert _run_step_ignores_all(mutated, [ORM_TEST_FILE]) == []  # others survive
     assert _run_step_ignores_all(mutated, _dockerbuild_marked_e2e_files()) == [LIFECYCLE_TEST_FILE]
 
 
@@ -1596,3 +1568,87 @@ def test_workflow_on_key_parses_to_bool_true_not_string(workflow: dict[str, Any]
     only ever indexes workflow['jobs']."""
     assert True in workflow
     assert "on" not in workflow
+
+
+# ---------------------------------------------------------------------------
+# (h) multi-user login-flow browser test: registered in the lane, and the lane
+# is actually triggered by the code it covers
+# ---------------------------------------------------------------------------
+
+BROWSER_JOB = "visual-theming"
+BROWSER_RUN_STEP = "Run behavioral theming suite"
+BROWSER_FILTER_STEP = "Detect design-system / dispatch dashboard changes"
+AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
+AUTH_SERVING_TEST_FILE = "tests/deployment/web_terminals/test_auth_serving.py"
+AUTH_PERIMETER_PATHS = (
+    "src/osprey/services/auth_sidecar/**",
+    "src/osprey/deployment/web_terminals/**",
+    "src/osprey/templates/modules/web_terminals/**",
+    AUTH_SERVING_TEST_FILE,
+)
+
+
+def _browser_lane_files(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
+
+
+def _browser_lane_filter_paths(wf: dict[str, Any]) -> list[str]:
+    """The `theming` filter's path list, parsed out of the step's `filters` blob.
+
+    dorny/paths-filter takes its filters as a YAML *string*, so the outer
+    safe_load leaves this as text and it has to be parsed a second time —
+    still structurally, never by substring matching.
+    """
+    step = _find_named_step(wf, BROWSER_JOB, BROWSER_FILTER_STEP)
+    return yaml.safe_load(step["with"]["filters"])["theming"]
+
+
+def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
+    """The suite has to be NAMED in the lane's pytest invocation.
+
+    The lane runs an explicit file list, not a directory glob, so a new
+    browser-marked file that nobody adds here is never collected anywhere: the
+    unit lane skips it (no chromium), and this lane never hears of it. It
+    reports green by running nothing at all."""
+    assert AUTH_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+
+
+def test_login_flow_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+    """Removing the file from the invocation must fail the guard — the exact
+    vacuous-green shape above."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
+    assert AUTH_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+
+
+def test_browser_lane_is_triggered_by_the_perimeter_it_covers(workflow: dict[str, Any]) -> None:
+    """Every path the login-flow test actually exercises must arm the lane.
+
+    The filter was written for `interfaces/` and `dispatch/`, but this suite
+    drives the auth sidecar, the rendered nginx config and the shared container
+    fixture — none of which live there. Left unlisted, a PR that changes the
+    login page or the perimeter template skips every gated step in this job,
+    which GitHub reports as a job SUCCESS. The proof would be silently gone at
+    exactly the moment it mattered."""
+    paths = _browser_lane_filter_paths(workflow)
+    missing = [path for path in AUTH_PERIMETER_PATHS if path not in paths]
+    assert missing == [], (
+        f"the '{BROWSER_JOB}' lane is not triggered by {missing}, so a change there would "
+        f"green-skip {AUTH_BROWSER_TEST_FILE} instead of running it"
+    )
+
+
+def test_browser_lane_is_triggered_by_the_perimeter__mutation_drops_the_sidecar_path() -> None:
+    """Dropping the sidecar source from the filter must be reported missing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_FILTER_STEP)
+    filters = yaml.safe_load(step["with"]["filters"])
+    filters["theming"] = [
+        path for path in filters["theming"] if path != "src/osprey/services/auth_sidecar/**"
+    ]
+    step["with"]["filters"] = yaml.safe_dump(filters)
+    paths = _browser_lane_filter_paths(mutated)
+    assert [p for p in AUTH_PERIMETER_PATHS if p not in paths] == [
+        "src/osprey/services/auth_sidecar/**"
+    ]

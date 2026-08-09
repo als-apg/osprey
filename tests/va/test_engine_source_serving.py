@@ -195,8 +195,22 @@ def data_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def engine(data_dir: Path) -> SimulationEngine:
-    return SimulationEngine.from_file(data_dir / "machine.json")
+def state_dir(tmp_path: Path) -> Path:
+    """Scenario state directory -- a separate mount from the machine model.
+
+    The container bind-mounts the build-owned data dir (machine.json) and the
+    host's runtime state dir (active_scenarios) independently; the engine and
+    the EngineSource must be pointed at the SAME state dir or they disagree
+    about which scenarios are active.
+    """
+    path = tmp_path / "state"
+    path.mkdir()
+    return path
+
+
+@pytest.fixture()
+def engine(data_dir: Path, state_dir: Path) -> SimulationEngine:
+    return SimulationEngine.from_file(data_dir / "machine.json", state_dir=state_dir)
 
 
 @pytest.fixture()
@@ -217,6 +231,7 @@ def _source(
     engine: SimulationEngine,
     serving: ServingRecords,
     data_dir: Path,
+    state_dir: Path,
     *,
     echo: bool = False,
 ) -> EngineSource:
@@ -226,13 +241,14 @@ def _source(
         CHANNELS,
         serving.static_noisy,
         data_dir,
+        state_dir=state_dir,
         setpoint_echo_records={STAGE_RB: serving.all[STAGE_RB]} if echo else None,
     )
 
 
 @pytest.fixture()
-def source(engine, serving, data_dir, driver) -> EngineSource:  # noqa: ANN001
-    return _source(engine, serving, data_dir)
+def source(engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ANN001
+    return _source(engine, serving, data_dir, state_dir)
 
 
 class TestDriveSurface:
@@ -326,17 +342,17 @@ class TestPreAttachAssembly:
     values the server comes up with, not be dropped on the floor."""
 
     def test_set_before_attach_seeds_the_boot_database(
-        self, engine, serving: ServingRecords, data_dir: Path
+        self, engine, serving: ServingRecords, data_dir: Path, state_dir: Path
     ) -> None:
-        pre_attach = _source(engine, serving, data_dir)  # note: no `driver` fixture
+        pre_attach = _source(engine, serving, data_dir, state_dir)  # note: no `driver` fixture
         pre_attach.poll_once()
         assert serving.pvdb[VAC_RB]["value"] == pytest.approx(1e-8)
         assert serving.all[VAC_RB].get() == pytest.approx(1e-8)
 
     def test_attaching_switches_the_write_target_to_the_driver(
-        self, engine, serving: ServingRecords, data_dir: Path
+        self, engine, serving: ServingRecords, data_dir: Path, state_dir: Path
     ) -> None:
-        pre_attach = _source(engine, serving, data_dir)
+        pre_attach = _source(engine, serving, data_dir, state_dir)
         pre_attach.poll_once()
         engine.write(VAC_RB, 4.2e-7)
 
@@ -370,19 +386,19 @@ class TestScenarioHotReload:
         assert driver.values[VAC_RB] == pytest.approx(1e-8)
 
     def test_content_hash_catches_an_mtime_colliding_atomic_swap(
-        self, source: EngineSource, driver: FakeDriver, data_dir: Path
+        self, source: EngineSource, driver: FakeDriver, state_dir: Path
     ) -> None:
         """The bind-mounted unit is the directory precisely so an atomic-rename
         swap survives the mount -- but the replacement's mtime can collide with
         the original at the host filesystem's granularity. The sha256 half of
         the signature is what closes that hole."""
-        state_path = data_dir / "active_scenarios"
+        state_path = state_dir / "active_scenarios"
         state_path.write_text("nominal\n")
         source.poll_once()
         original_ino = state_path.stat().st_ino
         original_mtime_ns = state_path.stat().st_mtime_ns
 
-        tmp = data_dir / "active_scenarios.tmp"
+        tmp = state_dir / "active_scenarios.tmp"
         tmp.write_text("leak\n")
         os.utime(tmp, ns=(original_mtime_ns, original_mtime_ns))
         os.replace(tmp, state_path)
@@ -404,8 +420,8 @@ class TestSetpointEchoSyncReadsThroughTheDriver:
     expression channel would never move."""
 
     @pytest.fixture()
-    def echo_source(self, engine, serving, data_dir, driver) -> EngineSource:  # noqa: ANN001
-        return _source(engine, serving, data_dir, echo=True)
+    def echo_source(self, engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ANN001
+        return _source(engine, serving, data_dir, state_dir, echo=True)
 
     def test_baseline_expression_reflects_the_boot_setpoint(
         self, echo_source: EngineSource, driver: FakeDriver
@@ -434,7 +450,7 @@ class TestSetpointEchoSyncReadsThroughTheDriver:
         assert reads == [STAGE_RB, STAGE_RB]
 
     def test_engine_unknown_echo_addresses_are_dropped_at_construction(
-        self, engine, serving: ServingRecords, data_dir: Path, driver: FakeDriver
+        self, engine, serving: ServingRecords, data_dir: Path, state_dir: Path, driver: FakeDriver
     ) -> None:
         """``STAGE_SP`` is a real served PV but not a machine-file channel;
         syncing it would raise on every tick forever."""
@@ -443,6 +459,7 @@ class TestSetpointEchoSyncReadsThroughTheDriver:
             CHANNELS,
             serving.static_noisy,
             data_dir,
+            state_dir=state_dir,
             setpoint_echo_records={
                 STAGE_RB: serving.all[STAGE_RB],
                 STAGE_SP: serving.all[STAGE_SP],
@@ -471,8 +488,8 @@ class TestOneRecordNeverKillsTheLoop:
         return drv
 
     @pytest.fixture()
-    def broken_source(self, engine, serving, data_dir, broken) -> EngineSource:  # noqa: ANN001
-        return _source(engine, serving, data_dir)
+    def broken_source(self, engine, serving, data_dir, state_dir, broken) -> EngineSource:  # noqa: ANN001
+        return _source(engine, serving, data_dir, state_dir)
 
     def test_the_raising_record_really_raises(
         self, serving: ServingRecords, broken: FakeDriver
@@ -506,7 +523,7 @@ class TestOneRecordNeverKillsTheLoop:
         assert broken.values[VAC_RB] == pytest.approx(5e-6)
 
     def test_a_raising_echo_record_does_not_stop_the_tick(
-        self, engine, serving: ServingRecords, data_dir: Path
+        self, engine, serving: ServingRecords, data_dir: Path, state_dir: Path
     ) -> None:
         class ExplodingReadDriver(FakeDriver):
             def getParam(self, reason: str) -> Any:  # noqa: N802 - driver contract
@@ -514,7 +531,7 @@ class TestOneRecordNeverKillsTheLoop:
 
         drv = ExplodingReadDriver({a: s["value"] for a, s in serving.pvdb.items()})
         serving.attach_driver(drv)
-        src = _source(engine, serving, data_dir, echo=True)
+        src = _source(engine, serving, data_dir, state_dir, echo=True)
 
         src.poll_once()  # must not raise
         assert drv.values[VAC_RB] == pytest.approx(1e-8)

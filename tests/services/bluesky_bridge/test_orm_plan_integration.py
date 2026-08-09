@@ -1,4 +1,4 @@
-"""RunEngine integration test for the shipped `orm` plan (task 3.8).
+"""RunEngine integration test for the shipped `orm` plan.
 
 Runs ONLY in a bluesky-capable environment — `bluesky`/`ophyd-async` are
 never installed in the main worktree venv, so every test here is skipped via
@@ -10,11 +10,12 @@ bluesky installed at all. To actually run this file:
     /tmp/bluesky-orm-scratch/bin/python -m pytest \
         tests/services/bluesky_bridge/test_orm_plan_integration.py -q
 
-Mirrors `test_runengine_integration.py`'s idiom: drives a real `BlueskyPlanRunner`
-(a real bluesky `RunEngine` in a daemon thread) through the real `orm` plan
+Drives a real bluesky `RunEngine` through the real `orm` plan
 (`plans_core/orm.py`, resolved through the layered directory loader —
 `plan_loader.get_facility_plans`, the sole plan registry) against mock
-ophyd-async devices (`devices/mock.py`) — no EPICS, no container. Proves the
+ophyd-async devices (`devices/mock.py`) — no EPICS, no container, and via
+`bluesky_plan_drive.run_plan`, which wraps the plan exactly as the queueserver
+worker's namespace does. Proves the
 generator built there actually runs to completion and the live-row buffer
 ends up with one row per (corrector, current) pair, every BPM column
 present, and no hang.
@@ -23,7 +24,6 @@ present, and no hang.
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
@@ -32,15 +32,8 @@ ophyd_async = pytest.importorskip("ophyd_async")
 
 from osprey.services.bluesky_bridge import live_rows, plan_loader  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E402
-from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner  # noqa: E402
 
-
-def _wait_until_idle(runner: BlueskyPlanRunner, timeout: float = 15.0) -> None:
-    deadline = time.monotonic() + timeout
-    while runner.is_run_active():
-        if time.monotonic() > deadline:
-            raise AssertionError("scan did not finish within the timeout")
-        time.sleep(0.05)
+from .bluesky_plan_drive import run_plan  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -73,29 +66,19 @@ def orm_devices() -> dict:
 def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
     orm_devices: dict,
 ) -> None:
-    runner = BlueskyPlanRunner(devices=orm_devices, plans=plan_loader.get_facility_plans().plans)
-    exec_config = {
-        "plan_name": "orm",
-        "plan_args": {
+    run_uid = run_plan(
+        "orm",
+        {
             "correctors": ["hcm1", "hcm2"],
             "detectors": ["bpm1", "bpm2", "bpm3"],
             "span_a": 2.0,
             "num": 5,
         },
-    }
+        devices=orm_devices,
+        plans=plan_loader.get_facility_plans().plans,
+    )
 
-    assert runner.reinitialize(exec_config) is True
-    assert runner.current_state == "armed"
-
-    runner.start_run_thread()
-    _wait_until_idle(runner)
-
-    assert runner.error_message is None
-    assert runner.current_state == "completed"
-    assert runner.last_run_uid is not None
-    assert runner.estimate_current_completion() == 1.0  # non-adaptive: binary 0/1
-
-    buf = live_rows.get(runner.last_run_uid)
+    buf = live_rows.get(run_uid)
     assert buf is not None
     assert buf["partial"] is False
 
@@ -117,23 +100,17 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
 def test_orm_plan_restores_each_corrector_to_zero_after_its_sweep(
     orm_devices: dict,
 ) -> None:
-    runner = BlueskyPlanRunner(devices=orm_devices, plans=plan_loader.get_facility_plans().plans)
-    exec_config = {
-        "plan_name": "orm",
-        "plan_args": {
+    run_plan(
+        "orm",
+        {
             "correctors": ["hcm1", "hcm2"],
             "detectors": ["bpm1"],
             "span_a": 3.0,
             "num": 3,
         },
-    }
-
-    assert runner.reinitialize(exec_config) is True
-    runner.start_run_thread()
-    _wait_until_idle(runner)
-
-    assert runner.error_message is None
-    assert runner.current_state == "completed"
+        devices=orm_devices,
+        plans=plan_loader.get_facility_plans().plans,
+    )
 
     hcm1_readback = asyncio.run(orm_devices["hcm1"].readback.get_value())
     hcm2_readback = asyncio.run(orm_devices["hcm2"].readback.get_value())
@@ -142,23 +119,19 @@ def test_orm_plan_restores_each_corrector_to_zero_after_its_sweep(
 
 
 def test_orm_plan_single_corrector_produces_exactly_num_rows(orm_devices: dict) -> None:
-    runner = BlueskyPlanRunner(devices=orm_devices, plans=plan_loader.get_facility_plans().plans)
-    exec_config = {
-        "plan_name": "orm",
-        "plan_args": {
+    run_uid = run_plan(
+        "orm",
+        {
             "correctors": ["hcm1"],
             "detectors": ["bpm1", "bpm2"],
             "span_a": 1.0,
             "num": 4,
         },
-    }
+        devices=orm_devices,
+        plans=plan_loader.get_facility_plans().plans,
+    )
 
-    assert runner.reinitialize(exec_config) is True
-    runner.start_run_thread()
-    _wait_until_idle(runner)
-
-    assert runner.error_message is None
-    buf = live_rows.get(runner.last_run_uid)
+    buf = live_rows.get(run_uid)
     assert buf is not None
     assert buf["total_seen"] == 4
     assert len(buf["rows"]) == 4

@@ -209,11 +209,13 @@ async def _disconnect_va_connectors() -> Any:
 
 @dataclass
 class VaProject:
-    """A scratch project directory: ``config.yml`` + ``data/simulation/`` --
-    just enough for ``osprey sim apply`` to run against it."""
+    """A scratch project directory: ``config.yml``, the build-owned
+    ``data/simulation/`` model, and the runtime ``_agent_data/simulation/``
+    state dir -- just enough for ``osprey sim apply`` to run against it."""
 
     project_dir: Path
     data_dir: Path
+    state_dir: Path
 
     def sim_apply(self, *scenario_names: str, timeout: float = 30.0) -> subprocess.CompletedProcess:
         return subprocess.run(
@@ -252,7 +254,9 @@ def va_project(tmp_path_factory: pytest.TempPathFactory) -> VaProject:
             }
         )
     )
-    (data_dir / "active_scenarios").write_text("nominal\n")
+    state_dir = project_dir / "_agent_data" / "simulation"
+    state_dir.mkdir(parents=True)
+    (state_dir / "active_scenarios").write_text("nominal\n")
 
     (project_dir / "config.yml").write_text(
         "control_system:\n"
@@ -263,7 +267,7 @@ def va_project(tmp_path_factory: pytest.TempPathFactory) -> VaProject:
         "      simulation_file: data/simulation/machine.json\n"
     )
 
-    return VaProject(project_dir=project_dir, data_dir=data_dir)
+    return VaProject(project_dir=project_dir, data_dir=data_dir, state_dir=state_dir)
 
 
 def _docker_rm(name: str) -> None:
@@ -331,6 +335,12 @@ def va_container(va_project: VaProject) -> Iterator[VaProject]:
             f"127.0.0.1:{CA_PORT}:{CA_PORT}/tcp",
             "-v",
             f"{va_project.data_dir}:/data/simulation:ro",
+            # Scenario state is a SEPARATE mount: the host writes it at run
+            # time (`osprey sim apply`) while data/ is build-owned.
+            "-v",
+            f"{va_project.state_dir}:/state/simulation:ro",
+            "-e",
+            "VA_STATE_DIR=/state/simulation",
             IMAGE,
         ],
         capture_output=True,

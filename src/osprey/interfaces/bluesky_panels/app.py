@@ -1,17 +1,20 @@
-"""The bluesky panels sidecar's FastAPI app: skeleton wiring for the operator
-panel bundles plus a shared HTTP client onto the Bluesky bridge.
+"""The bluesky panels sidecar's FastAPI app: the operator panel bundles plus a
+shared HTTP client onto the Bluesky bridge.
 
-This is task 1.1 (sidecar-app-skeleton) of the Phase-6 "Operator Interfaces"
-plan — it only wires the app shell: healthcheck, a shared ``httpx.AsyncClient``
-resolved against the bridge, and static mounts for the two panel bundles.
-The panel content itself (plan authoring, results) and the
-read-proxy/launch routes onto the bridge are added by later tasks.
+What the app owns is serving and plumbing: its container healthcheck, a blanket
+no-cache header on everything it serves, one ``httpx.AsyncClient`` and resolved
+bridge URL published on ``app.state`` for every router to use, and the static
+mounts for the panel bundles plus the shared design-system assets.
 
-Panel mounts (task 3.2/3.3 must agree with this mapping — see
+What it does NOT own is policy. The routers it composes — the read proxy, the
+plan-draft relay and the plan-queue relay — relay to the bridge verbatim, body
+and status code alike; the bridge decides what a request is allowed to do.
+
+Panel mounts (panel bundles must agree with this mapping — see
 ``_PANEL_MOUNTS`` below):
 
-- ``panels/plan``    -> ``/plan``
-- ``panels/results`` -> ``/results``
+- ``panels/plan``                 -> ``/plan``
+- ``_BLUESKY_PANEL_DIR`` (bundle) -> ``/bluesky`` and ``/results``
 
 Stays import-clean of ``bluesky``/``ophyd``/``tiled`` at module scope, mirroring
 ``osprey.services.bluesky_bridge.app``.
@@ -30,18 +33,28 @@ from starlette.staticfiles import StaticFiles
 
 from osprey.bluesky_bridge_connection import resolve_bridge_url
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.interfaces.bluesky_panels import draft_relay, launch, read_proxy
+from osprey.interfaces.bluesky_panels import draft_relay, queue_relay, read_proxy
 
-# Panel bundle directories (relative to this module's directory) and the
-# mount path each is served under. Later tasks (3.2 plan authoring, 3.3
-# results panel) author content into these directories; this task
-# only wires the mounts so the sidecar doesn't crash on a not-yet-authored
-# directory.
+# Panel bundle directories (relative to this module's directory) and the mount
+# path each is served under. Directories are created on startup if absent, so
+# the sidecar doesn't crash on a not-yet-authored bundle.
 _PANELS_ROOT = Path(__file__).parent / "panels"
-_PANEL_MOUNTS: dict[str, str] = {
-    "plan": "/plan",
-    "results": "/results",
-}
+
+# The bundle directory behind the BLUESKY panel — the queue plus the selected
+# run's results, which is what the standalone results panel was folded into.
+# Both mount paths below read this one name rather than spelling the directory
+# twice, so the alias cannot come apart from the bundle it aliases.
+_BLUESKY_PANEL_DIR = "bluesky"
+
+# (mount path, bundle directory). ``/results`` is a deprecated ALIAS of
+# ``/bluesky``: the same bundle is served at both so bookmarks, the panel
+# registry, and the web-terminal proxy keep resolving across one release. Drop
+# the alias row — not the bundle — when that release is out.
+_PANEL_MOUNTS: tuple[tuple[str, str], ...] = (
+    ("/plan", "plan"),
+    ("/bluesky", _BLUESKY_PANEL_DIR),
+    ("/results", _BLUESKY_PANEL_DIR),
+)
 
 
 @asynccontextmanager
@@ -91,19 +104,24 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-# Wire the bridge read-proxy, the plan-draft relay, and the deterministic
-# launch route onto the app. Each router reads the shared httpx client +
-# bridge URL from ``app.state`` at request time (set in _lifespan).
+# Wire the bridge read-proxy, the plan-draft relay, and the plan-queue relay
+# onto the app. Each router reads the shared httpx client + bridge URL from
+# ``app.state`` at request time (set in _lifespan). The queue relay carries the
+# sidecar's whole write surface: enqueue, reorder, remove, start, stop, abort.
 app.include_router(read_proxy.router)
 app.include_router(draft_relay.router)
-app.include_router(launch.router)
+app.include_router(queue_relay.router)
 
 
-for _panel_name, _mount_path in _PANEL_MOUNTS.items():
+for _mount_path, _panel_name in _PANEL_MOUNTS:
     _panel_dir = _PANELS_ROOT / _panel_name
     os.makedirs(_panel_dir, exist_ok=True)
+    # Mount name keys off the mount PATH, not the bundle directory: the two
+    # mounts sharing one bundle would otherwise collide on a single name.
     app.mount(
-        _mount_path, StaticFiles(directory=_panel_dir, html=True), name=f"panel-{_panel_name}"
+        _mount_path,
+        StaticFiles(directory=_panel_dir, html=True),
+        name=f"panel{_mount_path.replace('/', '-')}",
     )
 
 # Serve the shared design-system assets (/design-system, /static/fonts) from

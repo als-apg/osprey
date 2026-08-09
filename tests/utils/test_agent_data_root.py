@@ -214,6 +214,61 @@ class TestComposeStructure:
         assert not (project / "_legacy_data").exists()
 
 
+class TestScenarioStateMountPoint:
+    """The VA compose service mounts the scenario state dir; pre-create its source.
+
+    Left to the container runtime, a rootful daemon creates a missing bind-mount
+    source root-owned — and ``osprey sim apply``, which owns that file, runs as the
+    host user.
+    """
+
+    def test_created_for_a_virtual_accelerator_deployment(self, project: Path) -> None:
+        _ensure_agent_data_structure(
+            {
+                "project_root": str(project),
+                "agent_data": {"base_dir": TEMPLATE_BASE_DIR},
+                "deployed_services": ["virtual_accelerator"],
+            }
+        )
+
+        assert (project / "_agent_data" / "simulation").is_dir()
+
+    def test_not_created_without_the_service(self, project: Path) -> None:
+        _ensure_agent_data_structure(
+            {
+                "project_root": str(project),
+                "agent_data": {"base_dir": TEMPLATE_BASE_DIR},
+                "deployed_services": ["channel_finder"],
+            }
+        )
+
+        assert list((project / "_agent_data").iterdir()) == []
+
+    def test_follows_a_relocated_agent_data_root(self, project: Path) -> None:
+        _ensure_agent_data_structure(
+            {
+                "project_root": str(project),
+                "agent_data": {"base_dir": "./scratch-data"},
+                "deployed_services": ["virtual_accelerator"],
+            }
+        )
+
+        assert (project / "scratch-data" / "simulation").is_dir()
+
+    def test_matches_what_the_engine_resolves(self, project: Path) -> None:
+        """The pre-created mount point and the runtime write target are one path."""
+        from osprey.simulation.engine import resolve_state_dir
+
+        config: dict[str, Any] = {
+            "project_root": str(project),
+            "agent_data": {"base_dir": TEMPLATE_BASE_DIR},
+            "deployed_services": ["virtual_accelerator"],
+        }
+        _ensure_agent_data_structure(config)
+
+        assert resolve_state_dir(config, project).is_dir()
+
+
 class TestHealthRow:
     """The ``agent_data_dir`` health row checks the same directory."""
 

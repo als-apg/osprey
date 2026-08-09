@@ -22,6 +22,9 @@ import {
   CATEGORY_HELP,
   BEHAVIOR_CATEGORIES,
   BEHAVIOR_NAMES,
+  BEHAVIOR_CATEGORY_OVERRIDES,
+  BEHAVIOR_CATEGORY_REMAPS,
+  BEHAVIOR_PINNED_CATEGORIES,
   SAFETY_CATEGORIES,
   CONFIG_NAMES,
   configureMarked,
@@ -155,8 +158,48 @@ describe('category-routing set membership', () => {
 
   test('CATEGORY_HELP and AGENT_MODEL_OPTIONS are populated, non-empty', () => {
     expect(Object.keys(CATEGORY_HELP).length).toBeGreaterThan(0);
-    expect(CATEGORY_HELP.hooks).toMatch(/before or after Claude uses a tool/i);
+    expect(CATEGORY_HELP.hooks).toMatch(/PreToolUse hook can block a tool call/i);
     expect(AGENT_MODEL_OPTIONS).toContain('sonnet');
+  });
+
+  test('every display category a gallery can render has help text', () => {
+    // The regression guard for a whole bug class: CATEGORY_HELP is keyed by
+    // DISPLAY category, so a key that matches no reachable display category
+    // renders no help button at all and fails silently. That is exactly how
+    // the CLAUDE.md section lost its `?` -- the table said "system
+    // instructions" while the gallery displayed "system prompt".
+    const displayed = new Set();
+    for (const raw of [...BEHAVIOR_CATEGORIES, ...SAFETY_CATEGORIES]) {
+      displayed.add(BEHAVIOR_CATEGORY_REMAPS[raw] || raw);
+    }
+    for (const override of Object.values(BEHAVIOR_CATEGORY_OVERRIDES)) {
+      displayed.add(override);
+    }
+    // mcp-json / settings-json carry no "/" in their canonical name, so the
+    // service reports them under the catch-all `config` category.
+    displayed.add('config');
+
+    const missing = [...displayed].filter((cat) => !CATEGORY_HELP[cat]);
+    expect(missing).toEqual([]);
+  });
+
+  test('no CATEGORY_HELP key is unreachable', () => {
+    const displayed = new Set(['config']);
+    for (const raw of [...BEHAVIOR_CATEGORIES, ...SAFETY_CATEGORIES]) {
+      displayed.add(BEHAVIOR_CATEGORY_REMAPS[raw] || raw);
+    }
+    for (const override of Object.values(BEHAVIOR_CATEGORY_OVERRIDES)) {
+      displayed.add(override);
+    }
+
+    const orphaned = Object.keys(CATEGORY_HELP).filter((key) => !displayed.has(key));
+    expect(orphaned).toEqual([]);
+  });
+
+  test('pinned behavior categories are real display categories', () => {
+    for (const pinned of BEHAVIOR_PINNED_CATEGORIES) {
+      expect(CATEGORY_HELP[pinned]).toBeDefined();
+    }
   });
 });
 

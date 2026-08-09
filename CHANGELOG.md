@@ -13,6 +13,28 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Profiles carry artifacts into a build through **convention directories** —
+  `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
+  `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for
+  anything without a home. The directory name is the declaration; there is
+  nothing to list in `profile.yml`. A build warns about an unrecognized
+  top-level entry, so a misspelled `rule/` no longer fails silently. `hooks/`
+  is new — it installs a script into the project's `.claude/hooks/`.
+- A profile can wire its own hooks into `.claude/settings.json` with
+  `config: claude_code.hooks.<Event>`, naming a script the profile ships plus
+  an optional `matcher` and `timeout`. Wiring is **additive**: it cannot
+  remove, alter, or displace anything the generated settings already wire, so
+  a declared hook is one more check on top of the framework's, never a
+  substitute. A declaration is refused at build time when it names a hook the
+  profile does not ship, a built-in whose wiring the framework owns, or a path
+  outside `hooks/`. A persona unwires an event with
+  `claude_code.hooks.<Event>: null` — an empty list merges additively and
+  leaves the hook wired.
+- `exclude:` now distinguishes a bare name (stop selecting the built-in) from a
+  qualified `<directory>/<name>` (drop the profile's own file), so a persona
+  can hand a shadowed artifact back to the framework. A bare name used where
+  the profile also ships a file for it is warned about, with the qualified
+  spelling that would take effect.
 - `osprey profile new --force` replaces an existing profile directory, making
   the materialize-and-build one-liner rerunnable. It only replaces a directory
   that is a materialized profile (or empty), and deletes nothing until the new
@@ -24,9 +46,77 @@ Compatibility is documented in release notes, not encoded in the version string.
   valid with `processing="raw"` (an aggregate has no bin to aggregate
   over); a non-raw `processing` with `bin_size=0`, or a negative
   `bin_size`, is a validation error.
+- Bluesky scans now run in a queue server instead of inside the bridge
+  process. Execution is two steps — add the composed plan to the queue, then
+  start the queue — so a queue can be assembled and reviewed before anything
+  moves. Adding to an idle queue needs no launch token; starting requires one,
+  and with `control_system.writes_enabled` off the agent's `queue_add` and
+  `queue_start` are denied outright. A queue survives a bridge restart, and a
+  deployment that cannot execute plans refuses to hold items rather than
+  accepting work it could never run. New guide: How-To → Run Scans Through
+  the Queue.
+- Emergency abort for a scan already moving hardware: **Abort running plan** in
+  the BLUESKY panel, `stop_run` for the agent, `POST /queue/abort` for
+  integrations. It is ungated on every surface — no launch token, no writes
+  switch — so a halt stays available on a stack with writes disabled. It is
+  distinct from stopping the queue, which lets the running scan finish first.
+  An abort leaves hardware wherever the scan had moved it, and says plainly
+  when it did not manage to stop the plan.
+- An interrupted plan — aborted, halted, or failed — stays in the queue, reports
+  as `stopped` (`error` for a failure) rather than as pending work, and blocks
+  the next queue start until it is removed. Removing it is what unblocks the
+  queue; to run it again, remove it first and then stage and add it afresh.
+- `connector:` is a new top-level build-profile key and the short spelling of
+  `config: {control_system.type: ...}`, so a connector can be chosen from the
+  command line with `--set connector=epics`. Giving both spellings on one
+  command line is an error rather than a silent last-one-wins.
 
 ### Changed
 
+- **The profile is the source of truth for a built project.** Every
+  `osprey build` reads a profile directory; there is no build straight out of a
+  bundled preset. `--preset NAME` materializes `<PROJECT_NAME>-profile/` beside
+  the project on the *first* build and builds from it, and every later build
+  reuses that directory as it stands — so an edit made there is what the next
+  build renders. `--set`, `-O` and `--tier` are written into the profile before
+  the build reads it, and rolled back if the build fails. Naming a *different*
+  preset for a project that already has a profile is refused rather than
+  silently building the old one.
+- `osprey scaffold claim` moves an artifact into the matching convention
+  directory of the profile the project was built from, instead of marking it
+  user-owned where it sits. The next build copies it back and registers it, so
+  ownership is derived from what the build actually copied — there is no list
+  to maintain, and an artifact a persona excludes is not owned, letting the
+  framework's version render in its place. A project with no resolvable profile
+  cannot be claimed into.
+- The profile's `.env` is where a project's secrets live. `osprey build`
+  derives the project's `.env` from it and from nothing else, and a later build
+  never re-reads your shell. A shell export reaches a profile only once, at
+  materialization, and only for providers the profile actually references —
+  keys exported for other providers are named in the summary rather than copied
+  in. `osprey deploy up` writes the credentials it mints back into the
+  profile's `.env`, append-only, so a rebuild comes up on the same secrets
+  instead of minting a second set the running containers do not trust.
+- The web terminal's System Settings drawer explains itself. Each tab opens
+  with a standing one-line subtitle, and the category help tooltips now
+  describe how each kind of file is *loaded* — when it enters the session,
+  what runs it, whether it advises or enforces — instead of summarizing what
+  the shipped files happen to say, which went stale as soon as an operator
+  edited one. Ownership prompts likewise state what taking or releasing
+  ownership actually does.
+- Each settings gallery now opens on artifacts rather than controls. Search and
+  the category chips moved behind a `Filter` disclosure on a single muted
+  summary line, and every category except the pinned ones starts collapsed.
+  An active filter stays named on that line, with a one-click clear, so a
+  narrowed list can never be mistaken for a short one.
+- The Behavior tab labels `CLAUDE.md` "project instructions" rather than
+  "system prompt": it is delivered as a message after the system prompt, while
+  the output style is what actually modifies it.
+- Bridge conversation history keeps more context. Replay is now bounded by the
+  character budget (raised to 100k chars) rather than by turn count, which
+  becomes a runaway backstop (100 turns), and a turn stays eligible for replay
+  for 180 days instead of 90. Long-lived direct-message threads no longer drop
+  older turns while sitting far under their size budget.
 - `osprey profile new` now writes persona profiles as small deltas
   (`extends: ../profile.yml`) instead of full standalone copies: edit the host
   profile once and every persona inherits the change, while each persona file
@@ -83,16 +173,88 @@ Compatibility is documented in release notes, not encoded in the version string.
   unaffected; an out-of-tree connector that overrides `get_data` must
   accept the new keyword (even just to ignore it) to remain
   call-compatible.
+- The chat bridge how-to is now a section, `how-to/chat-bridges/`, with an
+  overview page and a page per chat system. Adds a guide to connecting a
+  service that does not ship with Osprey, such as Slack or email. The old
+  `how-to/deploy-chat-bridge` page is gone; its content moved into the new
+  Nextcloud Talk and Google Chat pages.
+- Ruff moved to 0.16, pinned to one minor in the `dev` extra so the
+  pre-commit hook and CI agree on formatting. The formatter skips Markdown,
+  leaving documentation snippets as written.
+- The `control-assistant` preset now defaults to the `virtual_accelerator`
+  connector instead of `mock`, so its scans drive the soft-IOC the same stack
+  already deploys and run end to end out of the box. `mock` remains the
+  fallback for environments with no containers to depend on, where scans are
+  browse-only — plans compose and validate, but the queue will not hold them.
+  Switch with `osprey config set-control-system mock`.
+- The Bluesky **RESULTS** panel is now **BLUESKY**, and holds the scan queue as
+  well as the selected run's results. The sidecar serves the same bundle at
+  `/results/` for one more release so existing bookmarks and panel entries keep
+  resolving; move your own `web.panels.results.*` entries to
+  `web.panels.bluesky.*` before then. The preset rename changes its resolved
+  content, so an already-deployed project reports staleness on its next
+  `osprey deploy up`. That is the correct signal rather than noise — the tab a
+  user sees is renamed — and rebuilding picks it up.
+- Unknown keys in a build profile's `bluesky:` block now fail the build, naming
+  the valid keys (`excluded_plans`, `plan_dir`, `port`, `tiled_enabled`,
+  `tiled_port`). They used to be dropped in silence, so a typo — or a key a
+  later release removed — took effect as "unset" with no warning anywhere.
 
 ### Removed
 
+- The `overlay:` profile key and the `overlays/` seed directory. Put a file in
+  the convention directory that matches what it is; there is nothing left to
+  declare.
+- The built project's `.env.template`. `.env.example` replaces it and lists
+  every variable the agent reads, not just the ones the profile declared, and
+  the profile ships an identical copy so the two can never disagree.
+- `osprey build` no longer harvests provider API keys out of the environment it
+  happened to run in. A key now reaches a project only by way of the profile's
+  `.env`, so what a build produces does not depend on the shell that ran it.
+  Exporting a key still works for a host-local run and still seeds a profile at
+  materialization; it no longer leaks into a built project unrecorded.
+- Removed the `multi-user-demo`, `multi-user-demo-readonly`, and
+  `multi-user-demo-readwrite` presets. The `control-assistant` preset ships
+  the same two-persona multi-user web tier, so the demo family was a lighter
+  clone of it; build from `--preset control-assistant` instead. The multi-user
+  walkthrough now lives at How-To → Multi-User Support.
 - Removed the DOOCS connector's `max_points` history-decimation path. It built
   a fixed `np.linspace` grid and forward-filled onto it with a zero-order hold,
   which the "nothing is manufactured" contract forbids, and no production
   caller could reach it — the connector always passed `None`.
 
+- Removed direct execution of Bluesky plans inside the bridge process. `POST
+  /runs`, `POST /runs/{id}/launch`, `POST /draft/run` and `POST
+  /runs/{id}/stop` now answer `410 Gone` with a refusal naming their queue
+  replacement. The queue is the only path to hardware: enqueue with `POST
+  /queue/items`, start with `POST /queue/start`, and halt with `POST
+  /queue/stop` or `POST /queue/abort`.
+
+- Removed the `bluesky.demo_runner` build-profile knob and the in-bridge runner
+  it switched on. A profile that still sets it now fails the build with the
+  list of valid `bluesky:` keys, rather than dropping the key silently.
+
 ### Fixed
 
+- A secret containing `$` no longer reaches a container truncated. Compose
+  substitutes `$` sequences inside env-file values, so `secret$abc` arrived as
+  `secret` and `P@$$w0rd` as `P@$w0rd` — while the file on disk still read
+  correctly, leaving a login that refused for no visible reason. `osprey
+  deploy` now refuses such a stack and names the offending variables (never
+  their values). All three files a deploy reads secrets from are checked —
+  `.env`, `.env.production` and `.env.auth` — including ones OSPREY did not
+  write itself, so a CI-built `.env.production` and a hand-added OIDC client
+  secret are covered. `deploy passwd` checks before storing a new password.
+- The OIDC section of the multi-user guide named `.env` as the file to put
+  client credentials in. It is `.env.auth` — credentials placed as documented
+  never reached the login service.
+- The settings drawer's `CLAUDE.md` section now has a help tooltip. Its help
+  text was filed under a category name no gallery ever displays, so the button
+  silently never rendered — on the one artifact that matters most.
+- The settings Config tab's form view no longer hides most of `config.yml`. It
+  listed a `python_execution` section that does not exist (the section is
+  `execution`), so execution settings were reachable only through Raw YAML;
+  `archiver`, `logbook`, and `facility_knowledge` are now editable there too.
 - Enum/status channels no longer render a state the channel was never in. A
   gap in an enum channel (a `null` sample) was being turned into the literal
   category rung `"<channel>: null"` on the chart's shared category axis, so a
@@ -254,6 +416,17 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The test suite no longer inherits a `TZ` supplied by a `.env` file, which made
   `tests/connectors/test_archiver_timezone.py` error on any machine whose system
   timezone differs from the one in `.env`. CI has no `.env`, so it never saw it.
+- Importing an `osprey` module no longer loads `.env` into the environment.
+  Previously any `import osprey.…` rewrote `os.environ` from whatever `.env`
+  sat in the working directory — or, through LiteLLM, in any parent directory —
+  overriding values the caller had set. `.env` now loads only where an
+  application asks for it: the `osprey` CLI, MCP server startup, and the Claude
+  Code launch paths. Every key is still passed through, unchanged, at those
+  points. Code that imports OSPREY as a library and relied on the side effect
+  must call `osprey.utils.config.load_project_dotenv()` itself.
+- The `nextcloud_bridge` block in a generated `profile.yml` described itself as
+  turning "a Nextcloud folder" into a trigger source. It answers questions from
+  a Talk room; the comment now says so.
 
 ## [2026.8.0]
 
@@ -370,6 +543,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   exactly where you drop it, or use the ⊞ "open in a new tile" corner on a rail
   entry's hover. Opening an already-open panel beside moves its tile instead of
   duplicating it.
+- A multi-user web-terminal deployment can now require a real login. Set
+  `modules.web_terminals.auth.method` to `password` (passwords OSPREY manages
+  and hashes for you) or `oidc` (your facility's single sign-on, mapped onto
+  roster entries by an `oidc_subject` field), and every request to a user's
+  terminal — pages, APIs and the live connection — is refused unless the
+  browser holds a valid session for that user. `osprey deploy up` provisions
+  each user's password hash into a `0600`, gitignored `.env.auth` that only the
+  login service can read, printing any password it has to generate exactly once;
+  `osprey deploy passwd <user>` rotates one later and ends that user's sessions.
+  It fails closed throughout: without `tls.enabled` the deployment refuses to
+  render rather than send session cookies in the clear (override with
+  `auth.allow_insecure_http` only behind a TLS-terminating proxy), and a deploy
+  aborts before starting anything if a password hash cannot be established. The
+  default stays `auth.method: none`, and no preset turns it on — see the
+  multi-user how-to for the full setup and how to roll it back.
 - Each user in a multi-user deployment can have their own default theme: set
   `theme:` on a roster entry in `modules.web_terminals.users` (a family such as
   `desy`, or a concrete id such as `desy-light` to also pin light/dark). It

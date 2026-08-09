@@ -25,7 +25,7 @@ from osprey.cli.build_profile_emit import (
     _FIELD_TO_YAML,
     emit_standalone_profile_yaml,
 )
-from osprey.cli.build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
+from osprey.cli.build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY, CONNECTOR_PROFILE_KEY
 
 _FIELDS = frozenset(f.name for f in dataclasses.fields(BuildProfile))
 
@@ -76,8 +76,14 @@ def test_every_commented_member_has_a_template() -> None:
 
 
 def test_explicit_defaults_cover_every_synthesizable_member() -> None:
-    """Only `name` and the version stamp may lack a default — the emitter sets both."""
-    assert set(_EXPLICIT_DEFAULTS) == _EXPLICIT_KEYS - {"name", "requires_osprey_version"}
+    """Only the three keys the emitter always writes may lack a default: the
+    display `name`, the version stamp, and the `provenance` record. A default
+    for any of them would be a value the emitter never falls back to."""
+    assert set(_EXPLICIT_DEFAULTS) == _EXPLICIT_KEYS - {
+        "name",
+        "requires_osprey_version",
+        "provenance",
+    }
 
 
 def test_explicit_defaults_match_the_loader() -> None:
@@ -132,8 +138,9 @@ def test_commented_members_stay_covered_with_overrides_supplying_blocks(tmp_path
     (tmp_path / "art").mkdir()
     override = tmp_path / "o.yml"
     override.write_text(
-        "overlay:\n"
-        "  overlays/rules/my-rule.md: .claude/rules/my-rule.md\n"
+        "mcp_servers:\n"
+        "  matlab:\n"
+        "    command: /opt/matlab/bin/mcp-matlab\n"
         "artifact_server:\n"
         "  categories:\n"
         "    optics:\n"
@@ -145,14 +152,14 @@ def test_commented_members_stay_covered_with_overrides_supplying_blocks(tmp_path
     text = _emit("hello-world", (override,))
     active, commented = _active_and_commented(text)
 
-    assert "overlay" in active
+    assert "mcp_servers" in active
     assert "artifact_server" in active
     # Active, so their templates must NOT also be appended — a second commented
-    # `overlay:` would be a duplicate key the moment a user uncommented it. This
-    # is the branch where the two could collide, so the mutual exclusion is
+    # `mcp_servers:` would be a duplicate key the moment a user uncommented it.
+    # This is the branch where the two could collide, so the mutual exclusion is
     # asserted here as well as on plain emissions.
     assert not active & commented
-    assert text.count("\n# overlay:") == 0
+    assert text.count("\n# mcp_servers:") == 0
     assert text.count("\n# artifact_server:") == 0
     for field in _COMMENTED_TEMPLATE_KEYS:
         key = _yaml_key(field)
@@ -242,8 +249,18 @@ def test_build_mechanics_carried_by_a_preset_survive_emission() -> None:
 
 
 def test_known_profile_keys_equals_the_partition_plus_inheritance_keys() -> None:
-    """FR8(d): the unknown-key hard error and the partition share one surface."""
-    expected = _FIELDS | {"extends", "exclude"} | set(_FIELD_TO_YAML.values())
+    """FR8(d): the unknown-key hard error and the partition share one surface.
+
+    Three key families sit outside the field partition and are named here so a
+    fourth cannot be added without a reader deciding it belongs: the
+    inheritance keys, consumed by ``extends`` resolution; the YAML-surface
+    spellings of fields the loader renames; and the top-level shorthands
+    (``connector``), folded into ``config:`` before parsing and therefore never
+    emitted as keys of their own.
+    """
+    expected = (
+        _FIELDS | {"extends", "exclude"} | set(_FIELD_TO_YAML.values()) | {CONNECTOR_PROFILE_KEY}
+    )
 
     assert set(_KNOWN_PROFILE_KEYS) == expected
 
@@ -291,10 +308,10 @@ def test_live_preset_blocks_emit_active() -> None:
     assert isinstance(parsed["bluesky"], dict)
 
 
-def test_overlay_appendix_carries_the_per_user_persona_example() -> None:
-    """D8: the per-user mapping rides in the single overlay block, so
-    uncommenting it cannot produce a duplicate `overlay:` key."""
+def test_no_commented_template_is_offered_twice() -> None:
+    """Each commented template appears exactly once, so uncommenting any of
+    them can never produce a duplicate key."""
     text = _emit("hello-world")
 
-    assert "overlays/web-terminal-context/alice: docker/web-terminal-context/alice" in text
-    assert text.count("# overlay:") == 1
+    for field in _COMMENTED_TEMPLATE_KEYS:
+        assert text.count(f"\n# {_yaml_key(field)}:") <= 1, field

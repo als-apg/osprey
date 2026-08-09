@@ -192,8 +192,16 @@ def init_project(
     model: str = "haiku",
     channel_finder_mode: str | None = None,
     tier: int | None = None,
+    connector: str = "mock",
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
+
+    ``connector`` is pinned to ``mock`` rather than inherited from the preset:
+    the control-assistant preset defaults to ``virtual_accelerator``, which
+    needs the deployed VA container to answer Channel Access — this harness
+    runs projects without their containers, so the preset's production default
+    would turn every channel read/write into a connection timeout. Tests that
+    deploy a real stack build through their own fixtures, not this helper.
 
     Tier selection follows a per-mode default: tier 1 is in_context-only, while
     ``hierarchical``/``middle_layer`` require tier 3. When ``tier`` is left
@@ -246,6 +254,8 @@ def init_project(
         f"provider={provider}",
         "--set",
         f"model={model}",
+        "--set",
+        f"connector={connector}",
     ]
     if effective_tier is not None:
         args.extend(["--tier", str(effective_tier)])
@@ -306,17 +316,15 @@ def enable_writes_in_project(project_dir: Path) -> None:
 def activate_scenario(project_dir: Path, scenario: str) -> None:
     """Activate a single scenario's telemetry overlay (no logbook seeding).
 
-    Writes the scenario name into ``data/simulation/active_scenarios``; the
-    simulation engine re-reads the state file on mtime change and clears any
-    session writes (fresh machine state). Telemetry only — for scenarios whose
+    Writes the scenario name into ``_agent_data/simulation/active_scenarios``
+    (runtime state, outside the build-owned ``data/`` tree); the simulation
+    engine re-reads the state file on mtime change and clears any session
+    writes (fresh machine state). Telemetry only — for scenarios whose
     diagnosis needs a seeded logbook, use :func:`activate_scenarios`, which also
     purges and reseeds ARIEL deterministically.
     """
-    state_file = project_dir / "data" / "simulation" / "active_scenarios"
-    assert state_file.exists(), (
-        f"active_scenarios state file missing at {state_file} — "
-        "template simulation overlay incomplete?"
-    )
+    state_file = project_dir / "_agent_data" / "simulation" / "active_scenarios"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(scenario + "\n", encoding="utf-8")
 
 
@@ -375,7 +383,8 @@ def conceal_scenario_ground_truth(project_dir: Path, *scenarios: str) -> None:
     Call AFTER every setup step that consumes the bundle (``activate_scenarios``
     for logbook seeding, ``render_scenario_physics_env`` + ``deploy up`` for a
     VA stack's boot-time physics) and BEFORE the agent session starts. Also drops
-    the names from ``data/simulation/active_scenarios``, since the name itself
+    the names from the live ``_agent_data/simulation/active_scenarios`` state
+    file (the location :func:`activate_scenario` writes), since the name itself
     ("orm-dual-fault") is a hint, and leaving an active name whose bundle is gone
     would only earn an "Unknown scenario ... ignoring" warning from the engine.
 
@@ -401,8 +410,20 @@ def conceal_scenario_ground_truth(project_dir: Path, *scenarios: str) -> None:
         )
         shutil.rmtree(bundle)
 
-    state_file = sim_dir / "active_scenarios"
-    if state_file.is_file():
+    # The live state file activate_scenario writes; a legacy copy under
+    # data/simulation is scrubbed too if present. The live file must EXIST —
+    # a silent skip here is how a state-file relocation once left the answer
+    # key agent-readable while this helper reported success.
+    state_dir = project_dir / "_agent_data" / "simulation"
+    live_state = state_dir / "active_scenarios"
+    assert live_state.is_file(), (
+        f"no active-scenarios state file at {live_state} — the state-file "
+        "location moved again; update this helper or the answer key stays "
+        "readable by the agent"
+    )
+    for state_file in (live_state, sim_dir / "active_scenarios"):
+        if not state_file.is_file():
+            continue
         kept = [
             line
             for line in state_file.read_text(encoding="utf-8").splitlines()
@@ -410,12 +431,14 @@ def conceal_scenario_ground_truth(project_dir: Path, *scenarios: str) -> None:
         ]
         state_file.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
 
-    # Self-check: prove the concealment rather than assume it. Cheap — the
-    # simulation tree is a handful of small JSON files.
+    # Self-check: prove the concealment rather than assume it. Cheap — both
+    # trees are a handful of small JSON/text files. The state dir is included
+    # because Read is deliberately allowed for _agent_data artifacts.
     for name in scenarios:
         leaked = [
             p
-            for p in sim_dir.rglob("*")
+            for tree in (sim_dir, state_dir)
+            for p in tree.rglob("*")
             if p.is_file() and name in p.read_text(encoding="utf-8", errors="ignore")
         ]
         assert not leaked, f"scenario {name!r} still readable from the agent's tree: {leaked}"
@@ -764,6 +787,7 @@ async def run_sdk_query_with_hooks(
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
     model: str | None = None,
+    disallowed_tools: list[str] | None = None,
 ) -> HookObservedResult:
     """Run a query via the Claude Agent SDK with hooks enabled and can_use_tool callback.
 
@@ -787,6 +811,12 @@ async def run_sdk_query_with_hooks(
         max_budget_usd: Budget cap in USD.
         model: Model to use. Defaults to the project's haiku-tier model
             resolved from ``config.yml``.
+        disallowed_tools: Optional list of tool names to forbid at the SDK level.
+            Forwarded to the Claude Code CLI as ``--disallowedTools``. Use this to
+            force a specific route when a test must *prove* one path works: the
+            agent picks between equivalent capabilities non-deterministically
+            (e.g. ``mcp__python__execute`` vs ``create_static_plot`` for a plot),
+            so a prompt alone cannot guarantee which one a run exercises.
 
     Returns:
         HookObservedResult with tool traces, text, metadata, and hook events.
@@ -835,6 +865,7 @@ async def run_sdk_query_with_hooks(
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         can_use_tool=_can_use_tool,
+        disallowed_tools=disallowed_tools or [],
     )
 
     workflow = HookObservedResult()

@@ -31,6 +31,14 @@ def project(tmp_path):
     return p
 
 
+@pytest.fixture
+def profile_dir(tmp_path):
+    """An empty build-profile directory, sibling to the built project."""
+    p = tmp_path / "my-control-assistant-profile"
+    p.mkdir()
+    return p
+
+
 @pytest.fixture(autouse=True)
 def _clear_provider_keys(monkeypatch):
     """Drop every provider key from the process env.
@@ -53,70 +61,99 @@ def _status_for(statuses: list[CredentialStatus], provider: str) -> CredentialSt
 class TestDetectProviderCredentials:
     """Detection covers every source the built project can authenticate from."""
 
-    def test_key_in_project_env_is_found(self, project, tmp_path):
+    def test_key_in_project_env_is_found(self, project, profile_dir):
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
 
-        statuses = detect_provider_credentials(project, cwd=tmp_path)
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         cborg = _status_for(statuses, "cborg")
         assert cborg.found is True
         assert cborg.var == "CBORG_API_KEY"
         assert cborg.source == "project .env"
 
-    def test_key_in_shell_environment_is_found(self, project, tmp_path, monkeypatch):
+    def test_key_in_shell_environment_is_found(self, project, profile_dir, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-xxx")
 
-        statuses = detect_provider_credentials(project, cwd=tmp_path)
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         anthropic = _status_for(statuses, "anthropic")
         assert anthropic.found is True
         assert anthropic.source == "shell environment"
 
-    def test_key_in_cwd_dotenv_is_found(self, project, tmp_path):
-        """The build's own cwd ``.env`` — the case that confused the user."""
-        (tmp_path / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
+    def test_key_in_profile_env_is_found(self, project, profile_dir):
+        """The profile ``.env`` is the durable record the project derives from."""
+        (profile_dir / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
 
-        statuses = detect_provider_credentials(project, cwd=tmp_path)
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         cborg = _status_for(statuses, "cborg")
         assert cborg.found is True
-        assert str(tmp_path) in cborg.source
+        assert cborg.source == "profile .env"
 
-    def test_project_env_wins_over_cwd_dotenv(self, project, tmp_path):
-        (tmp_path / ".env").write_text("CBORG_API_KEY=from-cwd\n", encoding="utf-8")
+    def test_project_env_wins_over_profile_env(self, project, profile_dir):
+        (profile_dir / ".env").write_text("CBORG_API_KEY=from-profile\n", encoding="utf-8")
         (project / ".env").write_text("CBORG_API_KEY=from-project\n", encoding="utf-8")
 
-        statuses = detect_provider_credentials(project, cwd=tmp_path)
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         assert _status_for(statuses, "cborg").source == "project .env"
 
-    def test_missing_key_is_reported_not_found(self, project, tmp_path):
-        statuses = detect_provider_credentials(project, cwd=tmp_path)
+    def test_profile_env_wins_over_the_shell(self, project, profile_dir, monkeypatch):
+        monkeypatch.setenv("CBORG_API_KEY", "from-shell")
+        (profile_dir / ".env").write_text("CBORG_API_KEY=from-profile\n", encoding="utf-8")
+
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
+
+        assert _status_for(statuses, "cborg").source == "profile .env"
+
+    def test_working_directory_dotenv_is_not_a_source(self, project, tmp_path, monkeypatch):
+        """An ambient ``.env`` beside the build's cwd is not a credential source.
+
+        It is host state the built project never carries, so reporting it as
+        found described the machine rather than the project.
+        """
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text("CBORG_API_KEY=from-cwd\n", encoding="utf-8")
+
+        statuses = detect_provider_credentials(project)
+
+        assert _status_for(statuses, "cborg").found is False
+
+    def test_no_profile_directory_is_accepted(self, project):
+        """A build with no resolvable profile still reports the other sources."""
+        (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
+
+        statuses = detect_provider_credentials(project)
+
+        assert _status_for(statuses, "cborg").source == "project .env"
+
+    def test_missing_key_is_reported_not_found(self, project, profile_dir):
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         openai = _status_for(statuses, "openai")
         assert openai.found is False
         assert openai.source is None
 
-    def test_empty_value_counts_as_missing(self, project, tmp_path):
-        """``.env.template`` ships ``VAR=`` lines; an empty key is not a key."""
+    def test_empty_value_counts_as_missing(self, project, profile_dir):
+        """``.env.example`` ships bare ``VAR=`` lines; an empty key is not a key."""
         (project / ".env").write_text("CBORG_API_KEY=\n", encoding="utf-8")
 
-        statuses = detect_provider_credentials(project, cwd=tmp_path)
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         assert _status_for(statuses, "cborg").found is False
 
-    def test_keyless_providers_are_excluded(self, project, tmp_path):
-        statuses = detect_provider_credentials(project, cwd=tmp_path)
+    def test_keyless_providers_are_excluded(self, project, profile_dir):
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         names = {s.provider for s in statuses}
         assert "ollama" not in names
         assert "vllm" not in names
         assert "ds4" not in names
 
-    def test_covers_every_keyed_provider_in_the_registry(self, project, tmp_path):
+    def test_covers_every_keyed_provider_in_the_registry(self, project, profile_dir):
         from osprey.models.provider_registry import PROVIDER_API_KEYS
 
-        statuses = detect_provider_credentials(project, cwd=tmp_path)
+        statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         expected = {p for p, v in PROVIDER_API_KEYS.items() if v is not None}
         assert {s.provider for s in statuses} == expected
@@ -125,75 +162,101 @@ class TestDetectProviderCredentials:
 class TestReportProviderCredentials:
     """The summary leads with the selected provider and prints found keys."""
 
-    def test_found_selected_provider_is_reported_with_source(self, project, tmp_path, caplog):
+    def test_found_selected_provider_is_reported_with_source(self, project, profile_dir, caplog):
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
 
         with caplog.at_level(logging.INFO):
-            report_provider_credentials(project, "cborg", cwd=tmp_path)
+            report_provider_credentials(project, "cborg", profile_dir=profile_dir)
 
         text = caplog.text
         assert "cborg" in text
         assert "CBORG_API_KEY" in text
         assert "project .env" in text
 
-    def test_secret_value_is_never_logged(self, project, tmp_path, caplog):
+    def test_secret_value_is_never_logged(self, project, profile_dir, caplog):
         (project / ".env").write_text("CBORG_API_KEY=super-secret-value\n", encoding="utf-8")
 
         with caplog.at_level(logging.DEBUG):
-            report_provider_credentials(project, "cborg", cwd=tmp_path)
+            report_provider_credentials(project, "cborg", profile_dir=profile_dir)
 
         assert "super-secret-value" not in caplog.text
 
-    def test_other_found_keys_are_listed(self, project, tmp_path, monkeypatch, caplog):
+    def test_profile_secret_value_is_never_logged(self, project, profile_dir, caplog):
+        (profile_dir / ".env").write_text("CBORG_API_KEY=profile-secret\n", encoding="utf-8")
+
+        with caplog.at_level(logging.DEBUG):
+            report_provider_credentials(project, "cborg", profile_dir=profile_dir)
+
+        assert "profile-secret" not in caplog.text
+        assert "profile .env" in caplog.text
+
+    def test_other_found_keys_are_listed(self, project, profile_dir, monkeypatch, caplog):
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
         monkeypatch.setenv("ALS_APG_API_KEY", "als-key")
 
         with caplog.at_level(logging.INFO):
-            report_provider_credentials(project, "cborg", cwd=tmp_path)
+            report_provider_credentials(project, "cborg", profile_dir=profile_dir)
 
         assert "ALS_APG_API_KEY" in caplog.text
 
-    def test_unset_keys_are_still_listed(self, project, tmp_path, caplog):
+    def test_unset_keys_are_still_listed(self, project, profile_dir, caplog):
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
 
         with caplog.at_level(logging.INFO):
-            report_provider_credentials(project, "cborg", cwd=tmp_path)
+            report_provider_credentials(project, "cborg", profile_dir=profile_dir)
 
         assert "OPENAI_API_KEY" in caplog.text
         assert "ANTHROPIC_API_KEY" in caplog.text
 
-    def test_missing_selected_provider_key_warns(self, project, tmp_path, caplog):
+    def test_missing_selected_provider_key_warns(self, project, profile_dir, caplog):
         with caplog.at_level(logging.INFO):
-            report_provider_credentials(project, "anthropic", cwd=tmp_path)
+            report_provider_credentials(project, "anthropic", profile_dir=profile_dir)
 
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert warnings, "a missing selected-provider key must warn, not whisper"
         assert "ANTHROPIC_API_KEY" in caplog.text
 
-    def test_missing_selected_provider_names_the_project_env_path(self, project, tmp_path, caplog):
-        """The hint must point at the built project, not the build cwd."""
+    def test_missing_selected_provider_names_the_profile_env_path(
+        self, project, profile_dir, caplog
+    ):
+        """The remedy must point at the profile, which owns the secret.
+
+        Pointing at the project ``.env`` would name the one place the key is
+        guaranteed not to survive: the next build derives the project ``.env``
+        from the profile, and a project-only key matches none of the categories
+        that derivation keeps. This is the only message an operator sees when a
+        key is missing, so naming the wrong file loses their secret silently.
+        """
         with caplog.at_level(logging.INFO):
-            report_provider_credentials(project, "anthropic", cwd=tmp_path)
+            report_provider_credentials(project, "anthropic", profile_dir=profile_dir)
+
+        assert str(profile_dir / ".env") in caplog.text
+        assert str(project / ".env") not in caplog.text
+
+    def test_missing_selected_provider_falls_back_to_the_project_env_path(self, project, caplog):
+        """With no profile there is nothing else to name (legacy preset build)."""
+        with caplog.at_level(logging.INFO):
+            report_provider_credentials(project, "anthropic", profile_dir=None)
 
         assert str(project / ".env") in caplog.text
 
-    def test_missing_selected_provider_key_does_not_abort(self, project, tmp_path):
+    def test_missing_selected_provider_key_does_not_abort(self, project, profile_dir):
         """A missing key is a warning: the project is still worth building."""
-        statuses = report_provider_credentials(project, "anthropic", cwd=tmp_path)
+        statuses = report_provider_credentials(project, "anthropic", profile_dir=profile_dir)
 
         assert _status_for(statuses, "anthropic").found is False
 
-    def test_keyless_selected_provider_reports_no_key_required(self, project, tmp_path, caplog):
+    def test_keyless_selected_provider_reports_no_key_required(self, project, profile_dir, caplog):
         with caplog.at_level(logging.INFO):
-            report_provider_credentials(project, "ollama", cwd=tmp_path)
+            report_provider_credentials(project, "ollama", profile_dir=profile_dir)
 
         assert "ollama" in caplog.text
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert not warnings, "a keyless provider must not warn about a missing key"
 
-    def test_unknown_provider_does_not_crash_the_build(self, project, tmp_path, caplog):
+    def test_unknown_provider_does_not_crash_the_build(self, project, profile_dir, caplog):
         with caplog.at_level(logging.INFO):
-            report_provider_credentials(project, "not-a-real-provider", cwd=tmp_path)
+            report_provider_credentials(project, "not-a-real-provider", profile_dir=profile_dir)
 
         assert "not-a-real-provider" in caplog.text
 

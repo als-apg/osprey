@@ -11,8 +11,9 @@ from pathlib import Path
 
 import yaml
 
+from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.web_terminals.personas import effective_image_source
-from osprey.utils.dotenv import parse_dotenv_file
+from osprey.utils.dotenv import compose_unsafe_vars, parse_dotenv_file
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -283,6 +284,17 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     env_production_path = root / ".env.production"
     if env_production_path.is_file():
         _warn_if_env_production_lacks_credentials(config, root, env_production_path)
+        # Scan the file we are about to hand to every web terminal, not just
+        # one this run generated. Registry mode -- the DEFAULT -- never reaches
+        # the generator below at all: CI assembles .env.production from masked
+        # variables and ships it beside the image. An operator-authored file
+        # takes the same path, since an existing one is never regenerated. Both
+        # carry values OSPREY never saw, which is exactly the case the
+        # generate-path check cannot cover (same reasoning as
+        # provision._raise_if_auth_env_would_be_interpolated).
+        offenders = compose_unsafe_vars(parse_dotenv_file(env_production_path))
+        if offenders:
+            raise ComposeInterpolationError(offenders, env_production_path)
         return env_production_path
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
@@ -326,14 +338,40 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
         exported = [var for var in missing if os.environ.get(var)]
         shell_hint = ""
         if exported:
-            copy_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
+            # Append to the PROFILE .env when the project records one: a key
+            # written to the project .env unblocks the deploy in front of the
+            # operator but is dropped by the next `osprey build`, which derives
+            # the project .env from the profile. The project .env stays the
+            # fallback for legacy preset-built projects, where there is no
+            # profile to write to and it really is the only store.
+            from osprey.deployment.container_lifecycle import _profile_env_path
+
+            profile_env = _profile_env_path(root)
+            names = ", ".join(exported)
             verb = "are" if len(exported) > 1 else "is"
-            shell_hint = (
-                f" Note: {', '.join(exported)} {verb} exported in the current "
-                f"shell, but .env is the canonical secrets store for this "
-                f"deploy (generation never reads the ambient environment). "
-                f"Copy it in with: {copy_cmds}"
+            preamble = (
+                f" Note: {names} {verb} exported in the current shell, but this "
+                f"deploy reads only {env_path} (generation never reads the "
+                f"ambient environment)."
             )
+            if profile_env is None:
+                copy_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
+                shell_hint = f"{preamble} Copy it in with: {copy_cmds}"
+            else:
+                # Both routes named, because neither alone is the whole answer:
+                # the profile write is the durable one but does not reach this
+                # deploy until a rebuild derives the project .env from it, and
+                # the project write unblocks this deploy but the next build
+                # drops it.
+                copy_cmds = " && ".join(f'echo "{var}=${var}" >> {profile_env}' for var in exported)
+                quick_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
+                shell_hint = (
+                    f"{preamble} The profile owns this project's secrets, so put "
+                    f"it there and rebuild: {copy_cmds} — then re-run `osprey "
+                    f"build` to carry it into {env_path}. Appending straight to "
+                    f"{env_path} ({quick_cmds}) unblocks this deploy but is "
+                    f"dropped by the next build."
+                )
         raise RuntimeError(
             f"Generating {env_production_path} from {env_path} would leave web "
             f"terminals unauthenticated: {needs}, not set in {env_path}. Add "
@@ -343,6 +381,17 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
         )
 
     subset = _build_env_production_subset(config, dotenv, {**required_cc_vars, **extra_cc_vars})
+
+    # Every value above is a verbatim copy out of the operator's .env (or, for
+    # ARIEL_DSN, straight out of facility config), and this file is handed to
+    # every per-user web terminal as `env_file: .env.production`. A `$` in any
+    # of them is interpolated away en route to the container. Checked before the
+    # open() below, not after: a refused deploy must not leave a half-written
+    # secrets file that a later run would mistake for one the operator authored
+    # (an existing .env.production is never regenerated).
+    offenders = compose_unsafe_vars(subset)
+    if offenders:
+        raise ComposeInterpolationError(offenders, env_production_path)
 
     lines = "".join(f"{key}={value}\n" for key, value in subset.items())
     # Create with mode 0600 from the FIRST byte on disk, not write-then-chmod:

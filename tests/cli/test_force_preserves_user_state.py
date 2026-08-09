@@ -9,10 +9,13 @@ project's own history). Everything framework-rendered is fair game.
 
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 
+from osprey.build.manifest import MANIFEST_FILENAME
 from osprey.cli.build_cmd import _clear_rendered_project_dir, _copy_env_file
-from osprey.cli.templates.scaffolding import _render_env_preserving_existing
+from osprey.cli.templates.scaffolding import _derive_env_from_profile
 from osprey.utils.dotenv import merge_env_preserving_existing
 
 # ---------------------------------------------------------------------------
@@ -55,6 +58,43 @@ def test_clear_reports_what_it_preserved(tmp_path):
     project = _scaffold_project(tmp_path)
     preserved = _clear_rendered_project_dir(project)
     assert set(preserved) == {".env", "_agent_data", ".git"}
+
+
+def _write_manifest(project: Path, **extra) -> None:
+    (project / MANIFEST_FILENAME).write_text(json.dumps({"project_name": "proj", **extra}))
+
+
+def test_clear_warns_when_secrets_were_never_synced_to_the_profile(tmp_path, caplog):
+    """A recorded ``False`` is surfaced before the manifest carrying it is wiped."""
+    project = _scaffold_project(tmp_path)
+    _write_manifest(project, secrets_synced_to_profile=False)
+
+    with caplog.at_level(logging.WARNING):
+        _clear_rendered_project_dir(project)
+
+    assert "only copy" in caplog.text
+    assert str(project / ".env") in caplog.text
+
+
+def test_clear_is_silent_when_the_manifest_does_not_say(tmp_path, caplog):
+    """``None`` is unknown — a legacy manifest must not read as a problem."""
+    project = _scaffold_project(tmp_path)
+    _write_manifest(project)
+
+    with caplog.at_level(logging.WARNING):
+        _clear_rendered_project_dir(project)
+
+    assert "only copy" not in caplog.text
+
+
+def test_clear_is_silent_when_the_secrets_are_in_the_profile(tmp_path, caplog):
+    project = _scaffold_project(tmp_path)
+    _write_manifest(project, secrets_synced_to_profile=True)
+
+    with caplog.at_level(logging.WARNING):
+        _clear_rendered_project_dir(project)
+
+    assert "only copy" not in caplog.text
 
 
 def test_clear_on_project_without_user_state(tmp_path):
@@ -139,40 +179,64 @@ def test_copy_env_file_plain_copy_when_no_existing(tmp_path):
     assert (project / ".env").read_text() == "API_KEY=template-default\n"
 
 
-def test_render_env_preserving_existing_merges(tmp_path):
+def _jinja_env_for(tmp_path: Path, template_body: str):
     import jinja2
 
     template_root = tmp_path / "templates"
     (template_root / "project").mkdir(parents=True)
-    (template_root / "project" / "env.j2").write_text(
-        "CBORG_API_KEY={{ env.CBORG_API_KEY }}\nTZ={{ env.TZ }}\n"
-    )
-    jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(template_root)))
+    (template_root / "project" / "env.j2").write_text(template_body)
+    return jinja2.Environment(loader=jinja2.FileSystemLoader(str(template_root)))
+
+
+def test_derived_env_takes_the_profile_secret_over_the_render(tmp_path):
+    """The profile ``.env`` is where a facility secret lives, so it wins."""
+    jinja_env = _jinja_env_for(tmp_path, "CBORG_API_KEY={{ env.CBORG_API_KEY }}\nTZ={{ env.TZ }}\n")
     project = tmp_path / "proj"
     project.mkdir()
-    (project / ".env").write_text("CBORG_API_KEY=project-secret\nEVENT_DISPATCHER_TOKEN=tok\n")
 
-    _render_env_preserving_existing(
-        jinja_env, project, {"env": {"CBORG_API_KEY": "shell-value", "TZ": "UTC"}}
+    _derive_env_from_profile(
+        jinja_env,
+        project,
+        {"env": {"CBORG_API_KEY": "shell-value", "TZ": "UTC"}},
+        "CBORG_API_KEY=profile-secret\n",
+        "",
     )
 
     content = (project / ".env").read_text()
-    assert "CBORG_API_KEY=project-secret" in content
-    assert "EVENT_DISPATCHER_TOKEN=tok" in content
+    assert "CBORG_API_KEY=profile-secret" in content
     assert "TZ=UTC" in content
     assert "shell-value" not in content
 
 
-def test_render_env_preserving_existing_fresh_render(tmp_path):
-    import jinja2
+def test_derived_env_keeps_runtime_written_keys_and_drops_the_rest(tmp_path):
+    """A rebuild carries no project state the profile cannot regenerate.
 
-    template_root = tmp_path / "templates"
-    (template_root / "project").mkdir(parents=True)
-    (template_root / "project" / "env.j2").write_text("CBORG_API_KEY={{ env.CBORG_API_KEY }}\n")
-    jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(template_root)))
+    The exception is the enumerated runtime writers: a minted service token is
+    pinned to the container already trusting it, so it survives verbatim even
+    though nothing else in the old file does.
+    """
+    jinja_env = _jinja_env_for(tmp_path, "CBORG_API_KEY={{ env.CBORG_API_KEY }}\n")
     project = tmp_path / "proj"
     project.mkdir()
 
-    _render_env_preserving_existing(jinja_env, project, {"env": {"CBORG_API_KEY": "shell-value"}})
+    _derive_env_from_profile(
+        jinja_env,
+        project,
+        {"env": {"CBORG_API_KEY": "shell-value"}},
+        "CBORG_API_KEY=profile-secret\n",
+        "EVENT_DISPATCHER_TOKEN=tok\nHAND_EDITED=gone\n",
+    )
+
+    content = (project / ".env").read_text()
+    assert "EVENT_DISPATCHER_TOKEN=tok" in content
+    assert "HAND_EDITED" not in content
+
+
+def test_derived_env_is_a_plain_render_without_a_profile(tmp_path):
+    jinja_env = _jinja_env_for(tmp_path, "CBORG_API_KEY={{ env.CBORG_API_KEY }}\n")
+    project = tmp_path / "proj"
+    project.mkdir()
+
+    _derive_env_from_profile(jinja_env, project, {"env": {"CBORG_API_KEY": "shell-value"}}, "", "")
 
     assert (project / ".env").read_text().startswith("CBORG_API_KEY=shell-value")

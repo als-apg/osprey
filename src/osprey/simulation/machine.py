@@ -14,7 +14,6 @@ construction and consumes the returned :class:`ParsedMachine`.
 
 import ast
 import json
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import time as dtime
 from pathlib import Path
@@ -31,23 +30,6 @@ from osprey.utils.relative_time import RelativeTimestamp
 logger = get_logger("simulation_machine")
 
 DEFAULT_SCENARIO = "nominal"
-
-
-def resolve_active_scenario_names(names: Sequence[str]) -> list[str]:
-    """Resolve requested scenario names to the active set: nominal-first, deduped.
-
-    The single definition of "which scenarios a request activates", shared by
-    :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios` and
-    by the deploy-time physics renderer in ``osprey.simulation.apply``. Both
-    must agree exactly: ``osprey sim apply`` validates and renders the resolved
-    set *before* activating it, and a divergence between the two would validate
-    one set and apply another.
-    """
-    resolved: list[str] = [DEFAULT_SCENARIO]
-    for name in names:
-        if name != DEFAULT_SCENARIO and name not in resolved:
-            resolved.append(name)
-    return resolved
 
 
 # Non-position keys required per event shape. Position is validated

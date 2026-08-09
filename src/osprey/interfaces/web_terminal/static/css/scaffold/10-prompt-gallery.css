@@ -17,12 +17,77 @@
   color: var(--color-error);
 }
 
-/* ---- Search Bar ---- */
+/* ---- Meta Bar ----
+   The gallery's only permanent chrome: counts on the left, the Filter
+   disclosure on the right, deliberately quiet enough to read as a caption
+   rather than a toolbar. */
 
-.prompts-search-bar {
+.prompts-meta-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.prompts-meta-summary {
+  text-transform: uppercase;
+}
+
+.prompts-meta-spacer {
+  flex: 1;
+}
+
+.prompts-meta-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-none);
+  padding: 2px 4px;
+  cursor: pointer;
+  transition: color var(--wt-transition-fast);
+}
+
+.prompts-meta-clear:hover {
+  color: var(--color-accent-light);
+}
+
+.prompts-filter-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 0;
+  cursor: pointer;
+  transition: color var(--wt-transition-fast);
+}
+
+.prompts-filter-toggle:hover {
+  color: var(--color-accent-light);
+}
+
+/* ---- Filter Panel (collapsed by default) ---- */
+
+.prompts-filter-panel {
+  display: none;
   width: 100%;
   padding: 8px 12px;
   box-sizing: border-box;
+  background: var(--accent-tint-04);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.prompts-filter-panel.open {
+  display: block;
 }
 
 .prompts-search {
@@ -101,19 +166,6 @@
   margin: 0 4px;
 }
 
-/* ---- Summary Strip ---- */
-
-.prompts-summary {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-  padding: 6px 12px;
-  background: var(--accent-tint-04);
-  border-bottom: 1px solid var(--border-default);
-}
-
 /* ---- Category Sections ---- */
 
 .prompts-categories {
@@ -132,6 +184,23 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  cursor: pointer;
+}
+
+.prompts-category-header:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.prompts-category-chevron {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  width: 8px;
+  flex-shrink: 0;
+}
+
+.prompts-category-body.collapsed {
+  display: none;
 }
 
 .prompts-category-count {
@@ -923,6 +992,20 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  min-height: 0;
+}
+
+/* ---- Gallery Section Hosts ----
+   The Behavior/Memory panels wrap their gallery in a section div so the tab's
+   static subtitle can sit above it (a gallery clears its own container on
+   build). These carry the flex sizing the panel used to give the gallery
+   directly, so `.scaffold-gallery-view { flex: 1 }` still resolves. */
+
+#behavior-gallery-section,
+#memory-gallery-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-height: 0;
 }
 

@@ -7,13 +7,13 @@ description: >
   asked to write, draft, or author a new Bluesky plan, or when an
   existing plan needs editing before re-validation. NOT for operating an
   already-registered plan (use the operating-bluesky-scans skill).
-summary: Author, validate, and launch a session-tier Bluesky plan
+summary: Author, validate, and queue a session-tier Bluesky plan
 ---
 
 # Writing Bluesky Plans
 
 Author a new plan as a plain-text file, get it machine-validated in a
-sandbox with no hardware access, then launch it through the normal
+sandbox with no hardware access, then run it through the normal
 author -> validate -> run -> contribute workflow. A plan you write is inert until `validate_plan` records a
 pass for its exact content — nothing you author here is ever imported or
 run directly.
@@ -60,6 +60,32 @@ These are the ONLY accelerator scan patterns this framework ships. Never
 propose or author a BBA (beam-based alignment) or tune-scan plan — they are
 explicitly out of scope.
 
+**The plan's name must be a valid Python identifier that does not begin with
+an underscore.** A leading-underscore name is rejected at authoring time
+(400), because the queue worker would never expose such a plan — the
+authoring-time refusal turns a permanently unqueueable plan into one legible
+error.
+
+---
+
+## Your `PARAMS` fields ARE the queue item's kwargs
+
+When the plan runs, its queue item's `kwargs` are the `PARAMS` fields
+**unwrapped** — the field names sit at the top level of `kwargs`, with no
+`params` envelope around them. The same is true of `plan_args` in the shared
+draft and in every run record. Design `PARAMS` accordingly: each field is a
+name an operator will see and type.
+
+That matters for where a mistake surfaces. The bridge validates arguments
+against your `PARAMS` schema **before** the item is queued, and that
+pre-enqueue check is the early gate — the one that gives you a clear rejection
+while nothing is moving. The worker itself only validates `kwargs` when the
+plan actually *starts*, so an argument error that slips past the bridge does
+not appear until the item begins running, as a failed queue item carrying a
+pydantic error. Make `PARAMS` strict enough (typed fields, `Field(...)`
+bounds, `model_validator` cross-checks) that the bridge can catch what is
+wrong.
+
 ---
 
 ## The allowlist the validator enforces
@@ -72,7 +98,9 @@ any of which can reject it outright before the next ever runs:
      (submodule-exact — bare `import bluesky` or `bluesky.utils` is
      rejected).
    - `numpy`, `scipy`, `math`, `statistics`, `time`, `collections`,
-     `itertools`, `functools`, `pydantic`.
+     `itertools`, `functools`, `pydantic`, `typing`, and `logging`
+     (except `logging.config` and `logging.handlers`, which are denied —
+     they resolve callables by string, an import-by-string bypass).
    - Everything else (`epics`, `os`, `subprocess`, `ctypes`, `importlib`,
      `socket`, ...) is rejected.
 2. **CA/connector pattern scan** — rejects any body matching `caput(`,
@@ -85,7 +113,8 @@ any of which can reject it outright before the next ever runs:
    generator to completion against in-process mock devices, in a subprocess
    with `EPICS_CA_*` neutralized. This is an authoring-quality check ("does
    it actually run"), not the containment boundary — containment is stages 1
-   and 2 plus the load/launch gates that key off the validation record.
+   and 2 plus the load/enqueue/start gates that key off the validation
+   record.
 
 **Foot-gun: use `bps.sleep(...)`, never `time.sleep(...)`.** `time.sleep`
 blocks the RunEngine's worker thread for its whole duration — no other plan
@@ -110,20 +139,33 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
    (never a body you pass directly) through the three stages above.
    `sample_args` should supply realistic `PARAMS` field values so the dry
    run's mock devices match what your plan expects. A pass is what makes the
-   plan loadable at all — an unvalidated session plan is never listed,
-   loaded, or launchable.
+   plan usable at all — an unvalidated session plan is never listed, loaded,
+   or queueable.
+
+   A pass also triggers an **upload** of the validated bytes into the queue
+   worker's namespace, for that exact content hash. The response is
+   `{passed, reasons, content_hash, upload}`, where `upload` is
+   `{uploaded, reason, detail}`. The `passed` verdict stands regardless of how
+   the upload went: a pass with `uploaded: false` is a genuine pass (a
+   deployment with no queue server has nowhere to upload to), but the plan is
+   not queueable until an upload lands — so keep `upload.reason`/`detail`, and
+   relay them if a later `queue_add` is refused.
 3. **Confirm it's live** — `list_plans()` to see the plan appear with
    `provenance: "session"` alongside its `metadata`.
 4. **Run** — stage the validated plan into the shared draft with
    `set_draft(plan_name, plan_args_patch=...)` (motion-safe, no device
    touched — it only fills the plan panel and returns a `revision`), then
-   `launch_run(draft_revision)` is the sole launch path: it re-checks the
-   validation record against the file's current hash, requires
-   `control_system.writes_enabled`, and needs human approval. Use
-   `get_run(run_id)` / `get_run_data(run_id, ...)` to watch it run. The
-   `operating-bluesky-scans` skill covers this run flow in full — staging the
-   complete configuration, launching at a pinned revision, 409 recovery, and
-   stopping.
+   `queue_add(draft_revision)` puts that pinned draft in the queue and
+   `queue_start()` begins draining it. Both consult the validation record:
+   the plan's content hash is re-checked at enqueue **and** again at queue
+   start, `queue_start` requires `control_system.writes_enabled` plus the
+   launch token, and a human sees an approval prompt. A refusal whose
+   `detail.code` starts with `session_plan_` (`session_plan_unvalidated`,
+   `session_plan_not_in_namespace`) means exactly one thing: re-validate the
+   plan and try again. Use `get_run(run_id)` / `get_run_data(run_id, ...)` to
+   watch it. The `operating-bluesky-scans` skill covers this run flow in full
+   — staging the complete configuration, the two-step add/start, refusal
+   handling, and stopping.
 5. **Contribute to the permanent catalog** — a session plan stays
    session-tier (least trusted, most ephemeral) until a human reviews it and
    contributes it into a facility catalog directory; that is a separate
@@ -145,7 +187,11 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
   like both exemplars.
 - **Never** treat a passing dry run as proof the plan is safe against real
   hardware — it proves the plan *runs*, not that its device motion is
-  physically sound. Human approval at launch is the real backstop.
+  physically sound. Human approval at queue start is the real backstop.
+- **Never** edit a validated plan file and then queue it without re-running
+  `validate_plan` — the validation record is keyed to the file's content hash,
+  so any edit drops it, and the hash is re-checked both at enqueue and at
+  queue start.
 - **Never** include a `from __future__ import ...` line in your body — the
   bridge always prepends a generated `PLAN_METADATA` assignment ahead of it,
   so it can never be the file's first statement (a hard Python requirement);

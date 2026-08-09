@@ -40,6 +40,7 @@ import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -216,6 +217,20 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
             "() => { const o = document.getElementById('welcome-overlay'); if (o) o.remove(); }"
         )
 
+        # Record the auth-sidecar chaining request. This deployment has NO
+        # sidecar (no auth stanza, so nginx renders no `location /auth/` and
+        # nothing is listening), which makes this the live proof of the
+        # authentication-off case: the request is made, it fails, and the
+        # logout still completes. A *navigation* to the sidecar here would
+        # strand the browser on a 404 instead of the landing page.
+        auth_requests: list[str] = []
+
+        def _record(request) -> None:
+            if "/auth/logout" in request.url:
+                auth_requests.append(request.url)
+
+        page.on("request", _record)
+
         # --- Logout: clears the stored pointer, THEN navigates to landing ---
         # Logout lives in the identity chip's popover; open it first.
         page.click("#identity-menu-btn")
@@ -224,6 +239,15 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         page.wait_for_url(lambda u: u.startswith(landing_url))
         assert page.url.startswith(landing_url)
         expect(page.locator("#landing-marker")).to_be_visible()
+
+        # The auth session was asked to end, addressed at the ORIGIN ROOT — not
+        # under `/u/<user>/` (which `base_url` is, and which would reach this
+        # container rather than the sidecar) — and naming exactly this user once.
+        assert auth_requests, "logout did not attempt to end the auth session"
+        assert len(auth_requests) == 1
+        requested = urlsplit(auth_requests[0])
+        assert requested.path == "/auth/logout"
+        assert parse_qs(requested.query) == {"user": [user]}
 
         # NOTE: we can't read the terminal origin's localStorage from here —
         # the page has navigated to the landing origin (a different

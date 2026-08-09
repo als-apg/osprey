@@ -1,4 +1,4 @@
-"""Unit tests for the bluesky panels sidecar app skeleton (task 1.1).
+"""Unit tests for the bluesky panels sidecar app shell.
 
 Exercises the assembled FastAPI app (`bluesky_panels/app.py`) rather than its
 helpers directly: the healthcheck route, the two panel static mounts, and
@@ -31,10 +31,22 @@ def test_health_ok(client: TestClient) -> None:
 
 
 def test_panel_mounts_registered() -> None:
-    assert _PANEL_MOUNTS == {"plan": "/plan", "results": "/results"}
+    # ``(mount_path, bundle_dir)`` pairs rather than a dict: one bundle is
+    # served at two paths, since ``/results`` is a deprecated alias of
+    # ``/bluesky`` for one release, and a ``{bundle: path}`` dict cannot say
+    # that. Both mount paths must be registered — the alias is not a redirect,
+    # it is a second mount of the same directory.
+    bundle_of = dict(_PANEL_MOUNTS)
+    assert [mount_path for mount_path, _ in _PANEL_MOUNTS] == ["/plan", "/bluesky", "/results"]
+    assert bundle_of["/plan"] == "plan"
+    # The alias invariant, asserted without naming the bundle directory: the
+    # BLUESKY bundle is renamed once (panels/results -> panels/bluesky) and
+    # this must keep holding across that rename, not break on it.
+    assert bundle_of["/results"] == bundle_of["/bluesky"]
+    assert bundle_of["/plan"] != bundle_of["/bluesky"]
 
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
-    for mount_path in _PANEL_MOUNTS.values():
+    for mount_path, _bundle_dir in _PANEL_MOUNTS:
         assert mount_path in mounted_paths
 
 
@@ -53,10 +65,10 @@ def test_every_mounted_panel_ships_a_bundle() -> None:
     rule in .gitignore re-swallowed it at its new path during a package move
     and git staged the deletions with no matching additions.
     """
-    for panel_name in _PANEL_MOUNTS:
-        entry = _PANELS_ROOT / panel_name / "index.html"
+    for mount_path, bundle_dir in _PANEL_MOUNTS:
+        entry = _PANELS_ROOT / bundle_dir / "index.html"
         assert entry.is_file(), (
-            f"panel {panel_name!r} is mounted at {_PANEL_MOUNTS[panel_name]} but ships no "
+            f"bundle {bundle_dir!r} is mounted at {mount_path} but ships no "
             f"bundle entry at {entry} — either the bundle is missing from the tree or "
             f"an ignore rule is keeping it untracked (check `git check-ignore -v`)"
         )
@@ -65,15 +77,15 @@ def test_every_mounted_panel_ships_a_bundle() -> None:
 def test_every_mounted_panel_actually_serves(client: TestClient) -> None:
     """The operator-visible half of the guard above: each mount must return a
     real HTML shell, not the 404 an empty fabricated bundle directory yields."""
-    for panel_name, mount_path in _PANEL_MOUNTS.items():
+    for mount_path, bundle_dir in _PANEL_MOUNTS:
         response = client.get(f"{mount_path}/")
         assert response.status_code == 200, (
-            f"panel {panel_name!r} at {mount_path}/ returned {response.status_code}"
+            f"bundle {bundle_dir!r} at {mount_path}/ returned {response.status_code}"
         )
-        assert "text/html" in response.headers["content-type"], panel_name
+        assert "text/html" in response.headers["content-type"], mount_path
 
 
-@pytest.mark.parametrize("mount_path", ["/plan", "/results"])
+@pytest.mark.parametrize("mount_path", ["/plan", "/bluesky", "/results"])
 def test_panel_mount_responds_not_as_health_json(client: TestClient, mount_path: str) -> None:
     # The panel static mount must not shadow the /health JSON route. Depending
     # on whether the panel bundle has been authored yet, the mount responds

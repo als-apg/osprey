@@ -60,11 +60,15 @@
     },
     {
       "path": "tests/e2e/test_bluesky_deploy.py",
-      "reason": "Docker build/deploy smoke for the bluesky-bridge container (loopback bind, token mint, image content, mock scan) via docker + raw HTTP; no LLM."
+      "reason": "Docker build/deploy smoke for the minimum bluesky stack (bridge + RE manager + Redis): loopback bind, unpublished manager/Redis ports, token and control-plane keypair mint, image content, and the browse-only capability refusal — all via docker + raw HTTP; no LLM."
     },
     {
       "path": "tests/e2e/test_bluesky_panels_deploy.py",
       "reason": "VA + bridge + bluesky-panels sidecar container stack exercised via raw HTTP; neither service calls an LLM."
+    },
+    {
+      "path": "tests/e2e/test_bluesky_queue_e2e.py",
+      "reason": "Full queue-stack container proof (VA + bridge + queueserver + Redis + Tiled + panels sidecar) driven entirely over raw HTTP and docker exec — capability, arming, serial drain, session plans, abort, restart durability, mock flip, network/0MQ isolation. No agent session runs and nothing here contacts a model, so it measures nothing about the model-under-test."
     },
     {
       "path": "tests/e2e/test_bluesky_sandbox_escape_e2e.py",
@@ -73,6 +77,10 @@
     {
       "path": "tests/e2e/test_deploy_lifecycle.py",
       "reason": "Real-container deploy-lifecycle mechanics (up/seed/decommission/prune/nuke); no LLM anywhere."
+    },
+    {
+      "path": "tests/e2e/test_deploy_writeback_e2e.py",
+      "reason": "Real-container proof that deploy-minted secrets survive a wipe-and-rebuild via the owning profile; drives `osprey build`/`osprey deploy up` and reads two upstream stores directly, with no LLM anywhere."
     },
     {
       "path": "tests/e2e/test_dispatch_allowlist_parity.py",
@@ -93,10 +101,6 @@
     {
       "path": "tests/e2e/test_in_context_backend.py",
       "reason": "Own hardcoded provider/model axis (als-apg/cborg/anthropic env-key preference with fixed haiku wire ids) — bypasses OSPREY_E2E_FORCE_MODEL."
-    },
-    {
-      "path": "tests/e2e/test_multi_user_demo.py",
-      "reason": "Multi-user-demo deploy topology and rendered write-posture/config assertions with a fake placeholder API key — no agent session ever runs."
     },
     {
       "path": "tests/e2e/test_nextcloud_talk_bridge_e2e.py",
@@ -125,6 +129,10 @@
     {
       "path": "tests/e2e/fixtures/test_gchat_fixture_smoke.py",
       "reason": "Boot smoke for the Google Chat bridge's own test fixtures (loopback HTTP fakes and the Pub/Sub emulator container) — it asserts that the fixtures answer, never runs an agent, and contacts no model."
+    },
+    {
+      "path": "tests/e2e/web_terminals/test_auth_perimeter.py",
+      "reason": "Builds the real auth-sidecar image and drives one `osprey deploy up`, then asserts over plain HTTP that the login perimeter refuses and admits; no LLM anywhere, and the image build would cost every matrix cell minutes for no model signal."
     },
     {
       "path": "tests/e2e/web_terminals/test_loopback_chokepoint.py",

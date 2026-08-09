@@ -22,13 +22,24 @@ Provider Integration:
 """
 
 import json
+import os
 import warnings
 from typing import TYPE_CHECKING, Any
 
-import litellm
-from pydantic import BaseModel
+# Must precede `import litellm`. LiteLLM calls a bare `dotenv.load_dotenv()` at
+# import when LITELLM_MODE is "DEV" (its default), which searches *upward* from
+# the process for a `.env` and publishes it into os.environ. A git worktree with
+# no `.env` of its own therefore inherits the parent checkout's — importing an
+# OSPREY provider module would absorb whatever `.env` sits above it on disk.
+# LITELLM_MODE gates nothing else in the package, so this disables that one side
+# effect and changes no other LiteLLM behaviour. setdefault, not assignment: an
+# operator who set LITELLM_MODE explicitly keeps their value.
+os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
 
-from osprey.utils.logger import get_logger
+import litellm  # noqa: E402  (must follow the LITELLM_MODE setdefault above)
+from pydantic import BaseModel  # noqa: E402
+
+from osprey.utils.logger import get_logger  # noqa: E402
 
 if TYPE_CHECKING:
     from .base import BaseProvider

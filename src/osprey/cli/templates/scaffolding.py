@@ -50,75 +50,87 @@ def provider_api_key_entries() -> list[dict[str, str]]:
     ]
 
 
-def detect_environment_variables() -> dict[str, str]:
-    """Detect environment variables from the system for use in templates.
+# Human-readable blurbs for the deploy-minted variables, keyed by var name.
+# Prose only: the *list* of variables comes from ``_SERVICE_TOKEN_VARS``, so a
+# newly minted var still reaches ``.env.example`` (named by the services that
+# declare it) even with no entry here. Nothing silently drops out.
+_SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
+    "EVENT_DISPATCHER_TOKEN": "authenticates callers to the event-dispatcher API",
+    "DISPATCH_WORKER_TOKEN": "authenticates the dispatch worker back to the dispatcher",
+    "BLUESKY_LAUNCH_TOKEN": "arms the Bluesky bridge's scan-launch endpoint",
+    "BLUESKY_TILED_API_KEY": "the key the bridge presents to the co-deployed Tiled catalog",
+    "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
+    "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
+}
 
-    This checks for common environment variables that are typically
-    needed in .env files (API keys, paths, etc.) and returns those that are
-    currently set in the system.
 
-    Sources are checked in priority order (highest priority last, so it wins):
-    1. Shell environment (os.environ)
-    2. Project root .env file (if running from within an osprey project)
+def service_token_var_entries() -> list[dict[str, str]]:
+    """Every variable ``osprey deploy up`` mints, for env-file templates.
 
-    The .env file takes precedence because it represents the user's explicitly
-    configured project values, which may be more current than stale shell exports.
+    Derived from :data:`osprey.deployment.container_lifecycle._SERVICE_TOKEN_VARS`
+    — the map the deploy path actually mints from — so the documented set
+    cannot fall behind the minted set. A variable declared by more than one
+    service (``EVENT_DISPATCHER_TOKEN``) appears once, naming both.
 
     Returns:
-        Dictionary of detected environment variables with their values.
-        Only includes variables that are actually set (non-empty).
+        Ordered list of ``{"var": <ENV_VAR>, "services": "<a, b>", "note":
+        <blurb or "">}`` dicts, in declaration order.
     """
-    # API key env vars from canonical registry + non-API env vars
-    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
 
-    env_vars_to_check = [v for v in PROVIDER_API_KEYS.values() if v is not None] + [
-        "PROJECT_ROOT",
-        "LOCAL_PYTHON_VENV",
-        "CONFLUENCE_ACCESS_TOKEN",
+    services_by_var: dict[str, list[str]] = {}
+    for service, token_vars in _SERVICE_TOKEN_VARS.items():
+        for var in token_vars:
+            services_by_var.setdefault(var, []).append(service)
+
+    return [
+        {
+            "var": var,
+            "services": ", ".join(services),
+            "note": _SERVICE_TOKEN_VAR_NOTES.get(var, ""),
+        }
+        for var, services in services_by_var.items()
     ]
 
-    # Load .env file from current directory if it exists (project root values
-    # take precedence over shell environment for API keys)
-    dotenv_values = {}
-    env_file = Path.cwd() / ".env"
-    if env_file.is_file():
-        try:
-            from dotenv import dotenv_values as _dotenv_values
 
-            dotenv_values = _dotenv_values(env_file)
-        except ImportError:
-            pass
-
-    detected = {}
-    for var in env_vars_to_check:
-        # Shell environment first, then .env file overrides
-        value = os.environ.get(var)
-        if value:
-            detected[var] = value
-        env_file_value = dotenv_values.get(var)
-        if env_file_value:
-            detected[var] = env_file_value
-
-    return detected
+# The build no longer harvests anything from ``os.environ`` for the project
+# ``.env``. The profile is the sole source (see :func:`_derive_env_from_profile`
+# and :func:`osprey.utils.dotenv.derive_project_env`), because an ambient value
+# makes a build non-reproducible in a way that is invisible in its output: the
+# same profile on two machines yields different ``.env`` contents, and for a
+# provider key the difference is a secret that reaches the project — and every
+# container started from it — without ever being recorded in the profile that
+# is meant to account for it. (Not the image layers: ``.dockerignore`` excludes
+# ``.env*`` from the build context and no template Dockerfile copies one in.
+# Containers receive it at runtime.) Absence of an undeclared key is the
+# correct outcome.
+#
+# The opposite direction is unaffected and deliberate: ``inject_provider_env``
+# loads the project ``.env`` *into* the environment at runtime, which is what
+# feeds ``.mcp.json``. Profile -> environment is fine; environment -> rendered
+# file is the leak this closes.
 
 
-def _render_env_preserving_existing(jinja_env, project_dir: Path, ctx: dict) -> None:
-    """Render ``project/env.j2`` to ``.env``, merging with an existing file.
+def _derive_env_from_profile(
+    jinja_env, project_dir: Path, ctx: dict, profile_env_text: str, existing_env_text: str
+) -> None:
+    """Write the project ``.env``, derived from the profile that owns it.
 
-    On a fresh build this is a plain render. On a --force re-render an
-    existing ``.env`` is authoritative: its values win over freshly detected
-    environment values and keys it alone carries are appended — the project's
-    service tokens and volume-pinned passwords must survive a re-render (see
-    :func:`osprey.utils.dotenv.merge_env_preserving_existing`).
+    The render supplies the file's shape and the values the build computes; the
+    profile ``.env`` supplies the facility's secrets, which is what makes one
+    survive a rebuild; the project ``.env`` as it was contributes only what a
+    runtime writer put there (minted service tokens, volume-pinned passwords,
+    an applied scenario's physics vars). See
+    :func:`osprey.utils.dotenv.derive_project_env` for the per-key rules.
+
+    A caller with no profile passes empty text for both and gets the plain
+    render.
     """
+    from osprey.utils.dotenv import derive_project_env
+
     env_path = project_dir / ".env"
     rendered = jinja_env.get_template("project/env.j2").render(**ctx)
-    if env_path.exists():
-        from osprey.utils.dotenv import merge_env_preserving_existing
-
-        content = merge_env_preserving_existing(rendered, env_path.read_text(encoding="utf-8"))
-    else:
-        content = rendered if rendered.endswith("\n") else rendered + "\n"
+    content = derive_project_env(profile_env_text, rendered, existing_env_text, mode="build")
     env_path.write_text(content, encoding="utf-8")
     # Owner read/write only: the file carries secrets.
     os.chmod(env_path, 0o600)
@@ -130,6 +142,8 @@ def create_project_structure(
     project_dir: Path,
     data_bundle: str,
     ctx: dict,
+    profile_env_text: str = "",
+    existing_env_text: str = "",
 ):
     """Create base project files (config, README, pyproject.toml, etc.).
 
@@ -139,6 +153,11 @@ def create_project_structure(
         project_dir: Root directory of the project
         data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
+        profile_env_text: The owning profile's ``.env``, which the project's own
+            is derived from. Empty for a caller that has no profile.
+        existing_env_text: The project ``.env`` as it was before this build,
+            read before anything overwrote it. Only its runtime-written keys
+            survive the derivation.
     """
     project_template_dir = template_root / "project"
     app_template_dir = template_root / "apps" / data_bundle
@@ -187,17 +206,14 @@ def create_project_structure(
             # Use default project template
             render_template(jinja_env, f"project/{template_file}", ctx, project_dir / output_file)
 
-    # Create .env file only if API keys are detected
-    from osprey.models.provider_registry import PROVIDER_API_KEYS
-
-    detected_env_vars = ctx.get("env", {})
-    api_key_names = {v for v in PROVIDER_API_KEYS.values() if v is not None}
-    has_api_keys = any(key in detected_env_vars for key in api_key_names)
-
-    if has_api_keys:
-        env_template = project_template_dir / "env.j2"
-        if env_template.exists():
-            _render_env_preserving_existing(jinja_env, project_dir, ctx)
+    # Write the project .env. Unconditional: the file carries build-derived
+    # keys (the virtual-accelerator manifest pointers) that the project needs
+    # whether or not a provider key happened to be exported, and a project
+    # without a .env has nowhere for `osprey deploy up` to mint its service
+    # tokens.
+    env_template = project_template_dir / "env.j2"
+    if env_template.exists():
+        _derive_env_from_profile(jinja_env, project_dir, ctx, profile_env_text, existing_env_text)
 
     # Copy static files
     for src_name, dst_name in static_files:

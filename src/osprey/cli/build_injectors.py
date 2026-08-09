@@ -489,7 +489,6 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         "port": bluesky.port,
         "tiled_enabled": bluesky.tiled_enabled,
         "tiled_port": bluesky.tiled_port,
-        "demo_runner": bluesky.demo_runner,
     }
     if bluesky.plan_dir:
         # Only written when configured — its absence is what keeps a
@@ -518,7 +517,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     logger.info("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
     logger.info(
         "    Token:      `osprey deploy up` writes BLUESKY_LAUNCH_TOKEN to .env; "
-        "the `scan` MCP server's launch_run tool reads it automatically."
+        "the `bluesky` MCP server's queue tools read it automatically."
     )
     logger.info(
         "    Images:     `osprey deploy up` builds the bluesky-bridge image locally "
@@ -532,12 +531,6 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
             "    Plan dir:   %s mounted read-only into the bridge; its plans "
             "load as the 'facility' trust tier (BLUESKY_PLAN_DIRS)",
             bluesky.plan_dir,
-        )
-    if bluesky.demo_runner:
-        logger.warning(
-            "    Demo mode:  BLUESKY_DEMO_RUNNER is set — the bridge runs a real "
-            "bluesky RunEngine against MOCK devices only. Never enable this for a "
-            "facility wiring real EPICS hardware."
         )
 
 
@@ -586,6 +579,16 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     with open(config_path) as fh:
         config = yaml.load(fh)
 
+    # The compose file bind-mounts the scenario state directory read-only. It is
+    # otherwise created lazily at run time (by `osprey sim apply`), so create it
+    # here too: a missing bind source makes the container runtime materialize it
+    # itself, root-owned, which then locks the host writer out of its own
+    # project. Resolved from the config so it follows a relocated agent-data
+    # root — the same path the compose mount source is rendered from.
+    from osprey.utils.workspace import resolve_simulation_state_dir
+
+    resolve_simulation_state_dir(config, project_path).mkdir(parents=True, exist_ok=True)
+
     # No ``image`` key: the service builds the local VA image on first
     # ``osprey deploy up``. Override with OSPREY_VA_IMAGE, or set
     # ``services.virtual_accelerator.image`` here, to use a prebuilt/published image.
@@ -621,20 +624,55 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     )
 
 
+# The RESULTS panel became BLUESKY when that bundle absorbed the queue view, so
+# the panel id, its label, and its mount path all moved together. A profile (or
+# an already-built config.yml) written before the rename still says ``results``;
+# that keeps working for one release because the sidecar serves the SAME bundle
+# at /results/ and /bluesky/ (the alias row in
+# ``interfaces/bluesky_panels/app.py``'s ``_PANEL_MOUNTS``). One release, because
+# the alias mount goes away with it — a rename the operator never hears about is
+# a tab that disappears on an upgrade.
+_RESULTS_PANEL_DEPRECATION = (
+    "web.panels.results is deprecated: the RESULTS panel is now BLUESKY "
+    "(web.panels.bluesky, served at /bluesky/). The `results` id keeps working for "
+    "ONE release — the sidecar serves the same bundle at /results/ — and is removed "
+    "after that. Rename `results` to `bluesky` in the build profile's web_panels "
+    "list and in any web.panels.results.* config override."
+)
+
+
+def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> None:
+    """Fill a partially-specified ``web.panels.<id>`` entry in place.
+
+    Explicit values win: a facility override merged earlier in the build keeps
+    whatever it set, and only the keys it left out are derived. ``url`` is
+    additionally treated as unset when empty, so a blank override cannot leave
+    the panel pointing nowhere.
+    """
+    if not panel_cfg.get("url"):
+        anchored_put(panel_cfg, "url", url)
+    if "path" not in panel_cfg:
+        anchored_put(panel_cfg, "path", path)
+    if "label" not in panel_cfg:
+        anchored_put(panel_cfg, "label", label)
+
+
 def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Path) -> None:
-    """Wire the bluesky-panels sidecar + its three web panels into a built project.
+    """Wire the bluesky-panels sidecar + its web panels into a built project.
 
     1. Copy the bundled ``templates/services/bluesky_panels/`` compose template
        into ``<project>/services/bluesky_panels/``.
     2. Write ``services.bluesky_panels`` config + register it in
        ``deployed_services`` (so ``find_service_config`` resolves it,
        mirroring ``_inject_bluesky``).
-    3. Register the three ``web.panels.<id>`` entries (``plan``,
-       ``results``, ``health``) pointing at the sidecar's root URL,
-       mirroring ``_inject_dispatch``'s ``events`` panel registration: each
-       panel points the proxy at the sidecar ROOT and uses ``path`` to select
-       the panel's static mount, so the panel HTML loads there while its
-       prefix-relative API fetches reach the sidecar root.
+    3. Register the two ``web.panels.<id>`` entries (``plan``, ``bluesky``)
+       pointing at the sidecar's root URL, mirroring ``_inject_dispatch``'s
+       ``events`` panel registration: each panel points the proxy at the
+       sidecar ROOT and uses ``path`` to select the panel's static mount, so
+       the panel HTML loads there while its prefix-relative API fetches reach
+       the sidecar root. A ``results`` entry left in a profile from before the
+       rename is completed and warned about rather than dropped — see
+       ``_RESULTS_PANEL_DEPRECATION``.
     4. Print a post-build hint (image prerequisite).
 
     Thin mirror of :func:`_inject_va`/:func:`_inject_bluesky` for the compose
@@ -702,10 +740,10 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     default_url = f"${{BLUESKY_PANELS_URL:-http://localhost:{bluesky_panels.port}}}"
     panel_specs = (
         ("plan", "/plan/", "PLAN"),
-        ("results", "/results/", "RESULTS"),
+        ("bluesky", "/bluesky/", "BLUESKY"),
     )
+    panels = config.setdefault("web", {}).setdefault("panels", {})
     for panel_id, panel_path, label in panel_specs:
-        panels = config.setdefault("web", {}).setdefault("panels", {})
         panel_cfg = panels.get(panel_id)
         if panel_cfg is None:
             # Put the complete panel in one shot: anchored_put re-anchors a
@@ -713,12 +751,16 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
             # full subtree to exist at insertion time.
             anchored_put(panels, panel_id, {"url": default_url, "path": panel_path, "label": label})
             continue
-        if not panel_cfg.get("url"):
-            anchored_put(panel_cfg, "url", default_url)
-        if "path" not in panel_cfg:
-            anchored_put(panel_cfg, "path", panel_path)
-        if "label" not in panel_cfg:
-            anchored_put(panel_cfg, "label", label)
+        _fill_panel_defaults(panel_cfg, default_url, panel_path, label)
+
+    # Deprecated ``results`` alias: completed, never created. An entry only
+    # exists here when the profile still declares one (a `web.panels.results.*`
+    # override merged earlier in the build, or a config.yml built before the
+    # rename and rebuilt in place), and it keeps resolving because the sidecar
+    # serves the BLUESKY bundle at /results/ as well.
+    if "results" in panels:
+        logger.warning("  ! %s", _RESULTS_PANEL_DEPRECATION)
+        _fill_panel_defaults(panels["results"], default_url, "/results/", "RESULTS")
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -726,8 +768,8 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # 4. Post-build hint.
     logger.info("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
     logger.info(
-        "    Panels:     PLAN, RESULTS — reached through the "
-        "web-terminal proxy at /panel/{plan,results}."
+        "    Panels:     PLAN, BLUESKY — reached through the "
+        "web-terminal proxy at /panel/{plan,bluesky}."
     )
     logger.info(
         "    Images:     `osprey deploy up` builds the bluesky-panels image locally "

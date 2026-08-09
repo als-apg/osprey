@@ -342,23 +342,38 @@
       <button class="drawer-close-btn">&times;</button>
     </div>
 
+    <!-- Each panel opens with a muted subtitle stating what the tab IS, in
+         mechanical terms (when its files load, what runs them) rather than in
+         terms of what the shipped files happen to say — the latter goes stale
+         the moment an operator edits one. Static markup, not JS-rendered, so
+         it survives each gallery clearing its own container on build. -->
+
     <!-- Behavior Tab (gallery, populated by JS) -->
-    <div class="drawer-tab-panel active" id="tab-behavior"></div>
+    <div class="drawer-tab-panel active" id="tab-behavior">
+      <p class="drawer-tab-subtitle">Files the agent reads at the start of every session:
+        what it knows, and who it delegates to. Guidance it follows, not a limit enforced.</p>
+      <div id="behavior-gallery-section"></div>
+    </div>
 
     <!-- Safety Tab (toggle bar + gallery + log viewer) -->
     <div class="drawer-tab-panel" id="tab-safety">
+      <p class="drawer-tab-subtitle">Programs the runtime runs itself around every tool call.
+        A hook can block a call before it executes, independent of the agent's decision.</p>
       <div id="hook-debug-bar"></div>
       <div id="safety-gallery-section"></div>
       <div id="hook-debug-log-section"></div>
     </div>
 
-    <!-- Memory Tab (Claude Code native memory gallery) -->
+    <!-- Memory Tab (native auto-memory gallery) -->
     <div class="drawer-tab-panel" id="tab-memory">
-      <!-- Populated by memory-gallery.js -->
+      <p class="drawer-tab-subtitle">Notes the agent writes for itself between sessions.</p>
+      <div id="memory-gallery-section"></div>
     </div>
 
     <!-- Config Tab (mini gallery + YAML form) -->
     <div class="drawer-tab-panel" id="tab-config">
+      <p class="drawer-tab-subtitle">This deployment's own config.yml — connectors, approval
+        policy, service wiring. Saving restarts the session.</p>
       <div id="config-gallery-section"></div>
       <div id="config-form-section">
         <div class="settings-mode-bar">

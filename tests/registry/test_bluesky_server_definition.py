@@ -1,14 +1,14 @@
 """Tests for the bluesky ServerDefinition in FRAMEWORK_SERVERS.
 
 Covers: module/env resolution, permissions_allow/permissions_ask contents,
-hooks_pre structure (launch_run carries writes-check + approval, stop_run
-carries approval only — the kill switch must never block stopping a run),
-hooks_post error guidance, opt-in default_enabled, and that the registry-driven
-read-only disallow floor (``read_only_disallowed_tools``) automatically picks
-up both ask-gated bluesky tools without any bluesky-specific code there.
+hooks_pre structure (the queue's arming tools carry writes-check + approval,
+while ``queue_stop``/``stop_run`` carry approval only — the kill switch must
+never block halting), hooks_post error guidance, opt-in default_enabled, and
+that the registry-driven read-only disallow floor
+(``read_only_disallowed_tools``) automatically picks up every ask-gated bluesky
+tool without any bluesky-specific code there.
 
-Also covers the authoring tools added in task 2.3 — ``write_plan`` and
-``validate_plan`` — which reach no hardware either way (write only
+Also covers the authoring tools ``write_plan`` and ``validate_plan`` — which reach no hardware either way (write only
 emits a file, validate only dry-runs mock devices in an EPICS_CA_*-scrubbed
 subprocess), so both carry ``_APPROVAL`` only and must never be kill-switched.
 """
@@ -69,33 +69,45 @@ def test_bluesky_server_enabled_via_config_override():
 # ---------------------------------------------------------------------------
 
 
+_EXPECTED_ALLOW = [
+    "get_run",
+    "list_plans",
+    "list_runs",
+    "get_run_data",
+    "get_draft",
+    "set_draft",
+    "clear_draft",
+    "queue_list",
+    "queue_status",
+]
+
+
 def test_bluesky_permissions_allow():
     bluesky = _resolve_bluesky()
-    assert bluesky["permissions_allow"] == [
-        "get_run",
-        "list_plans",
-        "list_runs",
-        "get_run_data",
-        "get_draft",
-        "set_draft",
-        "clear_draft",
-    ]
+    assert bluesky["permissions_allow"] == _EXPECTED_ALLOW
 
 
-def test_bluesky_surface_is_eleven_tools_without_create_run_intent():
-    """The agent-facing surface is exactly 11 tools and no longer exposes the
-    ``create_run_intent`` bypass — every agent launch now flows through the
-    panel-visible draft, so the intent-composing read tool is deleted."""
+def test_bluesky_surface_has_no_bypass_of_the_panel_visible_draft():
+    """The agent-facing surface is exactly 15 tools and exposes no launch bypass.
+
+    ``create_run_intent`` (the old intent-composing read tool) and
+    ``launch_run`` (the old direct launch) are both gone: every agent execution
+    now flows through the panel-visible draft into the queue, so a human can
+    see what is staged and what is queued before anything starts.
+    """
     bluesky = _resolve_bluesky()
     surface = [*bluesky["permissions_allow"], *bluesky["permissions_ask"]]
     assert "create_run_intent" not in surface
-    assert len(surface) == 11
+    assert "launch_run" not in surface
+    assert len(surface) == 15
 
 
 def test_bluesky_permissions_ask():
     bluesky = _resolve_bluesky()
     assert bluesky["permissions_ask"] == [
-        "launch_run",
+        "queue_add",
+        "queue_start",
+        "queue_stop",
         "stop_run",
         "write_plan",
         "validate_plan",
@@ -111,31 +123,32 @@ def test_bluesky_hooks_pre_structure():
     bluesky = _resolve_bluesky()
     by_matcher = {r["matcher"]: r for r in bluesky["hooks_pre"]}
     assert set(by_matcher) == {
-        "mcp__bluesky__launch_run",
+        "mcp__bluesky__queue_add",
+        "mcp__bluesky__queue_start",
+        "mcp__bluesky__queue_stop",
         "mcp__bluesky__stop_run",
         "mcp__bluesky__write_plan",
         "mcp__bluesky__validate_plan",
     }
 
-    launch = by_matcher["mcp__bluesky__launch_run"]
-    launch_commands = [h["command"] for h in launch["hooks"]]
-    assert len(launch["hooks"]) == 2
-    assert any("osprey_writes_check.py" in c for c in launch_commands)
-    assert any("osprey_approval.py" in c for c in launch_commands)
+    # queue_add and queue_start arm hardware motion: adding hands an item to a
+    # queue that may already be draining, and starting drains it.
+    for tool in ("queue_add", "queue_start"):
+        rule = by_matcher[f"mcp__bluesky__{tool}"]
+        commands = [h["command"] for h in rule["hooks"]]
+        assert len(rule["hooks"]) == 2
+        assert any("osprey_writes_check.py" in c for c in commands)
+        assert any("osprey_approval.py" in c for c in commands)
 
-    stop = by_matcher["mcp__bluesky__stop_run"]
-    stop_commands = [h["command"] for h in stop["hooks"]]
-    # stop_run must NEVER be writes-check-gated — the kill switch must not
-    # block stopping a run (the safe direction).
-    assert len(stop["hooks"]) == 1
-    assert "osprey_approval.py" in stop_commands[0]
-    assert not any("osprey_writes_check.py" in c for c in stop_commands)
-
-    # write_plan/validate_plan (task 2.3) reach no hardware
-    # either way — write only emits a file, validate only dry-runs mock
-    # devices in an EPICS_CA_*-scrubbed subprocess — so both are
-    # approval-gated but NEVER kill-switchable, exactly like stop_run.
-    for tool in ("write_plan", "validate_plan"):
+    # queue_stop and stop_run must NEVER be writes-check-gated — the kill
+    # switch must not block halting (the safe direction). queue_stop's one
+    # arming case (cancel=true) is gated in-tool and at the bridge instead, so
+    # that a PLAIN stop keeps working with writes disabled.
+    #
+    # write_plan/validate_plan reach no hardware either way — write
+    # only emits a file, validate only dry-runs mock devices in an
+    # EPICS_CA_*-scrubbed subprocess — so they sit in the same tier.
+    for tool in ("queue_stop", "stop_run", "write_plan", "validate_plan"):
         rule = by_matcher[f"mcp__bluesky__{tool}"]
         commands = [h["command"] for h in rule["hooks"]]
         assert len(rule["hooks"]) == 1
@@ -161,28 +174,22 @@ def test_bluesky_authoring_tools_never_writes_check_gated():
         assert "osprey_approval.py" in rule.hooks[0].command
         assert not any("osprey_writes_check.py" in h.command for h in rule.hooks)
 
-    # launch_run stays kill-switchable; stop_run stays approval-only —
-    # unchanged by the new authoring tools.
-    launch_rule = by_matcher["mcp__bluesky__launch_run"]
-    assert any("osprey_writes_check.py" in h.command for h in launch_rule.hooks)
-    assert any("osprey_approval.py" in h.command for h in launch_rule.hooks)
+    # The arming tools stay kill-switchable; the stop tools stay
+    # approval-only — unchanged by the authoring tools.
+    for tool in ("queue_add", "queue_start"):
+        rule = by_matcher[f"mcp__bluesky__{tool}"]
+        assert any("osprey_writes_check.py" in h.command for h in rule.hooks)
+        assert any("osprey_approval.py" in h.command for h in rule.hooks)
 
-    stop_rule = by_matcher["mcp__bluesky__stop_run"]
-    assert len(stop_rule.hooks) == 1
-    assert "osprey_approval.py" in stop_rule.hooks[0].command
-    assert not any("osprey_writes_check.py" in h.command for h in stop_rule.hooks)
+    for tool in ("queue_stop", "stop_run"):
+        rule = by_matcher[f"mcp__bluesky__{tool}"]
+        assert len(rule.hooks) == 1
+        assert "osprey_approval.py" in rule.hooks[0].command
+        assert not any("osprey_writes_check.py" in h.command for h in rule.hooks)
 
-    # The read tiers are unchanged by task 2.3's authoring additions (task
-    # 2.1's draft tools are silent-allow too, added separately below).
-    assert bluesky_def.permissions_allow == [
-        "get_run",
-        "list_plans",
-        "list_runs",
-        "get_run_data",
-        "get_draft",
-        "set_draft",
-        "clear_draft",
-    ]
+    # The read tiers are unchanged by the authoring tools (the draft
+    # tools and the queue reads are silent-allow too).
+    assert bluesky_def.permissions_allow == _EXPECTED_ALLOW
 
 
 def test_bluesky_hooks_post_error_guidance():
@@ -199,19 +206,20 @@ def test_bluesky_hooks_post_error_guidance():
 
 
 def test_read_only_disallowed_tools_covers_bluesky_ask_tools(tmp_path: Path):
-    """launch_run and stop_run must both be blocked under bypassPermissions —
+    """Every ask-gated bluesky tool is blocked under bypassPermissions —
     purely from the registry's permissions_ask entry, no bluesky-specific code."""
     from osprey.agent_runner.write_tools import read_only_disallowed_tools
 
     result = set(read_only_disallowed_tools(tmp_path))
-    assert "mcp__bluesky__launch_run" in result
-    assert "mcp__bluesky__stop_run" in result
+    for tool in ("queue_add", "queue_start", "queue_stop", "stop_run"):
+        assert f"mcp__bluesky__{tool}" in result
 
 
 def test_hook_config_template_derives_write_tools_and_approval_prefix():
-    """hook_config.json.j2's own derivation logic: launch_run lands in
-    write_tools (writes-check-gated), and 'mcp__bluesky__' lands in
-    approval_prefixes (both ask tools carry the approval hook)."""
+    """hook_config.json.j2's own derivation logic: the arming tools land in
+    write_tools (writes-check-gated) while the stop tools do not, and
+    'mcp__bluesky__' lands in approval_prefixes (every ask tool carries the
+    approval hook)."""
     import jinja2
 
     template_path = (
@@ -226,7 +234,9 @@ def test_hook_config_template_derives_write_tools_and_approval_prefix():
     import json
 
     data = json.loads(rendered)
-    assert "mcp__bluesky__launch_run" in data["write_tools"]
+    assert "mcp__bluesky__queue_add" in data["write_tools"]
+    assert "mcp__bluesky__queue_start" in data["write_tools"]
+    assert "mcp__bluesky__queue_stop" not in data["write_tools"]
     assert "mcp__bluesky__stop_run" not in data["write_tools"]
     assert "mcp__bluesky__" in data["approval_prefixes"]
 
@@ -240,14 +250,18 @@ def test_bluesky_can_be_extended_like_other_framework_servers():
     clone = build_extended_server("bluesky2", {"extends": "bluesky"})
     assert clone is not None
     assert clone.permissions_ask == [
-        "launch_run",
+        "queue_add",
+        "queue_start",
+        "queue_stop",
         "stop_run",
         "write_plan",
         "validate_plan",
     ]
     matchers = {r.matcher for r in clone.hooks_pre}
     assert matchers == {
-        "mcp__bluesky2__launch_run",
+        "mcp__bluesky2__queue_add",
+        "mcp__bluesky2__queue_start",
+        "mcp__bluesky2__queue_stop",
         "mcp__bluesky2__stop_run",
         "mcp__bluesky2__write_plan",
         "mcp__bluesky2__validate_plan",

@@ -10,17 +10,19 @@ set via :func:`allocate_ports`.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import yaml
 
+from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
+    USERNAME_CHARSET_RE,
     as_dict,
     effective_image_source,
+    env_var_suffix_collisions,
     resolve_image_tag,
     resolve_personas,
 )
@@ -28,6 +30,11 @@ from osprey.deployment.web_terminals.ports import (
     FAMILY_BASE_FIELDS,
     allocate_ports,
     base_ports_from_config,
+)
+from osprey.deployment.web_terminals.render import (
+    SUPPORTED_AUTH_METHODS,
+    _auth_tls_context,
+    _external_origin,
 )
 
 # Rule 12's closed set of reserved compose service keys. "dispatch-sidecar-*" is a
@@ -50,14 +57,19 @@ def _is_reserved_service_name(name: str) -> bool:
     return name in _RESERVED_SERVICE_NAMES or name.startswith(_RESERVED_SERVICE_PREFIX)
 
 
-# Usernames become nginx `location` keys and URL path segments (`/<user>/...`), so
-# they're held to a stricter charset than a bare "no reserved collision" check.
-_USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-
-# The TLS seam's listener port (`listen 443 ssl` in the gated nginx block, see
-# Task 1.3). `auth.method` has no other value than "none" in this schema revision
-# (Task 1.4), so there's no dedicated auth-service port to reserve yet.
+# The TLS seam's listener port (`listen 443 ssl` in the gated nginx block). The
+# auth sidecar's listener has no constant here: it is config-driven
+# (`auth.port`), and its effective value is read from render's parsed auth
+# context rather than restated.
 _TLS_LISTEN_PORT = 443
+
+# The credential env-var stem a roster username is keyed into
+# (`OSPREY_AUTH_PW_HASH_<SUFFIX>`), quoted only inside this module's collision
+# message. It is deliberately NOT imported from `auth_credentials`, which owns
+# the constant: this module is pure static validation of a config file, and
+# importing the credential provisioner to quote one string in a message would
+# pull the whole deploy-time secret-minting path in behind it.
+_PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
 
 
 @dataclass(frozen=True)
@@ -123,6 +135,10 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
     findings.extend(_check_nginx_image(web_terminals))
+    findings.extend(_check_auth_method(web_terminals))
+    findings.extend(_check_auth_transport(web_terminals))
+    findings.extend(_check_auth_oidc(root, web_terminals))
+    findings.extend(_check_auth_credential_collisions(web_terminals, users))
     return findings
 
 
@@ -227,14 +243,14 @@ def _check_username_charset(users: list[Any]) -> list[Finding]:
     findings: list[Finding] = []
     for user in users:
         name = _user_name(user)
-        if name is not None and not _USERNAME_CHARSET_RE.match(name):
+        if name is not None and not USERNAME_CHARSET_RE.fullmatch(name):
             findings.append(
                 Finding(
                     severity="error",
                     code="web_terminals.invalid_username_charset",
                     message=(
                         f"modules.web_terminals.users entry {name!r} does not match "
-                        f"{_USERNAME_CHARSET_RE.pattern!r} (usernames become nginx "
+                        f"{USERNAME_CHARSET_RE.pattern!r} (usernames become nginx "
                         "location keys and URL path segments)"
                     ),
                 )
@@ -470,14 +486,19 @@ def _check_port_overlap(
             if isinstance(value, int):
                 entries.append((value, f"test_ioc.{field}"))
 
-    # S5: the gated auth/TLS seam's port(s) (Task 1.3/1.4) — only join the
-    # collision set when the seam is actually enabled by config; the default
-    # (tls disabled, auth "none") must not reserve 443 against ordinary configs.
+    # S5: the gated auth/TLS seam's port(s) — only join the collision set when
+    # the seam is actually enabled by config; the default (tls disabled, auth
+    # "none") must not reserve 443 or the sidecar port against ordinary configs.
     tls = as_dict(web_terminals.get("tls"))
     if bool(tls.get("enabled", False)):
         entries.append((_TLS_LISTEN_PORT, "web_terminals.tls (listen 443 ssl)"))
-    # `auth.method` has no value other than "none" in this schema revision, so
-    # there's no dedicated auth-service port to add yet (see Task 1.4's schema).
+    auth_context = _auth_context(web_terminals)
+    if auth_context is not None and auth_context["auth_method"] != "none":
+        # The sidecar's own listener, published on the host beside every other
+        # service in the stack. Unlike `nginx_port` it has no `ports.*` mirror
+        # to be covered by S3 — `auth.port` is where it is declared — so it is
+        # added here directly, exactly like the TLS listener above.
+        entries.append((auth_context["auth_port"], "web_terminals.auth.port"))
 
     by_port: dict[int, list[str]] = {}
     for port, source in entries:
@@ -525,14 +546,14 @@ def _check_persona_charset(web_terminals: dict[str, Any]) -> list[Finding]:
     ``^[a-z0-9][a-z0-9_-]*$`` (see :func:`_check_username_charset`)."""
     findings: list[Finding] = []
     for persona_name in _persona_catalog(web_terminals):
-        if isinstance(persona_name, str) and not _USERNAME_CHARSET_RE.match(persona_name):
+        if isinstance(persona_name, str) and not USERNAME_CHARSET_RE.fullmatch(persona_name):
             findings.append(
                 Finding(
                     severity="error",
                     code="web_terminals.invalid_persona_charset",
                     message=(
                         f"modules.web_terminals.personas key {persona_name!r} does not "
-                        f"match {_USERNAME_CHARSET_RE.pattern!r} (persona names become "
+                        f"match {USERNAME_CHARSET_RE.pattern!r} (persona names become "
                         "image-tag suffixes and path components)"
                     ),
                 )
@@ -916,6 +937,34 @@ def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) ->
             )
         ]
 
+    # Shape of build_profile, enforced through the SAME predicate the deploy-time
+    # resolver uses, so this gate cannot bless a value `osprey deploy up` will
+    # reject — the failure mode that matters here, since `deploy up` never runs
+    # lint and an operator who lints clean would otherwise meet a hard deploy
+    # error the gate promised away.
+    #
+    # Checked regardless of whether project_path exists: a rendered directory
+    # makes an unusable value harmless only until someone removes it, and a
+    # verdict that depended on local filesystem state would not be a gate. Like
+    # the name mismatch above it supersedes the existence findings — an entry
+    # that can never be auto-rendered has nothing to add about being missing.
+    if has_build_profile:
+        problem = persona_build_profile_shape_problem(cast(str, build_profile))
+        if problem is not None:
+            return [
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_build_profile_not_a_delta",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}].build_profile "
+                        f"{problem} Set it to {f'personas/{persona_name}.yml'!r} — the "
+                        "delta `osprey profile new` writes beside the profile this "
+                        "project is built from — or render the persona project yourself "
+                        "with `osprey build`"
+                    ),
+                )
+            ]
+
     if not project_path.is_dir():
         # Missing directory: only auto-renderable (info) when a build_profile
         # can render it, otherwise the pre-existing hard error.
@@ -1137,3 +1186,270 @@ def _check_nginx_image(web_terminals: dict[str, Any]) -> list[Finding]:
             )
         ]
     return []
+
+
+# --- auth seam checks --------------------------------------------------------
+#
+# These are scaffold-time feedback only. The authoritative deploy-path gates
+# live elsewhere and fail closed on their own: render.py raises on an unknown
+# `auth.method` and on auth-without-TLS, and `auth_credentials.py` raises on a
+# roster it cannot key credentials for. `osprey deploy` never runs this module,
+# so nothing here may be the only thing standing between a bad config and a
+# deployment — every check below mirrors a gate that also exists downstream,
+# except where the downstream path *cannot* see the mistake (see
+# :func:`_check_auth_method`).
+
+
+def _auth_context(web_terminals: dict[str, Any]) -> dict[str, Any] | None:
+    """render.py's parsed view of the ``auth``/``tls`` stanzas, or ``None``.
+
+    Every check below reads the derived values the nginx template and the
+    compose overlay consume rather than re-reading ``auth.*`` itself, so lint
+    and render can't disagree about what a stanza means (see
+    :func:`~osprey.deployment.web_terminals.render._auth_tls_context`, which is
+    the single definition).
+
+    That function raises on exactly one input — an ``auth.method`` string
+    naming a method that does not exist — which :func:`_check_auth_method`
+    reports on its own. Every check keyed on a parsed method is meaningless for
+    such a config, so this degrades to ``None`` and they skip themselves rather
+    than reporting confused follow-on findings.
+    """
+    try:
+        return _auth_tls_context(web_terminals)
+    except ValueError:
+        return None
+
+
+def _check_auth_method(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``modules.web_terminals.auth.method`` must name a supported method.
+
+    Two distinct mistakes, both ERRORs:
+
+    * An **unknown method string** (``"basic"``). render raises on this too —
+      this check is the scaffold-time mirror, with the same message.
+    * A **wrong-typed** ``auth`` stanza or ``method`` value (a mapping, an int,
+      a bare ``auth: password`` string where a mapping belongs). render reads
+      every value defensively, so a wrong-typed one falls back to its default
+      and the deployment renders with authentication silently *off* — nothing
+      downstream can catch it. This module is the only surface that sees it.
+
+    An absent key, and an ``auth:``/``method:`` written with no value at all
+    (both ``None`` after YAML load), are the documented defaults and are not
+    flagged.
+    """
+    auth_raw = web_terminals.get("auth")
+    if auth_raw is not None and not isinstance(auth_raw, dict):
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_auth_stanza",
+                message=(
+                    f"modules.web_terminals.auth {auth_raw!r} is not a mapping; it must "
+                    "be a block with a 'method' key (e.g. 'auth:\\n  method: password'). "
+                    "A non-mapping stanza is read as no auth stanza at all, which would "
+                    "render the deployment with authentication silently disabled"
+                ),
+            )
+        ]
+
+    auth = as_dict(auth_raw)
+    if "method" not in auth:
+        return []
+    method = auth.get("method")
+    if method is None:
+        return []
+    if not isinstance(method, str):
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_auth_method_type",
+                message=(
+                    f"modules.web_terminals.auth.method {method!r} is not a string; "
+                    f"expected one of {', '.join(SUPPORTED_AUTH_METHODS)}. A non-string "
+                    "value falls back to 'none' at render time, which would render the "
+                    "deployment with authentication silently disabled"
+                ),
+            )
+        ]
+    if method in SUPPORTED_AUTH_METHODS:
+        return []
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.unknown_auth_method",
+            message=(
+                f"modules.web_terminals.auth.method {method!r} is not a supported "
+                f"authentication method; expected one of {', '.join(SUPPORTED_AUTH_METHODS)}"
+            ),
+        )
+    ]
+
+
+def _check_auth_transport(web_terminals: dict[str, Any]) -> list[Finding]:
+    """Authentication over cleartext HTTP: an ERROR, or a WARN once accepted.
+
+    A session cookie is a bearer credential. Served over plain HTTP it is
+    readable — and replayable — by anything on the path, so ``auth.method`` set
+    without ``tls.enabled`` is refused at render time unless the deployment
+    explicitly accepts that risk with ``auth.allow_insecure_http: true``. This
+    is the scaffold-time mirror of that gate: the ERROR for the refusal, and a
+    WARN when the escape hatch is what's keeping the config renderable, so the
+    risk is restated at every lint rather than only in the commit that took it.
+
+    With TLS on, ``allow_insecure_http`` is inert and nothing is reported.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] == "none":
+        return []
+    if context["tls_enabled"]:
+        return []
+    if context["auth_allow_insecure_http"]:
+        return [
+            Finding(
+                severity="warn",
+                code="web_terminals.auth_insecure_http",
+                message=(
+                    f"modules.web_terminals.auth.method is {context['auth_method']!r} "
+                    "with tls.enabled false and allow_insecure_http true; session "
+                    "cookies will travel over cleartext HTTP, where anything on the "
+                    "network path can read and replay them. Enable tls for any "
+                    "deployment reachable beyond a trusted host"
+                ),
+            )
+        ]
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.auth_requires_tls",
+            message=(
+                f"modules.web_terminals.auth.method is {context['auth_method']!r} but "
+                "tls.enabled is false; session cookies would travel over cleartext "
+                "HTTP. Enable modules.web_terminals.tls, or set "
+                "auth.allow_insecure_http: true to accept that risk (only sensible on "
+                "a trusted network)"
+            ),
+        )
+    ]
+
+
+def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:
+    """``method: oidc`` needs an issuer, usable client env-var names, and an origin.
+
+    Three ERRORs, all config-visible and all fatal at *request* time rather
+    than deploy time if they slip through — a sidecar that cannot complete a
+    login flow locks the whole roster out:
+
+    * **Issuer.** ``auth.oidc.issuer`` has no default: without it there is no
+      discovery document to fetch and no IdP to redirect to.
+    * **Client env-var names.** ``client_id_env``/``client_secret_env`` name the
+      variables the sidecar reads its client credentials from (never the
+      credentials themselves), and both default to a documented
+      ``OSPREY_AUTH_OIDC_*`` name. Omitting them is therefore fine; setting one
+      to something unusable (empty, wrong type) is not — render silently
+      restores the default, so the sidecar would read a variable the operator
+      never set.
+    * **External origin.** The OIDC ``redirect_uri`` is built from the
+      deployment's one external origin, which needs ``deploy.fqdn``. An IdP
+      rejects a callback whose ``redirect_uri`` isn't character-for-character
+      the registered one, so an underivable origin means no login can complete.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "oidc":
+        return []
+
+    findings: list[Finding] = []
+    oidc = as_dict(as_dict(web_terminals.get("auth")).get("oidc"))
+
+    if not context["auth_oidc_issuer"]:
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.auth_oidc_missing_issuer",
+                message=(
+                    "modules.web_terminals.auth.method is 'oidc' but "
+                    "auth.oidc.issuer is not set; the sidecar needs the issuer URL to "
+                    "discover the IdP's endpoints"
+                ),
+            )
+        )
+
+    for field in ("client_id_env", "client_secret_env"):
+        if field not in oidc:
+            continue  # unset is fine — the documented OSPREY_AUTH_OIDC_* default applies
+        value = oidc.get(field)
+        if isinstance(value, str) and value.strip():
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.auth_oidc_invalid_client_env",
+                message=(
+                    f"modules.web_terminals.auth.oidc.{field} {value!r} is not a "
+                    "non-empty string; it must name the environment variable holding "
+                    "that OIDC client credential (the name, never the credential). An "
+                    "unusable value silently restores the default variable name, which "
+                    "the deployment has not set"
+                ),
+            )
+        )
+
+    # Only `deploy.fqdn` can make the origin underivable; the published port
+    # merely fills the ':port' suffix when TLS is off. A malformed `nginx_port`
+    # is render's own error, reported there — substituting one here keeps this
+    # check to the one thing it is about.
+    nginx_port = web_terminals.get("nginx_port")
+    try:
+        _external_origin(
+            root,
+            nginx_port if isinstance(nginx_port, int) else 0,
+            tls_enabled=bool(context["tls_enabled"]),
+        )
+    except ValueError as exc:
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.auth_oidc_unresolvable_origin",
+                message=(
+                    "modules.web_terminals.auth.method is 'oidc' but this deployment's "
+                    f"external origin cannot be derived ({exc}); the OIDC redirect_uri "
+                    "is built from it and must match the URI registered with the IdP"
+                ),
+            )
+        )
+    return findings
+
+
+def _check_auth_credential_collisions(
+    web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Password mode: two roster users may not key the same credential variable.
+
+    A username is normalized (uppercased, ``-`` to ``_``) into the env-var
+    suffix its stored password hash lives under, so ``alice-b`` and ``alice_b``
+    would share one ``OSPREY_AUTH_PW_HASH_ALICE_B`` entry — one operator's
+    password opening the other's terminal, the exact isolation failure this
+    feature exists to establish. ``auth_credentials`` refuses to provision such
+    a roster with a hard raise on the deploy path; this is the same rejection
+    at scaffold time, where renaming a user is still cheap.
+
+    Scoped to ``method: password``: the per-user credential variable is what
+    collides, and OIDC deployments have none (identity comes from the IdP).
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "password":
+        return []
+    names = [name for name in (_user_name(user) for user in users) if name is not None]
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.auth_credential_collision",
+            message=(
+                f"modules.web_terminals.users entries {colliding} all map onto the "
+                f"credential variable {_PW_HASH_VAR_PREFIX}{suffix}; they would share a "
+                "single password, so one user's credentials would open another's "
+                "terminal. Rename one of them"
+            ),
+        )
+        for suffix, colliding in env_var_suffix_collisions(names).items()
+    ]

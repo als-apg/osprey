@@ -3,12 +3,16 @@
 ``build_claude_code_context``'s writes-off kill-switch block (previously
 hardcoded to ``controls``/``python`` by name) now walks ``FRAMEWORK_SERVERS``
 for any hooks_pre rule gated by ``_WRITES_CHECK``, so a new write server (e.g.
-``scan``'s ``launch_run``) is covered automatically with no per-server code
-change. These tests pin: scan's launch_run is hard-denied when writes are
-off, stop_run (approval-only, no writes-check) is NEVER denied or
-removed-from-ask (the kill switch must not block stopping a scan), the
+the bluesky queue's arming tools) is covered automatically with no per-server
+code change. These tests pin: every ``bsky.ARMING_TOOLS`` entry is hard-denied
+when writes are off, the approval-only tools (``queue_stop``, ``stop_run``) are
+NEVER denied or removed-from-ask (the kill switch must not block halting), the
 existing controls/python behavior is preserved, and an extends clone gets the
 rewritten-prefix matcher.
+
+Tool names resolve from ``osprey.bluesky_tool_names`` so a rename carries
+through; the ``mcp__<server>__`` prefix stays literal here because applying
+that prefix is precisely what this code under test does.
 
 Also pins the task-2.3 authoring tools (``write_plan``,
 ``validate_plan``): both reach no hardware regardless of
@@ -19,6 +23,7 @@ never be denied or removed-from-ask by the kill switch.
 
 import yaml
 
+from osprey import bluesky_tool_names as bsky
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 
@@ -53,48 +58,61 @@ def _build_ctx(tmp_path, *, writes_enabled: bool, claude_code_overrides: dict | 
 
 
 # ---------------------------------------------------------------------------
-# scan.launch_run — hard deny when writes are off
+# The arming tools (queue_add / queue_start) — hard deny when writes are off
 # ---------------------------------------------------------------------------
 
 
-def test_bluesky_launch_denied_when_writes_off(tmp_path):
+def test_bluesky_arming_tools_denied_when_writes_off(tmp_path):
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=False,
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
     perms = ctx["facility_permissions"]
-    assert "mcp__bluesky__launch_run" in perms["deny"]
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" in perms["deny"], (
+            f"{tool!r} arms hardware motion and must be hard-denied when writes are off"
+        )
 
 
-def test_bluesky_launch_not_denied_when_writes_on(tmp_path):
+def test_bluesky_arming_tools_not_denied_when_writes_on(tmp_path):
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=True,
         claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
     perms = ctx["facility_permissions"]
-    assert "mcp__bluesky__launch_run" not in perms.get("deny", [])
-    assert "mcp__bluesky__launch_run" not in perms.get("remove_ask", [])
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" not in perms.get("deny", [])
+        assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
 
 def test_bluesky_disabled_server_contributes_nothing(tmp_path):
-    """scan is opt-in (default_enabled=False) — an un-enabled scan server must
-    not contribute a deny entry even when writes are off."""
+    """bluesky is opt-in (default_enabled=False) — an un-enabled bluesky server
+    must not contribute a deny entry even when writes are off."""
     ctx = _build_ctx(tmp_path, writes_enabled=False)
     perms = ctx["facility_permissions"]
-    assert "mcp__bluesky__launch_run" not in perms.get("deny", [])
-    assert "mcp__bluesky__launch_run" not in perms.get("remove_ask", [])
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" not in perms.get("deny", [])
+        assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
 
 # ---------------------------------------------------------------------------
-# scan.stop_run — never denied or removed-from-ask (safe direction)
+# queue_stop / stop_run — never denied or removed-from-ask (safe direction)
 # ---------------------------------------------------------------------------
 
 
-def test_bluesky_stop_never_denied_or_removed(tmp_path):
-    """stop_run carries approval only (no _WRITES_CHECK) — the kill switch
-    must never block stopping a scan, regardless of writes_enabled."""
+def test_bluesky_stop_tools_never_denied_or_removed(tmp_path):
+    """queue_stop and stop_run carry approval only (no _WRITES_CHECK).
+
+    The kill switch must never block halting, regardless of writes_enabled —
+    denying ``queue_stop`` under writes-off would take the queue's halt away at
+    exactly the moment an operator is most likely to reach for it, and denying
+    ``stop_run`` would take away the EMERGENCY halt (the only surface that
+    aborts a plan already moving hardware). This is the negative control for
+    the deny test above: it proves the kill switch is selecting on the arming
+    hook, not blanket-denying the whole server.
+    """
     for writes_enabled in (True, False):
         ctx = _build_ctx(
             tmp_path,
@@ -102,8 +120,26 @@ def test_bluesky_stop_never_denied_or_removed(tmp_path):
             claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
         )
         perms = ctx["facility_permissions"]
-        assert "mcp__bluesky__stop_run" not in perms.get("deny", [])
-        assert "mcp__bluesky__stop_run" not in perms.get("remove_ask", [])
+        for tool in (bsky.QUEUE_STOP, bsky.STOP_RUN):
+            assert f"mcp__bluesky__{tool}" not in perms.get("deny", [])
+            assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
+
+
+def test_bluesky_queue_read_tools_never_denied(tmp_path):
+    """queue_list / queue_status are reads and stay reachable with writes off.
+
+    Losing ``queue_status`` under writes-off would blind the agent to the very
+    fact that the deployment cannot execute.
+    """
+    ctx = _build_ctx(
+        tmp_path,
+        writes_enabled=False,
+        claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
+    )
+    perms = ctx["facility_permissions"]
+    for tool in bsky.QUEUE_READ_TOOLS:
+        assert f"mcp__bluesky__{tool}" not in perms.get("deny", [])
+        assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
 
 # ---------------------------------------------------------------------------
@@ -184,16 +220,17 @@ def test_nothing_added_when_writes_enabled(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_extends_clone_of_scan_denied_with_rewritten_prefix(tmp_path):
+def test_extends_clone_of_bluesky_denied_with_rewritten_prefix(tmp_path):
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=False,
         claude_code_overrides={"servers": {"bluesky2": {"extends": "bluesky"}}},
     )
     perms = ctx["facility_permissions"]
-    assert "mcp__bluesky2__launch_run" in perms["deny"]
-    # The template name itself must not leak into the clone's deny entry.
-    assert "mcp__bluesky__launch_run" not in perms["deny"]
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky2__{tool}" in perms["deny"]
+        # The template name itself must not leak into the clone's deny entry.
+        assert f"mcp__bluesky__{tool}" not in perms["deny"]
     # The clone's authoring tools (approval-only, no _WRITES_CHECK) are never
     # denied under the rewritten prefix either.
     assert "mcp__bluesky2__write_plan" not in perms.get("deny", [])

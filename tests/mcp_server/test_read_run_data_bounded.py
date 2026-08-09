@@ -1,8 +1,8 @@
-"""Unit tests for the `get_run_data` MCP tool's bounded-read semantics (task 2.12).
+"""Unit tests for the `get_run_data` MCP tool's bounded-read semantics.
 
 Complements `test_read_run_tools.py`'s basic success/error-envelope coverage
 by focusing specifically on the bounded-read shape the bridge's
-`GET /runs/{id}/data` route (task 2.2, backed by `live_rows.py`) produces:
+`GET /runs/{id}/data` route (backed by `live_rows.py`) produces:
 `max_rows` caps, `row_count` as the true total, `truncated` flipping
 correctly, `offset`/`tail` pagination, the minimal empty-stream shape, and
 `partial: true` mid-run. The HTTP boundary (`_http_get_json`) is patched here
@@ -209,16 +209,30 @@ async def test_completed_run_omits_partial_key():
 
 
 # =========================================================================
-# 409: no run_uid yet -> a distinct, clear error (not a generic bridge error)
+# 404: the only refusal this route can produce
 # =========================================================================
 
 
-async def test_no_run_uid_yet_returns_a_distinct_error_type():
+async def test_unknown_run_404_does_not_claim_the_data_is_gone():
+    """The bridge answers this route with exactly one refusal: 404.
+
+    It replaced the old 409 "has not started; no data yet" branch, which went
+    away with the in-memory run registry — the route now raises 404 and nothing
+    else (verified against the route: no other raise, no dependency that can
+    409). The 404 covers "neither the live buffer nor durable storage has this
+    id", so the hint must not tell the agent a run it can still read is gone.
+    """
     with patch(
         f"{_MOD}._http_get_json",
-        return_value=(409, {"detail": "run 'abc123' has not started; no data yet"}),
+        return_value=(404, {"detail": "unknown run 'abc123'"}),
     ):
-        with assert_raises_error(error_type="run_data_not_ready") as ctx:
+        with assert_raises_error(error_type="unknown_run") as ctx:
             await _fn("get_run_data")(run_id="abc123")
 
-    assert "has not started" in ctx["envelope"]["error_message"]
+    envelope = ctx["envelope"]
+    assert "unknown run" in envelope["error_message"]
+    hints = " ".join(envelope["suggestions"]).lower()
+    assert "in-memory" not in hints, (
+        "the run registry is no longer in-memory; this hint would misdescribe "
+        "durable queue history to the agent"
+    )

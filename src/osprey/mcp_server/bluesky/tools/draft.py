@@ -5,8 +5,8 @@ next run. The bridge holds a single server-side draft (``{plan_name,
 plan_args, revision, ...}``) that the agent and the human's plan panel both
 edit. These three tools are thin HTTP clients of that draft — they never touch
 hardware, never require arming, and never pass through an approval prompt:
-editing the draft only stages what a future ``launch_run`` (or the human's
-Launch plan click) might run, it does not run anything itself.
+editing the draft only stages what a future ``queue_add`` (or the human's
+Launch plan click) might queue, it does not run anything itself.
 
 ==========================  =================================================
 Tool                        Bridge endpoint
@@ -140,9 +140,9 @@ async def set_draft(
 
     This is staging only — it never starts a run and never requires arming or
     approval. The returned ``revision`` is the launch handle: it identifies this
-    exact draft, and ``launch_run(draft_revision)`` launches precisely the draft
-    this call produced. A human can instead launch it via their own Launch
-    plan click. Nothing runs until one of those launches happens.
+    exact draft, and ``queue_add(draft_revision)`` queues precisely the draft
+    this call produced. A human can instead queue it via their own Launch
+    plan click. Nothing runs until a queued item is started.
 
     Args:
         plan_name: Plan to draft. Required to create a draft that does not

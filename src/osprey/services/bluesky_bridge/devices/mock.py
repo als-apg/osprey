@@ -6,12 +6,11 @@ instance starts from the same fixed initial state on every process start, and
 there is no shared substrate two callers could observe each other mutating.
 That makes this module suitable ONLY for:
 
-- lifecycle/contract unit tests (e.g. task 2.7's RunEngine integration test),
-  where the point is to exercise the bridge's own plumbing (``do_launch``,
-  the live-row buffer, plan resolution) against *some* bluesky-shaped device,
-  not to validate real device behavior; and
-- the ``osprey deploy`` smoke demo, where the goal is "does a run at
-  all" rather than "does it read a real instrument".
+- the plan-catalog tests, where the point is to prove a shipped plan body
+  actually runs against *some* bluesky-shaped device, not to validate real
+  device behavior; and
+- ``plan_validation.py``'s stage-3 dry run, which answers "does this authored
+  plan body actually execute" without touching an instrument.
 
 It must NEVER be the substrate for the Phase 3 scenario benchmark — that
 benchmark's whole point is cross-checking ophyd-async's view of a PV against
@@ -29,8 +28,7 @@ dependency this bridge does not need for a plain motor + detector.
 
 Imports ophyd-async (a core dependency), so this module (like the rest of
 ``devices/``) is kept out of the bridge lifecycle core's import path
-(``app.py``, ``runs.py``, ``plan_runner.py``, ``security.py``), which stays
-import-clean of ophyd.
+(``app.py``, ``runs.py``, ``security.py``), which stays import-clean of ophyd.
 """
 
 from __future__ import annotations

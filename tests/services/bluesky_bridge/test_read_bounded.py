@@ -1,4 +1,4 @@
-"""Tests for `GET /runs/{id}/data` — the bounded live-row read route (task 2.2).
+"""Tests for `GET /runs/{id}/data` — the bounded live-row read route.
 
 Two layers:
 
@@ -25,10 +25,8 @@ import uvicorn
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import live_rows
-from osprey.services.bluesky_bridge.app import app, set_runner_factory
+from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
-from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
-from osprey.services.bluesky_bridge.runs import Run, do_launch, registry
 
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
@@ -44,15 +42,11 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     to — hanging, or raising `KeyError` on the unset `BLUESKY_TILED_API_KEY`
     and surfacing as a 500 instead of the asserted 404.
     """
-    registry._runs.clear()
     live_rows._clear()
-    set_runner_factory(FakePlanRunner)
     monkeypatch.delenv(_TILED_URI_ENV, raising=False)
     monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
     yield
-    registry._runs.clear()
     live_rows._clear()
-    set_runner_factory(FakePlanRunner)
 
 
 @pytest.fixture
@@ -60,32 +54,23 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def _launched_run_with_uid(run_uid: str) -> Run:
-    """A run launched with a FakePlanRunner pre-seeded with `run_uid`."""
-    run = registry.add(request={"plan_name": "orm"})
-    do_launch(run, lambda: FakePlanRunner(run_uid=run_uid))
-    return run
+def _feed(run_id: str, rows: list[dict], *, stop: bool = False) -> None:
+    """Push synthetic start/event[/stop] documents into the live buffer.
 
-
-def _feed(run_uid: str, rows: list[dict], *, stop: bool = False) -> None:
-    """Push synthetic start/event[/stop] documents into the live buffer."""
-    recorder = LiveRowRecorder()
-    recorder("start", {"uid": run_uid})
+    Keyed the way the document plane keys a queue-executed run: under the
+    OSPREY run id, which is also the id `GET /runs/{id}/data` is asked for.
+    """
+    recorder = LiveRowRecorder(key=run_id)
+    recorder("start", {"uid": "run-engine-uid"})
     for row in rows:
         recorder("event", {"data": row})
     if stop:
-        recorder("stop", {"run_start": run_uid})
+        recorder("stop", {})
 
 
 # =========================================================================
-# 409: no run_uid yet
+# Nothing to read
 # =========================================================================
-
-
-def test_read_data_before_launch_returns_409(client: TestClient) -> None:
-    run = registry.add(request={"plan_name": "orm"})
-    resp = client.get(f"/runs/{run.id}/data")
-    assert resp.status_code == 409
 
 
 def test_read_data_unknown_run_returns_404(client: TestClient) -> None:
@@ -99,23 +84,20 @@ def test_read_data_unknown_run_returns_404(client: TestClient) -> None:
 
 
 def test_read_data_with_no_buffer_and_no_tiled_returns_404(client: TestClient) -> None:
-    """Task 3.3: a launched run with no live buffer falls back to `_from_tiled`,
-    which returns `None` here (BLUESKY_TILED_URI unset in this test env) — so
-    this is a 404, not the old Phase-1 200-empty shape. A 200-empty would make
-    a run whose data genuinely can't be found look like a valid empty scan;
-    see `test_dual_source_read.py` for the full dual-source branching matrix
-    (evicted-buffer fallback, schema parity, registry-miss handling).
+    """A run with no live buffer falls back to `_from_tiled`, which returns
+    `None` here (BLUESKY_TILED_URI unset in this test env) — so this is a 404,
+    not a 200-empty. A 200-empty would make a run whose data genuinely can't
+    be found look like a valid empty scan; see `test_dual_source_read.py` for
+    the full dual-source branching matrix.
     """
-    run = _launched_run_with_uid("uid-empty")
-    resp = client.get(f"/runs/{run.id}/data")
+    resp = client.get("/runs/run-empty/data")
     assert resp.status_code == 404
 
 
 def test_read_data_started_but_zero_events_reports_full_shape(client: TestClient) -> None:
-    run = _launched_run_with_uid("uid-2")
-    _feed("uid-2", [])
-    body = client.get(f"/runs/{run.id}/data").json()
-    assert body["run_uid"] == "uid-2"
+    _feed("run-2", [])
+    body = client.get("/runs/run-2/data").json()
+    assert body["run_uid"] is None
     assert body["columns"] == []
     assert body["rows"] == []
     assert body["row_count"] == 0
@@ -129,9 +111,8 @@ def test_read_data_started_but_zero_events_reports_full_shape(client: TestClient
 
 
 def test_read_data_returns_all_rows_when_under_max_rows(client: TestClient) -> None:
-    run = _launched_run_with_uid("uid-3")
-    _feed("uid-3", [{"x": 1.0}, {"x": 2.0}], stop=True)
-    body = client.get(f"/runs/{run.id}/data").json()
+    _feed("run-3", [{"x": 1.0}, {"x": 2.0}], stop=True)
+    body = client.get("/runs/run-3/data").json()
     assert body["columns"] == ["x"]
     assert body["rows"] == [[1.0], [2.0]]
     assert body["row_count"] == 2
@@ -140,34 +121,30 @@ def test_read_data_returns_all_rows_when_under_max_rows(client: TestClient) -> N
 
 
 def test_read_data_caps_at_max_rows_and_flags_truncated(client: TestClient) -> None:
-    run = _launched_run_with_uid("uid-4")
-    _feed("uid-4", [{"x": float(i)} for i in range(5)], stop=True)
-    body = client.get(f"/runs/{run.id}/data?max_rows=2").json()
+    _feed("run-4", [{"x": float(i)} for i in range(5)], stop=True)
+    body = client.get("/runs/run-4/data?max_rows=2").json()
     assert body["rows"] == [[0.0], [1.0]]
     assert body["row_count"] == 5
     assert body["truncated"] is True
 
 
 def test_read_data_offset_paginates_forward(client: TestClient) -> None:
-    run = _launched_run_with_uid("uid-5")
-    _feed("uid-5", [{"x": float(i)} for i in range(5)], stop=True)
-    body = client.get(f"/runs/{run.id}/data?max_rows=2&offset=2").json()
+    _feed("run-5", [{"x": float(i)} for i in range(5)], stop=True)
+    body = client.get("/runs/run-5/data?max_rows=2&offset=2").json()
     assert body["rows"] == [[2.0], [3.0]]
     assert body["truncated"] is True
 
 
 def test_read_data_tail_returns_most_recent_rows(client: TestClient) -> None:
-    run = _launched_run_with_uid("uid-6")
-    _feed("uid-6", [{"x": float(i)} for i in range(5)], stop=True)
-    body = client.get(f"/runs/{run.id}/data?max_rows=2&tail=true").json()
+    _feed("run-6", [{"x": float(i)} for i in range(5)], stop=True)
+    body = client.get("/runs/run-6/data?max_rows=2&tail=true").json()
     assert body["rows"] == [[3.0], [4.0]]
     assert body["truncated"] is True
 
 
 def test_read_data_tail_with_offset_skips_from_the_end(client: TestClient) -> None:
-    run = _launched_run_with_uid("uid-7")
-    _feed("uid-7", [{"x": float(i)} for i in range(5)], stop=True)
-    body = client.get(f"/runs/{run.id}/data?max_rows=2&tail=true&offset=1").json()
+    _feed("run-7", [{"x": float(i)} for i in range(5)], stop=True)
+    body = client.get("/runs/run-7/data?max_rows=2&tail=true&offset=1").json()
     # Skip the very last row (index 4), then take the 2 rows before that.
     assert body["rows"] == [[2.0], [3.0]]
 
@@ -178,16 +155,14 @@ def test_read_data_tail_with_offset_skips_from_the_end(client: TestClient) -> No
 
 
 def test_read_data_mid_run_reports_partial_true(client: TestClient) -> None:
-    run = _launched_run_with_uid("uid-8")
-    _feed("uid-8", [{"x": 1.0}], stop=False)
-    body = client.get(f"/runs/{run.id}/data").json()
+    _feed("run-8", [{"x": 1.0}], stop=False)
+    body = client.get("/runs/run-8/data").json()
     assert body["partial"] is True
 
 
 def test_read_data_after_stop_omits_partial(client: TestClient) -> None:
-    run = _launched_run_with_uid("uid-9")
-    _feed("uid-9", [{"x": 1.0}], stop=True)
-    body = client.get(f"/runs/{run.id}/data").json()
+    _feed("run-9", [{"x": 1.0}], stop=True)
+    body = client.get("/runs/run-9/data").json()
     assert "partial" not in body
 
 
@@ -200,9 +175,8 @@ def test_read_data_row_count_is_true_total_even_past_storage_cap(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(live_rows, "_MAX_ROWS_PER_RUN", 3)
-    run = _launched_run_with_uid("uid-10")
-    _feed("uid-10", [{"x": float(i)} for i in range(5)], stop=True)
-    body = client.get(f"/runs/{run.id}/data").json()
+    _feed("run-10", [{"x": float(i)} for i in range(5)], stop=True)
+    body = client.get("/runs/run-10/data").json()
     assert len(body["rows"]) == 3
     assert body["row_count"] == 5
     assert body["truncated"] is True
@@ -261,15 +235,14 @@ async def test_get_run_data_tool_end_to_end_over_real_http(
     `get_run_data` test patches `_http_get_json`, so a renamed/missing
     bridge route could pass every unit test while being unreachable in
     production. This test never touches `_http_get_json` — it runs the real
-    bridge, seeds its real run registry + live-row buffer, points the scan
-    server context at the real port, and calls the real MCP tool.
+    bridge, seeds its real live-row buffer, points the scan server context at
+    the real port, and calls the real MCP tool.
     """
     from osprey.mcp_server.bluesky import server_context
     from osprey.mcp_server.bluesky.tools import read_tools
     from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
-    run = _launched_run_with_uid("uid-e2e")
-    _feed("uid-e2e", [{"x": float(i)} for i in range(5)], stop=True)
+    _feed("run-e2e", [{"x": float(i)} for i in range(5)], stop=True)
 
     monkeypatch.chdir(tmp_path)  # no config.yml in scope -> env var + defaults only
 
@@ -278,12 +251,12 @@ async def test_get_run_data_tool_end_to_end_over_real_http(
         server_context.reset_server_context()
         server_context.initialize_server_context()
         try:
-            result = await get_tool_fn(read_tools.get_run_data)(run_id=run.id, max_rows=2)
+            result = await get_tool_fn(read_tools.get_run_data)(run_id="run-e2e", max_rows=2)
         finally:
             server_context.reset_server_context()
 
     data = extract_response_dict(result)
-    assert data["run_uid"] == "uid-e2e"
+    assert data["run_uid"] is None
     assert data["rows"] == [[0.0], [1.0]]
     assert data["row_count"] == 5
     assert data["truncated"] is True

@@ -264,6 +264,7 @@ class FakeEngineSource:
     channels: list[dict[str, Any]]
     static_noisy: dict[str, Any]
     data_dir: Path
+    state_dir: Path | None = None
     setpoint_echo_records: dict[str, Any] | None = None
 
 
@@ -454,6 +455,31 @@ class TestBootOrder:
             "signals",
             "run",
         ]
+
+    def test_va_state_dir_points_engine_and_source_at_the_same_state(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path, tmp_path: Path
+    ) -> None:
+        """``VA_STATE_DIR`` is the runtime scenario-state mount, a different
+        bind-mount from the build-owned data dir. The entrypoint must hand the
+        SAME directory to the engine (which keys its state file there) and to
+        the EngineSource (which polls it) -- pointing them at different
+        directories is how a scenario switch goes silently dead."""
+        state_dir = tmp_path / "va-state"
+        state_dir.mkdir()
+        boot = _boot(monkeypatch, facility, env={"VA_STATE_DIR": str(state_dir)})
+        source = boot.engine_source()
+        assert source.state_dir == state_dir
+        source.engine.set_active_scenarios([])
+        assert (state_dir / "active_scenarios").is_file()
+
+    def test_without_va_state_dir_the_state_lives_beside_the_data(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The documented fallback: no ``VA_STATE_DIR`` means the data dir is
+        also the state dir, which is what every pre-relocation deploy shipped."""
+        boot = _boot(monkeypatch, facility)
+        source = boot.engine_source()
+        assert source.state_dir == facility
 
     def test_logging_is_configured_first(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path

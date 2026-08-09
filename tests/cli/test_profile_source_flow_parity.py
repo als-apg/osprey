@@ -439,23 +439,28 @@ def test_no_config_key_in_the_materialized_profile_prefixes_another(pair: Pair) 
 
 @pytest.mark.parametrize("preset", PERSONA_PRESETS)
 def test_emitted_persona_profiles_carry_the_guards_too(preset: str, tmp_path: Path) -> None:
-    """The siblings are profiles a facility builds from as well — but they are
-    DELTAS, so the standalone guarantees hold at the resolved layer, not in the
-    raw text: every EXPLICIT field arrives through ``extends: ../profile.yml``,
-    while the file itself owes only prefix cleanliness and provenance."""
+    """The siblings are DELTAS, so the EXPLICIT-key guarantee is the HOST's:
+    every one of those fields is written once, there, and reaches each persona
+    through the implicit merge. Defaults-synthesis deliberately does NOT run for
+    a sibling — synthesizing a loader default into a delta would pin it against
+    the host rather than inherit it. What a sibling owes for itself is the two
+    guarantees that are about the file: prefix cleanliness and provenance."""
     runner = CliRunner()
     target = tmp_path / "profile"
     _materialize(runner, target, preset)
+
+    host, _host_dir = resolve_build_profile((target / "profile.yml").resolve(), None)
+    for field in _EXPLICIT_KEYS:
+        key = _FIELD_TO_YAML.get(field, field)
+        assert getattr(host, field, None) is not None, (
+            f"host profile: EXPLICIT key {key!r} does not survive resolution"
+        )
 
     siblings = sorted((target / "personas").glob("*.yml"))
     assert siblings, f"{preset}: no persona profiles were emitted"
     for sibling in siblings:
         text = sibling.read_text()
-        resolved, _dir = resolve_build_profile(sibling.resolve(), None)
-        for field in _EXPLICIT_KEYS:
-            key = _FIELD_TO_YAML.get(field, field)
-            assert getattr(resolved, field, None) is not None, (
-                f"{sibling.name}: EXPLICIT key {key!r} does not survive resolution"
-            )
-        assert _prefix_pairs(yaml.safe_load(text).get("config") or {}) == []
+        raw = yaml.safe_load(text)
+        assert "extends" not in raw, f"{sibling.name}: a delta inherits by position, not by key"
+        assert _prefix_pairs(raw.get("config") or {}) == []
         assert "emitted by OSPREY" in text.split("\nname:")[0]

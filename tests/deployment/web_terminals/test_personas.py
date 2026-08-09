@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.deployment.web_terminals.personas import normalize_users, resolve_personas
+from osprey.deployment.web_terminals.personas import (
+    env_var_suffix,
+    env_var_suffix_collisions,
+    normalize_users,
+    resolve_personas,
+)
 
 
 def test_normalize_users_bare_strings_indexed_by_position() -> None:
@@ -863,3 +868,218 @@ def test_resolve_personas_no_persona_entry_is_seed_base_true() -> None:
 
     # Assert
     assert result[0]["seed_base"] is True
+
+
+# ---------------------------------------------------------------------------
+# Roster OIDC identity mapping (normalize_users / resolve_personas passthrough)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_users_carries_string_oidc_subject_through() -> None:
+    """An object entry's `oidc_subject` — the non-secret IdP claim value that
+    identifies this roster user — is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]
+
+
+def test_normalize_users_omits_oidc_subject_key_when_absent() -> None:
+    """A roster declaring no OIDC mapping keeps the plain two-key shape, so a
+    password-mode (or pre-auth) config normalizes exactly as it did before."""
+    # Act / Assert
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+def test_normalize_users_drops_non_string_oidc_subject() -> None:
+    """A non-string `oidc_subject` is dropped defensively; the rest of a
+    well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "oidc_subject": ["alice@example.org"]}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), oidc_subject omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_drops_empty_oidc_subject() -> None:
+    """An empty `oidc_subject` must never become a mapping: an identity whose
+    claim is missing or empty would otherwise match this roster user. Dropping
+    it leaves the user unmapped, which the OIDC callback answers with 403."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "oidc_subject": ""}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_oidc_subject_is_independent_of_the_cosmetic_fields() -> None:
+    """The identity mapping and the cosmetic per-user fields don't interfere —
+    declaring all three keeps all three."""
+    # Arrange
+    users_raw = [
+        {
+            "name": "alice",
+            "index": 0,
+            "display_name": "Operations",
+            "theme": "desy",
+            "oidc_subject": "alice@example.org",
+        }
+    ]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [
+        {
+            "name": "alice",
+            "index": 0,
+            "display_name": "Operations",
+            "theme": "desy",
+            "oidc_subject": "alice@example.org",
+        }
+    ]
+
+
+def test_resolve_personas_exposes_oidc_subject_when_set() -> None:
+    """The mapping rides through to the resolved entry, so the sidecar's roster
+    context reads it off the same object as every other per-user field."""
+    # Arrange
+    web_terminals = {"users": [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["oidc_subject"] == "alice@example.org"
+
+
+def test_resolve_personas_oidc_subject_threads_through_persona_branch() -> None:
+    """The passthrough is not confined to the zero-migration path — a user
+    resolved through a catalog persona keeps its mapping too."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "alice", "index": 0, "persona": "gui", "oidc_subject": "alice@example.org"}
+        ],
+        "personas": {"gui": {"project": "als-gui"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["persona"] == "gui"
+    assert result[0]["oidc_subject"] == "alice@example.org"
+
+
+def test_resolve_personas_omits_oidc_subject_key_when_unset() -> None:
+    """A roster with no OIDC mapping resolves byte-identically to before the
+    field existed — no `oidc_subject: None` key appears."""
+    # Act
+    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
+
+    # Assert
+    assert "oidc_subject" not in result[0]
+
+
+# ---------------------------------------------------------------------------
+# env_var_suffix() / env_var_suffix_collisions()
+# ---------------------------------------------------------------------------
+
+
+def test_env_var_suffix_uppercases_and_maps_dashes_to_underscores() -> None:
+    """The one definition of how a username keys its per-user env vars."""
+    # Act / Assert
+    assert env_var_suffix("alice") == "ALICE"
+    assert env_var_suffix("alice-b") == "ALICE_B"
+    assert env_var_suffix("Alice-B-C") == "ALICE_B_C"
+
+
+def test_env_var_suffix_leaves_already_conforming_names_untouched() -> None:
+    """Idempotent on its own output — an already-uppercase, underscored name is
+    returned unchanged, so re-keying an existing entry can't drift."""
+    # Arrange
+    once = env_var_suffix("alice-b")
+
+    # Act / Assert
+    assert env_var_suffix(once) == once
+
+
+def test_env_var_suffix_is_total_and_does_not_validate_charset() -> None:
+    """Charset enforcement belongs to the preflight raise and lint, not here —
+    this helper maps whatever it is given rather than raising."""
+    # Act / Assert
+    assert env_var_suffix("") == ""
+    assert env_var_suffix("alice.b") == "ALICE.B"
+
+
+def test_env_var_suffix_collisions_reports_names_sharing_one_suffix() -> None:
+    """`alice-b` and `alice_b` both key OSPREY_AUTH_PW_HASH_ALICE_B — without
+    this check one user's password would open the other's terminal."""
+    # Act
+    result = env_var_suffix_collisions(["alice-b", "alice_b", "carol"])
+
+    # Assert
+    assert result == {"ALICE_B": ["alice-b", "alice_b"]}
+
+
+def test_env_var_suffix_collisions_empty_for_an_unambiguous_roster() -> None:
+    """A roster whose usernames map one-to-one reports nothing."""
+    # Act / Assert
+    assert env_var_suffix_collisions(["alice", "bob", "carol"]) == {}
+    assert env_var_suffix_collisions([]) == {}
+
+
+def test_env_var_suffix_collisions_ignores_case_only_and_repeated_names() -> None:
+    """A verbatim-repeated name is one user listed twice (a duplicate-name error
+    reported separately), not two users sharing a credential — while names
+    differing only in case really do collide onto one suffix."""
+    # Act / Assert
+    assert env_var_suffix_collisions(["alice", "alice"]) == {}
+    assert env_var_suffix_collisions(["alice", "Alice"]) == {"ALICE": ["Alice", "alice"]}
+
+
+def test_env_var_suffix_collisions_output_is_sorted_for_stable_messages() -> None:
+    """Suffix keys and the names under each are sorted, so a lint or preflight
+    message built from this reads the same across runs."""
+    # Act
+    result = env_var_suffix_collisions(["zed_x", "b-1", "zed-x", "b_1"])
+
+    # Assert
+    assert list(result) == ["B_1", "ZED_X"]
+    assert result == {"B_1": ["b-1", "b_1"], "ZED_X": ["zed-x", "zed_x"]}
+
+
+def test_env_var_suffix_collisions_ignores_non_string_entries() -> None:
+    """Drop-don't-raise, like the rest of this module: a malformed roster entry
+    that slipped through can't crash the collision check."""
+    # Act
+    result = env_var_suffix_collisions(["alice-b", None, 7, "alice_b"])  # type: ignore[list-item]
+
+    # Assert
+    assert result == {"ALICE_B": ["alice-b", "alice_b"]}
+
+
+def test_env_var_suffix_collisions_consumes_normalize_users_names() -> None:
+    """The intended call shape: the names off a normalized roster, so callers
+    holding entry dicts (lint, credential provisioning) share one check."""
+    # Arrange
+    users = normalize_users(["alice-b", {"name": "alice_b", "index": 4}, "bob"])
+
+    # Act
+    result = env_var_suffix_collisions(entry["name"] for entry in users)
+
+    # Assert
+    assert result == {"ALICE_B": ["alice-b", "alice_b"]}

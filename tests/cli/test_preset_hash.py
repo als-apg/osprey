@@ -145,7 +145,13 @@ def test_generate_manifest_records_both_profile_path_forms(tmp_path, monkeypatch
 
 
 def test_generate_manifest_omits_absolute_path_when_build_gave_none(tmp_path):
-    """A --preset build has no profile path to resolve; the key stays absent."""
+    """No ``profile_path_abs`` in the context means no key in the manifest.
+
+    Every real build now names a profile — a ``--preset`` build the one it
+    materializes — so this is the degraded case, not the ``--preset`` case: a
+    caller that could not resolve the path leaves the key out rather than
+    recording a guess the deploy side would follow.
+    """
     from osprey.cli.templates import manifest as manifest_mod
 
     project_dir = tmp_path / "proj"
