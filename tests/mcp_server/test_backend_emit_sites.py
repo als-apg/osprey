@@ -1,6 +1,6 @@
 """Agent-activity emit sites for backend-direct tools.
 
-Verifies that channel_write, launch_run, and the artifact focus tools report
+Verifies that channel_write, the bluesky queue tools, and the artifact focus tools report
 agent activity via ``notify_agent_activity`` — and, just as important, that
 refusal paths emit NOTHING and that tool results are unchanged when the web
 terminal is down.
@@ -26,7 +26,7 @@ from tests.mcp_server.conftest import (
 pytestmark = pytest.mark.unit
 
 _CW_MOD = "osprey.mcp_server.control_system.tools.channel_write"
-_LAUNCH_MOD = "osprey.mcp_server.bluesky.tools.launch"
+_QUEUE_MOD = "osprey.mcp_server.bluesky.tools.queue"
 _FOCUS_MOD = "osprey.mcp_server.workspace.tools.focus_tools"
 
 
@@ -223,7 +223,7 @@ async def test_channel_write_full_success_single_emit(tmp_path, monkeypatch):
     assert notify.call_args.kwargs["detail"] == "SR01:HCM1:SP"
 
 
-# ── launch_run ──────────────────────────────────────────────────────────────
+# ── bluesky queue tools ─────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -241,43 +241,58 @@ def _bluesky_context(tmp_path, monkeypatch):
     reset_server_context()
 
 
-def _get_launch_run():
-    from osprey.mcp_server.bluesky.tools import launch
+def _get_queue_tool(name: str):
+    from osprey.mcp_server.bluesky.tools import queue
 
-    return get_tool_fn(launch.launch_run)
+    return get_tool_fn(getattr(queue, name))
 
 
-async def test_launch_run_success_emits_run_id(_bluesky_context):
-    body = {"id": "abc123", "status": "running", "launched_by": "draft"}
+async def test_queue_add_success_emits_run_id(_bluesky_context):
+    body = {"run_id": "abc123", "revision": 7, "item": {"item_uid": "u1"}}
     with (
-        patch(f"{_LAUNCH_MOD}._http_post_json", return_value=(200, body)),
-        patch(f"{_LAUNCH_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, body)),
+        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
     ):
-        result = await _get_launch_run()(draft_revision=7)
+        result = await _get_queue_tool("queue_add")(draft_revision=7)
 
     data = extract_response_dict(result)
-    assert data["status"] == "running"
+    assert data["run_id"] == "abc123"
     assert notify.call_count == 1
-    assert notify.call_args.args[:2] == ("launch_run", "run")
+    assert notify.call_args.args[:2] == ("queue_add", "run")
     assert notify.call_args.kwargs["detail"] == "abc123"
 
 
-async def test_launch_run_failure_no_emit(_bluesky_context):
+async def test_queue_add_failure_no_emit(_bluesky_context):
     with (
         patch(
-            f"{_LAUNCH_MOD}._http_post_json",
-            return_value=(500, {"detail": "launch failed: boom"}),
+            f"{_QUEUE_MOD}._http_post_json",
+            return_value=(500, {"detail": "enqueue failed: boom"}),
         ),
-        patch(f"{_LAUNCH_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
     ):
         with assert_raises_error(error_type="bluesky_bridge_error"):
-            await _get_launch_run()(draft_revision=7)
+            await _get_queue_tool("queue_add")(draft_revision=7)
 
     notify.assert_not_called()
 
 
-async def test_launch_run_refusal_no_emit(_bluesky_context, monkeypatch):
-    """Client-side refusal (no token) never reaches the emit site."""
+async def test_queue_start_success_emits(_bluesky_context):
+    with (
+        patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})),
+        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+    ):
+        await _get_queue_tool("queue_start")()
+
+    assert notify.call_count == 1
+    assert notify.call_args.args[:2] == ("queue_start", "run")
+
+
+async def test_queue_start_client_side_refusal_no_emit(_bluesky_context, monkeypatch):
+    """A client-side refusal (no token) never reaches the emit site.
+
+    ``queue_start`` refuses before any HTTP call when this server holds no
+    launch token, so neither the bridge nor the activity emitter is touched.
+    """
     from osprey.mcp_server.bluesky.server_context import (
         initialize_server_context,
         reset_server_context,
@@ -288,11 +303,11 @@ async def test_launch_run_refusal_no_emit(_bluesky_context, monkeypatch):
     initialize_server_context()
 
     with (
-        patch(f"{_LAUNCH_MOD}._http_post_json") as post,
-        patch(f"{_LAUNCH_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}._http_post_json") as post,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
     ):
-        with assert_raises_error(error_type="run_launch_unarmed"):
-            await _get_launch_run()(draft_revision=7)
+        with assert_raises_error(error_type="launch_token_required"):
+            await _get_queue_tool("queue_start")()
 
     post.assert_not_called()
     notify.assert_not_called()

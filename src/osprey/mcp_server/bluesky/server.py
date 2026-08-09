@@ -2,7 +2,7 @@
 
 FastMCP server exposing Bluesky plan/run control as a thin HTTP client of the
 facility-side Bluesky bridge: list plans, check run status, stage a shared
-plan draft, launch a run from that draft, stop a run, and author
+plan draft, queue that draft and start the queue, stop a run, and author
 (write_plan) plus validate (validate_plan) a session-tier plan
 file. A Bluesky plan is an arbitrary generator (count, mv, scan, grid_scan,
 custom acquisition routines) — nothing here is scan-specific. This module and
@@ -23,10 +23,11 @@ mcp = FastMCP(
     "bluesky",
     instructions=(
         "Drive Bluesky plans through the facility Bluesky bridge: list available "
-        "plans, check run status, stage a shared plan draft, "
-        "launch a run from that draft, "
-        "and stop a running run. A plan is any Bluesky generator (count, mv, "
-        "scan, grid_scan, custom) — not only scans."
+        "plans, check run status, stage a shared plan draft, then execute in two "
+        "steps — add the draft to the queue, and start the queue draining. "
+        "Check queue_status first: a browse-only deployment can compose and "
+        "validate plans but never execute them. A plan is any Bluesky generator "
+        "(count, mv, scan, grid_scan, custom) — not only scans."
     ),
 )
 
@@ -57,7 +58,7 @@ def create_server() -> FastMCP:
         from osprey.mcp_server.bluesky.tools import (  # noqa: F401
             authoring,
             draft,
-            launch,
+            queue,
             read_tools,
             stop,
         )

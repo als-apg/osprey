@@ -2,8 +2,8 @@
 
 Each tool is a thin HTTP client of one endpoint of the facility-side Bluesky
 bridge. All four are safe to call without operator approval
-(``permissions_allow``) — none of them can start motion; ``launch_run``
-is the sole write path.
+(``permissions_allow``) — none of them can start motion; ``queue_start`` is
+the sole path by which execution begins.
 
 ==========================  =================================================
 Tool                        Bridge endpoint
@@ -43,18 +43,40 @@ from osprey.mcp_server.errors import make_error
 async def get_run(run_id: str) -> str:
     """Get one run's current lifecycle status.
 
-    A run is the committed record of a launched draft. Its lifecycle runs
+    A run is a queued item seen from the run side: the manager's queue,
+    running item and history, keyed by the OSPREY run id. Its lifecycle runs
     ``pending`` -> ``running`` -> ``completed`` | ``stopped`` | ``error``.
 
     Args:
-        run_id: Run id returned by launch_run or list_runs.
+        run_id: Run id returned by queue_add or list_runs.
 
     Returns:
-        JSON run record: ``{"id", "status", "tiled_degraded", ["completion"],
-        ["launched_by"], ["run_uid"], ["error"]}``. ``status`` is one of "pending",
-        "running", "completed", "stopped", "error". ``tiled_degraded`` is True when
-        durable persistence to Tiled failed for this run; False when healthy or when
-        Tiled is not deployed.
+        JSON run record. Four keys are always present: ``"id"`` (this run id),
+        ``"status"`` (exactly one of "pending", "running", "completed",
+        "stopped", "error"), ``"plan_name"``, and ``"plan_args"`` (the plan's
+        parameter fields, ``{}`` when it takes none).
+
+        Four more appear only when they are true of this run:
+        ``"item_uid"`` (the queue item's handle), ``"run_uid"`` (the
+        acquisition's own uid, ABSENT while pending or running because it does
+        not exist until the worker starts the plan — read that as "not yet",
+        never as "unknown"), ``"error"`` (present if and only if status is
+        "error", explaining what the manager reported), and ``"progress"``
+        (``{"rows_seen", "expected_points", "fraction", "complete"}``, ABSENT
+        when nothing is known — never a fabricated 0%; ``"fraction"`` is null
+        whenever the total point count cannot be derived, which is common for
+        agent-authored plans, so report it as "N points so far" rather than a
+        percentage).
+
+        "stopped" means a human stopped it, by any route. An item that left the
+        queue without a cleanly recorded finish reads as "error" by design, so
+        an unrecognized ending is never mistaken for a successful scan.
+
+    Refusals:
+        - unknown_run: this run id is not in the manager's queue or its
+          retained history — typically rotated out of history. Note this does
+          NOT mean the run's data is gone: get_run_data can still serve that
+          same id from durable storage, so never infer "no data" from this.
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, f"/runs/{run_id}")
     if status == 404:
@@ -78,7 +100,7 @@ async def list_plans() -> str:
     ``unreviewed``, ascending ephemerality). Use these to prefer a
     higher-provenance plan and to check ``required_devices``/``writes``
     before staging a plan into the draft (set_draft) for a future
-    ``launch_run``.
+    ``queue_add``.
 
     Returns:
         JSON ``{"status": "success", "plans": [...]}``, each entry shaped
@@ -97,7 +119,13 @@ async def list_plans() -> str:
 # ---------------------------------------------------------------------------
 @mcp.tool()
 async def list_runs(limit: int = 20) -> str:
-    """List this bridge process's tracked runs, newest first.
+    """List runs the queue knows about — queued, running and recent — newest first.
+
+    Covers what OSPREY enqueued: an item put on the queue by some other route,
+    without an OSPREY run id, is absent from this list entirely. queue_list is
+    the complete view of what the manager actually holds, so reach for that
+    when the question is "what is this machine about to do" rather than "what
+    did I start".
 
     Args:
         limit: Maximum number of runs to return (the bridge clamps this to
@@ -128,7 +156,7 @@ async def get_run_data(
     the run's *true* total vs. what this window actually returned.
 
     Args:
-        run_id: Run id returned by launch_run or list_runs.
+        run_id: Run id returned by queue_add or list_runs.
         max_rows: Maximum number of rows to return (bridge-enforced cap).
         offset: Row offset to start from (``None`` = start from the
             beginning, or from the end if ``tail`` is true).
@@ -139,7 +167,14 @@ async def get_run_data(
         JSON ``{"run_uid", "columns", "rows", "row_count", "truncated"[,
         "partial"]}``. ``partial: true`` means the run is still in progress
         and more rows will arrive; an empty/never-started buffer returns
-        ``{"columns": [], "rows": []}``.
+        ``{"columns": [], "rows": []}``. ``run_uid`` is always present as a key
+        but is null when the rows came from the live buffer, and populated when
+        they came from durable storage — a null there says which path served
+        the read, not that anything is missing.
+
+        Readable for runs get_run no longer knows about: a run rotated out of
+        the manager's history still has its data, so a 404 from get_run is
+        never a reason to skip reading here.
     """
     params = f"max_rows={max_rows}"
     if offset is not None:
@@ -149,15 +184,6 @@ async def get_run_data(
     status, body = await anyio.to_thread.run_sync(_http_get_json, f"/runs/{run_id}/data?{params}")
     if status == 404:
         return make_error("unknown_run", bridge_error_message(body, status), UNKNOWN_RUN_HINTS)
-    if status == 409:
-        return make_error(
-            "run_data_not_ready",
-            bridge_error_message(body, status),
-            [
-                "The run has not started yet, so there is no run_uid to read data for.",
-                "Check get_run; data becomes readable once the run is launched and running.",
-            ],
-        )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
     return json.dumps(body)

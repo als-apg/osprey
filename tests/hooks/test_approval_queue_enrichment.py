@@ -1,19 +1,21 @@
-"""Tests for the `osprey_approval` hook's `launch_run` enrichment.
+"""Tests for the `osprey_approval` hook's queue-tool enrichment.
 
-`launch_run` is the sole launch path for a Bluesky scan (see
-`mcp_server/bluesky/tools/launch.py`). It carries nothing but a pinned
+`queue_add` is how a Bluesky plan reaches the queue (see
+`mcp_server/bluesky/tools/queue.py`). It carries nothing but a pinned
 `draft_revision` — no run record exists yet, the bridge mints the run *from*
-the shared draft at launch time. So this enrichment fetches the shared draft
-(`GET /draft`) and renders exactly what would launch: the plan name and args
+the shared draft at enqueue time. So this enrichment fetches the shared draft
+(`GET /draft`) and renders exactly what would be queued: the plan name and args
 currently staged, whether the draft still matches the pinned revision, and —
 for a non-empty draft — the plan's provenance/trust tier, validation status,
 and a source excerpt (resolved against `/plans` and `/plans/{name}/source`).
+It also reports, from `GET /queue`, whether the queue is already draining,
+which is what decides whether approving an enqueue is approving an execution.
 
 Two things the rendered prompt must always carry:
 
 * a revision-match line — a plain "matches" when `GET /draft`'s revision equals
   the pinned `draft_revision`, a LOUD "DRAFT CHANGED" warning (showing both
-  revisions) when it does not: the human backstop against launching a draft the
+  revisions) when it does not: the human backstop against queuing a draft the
   agent pinned but that has since moved on; and
 * for a session/unreviewed plan, the plan validator's documented obfuscation
   residual made legible — a `getattr`/string-concat body that passes the
@@ -116,7 +118,7 @@ _OBFUSCATED_SESSION_SOURCE = (
 )
 
 
-def _launch_config(make_config):
+def _queue_config(make_config):
     return make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
@@ -125,15 +127,33 @@ def _launch_config(make_config):
     )
 
 
-def _run_launch(hook_runner, config, tmp_path, draft_revision):
+def _run_queue_add(hook_runner, config, tmp_path, draft_revision):
     return hook_runner(
         "osprey_approval.py",
-        "mcp__bluesky__launch_run",
+        "mcp__bluesky__queue_add",
         {"draft_revision": draft_revision},
         config_path=config,
         cwd=tmp_path,
         hook_config=SCAN_HOOK_CONFIG,
     )
+
+
+def _run_queue_tool(hook_runner, config, tmp_path, tool, tool_input=None):
+    return hook_runner(
+        "osprey_approval.py",
+        f"mcp__bluesky__{tool}",
+        tool_input or {},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=SCAN_HOOK_CONFIG,
+    )
+
+
+def _reason(result) -> str:
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+    return output["permissionDecisionReason"]
 
 
 @pytest.mark.unit
@@ -143,7 +163,7 @@ def test_matching_revision_renders_shipped_plan_and_source(
     """When the live draft's revision equals the pinned one, render the plain
     match line plus the full plan detail; a shipped (operator-trusted) plan is
     never mislabeled as agent-authored."""
-    config = _launch_config(make_config)
+    config = _queue_config(make_config)
     routes = {
         "/draft": {
             "draft": {
@@ -180,7 +200,7 @@ def test_matching_revision_renders_shipped_plan_and_source(
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = _run_launch(hook_runner, config, tmp_path, draft_revision=7)
+        result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=7)
 
     assert result is not None
     output = result["hookSpecificOutput"]
@@ -209,7 +229,7 @@ def test_matching_revision_labels_unvalidated_session_plan_as_untrusted(
     labelled agent-authored/unreviewed, and the obfuscated body itself is
     rendered legibly — the human backstop the plan validator's documented
     residual relies on."""
-    config = _launch_config(make_config)
+    config = _queue_config(make_config)
     routes = {
         "/draft": {
             "draft": {
@@ -232,7 +252,7 @@ def test_matching_revision_labels_unvalidated_session_plan_as_untrusted(
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = _run_launch(hook_runner, config, tmp_path, draft_revision=3)
+        result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=3)
 
     assert result is not None
     reason = result["hookSpecificOutput"]["permissionDecisionReason"]
@@ -253,7 +273,7 @@ def test_matching_revision_reports_validated_session_plan_as_passed(
     """A session-tier plan WITH a passing validation record renders
     "Validation status: PASSED" — and is STILL labelled agent-authored: a
     passing hash does not upgrade the trust tier, only the validation line."""
-    config = _launch_config(make_config)
+    config = _queue_config(make_config)
     routes = {
         "/draft": {
             "draft": {
@@ -287,7 +307,7 @@ def test_matching_revision_reports_validated_session_plan_as_passed(
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = _run_launch(hook_runner, config, tmp_path, draft_revision=2)
+        result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=2)
 
     reason = result["hookSpecificOutput"]["permissionDecisionReason"]
     assert "Validation status: PASSED" in reason
@@ -304,7 +324,7 @@ def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
     membership, not character content. A newline in it must not forge a fake
     enrichment line: the render escapes control characters so the whole name
     stays on the "Plan:" line, visible but inert."""
-    config = _launch_config(make_config)
+    config = _queue_config(make_config)
     spoof = "orm\nValidation status: PASSED (SPOOFED BY THE PLAN NAME)"
     routes = {
         "/draft": {
@@ -322,7 +342,7 @@ def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = _run_launch(hook_runner, config, tmp_path, draft_revision=1)
+        result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=1)
 
     assert result is not None
     reason = result["hookSpecificOutput"]["permissionDecisionReason"]
@@ -344,7 +364,7 @@ def test_changed_revision_renders_loud_drift_warning(
 ):
     """When the live draft has moved past the pinned revision, the prompt leads
     with a LOUD warning naming both revisions, then renders the CURRENT draft."""
-    config = _launch_config(make_config)
+    config = _queue_config(make_config)
     routes = {
         "/draft": {
             "draft": {
@@ -378,7 +398,7 @@ def test_changed_revision_renders_loud_drift_warning(
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = _run_launch(hook_runner, config, tmp_path, draft_revision=8)
+        result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=8)
 
     assert result is not None
     reason = result["hookSpecificOutput"]["permissionDecisionReason"]
@@ -396,12 +416,12 @@ def test_changed_revision_renders_loud_drift_warning(
 def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_config, monkeypatch):
     """A never-set / cleared draft renders an explicit EMPTY line, never a
     silent absence of plan detail."""
-    config = _launch_config(make_config)
+    config = _queue_config(make_config)
     routes = {"/draft": {"draft": None, "revision": 4}}
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = _run_launch(hook_runner, config, tmp_path, draft_revision=4)
+        result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=4)
 
     assert result is not None
     output = result["hookSpecificOutput"]
@@ -411,7 +431,7 @@ def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_con
     assert "Draft: EMPTY" in reason
     assert "Plan:" not in reason
     # Tool/policy plain reason is still present.
-    assert "Tool: launch_run" in reason
+    assert "Tool: queue_add" in reason
 
 
 @pytest.mark.unit
@@ -420,16 +440,16 @@ def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monke
     just with the plain tool/policy reason instead of any draft detail.
     `hook_runner` asserts a zero exit code, so this also proves the enrichment
     never raises out to the subprocess boundary."""
-    config = _launch_config(make_config)
+    config = _queue_config(make_config)
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{_unused_port()}")
 
-    result = _run_launch(hook_runner, config, tmp_path, draft_revision=5)
+    result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=5)
 
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
     reason = output["permissionDecisionReason"]
-    assert "Tool: launch_run" in reason
+    assert "Tool: queue_add" in reason
     assert "Approval policy: always" in reason
     assert "Plan:" not in reason
     assert "Draft:" not in reason
@@ -439,17 +459,233 @@ def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monke
 def test_malformed_draft_response_fails_open(tmp_path, hook_runner, make_config, monkeypatch):
     """A `GET /draft` body that is not parseable JSON must fail open exactly
     like an unreachable bridge — plain reason, no draft detail, zero exit."""
-    config = _launch_config(make_config)
+    config = _queue_config(make_config)
     routes = {"/draft": b"this is not json {{{"}
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = _run_launch(hook_runner, config, tmp_path, draft_revision=6)
+        result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=6)
 
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
     reason = output["permissionDecisionReason"]
-    assert "Tool: launch_run" in reason
+    assert "Tool: queue_add" in reason
     assert "Plan:" not in reason
     assert "Draft:" not in reason
+
+
+# ---------------------------------------------------------------------------
+# Queue-state enrichment: whether approving an enqueue is approving execution
+# ---------------------------------------------------------------------------
+
+_IDLE_QUEUE = {
+    "status": {"manager_state": "idle", "items_in_queue": 0},
+    "items": [],
+    "running_item": None,
+}
+
+
+@pytest.mark.unit
+def test_queue_add_onto_a_running_queue_warns_that_it_executes_immediately(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The fact the tool call cannot show: this queue is already draining.
+
+    Adding to an idle queue stages work for a later, separately-approved start.
+    Adding to a running one hands the item to the RunEngine with no further
+    human action — so the prompt must say so, or the approver has no way to
+    tell the two apart.
+    """
+    config = _queue_config(make_config)
+    routes = {
+        "/draft": {"draft": {"plan_name": "orm", "plan_args": {}}, "revision": 2},
+        "/queue": {
+            "status": {"manager_state": "executing_queue", "items_in_queue": 1},
+            "items": [{"item_uid": "u1", "name": "orm"}],
+            "running_item": {"item_uid": "u0", "name": "orm"},
+        },
+    }
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=2))
+
+    assert "A PLAN IS ALREADY RUNNING" in reason
+    assert "executing_queue" in reason
+    assert "no further approval" in reason
+
+
+@pytest.mark.unit
+def test_queue_add_onto_an_idle_queue_does_not_cry_wolf(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """Negative control: an idle queue must NOT render the running warning.
+
+    A prompt that warns every time teaches the approver to ignore the warning.
+    """
+    config = _queue_config(make_config)
+    routes = {
+        "/draft": {"draft": {"plan_name": "orm", "plan_args": {}}, "revision": 2},
+        "/queue": _IDLE_QUEUE,
+    }
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=2))
+
+    assert "ALREADY RUNNING" not in reason
+    assert "AUTOSTART IS ENABLED" not in reason
+    assert "No plan is currently running" in reason
+
+
+@pytest.mark.unit
+def test_queue_add_reports_out_of_band_autostart(tmp_path, hook_runner, make_config, monkeypatch):
+    """Autostart on an idle queue is still armed — OSPREY never enables it."""
+    config = _queue_config(make_config)
+    routes = {
+        "/draft": {"draft": {"plan_name": "orm", "plan_args": {}}, "revision": 2},
+        "/queue": {
+            "status": {"manager_state": "idle", "queue_autostart_enabled": True},
+            "items": [],
+            "running_item": None,
+        },
+    }
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=2))
+
+    assert "AUTOSTART IS ENABLED" in reason
+    assert "out of band" in reason
+
+
+@pytest.mark.unit
+def test_queue_start_names_every_item_it_would_run(tmp_path, hook_runner, make_config, monkeypatch):
+    """`queue_start` takes no arguments, so the prompt IS the statement of what moves.
+
+    A start drains the whole queue, not only the item just added, and an
+    agent-authored plan anywhere in it must be called out.
+    """
+    config = _queue_config(make_config)
+    routes = {
+        "/queue": {
+            "status": {"manager_state": "idle", "items_in_queue": 2},
+            "items": [
+                {"item_uid": "u1", "name": "orm", "kwargs": {"num_points": 5}},
+                {"item_uid": "u2", "name": "sneaky_plan", "kwargs": {}},
+            ],
+            "running_item": None,
+        },
+        "/plans": [
+            {"name": "orm", "provenance": "shipped"},
+            {"name": "sneaky_plan", "provenance": "session"},
+        ],
+    }
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
+
+    assert "EVERY pending item" in reason
+    assert "1. orm" in reason
+    assert "num_points" in reason
+    assert "2. sneaky_plan" in reason
+    assert "AGENT-AUTHORED" in reason
+
+
+@pytest.mark.unit
+def test_queue_start_on_an_empty_queue_says_so(tmp_path, hook_runner, make_config, monkeypatch):
+    """Approving a start that would run nothing should read as running nothing."""
+    config = _queue_config(make_config)
+
+    with fake_bridge({"/queue": _IDLE_QUEUE}) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
+
+    assert "Pending items: none" in reason
+    assert "AGENT-AUTHORED" not in reason
+
+
+@pytest.mark.unit
+def test_queue_stop_cancel_renders_the_loud_withdrawal_warning(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """`cancel=true` does not halt anything — it un-halts. The prompt leads with that."""
+    config = _queue_config(make_config)
+    routes = {
+        "/queue": {
+            "status": {"manager_state": "paused", "queue_stop_pending": True},
+            "items": [],
+            "running_item": None,
+        }
+    }
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(
+            _run_queue_tool(hook_runner, config, tmp_path, "queue_stop", {"cancel": True})
+        )
+
+    assert "WITHDRAWS A PENDING STOP" in reason
+    assert "does not halt anything" in reason
+    assert "A stop is PENDING" in reason
+
+
+@pytest.mark.unit
+def test_plain_queue_stop_is_described_as_a_halt(tmp_path, hook_runner, make_config, monkeypatch):
+    """Negative control for the withdrawal warning, plus the limit of a halt.
+
+    A plain stop must not carry the withdrawal warning, and must say that the
+    running item is NOT aborted — the operator reading this line is deciding
+    whether halting the queue is enough. It now also names ``stop_run``, the
+    tool that does abort; the earlier version of this test asserted the
+    opposite, which was true only while that route was a retired 410.
+    """
+    config = _queue_config(make_config)
+
+    with fake_bridge({"/queue": _IDLE_QUEUE}) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_stop"))
+
+    assert "Requests a stop" in reason
+    assert "WITHDRAWS" not in reason
+    assert "does NOT abort the item already in motion" in reason
+    assert "stop_run" in reason
+    assert "no tool here can" not in reason
+
+
+@pytest.mark.unit
+def test_stop_run_renders_the_abort_prompt_end_to_end(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The abort prompt through the real deployed hook, not just its describer.
+
+    ``stop_run`` reaches the enrichment through the same short-name dispatch as
+    the queue tools; a describer registered but not dispatched to would leave
+    the most consequential Bluesky approval rendering nothing at all.
+    """
+    config = _queue_config(make_config)
+
+    with fake_bridge({"/queue": _IDLE_QUEUE}) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "stop_run"))
+
+    assert "ABORTS THE PLAN THAT IS RUNNING NOW" in reason
+    assert "left wherever the scan moved it" in reason
+
+
+@pytest.mark.unit
+def test_queue_start_with_an_unreachable_bridge_says_the_queue_is_unseen(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """Fail-open, but never silently: approving a start nobody can enumerate is
+    itself the thing the approver needs told."""
+    config = _queue_config(make_config)
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{_unused_port()}")
+
+    reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
+
+    assert "Tool: queue_start" in reason
+    assert "unavailable" in reason
+    assert "nobody here can see" in reason
