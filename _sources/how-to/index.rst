@@ -179,7 +179,14 @@ Bundled Services & Tutorials
       :link-type: doc
 
       Ask the Osprey agent to compose an n-dimensional grid scan, watch it fill
-      the PLAN panel live, then Execute and watch points land in SCAN RESULTS.
+      the PLAN panel live, then queue it and watch points land in BLUESKY.
+
+   .. grid-item-card:: Run Scans Through the Queue
+      :link: run-scan-queue
+      :link-type: doc
+
+      How scans execute: the two-step add-then-start flow, what is armed, how
+      to read a refusal, and the difference between stopping and aborting.
 
 .. seealso::
 
@@ -210,4 +217,5 @@ Bundled Services & Tutorials
    ariel/index
    use-virtual-accelerator
    agent-assisted-grid-scan
+   run-scan-queue
    /cli-reference/index

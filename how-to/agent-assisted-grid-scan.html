@@ -60,12 +60,12 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="CLI Reference" href="../cli-reference/index.html" />
+    <link rel="next" title="Run Scans Through the Queue" href="run-scan-queue.html" />
     <link rel="prev" title="Use the Virtual Accelerator" href="use-virtual-accelerator.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 08, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 09, 2026"/>
   </head>
   
   
@@ -417,6 +417,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Agent-Assisted Grid Scan Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-scan-queue.html">Run Scans Through the Queue</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -482,23 +483,23 @@
 <h1>Agent-Assisted Grid Scan Tutorial<a class="headerlink" href="#agent-assisted-grid-scan-tutorial" title="Link to this heading">#</a></h1>
 <p>How to ask the OSPREY agent to set up an n-dimensional <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code>, watch
 the <strong>PLAN</strong> panel fill in live as it works, review and adjust the result by
-hand, then Launch and watch points land in <strong>SCAN RESULTS</strong> — all on the
-Virtual Accelerator.</p>
+hand, then add it to the queue and watch points land in <strong>BLUESKY</strong> — all on
+the Virtual Accelerator.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p class="sd-card-text">Flipping one config line so the demo’s scan can actually run</p></li>
 <li><p class="sd-card-text">Asking the agent for a 2-D corrector grid scan in operator language</p></li>
 <li><p class="sd-card-text">How the PLAN panel binds to the agent’s shared draft and flashes the
 fields it fills</p></li>
 <li><p class="sd-card-text">Adjusting a field by hand mid-draft — and why that’s safe with no arming</p></li>
-<li><p class="sd-card-text">What launching actually runs, and where points show up</p></li>
+<li><p class="sd-card-text">Why running is two steps — add to the queue, then start it — and where
+points show up</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> the Control Assistant tutorial project (see
 <a class="reference internal" href="../getting-started/control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a>) with the bluesky scan stack
-enabled, and the Virtual Accelerator container (see
-<a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>).</p>
+enabled. The Virtual Accelerator ships as part of that stack and is the
+tutorial’s default connector — see <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 </div>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
@@ -507,26 +508,25 @@ enabled, and the Virtual Accelerator container (see
 single <strong>shared draft</strong> held on the Bluesky bridge. The human’s PLAN panel
 binds to that same draft: every field the agent sets is broadcast over SSE
 and glows in the panel as it lands, and any field the human edits by hand
-flows back into the same draft the agent sees. Pressing <strong>Launch plan</strong>
-launches exactly the draft revision the panel last showed — nothing the
-agent or the human can’t see.</p>
+flows back into the same draft the agent sees. Pressing <strong>Add to queue</strong>
+queues exactly the draft revision the panel last showed — nothing the agent
+or the human can’t see — and a second, deliberate <strong>Start queue</strong> is what
+begins real motion.</p>
 </section>
 <section id="prerequisites">
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h2>
-<p>The mock connector (the tutorial’s default) can’t run a scan — it doesn’t
-settle-wait a corrector’s readback against its setpoint, which every scan
-plan needs between grid points. Point the tutorial at the Virtual
-Accelerator instead, which does:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>virtual_accelerator
-osprey<span class="w"> </span>deploy<span class="w"> </span>up
-</pre></div>
+<p>Nothing to configure. The Control Assistant preset ships the whole scan stack
+enabled — the bluesky MCP server, the PLAN and BLUESKY panels, the queue
+server, and the Virtual Accelerator soft-IOC — and <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> is
+its default connector, so correctors move and BPMs respond out of the box.
+Build and deploy the tutorial project as usual and you are ready.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If your project has been pointed at the <code class="docutils literal notranslate"><span class="pre">mock</span></code> connector, scans are
+<strong>browse-only</strong> there: plans compose and validate, but the queue refuses to
+hold them, and the panels say so in a banner naming the command that flips
+back. See <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 </div>
-<p>That’s the only configuration change — the second command re-stages it so the
-already-running services pick it up. The soft-IOC itself ships as part of the
-stack, so there is no separate container to start; see
-<a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a> for the details. Everything else (the bluesky
-MCP server, the PLAN and SCAN RESULTS panels) ships enabled in the Control
-Assistant preset.</p>
 </section>
 <section id="ask-the-agent">
 <h2>Ask the agent<a class="headerlink" href="#ask-the-agent" title="Link to this heading">#</a></h2>
@@ -558,7 +558,7 @@ the panel binds to the waiting draft automatically.</p>
 <p>An <em>unbound</em> panel never silently jumps to a plan you weren’t already
 looking at — binding always takes your click or selection. Once bound, the
 panel does follow the draft if the agent switches it to a different
-plan, so what you are looking at always matches what a Launch would send.</p>
+plan, so what you are looking at always matches what an Add would queue.</p>
 </div>
 <p>Once bound, a <strong>Draft bound</strong> indicator appears next to a <strong>Discard</strong>
 button, and every field the agent set (or sets from here) glows briefly as
@@ -571,38 +571,55 @@ shared draft (a small delta patch, not a full replace), so the agent’s next
 <code class="docutils literal notranslate"><span class="pre">get_draft</span></code> sees exactly what you changed. Draft editing — by either
 side — never requires arming.</p>
 </section>
-<section id="launch">
-<h2>Launch<a class="headerlink" href="#launch" title="Link to this heading">#</a></h2>
-<p>Once the plan validates, click <strong>Launch plan</strong>, then <strong>Confirm launch</strong>.
-This launches the <em>exact draft revision the panel just showed you</em>: the
-panel flushes any pending edit and pins that revision to the request, and
-the bridge refuses the launch if the draft has moved on since (someone else
+<section id="add-it-to-the-queue">
+<h2>Add it to the queue<a class="headerlink" href="#add-it-to-the-queue" title="Link to this heading">#</a></h2>
+<p>Once the plan validates, click <strong>Add to queue</strong>, then <strong>Confirm add</strong>. This
+queues the <em>exact draft revision the panel just showed you</em>: the panel
+flushes any pending edit and pins that revision to the request, and the
+bridge refuses the request if the draft has moved on since (someone else
 edited it, or it was cleared). You get a clear “the draft changed since you
-last saw it — refreshed, review and launch again” message instead of a
-mismatched launch. The same pin also makes a double-click harmless — a
-revision that has already been launched is rejected rather than run twice.</p>
+last saw it — refreshed, review and add again” message instead of a
+mismatched item. The same pin also makes a double-click harmless — a revision
+that has already been queued is rejected rather than queued twice.</p>
+<p>Adding does not run anything. The item sits in the queue until someone starts
+it.</p>
+</section>
+<section id="start-the-queue">
+<h2>Start the queue<a class="headerlink" href="#start-the-queue" title="Link to this heading">#</a></h2>
+<p>Switch to the <strong>BLUESKY</strong> tab. Your item is listed under <strong>Queue</strong>; click
+<strong>Start queue</strong> to begin. That is the moment hardware moves, and it runs the
+queue <em>as it stands</em> — every pending item in order, not only the one you just
+added. Read the list before you click.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Draft editing needs no arming, but launching still does. The human and
-agent launch paths are gated differently, and it is worth knowing which
-you are on: this click is checked against the <strong>launch token</strong> only, and
-when that token is unset the panel reports an inert <em>“writes not armed”</em>
-rather than launching. The agent’s own <code class="docutils literal notranslate"><span class="pre">launch_run</span></code> additionally
-requires <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>. Neither path can launch an
-unarmed stack; only the agent path also honours the writes switch.</p>
+<p>Composing costs nothing and needs no arming; starting does. <strong>Start queue</strong>
+is checked against the <strong>launch token</strong>, and on a stack that is not armed
+the bridge refuses the start and the panel shows its explanation in a
+banner rather than starting anything. The agent’s equivalent
+(<code class="docutils literal notranslate"><span class="pre">queue_start</span></code>) is denied outright when
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> is false. Neither path can start an
+unarmed stack; only the agent path also honours the writes switch. Adding
+to an <em>idle</em> queue from the panel needs neither — see
+<a class="reference internal" href="run-scan-queue.html"><span class="doc">Run Scans Through the Queue</span></a>.</p>
 </div>
 </section>
 <section id="results">
 <h2>Results<a class="headerlink" href="#results" title="Link to this heading">#</a></h2>
-<p>Switch to the <strong>SCAN RESULTS</strong> tab. Points appear as the scan runs, one per
-grid position, with a table and a live chart of each detector’s readings
-against row order. A 5×5 grid over two correctors settles quickly on the
-Virtual Accelerator — you should see all 25 points land within a few
-seconds of confirming the launch.</p>
+<p>Stay on the <strong>BLUESKY</strong> tab: the lower half is the selected run’s results.
+Points appear as the scan runs, one per grid position, with a table and a
+live chart of each detector’s readings against row order. A 5×5 grid over two
+correctors settles quickly on the Virtual Accelerator — you should see all 25
+points land within a few seconds of starting the queue.</p>
+<p>The same tab carries the two halts: <strong>Stop after current item</strong> lets the
+running scan finish and stops the queue there, and <strong>Abort running plan</strong>
+stops the scan that is moving hardware right now. Both are always available,
+even on a stack with writes disabled.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
-<dt><a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></dt><dd><p>Starting and configuring the Virtual Accelerator container.</p>
+<dt><a class="reference internal" href="run-scan-queue.html"><span class="doc">Run Scans Through the Queue</span></a></dt><dd><p>The queue in full: arming, session plans, refusals, stopping.</p>
+</dd>
+<dt><a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></dt><dd><p>Configuring the Virtual Accelerator the tutorial runs against.</p>
 </dd>
 <dt><a class="reference internal" href="../getting-started/control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>The tutorial project this guide runs against.</p>
 </dd>
@@ -631,11 +648,11 @@ seconds of confirming the launch.</p>
       </div>
     </a>
     <a class="right-next"
-       href="../cli-reference/index.html"
+       href="run-scan-queue.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">CLI Reference</p>
+        <p class="prev-next-title">Run Scans Through the Queue</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -662,7 +679,8 @@ seconds of confirming the launch.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ask-the-agent">Ask the agent</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#watch-it-fill">Watch it fill</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#launch">Launch</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#add-it-to-the-queue">Add it to the queue</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#start-the-queue">Start the queue</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#results">Results</a></li>
 </ul>
   </nav></div>

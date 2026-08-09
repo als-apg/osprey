@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 08, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 09, 2026"/>
   </head>
   
   
@@ -417,6 +417,7 @@
 </details></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-scan-queue.html">Run Scans Through the Queue</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -490,6 +491,7 @@ behind the storage-ring lattice channels, so correctors move and BPMs respond.</
 <li><p class="sd-card-text">What the Virtual Accelerator is (and is not)</p></li>
 <li><p class="sd-card-text">The three-state <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> switch</p></li>
 <li><p class="sd-card-text">Pointing a project at the soft-IOC the stack already deploys</p></li>
+<li><p class="sd-card-text">Switching back to the mock, and why scans go browse-only there</p></li>
 <li><p class="sd-card-text">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> scenarios behave in Virtual Accelerator mode</p></li>
 <li><p class="sd-card-text">Write limits, and the archiver live-vs-history divergence</p></li>
 </ul>
@@ -511,16 +513,16 @@ backends, selected by a single <code class="docutils literal notranslate"><span 
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mock</span></code> <em>(default)</em></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mock</span></code></p></td>
 <td><p>The in-process simulation. No container, no network — every channel
-returns a synthesized value. This is the tutorial’s default and needs no
-setup.</p></td>
+returns a synthesized value. The fallback for environments with no
+containers to depend on; scans are browse-only there (below).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> <em>(default)</em></p></td>
 <td><p>A containerized PyAT soft-IOC serving real EPICS Channel Access. Storage-
 ring magnet setpoints drive a live lattice and BPM readbacks respond;
 every other channel is composed by the same simulation engine the mock
-uses. Requires the container (below).</p></td>
+uses. The tutorial’s default, and deployed as part of its stack.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">epics</span></code></p></td>
 <td><p>Production EPICS, pointed at the facility gateway. Untouched by this
@@ -535,37 +537,53 @@ exactly as it does the mock or a real machine; only the backend changes.</p>
 </section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
-<p>The Control Assistant stack <strong>already deploys</strong> the Virtual Accelerator: the
-preset’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block renders a compose service, so
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> brings the soft-IOC up alongside the rest of the stack.
-What ships pointed at <code class="docutils literal notranslate"><span class="pre">mock</span></code> is the <em>connector</em>, not the container — so
-switching backends is a config change, not a new deployment.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Point the project at the soft-IOC it already deploys</span>
-osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>virtual_accelerator
-
-<span class="c1"># 2. Re-deploy so the running services pick up the new connector</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>up
-
-<span class="c1"># 3. Run the assistant as usual — the agent now talks to real Channel Access</span>
-osprey<span class="w"> </span>web
+<p>The Control Assistant stack ships pointed at the Virtual Accelerator and
+<strong>already deploys</strong> it: the preset’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block renders a
+compose service, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> brings the soft-IOC up alongside the
+rest of the stack and the connector is already talking to it. There is nothing
+to switch on.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">   </span><span class="c1"># brings up the soft-IOC with the rest of the stack</span>
+osprey<span class="w"> </span>web<span class="w">         </span><span class="c1"># the agent talks to real Channel Access</span>
 </pre></div>
 </div>
 <p>The very first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> that includes the Virtual Accelerator
 builds its container image from source (compiling PyAT and the soft-IOC), so
 expect it to take several minutes — it is building, not hanging. Later deploys
 reuse the image.</p>
-<p>Switch back to the mock at any time with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-control-system</span> <span class="pre">mock</span></code>. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its
-production values throughout.</p>
+<p>If your project was built from an older preset (or a profile that sets it),
+point it at the soft-IOC explicitly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>virtual_accelerator
+osprey<span class="w"> </span>deploy<span class="w"> </span>up
+</pre></div>
+</div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Step 2 is what makes the switch take effect for <strong>deployed services</strong>.
-<code class="docutils literal notranslate"><span class="pre">set-control-system</span></code> edits the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, but services do
-not read that file directly — each gets a copy staged into its own directory
-at deploy time. A purely local <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> run picks the change up
-immediately; anything already running in a container does not, until you
-re-deploy. No image rebuild is involved either way.</p>
+<p>The second command is what makes a switch take effect for <strong>deployed
+services</strong>. <code class="docutils literal notranslate"><span class="pre">set-control-system</span></code> edits the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, but
+services do not read that file directly — each gets a copy staged into its
+own directory at deploy time. A purely local <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> run picks the
+change up immediately; anything already running in a container does not,
+until you re-deploy. No image rebuild is involved either way.</p>
 </div>
+</section>
+<section id="switching-back-to-the-mock">
+<h2>Switching back to the mock<a class="headerlink" href="#switching-back-to-the-mock" title="Link to this heading">#</a></h2>
+<p>An environment with no containers to depend on can run the tutorial on the
+in-process simulation instead:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>mock
+osprey<span class="w"> </span>deploy<span class="w"> </span>up
+</pre></div>
+</div>
+<p>Read one consequence before you do: <strong>scans become browse-only.</strong> The mock
+does not settle-wait a corrector’s readback against its setpoint, which every
+scan plan needs between grid points, so a scan started there would never
+complete. Rather than let one start and hang, the stack refuses earlier — plans
+can still be listed, authored, validated and staged into the shared draft, but
+the queue will not hold them, and both the panels and the agent report a
+browse-only deployment with the exact command that flips it back. Everything
+that is not a scan — channel reads and writes, the archiver, the Channel
+Finder — works as before. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its production values
+throughout.</p>
 </section>
 <section id="connecting-to-the-ioc">
 <h2>Connecting to the IOC<a class="headerlink" href="#connecting-to-the-ioc" title="Link to this heading">#</a></h2>
@@ -700,6 +718,7 @@ future addition.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-back-to-the-mock">Switching back to the mock</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-from-a-source-checkout">Running from a source checkout</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a></li>

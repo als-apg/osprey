@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 08, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 09, 2026"/>
   </head>
   
   
@@ -852,6 +852,7 @@ window.addEventListener("load", load);</script>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1"><a class="reference internal" href="agent-assisted-grid-scan.html">Agent-Assisted Grid Scan Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-scan-queue.html">Run Scans Through the Queue</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -1454,72 +1455,82 @@ provider model ID.</p></td>
 <td><p>Channel-database tier (1 or 3). Defaults from the channel finder mode;
 tier 1 is <code class="docutils literal notranslate"><span class="pre">in_context</span></code>-only.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
+<td><p>string</p></td>
+<td><p><em>from preset</em></p></td>
+<td><p>Control-system connector (<code class="docutils literal notranslate"><span class="pre">mock</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>, <code class="docutils literal notranslate"><span class="pre">epics</span></code>,
+…). Shorthand for <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{control_system.type:</span> <span class="pre">...}</span></code>, so it can be
+set from the command line as <code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">connector=epics</span></code>. Setting both
+spellings on one command line is an error rather than a silent
+last-one-wins; a custom connector is still addressed by its dotted
+module path under <code class="docutils literal notranslate"><span class="pre">config</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Dot-notation overrides for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">exclude</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">exclude</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Entries to subtract from what this profile would otherwise bring
 (see <a class="reference internal" href="#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hooks</span></code> / <code class="docutils literal notranslate"><span class="pre">rules</span></code> / <code class="docutils literal notranslate"><span class="pre">skills</span></code> / <code class="docutils literal notranslate"><span class="pre">agents</span></code> / <code class="docutils literal notranslate"><span class="pre">output_styles</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hooks</span></code> / <code class="docutils literal notranslate"><span class="pre">rules</span></code> / <code class="docutils literal notranslate"><span class="pre">skills</span></code> / <code class="docutils literal notranslate"><span class="pre">agents</span></code> / <code class="docutils literal notranslate"><span class="pre">output_styles</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Built-in artifacts to install. Your own files go in the matching
 convention directory instead.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>MCP server definitions to inject.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Container services for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Commands to run at build phases (<code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>,
 <code class="docutils literal notranslate"><span class="pre">validate</span></code>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Python packages to install into the project venv.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Base interpreter the project environment is built from
 (see <a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>PEP 440 specifier (e.g. <code class="docutils literal notranslate"><span class="pre">&gt;=2026.5.0</span></code>). The build aborts if unsatisfied.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
 <td><p>How to install OSPREY in the project venv: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">pip</span></code>, or a
 PEP 508 spec.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
 <td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, or an absolute path.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><em>written</em></p></td>
 <td><p>Which preset this profile was materialized from, and that preset’s hash.
