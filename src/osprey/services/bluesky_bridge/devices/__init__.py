@@ -3,7 +3,7 @@
 Both submodules (``mock.py``, ``connector.py``) import ophyd-async. ophyd-async
 is a core dependency, but this package (and its submodules) must still never be
 imported from the bridge lifecycle core (``app.py``, ``runs.py``,
-``plan_runner.py``, ``security.py``), which stays import-clean of bluesky/ophyd
+``security.py``), which stays import-clean of bluesky/ophyd
 so it can be built and unit-tested without loading the device stack. This ``__init__.py`` itself imports nothing from either
 submodule, so ``from osprey.services.bluesky_bridge import devices`` alone
 stays cheap; callers import ``devices.mock`` or ``devices.connector``

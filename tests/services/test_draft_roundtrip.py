@@ -1,27 +1,31 @@
-"""Cross-service integration roundtrip locking the agent-plan-draft contract
-(PROPOSAL.md "Tests": "One non-agentic integration roundtrip: PATCH draft ->
-SSE frame -> launch pinned revision").
-
-This is the ONE test that exercises the full chain end to end -- everything
-else (per-router unit tests, per-field validation, launch-token gating) is
-covered elsewhere:
-
-- ``tests/interfaces/bluesky_panels/test_draft_relay.py`` / ``test_launch.py``
-  cover the sidecar's routers in isolation (mocked bridge).
-- ``tests/services/bluesky_bridge/test_draft.py`` covers the bridge draft
-  module's SSE wire format and per-field validation directly.
-- ``tests/services/bluesky_bridge/test_launch_validation_gate.py`` covers
-  the launch-time session-plan validation gate.
+"""Cross-service integration roundtrip locking the agent-plan-draft contract:
+PATCH draft -> SSE frame -> a pinned revision that only the queue will take.
 
 Here, the real ``osprey.interfaces.bluesky_panels.app`` sidecar is wired to the
-real ``osprey.services.bluesky_bridge.app`` bridge via
-``httpx.ASGITransport`` (no real bridge process, no container) -- so a PATCH
-sent through the sidecar's ``/draft`` relay actually lands on the bridge's
-draft singleton, and a ``POST /runs/launch`` actually creates and launches a
-run on the bridge's real run registry (with the bridge's default
-``FakePlanRunner`` standing in for a real bluesky ``RunEngine`` -- see
-``plan_runner.py``; PLAN.md's task 5.1 acceptance is "run created (mock
-runner)", not a real scan).
+real ``osprey.services.bluesky_bridge.app`` bridge via ``httpx.ASGITransport``
+(no real bridge process, no container) -- so a PATCH sent through the sidecar's
+``/draft`` relay actually lands on the bridge's draft singleton, and the SSE
+frame it broadcasts is observed on the bridge itself. That cross-service hop is
+this module's whole subject.
+
+The "launch" third of the original chain has moved: plans execute in the queue
+server now, so ``POST /draft/run`` no longer launches anything and answers the
+machine-readable ``use_the_queue`` refusal instead. This module asserts exactly
+that -- a caller who follows the PATCH with the old launch call learns where
+the capability went. It deliberately stops there. The draft-revision-to-enqueue
+path (reservation, arming, what reaches the manager) is
+``tests/integration/test_bluesky_queue_contract.py``'s subject, against a
+stateful mock queue server; duplicating it here would mean two places to update
+and one of them silently going stale.
+
+Everything else is covered per-router elsewhere:
+
+- ``tests/interfaces/bluesky_panels/test_draft_relay.py`` covers the sidecar's
+  routers in isolation (mocked bridge).
+- ``tests/services/bluesky_bridge/test_draft.py`` covers the bridge draft
+  module's SSE wire format and per-field validation directly.
+- ``tests/services/bluesky_bridge/test_run_routes.py`` covers every retired
+  route's refusal against the bridge directly.
 
 SSE observation note: ``TestClient``/``httpx.ASGITransport`` cannot stream an
 infinite ``text/event-stream`` response (both drain the response body to
@@ -55,12 +59,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.bluesky_panels.app import app as sidecar_app
+from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import draft as bridge_draft
 from osprey.services.bluesky_bridge import plan_loader
+from osprey.services.bluesky_bridge import queue as bridge_queue
 from osprey.services.bluesky_bridge.app import app as bridge_app
-from osprey.services.bluesky_bridge.app import set_runner_factory
-from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
-from osprey.services.bluesky_bridge.runs import registry as bridge_run_registry
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -71,9 +74,8 @@ _TOKEN = "s3cr3t-integration-roundtrip-token"  # noqa: S105 - test fixture value
 _BRIDGE_URL = "http://bridge.test"
 
 # `grid_scan` is a shipped-tier plan (`plans_core/`) -- always registered
-# regardless of env, and never subject to the session-tier launch-validation
-# gate (mirrors `test_draft.py`'s own choice of real schema over a throwaway
-# fixture plan).
+# regardless of env (mirrors `test_draft.py`'s own choice of real schema over a
+# throwaway fixture plan).
 _PLAN_NAME = "grid_scan"
 _PLAN_ARGS: dict[str, Any] = {
     "detectors": ["BPM1"],
@@ -86,9 +88,7 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
     """Isolate every process-wide singleton this roundtrip touches.
 
     Mirrors `test_plan_source_endpoint.py`'s plan-loader isolation plus
-    `test_draft.py`'s draft-singleton reset and
-    `test_launch_validation_gate.py`'s run-registry/runner-factory reset --
-    this test is the union of all three surfaces.
+    `test_draft.py`'s draft-singleton reset.
     """
     monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
     monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
@@ -97,45 +97,47 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
     monkeypatch.setenv(_LAUNCH_TOKEN_ENV, _TOKEN)
     plan_loader.reset_facility_plans()
     bridge_draft._clear()
-    bridge_run_registry._runs.clear()
-    set_runner_factory(FakePlanRunner)
+    bridge_queue._clear()
+    bridge_app_module.set_queue_backend(None)
 
     yield
 
     plan_loader.reset_facility_plans()
     bridge_draft._clear()
-    bridge_run_registry._runs.clear()
-    set_runner_factory(FakePlanRunner)
+    bridge_queue._clear()
+    bridge_app_module.set_queue_backend(None)
 
 
 @pytest.fixture
-def sidecar_client() -> Iterator[TestClient]:
+def bridge_client() -> Iterator[httpx.AsyncClient]:
+    """A direct async client on the real bridge app, over ASGI."""
+    yield httpx.AsyncClient(transport=httpx.ASGITransport(app=bridge_app), base_url=_BRIDGE_URL)
+
+
+@pytest.fixture
+def sidecar_client(bridge_client: httpx.AsyncClient) -> Iterator[TestClient]:
     """The composed sidecar app, with its bridge client rewired onto the real
-    bridge app via `ASGITransport` (task 5.1's cross-service wiring) instead
-    of a real network hop -- mirrors
-    `test_app_integration.py`'s `_wire_mock_bridge` pattern, but targets the
-    real bridge ASGI app rather than an `httpx.MockTransport` handler.
+    bridge app via `ASGITransport` instead
+    of a real network hop -- mirrors `test_app_integration.py`'s
+    `_wire_mock_bridge` pattern, but targets the real bridge ASGI app rather
+    than an `httpx.MockTransport` handler.
     """
     with TestClient(sidecar_app) as client:
-        sidecar_app.state.client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=bridge_app), base_url=_BRIDGE_URL
-        )
+        sidecar_app.state.client = bridge_client
         sidecar_app.state.bridge_url = _BRIDGE_URL
         yield client
 
 
 @pytest.mark.asyncio
-async def test_patch_sse_launch_roundtrip_through_sidecar_and_bridge(
+async def test_patch_through_the_sidecar_reaches_the_bridge_and_broadcasts(
     sidecar_client: TestClient,
 ) -> None:
-    """PATCH (sidecar relay) -> SSE frame (bridge white-box) -> launch (sidecar
-    launch route, pinned to the PATCH's revision) -> a real run launched on
-    the bridge's registry with a mock (`FakePlanRunner`) runner.
-    """
+    """PATCH (sidecar relay) -> the bridge's own draft state -> the SSE frame
+    it broadcasts, all in one chain across the two services."""
     # Subscribe before the PATCH so the queue captures the live change frame,
     # not just a hello snapshot (module docstring: sequencing, not concurrency,
     # is what keeps this cross-loop-safe).
-    queue, hello = await bridge_draft._subscribe()
+    frames, hello = await bridge_draft._subscribe()
     assert hello == {"type": "hello", "draft": None, "revision": 0}
 
     try:
@@ -153,40 +155,34 @@ async def test_patch_sse_launch_roundtrip_through_sidecar_and_bridge(
         assert patch_body["revision"] == 1
         assert set(patch_body["changed"]) == set(_PLAN_ARGS)
 
-        frame = await asyncio.wait_for(queue.get(), timeout=2.0)
+        frame = await asyncio.wait_for(frames.get(), timeout=2.0)
     finally:
-        await bridge_draft._unsubscribe(queue)
+        await bridge_draft._unsubscribe(frames)
 
-    # (b) the SSE frame the PATCH broadcast carries the same revision/changed[]
+    # The SSE frame the PATCH broadcast carries the same revision/changed[]
     # the sidecar's own PATCH response reported.
     assert frame["type"] == "plan-change"
     assert frame["revision"] == patch_body["revision"]
     assert set(frame["changed"]) == set(patch_body["changed"])
     assert frame["draft"]["plan_name"] == _PLAN_NAME
 
-    # (c) launch the pinned revision through the sidecar; the launched args
-    # come from the bridge's draft snapshot, never from this request body.
-    launch_response = sidecar_client.post(
-        "/runs/launch", json={"draft_revision": patch_body["revision"]}
-    )
-    assert launch_response.status_code == 200, launch_response.text
-    launch_body = launch_response.json()
-    assert launch_body["status"] == "running"
-    run_id = launch_body["run_id"]
-
-    # The bridge really did create and launch a run with this exact plan --
-    # observed through the sidecar's own read-proxy, closing the loop.
-    run_response = sidecar_client.get(f"/runs/{run_id}")
-    assert run_response.status_code == 200, run_response.text
-    run_body = run_response.json()
-    assert run_body["status"] == "running"
-    assert run_body["plan_name"] == _PLAN_NAME
-    assert run_body["plan_args"] == _PLAN_ARGS
+    # And the bridge really holds it, read back through the sidecar's relay.
+    current = sidecar_client.get("/draft").json()
+    assert current["draft"]["plan_name"] == _PLAN_NAME
+    assert current["revision"] == patch_body["revision"]
 
 
-def test_launch_with_a_stale_draft_revision_is_409(sidecar_client: TestClient) -> None:
-    """(d) A pin from before the draft was cleared can never match again --
-    the bridge's revision counter bumps on `DELETE` and never resets."""
+@pytest.mark.asyncio
+async def test_launching_the_pinned_revision_directly_is_refused(
+    sidecar_client: TestClient, bridge_client: httpx.AsyncClient
+) -> None:
+    """The third step of the original chain, as it answers today.
+
+    A caller that follows the PATCH with the old direct-launch call gets the
+    machine-readable refusal naming the route that replaced it -- not a 404,
+    and not a silent success. The draft is untouched: refusing to launch must
+    not consume the revision a caller would then enqueue.
+    """
     patch_response = sidecar_client.patch(
         "/draft",
         json={
@@ -196,13 +192,22 @@ def test_launch_with_a_stale_draft_revision_is_409(sidecar_client: TestClient) -
         },
     )
     assert patch_response.status_code == 200, patch_response.text
-    stale_revision = patch_response.json()["revision"]
+    revision = patch_response.json()["revision"]
 
-    delete_response = sidecar_client.request("DELETE", "/draft")
-    assert delete_response.status_code == 200, delete_response.text
-    assert delete_response.json()["cleared"] is True
+    refused = await bridge_client.post(
+        "/draft/run",
+        json={"draft_revision": revision},
+        headers={"X-Launch-Token": _TOKEN},
+    )
 
-    launch_response = sidecar_client.post("/runs/launch", json={"draft_revision": stale_revision})
+    assert refused.status_code == 410
+    detail = refused.json()["detail"]
+    assert detail["code"] == "use_the_queue"
+    assert "POST /queue/items" in detail["detail"]
 
-    assert launch_response.status_code == 409
-    assert launch_response.json()["code"] == "stale_draft_revision"
+    # Nothing consumed: the revision still stands and the draft still holds the
+    # plan, so the caller can go straight to the queue with the same pin.
+    current = sidecar_client.get("/draft").json()
+    assert current["revision"] == revision
+    assert current["draft"]["plan_name"] == _PLAN_NAME
+    assert bridge_draft._last_launched_revision == 0

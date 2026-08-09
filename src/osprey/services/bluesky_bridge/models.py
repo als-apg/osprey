@@ -1,9 +1,13 @@
 """Request bodies for the Bluesky bridge's HTTP routes (see ``app.py``).
 
-Pure Pydantic models — no runner, registry, or connector state — so they are
+Pure Pydantic models — no execution or connector state — so they are
 import-clean of the bluesky stack and safe to import from anywhere the bridge
-needs the wire shapes. ``app.py`` re-exports these for backwards-compatible
-``bluesky_bridge.app import RunRequest`` call sites.
+needs the wire shapes.
+
+The retired direct-execute routes (``POST /runs``, ``POST /draft/run``) had
+bodies here too; they answer a fixed refusal now and parse nothing, so those
+models are gone. The queue surface defines its own request bodies in
+``queue.py``, next to the routes that read them.
 """
 
 from __future__ import annotations
@@ -13,31 +17,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class RunRequest(BaseModel):
-    """A scan launch intent (`POST /runs`).
-
-    Intentionally generic: `plan_name` names a plan the registry (`plans.py`,
-    plus any facility-injected plans from `plan_loader.py`) resolves, and
-    `plan_args` is forwarded to the runner unmodified via `do_launch` ->
-    `PlanRunner.reinitialize(run.request)`.
-    """
-
-    plan_name: str
-    plan_args: dict[str, Any] = Field(default_factory=dict)
-
-
-class DraftRunRequest(BaseModel):
-    """Body for `POST /draft/run`: launch the shared draft at a pinned revision.
-
-    ``draft_revision`` is the caller's last-seen draft revision (from `GET
-    /draft`, a PATCH response, or an SSE frame). The launched
-    ``plan_name``/``plan_args`` come exclusively from the server-side draft
-    snapshot taken at that exact revision — never from this body.
-    """
-
-    draft_revision: int
-
-
 class PlanSessionWriteRequest(BaseModel):
     """Request body for `POST /plans/session`: author a session-tier plan file.
 
@@ -45,7 +24,7 @@ class PlanSessionWriteRequest(BaseModel):
     layered directory catalog's file contract) — it is never exec'd by this
     route. The remaining fields become the generated `PLAN_METADATA` block
     prepended to it; together they must satisfy `plan_metadata.PlanMetadata`'s
-    contract once the session-tier load gate (task 2.4) parses the file.
+    contract once the session-tier load gate parses the file.
     """
 
     name: str

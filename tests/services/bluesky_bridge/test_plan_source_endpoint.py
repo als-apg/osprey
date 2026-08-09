@@ -1,6 +1,6 @@
-"""Coverage for `GET /plans/{name}/source` (task 2.6).
+"""Coverage for `GET /plans/{name}/source`.
 
-This route is the data source for the launch-approval hook's plan-source
+This route is the data source for the approval hook's plan-source
 excerpt — the human backstop for the plan validator's documented, accepted
 obfuscation residual (see `plan_validation.py`'s module docstring): an
 approver who can actually SEE a plan's source has a chance to refuse an
