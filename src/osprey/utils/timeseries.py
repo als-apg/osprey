@@ -40,8 +40,6 @@ def _lttb_select_indices(values: list, max_points: int) -> list[int]:
         c_end = min(c_end, n)
         if c_start >= n:
             c_start = n - 1
-        if c_end > n:
-            c_end = n
         c_len = max(c_end - c_start, 1)
         # x[i] == i, so the bucket's mean x is the mean of its index range.
         avg_x = sum(range(c_start, c_end)) / c_len

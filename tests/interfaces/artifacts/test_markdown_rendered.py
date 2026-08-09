@@ -106,3 +106,23 @@ class TestMarkdownRenderedAPI:
         json_block_end = html.index("</script>", json_block_start)
         json_content = html[json_block_start:json_block_end]
         assert "</script>" not in json_content
+
+    @pytest.mark.unit
+    def test_markdown_file_missing_on_disk_returns_404(self, app_client):
+        """A registered entry whose file vanished from disk returns 404, not 500."""
+        client, _ = app_client
+        store = client.app.state.artifact_store
+        entry = store.save_file(
+            file_content=b"# Gone",
+            filename="gone.md",
+            artifact_type="markdown",
+            title="Gone Markdown",
+            description="",
+            mime_type="text/markdown",
+            tool_source="test",
+        )
+        store.get_file_path(entry.id).unlink()
+
+        resp = client.get(f"/api/markdown/{entry.id}/rendered")
+        assert resp.status_code == 404
+        assert "not found on disk" in resp.json()["detail"]

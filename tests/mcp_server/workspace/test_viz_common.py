@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -318,3 +319,75 @@ class TestBuildDataReaderCSV:
         assert isinstance(data, pd.DataFrame)
         assert list(data.columns) == ["a", "b"]
         assert len(data) == 2
+
+
+class TestCollectAndRegisterArtifacts:
+    """Artifact-store registration shared by all three visualization tools."""
+
+    @pytest.fixture
+    def art_store(self, tmp_path: Path):
+        from osprey.stores.artifact_store import initialize_artifact_store
+
+        return initialize_artifact_store(workspace_root=tmp_path)
+
+    @staticmethod
+    def _exec_result(*paths: Path):
+        """Fake SandboxExecutionResult carrying one artifact dict per path."""
+        return SimpleNamespace(
+            artifacts=[
+                {
+                    "path": p,
+                    "title": p.stem,
+                    "description": f"plot {p.stem}",
+                    "artifact_type": "plot_png",
+                    "mime_type": "image/png",
+                }
+                for p in paths
+            ]
+        )
+
+    def test_unreadable_artifact_skipped_and_data_source_recorded(self, art_store, tmp_path: Path):
+        """One artifact failing to save must not lose the ones after it, and
+        data_source alone still lands in viz metadata (empty code/stdout add no keys).
+        """
+        from osprey.mcp_server.workspace.tools._viz_common import collect_and_register_artifacts
+
+        ghost = tmp_path / "ghost.png"  # never written -> read_bytes raises
+        real = tmp_path / "real.png"
+        real.write_bytes(b"\x89PNG fake")
+
+        ids = collect_and_register_artifacts(
+            self._exec_result(ghost, real),
+            title="t",
+            description="d",
+            tool_source="create_static_plot",
+            data_source="abcdefabcdef",
+        )
+
+        assert len(ids) == 1
+        entry = art_store.get_entry(ids[0])
+        assert entry.filename.endswith("real.png")
+        assert entry.metadata == {"data_source": "abcdefabcdef"}
+        # No category given: the entry is neither categorized nor agent-tagged.
+        assert entry.category == ""
+        assert entry.source_agent == ""
+
+
+class TestBuildVizResponse:
+    """The response dict assembled after artifact registration."""
+
+    def test_gallery_url_failure_is_swallowed(self, monkeypatch):
+        """An unresolvable gallery URL never fails the tool — the key is just omitted."""
+        import osprey.mcp_server.http as http_mod
+        from osprey.mcp_server.workspace.tools._viz_common import build_viz_response
+
+        def _boom():
+            raise RuntimeError("no web config")
+
+        monkeypatch.setattr(http_mod, "gallery_url", _boom)
+
+        response = build_viz_response(["abc123def456"], title="t")
+
+        assert response["status"] == "success"
+        assert response["artifact_id"] == "abc123def456"
+        assert "gallery_url" not in response

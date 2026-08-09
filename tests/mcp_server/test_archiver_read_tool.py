@@ -251,6 +251,25 @@ def test_parse_time_unrecognized_relative_falls_through_to_dateutil(expression, 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "kwargs"),
+    [
+        ("start_time", {"start_time": "not-a-timestamp"}),
+        # A bad end_time is caught after a good start_time.
+        ("end_time", {"start_time": "2024-01-15T10:00:00", "end_time": "not-a-timestamp"}),
+    ],
+)
+async def test_archiver_read_unparseable_time(archiver_project, field, kwargs):
+    """A time even dateutil cannot parse errors cleanly, naming the failing field."""
+    fn = _get_archiver_read()
+    with assert_raises_error(error_type="validation_error") as ctx:
+        await fn(channels=["SR:CURRENT:RB"], **kwargs)
+
+    assert field in ctx["envelope"]["error_message"]
+    assert "not-a-timestamp" in ctx["envelope"]["error_message"]
+
+
+@pytest.mark.unit
 async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     """Archiver read saves data to _agent_data/artifacts/ via ArtifactStore."""
     fn, connector = archiver_read_tool

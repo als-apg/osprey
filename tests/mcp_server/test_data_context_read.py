@@ -226,6 +226,76 @@ class TestDataRead:
         assert set(preview["top_level_keys"]) == expected_keys
 
     @pytest.mark.asyncio
+    async def test_oversize_series_preview_without_query_block(self, store, read_tool):
+        """A series payload with no query dict still previews — just without `query`."""
+        entry = _save_entry(store)
+        stamps = [f"2026-05-11T00:{i // 60:02d}:{i % 60:02d}+00:00" for i in range(200)]
+        payload = {
+            "series": {"CH_A": {"timestamps": stamps, "values": [float(i) for i in range(200)]}},
+            "padding": "z" * (110 * 1024),
+        }
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "timeseries_series"
+        assert preview["channels"] == ["CH_A"]
+        assert "query" not in preview
+
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            # A top-level JSON array previews its length and first items.
+            pytest.param(
+                json.dumps(list(range(40000))).encode(),
+                {"shape": "json_array", "length": 40000, "first_items": [0, 1, 2, 3, 4]},
+                id="json_array",
+            ),
+            # A bare JSON scalar previews at most 200 characters of its value.
+            pytest.param(
+                json.dumps("z" * (150 * 1024)).encode(),
+                {"shape": "json_scalar", "value_preview": "z" * 200},
+                id="json_scalar",
+            ),
+            # An undecodable (non-UTF-8) file is reported as binary.
+            pytest.param(b"\xff\xfe" * (60 * 1024), {"shape": "binary"}, id="binary"),
+            # Above the 16 MB parse ceiling, no preview parsing is attempted at all.
+            pytest.param(
+                b"x" * (17 * 1024 * 1024),
+                {"shape": "skipped_too_large_for_preview"},
+                id="beyond_parse_limit",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_oversize_preview_shapes(self, store, read_tool, content, expected):
+        """Non-object payloads preview their shape (and peek), never a text head/tail."""
+        entry = _save_entry(store)
+        store.get_file_path(entry.id).write_bytes(content)
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert {k: preview.get(k) for k in expected} == expected
+        assert "head" not in preview
+
+    @pytest.mark.asyncio
+    async def test_read_wraps_unexpected_store_failure_as_internal_error(
+        self, store, read_tool, monkeypatch
+    ):
+        """An unexpected store exception surfaces as internal_error, not a raw traceback."""
+
+        def _boom(entry_id):
+            raise RuntimeError("index corrupted")
+
+        monkeypatch.setattr(store, "get_entry", _boom)
+
+        with assert_raises_error(error_type="internal_error") as ctx:
+            await read_tool(entry_id="whatever")
+        assert "index corrupted" in ctx["envelope"]["error_message"]
+
+    @pytest.mark.asyncio
     async def test_oversize_text_preview(self, store, read_tool):
         """Non-JSON oversized files expose a text head/tail preview."""
         entry = _save_entry(store)

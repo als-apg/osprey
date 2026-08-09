@@ -214,6 +214,15 @@ class TestMockArchiverConnector:
         assert connector._connected is False
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("sample_rate_hz", [0, -1.0])
+    async def test_connect_rejects_non_positive_sample_rate(self, sample_rate_hz):
+        """A zero or negative rate would divide by zero later; connect refuses it."""
+        connector = MockArchiverConnector()
+
+        with pytest.raises(ValueError, match="sample_rate_hz must be > 0"):
+            await connector.connect({"sample_rate_hz": sample_rate_hz})
+
+    @pytest.mark.asyncio
     async def test_get_data_accepts_any_pvs(self):
         """Test that mock archiver accepts any PV names."""
         connector = MockArchiverConnector()
@@ -395,6 +404,32 @@ class TestMockArchiverProcessing:
         assert not df["value"].isna().any()
 
         await connector.disconnect()
+
+
+class TestMockArchiverProceduralKinds:
+    """Every PV-kind branch of the procedural generator shapes a plausible series:
+    finite, varying, with a mean near the kind's base value — no exact values."""
+
+    @pytest.mark.parametrize(
+        ("pv_name", "base_value"),
+        [
+            ("PS:CURRENT", 150.0),
+            ("RF:POWER", 50.0),
+            ("CRYO:TEMP", 25.0),
+            ("SR:LIFETIME", 10.0),
+            ("SOME:RANDOM:PV", 100.0),
+        ],
+    )
+    def test_each_kind_generates_a_plausible_series(self, pv_name, base_value):
+        connector = MockArchiverConnector()
+        connector._noise_level = 0.01
+
+        values = connector._generate_time_series(pv_name, 200)
+
+        assert len(values) == 200
+        assert np.all(np.isfinite(values))
+        assert values.std() > 0, "the series must vary, not sit at the base value"
+        assert values.mean() == pytest.approx(base_value, rel=0.5)
 
 
 class TestMockArchiverReproducibility:

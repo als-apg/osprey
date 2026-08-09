@@ -276,6 +276,64 @@ async def test_timeout_passed_to_get_data() -> None:
     assert timeout == 7  # float seconds coerced to the connector's int timeout
 
 
+# --- Global-config fallback (ctx.config is None) -----------------------------
+
+
+async def test_none_config_falls_back_to_global_archiver_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI/standalone: with no per-run config the block comes from the global
+    singleton via ``get_config_value("archiver", ...)`` and the run proceeds."""
+    import osprey.utils.config as config_module
+
+    block = {"type": "mock_archiver"}
+    keys_asked: list[str] = []
+
+    def fake_get_config_value(key: str, default: Any = None) -> Any:
+        keys_asked.append(key)
+        return block
+
+    monkeypatch.setattr(config_module, "get_config_value", fake_get_config_value)
+    archiver = _SpyArchiver(_frame(newest_age_s=10))
+    runtime = _SpyRuntime(archiver)
+    ctx = ProbeContext(runtime=runtime, config=None)  # type: ignore[arg-type]
+
+    result = await run({"channel": "BEAM:CURRENT"}, ctx)
+
+    assert result.status is Status.OK
+    assert keys_asked == ["archiver"]
+    assert runtime.get_archiver_calls == [block]  # the global block reached the runtime
+
+
+def _raising_get_config_value(key: str, default: Any = None) -> Any:
+    raise RuntimeError("config file not found")
+
+
+@pytest.mark.parametrize(
+    "get_config_value",
+    [
+        pytest.param(_raising_get_config_value, id="config-load-raises"),
+        pytest.param(lambda key, default=None: "epics", id="scalar-archiver-value"),
+    ],
+)
+async def test_none_config_with_unusable_global_config_is_error(
+    monkeypatch: pytest.MonkeyPatch, get_config_value: Any
+) -> None:
+    """Config unavailability -- a raising loader or a scalar ``archiver:`` value
+    -- degrades to the misconfiguration error, not a crash."""
+    import osprey.utils.config as config_module
+
+    monkeypatch.setattr(config_module, "get_config_value", get_config_value)
+    runtime = _SpyRuntime(_SpyArchiver())
+    ctx = ProbeContext(runtime=runtime, config=None)  # type: ignore[arg-type]
+
+    result = await run({"channel": "BEAM:CURRENT"}, ctx)
+
+    assert result.status is Status.ERROR
+    assert "no archiver configured" in result.message
+    assert runtime.get_archiver_calls == []
+
+
 # --- Real in-tree MockArchiverConnector end to end --------------------------
 
 
