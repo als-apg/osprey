@@ -1,17 +1,27 @@
 """Full-stack Docker integration test for the Phase-6 "Operator Interfaces"
 scan panels (task 4.3, bluesky-panels-deploy-e2e) -- the gold-standard proof
-that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge +
-co-deployed Tiled + the bluesky-panels sidecar + its two web panels) boots as
-real containers and drives a real scan end to end through the sidecar.
+that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge + the
+queueserver RE Manager + Redis + co-deployed Tiled + the bluesky-panels
+sidecar + its web panels) boots as real containers and drives a real scan end
+to end THROUGH THE SIDECAR, exactly as a browser would.
+
+That last clause is this module's subject and the thing no sibling e2e covers:
+the browser never talks to the bridge. Every call a panel makes goes through
+the sidecar's relay, which rebuilds request headers from scratch and attaches
+the launch token IT resolved in-process -- so the operator flow must work with
+the browser holding no credential at all, and no sidecar response may ever
+contain one. ``tests/e2e/test_bluesky_queue_e2e.py`` proves the queue stack
+itself against the bridge; this proves the hop in front of it.
 
 Reuses ``tests/e2e/_orm_stack.py`` (the single source for FR11's VA-backed
-turn-key deploy config): ``override_yaml()`` flips the tutorial's default
-``control_system.type: mock`` to ``virtual_accelerator`` (a connector-mediated
-scan only runs against a setpoint-tracking control system);
-``build_args``/``find_osprey_console_script``
-build the real project; ``select_correctors``/``select_bpms``/
-``write_scan_env`` wire the substrate device env from the *built* project's
-own ``data/channel_limits.json`` -- never a hardcoded preset channel. The one
+turn-key deploy config): ``build_args``/``find_osprey_console_script`` build
+the real project and ``select_correctors``/``select_bpms``/``write_scan_env``
+wire the substrate device env from the *built* project's own
+``data/channel_limits.json`` -- never a hardcoded preset channel.
+``override_yaml()`` still pins ``control_system.type: virtual_accelerator``
+explicitly even though the preset now defaults to it (a connector-mediated
+scan only runs against a setpoint-tracking control system; the shipped
+default is asserted, not assumed, in ``test_bluesky_queue_e2e.py``). The one
 thing ``_orm_stack.build_args``/``build_project_subprocess`` don't parameterize
 is the bluesky-panels sidecar's port, so this module calls ``override_yaml``/
 ``build_args``/``find_osprey_console_script`` directly (mirroring what
@@ -36,7 +46,7 @@ discovery loop. This keeps the coupling to the shipped plan catalog minimal
 Per-function flaky, NOT module-level (mirrors ``test_va_substrate_equivalence
 .py``'s documented convention): tests 1-4 accept one rerun on a genuinely
 flaky HTTP/timing assertion. The sidecar's negative write-surface proof
-(test 5: no ``/stop``, no unbounded ``POST /runs``) stays STRICT with no flaky
+(test 5: nothing POSTable under ``/runs`` at all) stays STRICT with no flaky
 marker at all -- a module-level ``flaky`` mark would silently sweep that
 safety proof into lenient reruns, exactly the bug the va-substrate module
 docstring warns about.
@@ -89,6 +99,16 @@ BLUESKY_PANELS_PORT = 18095
 BLUESKY_PANELS_URL = f"http://localhost:{BLUESKY_PANELS_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
+
+# ariel-postgres (5432) and OpenObserve (5080) are deployed unconditionally by
+# the control-assistant preset with no profile knob to drop them, and a
+# locally-running tutorial deploy routinely holds both. A bound-port collision
+# aborts `deploy up` before the containers this proof needs ever start, so both
+# move to high, unassigned ports. Appended to _orm_stack's override rather than
+# added there: only this module needs them moved, and _orm_stack's shape is
+# shared with the render gate.
+POSTGRES_PORT = 25434
+OPENOBSERVE_PORT = 25083
 
 # The fixture builds/deploys under this project name; every compose template
 # renders its container_name and locally-built image as ``<project>-<service>``,
@@ -365,7 +385,25 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     project_dir = base / PROJECT_NAME
 
     override_path = base / "override.yml"
-    override_path.write_text(_orm_stack.override_yaml(), encoding="utf-8")
+    # The two port moves go INSIDE _orm_stack's `config:` block, which its
+    # top-level `dispatch: null` line closes -- appending at the end of the
+    # string would nest them under `dispatch` instead. Splicing ahead of that
+    # line keeps the indentation right; the assert makes a change to
+    # _orm_stack's shape fail loudly here rather than silently produce an
+    # override that does nothing.
+    extra_config = (
+        f"  services.postgresql.port_host: {POSTGRES_PORT}\n"
+        f"  services.openobserve.port: {OPENOBSERVE_PORT}\n"
+    )
+    override_yaml = _orm_stack.override_yaml()
+    assert "dispatch: null\n" in override_yaml, (
+        "_orm_stack.override_yaml() no longer ends its config block with "
+        "`dispatch: null` -- the port-move splice below needs a new anchor"
+    )
+    override_path.write_text(
+        override_yaml.replace("dispatch: null\n", extra_config + "dispatch: null\n"),
+        encoding="utf-8",
+    )
 
     # _orm_stack.build_args()/build_project_subprocess() don't parameterize
     # the bluesky-panels sidecar's port, so build the arg list directly (mirrors
@@ -455,54 +493,98 @@ def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 def test_panels_served_200(deployed_stack: DeployedStack) -> None:
-    for path in ("/plan/", "/results/"):
+    """Both panel bundles serve, including the deprecated ``/results`` alias.
+
+    ``/bluesky`` and ``/results`` are ONE bundle mounted twice (the sidecar
+    drives both from a single ``_BLUESKY_PANEL_DIR`` constant), so the alias
+    must serve identical bytes -- an alias that drifted into serving something
+    else would be worse than a 404.
+    """
+    bodies: dict[str, str] = {}
+    for path in ("/plan/", "/bluesky/", "/results/"):
         status, body = _get_html(path)
         assert status == 200, f"GET {path} failed: {status}"
         assert "<html" in body.lower(), f"GET {path} did not return HTML: {body[:200]!r}"
+        bodies[path] = body
+
+    assert bodies["/results/"] == bodies["/bluesky/"], (
+        "/results must be a pure alias of /bluesky, serving the identical bundle"
+    )
+    assert bodies["/plan/"] != bodies["/bluesky/"], (
+        "the PLAN and BLUESKY panels are different bundles; serving one for both "
+        "means a mount is misconfigured"
+    )
 
 
 # ---------------------------------------------------------------------------
-# 3. HEADLINE: scan via the sidecar's launch route
+# 3. HEADLINE: a scan driven entirely through the sidecar's relays
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_plan_via_sidecar_launch_completes(deployed_stack: DeployedStack) -> None:
+def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None:
+    """The whole operator flow through the sidecar, with NO credential in hand.
+
+    This is the browser's view: compose the draft, enqueue it at the pinned
+    revision, arm the queue, watch the run, read the results -- every call to
+    the sidecar, never to the bridge. The launch token is resolved by the
+    sidecar in-process and attached to each queue WRITE; this test never sends
+    it and asserts, on every single response it reads, that the token has not
+    come back out.
+    """
     token = _minted_token(deployed_stack.project_dir)
 
-    status, body = _sidecar_post(
-        "/runs/launch",
-        {"plan_name": deployed_stack.plan_name, "plan_args": deployed_stack.plan_args},
-    )
-    assert status == 200, f"POST /runs/launch failed: {status} {body}"
-    assert token not in json.dumps(body), "launch token leaked into the sidecar launch response"
-    assert body.get("status") != "writes_not_armed", (
-        f"launch route reports writes not armed (expected armed): {body}"
-    )
-    run_id = body.get("run_id")
-    assert run_id, f"no run_id in launch response: {body}"
-    assert body.get("status") in ("running", "started", "completed"), (
-        f"unexpected launch status: {body}"
-    )
+    def _assert_no_token(label: str, payload: Any) -> None:
+        assert token not in json.dumps(payload), f"launch token leaked into the sidecar {label}"
 
+    # --- compose the draft through the sidecar's draft relay ---------------
+    status, patched = _request(
+        BLUESKY_PANELS_URL,
+        "/draft",
+        "PATCH",
+        {
+            "plan_name": deployed_stack.plan_name,
+            "plan_args_patch": deployed_stack.plan_args,
+            "client_id": "panels-deploy-e2e",
+        },
+    )
+    assert status == 200, f"PATCH /draft (via sidecar) failed: {status} {patched}"
+    _assert_no_token("draft response", patched)
+
+    # --- enqueue at the pinned revision ------------------------------------
+    status, enqueued = _sidecar_post("/queue/items", {"draft_revision": patched["revision"]})
+    assert status == 200, f"POST /queue/items (via sidecar) failed: {status} {enqueued}"
+    _assert_no_token("enqueue response", enqueued)
+    run_id = enqueued.get("run_id")
+    assert run_id, f"no run_id in the enqueue response: {enqueued}"
+
+    # --- arm the queue: the sidecar supplies the token we never sent -------
+    status, started = _sidecar_post("/queue/start", {})
+    assert status == 200, (
+        "the sidecar must attach the launch token it resolved in-process, so a "
+        f"browser with no credential can still arm the queue: {status} {started}"
+    )
+    _assert_no_token("queue-start response", started)
+
+    # --- watch it run, through the sidecar ---------------------------------
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     last_status_body: dict[str, Any] = {}
     while time.monotonic() < deadline:
+        _, queue_body = _sidecar_get("/queue")
+        _assert_no_token("queue snapshot", queue_body)
         _, last_status_body = _sidecar_get(f"/runs/{run_id}")
-        assert token not in json.dumps(last_status_body), (
-            "launch token leaked into the sidecar run-status response"
-        )
+        _assert_no_token("run-status response", last_status_body)
         if last_status_body.get("status") in ("completed", "error", "stopped"):
             break
         time.sleep(1.0)
 
     assert last_status_body.get("status") == "completed", (
-        f"scan launched via the sidecar did not complete: {last_status_body}"
+        f"scan driven through the sidecar did not complete: {last_status_body}"
     )
 
     ds, data = _sidecar_get(f"/runs/{run_id}/data")
     assert ds == 200, f"GET /runs/{run_id}/data (via sidecar) failed: {ds} {data}"
-    assert token not in json.dumps(data), "launch token leaked into the sidecar data response"
+    _assert_no_token("data response", data)
     assert data.get("row_count", 0) > 0, f"expected real rows: {data}"
 
 
@@ -513,16 +595,33 @@ def test_plan_via_sidecar_launch_completes(deployed_stack: DeployedStack) -> Non
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
+    """The same flow driven straight at the bridge, bypassing the sidecar.
+
+    The isolation control for test 3: when that one fails, this says whether
+    the sidecar's relay broke or the stack underneath it did. Here the caller
+    holds the launch token itself -- the bridge gates the arming action, and
+    the sidecar's only job is to hold that credential on the browser's behalf.
+    """
     token = _minted_token(deployed_stack.project_dir)
 
-    status, body = _bridge_post(
-        "/runs", {"plan_name": deployed_stack.plan_name, "plan_args": deployed_stack.plan_args}
+    status, patched = _request(
+        BRIDGE_URL,
+        "/draft",
+        "PATCH",
+        {
+            "plan_name": deployed_stack.plan_name,
+            "plan_args_patch": deployed_stack.plan_args,
+            "client_id": "panels-deploy-e2e-direct",
+        },
     )
-    assert status == 200, f"POST /runs (bridge) failed: {status} {body}"
-    run_id = body["id"]
+    assert status == 200, f"PATCH /draft (bridge) failed: {status} {patched}"
 
-    status, body = _bridge_post(f"/runs/{run_id}/launch", {}, token=token)
-    assert status == 200, f"launch (bridge) failed: {status} {body}"
+    status, body = _bridge_post("/queue/items", {"draft_revision": patched["revision"]})
+    assert status == 200, f"POST /queue/items (bridge) failed: {status} {body}"
+    run_id = body["run_id"]
+
+    status, body = _bridge_post("/queue/start", {}, token=token)
+    assert status == 200, f"POST /queue/start (bridge) failed: {status} {body}"
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     last_status_body: dict[str, Any] = {}
@@ -533,7 +632,7 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
         time.sleep(1.0)
 
     assert last_status_body.get("status") == "completed", (
-        f"scan launched directly via the bridge did not complete: {last_status_body}"
+        f"scan enqueued directly via the bridge did not complete: {last_status_body}"
     )
 
     status, data = _bridge_get(f"/runs/{run_id}/data")
@@ -542,27 +641,61 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. NEGATIVE (strict, no flaky): no stop / no unbounded create surfaced
+# 5. NEGATIVE (strict, no flaky): the /runs surface is READ-ONLY on the sidecar
 # ---------------------------------------------------------------------------
-# Placed before test 6 so the VA-stop test runs last among the container-
-# mutating tests, while this negative proof (container-neutral) can run in
-# whichever order pytest schedules it without affecting anything else.
+# Container-neutral: touches no container state, so it can run in whichever
+# order pytest schedules it without affecting the scan tests above.
 
 
-def test_sidecar_exposes_no_stop_or_unbounded_create_route(
-    deployed_stack: DeployedStack,
-) -> None:
+def test_sidecar_runs_surface_is_read_only(deployed_stack: DeployedStack) -> None:
+    """Nothing under ``/runs`` is POSTable on the sidecar -- every write is a queue write.
+
+    ``/runs`` used to carry the sidecar's one write (``POST /runs/launch``).
+    That route is gone: execution is now the queue's, so the whole ``/runs``
+    surface is the read-proxy's and nothing else. Proving the ABSENCE of every
+    verb here — rather than "the launch route is the only one" — is a stronger
+    invariant AND a simpler one to keep true.
+
+    Method-code semantics are load-bearing in the assertions below: a path
+    registered for GET but not POST returns Starlette's 405, while a path
+    registered for nothing at all returns 404. Asserting the right one of the
+    two is what makes each check say what it means.
+    """
     # No /runs/{id}/stop at all -- the path template isn't registered on the
-    # sidecar for any method, so it 404s regardless of verb.
+    # sidecar for any method, so it 404s regardless of verb. (The halt lives on
+    # the queue surface: POST /queue/stop and POST /queue/abort.)
     status, body = _request(BLUESKY_PANELS_URL, "/runs/not-a-real-run-id/stop", "GET")
     assert status == 404, f"expected no GET /runs/{{id}}/stop route, got {status}: {body}"
     status, body = _sidecar_post("/runs/not-a-real-run-id/stop", {})
     assert status == 404, f"expected no POST /runs/{{id}}/stop route, got {status}: {body}"
 
-    # Bare POST /runs (unbounded intent-create) must not be exposed either --
-    # GET /runs is registered (read-proxy), so a POST there hits Starlette's
-    # 405 for a matched path/wrong method, not a 404.
+    # The retired direct-execute route must not be back.
+    status, body = _sidecar_post("/runs/launch", {"plan_name": "grid_scan", "plan_args": {}})
+    assert status == 404, (
+        f"POST /runs/launch is retired; execution goes through the queue: {status} {body}"
+    )
+    status, body = _sidecar_post("/runs/not-a-real-run-id/launch", {})
+    assert status == 404, (
+        f"POST /runs/{{id}}/launch is retired; execution goes through the queue: {status} {body}"
+    )
+
+    # Bare POST /runs (unbounded intent-create) is not exposed either --
+    # GET /runs IS registered (read-proxy), so a POST there hits Starlette's
+    # 405 for a matched path/wrong method, not a 404. That 405 is therefore
+    # also the positive control for this whole test: it proves the /runs prefix
+    # is genuinely mounted, so the 404s above are real absences rather than the
+    # sidecar having no /runs routes at all.
     status, body = _sidecar_post("/runs", {"plan_name": "grid_scan", "plan_args": {}})
     assert status == 405, (
-        f"sidecar must not expose unbounded POST /runs (only /runs/launch), got {status}: {body}"
+        f"sidecar must not expose POST /runs, and GET /runs must exist: {status}: {body}"
+    )
+
+    # ... while the queue WRITE surface is present and relaying. A malformed
+    # body reaches the bridge and earns its 422, which a missing route could
+    # not produce -- so this distinguishes "relay wired" from "relay absent"
+    # without enqueuing anything.
+    status, body = _sidecar_post("/queue/items", {"not_a_draft_revision": True})
+    assert status == 422, (
+        f"POST /queue/items must relay to the bridge (expected its 422 on a bad "
+        f"body), got {status}: {body}"
     )

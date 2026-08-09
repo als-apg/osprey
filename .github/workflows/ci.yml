@@ -752,6 +752,7 @@ jobs:
             --ignore=tests/e2e/test_dispatch_deploy.py \
             --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
             --ignore=tests/e2e/test_bluesky_deploy.py \
+            --ignore=tests/e2e/test_bluesky_queue_e2e.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py \
             --ignore=tests/e2e/test_execution_environment_parity.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
@@ -1275,9 +1276,9 @@ jobs:
     # on PRs from same repo (mirrors bluesky-deploy-e2e/tiled-roundtrip-e2e
     # gating). This
     # job needs no secrets — the bridge never shells out to an LLM — and no
-    # amd64-emulated Virtual Accelerator image (demo_runner mode: real
-    # RunEngine, mock devices, no EPICS), so it's comparable in weight to
-    # bluesky-deploy-e2e rather than va-substrate-equivalence-e2e.
+    # amd64-emulated Virtual Accelerator image (mock devices, no EPICS), so
+    # it's comparable in weight to bluesky-deploy-e2e rather than
+    # va-substrate-equivalence-e2e.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
 
     steps:

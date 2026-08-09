@@ -1,33 +1,54 @@
 """Phase 2 acceptance proof: scan data survives a Bluesky bridge restart via
 the co-deployed Tiled catalog (PROPOSAL.md's success criterion 11).
 
-Deploys the bridge + Tiled with the mock-devices demo scanner
-(``bluesky.demo_runner=true``, ``bluesky.tiled_enabled=true`` — no virtual
-accelerator, no EPICS, no QEMU: the demo scanner runs a real bluesky
-RunEngine against in-process mock devices), runs a scan to completion,
-restarts ONLY the bridge container, and reads the same run back through the
-same agent-facing endpoint (``GET /runs/{run_id}/data``). The in-memory run
-registry and live-row buffer die with the bridge; the only thing that can
-make the post-restart read return anything is the durable Tiled catalog,
-found via ``osprey_run_id`` stamped into the RunEngine start doc (task 2.3)
-and searched for by ``_from_tiled`` (task 3.2/3.3) after the registry lookup
-misses.
+Deploys the queue stack -- bridge + ``bluesky-queueserver`` RE Manager + Redis
++ Tiled -- against the Virtual Accelerator, drives ONE scan to completion
+through the queue (``PATCH /draft`` -> ``POST /queue/items`` -> token-gated
+``POST /queue/start``), restarts ONLY the bridge container, and reads the same
+run back through the same agent-facing endpoint (``GET /runs/{run_id}/data``).
 
-This is why the pre-restart poll waits for ``status == "completed"``, not
-merely "launched" or "running": ``TiledWriter`` caches events and flushes
-only at the stop doc (or its own ``batch_size`` cap), so restarting before
-completion would lose every cached event while ``tiled_degraded`` still read
-``False`` (Landmine 4 in the research brief) — a proof that would pass
-vacuously.
+The Virtual Accelerator is not incidental here. Plans execute in the
+queueserver worker against real devices, so the ONLY connector that can produce
+a run with data is one that can actually move something -- which is also why the
+shipped ``control-assistant`` preset now defaults ``control_system.type`` to
+``virtual_accelerator``. The mock connector would give a browse-only deployment
+that refuses the enqueue outright, and there would be nothing to round-trip.
+
+The live-row buffer is in-process: it dies with the bridge. So after the restart
+the only thing that can make this read return anything is the durable Tiled
+catalog, found via the ``osprey_run_id`` the enqueue path stamps into the queue
+item's metadata (``queue_backend.RUN_ID_META_KEY``), which reaches the
+RunEngine start document and is searched for by ``_from_tiled`` once the live
+lookup misses. ``run_uid`` is the tell: it is ``null`` on the live path (the
+bridge holds a buffer but never learned the uid the worker's RunEngine minted)
+and POPULATED on the Tiled path (it is on the stored start document), so this
+test asserts the read genuinely switched sources rather than merely returning
+the same numbers.
+
+This is why the pre-restart poll waits for ``status == "completed"``, not merely
+"running": ``TiledWriter`` caches events and flushes only at the stop doc (or
+its own ``batch_size`` cap), so restarting before completion would lose every
+cached event -- a proof that would pass vacuously. (Relatedly, and deliberately
+NOT asserted anywhere here: a bridge restarted MID-run legitimately has no live
+buffer for that run until its next start document. That is correct behavior,
+not a gap.)
+
+Scope, versus ``tests/e2e/test_bluesky_queue_e2e.py``: that module is the broad
+proof of the whole queue stack (capability, arming, serial drain, session
+plans, abort, browse-only, network isolation) and it exercises this same
+durability path as one stage among nine. THIS module is the narrow, strict
+acceptance proof of criterion 11 alone -- one scan, one restart, byte-identical
+read-back -- and keeps no flaky marker anywhere, so the criterion can never be
+swept into a lenient rerun. Keep it that way if the two ever diverge.
 
 Container safety: every docker invocation below names an exact container or
-image — never a wildcard, never ``system prune``/``--volumes``. Teardown
+image -- never a wildcard, never ``system prune``/``--volumes``. Teardown
 goes through ``osprey deploy down``, never a raw ``docker rm`` sweep. The
 restart step names the ``<project>-bluesky-bridge`` container only; ``osprey deploy restart``
-is never used here because it bounces every service, including Tiled, which
-would defeat the whole proof.
+is never used here because it bounces every service, including Tiled and the RE
+manager, which would defeat the whole proof.
 
-Markers: no ``pytest.mark.flaky`` anywhere in this module — this file's
+Markers: no ``pytest.mark.flaky`` anywhere in this module -- this file's
 entire body IS the acceptance proof, so the round-trip assertions must stay
 strict (mirrors ``test_va_substrate_equivalence.py``'s P5 convention: the
 safety/acceptance proof is never swept into lenient reruns).
@@ -45,6 +66,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -52,11 +74,26 @@ from osprey.deployment.compose_generator import resolve_project_name
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Deliberately distinct from test_bluesky_deploy.py's 18090 and
-# test_va_substrate_equivalence.py's 18099 so all three can run concurrently
-# on a shared dev machine without a port collision.
+# Deliberately distinct from every sibling e2e module's pinned bridge port
+# (test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's 18099,
+# _orm_stack.py's 18102, test_bluesky_queue_e2e.py's 18108) so they can run
+# concurrently on a shared dev machine without a port collision.
 BRIDGE_PORT = 18101
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
+TILED_PORT = 18192
+# Channel Access port for this module's own Virtual Accelerator. The preset
+# leaves the connector's gateway port UNSET so it follows
+# services.virtual_accelerator.port -- moving the deployed soft-IOC's port is a
+# one-place edit, and the connector follows it.
+VA_CA_PORT = 15065
+# ariel-postgres (5432) and OpenObserve (5080) are deployed unconditionally by
+# the control-assistant preset with no profile knob to drop them, and a
+# locally-running tutorial stack routinely holds both. A bound-port collision
+# aborts `deploy up` before the bridge/Tiled containers it creates alongside
+# them ever start, so both are moved to high, unassigned ports.
+POSTGRES_PORT = 25433
+OPENOBSERVE_PORT = 25082
+
 # The fixture builds/deploys under this project name; the compose template
 # renders each container_name AND the bridge's locally-built image as
 # ``<project>-<service>`` (services/bluesky/docker-compose.yml.j2), so derive
@@ -65,27 +102,22 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 # per-project.
 PROJECT_NAME = "proj"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
+QUEUESERVER_CONTAINER = f"{PROJECT_NAME}-bluesky-queueserver"
 TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"
+VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
+VA_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-va:local"
 
-# The demo scanner's mock device factory (devices/mock.py's build_devices())
-# defaults to a single "det1" MockDetector when the bridge's app.py lifespan
-# hook wires it with no explicit motor/detector names.
-DEMO_DETECTOR = "det1"
+# The scan: one corrector axis, one BPM detector, a handful of points. Small on
+# purpose -- this proof is about durability, not about scan size.
+SCAN_POINTS = 4
 
-# The bridge's launch route (POST /runs/{id}/launch) fails closed on an
-# unset BLUESKY_LAUNCH_TOKEN. `osprey deploy up` mints one for the deployed
-# bluesky service, but this e2e supplies its own explicitly (the supported
-# operator-provides-a-token path) so the test knows the token value up front
-# and never has to read it back out of the project .env. BLUESKY_TILED_API_KEY
-# is left to the minting path — nothing here needs to know its value.
-LAUNCH_TOKEN = "e2e-tiled-roundtrip-launch-token"
-
-BUILD_TIMEOUT_SEC = 300
-DEPLOY_UP_TIMEOUT_SEC = 600
-HEALTH_TIMEOUT_SEC = 300.0
-CONTAINER_HEALTH_TIMEOUT_SEC = 90.0  # docker healthcheck start_period + a few intervals
-SCAN_TIMEOUT_SEC = 60.0
+BUILD_TIMEOUT_SEC = 600
+# The VA image compiles PyAT/softioc from source on a cold cache.
+DEPLOY_UP_TIMEOUT_SEC = 2400
+HEALTH_TIMEOUT_SEC = 420.0
+CONTAINER_HEALTH_TIMEOUT_SEC = 240.0  # docker healthcheck start_period + a few intervals
+SCAN_TIMEOUT_SEC = 420.0
 
 pytestmark = [
     pytest.mark.e2e,
@@ -120,39 +152,36 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
-def _write_launch_token(project_dir: Path) -> None:
-    """Append BLUESKY_LAUNCH_TOKEN to the project .env BEFORE ``osprey deploy
-    up`` -- the bridge compose template passes it through from the project
-    .env, same mechanism as task 4.2's substrate-equivalence e2e."""
-    env_path = project_dir / ".env"
-    existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
-    if existing and not existing.endswith("\n"):
-        existing += "\n"
-    env_path.write_text(existing + f"BLUESKY_LAUNCH_TOKEN={LAUNCH_TOKEN}\n", encoding="utf-8")
+class DeployedStack:
+    """The one deployed project, plus the devices its scan will drive."""
+
+    def __init__(
+        self,
+        project_dir: Path,
+        correctors: dict[str, tuple[str, str]],
+        bpms: dict[str, str],
+        limits: dict[str, Any],
+        token: str,
+    ) -> None:
+        self.project_dir = project_dir
+        self.correctors = correctors
+        self.bpms = bpms
+        self.limits = limits
+        self.token = token
 
 
 @pytest.fixture(scope="module")
-def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build + co-deploy the bridge and Tiled; yield the project directory."""
+def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
+    """Build + co-deploy the VA, bridge, RE manager, Redis and Tiled."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("tiled_roundtrip_build")
     project_dir = base / PROJECT_NAME
 
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant to this proof and far
-    # slower to build than the bridge/Tiled images already are. Only
-    # top-level profile-key overrides go through -O (a flat-dotted `--set`
-    # would build a nested dict for `dispatch`, not null it out).
-    #
-    # services.postgresql.port_host: the control-assistant preset always
-    # deploys an ariel-postgres service (config.yml.j2 bakes it into
-    # deployed_services unconditionally, for ARIEL logbook search -- there is
-    # no profile knob to drop it), hardcoded to host port 5432. This proof
-    # never touches ariel/postgres at all, but a colliding local Postgres
-    # (or another project's container already bound to 5432) would abort
-    # `deploy up` before the bridge/Tiled containers it creates alongside it
-    # ever start. Moved to a high, unassigned port -- same defensive
-    # convention as this fixture's own BRIDGE_PORT choice above.
+    # slower to build than the VA/bridge/Tiled images already are. Only
+    # top-level profile-key overrides go through -O/an override file (a flat
+    # dotted `--set` would build a nested dict for `dispatch`, not null it out).
     #
     # modules.web_terminals.enabled: false drops the preset's per-persona
     # web-terminal stack (two persona images + nginx, all built locally):
@@ -163,22 +192,24 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # the preset's `modules.web_terminals` siblings intact, whereas a nested
     # `modules:` mapping would wholesale-replace the subtree (same
     # convention as tests/e2e/_orm_stack.py).
+    #
+    # control_system.type is deliberately NOT set: the shipped preset already
+    # defaults to virtual_accelerator, which is the connector this proof needs,
+    # and pinning it here would hide a regression in that default.
     override_path = base / "override.yml"
     override_path.write_text(
         "dispatch: null\n"
         "config:\n"
-        "  services.postgresql.port_host: 15432\n"
+        f"  services.postgresql.port_host: {POSTGRES_PORT}\n"
+        f"  services.openobserve.port: {OPENOBSERVE_PORT}\n"
         "  modules.web_terminals.enabled: false\n",
         encoding="utf-8",
     )
 
-    # bluesky.port/demo_runner/tiled_enabled are all leaf scalars under the
-    # top-level `bluesky:` profile key, so plain --set works (a dotted --set
-    # only becomes unsafe for keys nested under an existing block you don't
-    # want replaced wholesale, e.g. control_system.type -- not the case
-    # here: we don't touch control_system at all, so the preset's default
-    # `control_system.type: mock` stands, which is all the demo scanner
-    # needs -- no CA, no virtual accelerator).
+    # bluesky.port/tiled_port/tiled_enabled and virtual_accelerator.port are
+    # leaf scalars under top-level profile keys, so plain --set works (a dotted
+    # --set is only unsafe for keys nested under an existing block you don't
+    # want replaced wholesale, e.g. control_system.type -- not the case here).
     build = _run(
         [
             str(osprey_bin),
@@ -191,9 +222,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
-            "bluesky.demo_runner=true",
-            "--set",
             "bluesky.tiled_enabled=true",
+            "--set",
+            f"bluesky.tiled_port={TILED_PORT}",
+            "--set",
+            f"virtual_accelerator.port={VA_CA_PORT}",
             "--skip-deps",
             "--skip-lifecycle",
             "--output-dir",
@@ -209,15 +242,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    _write_launch_token(project_dir)
-
     # Force a fresh --dev build so the deployed bridge container runs CURRENT
     # source (osprey deploy up does not pass --build to compose, so it would
-    # otherwise reuse a stale cached image). Exact-named image only.
+    # otherwise reuse a stale cached image). Exact-named images only.
     # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration on the
     # test itself when the osprey source is unchanged; never set in CI).
     if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
+        for image in (BRIDGE_IMAGE, VA_IMAGE):
+            subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
         up = _run(
@@ -232,14 +264,65 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        _wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
-        yield project_dir
+
+        # Device names come from the .env `osprey deploy up` itself wrote
+        # (_ensure_bluesky_substrate_env derives them from the built project's
+        # own channel_limits.json) -- never a hardcoded facility channel, and
+        # never a second copy of that derivation living in this test.
+        correctors = _parse_motors(_env_value(project_dir, "BLUESKY_EPICS_MOTORS"))
+        bpms = _parse_detectors(_env_value(project_dir, "BLUESKY_EPICS_DETECTORS"))
+        assert correctors and bpms, "deploy up wired no scan devices into the project .env"
+
+        yield DeployedStack(
+            project_dir=project_dir,
+            correctors=correctors,
+            bpms=bpms,
+            limits=json.loads(
+                (project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8")
+            ),
+            token=_env_value(project_dir, "BLUESKY_LAUNCH_TOKEN"),
+        )
     finally:
-        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
+        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=600)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+
+
+def _env_value(project_dir: Path, key: str) -> str:
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    env_path = project_dir / ".env"
+    assert env_path.is_file(), f"no .env written at {env_path}"
+    value = parse_dotenv_file(env_path).get(key)
+    assert value, f"{key} missing/empty in the project .env"
+    return value
+
+
+def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
+    """Parse ``BLUESKY_EPICS_MOTORS`` (``name=SP|RB,...``) back into a mapping."""
+    out: dict[str, tuple[str, str]] = {}
+    for chunk in value.split(","):
+        if not chunk.strip():
+            continue
+        name, _, spec = chunk.partition("=")
+        sp, _, rb = spec.partition("|")
+        out[name.strip()] = (sp.strip(), rb.strip())
+    return out
+
+
+def _parse_detectors(value: str) -> dict[str, str]:
+    """Parse ``BLUESKY_EPICS_DETECTORS`` (``name=RB,...``) back into a mapping."""
+    out: dict[str, str] = {}
+    for chunk in value.split(","):
+        if not chunk.strip():
+            continue
+        name, _, rb = chunk.partition("=")
+        out[name.strip()] = rb.strip()
+    return out
 
 
 def _wait_for_health(url: str, timeout: float) -> None:
@@ -247,7 +330,7 @@ def _wait_for_health(url: str, timeout: float) -> None:
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+            with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 - localhost
                 if resp.status == 200:
                     return
                 last_err = f"HTTP {resp.status}"
@@ -288,28 +371,27 @@ def _docker_inspect(container: str, fmt: str) -> str:
     return proc.stdout.strip()
 
 
-def _get(path: str) -> tuple[int, dict]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
-
-
-def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
-    data = json.dumps(body).encode("utf-8")
+def _request(
+    path: str, method: str, body: dict | None = None, token: str | None = None
+) -> tuple[int, Any]:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers: dict[str, str] = {}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["X-Launch-Token"] = token
     req = urllib.request.Request(  # noqa: S310
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/json", **(headers or {})},
+        f"{BRIDGE_URL}{path}", data=data, method=method, headers=headers
     )
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=30.0) as resp:  # noqa: S310
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
+def _get(path: str) -> tuple[int, Any]:
+    return _request(path, "GET")
 
 
 # ---------------------------------------------------------------------------
@@ -317,52 +399,90 @@ def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict
 # ---------------------------------------------------------------------------
 
 
-def test_tiled_roundtrip(deployed_stack: Path) -> None:
+def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     # `deployed_stack` is requested for its side effect: it builds the project,
-    # brings up bridge + Tiled, and waits for both to report healthy.
+    # brings up the VA, bridge, RE manager, Redis and Tiled, and waits for them.
 
-    # --- 2. create + launch a scan --------------------------------------
-    # Minimal single-axis grid_scan (the demo runner's default mock devices
-    # are motor1/det1) -- shipped registry only has orm/grid_scan; this test
-    # just wants a small, readable buffered stream, so a 3-point 1-axis
-    # sweep stands in for the removed built-in `count` plan.
-    status, body = _post(
-        "/runs",
+    # --- 1. this deployment must actually be able to execute ---------------
+    # Not politeness either: on a browse-only deployment the enqueue below
+    # would be refused and the whole round trip would have nothing to carry.
+    # Asserting it here makes that failure mode say what it is.
+    status, health = _get("/health")
+    assert status == 200, f"GET /health failed: {status} {health}"
+    assert health["capability"]["can_execute"] is True, (
+        f"this proof needs an executable deployment: {health['capability']}"
+    )
+
+    # --- 2. compose the scan in the shared draft ---------------------------
+    # One corrector axis swept across the middle half of its OWN
+    # channel_limits band, reading one BPM. Device names and bounds both come
+    # from the built project, never from a hardcoded channel.
+    axis_name = next(iter(deployed_stack.correctors))
+    sp_address, _rb = deployed_stack.correctors[axis_name]
+    entry = deployed_stack.limits[sp_address]
+    lo, hi = float(entry["min_value"]), float(entry["max_value"])
+
+    status, patched = _request(
+        "/draft",
+        "PATCH",
         {
             "plan_name": "grid_scan",
-            "plan_args": {
-                "detectors": [DEMO_DETECTOR],
-                "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+            "plan_args_patch": {
+                "detectors": [next(iter(deployed_stack.bpms))],
+                "axes": [
+                    {
+                        "setpoint": axis_name,
+                        "start": lo + 0.375 * (hi - lo),
+                        "stop": lo + 0.625 * (hi - lo),
+                        "num_points": SCAN_POINTS,
+                    }
+                ],
             },
+            "client_id": "tiled-roundtrip-e2e",
         },
     )
-    assert status == 200, f"POST /runs failed: {status} {body}"
-    run_id = body["id"]
+    assert status == 200, f"PATCH /draft failed: {status} {patched}"
 
-    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": LAUNCH_TOKEN})
-    assert status == 200, f"launch failed: {status} {body}"
+    # --- 3. enqueue at the pinned revision, then arm the queue -------------
+    # The two halves of what used to be one direct launch: `POST /queue/items`
+    # takes plan_name/plan_args from the server-side draft snapshot AT this
+    # revision (never from the request body) and mints the OSPREY run id;
+    # `POST /queue/start` is the token-gated arming action that drains it.
+    status, enqueued = _request("/queue/items", "POST", {"draft_revision": patched["revision"]})
+    assert status == 200, f"POST /queue/items failed: {status} {enqueued}"
+    run_id = enqueued["run_id"]
 
-    # --- 3. poll to completion --------------------------------------------
+    status, started = _request("/queue/start", "POST", token=deployed_stack.token)
+    assert status == 200, f"POST /queue/start failed: {status} {started}"
+
+    # --- 4. poll to completion --------------------------------------------
     # Not politeness: TiledWriter caches events and flushes only at the stop
     # doc (or its own batch_size cap). Restarting before the run completes
-    # would lose every cached event while tiled_degraded still reads False --
-    # the poll is what makes the proof meaningful (see module docstring).
+    # would lose every cached event -- the poll is what makes the proof
+    # meaningful (see module docstring).
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     status_body: dict = {}
     while time.monotonic() < deadline:
         _, status_body = _get(f"/runs/{run_id}")
-        if status_body.get("status") in ("completed", "error", "stopped"):
+        if isinstance(status_body, dict) and status_body.get("status") in (
+            "completed",
+            "error",
+            "stopped",
+        ):
             break
-        time.sleep(0.2)
+        time.sleep(1.0)
     assert status_body.get("status") == "completed", f"scan did not complete: {status_body}"
 
-    # --- 4. capture the pre-restart read; guard against a vacuous proof --
-    assert status_body.get("tiled_degraded") is False, (
-        f"tiled_degraded must be False for a meaningful round-trip proof: {status_body}"
-    )
-
-    status, pre_data = _get(f"/runs/{run_id}/data")
+    # --- 5. capture the pre-restart read; guard against a vacuous proof ----
+    status, pre_data = _get(f"/runs/{run_id}/data?max_rows=1000")
     assert status == 200, f"GET /runs/{run_id}/data (pre-restart) failed: {status} {pre_data}"
+    # The live buffer outlives the run, so this read MUST still be on the live
+    # path -- `run_uid: null` is the tell. Without this the post-restart read
+    # could be a second live read and the whole proof would say nothing about
+    # Tiled at all.
+    assert pre_data["run_uid"] is None, (
+        f"expected the pre-restart read to come off the live buffer: {pre_data['run_uid']!r}"
+    )
     pre_columns = pre_data["columns"]
     pre_rows = pre_data["rows"]
     pre_row_count = pre_data["row_count"]
@@ -375,26 +495,33 @@ def test_tiled_roundtrip(deployed_stack: Path) -> None:
         f"({len(pre_rows)}): {pre_data}"
     )
 
-    # --- 5. restart ONLY the bridge; Tiled must stay up -------------------
+    # --- 6. restart ONLY the bridge; Tiled and the manager must stay up ----
     restart = subprocess.run(
         ["docker", "restart", BRIDGE_CONTAINER],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=120,
     )
     assert restart.returncode == 0, f"docker restart {BRIDGE_CONTAINER} failed: {restart.stderr}"
 
-    # --- 6. wait for the bridge to come back healthy -----------------------
+    # --- 7. wait for the bridge to come back healthy -----------------------
     _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
     _wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
 
-    # --- 7. read the SAME run id back through the SAME endpoint -----------
-    # The in-memory registry (and run.run_uid with it) died with the bridge
-    # process; the only thread back to this run's data is osprey_run_id,
-    # stamped into the RunEngine start doc by do_launch and searched for by
-    # _from_tiled via Key("start.osprey_run_id") == run_id.
-    status, post_data = _get(f"/runs/{run_id}/data")
+    # --- 8. read the SAME run id back through the SAME endpoint -----------
+    # The live-row buffer died with the bridge process; the only thread back to
+    # this run's data is osprey_run_id, carried in the queue item's metadata
+    # into the RunEngine start doc and searched for by _from_tiled via
+    # Key("start.osprey_run_id") == run_id.
+    status, post_data = _get(f"/runs/{run_id}/data?max_rows=1000")
     assert status == 200, f"GET /runs/{run_id}/data (post-restart) failed: {status} {post_data}"
+
+    # The source genuinely switched: Tiled has the stored start document and so
+    # can report the RunEngine's own uid, which the live buffer never knew.
+    assert post_data["run_uid"], (
+        f"the post-restart read must come from Tiled (run_uid populated); a null "
+        f"run_uid means it served a live buffer that should not exist: {post_data}"
+    )
 
     assert post_data["columns"] == pre_columns, (
         f"columns diverged across the restart:\npre:  {pre_columns}\npost: {post_data['columns']}"

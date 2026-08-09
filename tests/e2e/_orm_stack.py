@@ -49,13 +49,18 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from click.testing import CliRunner, Result
 
-# Channel Access port the Virtual Accelerator serves on. NOT freely
-# overridable: the Control Assistant preset's config.yml.j2 hardcodes
-# `control_system.connector.virtual_accelerator.gateways.*.port: 5064` (it is
-# not templated from `services.virtual_accelerator.port`) -- so the
-# published container port must stay at this value, or the connector and the
-# container silently drift apart (see test_va_substrate_equivalence.py's
-# identical note).
+# Channel Access port the Virtual Accelerator serves on, and the value every
+# caller of this module gets unless it passes its own.
+#
+# This IS freely overridable via `--set virtual_accelerator.port=...`: the
+# Control Assistant preset deliberately leaves
+# `control_system.connector.virtual_accelerator.gateways.*.port` UNSET, so the
+# connector follows `services.virtual_accelerator.port` and moving the deployed
+# soft-IOC's port is a one-place edit that carries the connector with it. (This
+# note previously said the opposite, from when the preset hardcoded 5064.)
+# Callers that must coexist with another VA deploy on the same host -- 5064 is
+# the tutorial's default and routinely held -- should pass an explicit
+# `va_port=` rather than assume this default is free.
 VA_CA_PORT = 5064
 
 # Bluesky bridge HTTP port. Distinct from the other e2e modules' pinned
