@@ -365,7 +365,10 @@ def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(plane,
     publisher("descriptor", _descriptor_doc("worker-descriptor", run_uid))
     publisher("event", _event_doc("worker-descriptor", 1, {"bpm": 4.2}))
 
-    assert _wait_until(lambda: live_rows.get("worker-built-run") is not None)
+    # Wait for the EVENT doc, not just the start doc: the run appears in
+    # live_rows as soon as "start" is processed, while the row from "event"
+    # can still be in flight behind it on the same socket.
+    assert _wait_until(lambda: bool((live_rows.get("worker-built-run") or {}).get("rows")))
     buffer = live_rows.get("worker-built-run")
     assert buffer is not None
     assert buffer["rows"] == [[4.2]]
