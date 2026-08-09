@@ -429,10 +429,30 @@ cannot open this user's terminal:
            oidc_subject: "b7d9a340-..."
 
 The ``*_env`` keys hold environment-variable **names**, not credentials: put the
-client id and secret in the project's ``.env`` under those names. The names
+client id and secret in the project's ``.env.auth`` under those names — that is
+the only file the authentication service reads credentials from. The names
 shown are the ones OSPREY reads when you omit the keys, and ``claim`` falls back
 to ``sub`` in the authentication service itself. ``oidc_subject`` is not a
 secret — it is the identifier your provider already publishes for that person.
+
+.. warning::
+
+   **No secret may contain a dollar sign** — not in ``.env.auth``, and not in
+   the ``.env`` and ``.env.production`` that carry your provider API key and
+   facility passwords. Whichever way the container stack reads these files, it
+   substitutes ``$`` sequences inside the *values* on the way through —
+   ``secret$abc`` arrives as ``secret``, and ``P@$$w0rd`` arrives as
+   ``P@$w0rd``. The file on disk still reads correctly, so the only symptom is
+   a login or a token exchange that refuses for no visible reason.
+
+   This bites hardest with a client secret your identity provider generated for
+   you, since you did not choose those characters. If yours contains a ``$``,
+   issue a new one rather than trying to escape it — escaping is not portable
+   between container runtimes, so there is no spelling that works everywhere.
+
+   ``osprey deploy`` refuses to start a stack whose secrets would be corrupted
+   this way and names the offending variables, so you find out before the
+   deployment is running rather than after someone cannot log in.
 
 Three more keys are optional. ``auth.port`` is the port the authentication
 service listens on (default ``9070``); ``auth.session_lifetime`` is how long a
