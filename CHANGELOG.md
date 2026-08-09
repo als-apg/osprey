@@ -236,6 +236,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Importing the control-system connectors no longer drags in pandas. The
+  connector factory imported the archiver base eagerly for a type annotation,
+  so anything that wanted only `osprey.connectors.control_system` had to
+  install the archiver's dataframe stack to import it at all.
 - A secret containing `$` no longer reaches a container truncated. Compose
   substitutes `$` sequences inside env-file values, so `secret$abc` arrived as
   `secret` and `P@$$w0rd` as `P@$w0rd` — while the file on disk still read
