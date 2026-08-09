@@ -457,7 +457,9 @@ To keep the scan server **on** while hiding an individual plan, set
    bluesky:
      excluded_plans: [orm]
 
-The named plan is then invisible to the agent and non-runnable.
+The named plan is then invisible to the agent and non-runnable. The same
+block's ``plan_dir`` key does the opposite — it installs a directory of your
+facility's own scan plans; see :doc:`bluesky/write-plans`.
 
 
 .. _profile-secrets:
