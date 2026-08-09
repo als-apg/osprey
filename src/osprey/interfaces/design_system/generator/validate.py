@@ -597,6 +597,13 @@ def check_theme_metadata(tree: TokenTree) -> list[ValidationError]:
     ``{light, dark}`` pair (e.g. the built-in ``main`` family) and
     selects the theme's WCAG gate tuple (see :func:`gates_for_family`).
 
+    ``family_label`` is OPTIONAL: the display name for the family itself, for
+    families whose id does not title-case correctly (``desy`` -> ``DESY``).
+    When absent, consumers derive a label from the family id. When present it
+    must be a non-empty string, and every theme in a family that declares one
+    must declare the SAME one — a family has a single name, so two members
+    disagreeing about it is an authoring error, not a precedence question.
+
     Args:
         tree: The loaded token tree.
 
@@ -638,6 +645,69 @@ def check_theme_metadata(tree: TokenTree) -> list[ValidationError]:
                         path="",
                     )
                 )
+
+        if "family_label" in metadata:
+            family_label = metadata["family_label"]
+            if not isinstance(family_label, str) or not family_label:
+                errors.append(
+                    ValidationError(
+                        rule=ValidationRule.INVALID_THEME_METADATA,
+                        message=(
+                            "$extensions.family_label must be a non-empty string, "
+                            f"got {family_label!r}"
+                        ),
+                        source_file=source_file,
+                        path="",
+                    )
+                )
+
+    errors.extend(_check_family_label_agreement(tree))
+    return errors
+
+
+def _check_family_label_agreement(tree: TokenTree) -> list[ValidationError]:
+    """Require every ``family_label`` declared within one family to agree.
+
+    A family has one display name. Two members of the same family declaring
+    different ``family_label`` values leaves the emitted ``FAMILY_LABELS`` map
+    dependent on manifest order, which is exactly the kind of order-sensitivity
+    :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`
+    exists to avoid. Members that omit the key are ignored: declaring it on one
+    member of a family and not the other is fine and labels the whole family.
+
+    Args:
+        tree: The loaded token tree.
+
+    Returns:
+        One error per family whose declared labels disagree.
+    """
+    #: family -> {declared label: first source file that declared it}
+    by_family: dict[str, dict[str, str]] = {}
+    for stem, metadata in tree.theme_metadata.items():
+        family = metadata.get("family")
+        family_label = metadata.get("family_label")
+        if not isinstance(family, str) or not isinstance(family_label, str) or not family_label:
+            continue
+        source_file = _document_source_file(stem, tree.themes.get(stem, {}))
+        by_family.setdefault(family, {}).setdefault(family_label, source_file)
+
+    errors: list[ValidationError] = []
+    for family, labels in by_family.items():
+        if len(labels) > 1:
+            rendered = ", ".join(
+                f"{label!r} ({source})" for label, source in sorted(labels.items())
+            )
+            errors.append(
+                ValidationError(
+                    rule=ValidationRule.INVALID_THEME_METADATA,
+                    message=(
+                        f"theme family {family!r} declares conflicting "
+                        f"$extensions.family_label values: {rendered}"
+                    ),
+                    source_file=sorted(labels.values())[0],
+                    path="",
+                )
+            )
     return errors
 
 

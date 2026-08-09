@@ -23,8 +23,8 @@
  *
  * Table cells apply magnitude-adaptive formatting: index cells go through
  * `_tsShortTime` (short month/day + hour:minute:second, no year, since the
- * backend's split-orient `index` is ISO timestamp strings — see
- * src/osprey/utils/timeseries.py's `extract_timeseries_frame`), value cells
+ * backend's `index` is ISO timestamp strings — see
+ * src/osprey/utils/timeseries.py's `extract_channel_series`), value cells
  * through `_tsFormatValue` (<=5 significant figures, scientific notation for
  * very large/small magnitudes). Both helpers fall back to raw `String(...)`
  * for inputs that aren't a number/valid date, so their output is still run
@@ -117,30 +117,74 @@ function _tsShortTime(iso) {
   });
 }
 
-/** @param {any} chartData */
+/**
+ * Whether one channel is enum/status rather than a numeric signal.
+ * Only an explicit `numeric === false` means enum; a response that omits the
+ * key is still numeric.
+ * @param {any} ch
+ * @returns {boolean}
+ */
+function _tsIsNonNumeric(ch) {
+  return ch.numeric === false;
+}
+
+/**
+ * Whether any channel is enum/status, i.e. whether the chart needs the
+ * secondary category `yaxis2`.
+ * @param {any[]} channels
+ * @returns {boolean}
+ */
+function _tsHasNonNumeric(channels) {
+  return (channels || []).some(_tsIsNonNumeric);
+}
+
+/**
+ * RFC4180-ish CSV field quoting: a field containing a comma, double quote, or
+ * line break is wrapped in double quotes with internal double quotes doubled.
+ * @param {any} value
+ * @returns {string}
+ */
+function _tsCsvField(value) {
+  // `??`, not `||`: only null/undefined become empty; 0 and "" survive.
+  const str = String(value ?? "");
+  if (/["\n\r,]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
+ * Long-format CSV: one row per (channel, timestamp) pair. Each channel
+ * carries its own timestamps, so there is no shared axis to pivot into a
+ * wide table client-side.
+ * @param {any} chartData
+ */
 function _tsExportCSV(chartData) {
-  const cols = chartData.columns || [];
-  const rows = [["timestamp", ...cols].join(",")];
-  chartData.index.forEach((/** @type {any} */ ts, /** @type {number} */ i) => {
-    const vals = chartData.data[i] || [];
-    rows.push([ts, ...vals].join(","));
-  });
-  const blob = new Blob([rows.join("\n")], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `timeseries_${Date.now()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const channels = chartData.channels || [];
+  const rows = channels.flatMap((/** @type {any} */ ch) =>
+    (ch.timestamps || []).map((/** @type {any} */ ts, /** @type {number} */ i) =>
+      [ch.channel, ts, (ch.values || [])[i]].map(_tsCsvField).join(",")
+    )
+  );
+  _tsDownloadBlob(["channel,timestamp,value", ...rows].join("\n"), "text/csv", "csv");
 }
 
 /** @param {any} chartData */
 function _tsExportJSON(chartData) {
-  const blob = new Blob([JSON.stringify(chartData, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
+  _tsDownloadBlob(JSON.stringify(chartData, null, 2), "application/json", "json");
+}
+
+/**
+ * Push `content` at the browser as a download.
+ * @param {string} content
+ * @param {string} mime
+ * @param {string} ext
+ */
+function _tsDownloadBlob(content, mime, ext) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `timeseries_${Date.now()}.json`;
+  a.download = `timeseries_${Date.now()}.${ext}`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -160,7 +204,13 @@ export async function renderTimeseriesView(container, artifact) {
     );
     if (!chartResp.ok) throw new Error(`Chart fetch failed: ${chartResp.status}`);
     const chartData = await chartResp.json();
-    const columns = chartData.columns || [];
+    // format=chart returns one entry per channel, each with its own
+    // timestamps/values; `columns` is just the channel-name projection.
+    const channels = chartData.channels || [];
+    const columns = channels.map((/** @type {any} */ ch) => ch.channel);
+    // Needed so Reset Zoom also autoranges `yaxis2` and so channel toggles
+    // can show/hide that axis.
+    const hasNonNumeric = _tsHasNonNumeric(channels);
 
     const visible = new Set(columns);
 
@@ -168,12 +218,19 @@ export async function renderTimeseriesView(container, artifact) {
 
     // Info bar
     html += '<div class="ts-info-bar">';
-    columns.forEach((/** @type {any} */ c) => {
-      html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${escapeHtml(_tsShortChannelName(c))}</span>`;
+    channels.forEach((/** @type {any} */ ch) => {
+      html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${escapeHtml(_tsShortChannelName(ch.channel))}</span>`;
     });
-    html += `<span class="ts-badge ts-badge-rows"><span class="badge-label">Rows</span> ${chartData.total_rows.toLocaleString()}</span>`;
-    if (chartData.downsampled) {
-      html += `<span class="ts-badge ts-badge-downsampled"><span class="badge-label">Downsampled</span> ${chartData.returned_points.toLocaleString()} pts</span>`;
+    // Cross-channel totals come from the server: per-channel point sums
+    // disagree with the unioned row axis, and `row_count` is not derivable
+    // client-side.
+    const summary = chartData.summary;
+    html += `<span class="ts-badge ts-badge-points"><span class="badge-label">Points</span> ${summary.total_points.toLocaleString()}</span>`;
+    if (typeof summary.row_count === "number") {
+      html += `<span class="ts-badge ts-badge-rows"><span class="badge-label">Rows</span> ${summary.row_count.toLocaleString()}</span>`;
+    }
+    if (summary.downsampled) {
+      html += `<span class="ts-badge ts-badge-downsampled"><span class="badge-label">Downsampled</span> ${summary.returned_points.toLocaleString()} pts</span>`;
     }
     html += '</div>';
 
@@ -181,11 +238,16 @@ export async function renderTimeseriesView(container, artifact) {
     html += '<div class="ts-toolbar">';
     html += '<div class="ts-toolbar-group">';
     const _tsPalette = chartSeries();
-    columns.forEach((/** @type {any} */ col, /** @type {number} */ ci) => {
+    channels.forEach((/** @type {any} */ ch, /** @type {number} */ ci) => {
       const color = _tsPalette[ci % _tsPalette.length];
-      html += `<button class="ts-ch-toggle" data-ch-index="${ci}" data-ch-name="${escapeHtml(col)}" title="${escapeHtml(col)}">`;
+      const isNonNumeric = _tsIsNonNumeric(ch);
+      const title = isNonNumeric ? `${ch.channel} (status/enum -- plotted on right axis)` : ch.channel;
+      // aria-label carries the full PV name plus the axis note; `title` alone
+      // is often unannounced once a button has content.
+      html += `<button class="ts-ch-toggle" type="button" aria-pressed="true" data-ch-name="${escapeHtml(ch.channel)}" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}">`;
       html += `<span class="ts-ch-dot" style="background:${color}"></span>`;
-      html += escapeHtml(_tsShortChannelName(col));
+      html += escapeHtml(_tsShortChannelName(ch.channel));
+      if (isNonNumeric) html += ' <span class="ts-ch-axis-tag" aria-hidden="true">R</span>';
       html += '</button>';
     });
     html += '</div>';
@@ -210,8 +272,7 @@ export async function renderTimeseriesView(container, artifact) {
 
     container.querySelectorAll(".ts-ch-toggle").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const ci = parseInt(/** @type {string} */ (/** @type {HTMLElement} */ (btn).dataset.chIndex), 10);
-        const col = columns[ci];
+        const col = /** @type {string} */ (/** @type {HTMLElement} */ (btn).dataset.chName);
         if (visible.has(col)) {
           if (visible.size <= 1) return;
           visible.delete(col);
@@ -220,9 +281,22 @@ export async function renderTimeseriesView(container, artifact) {
           visible.add(col);
           btn.classList.remove("ts-ch-off");
         }
+        // Keep the exposed state in step with the class.
+        btn.setAttribute("aria-pressed", String(visible.has(col)));
         if (chartEl && /** @type {any} */ (chartEl).data) {
+          // `columns` matches the trace build order, so this boolean array
+          // lines up positionally with Plotly's trace array.
           const update = columns.map((/** @type {any} */ c) => visible.has(c));
-          Plotly.restyle(chartEl, { visible: update });
+          // Hide `yaxis2` while no enum/status channel is visible; one
+          // Plotly.update keeps the toggle a single redraw.
+          const layoutUpdate = hasNonNumeric
+            ? {
+                "yaxis2.visible": channels.some(
+                  (/** @type {any} */ ch) => _tsIsNonNumeric(ch) && visible.has(ch.channel)
+                ),
+              }
+            : {};
+          Plotly.update(chartEl, { visible: update }, layoutUpdate);
         }
       });
     });
@@ -231,7 +305,14 @@ export async function renderTimeseriesView(container, artifact) {
       btn.addEventListener("click", () => {
         const action = /** @type {HTMLElement} */ (btn).dataset.action;
         if (action === "zoom-reset" && chartEl) {
-          Plotly.relayout(chartEl, { "xaxis.autorange": true, "yaxis.autorange": true });
+          // yaxis2 needs its own autorange key; `yaxis.autorange` alone never
+          // touches it.
+          const resetLayout = {
+            "xaxis.autorange": true,
+            "yaxis.autorange": true,
+            ...(hasNonNumeric ? { "yaxis2.autorange": true } : {}),
+          };
+          Plotly.relayout(chartEl, resetLayout);
         } else if (action === "export-csv") {
           _tsExportCSV(chartData);
         } else if (action === "export-json") {
@@ -243,7 +324,7 @@ export async function renderTimeseriesView(container, artifact) {
     await renderTimeseriesChart(/** @type {any} */ (chartEl), chartData);
 
     const tableEl = container.querySelector("[data-ts-table]");
-    await renderTimeseriesTable(/** @type {any} */ (tableEl), artifact.id, columns, 0);
+    await renderTimeseriesTable(/** @type {any} */ (tableEl), artifact.id, 0);
   } catch (err) {
     console.error("Timeseries render failed:", err);
     container.innerHTML = '<span class="text-muted">Failed to load timeseries data</span>';
@@ -309,6 +390,12 @@ export function restyleMountedCharts() {
 }
 
 /**
+ * Builds one Plotly trace per channel, each with its own `x`/`y`.
+ *
+ * A non-numeric (enum/status) channel gets a categorical trace on a secondary
+ * right-hand y-axis (`yaxis2`), drawn with an `hv` step line (a status value
+ * holds until its next transition). The secondary axis is only added to the
+ * layout when at least one channel needs it.
  * @param {any} el
  * @param {any} chartData
  * @returns {Promise<void>}
@@ -317,14 +404,38 @@ export async function renderTimeseriesChart(el, chartData) {
   await ensurePlotlyLoaded();
   if (!el) return;
 
-  const traces = chartData.columns.map((/** @type {any} */ col, /** @type {number} */ ci) => ({
-    x: chartData.index,
-    y: chartData.data.map((/** @type {any} */ row) => row[ci]),
-    name: col,
-    type: "scattergl",
-    mode: "lines",
-    hovertemplate: "%{y:.4g}<extra>%{fullData.name}</extra>",
-  }));
+  const channels = chartData.channels || [];
+  const hasNonNumeric = _tsHasNonNumeric(channels);
+
+  const traces = channels.map((/** @type {any} */ ch) => {
+    const numeric = !_tsIsNonNumeric(ch);
+    return {
+      x: ch.timestamps,
+      y: ch.values,
+      name: ch.channel,
+      // scattergl (WebGL) is faster for the common numeric case; a
+      // categorical y-axis is safer on the plain SVG "scatter" renderer.
+      type: numeric ? "scattergl" : "scatter",
+      mode: numeric ? "lines" : "lines+markers",
+      ...(numeric
+        ? {}
+        : {
+            yaxis: "y2",
+            line: { shape: "hv" },
+            // All enum channels share one category axis, so each value is
+            // prefixed with its channel to keep its rungs in a contiguous
+            // block; `customdata` carries the unprefixed value for the hover
+            // label. A `null` gap is NOT prefixed -- "CH: null" would become a
+            // real rung, while a bare null breaks the step line like a
+            // numeric-branch gap.
+            y: (ch.values || []).map((/** @type {any} */ v) => (v == null ? null : `${ch.channel}: ${v}`)),
+            customdata: ch.values,
+          }),
+      hovertemplate: numeric
+        ? "%{y:.4g}<extra>%{fullData.name}</extra>"
+        : "%{customdata}<extra>%{fullData.name}</extra>",
+    };
+  });
 
   const t = _tsChartTheme();
 
@@ -336,6 +447,22 @@ export async function renderTimeseriesChart(el, chartData) {
     hovermode: "x unified",
     xaxis: { gridcolor: t.xaxis.gridcolor, linecolor: t.line, tickfont: { size: 10 } },
     yaxis: { gridcolor: t.yaxis.gridcolor, linecolor: t.line, tickfont: { size: 10 } },
+    ...(hasNonNumeric
+      ? {
+          yaxis2: {
+            overlaying: "y",
+            side: "right",
+            type: "category",
+            linecolor: t.line,
+            tickfont: { size: 10 },
+            // The namespaced rung labels are long and drawn on the right;
+            // without automargin they are clipped at the paper edge.
+            automargin: true,
+            // Only the numeric yaxis grid carries meaning.
+            showgrid: false,
+          },
+        }
+      : {}),
     legend: { bgcolor: t.legendBg, bordercolor: t.legendBorder, borderwidth: 1, font: { size: 10 } },
     colorway: chartSeries(),
   };
@@ -352,11 +479,10 @@ const TS_TABLE_PAGE_SIZE = 50;
 /**
  * @param {any} el
  * @param {string} artifactId
- * @param {string[]} columns
  * @param {number} offset
  * @returns {Promise<void>}
  */
-export async function renderTimeseriesTable(el, artifactId, columns, offset) {
+export async function renderTimeseriesTable(el, artifactId, offset) {
   if (!el) return;
   el.innerHTML = '<div class="ts-loading">Loading table...</div>';
 
@@ -370,9 +496,11 @@ export async function renderTimeseriesTable(el, artifactId, columns, offset) {
     const totalPages = Math.ceil(tableData.total_rows / TS_TABLE_PAGE_SIZE);
     const currentPage = Math.floor(offset / TS_TABLE_PAGE_SIZE) + 1;
 
+    // Header must come from THIS response: names from a separate format=chart
+    // request can disagree for an artifact being written while it is viewed.
     let html = '<div class="ts-data-table-wrapper"><table class="ts-data-table">';
     html += '<thead><tr><th>Index</th>';
-    columns.forEach((c) => { html += `<th>${escapeHtml(c)}</th>`; });
+    tableData.columns.forEach((/** @type {string} */ c) => { html += `<th>${escapeHtml(c)}</th>`; });
     html += '</tr></thead><tbody>';
 
     tableData.index.forEach((/** @type {any} */ idx, /** @type {number} */ i) => {
@@ -394,10 +522,10 @@ export async function renderTimeseriesTable(el, artifactId, columns, offset) {
     el.innerHTML = html;
 
     el.querySelector("[data-ts-prev]")?.addEventListener("click", () => {
-      renderTimeseriesTable(el, artifactId, columns, Math.max(0, offset - TS_TABLE_PAGE_SIZE));
+      renderTimeseriesTable(el, artifactId, Math.max(0, offset - TS_TABLE_PAGE_SIZE));
     });
     el.querySelector("[data-ts-next]")?.addEventListener("click", () => {
-      renderTimeseriesTable(el, artifactId, columns, offset + TS_TABLE_PAGE_SIZE);
+      renderTimeseriesTable(el, artifactId, offset + TS_TABLE_PAGE_SIZE);
     });
   } catch (err) {
     console.error("Table render failed:", err);

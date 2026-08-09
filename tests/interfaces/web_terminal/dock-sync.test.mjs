@@ -131,9 +131,9 @@ async function wire(api) {
 
 /**
  * Build a dockview-shaped group DOM (one `.dv-groupview` holding a tab strip of
- * `.dv-tab` elements, each with the `.tile-tab-close` close control) under
- * `root`, and register a matching fake group on `api` whose ordered `panels` line
- * up by index with the rendered tabs — the mapping panelIdForTab relies on.
+ * `.dv-tab` elements, each wrapping a `.tile-tab` root that carries the
+ * `data-panel-id` stamp dock-tab.js writes, with the `.tile-tab-close` close
+ * control inside) under `root` — the stamp is what panelIdForTab resolves.
  * @param {HTMLElement} root
  * @param {any} api
  * @param {string[]} panelIds
@@ -143,16 +143,20 @@ function buildGroup(root, api, panelIds) {
   groupview.className = 'dv-groupview';
   const strip = document.createElement('div');
   strip.className = 'dv-tabs-container';
-  /** @type {{tab: HTMLElement, action: HTMLElement}[]} */
+  /** @type {{tab: HTMLElement, tile: HTMLElement, action: HTMLElement}[]} */
   const tabs = [];
-  for (let i = 0; i < panelIds.length; i++) {
+  for (const id of panelIds) {
     const tab = document.createElement('div');
     tab.className = 'dv-tab';
-    const action = document.createElement('div');
+    const tile = document.createElement('div');
+    tile.className = 'tile-tab';
+    tile.dataset.panelId = id;
+    const action = document.createElement('button');
     action.className = 'tile-tab-close';
-    tab.appendChild(action);
+    tile.appendChild(action);
+    tab.appendChild(tile);
     strip.appendChild(tab);
-    tabs.push({ tab, action });
+    tabs.push({ tab, tile, action });
   }
   groupview.appendChild(strip);
   root.appendChild(groupview);
@@ -346,7 +350,7 @@ describe('human tab close → local vacate handler (never a POST)', () => {
     expect(mod).toBeTruthy();
   });
 
-  test('the close click maps by tab position — the second tab resolves the second panel', async () => {
+  test('the close click resolves by the data-panel-id stamp — the second tab resolves the second panel', async () => {
     const api = makeApi();
     const { root } = await wire(api);
     const { tabs } = buildGroup(root, api, ['iframe:ariel', 'iframe:bluesky']);
@@ -379,11 +383,11 @@ describe('human tab close → local vacate handler (never a POST)', () => {
     expect(tileClose).not.toHaveBeenCalled();
   });
 
-  test('a close click on an unresolvable tab (no matching group) is a silent no-op', async () => {
+  test('a close click on an unstamped tab (no data-panel-id) is a silent no-op', async () => {
     const api = makeApi();
     const { root } = await wire(api);
     const { tabs } = buildGroup(root, api, ['iframe:ariel']);
-    api.groups = []; // group vanished between render and click
+    tabs[0].tile.removeAttribute('data-panel-id'); // stamp lost — nothing to resolve
 
     expect(() =>
       tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true })),
@@ -459,13 +463,59 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
     }
   });
 
-  test('is a no-op when the panel is already docked', async () => {
+  test('MOVES an already-docked placeholder beside the active group (remove + re-add)', async () => {
     const api = makeApi();
-    api._panels['iframe:ariel'] = { id: 'iframe:ariel' };
+    const activeGroup = { id: 'group-1' };
+    api.activeGroup = activeGroup;
+    const existing = { id: 'iframe:ariel', group: { id: 'group-0' } };
+    api._panels['iframe:ariel'] = existing;
+    const { mod } = await wire(api);
+
+    mod.dockPanelBesideActive('ariel', 'ARIEL');
+
+    expect(api.removePanel).toHaveBeenCalledExactlyOnceWith(existing);
+    expect(api._added[0]).toEqual({
+      id: 'iframe:ariel',
+      component: 'dock-iframe-placeholder',
+      title: 'ARIEL',
+      position: { referenceGroup: activeGroup, direction: 'right' },
+    });
+  });
+
+  test('a move is echo-guarded — the removal\'s auto-activation does not POST a focus', async () => {
+    const api = makeApi();
+    api.activeGroup = { id: 'group-1' };
+    api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: { id: 'group-0' } };
+    api._activateOnRemove = { id: 'iframe:bluesky' };
     const { mod } = await wire(api);
 
     mod.dockPanelBesideActive('ariel');
 
+    expect(setPanelFocus).not.toHaveBeenCalled();
+  });
+
+  test('already docked IN the active group: a no-op (never remove a tile to re-create it in place)', async () => {
+    const api = makeApi();
+    const activeGroup = { id: 'group-1' };
+    api.activeGroup = activeGroup;
+    api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: activeGroup };
+    const { mod } = await wire(api);
+
+    mod.dockPanelBesideActive('ariel');
+
+    expect(api.removePanel).not.toHaveBeenCalled();
+    expect(api.addPanel).not.toHaveBeenCalled();
+  });
+
+  test('already docked with NO active group: a no-op (no meaningful target)', async () => {
+    const api = makeApi();
+    api.activeGroup = null;
+    api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: { id: 'group-0' } };
+    const { mod } = await wire(api);
+
+    mod.dockPanelBesideActive('ariel');
+
+    expect(api.removePanel).not.toHaveBeenCalled();
     expect(api.addPanel).not.toHaveBeenCalled();
   });
 
@@ -505,6 +555,60 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
 
     expect(() => mod.dockPanelBesideActive('ariel')).not.toThrow();
     expect(setPanelFocus).not.toHaveBeenCalled();
+  });
+});
+
+describe('dockPanelAt — placement at an explicit dock position (rail drag / drop routing)', () => {
+  test('adds a fresh placeholder at the given group + direction', async () => {
+    const api = makeApi();
+    const target = { id: 'group-2' };
+    const { mod } = await wire(api);
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: target, direction: 'bottom' });
+
+    expect(api._added[0]).toEqual({
+      id: 'iframe:okf',
+      component: 'dock-iframe-placeholder',
+      title: 'KNOWLEDGE',
+      position: { referenceGroup: target, direction: 'bottom' },
+    });
+  });
+
+  test('moves an existing placeholder to the given position', async () => {
+    const api = makeApi();
+    const target = { id: 'group-2' };
+    const existing = { id: 'iframe:okf', group: { id: 'group-0' } };
+    api._panels['iframe:okf'] = existing;
+    const { mod } = await wire(api);
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: target, direction: 'left' });
+
+    expect(api.removePanel).toHaveBeenCalledExactlyOnceWith(existing);
+    expect(api._added[0].position).toEqual({ referenceGroup: target, direction: 'left' });
+  });
+
+  test('dropping a panel onto its OWN group is a no-op (would destroy the tile mid-move)', async () => {
+    const api = makeApi();
+    const home = { id: 'group-0' };
+    api._panels['iframe:okf'] = { id: 'iframe:okf', group: home };
+    const { mod } = await wire(api);
+
+    mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: home, direction: 'right' });
+
+    expect(api.removePanel).not.toHaveBeenCalled();
+    expect(api.addPanel).not.toHaveBeenCalled();
+  });
+
+  test('is a no-op in simple mode (locked layout)', async () => {
+    document.documentElement.setAttribute('data-ui-mode', 'simple');
+    try {
+      const api = makeApi();
+      const { mod } = await wire(api);
+      mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: 'g' }, direction: 'right' });
+      expect(api.addPanel).not.toHaveBeenCalled();
+    } finally {
+      document.documentElement.removeAttribute('data-ui-mode');
+    }
   });
 });
 
@@ -577,7 +681,7 @@ describe('initDockSync — wiring, idempotency, late arrival', () => {
 describe('module isolation (vi.resetModules per test)', () => {
   test('exposes exactly its public surface as functions', async () => {
     const mod = await import(SYNC);
-    for (const name of ['withEchoSuppressed', 'dockPanelBesideActive', 'serviceIdOf', 'initDockSync', 'setTileCloseHandler']) {
+    for (const name of ['withEchoSuppressed', 'dockPanelBesideActive', 'dockPanelAt', 'serviceIdOf', 'initDockSync', 'setTileCloseHandler']) {
       expect(typeof mod[name]).toBe('function');
     }
   });

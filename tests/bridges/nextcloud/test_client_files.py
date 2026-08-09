@@ -22,7 +22,7 @@ import base64
 import httpx
 import pytest
 
-from osprey.bridges.core import MAX_DOC_BYTES
+from osprey.bridges.core import MAX_DELIVERED_DOC_BYTES
 from osprey.bridges.nextcloud_talk import NextcloudBridgeConfig, TalkApiError, TalkClient
 from osprey.bridges.nextcloud_talk.client import (
     MAX_DOWNLOAD_BYTES,
@@ -147,7 +147,7 @@ def test_download_quotes_a_bot_account_with_a_space():
 
 def test_download_default_cap_comes_from_the_core_budget():
     """Pinned: the cap is the engine's document budget, not a local invention."""
-    assert MAX_DOWNLOAD_BYTES == MAX_DOC_BYTES
+    assert MAX_DOWNLOAD_BYTES == MAX_DELIVERED_DOC_BYTES
 
 
 def test_download_rejects_a_declared_length_over_the_cap():

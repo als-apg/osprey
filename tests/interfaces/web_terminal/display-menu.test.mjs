@@ -247,5 +247,18 @@ describe('display-menu', () => {
       expect(familyLabel('osprey')).toBe('Osprey');
       expect(familyLabel('high-contrast')).toBe('High Contrast');
     });
+
+    test('prefers a declared family label over the derivation', () => {
+      // 'desy' declares $extensions.family_label: "DESY" — title-casing it
+      // would render the acronym as 'Desy'.
+      expect(familyLabel('desy')).toBe('DESY');
+    });
+
+    test('is the same function <osprey-theme-switcher> uses', async () => {
+      // Both pickers must render a family identically; a second local
+      // derivation in either file is what this guards against.
+      const themeManager = await import('/design-system/js/theme-manager.js');
+      expect(familyLabel).toBe(themeManager.familyLabel);
+    });
   });
 });

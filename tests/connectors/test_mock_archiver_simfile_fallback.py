@@ -104,7 +104,7 @@ def project(tmp_path, monkeypatch):
 
 async def _series(connector: MockArchiverConnector) -> list[float]:
     df = await connector.get_data(pv_list=["T:Q1:CUR:SP"], start_date=START, end_date=END)
-    return df["T:Q1:CUR:SP"].tolist()
+    return df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
 
 
 def _warnings(caplog) -> list[str]:
@@ -189,7 +189,8 @@ class TestDerivedFromControlSystem:
 
         assert connector._sim_engine is None
         df = await connector.get_data(pv_list=["BEAM:CURRENT"], start_date=START, end_date=END)
-        assert df["BEAM:CURRENT"].mean() == pytest.approx(500.0, rel=0.1)
+        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
+        assert values.mean() == pytest.approx(500.0, rel=0.1)
 
         await connector.disconnect()
 

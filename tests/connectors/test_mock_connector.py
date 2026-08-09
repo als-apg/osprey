@@ -1,7 +1,12 @@
 """Tests for mock connector."""
 
+import json
+import os
+import subprocess
+import sys
+import textwrap
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import numpy as np
@@ -222,15 +227,13 @@ class TestMockArchiverConnector:
 
         assert df is not None
         assert len(df) > 0
-        assert len(df.columns) == len(pv_list)
-        for pv in pv_list:
-            assert pv in df.columns
+        assert set(df["channel"]) == set(pv_list)
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
     async def test_get_data_returns_dataframe(self):
-        """Test that get_data returns proper DataFrame format."""
+        """Test that get_data returns the canonical long-format DataFrame."""
         connector = MockArchiverConnector()
         await connector.connect({"noise_level": 0.01})
 
@@ -244,7 +247,10 @@ class TestMockArchiverConnector:
         import pandas as pd
 
         assert isinstance(df, pd.DataFrame)
-        assert isinstance(df.index, pd.DatetimeIndex)
+        assert list(df.columns) == ["timestamp", "channel", "value"]
+        assert df["timestamp"].dtype == "datetime64[ns, UTC]"
+        assert df["value"].dtype == "float64"
+        assert (df["channel"] == "BEAM:CURRENT").all()
 
         await connector.disconnect()
 
@@ -290,11 +296,176 @@ class TestMockArchiverConnector:
         )
 
         # Check that values vary (not all the same)
-        values = df["BEAM:CURRENT"].values
+        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"].to_numpy()
         assert len(set(values)) > 1
         assert values.std() > 0
 
         await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_multi_pv_returns_independent_rows_per_channel(self):
+        """Each channel contributes its own rows to the long frame."""
+        connector = MockArchiverConnector()
+        await connector.connect({"noise_level": 0.01})
+
+        start_date = datetime(2024, 1, 1, 0, 0, 0)
+        end_date = datetime(2024, 1, 1, 0, 1, 0)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT", "MAGNET:VOLTAGE"],
+            start_date=start_date,
+            end_date=end_date,
+            precision_ms=1000,
+        )
+
+        assert list(df.columns) == ["timestamp", "channel", "value"]
+        current_rows = df[df["channel"] == "BEAM:CURRENT"]
+        voltage_rows = df[df["channel"] == "MAGNET:VOLTAGE"]
+
+        assert len(current_rows) > 0
+        assert len(voltage_rows) > 0
+        # Every row belongs to exactly one of the two requested channels.
+        assert len(current_rows) + len(voltage_rows) == len(df)
+
+        await connector.disconnect()
+
+
+class TestMockArchiverProcessing:
+    """The mock connector must genuinely aggregate non-raw processing modes.
+
+    Regression: resampling at the requested precision_ms against data spaced
+    far wider (the 10,000-point cap) inflated the frame with mostly-NaN rows.
+    """
+
+    @pytest.mark.asyncio
+    async def test_processing_mean_aggregates_multiple_raw_samples(self):
+        """A bin much wider than the data's spacing must average, not pass through."""
+        connector = MockArchiverConnector()
+        # noise_level=0 makes the two independent get_data() calls comparable.
+        await connector.connect({"noise_level": 0.0})
+
+        # Both calls generate the same 10 points (the generator's forced
+        # minimum) over this 10s window; the 60s mean bin forces every sample
+        # into a single aggregation bin.
+        start_date = datetime(2024, 1, 1, 0, 0, 0)
+        end_date = datetime(2024, 1, 1, 0, 0, 10)
+        pv = "BEAM:CURRENT"
+
+        raw_df = await connector.get_data(
+            pv_list=[pv],
+            start_date=start_date,
+            end_date=end_date,
+            precision_ms=1_000,
+            processing="raw",
+        )
+        mean_df = await connector.get_data(
+            pv_list=[pv],
+            start_date=start_date,
+            end_date=end_date,
+            precision_ms=60_000,
+            processing="mean",
+        )
+
+        assert len(raw_df) > 1
+        assert len(mean_df) == 1
+        assert mean_df["value"].iloc[0] == pytest.approx(raw_df["value"].mean())
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_processing_mean_bounded_when_point_cap_binds(self):
+        """A window wide enough to hit the 10,000-point cap must not blow up on resample."""
+        connector = MockArchiverConnector()
+        await connector.connect({"noise_level": 0.01})
+
+        start_date = datetime(2024, 1, 1)
+        end_date = start_date + timedelta(days=7)
+
+        df = await connector.get_data(
+            pv_list=["BEAM:CURRENT"],
+            start_date=start_date,
+            end_date=end_date,
+            precision_ms=1000,
+            processing="mean",
+        )
+
+        # Regression: resampling at 1000ms against ~60s-spaced data inflated
+        # this to ~604,801 mostly-NaN rows.
+        assert len(df) <= 10_001
+        assert not df["value"].isna().any()
+
+        await connector.disconnect()
+
+
+class TestMockArchiverReproducibility:
+    """The mock's synthetic data must be reproducible, which it advertises but did not do.
+
+    Regression: non-BPM noise came from the global ``np.random``, and the
+    per-PV seed came from salted ``hash(pv_name)``, so results differed both
+    within and across processes.
+    """
+
+    _WINDOW = (datetime(2024, 1, 15, 10, 0, 0), datetime(2024, 1, 15, 10, 5, 0))
+
+    async def _values(self, pv: str) -> list[float]:
+        connector = MockArchiverConnector()
+        await connector.connect({})
+        start, end = self._WINDOW
+        df = await connector.get_data(pv_list=[pv], start_date=start, end_date=end)
+        await connector.disconnect()
+        return df["value"].tolist()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("pv", ["SR:UNKNOWN:PRESSURE", "SR:BPM01:POSITION"])
+    async def test_same_pv_and_window_repeats_within_a_process(self, pv):
+        assert await self._values(pv) == await self._values(pv)
+
+    @pytest.mark.asyncio
+    async def test_distinct_pvs_do_not_collide(self):
+        """Reproducible must not mean identical across channels."""
+        assert await self._values("SR:UNKNOWN:PRESSURE") != await self._values("SR:OTHER:PRESSURE")
+
+    def test_same_pv_and_window_repeats_across_processes(self):
+        """The point of the fix — run it in fresh interpreters with different hash seeds.
+
+        ``hash()`` is salted per process, so only fresh interpreters can catch
+        a seed derived from it.
+        """
+        script = textwrap.dedent("""
+            import asyncio, json
+            from datetime import datetime
+            from osprey.connectors.archiver.mock_archiver_connector import (
+                MockArchiverConnector,
+            )
+
+            async def main():
+                c = MockArchiverConnector()
+                await c.connect({})
+                df = await c.get_data(
+                    pv_list=["SR:UNKNOWN:PRESSURE"],
+                    start_date=datetime(2024, 1, 15, 10, 0, 0),
+                    end_date=datetime(2024, 1, 15, 10, 5, 0),
+                )
+                await c.disconnect()
+                print(json.dumps(df["value"].tolist()))
+
+            asyncio.run(main())
+        """)
+
+        runs = []
+        for seed in ("0", "1", "12345"):
+            env = {**os.environ, "PYTHONHASHSEED": seed}
+            proc = subprocess.run(  # noqa: S603
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            runs.append(json.loads(proc.stdout.strip().splitlines()[-1]))
+
+        assert runs[0] == runs[1] == runs[2]
+        assert len(runs[0]) > 0
 
 
 @contextmanager

@@ -403,6 +403,61 @@ def test_lint_string_display_name_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.invalid_display_name" for f in findings)
 
 
+def test_lint_non_string_user_theme_is_an_error() -> None:
+    """A non-string `theme` (a config typo) is rejected — the renderer would
+    otherwise drop it silently."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "theme": {"family": "desy"}}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_user_theme" for f in errors)
+
+
+def test_lint_string_user_theme_reports_no_error() -> None:
+    """A well-formed string `theme` is accepted — as a family or a concrete id."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "theme": "desy"},
+        {"name": "gmartino", "index": 1, "theme": "desy-light"},
+        {"name": "aallezy", "index": 2},  # no theme at all is equally fine
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_theme" for f in findings)
+
+
+def test_lint_does_not_validate_the_theme_name_itself() -> None:
+    """Lint checks the TYPE, never whether the name resolves.
+
+    The theme registry ships with the image, not with this config, and the web
+    terminal already warns and falls back at startup on an unknown value. Failing
+    a build over a name this module cannot authoritatively resolve would be worse
+    than that warning.
+    """
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "theme": "no-such-theme"}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_theme" for f in findings)
+
+
 def test_lint_bare_multi_user_list_warns_about_port_drift_risk() -> None:
     """A legacy bare list with >1 user risks positional port drift on decommission."""
     # Arrange

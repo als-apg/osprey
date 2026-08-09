@@ -1843,3 +1843,78 @@ def test_deploy_up_no_web_terminals_skips_preflight(monkeypatch, tmp_path):
 
     assert "preflight" not in order
     assert "build_image" in order
+
+
+class TestResolvePipSpec:
+    """The ``OSPREY_PIP_SPEC`` build arg must never name a nonexistent release.
+
+    A hand-maintained version literal used to let this emit
+    ``osprey-framework==<unreleased>``, which fails at pip resolve inside the
+    image build with no indication of why.
+    """
+
+    def test_operator_override_wins(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_PIP_SPEC", "git+https://example.invalid/osprey@abc123")
+        assert (
+            container_lifecycle._resolve_pip_spec() == "git+https://example.invalid/osprey@abc123"
+        )
+
+    def test_release_pins_to_the_release(self, monkeypatch):
+        monkeypatch.delenv("OSPREY_PIP_SPEC", raising=False)
+        monkeypatch.setattr("osprey.version.is_release", lambda: True)
+        monkeypatch.setattr("osprey.version.get_release_version", lambda: "2026.6.2")
+
+        assert container_lifecycle._resolve_pip_spec() == "osprey-framework==2026.6.2"
+
+    def test_development_build_refuses_and_names_the_way_out(self, monkeypatch):
+        from osprey.deployment.errors import UnreleasedVersionPinError
+
+        monkeypatch.delenv("OSPREY_PIP_SPEC", raising=False)
+        monkeypatch.setattr("osprey.version.is_release", lambda: False)
+        monkeypatch.setattr("osprey.version.get_release_version", lambda: "2026.6.2")
+        monkeypatch.setattr(
+            "osprey.version.get_running_version", lambda: "2026.6.2.post783+g83fda5e60"
+        )
+
+        with pytest.raises(UnreleasedVersionPinError) as excinfo:
+            container_lifecycle._resolve_pip_spec()
+
+        assert "783 commits past v2026.6.2" in excinfo.value.reason
+        assert "--dev" in excinfo.value.remedy
+
+    def test_override_still_wins_from_a_development_build(self, monkeypatch):
+        """The escape hatch must not be gated behind being a release."""
+        monkeypatch.setenv("OSPREY_PIP_SPEC", "osprey-framework==2026.6.2")
+        monkeypatch.setattr("osprey.version.is_release", lambda: False)
+
+        assert container_lifecycle._resolve_pip_spec() == "osprey-framework==2026.6.2"
+
+    def test_dev_mode_does_not_refuse(self, monkeypatch):
+        """``--dev`` is used *from* a development checkout — it must not refuse.
+
+        The staged wheel is what the Dockerfile installs, so this spec is inert.
+        Gating it here would block the workflow the refusal message recommends.
+        """
+        monkeypatch.delenv("OSPREY_PIP_SPEC", raising=False)
+        monkeypatch.setattr("osprey.version.is_release", lambda: False)
+        monkeypatch.setattr("osprey.version.get_release_version", lambda: "2026.6.2")
+
+        assert container_lifecycle._resolve_pip_spec(dev_mode=True) == "osprey-framework==2026.6.2"
+
+    def test_dev_run_whose_wheel_staging_failed_still_refuses(self, monkeypatch):
+        """Callers pass the *effective* dev mode, which is False when staging failed.
+
+        That build installs from PyPI after all, so it must not quietly ship
+        released code in place of the checkout `--dev` was asked to test.
+        """
+        from osprey.deployment.errors import UnreleasedVersionPinError
+
+        monkeypatch.delenv("OSPREY_PIP_SPEC", raising=False)
+        monkeypatch.setattr("osprey.version.is_release", lambda: False)
+        monkeypatch.setattr("osprey.version.get_release_version", lambda: "2026.6.2")
+        monkeypatch.setattr(
+            "osprey.version.get_running_version", lambda: "2026.6.2.post783+g83fda5e60"
+        )
+
+        with pytest.raises(UnreleasedVersionPinError):
+            container_lifecycle._resolve_pip_spec(dev_mode=False)

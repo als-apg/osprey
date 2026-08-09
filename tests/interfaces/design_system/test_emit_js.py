@@ -29,6 +29,7 @@ from osprey.interfaces.design_system.generator.emit_js import (
     STORAGE_KEY,
     ThemeFamilyDefaultsError,
     ThemeManifestEntry,
+    build_family_labels,
     build_theme_defaults,
     build_theme_manifest,
     render_theme_boot_js,
@@ -113,6 +114,59 @@ def test_build_theme_manifest_reads_family_from_metadata() -> None:
 
 def test_build_theme_manifest_empty_tree_yields_empty_manifest() -> None:
     assert build_theme_manifest(_tree({})) == []
+
+
+def test_build_theme_manifest_carries_family_label_when_declared() -> None:
+    tree = _tree(
+        {
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "desy-dark": {
+                "id": "desy-dark",
+                "label": "DESY Dark",
+                "mode": "dark",
+                "family": "desy",
+                "family_label": "DESY",
+            },
+        }
+    )
+
+    manifest = build_theme_manifest(tree)
+
+    assert [entry.family_label for entry in manifest] == [None, "DESY"]
+
+
+# --- build_family_labels ----------------------------------------------------------
+
+
+def test_build_family_labels_collects_declared_labels() -> None:
+    entries = [
+        ThemeManifestEntry(
+            id="desy-dark", label="DESY Dark", mode="dark", family="desy", family_label="DESY"
+        ),
+        ThemeManifestEntry(
+            id="desy-light", label="DESY Light", mode="light", family="desy", family_label="DESY"
+        ),
+    ]
+
+    assert build_family_labels(entries) == {"desy": "DESY"}
+
+
+def test_build_family_labels_omits_families_without_a_declared_label() -> None:
+    """Sparse by design: deriving a label is the consumer's fallback, so a
+    derived value must never be baked in here looking authoritative."""
+    entries = [
+        ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="main"),
+        ThemeManifestEntry(id="light", label="Light", mode="light", family="main"),
+        ThemeManifestEntry(
+            id="desy-dark", label="DESY Dark", mode="dark", family="desy", family_label="DESY"
+        ),
+    ]
+
+    assert build_family_labels(entries) == {"desy": "DESY"}
+
+
+def test_build_family_labels_empty_manifest_yields_empty_map() -> None:
+    assert build_family_labels([]) == {}
 
 
 # --- build_theme_defaults ---------------------------------------------------------
@@ -204,6 +258,49 @@ def test_render_tokens_js_exports_themes_and_defaults() -> None:
         {"id": "light", "label": "Light", "mode": "light", "family": "main"},
     ]
     assert _exported_const(content, "DEFAULTS") == {"main": {"dark": "dark", "light": "light"}}
+
+
+def test_render_tokens_js_exports_family_labels() -> None:
+    tree = _tree(
+        {
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
+            "desy-dark": {
+                "id": "desy-dark",
+                "label": "DESY Dark",
+                "mode": "dark",
+                "family": "desy",
+                "family_label": "DESY",
+            },
+            "desy-light": {
+                "id": "desy-light",
+                "label": "DESY Light",
+                "mode": "light",
+                "family": "desy",
+                "family_label": "DESY",
+            },
+        }
+    )
+
+    content = render_tokens_js(tree)
+
+    assert _exported_const(content, "FAMILY_LABELS") == {"desy": "DESY"}
+    # THEMES entries stay at their four documented keys — family_label is a
+    # family-level fact and belongs only in FAMILY_LABELS.
+    themes = _exported_const(content, "THEMES")
+    assert isinstance(themes, list)
+    assert all(set(entry) == {"id", "label", "mode", "family"} for entry in themes)
+
+
+def test_render_tokens_js_family_labels_empty_when_none_declared() -> None:
+    tree = _tree(
+        {
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
+        }
+    )
+
+    assert _exported_const(render_tokens_js(tree), "FAMILY_LABELS") == {}
 
 
 def test_render_tokens_js_exports_default_family_matching_theme_boot() -> None:

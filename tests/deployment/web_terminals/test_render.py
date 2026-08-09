@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -671,6 +672,206 @@ def test_display_name_with_double_quote_is_escaped_and_round_trips() -> None:
 
     # Assert
     assert _service_env(compose, "web-alice")["OSPREY_WEB_APP_NAME"] == tricky
+
+
+# ---------------------------------------------------------------------------
+# Landing page: design-system token values baked from web.theme
+# ---------------------------------------------------------------------------
+
+
+def _landing_style(config: dict) -> str:
+    """The landing page's inline <style> block, up to the first static rule."""
+    html = render_web_terminals(config)["nginx/landing.html"]
+    return html[html.index("<style>") : html.index("* { box-sizing")]
+
+
+def _themed_config(theme: str | None) -> dict:
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    if theme is not None:
+        config.setdefault("web", {})["theme"] = theme
+    return config
+
+
+def test_landing_bakes_the_configured_theme_family_in_both_modes() -> None:
+    """A family-valued web.theme yields dark under :root plus a light media query,
+    so the page follows the viewer's OS — the same thing the terminals behind it do
+    when configured with a bare family."""
+    # Act
+    style = _landing_style(_themed_config("desy"))
+
+    # Assert — DESY dark canvas under :root, DESY light behind the query
+    assert "--bg-primary: #091720;" in style
+    assert "@media (prefers-color-scheme: light)" in style
+    assert "--bg-primary: #f3f8fc;" in style
+    assert "color-scheme: dark;" in style
+    assert "color-scheme: light;" in style
+
+
+def test_landing_honors_a_pinned_mode_with_no_media_query() -> None:
+    """A concrete-id web.theme pins the mode: one block, and no OS-following."""
+    # Act
+    style = _landing_style(_themed_config("desy-light"))
+
+    # Assert
+    assert "--bg-primary: #f3f8fc;" in style
+    assert "color-scheme: light;" in style
+    assert "prefers-color-scheme" not in style
+    assert "color-scheme: dark;" not in style
+
+
+def test_landing_defaults_to_the_main_family_when_web_theme_is_absent() -> None:
+    """No `web` section at all still themes the page — from the main family."""
+    # Act
+    style = _landing_style(_themed_config(None))
+
+    # Assert — main family's canvases, and still both modes
+    assert "--bg-primary: #111217;" in style
+    assert "--bg-primary: #f4f5f5;" in style
+
+
+def test_landing_falls_back_on_an_unknown_web_theme() -> None:
+    """A typo must not leave the page unstyled — it resolves like the terminals do,
+    to the main family, and pins nothing."""
+    # Act
+    style = _landing_style(_themed_config("no-such-theme"))
+
+    # Assert
+    assert "--bg-primary: #111217;" in style
+    assert "@media (prefers-color-scheme: light)" in style
+
+
+def test_landing_carries_no_hardcoded_pre_token_palette() -> None:
+    """The hand-written hexes this page used before the token system are gone.
+
+    Guards the actual regression risk: a later edit reintroducing a literal
+    colour would look fine on the default theme and be wrong on every other one.
+    """
+    # Act
+    style = _landing_style(_themed_config("desy"))
+
+    # Assert — the old teal accent and slate canvas
+    assert "#4fd1c5" not in style
+    assert "#0a0f1a" not in style
+
+
+def test_landing_defines_every_variable_its_stylesheet_uses() -> None:
+    """Every `var(--x)` in the page must be baked; a standalone file has no
+    stylesheet to fall back to, so an undefined one renders as nothing."""
+    # Arrange
+    html = render_web_terminals(_themed_config("desy"))["nginx/landing.html"]
+
+    # Act
+    used = set(re.findall(r"var\((--[a-z0-9-]+)\)", html))
+    defined = set(re.findall(r"^\s+(--[a-z0-9-]+):", html, re.MULTILINE))
+
+    # Assert
+    assert used, "expected the landing stylesheet to use custom properties"
+    assert used <= defined, f"undefined custom properties: {sorted(used - defined)}"
+
+
+def test_landing_theme_values_are_pattern_checked_before_inlining() -> None:
+    """A value that could break out of <style> fails the render rather than
+    shipping. HTML escaping would not catch a `</style>` sequence."""
+    # Arrange
+    config = _themed_config("desy")
+
+    # Act / Assert
+    with patch(
+        "osprey.interfaces.design_system.theme_config.theme_css_variables",
+        return_value={"--bg-primary": "#000</style><script>alert(1)</script>"},
+    ):
+        with pytest.raises(ValueError, match="not safe to inline"):
+            render_web_terminals(config)
+
+
+def test_landing_render_fails_loudly_on_a_renamed_token() -> None:
+    """A token the page needs but the theme no longer defines must break the
+    render, not leave a deployed page quietly off-palette."""
+    # Arrange
+    from osprey.interfaces.design_system.theme_config import MissingThemeVariableError
+
+    config = _themed_config("desy")
+
+    # Act / Assert
+    with patch(
+        "osprey.deployment.web_terminals.render._LANDING_THEME_VARIABLES",
+        ("--bg-primary", "--no-such-token"),
+    ):
+        with pytest.raises(MissingThemeVariableError, match="no-such-token"):
+            render_web_terminals(config)
+
+
+# ---------------------------------------------------------------------------
+# theme -> OSPREY_WEB_THEME (per-user default theme seam)
+# ---------------------------------------------------------------------------
+
+
+def test_theme_emits_theme_env_line_only_for_the_user_that_sets_it() -> None:
+    """A user's `theme` renders an `OSPREY_WEB_THEME` env line for that service; a
+    user without one omits the line entirely (app falls back to config web.theme)."""
+    # Arrange
+    config = copy.deepcopy(_config([{"name": "alice", "index": 0, "theme": "desy-light"}, "bob"]))
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    assert _service_env(compose, "web-alice")["OSPREY_WEB_THEME"] == "desy-light"
+    assert "OSPREY_WEB_THEME" not in _service_env(compose, "web-bob")
+
+
+def test_no_theme_anywhere_emits_no_theme_env_line() -> None:
+    """The common (bare-string) roster emits no OSPREY_WEB_THEME line at all — the
+    seam is inert until a user opts in."""
+    # Act
+    artifacts = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    assert "OSPREY_WEB_THEME" not in artifacts["docker-compose.web.yml"]
+
+
+def test_theme_and_display_name_are_independent_per_user() -> None:
+    """Each optional per-user field is emitted on its own; setting one must not
+    drag the other in or leave it out."""
+    # Arrange
+    config = copy.deepcopy(
+        _config(
+            [
+                {"name": "alice", "index": 0, "theme": "desy"},
+                {"name": "bob", "index": 1, "display_name": "Operations"},
+            ]
+        )
+    )
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    alice, bob = _service_env(compose, "web-alice"), _service_env(compose, "web-bob")
+    assert alice["OSPREY_WEB_THEME"] == "desy"
+    assert "OSPREY_WEB_APP_NAME" not in alice
+    assert bob["OSPREY_WEB_APP_NAME"] == "Operations"
+    assert "OSPREY_WEB_THEME" not in bob
+
+
+def test_theme_value_is_yaml_quoted_and_round_trips() -> None:
+    """Quoted the same way as OSPREY_WEB_APP_NAME: a value containing a `": "`
+    would otherwise derail the unquoted compose `- KEY=value` scalar into a
+    mapping. Theme ids never contain one today — this guards the quoting itself,
+    so a hand-written config can't break the compose file."""
+    # Arrange
+    tricky = "not: a theme"
+    config = copy.deepcopy(_config([{"name": "alice", "index": 0, "theme": tricky}]))
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose_text = artifacts["docker-compose.web.yml"]
+    compose = yaml.safe_load(compose_text)
+
+    # Assert
+    assert '- "OSPREY_WEB_THEME=not: a theme"' in compose_text
+    assert _service_env(compose, "web-alice")["OSPREY_WEB_THEME"] == tricky
 
 
 def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_and_mount() -> None:

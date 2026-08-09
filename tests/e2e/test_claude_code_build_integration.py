@@ -525,7 +525,14 @@ class TestClaudeFullBpmAnalysisPipeline:
             "permissions are pre-approved; do not ask for confirmation."
         )
 
-        result = run_claude(project_dir, prompt, timeout=360, max_budget="1.50")
+        # 5.00 matches the suite's multi-step-scenario tier (answer-provenance,
+        # corrector-limit). This is a full pipeline — channel discovery, then
+        # archiver retrieval, then plotting — not a smoke query, and the old
+        # 1.50 cap sat right on top of a normal run's cost: consecutive CI runs
+        # of the same commit range landed either side of it. Exceeding the cap
+        # hard-errors the CLI (exit 1, "Exceeded USD budget") instead of failing
+        # an assertion, so a few cents of cost variance read as a broken agent.
+        result = run_claude(project_dir, prompt, timeout=360, max_budget="5.00")
 
         # -- Debug output --
         print("\n--- full BPM pipeline test ---")

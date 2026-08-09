@@ -445,15 +445,24 @@ describe('TYPES path (types.js) — typeBadge / thumbnailHtml / id-encoding', ()
 // =========================================================================
 
 describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
-  /** Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`). */
-  function makeChartData(overrides = {}) {
+  /**
+   * Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`) --
+   * one entry per channel. `overrides.columns` replaces the channel's name.
+   */
+  function makeChartData({ columns = [HOSTILE.DQ_IMG], ...overrides } = {}) {
     return {
-      columns: [HOSTILE.DQ_IMG],
-      index: ['2026-07-01T00:00:00Z'],
-      data: [[1.0]],
-      total_rows: 1,
-      downsampled: false,
-      returned_points: 1,
+      channels: [
+        {
+          channel: columns[0],
+          timestamps: ['2026-07-01T00:00:00Z'],
+          values: [1.0],
+          total_points: 1,
+          returned_points: 1,
+          numeric: true,
+        },
+      ],
+      metadata: {},
+      summary: { total_points: 1, returned_points: 1, downsampled: false, row_count: 1 },
       ...overrides,
     };
   }
@@ -490,6 +499,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       newPlot: vi.fn((el) => { el.data = []; }),
       restyle: vi.fn(),
       relayout: vi.fn(),
+      update: vi.fn(),
     });
     stubScriptLoad();
   });
@@ -504,7 +514,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData()) }));
       const el = document.createElement('div');
 
-      await renderTimeseriesTable(el, 'ts1', [HOSTILE.DQ_IMG], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       expectNoLiveInjection(el);
       expect(el.innerHTML).not.toContain(HOSTILE.DQ_IMG);
@@ -514,7 +524,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
   });
 
   describe('renderTimeseriesView', () => {
-    test('a hostile column name round-trips through the data-ch-name/title attribute sinks with no breakout', async () => {
+    test('a hostile column name round-trips through the data-ch-name/title/aria-label attribute sinks with no breakout', async () => {
       vi.stubGlobal('fetch', vi.fn((url) => {
         if (url.includes('format=chart')) return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
         return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
@@ -535,6 +545,9 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       // markup above never contained the raw breakout.
       expect(toggle.dataset.chName).toBe(HOSTILE.DQ_IMG);
       expect(toggle.getAttribute('title')).toBe(HOSTILE.DQ_IMG);
+      // `aria-label` is a third double-quoted sink for the same agent-supplied
+      // channel name -- the double-quote in DQ_IMG is the breakout character.
+      expect(toggle.getAttribute('aria-label')).toBe(HOSTILE.DQ_IMG);
     });
 
     test('the info-bar channel badge escapes a hostile column name, no live element', async () => {

@@ -9,10 +9,10 @@ happens synchronously in the write handler itself, never on a
 polling/heartbeat tick).
 
 This module fulfills the ``on_pyat_setpoint`` callback contract that
-``ioc.records.build_records()`` exposes (see that module's docstring):
+``serving.pvdb.build_serving_pvdb()`` exposes (see that module's docstring):
 ``PhysicsBridge.on_setpoint`` is passed as ``on_pyat_setpoint``, and
-``PhysicsBridge.bind()`` wires the resulting ``IOCRecords.pyat_coupled`` BPM
-records so they receive the recomputed positions via ``.set()``.
+``PhysicsBridge.bind()`` wires the resulting ``ServingRecords.pyat_coupled``
+BPM records so they receive the recomputed positions via ``.set()``.
 
 The ring itself lives behind a :class:`~lume.model.LUMEModel` -- by default
 :class:`~osprey.services.virtual_accelerator.model.pyat.PyATRingModel`, which
@@ -20,7 +20,7 @@ owns the lattice, the current->strength calibration
 (:class:`~osprey.services.virtual_accelerator.lattice.strengths.StrengthMap`,
 see that module's docstring for the per-family formulas), the atomic
 apply-and-solve, and its rollback. This bridge is the *serving* half: address
-grammar, seeded magnet calibration and BPM readout errors, and the softioc
+grammar, seeded magnet calibration and BPM readout errors, and the served
 record wiring. Everything the model owns is reached through its public
 ``set()``/``get()``, so a different backend (a surrogate, Cheetah, Bmad) can be
 injected through ``model=`` without this module changing.
@@ -174,12 +174,12 @@ class PhysicsBridge:
         """Wire the BPM POSITION readback records this bridge should push into.
 
         Args:
-            pyat_coupled_records: the `IOCRecords.pyat_coupled` dict from
-                `ioc.records.build_records()` -- contains every partition (a)
-                record (both the SR magnet SP writables and the SR BPM
+            pyat_coupled_records: the `ServingRecords.pyat_coupled` dict from
+                `serving.pvdb.build_serving_pvdb()` -- contains every partition
+                (a) record (both the SR magnet SP writables and the SR BPM
                 POSITION readbacks) keyed by address. Only the BPM entries are
-                retained; magnet SP records are driven by softioc directly,
-                not by this bridge.
+                retained; magnet SP records are driven by the serving write
+                path directly, not by this bridge.
         """
         ring, system, family = "SR", *_BPM_SYSTEM_FAMILY
         prefix = f"{ring}:{system}:{family}:"
@@ -246,34 +246,6 @@ class PhysicsBridge:
         return dict(self._bpm_positions)
 
     # -- internals ---------------------------------------------------------
-
-    # The three accessors below delegate to the model rather than duplicating
-    # any state. They exist because the physics is pinned white-box -- the
-    # strength-formula and rollback tests assert directly on element attributes
-    # (`_ring[idx].K`, `.PolynomB`) and on the baked nominal strengths -- and
-    # that is the right level for those assertions: they check the *lattice*,
-    # not this bridge's bookkeeping. They are only meaningful for the default
-    # pyAT backend; an injected model that owns no `at.Lattice` will raise
-    # AttributeError, which is the honest answer for a ring-level probe.
-
-    @property
-    def _ring(self) -> Any:
-        """The model's lattice."""
-        return self._model._ring
-
-    @property
-    def _strength_map(self) -> Any:
-        """The model's current->strength calibration map."""
-        return self._model._strength_map
-
-    def _element_index(self, fam_name: str) -> int:
-        """Index of `fam_name` in the model's lattice.
-
-        Raises:
-            UnknownDeviceError: no element with that name -- the same class the
-                model raises, since this bridge re-exports it.
-        """
-        return self._model._element_index(fam_name)
 
     def _refresh_bpm_positions(self) -> None:
         """Re-read the model's BPM truth into `_bpm_positions`.

@@ -14,10 +14,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from osprey.errors import BuildProfileError
 
+from .build_profile_document import _normalize_profile_aliases, _read_profile_document
 from .build_profile_presets import _load_preset_raw, _preset_exists, list_presets
 
 _LOGGER = logging.getLogger(__name__)
@@ -181,10 +180,7 @@ def _resolve_extends(
                 f"and no file at {base_path}."
             )
 
-    try:
-        base_raw = yaml.safe_load(base_path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
-        raise BuildProfileError(f"Invalid YAML in {base_path}: {e}") from e
+    base_raw = _read_profile_document(base_path)
 
     if not isinstance(base_raw, dict):
         raise BuildProfileError(f"Extended profile must be a YAML mapping: {base_path}")
@@ -207,19 +203,120 @@ def _resolve_extends(
 # ---------------------------------------------------------------------------
 
 
+def _fold_source_tree(digest: Any, label: str, source: Path) -> None:
+    """Fold one file-or-directory build input into ``digest``, in place.
+
+    Every regular file under ``source`` contributes its path relative to
+    ``source`` (posix separators, so the digest matches across platforms) NUL-
+    joined with the SHA-256 of its bytes. Entries are sorted by that relative
+    path, and directories themselves contribute nothing — only their files —
+    so the digest depends on content alone and not on filesystem walk order.
+
+    A ``source`` that does not exist folds only its ``label``: the profile keys
+    that name it are already in the canonical JSON, so a vanished tree still
+    reads differently from a populated one without this function having to
+    invent a marker for it.
+
+    Two limits of the walk, both deliberate:
+
+    * Symlinks. A symlinked *file* is folded — ``is_file`` and ``read_bytes``
+      both follow it — and so is a ``source`` that is itself a symlink to a
+      directory, which arrives here already resolved. A symlinked *directory
+      nested inside* the tree is not: ``rglob`` does not recurse into one, so
+      its contents are invisible to the digest while ``shutil.copytree``
+      (``symlinks=False``) does follow it and copy them into the project. A
+      data tree that reaches its content through a nested directory symlink
+      therefore has a known blind spot in the staleness advisory: edits behind
+      that link do not move the hash. Recursing resolved targets would change
+      the pinned algorithm and is left to the maintainer.
+    * Unicode. Relative paths are folded as their UTF-8 bytes with no
+      normalization, so cross-platform determinism is guaranteed for ASCII
+      names; a non-ASCII name stored NFD on one filesystem and NFC on another
+      hashes differently.
+    """
+    import hashlib
+
+    if source.is_dir():
+        entries = sorted(
+            (
+                (path.relative_to(source).as_posix(), path)
+                for path in source.rglob("*")
+                if path.is_file()
+            ),
+            key=lambda entry: entry[0],
+        )
+    elif source.is_file():
+        entries = [(source.name, source)]
+    else:
+        entries = []
+
+    digest.update(label.encode("utf-8"))
+    digest.update(b"\0")
+    for rel_posix, path in entries:
+        digest.update(rel_posix.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii"))
+        digest.update(b"\0")
+
+
+def _fold_profile_material(digest: Any, resolved: dict[str, Any], profile_dir: Path) -> None:
+    """Fold the *file* inputs a resolved profile names into ``digest``.
+
+    The canonical JSON alone captures what a profile says; it cannot see what
+    the trees it points at contain. Without this, editing a facility's channel
+    database or a persona's overlay file leaves the profile hash untouched and
+    the deploy-side staleness advisory stays silent about a project that no
+    longer matches its source.
+
+    Two kinds of input are covered: the ``data:`` tree, anchored via
+    :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root` so
+    it resolves exactly where the build copies it from (including a shared
+    ``../data`` above the profile directory), and each ``overlay:`` source,
+    which may be a single file or a directory that is recursed.
+
+    Nothing is folded for a profile that declares neither, which keeps the
+    digest of every bundled preset — none of which carries file inputs —
+    byte-identical to the JSON-only hash.
+    """
+    from .build_profile_model import BuildProfile
+
+    data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
+    if data_root is not None:
+        _fold_source_tree(digest, "data", data_root)
+
+    overlay = resolved.get("overlay")
+    if isinstance(overlay, dict):
+        for src_rel in sorted(k for k in overlay if isinstance(k, str)):
+            _fold_source_tree(digest, f"overlay:{src_rel}", (profile_dir / src_rel).resolve())
+
+
 def _hash_resolved_profile(raw: dict[str, Any], profile_path: Path) -> str:
     """Canonical content hash of a profile dict after ``extends`` resolution.
 
     Hashes the *resolved* content (canonical JSON, sorted keys) rather than
     file bytes, so comment/ordering churn is invisible while a change in any
-    ``extends`` parent is not.
+    ``extends`` parent is not. The file inputs the resolved profile names — its
+    ``data:`` tree and ``overlay:`` sources — are folded in on top by
+    :func:`_fold_profile_material`, so a project whose facility data changed
+    under an unchanged profile still reads as stale.
+
+    ``raw`` is normalized to the canonical field spellings first, so a caller
+    that hands over a dict which did not come from
+    :func:`~osprey.cli.build_profile_document._read_profile_document` hashes
+    the same as one that did — the YAML-surface rename must not move any
+    profile's hash. Normalizing before ``extends`` resolution (rather than
+    after) keeps the deep merge child-wins across a mixed-spelling chain.
     """
     import hashlib
     import json
 
-    resolved = _resolve_extends(dict(raw), profile_path)
+    resolved = _resolve_extends(
+        _normalize_profile_aliases(dict(raw), str(profile_path)), profile_path
+    )
     canonical = json.dumps(resolved, sort_keys=True, default=str)
-    return f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+    digest = hashlib.sha256(canonical.encode("utf-8"))
+    _fold_profile_material(digest, resolved, profile_path.parent)
+    return f"sha256:{digest.hexdigest()}"
 
 
 def compute_preset_hash(preset_name: str) -> str | None:
@@ -247,7 +344,7 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     """
     try:
         path = Path(profile_path)
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw = _read_profile_document(path)
         if not isinstance(raw, dict):
             return None
         return _hash_resolved_profile(raw, path)

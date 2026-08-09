@@ -86,8 +86,8 @@ Run & Operate the Agent
       :link: deploy-chat-bridge
       :link-type: doc
 
-      Let your team ask the Osprey agent questions from a Nextcloud Talk room and
-      get answers, plots, and files back in the same room.
+      Let your team ask the Osprey agent questions from Nextcloud Talk or Google
+      Chat and get answers, plots, and files back in the same conversation.
 
    .. grid-item-card:: Monitor the Agent
       :link: monitor-agent

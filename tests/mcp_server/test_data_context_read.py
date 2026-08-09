@@ -133,21 +133,97 @@ class TestDataRead:
         assert first_indices.isdisjoint(last_indices)
 
     @pytest.mark.asyncio
-    async def test_oversize_json_object_preview(self, store, read_tool):
-        """Non-dataframe JSON objects expose top-level keys in the preview."""
+    async def test_oversize_series_preview(self, store, read_tool):
+        """The long-format archiver payload gets channel names and counts, not just keys."""
         entry = _save_entry(store)
+        stamps = [f"2026-05-11T00:{i // 60:02d}:{i % 60:02d}+00:00" for i in range(200)]
         payload = {
-            "alpha": "a" * (60 * 1024),
-            "beta": "b" * (60 * 1024),
-            "gamma": [1, 2, 3],
+            "query": {"channels": ["CH_A", "CH_B", "CH_DOWN"], "padding": "z" * (110 * 1024)},
+            "series": {
+                "CH_A": {"timestamps": stamps, "values": [float(i) for i in range(200)]},
+                "CH_B": {"timestamps": stamps[:50], "values": [float(i) * 2 for i in range(50)]},
+                # archiver_read always emits requested channels, even with no data in range.
+                "CH_DOWN": {"timestamps": [], "values": []},
+            },
         }
         store.get_file_path(entry.id).write_text(json.dumps(payload))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
             await read_tool(entry_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "timeseries_series"
+        assert preview["channels"] == ["CH_A", "CH_B", "CH_DOWN"]
+        assert preview["row_count"] == 250
+        assert preview["per_channel"]["CH_A"]["points"] == 200
+        assert preview["per_channel"]["CH_A"]["first"] == [stamps[0], 0.0]
+        assert preview["per_channel"]["CH_A"]["last"] == [stamps[199], 199.0]
+        assert preview["per_channel"]["CH_B"]["points"] == 50
+        assert preview["per_channel"]["CH_DOWN"]["points"] == 0
+        assert preview["per_channel"]["CH_DOWN"]["first"] is None
+        assert preview["per_channel"]["CH_DOWN"]["last"] is None
+
+    @pytest.mark.asyncio
+    async def test_oversize_series_preview_under_legacy_metadata_envelope(self, store, read_tool):
+        """An artifact wrapped in the legacy `_osprey_metadata` envelope still previews.
+
+        Nothing writes that envelope today, but files already on disk carry it.
+        """
+        entry = _save_entry(store)
+        stamps = [f"2026-05-11T00:{i // 60:02d}:{i % 60:02d}+00:00" for i in range(200)]
+        payload = {
+            "_osprey_metadata": {"tool": "archiver_read"},
+            "data": {
+                "query": {"channels": ["CH_A"], "padding": "z" * (110 * 1024)},
+                "series": {"CH_A": {"timestamps": stamps, "values": list(range(200))}},
+            },
+        }
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "timeseries_series"
+        assert preview["channels"] == ["CH_A"]
+        assert preview["row_count"] == 200
+
+    @pytest.mark.parametrize(
+        ("payload", "expected_keys"),
+        [
+            # Plain non-dataframe object: the baseline generic preview.
+            pytest.param(
+                {"alpha": "a" * (60 * 1024), "beta": "b" * (60 * 1024), "gamma": [1, 2, 3]},
+                {"alpha", "beta", "gamma"},
+                id="plain_json_object",
+            ),
+            # A top-level "data" key WITHOUT the `_osprey_metadata` marker is
+            # not an envelope and must not be unwrapped.
+            pytest.param(
+                {"data": {"anything": "z" * (150 * 1024)}, "other": 1},
+                {"data", "other"},
+                id="plain_data_key_not_unwrapped",
+            ),
+            # Dict-of-dicts under "series" but no 'timestamps' -- not an
+            # archiver payload despite the key name.
+            pytest.param(
+                {"series": {"a": {"x": 1}, "b": {"x": 2}}, "padding": "z" * (150 * 1024)},
+                {"series", "padding"},
+                id="series_key_collision",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_oversize_json_object_preview(
+        self, store, read_tool, payload: dict, expected_keys: set[str]
+    ):
+        """Objects with no recognized shape fall through to the generic preview."""
+        entry = _save_entry(store)
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
         assert preview["shape"] == "json_object"
-        assert set(preview["top_level_keys"]) == {"alpha", "beta", "gamma"}
+        assert set(preview["top_level_keys"]) == expected_keys
 
     @pytest.mark.asyncio
     async def test_oversize_text_preview(self, store, read_tool):

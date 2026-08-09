@@ -24,7 +24,10 @@ safety-limits enforcement on all write operations.
 
 - ``channel_read`` -- Read current values from one or more control system channels.
 - ``channel_write`` -- Write values to one or more control system channels (requires human approval).
-- ``archiver_read`` -- Retrieve historical archived data for one or more channels over a time range.
+- ``archiver_read`` -- Retrieve historical archived data for one or more channels over a
+  time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
+  ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
+  ``bin_size=0`` returns full resolution and is valid only with ``processing="raw"``.
 - ``channel_limits`` -- Query the channel safety limits database (lookup, pattern match, summary).
 
 

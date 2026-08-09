@@ -252,11 +252,10 @@ def _open_page(browser, base_url: str) -> Page:
 # Dock DOM helpers
 # ---------------------------------------------------------------------------
 #
-# A service tile's strip renders NO text — it is a bare drag grip, since the
-# panel's name is on its rail entry and its close/popout controls are that
-# entry's hover corners (dock-tab.js). Tabs are therefore addressed by the
-# accessible name the strip carries instead, which dock-tab.js sets from the
-# dockview panel title and keeps current through onDidTitleChange.
+# Every tile renders the same header bar (dock-tab.js): drag grip, identity,
+# close. A service tile's identity is its visible .tile-tab-title, mirrored
+# into the bar's aria-label and kept current through onDidTitleChange — the
+# aria-label is the stable handle these tests address tabs by.
 # The terminal tab is the one exception: it renders no aria-label — it adopts
 # the live .terminal-header, which names it — so it is identified by that
 # adoption and given the synthetic "SESSION" label below, the stable handle for
@@ -333,9 +332,9 @@ _STRIP_HEIGHT_JS = r"""(terminal) => {
 def _strip_height(page: Page, *, terminal: bool) -> int:
     """Rendered height of a tile's header strip, in px.
 
-    The two tile kinds are sized differently on purpose: a service tile gets a
-    bare grip strip, the terminal a full bar whose content earns the height
-    (dockview-overrides.css). Returns -1 when no such tile is docked.
+    Every tile carries the same fixed-height bar in expert mode
+    (dockview-overrides.css); simple mode collapses the service bars to zero.
+    Returns -1 when no such tile is docked.
     """
     return page.evaluate(_STRIP_HEIGHT_JS, terminal)
 
@@ -363,24 +362,17 @@ def _track_panel_posts(page: Page) -> list[str]:
 
 
 def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
-    """Open ``panel_id`` as a SECOND tile beside the current one via the "+" menu.
+    """Open ``panel_id`` as a SECOND tile beside the current one via the rail's ⊞.
 
     A rail click would REPLACE the focused tile's panel (one panel per tile), so
-    tests that need two service tiles side by side go through the add menu:
-    remove the panel from the rail server-side (its entry disappears — the rail
-    is the membership list), then re-add it from the "+" popover, whose
-    expert-mode path docks it beside the active group.
+    tests that need two service tiles side by side use the entry's hover ⊞
+    ("open in a new tile") corner — the open-beside verb. ``base_url`` is
+    unused (kept so call sites read uniformly with the old add-menu dance).
     """
-    r = requests.post(
-        f"{base_url}/api/panel-visibility",
-        json={"panel": panel_id, "visible": False},
-    )
-    assert r.status_code == 200
-    expect(page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')).to_have_count(
-        0, timeout=5_000
-    )
-    page.locator("#panel-add-btn").click()
-    page.locator(f'.panel-add-item[data-panel-id="{panel_id}"]').click()
+    del base_url  # the ⊞ path is purely client-side
+    entry = page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')
+    entry.hover()
+    entry.locator(".panel-rail-beside").click()
     expect(_service_tab(page, label)).to_have_count(1, timeout=5_000)
 
 
@@ -389,13 +381,11 @@ def _drag_with_dock_shield(page: Page, source, target, **kwargs) -> None:
 
     During a genuine pointer drag, dockview's onWillDragPanel raises the drag
     state (dock-workspace.js + dock-iframe.js): the ``.dock-dragging`` class on
-    .main-container — which force-reveals collapsed single-tab strips so their
-    tabs are drop targets — and the iframe pointer shield, so overlay iframes
-    can't swallow the drag events over a covered group. Playwright's synthetic
+    .main-container and the iframe pointer shield, so overlay iframes can't
+    swallow the drag events over a covered group. Playwright's synthetic
     drag_to hit-tests the drop point WITHOUT any dragstart having raised that
-    state, so a drop onto a collapsed tab strip resolves to the wrong zone and
-    a drop over an overlay iframe is judged "intercepted" and times out.
-    Pre-raise both halves for the gesture, then restore them.
+    state, so a drop over an overlay iframe is judged "intercepted" and times
+    out. Pre-raise both halves for the gesture, then restore them.
     """
     shield = (
         "(v) => { document.querySelectorAll('.dock-iframe-overlay iframe')"
@@ -711,9 +701,8 @@ def test_dock_tab_close_is_local_vacate_no_posts(tmp_path, chromium_browser):
     retiring the data-viz tile clears the local active state, but the panel
     keeps its rail membership — its entry stays in the rail at full brightness
     and NO panel POST fires (neither visibility nor a bounced focus). The
-    gesture lives on the rail because a service tile's strip is a bare drag
-    grip with no controls of its own; the entry's "×" corner is the separate,
-    membership-removing action.
+    re-click is the toggle shortcut equivalent of the tile header's own "×";
+    the entry's "×" corner is the separate, membership-removing action.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -725,8 +714,6 @@ def test_dock_tab_close_is_local_vacate_no_posts(tmp_path, chromium_browser):
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _focus_service_panel(page, "data-viz", "DATA VIZ")
-        # A service tile carries no controls at all — only the drag grip.
-        expect(_service_tab(page, "DATA VIZ").locator(".tile-tab-close")).to_have_count(0)
         page.wait_for_timeout(600)
 
         posts = _track_panel_posts(page)
@@ -741,6 +728,163 @@ def test_dock_tab_close_is_local_vacate_no_posts(tmp_path, chromium_browser):
         expect(rail_entry).not_to_have_class(re.compile(r"\bactive\b"), timeout=5_000)
         page.wait_for_timeout(600)
         assert posts == [], f"a local tile close must not POST, got {posts}"
+
+        page.close()
+
+
+def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
+    """The service tile header's own "×" closes JUST the tile — never membership.
+
+    Every tile now carries a close control (dock-tab.js). Clicking a service
+    tile's "×" retires the tile locally: the rail entry survives at full
+    brightness with no POST of any kind, and a plain rail click brings the
+    panel straight back.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        # The unified bar: grip + visible title + close (popout stays rail-only).
+        tab = _service_tab(page, "DATA VIZ")
+        expect(tab.locator(".tile-tab-grip")).to_have_count(1)
+        expect(tab.locator(".tile-tab-title")).to_have_text("DATA VIZ")
+        expect(tab.locator(".tile-tab-close")).to_have_count(1)
+        expect(tab.locator(".tile-tab-popout")).to_have_count(0)
+        page.wait_for_timeout(600)
+
+        posts = _track_panel_posts(page)
+        tab.locator(".tile-tab-close").click()
+
+        # The tile is gone; the rail entry survives, inactive; zero POSTs.
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
+        rail_entry = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        expect(rail_entry).to_be_attached(timeout=5_000)
+        expect(rail_entry).not_to_have_class(re.compile(r"\bactive\b"), timeout=5_000)
+        page.wait_for_timeout(600)
+        assert posts == [], f"a tile close must not POST, got {posts}"
+
+        # One rail click reopens the panel — close is never a removal.
+        rail_entry.click()
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromium_browser):
+    """⊞ on an ALREADY-OPEN panel moves its tile beside the active one.
+
+    The old dance (remove from rail, re-add via "+") is gone: dockPanelAt's
+    move semantics relocate the existing placeholder, so the panel never
+    duplicates and never loses its rail membership.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
+        # Focus the artifacts tile so data-viz's own tile is NOT the active one.
+        _service_tab(page, "WORKSPACE").click()
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
+        ).to_have_count(1, timeout=5_000)
+        groups_before = len(_dock_groups(page))
+
+        # Act — ⊞ on the already-open data-viz entry.
+        entry = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        entry.hover()
+        entry.locator(".panel-rail-beside").click()
+
+        # Still exactly one data-viz tab, and the tile count is unchanged —
+        # the tile MOVED (beside artifacts), it was not duplicated.
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
+        assert len(_dock_groups(page)) == groups_before, _dock_groups(page)
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+# Synthesize the HTML5 drag a rail entry emits, dropped in the bottom quadrant
+# of the terminal group's content — Playwright's mouse-based drag_to cannot
+# produce HTML5 dnd events, so the sequence is dispatched in-page with a real
+# DataTransfer. dragstart runs panel-rail's real handler (payload + shields);
+# dragover/drop land on dockview's group drop target, which fires
+# onUnhandledDragOver (accepted by rail-drag.js) and then onDidDrop. The drop
+# only registers once a dragover has been PROCESSED (dockview settles its
+# overlay state asynchronously), hence the repeated dragover with settles
+# between — a single dragover followed immediately by drop is silently ignored.
+_RAIL_DRAG_DROP_JS = """async (panelId) => {
+    const entry = document.querySelector(
+        `button.panel-rail-button[data-panel-id="${panelId}"]`);
+    const dt = new DataTransfer();
+    entry.dispatchEvent(new DragEvent('dragstart',
+        { bubbles: true, cancelable: true, dataTransfer: dt }));
+    const term = [...document.querySelectorAll('.dv-groupview')].find(g =>
+        g.querySelector('.terminal-header'));
+    const content = term.querySelector('.dv-content-container');
+    const r = content.getBoundingClientRect();
+    // Just inside the grid's bottom edge band → dockview resolves
+    // { target: 'edge', position: 'bottom' } — a split against the grid edge
+    // (the group-targeted variant is covered by the ⊞ tests + unit suite;
+    // points deeper inside the content resolve 'center', which is refused).
+    const x = r.left + r.width / 2;
+    const y = r.bottom - 5;
+    const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
+                   clientX: x, clientY: y };
+    const target = document.elementFromPoint(x, y) ?? content;
+    const settle = () => new Promise((res) => setTimeout(res, 100));
+    target.dispatchEvent(new DragEvent('dragenter', opts));
+    target.dispatchEvent(new DragEvent('dragover', opts));
+    await settle();
+    target.dispatchEvent(new DragEvent('dragover', opts));
+    await settle();
+    target.dispatchEvent(new DragEvent('drop', opts));
+    entry.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+}"""
+
+
+def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
+    """Dragging a rail entry onto a tile edge opens the panel as a new tile there.
+
+    The precise half of the open-beside verb (rail-drag.js): the entry's HTML5
+    drag carries the panel id; dropping it near the bottom edge of the terminal
+    tile splits that tile and the panel fills the new half, then the normal
+    reveal tail focuses it.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+        groups_before = len(_dock_groups(page))
+
+        page.evaluate(_RAIL_DRAG_DROP_JS, "data-viz")
+
+        # A new tile exists holding data-viz, below the terminal group.
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
+        assert len(_dock_groups(page)) == groups_before + 1, _dock_groups(page)
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
+        groups = _dock_groups(page)
+        term = next(g for g in groups if g["tabs"] == ["SESSION"])
+        dv = next(g for g in groups if g["tabs"] == ["DATA VIZ"])
+        assert dv["y"] > term["y"], (term, dv)
 
         page.close()
 
@@ -1813,12 +1957,11 @@ _TERMINAL_STRIP_H_JS = """() => {
 
 
 def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
-    """Tile header strips never change height — hover must not reflow content.
+    """Tile header bars never change height — hover must not reflow content.
 
-    Replaces the retired collapse/reveal behavior. Both strips are fixed
-    height, at two different sizes: the terminal's bar holds real content,
-    while a service tile keeps only a drag grip. Hovering either (the old
-    expand trigger) must leave the height and the content's top edge unmoved.
+    Replaces the retired collapse/reveal behavior. Every tile carries the same
+    fixed-height bar (grip + identity + close); hovering one (the old expand
+    trigger) must leave the height and the content's top edge unmoved.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1853,26 +1996,22 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
             == content_top
         ), "tile content shifted on hover"
 
-        # A service tile carries the grip and nothing else — its name is on
-        # the rail entry and its close/popout are that entry's hover corners.
+        # A service tile carries the unified bar: grip + visible title + close
+        # (popout stays a rail-entry affordance).
         ws = _service_tab(page, "WORKSPACE")
         expect(ws.locator(".tile-tab-grip")).to_have_count(1)
-        expect(ws.locator(".tile-tab-close")).to_have_count(0)
+        expect(ws.locator(".tile-tab-title")).to_have_text("WORKSPACE")
+        expect(ws.locator(".tile-tab-close")).to_have_count(1)
         expect(ws.locator(".tile-tab-popout")).to_have_count(0)
-        expect(ws.locator(".tile-tab-title")).to_have_count(0)
 
-        # It is also FAR shorter than the terminal's — the point of the split.
-        # Asserted against an absolute ceiling, not merely "< the terminal's":
-        # dockview's stock strip is 35px and the terminal's is 36px, so a
-        # relative check passes even when our height rule never applies at all.
+        # Same bar height as the terminal's — one header system, one size.
         svc_h = _strip_height(page, terminal=False)
-        assert 0 < svc_h <= 12, f"service strip should be a grip, got {svc_h}px"
-        assert svc_h < h_rest, f"service strip {svc_h}px vs terminal {h_rest}px"
+        assert svc_h == h_rest, f"service bar {svc_h}px vs terminal {h_rest}px"
 
         # And it does not reflow on hover either.
         ws.hover()
         page.wait_for_timeout(300)
-        assert _strip_height(page, terminal=False) == svc_h, "service strip grew on hover"
+        assert _strip_height(page, terminal=False) == svc_h, "service bar grew on hover"
 
         page.close()
 

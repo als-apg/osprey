@@ -53,15 +53,12 @@ def _parse_metadata_form(raw: str | None) -> dict[str, Any]:
 def _localize_facility(dt: datetime | None) -> datetime | None:
     """Attach the facility timezone to a naive operator-provided datetime.
 
-    Mirrors the MCP ``parse_date_filters`` contract so the web UI interprets
-    operator-supplied dates as facility-local (not box-local / UTC) before they
-    drive a ``TIMESTAMPTZ`` query. Aware datetimes pass through unchanged.
+    Naive dates are facility-local wall-clock (never box-local / UTC) before
+    they drive a ``TIMESTAMPTZ`` query.
     """
-    if dt is not None and dt.tzinfo is None:
-        from osprey.utils.config import get_facility_timezone
+    from osprey.utils.config import localize_facility
 
-        return dt.replace(tzinfo=get_facility_timezone())
-    return dt
+    return localize_facility(dt)
 
 
 def _require_service(request: Request) -> ARIELSearchService:

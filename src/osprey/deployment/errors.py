@@ -30,3 +30,22 @@ class DevModeUnavailableError(DeploymentError):
         self.reason = reason
         self.remedy = remedy
         super().__init__(f"--dev cannot be honored: {reason}")
+
+
+class UnreleasedVersionPinError(DeploymentError):
+    """An ``osprey-framework==`` pin was needed, but this build is not a release.
+
+    The same reasoning as :class:`DevModeUnavailableError`, from the other
+    direction. A development checkout sits some number of commits past the last
+    tag, and no distribution on PyPI corresponds to it. Pinning to the nearest
+    release would produce containers running code the operator never wrote, with
+    nothing in the logs saying the two differ; emitting no pin at all would leave
+    the image tracking whatever PyPI resolves to that day.
+
+    So this refuses, and carries a ``remedy`` the CLI renders beneath the reason.
+    """
+
+    def __init__(self, reason: str, remedy: str) -> None:
+        self.reason = reason
+        self.remedy = remedy
+        super().__init__(f"Cannot pin osprey-framework: {reason}")

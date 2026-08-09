@@ -24,7 +24,7 @@ from osprey.services.channel_finder.databases.template import (
     ChannelDatabase as TemplateChannelDatabase,
 )
 
-from . import paths
+from .paths import PACKAGE_PATHS, ManifestPaths
 
 
 @dataclass(frozen=True)
@@ -50,38 +50,42 @@ class ParadigmMismatchError(RuntimeError):
     """
 
 
-def load_hierarchical_channels() -> list[HierarchicalChannel]:
-    """Expand the tier-3 hierarchical DB into (address, path) pairs."""
-    db = HierarchicalChannelDatabase(str(paths.HIERARCHICAL_DB))
+def load_hierarchical_channels(paths: ManifestPaths = PACKAGE_PATHS) -> list[HierarchicalChannel]:
+    """Expand ``paths``' hierarchical DB into (address, path) pairs."""
+    db = HierarchicalChannelDatabase(str(paths.hierarchical_db))
     db.load_database()
     return [
         HierarchicalChannel(address=ch["address"], path=ch["path"]) for ch in db.get_all_channels()
     ]
 
 
-def load_in_context_addresses() -> set[str]:
-    """Expand the tier-3 in_context (flat/template) DB into an address set."""
-    db = TemplateChannelDatabase(str(paths.IN_CONTEXT_DB))
+def load_in_context_addresses(paths: ManifestPaths = PACKAGE_PATHS) -> set[str]:
+    """Expand ``paths``' in_context (flat/template) DB into an address set."""
+    db = TemplateChannelDatabase(str(paths.in_context_db))
     db.load_database()
     return {ch["address"] for ch in db.get_all_channels()}
 
 
-def load_middle_layer_addresses() -> set[str]:
-    """Expand the tier-3 middle_layer (MML) DB into an address set."""
-    db = MiddleLayerDatabase(str(paths.MIDDLE_LAYER_DB))
+def load_middle_layer_addresses(paths: ManifestPaths = PACKAGE_PATHS) -> set[str]:
+    """Expand ``paths``' middle_layer (MML) DB into an address set."""
+    db = MiddleLayerDatabase(str(paths.middle_layer_db))
     db.load_database()
     return {ch["address"] for ch in db.get_all_channels()}
 
 
-def load_machine_json_channels(path: Path | None = None) -> dict[str, dict]:
+def load_machine_json_channels(
+    path: Path | None = None, paths: ManifestPaths = PACKAGE_PATHS
+) -> dict[str, dict]:
     """Return the scenario-seed machine.json channels keyed by address.
 
     ``path`` selects which machine.json to read: ``None`` (the default)
     keeps the historical behaviour of reading the bundled control-assistant
     template's copy; a file-backed facility passes its own mounted
-    machine.json instead (see ``entrypoint.py``).
+    machine.json instead (see ``entrypoint.py``). ``paths`` supplies the
+    fallback for callers that anchor on a data tree rather than a single
+    file (the build-time generator).
     """
-    data = json.loads((path or paths.MACHINE_JSON).read_text())
+    data = json.loads((path or paths.machine_json).read_text())
     channels: dict[str, dict] = data["channels"]
     return channels
 
@@ -170,25 +174,25 @@ def load_manifest_file(path: Path) -> list[dict]:
     return channels
 
 
-# Matches `"<address>": { "label": ...` entries in machine_state_channels.json.j2
+# Matches `"<address>": { "label": ...` entries in machine_state_channels.json
 _MACHINE_STATE_KEY_RE = re.compile(r'"([^"]+)":\s*\{\s*"label"')
 
 
-def load_machine_state_candidate_addresses() -> list[str]:
-    """Extract every candidate channel key referenced by the machine-state template.
+def load_machine_state_candidate_addresses(paths: ManifestPaths = PACKAGE_PATHS) -> list[str]:
+    """Extract every candidate channel key in the machine-state channel list.
 
-    ``machine_state_channels.json.j2`` is not valid JSON -- it branches on
-    ``default_pipeline`` via Jinja ``{% if %}``/``{% elif %}``/``{% else %}``.
-    Rather than rendering a single branch, this pulls every candidate key
-    across *all* branches so the reconciliation covers the whole file
-    regardless of which pipeline mode is active.
+    ``machine_state_channels.json`` is a plain JSON object mapping each address
+    to a ``{"label": ..., "group": ...}`` entry, alongside underscore-prefixed
+    metadata keys (``_comment``, ``_version``). Keying off the ``"label"``
+    member picks up exactly the channel entries and skips the metadata without
+    an underscore-prefix convention having to be encoded here.
 
     The caller (``manifest/build.py``) checks each candidate against the
     addresses the VA actually serves and publishes the split under
     ``_metadata.machine_state_reconciliation`` as ``candidates_checked`` /
-    ``valid`` / ``invalid``, so a template address that drifts out of the
+    ``valid`` / ``invalid``, so an address that drifts out of the
     ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` namespace shows up in the
     manifest instead of failing silently.
     """
-    text = paths.MACHINE_STATE_TEMPLATE.read_text()
+    text = paths.machine_state_channels.read_text()
     return _MACHINE_STATE_KEY_RE.findall(text)

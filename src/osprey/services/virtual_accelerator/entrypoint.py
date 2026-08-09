@@ -1,13 +1,27 @@
-"""Virtual Accelerator IOC entrypoint.
+"""Virtual Accelerator entrypoint.
 
-Assembles the full VA soft-IOC in one process, in dependency order:
+Assembles the whole virtual accelerator in one process, in dependency order:
 
-    manifest -> records -> physics bridge (partition a) -> engine source (partition c)
+    manifest -> serving database -> physics bridge (partition a)
+             -> runner (Channel Access + PVA) -> engine source (partition c)
 
-then serves Channel Access via the probe-proven configuration (TCP
-name-server; see src/osprey/services/virtual_accelerator/probe/README.md and
-src/osprey/templates/data/facility_gateways.py's "Local Simulation" preset,
-which points at exactly this container's published port).
+and then hands the calling thread to the runner, which blocks serving until
+the process is signalled.
+
+The order is a contract, not a convenience. The serving database is built
+first and every value that must be on the wire at boot is pushed into it
+*before* the runner exists, because the Channel Access server copies each
+PV's spec when it creates the PV: a value written into a spec afterwards is
+never served. That is why the physics bridge is bound here -- its first push
+of BPM readings is the boot state -- and why nothing re-seeds the database
+from type defaults after that point.
+
+Both transports come from the same runner: the facility's whole channel
+namespace is co-hosted on Channel Access, and the physics model's own
+variables are served on PVA. Channel Access is the authoritative view of the
+machine; see
+:mod:`~osprey.services.virtual_accelerator.serving.runner` for why the two
+are not synchronised.
 
 Run contract (see docker/virtual-accelerator/README.md for the full version):
 
@@ -31,8 +45,10 @@ historical behaviour exactly):
 ``VA_LATTICE``
     ``builtin`` or ``none``: whether to construct the PyAT-backed
     ``PhysicsBridge``. Defaults to ``builtin`` for the built-in manifest and
-    ``none`` for a file-backed one. With ``none``, PyAT is never imported
-    and pyat-coupled setpoint writes (if any) latch without physics.
+    ``none`` for a file-backed one. With ``none``, PyAT is never imported,
+    the served model is the empty stub in
+    ``serving.model_stub``, and pyat-coupled setpoint writes (if any) latch
+    without physics.
 """
 
 from __future__ import annotations
@@ -40,24 +56,42 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import time
+import signal
+import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
-from osprey.services.virtual_accelerator.ioc.records import (
-    READBACK_SUBFIELD,
-    build_records,
-)
 from osprey.services.virtual_accelerator.manifest import PARTITION_SP_ECHO, build_manifest
 from osprey.services.virtual_accelerator.manifest.loaders import (
     load_machine_json_channels,
     load_manifest_file,
 )
+from osprey.services.virtual_accelerator.serving.pvdb import (
+    READBACK_SUBFIELD,
+    build_serving_pvdb,
+)
 from osprey.simulation.engine import SimulationEngine
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from lume.model import LUMEModel
 
 DEFAULT_DATA_DIR = "/data/simulation"
 ENGINE_POLL_INTERVAL_S = 1.0
+
+# The line this process prints once it is serving, and the marker everything
+# that waits on that boot greps for: the image boot check
+# (``scripts/va/build_and_boot_check.sh``), the container e2e fixtures, and
+# anyone reading ``docker logs``. Both halves are load-bearing -- the marker
+# is matched as a prefix, the channel count is read out of the remainder --
+# so the whole line is one contract and is written out in exactly one place.
+READY_MARKER = "virtual accelerator IOC serving PVs"
+
+
+def _ready_line(channel_count: int) -> str:
+    """The readiness announcement for a namespace of ``channel_count`` PVs."""
+    return f"{READY_MARKER}: {channel_count} channels"
+
 
 LATTICE_BUILTIN = "builtin"
 LATTICE_NONE = "none"
@@ -254,10 +288,61 @@ def _load_boot_values(machine_path: Path | None = None) -> dict[str, float]:
     }
 
 
+def _raise_keyboard_interrupt(signum: int, _frame: Any) -> None:
+    """Signal handler: turn a stop signal into the interrupt the runner exits on."""
+    raise KeyboardInterrupt(f"signal {signum}")
+
+
+def _install_shutdown_signals() -> None:
+    """Make SIGTERM behave exactly as Ctrl-C already does.
+
+    The runner's ``run()`` blocks on its queue forever and returns on one
+    thing only: a ``KeyboardInterrupt`` reaching the thread that called it.
+    SIGINT raises one by Python's own default; SIGTERM -- what ``docker
+    stop`` sends -- terminates the process outright unless a handler says
+    otherwise. Pointing both at the same handler is what makes a container
+    stop leave through the runner's documented exit rather than through an
+    abrupt kill. SIGINT is installed explicitly too, so the pair is
+    symmetric and neither depends on an inherited disposition.
+
+    Installed only once the servers are up: before that the process is still
+    assembling, and the default dispositions (die immediately) are the right
+    answer to a stop signal arriving mid-assembly.
+    """
+    signal.signal(signal.SIGINT, _raise_keyboard_interrupt)
+    signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
+
+
+def _start_engine_source(engine_source: EngineSource, interval: float) -> threading.Thread:
+    """Run the telemetry poll loop on a daemon thread of its own.
+
+    The loop used to be scheduled onto the IOC's asyncio dispatcher, which
+    the serving layer has no equivalent of: the runner owns the calling
+    thread (``run()`` blocks on it) and runs its Channel Access server on
+    one of its own. So the poll loop gets one too.
+
+    Daemon deliberately. It holds nothing worth draining -- each tick reads
+    the scenario files afresh and pushes values it recomputes -- and the
+    process must never wait on a loop that has no end.
+
+    ``run_forever`` rather than a hand-rolled loop, so the source's own
+    per-record failure isolation (see its docstring: an escaping exception
+    would freeze every telemetry channel at its boot value, silently) stays
+    on this path.
+    """
+    thread = threading.Thread(
+        target=lambda: asyncio.run(engine_source.run_forever(interval)),
+        name="engine-source",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
 def main() -> None:
     from osprey.utils.logger import configure_logging
 
-    # Container entry point: without this the softioc/PyAT/framework log records
+    # Container entry point: without this the serving/PyAT/framework log records
     # this process drives would have no handler. Records go to stderr.
     configure_logging()
 
@@ -283,7 +368,7 @@ def main() -> None:
         drive_limits = _load_drive_limits(limits_path) if limits_path.is_file() else {}
         boot_values = _load_boot_values(machine_path)
     else:
-        print(f"Building channel manifest and IOC records (data dir: {data_dir}) ...", flush=True)
+        print(f"Building channel manifest (data dir: {data_dir}) ...", flush=True)
         channels = build_manifest()["channels"]
         drive_limits = _load_drive_limits()
         boot_values = _load_boot_values()
@@ -304,13 +389,38 @@ def main() -> None:
     if corrector_gains:
         print(f"VA apply-fault active: corrector_gains={corrector_gains}", flush=True)
 
+    # The physics the runner serves: the ring in a lattice-backed boot, the
+    # empty stub otherwise. One or the other, never both, and never none --
+    # the runner is built around a model.
+    model: LUMEModel
     if lattice_mode == LATTICE_BUILTIN:
-        # Deferred import: physics_bridge imports PyAT at module level, and
-        # the whole point of VA_LATTICE=none is booting without PyAT
-        # installed or importable.
-        from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
+        # Deferred import: both of these reach PyAT at module level, and the
+        # whole point of VA_LATTICE=none is booting without PyAT installed
+        # or importable.
+        from osprey.services.virtual_accelerator.ioc.physics_bridge import (
+            OrbitSolveError,
+            PhysicsBridge,
+        )
+        from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+
+        # The model is constructed here rather than left to the bridge to
+        # build, because two things now need the same one: the bridge serves
+        # writes through it, and the runner serves its variables on PVA and
+        # owns the thread every access to it happens on. One instance, one
+        # lattice; a second model would be a second lattice, silently
+        # diverging from the one whose orbit the BPM readings come from.
+        try:
+            model = PyATRingModel()
+        except OrbitSolveError as exc:
+            # Ending the process is the serving layer's decision, which is
+            # why the model itself never does it: this turns an opaque boot
+            # crash into a diagnosable one.
+            raise SystemExit(
+                f"FATAL: the SR lattice has no stable closed orbit at boot ({exc})"
+            ) from exc
 
         bridge = PhysicsBridge(
+            model=model,
             bpm_errors=bpm_errors or None,
             corrector_gains=corrector_gains or None,
         )
@@ -322,17 +432,34 @@ def main() -> None:
                 f"and require VA_LATTICE={LATTICE_BUILTIN!r}"
             )
         print("No lattice configured (VA_LATTICE=none): PhysicsBridge skipped", flush=True)
+        # The served namespace is the manifest's, whole, either way -- the
+        # model only ever describes the physics behind part of it. With none,
+        # it describes nothing and the co-hosted namespace is all there is.
+        from osprey.services.virtual_accelerator.serving.model_stub import NullModel
+
+        model = NullModel()
         bridge = None
         on_pyat_setpoint = None
 
-    records = build_records(
+    # async_setpoints is not optional here: every setpoint that routes through
+    # the model is completed only once the solve behind it has finished, and a
+    # synchronous PV would tell the client its write had landed before the
+    # solve had even started. The write path refuses to be built without it.
+    records = build_serving_pvdb(
         channels,
-        on_pyat_setpoint=on_pyat_setpoint,
-        stuck_setpoints=stuck_setpoints,
         drive_limits=drive_limits,
         boot_values=boot_values,
+        async_setpoints=True,
+    )
+    print(
+        f"Built serving database: {len(records.all)} channels "
+        f"({len(records.pyat_coupled)} pyat-coupled, {len(records.static_noisy)} static-noisy)",
+        flush=True,
     )
     if bridge is not None:
+        # Pushes the boot BPM readings into the database's specs. Before the
+        # runner exists, and it has to be: these are the values the Channel
+        # Access server comes up serving.
         bridge.bind(records.pyat_coupled)
 
     print(f"Loading simulation engine from {machine_path} ...", flush=True)
@@ -362,34 +489,50 @@ def main() -> None:
         setpoint_echo_records=setpoint_echoes,
     )
 
-    # Import softioc only now: constructing softioc records (build_records/
-    # PhysicsBridge above, both already done) must happen before iocInit, and
-    # this module's own CA client-poisoning caveat (see
-    # tests/va/test_record_factory.py's docstring) is irrelevant here -- this
-    # process is the IOC server only, never also a CA client.
-    from softioc import asyncio_dispatcher, builder, softioc
+    # Import the runner only now: it is the one module here that reaches the
+    # Channel Access server extension, and a lattice-free boot on a host
+    # without it must still get this far.
+    from osprey.services.virtual_accelerator.serving.runner import CohostRunner
 
-    dispatcher = asyncio_dispatcher.AsyncioDispatcher()
-    builder.LoadDatabase()
-    softioc.iocInit(dispatcher)
-
-    asyncio.run_coroutine_threadsafe(
-        engine_source.run_forever(ENGINE_POLL_INTERVAL_S), dispatcher.loop
+    # Constructing the runner creates the servers and starts serving. Nothing
+    # after this may write into a PV spec -- the specs have been copied into
+    # live PVs -- which is why the runner points every record at the driver
+    # itself as its last act.
+    runner = CohostRunner(
+        model,
+        records,
+        on_setpoint=on_pyat_setpoint,
+        drive_limits=drive_limits,
+        stuck_setpoints=stuck_setpoints,
     )
 
-    print(
-        f"virtual accelerator IOC serving PVs: {len(records.all)} channels "
-        f"({len(records.pyat_coupled)} pyat-coupled, {len(records.static_noisy)} static-noisy)",
-        flush=True,
-    )
+    # Telemetry starts only once the driver is attached, so its first tick
+    # posts monitor events to the server rather than editing boot specs
+    # behind it.
+    _start_engine_source(engine_source, ENGINE_POLL_INTERVAL_S)
 
-    # wait_for_quit() installs SIGINT/SIGTERM handlers and blocks until either
-    # fires, so `docker stop`/Ctrl-C shut the container down cleanly.
+    _install_shutdown_signals()
+    print(_ready_line(len(records.all)), flush=True)
+
+    # `run()` is the run loop: it blocks on the queue and returns only on a
+    # KeyboardInterrupt, which the handlers installed above raise for SIGINT
+    # and SIGTERM alike. It catches that itself; catching it again here
+    # covers the window in which a signal arrives between the loop's own
+    # try and this call.
+    #
+    # Shutdown is process exit, not a server teardown: there is no stop API
+    # to call, and nothing in this process holds state that outlives it. The
+    # Channel Access server thread is a daemon, the telemetry thread is a
+    # daemon, the PVA server's threads are the server library's own, and
+    # every one of them is released when the process image is. A write
+    # already queued when the signal arrives is never applied and its
+    # put-completion never fires -- the client's put times out rather than
+    # being told a value landed that did not.
     try:
-        dispatcher.wait_for_quit()
-    except AttributeError:  # pragma: no cover -- defensive: older softioc without wait_for_quit
-        while True:
-            time.sleep(3600)
+        runner.run()
+    except KeyboardInterrupt:
+        pass
+    print("virtual accelerator IOC stopped", flush=True)
 
 
 if __name__ == "__main__":

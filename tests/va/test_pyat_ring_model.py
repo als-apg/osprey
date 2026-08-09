@@ -83,7 +83,7 @@ def quad_strengths(model: PyATRingModel, addresses: list[str]) -> list[float]:
     strengths = []
     for address in addresses:
         _ring, _system, family, device, _field, _subfield = address.split(":")
-        strengths.append(float(model._ring[model._index_by_famname[f"{family}{device}"]].K))
+        strengths.append(float(model.lattice[model.element_index(f"{family}{device}")].K))
     return strengths
 
 
