@@ -60,11 +60,15 @@
     },
     {
       "path": "tests/e2e/test_bluesky_deploy.py",
-      "reason": "Docker build/deploy smoke for the bluesky-bridge container (loopback bind, token mint, image content, mock scan) via docker + raw HTTP; no LLM."
+      "reason": "Docker build/deploy smoke for the minimum bluesky stack (bridge + RE manager + Redis): loopback bind, unpublished manager/Redis ports, token and control-plane keypair mint, image content, and the browse-only capability refusal — all via docker + raw HTTP; no LLM."
     },
     {
       "path": "tests/e2e/test_bluesky_panels_deploy.py",
       "reason": "VA + bridge + bluesky-panels sidecar container stack exercised via raw HTTP; neither service calls an LLM."
+    },
+    {
+      "path": "tests/e2e/test_bluesky_queue_e2e.py",
+      "reason": "Full queue-stack container proof (VA + bridge + queueserver + Redis + Tiled + panels sidecar) driven entirely over raw HTTP and docker exec — capability, arming, serial drain, session plans, abort, restart durability, mock flip, network/0MQ isolation. No agent session runs and nothing here contacts a model, so it measures nothing about the model-under-test."
     },
     {
       "path": "tests/e2e/test_bluesky_sandbox_escape_e2e.py",

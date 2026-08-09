@@ -1,0 +1,506 @@
+/* BLUESKY panel — token-only styling (mirrors the PLAN panel and the
+   design-system reference panel). Every color/border/shadow below resolves
+   through a var(--…) design token; no raw hex literals anywhere in this file.
+
+   Aesthetic: control-room instrument. The queue reads as a dense ordered list
+   with mono identifiers and hairline separators; the running item gets the one
+   piece of chrome that moves (its progress bar); the results half below is the
+   same table + trace pair the panel has always shown. */
+
+/* Several containers below carry `display: flex/grid`, which would otherwise
+   win over the `hidden` attribute's default `display: none`. This guard keeps
+   the attribute authoritative regardless of layout display. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+  font-family: var(--font-display);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.panel {
+  max-width: 900px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.panel-chrome {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+body.embedded .panel-chrome { display: none; }
+
+.panel-chrome h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.panel-chrome .panel-kicker {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lead {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+}
+
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-panel);
+}
+.card h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+#history-card h2,
+.card > h2:first-child {
+  margin-bottom: 10px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.card-head-spacer { flex: 1 1 auto; }
+
+/* ---- Badges (mirrors the design-system reference panel) ---- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.badge.ok {
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border-color: var(--color-success);
+}
+.badge.warn {
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border-color: var(--color-accent-secondary);
+}
+.badge.err {
+  color: var(--color-error);
+  background: var(--error-tint-08);
+  border-color: var(--color-error);
+}
+.badge.info {
+  color: var(--color-accent-light);
+  background: var(--accent-tint-06);
+  border-color: var(--border-accent);
+}
+
+/* ---- Buttons ---- */
+
+.btn {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-on-accent);
+  background: var(--color-accent-light);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled),
+.btn:focus-visible:not(:disabled) {
+  background: var(--color-accent);
+}
+.btn:disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border-color: var(--border-default);
+}
+.btn.confirm {
+  background: var(--color-accent-secondary);
+  color: var(--color-on-accent);
+}
+.btn.confirm:hover:not(:disabled) {
+  background: var(--color-accent-secondary-hover);
+}
+
+.icon-btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.icon-btn:hover:not(:disabled),
+.icon-btn:focus-visible:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+}
+.icon-btn:disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+.icon-remove:hover:not(:disabled) {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+/* ---- Banners ---- */
+
+.banner {
+  font-size: 12.5px;
+  border-radius: 6px;
+  padding: 8px 11px;
+  margin: 0 0 10px;
+  border: 1px solid transparent;
+}
+.banner-ok {
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border-color: var(--color-success);
+}
+.banner-warn {
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border-color: var(--color-accent-secondary);
+}
+.banner-err {
+  color: var(--color-error);
+  background: var(--error-tint-08);
+  border-color: var(--color-error);
+}
+.banner-info {
+  color: var(--color-accent-light);
+  background: var(--accent-tint-06);
+  border-color: var(--border-accent);
+}
+
+.queue-note,
+.run-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+/* The armed withdrawal's consequence sentence — the caution family, matching
+   the button it explains. */
+.stop-note {
+  color: var(--color-accent-secondary-light);
+}
+
+/* ---- Running item ---- */
+
+.running {
+  border: 1px solid var(--border-accent);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--accent-tint-06);
+}
+.running.selected { border-color: var(--color-accent-light); }
+
+.running-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.running-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent-light);
+}
+
+.progress {
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--neutral-tint-08);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--color-accent-light);
+}
+/* Unknown denominator: the bar sweeps instead of sitting at a number it does
+   not know. Never rendered as 0% — a plan with no predicted point count is
+   running normally, and a zeroed bar reads as a stalled scan. */
+.progress.indeterminate .progress-fill {
+  animation: progress-sweep 1.4s ease-in-out infinite;
+  transform-origin: left center;
+}
+@keyframes progress-sweep {
+  0%   { transform: scaleX(0.15) translateX(0); }
+  50%  { transform: scaleX(0.45) translateX(120%); }
+  100% { transform: scaleX(0.15) translateX(560%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress.indeterminate .progress-fill {
+    animation: none;
+    transform: scaleX(0.3);
+  }
+}
+
+.progress-label {
+  margin: 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---- Queue + history lists ---- */
+
+.queue-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.queue-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border-default);
+}
+.queue-row:last-child { border-bottom: none; }
+.queue-row:has(button.queue-label:hover) { background: var(--neutral-tint-08); }
+.queue-row.selected {
+  background: var(--accent-tint-06);
+  box-shadow: inset 2px 0 0 var(--color-accent-light);
+}
+
+.queue-position {
+  flex: none;
+  min-width: 20px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* The selectable half of a row is a real <button> (see panel.js), stripped
+   back to a text block: that keeps the queue keyboard-reachable and
+   screen-reader announceable without a roving-tabindex of our own. A row with
+   nothing to open renders the same markup as a <span>. */
+.queue-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.queue-label { cursor: pointer; }
+button.queue-label:disabled { cursor: default; }
+button.queue-label:focus-visible {
+  outline: 2px solid var(--border-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.queue-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.queue-params {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.queue-empty {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---- Results: meta, empty state, table, chart ---- */
+
+.run-meta {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.run-meta strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.meta-part + .meta-part::before {
+  content: " · ";
+  color: var(--border-default);
+}
+
+.empty-state {
+  border: 1px dashed var(--border-default);
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.empty-state.error {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.table-note {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+
+#results-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 480px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+#results-table th,
+#results-table td {
+  padding: 6px 10px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-default);
+}
+#results-table th:first-child,
+#results-table td:first-child {
+  text-align: left;
+  color: var(--text-muted);
+}
+#results-table thead th {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+#results-table tbody tr:last-child td {
+  border-bottom: none;
+}
+#results-table tbody tr:hover {
+  background: var(--neutral-tint-08);
+}
+
+.chart-caption {
+  margin: 12px 0 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chart-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--chart-plot-bg);
+}
+
+#results-chart {
+  display: block;
+  width: 100%;
+  min-width: 480px;
+  height: 220px;
+}
+
+.chart-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-legend .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* ---- UI-mode axis: Simple (operator-facing) deltas ----
+ *
+ * Expert stays pixel-identical: every rule below is gated on
+ * html[data-ui-mode="simple"]. Simple keeps what an operator watching a scan
+ * needs — the queue with its controls, the running item's progress, the
+ * outcome badge, and the trace — and drops the dense internals: the raw data
+ * table, the mono run-meta line, the per-item parameter summaries, and the
+ * plot's technical caption. panel.js auto-selects the running (or newest)
+ * run in this mode so the result is front and center. */
+html[data-ui-mode="simple"] .lead,
+html[data-ui-mode="simple"] #run-meta,
+html[data-ui-mode="simple"] #table-card,
+html[data-ui-mode="simple"] .queue-params,
+html[data-ui-mode="simple"] .chart-caption {
+  display: none;
+}

@@ -7,8 +7,10 @@ name is ``"grid_scan"`` (see that module's docstring).
 Its *agentic* scenario is explicitly deferred (PROPOSAL.md's Out of Scope —
 it waits on a separate VA physics enhancement), so this non-agentic HTTP-level
 round trip is what keeps the plan itself verified end to end in the meantime
-(Secondary Goal 2): ``GET /plans`` -> ``POST /runs`` -> launch -> poll ->
-``GET /runs/{id}/data``, mirroring ``test_orm_roundtrip.py``'s pattern
+(Secondary Goal 2): ``GET /plans`` -> ``PATCH /draft`` -> ``POST /queue/items``
+-> armed ``POST /queue/start`` -> poll -> ``GET /runs/{id}/data`` (the queue
+flow, spelled once in ``tests/e2e/_queue_drive.py``), mirroring
+``test_orm_roundtrip.py``'s pattern
 (task 5.2) but driving ``grid_scan`` instead of ``orm``, and without that
 test's model-oracle cross-check (``grid_scan`` has no physics model to
 compare against — it wraps ``bluesky.plans.grid_scan`` generically).
@@ -60,7 +62,7 @@ from typing import Any
 
 import pytest
 
-from tests.e2e import _orm_stack
+from tests.e2e import _orm_stack, _queue_drive
 
 pytestmark = [
     pytest.mark.e2e,
@@ -145,21 +147,6 @@ def _get(path: str) -> tuple[int, Any]:
     req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310
     try:
         with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
-
-
-def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(  # noqa: S310
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/json", **(headers or {})},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
@@ -290,25 +277,20 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         "snake_axes": False,
     }
 
-    status, body = _post("/runs", {"plan_name": "grid_scan", "plan_args": plan_args})
-    assert status == 200, f"POST /runs failed: {status} {body}"
-    run_id = body["id"]
-
     token = _minted_token(deployed_grid_scan_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
-    assert status == 200, f"launch failed: {status} {body}"
+    run_id, status_body = _queue_drive.run_scan(
+        BRIDGE_URL,
+        "grid_scan",
+        plan_args,
+        token=token,
+        client_id="grid-scan-roundtrip-e2e",
+        timeout=SCAN_TIMEOUT_SEC,
+    )
 
-    # No corrector-step hang: poll to a terminal status within a bounded
-    # deadline (same regression class test_orm_roundtrip.py guards -- a
-    # corrector whose :RB never echoes its :SP blocks the bridge's
+    # No corrector-step hang: the poll above ran to a terminal status within a
+    # bounded deadline (same regression class test_orm_roundtrip.py guards --
+    # a corrector whose :RB never echoes its :SP blocks the bridge's
     # ConnectorSettable.set() settle-wait forever).
-    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
-    status_body: dict = {}
-    while time.monotonic() < deadline:
-        _, status_body = _get(f"/runs/{run_id}")
-        if status_body.get("status") in ("completed", "error", "stopped"):
-            break
-        time.sleep(0.5)
     assert status_body.get("status") == "completed", (
         f"grid_scan did not complete within {SCAN_TIMEOUT_SEC:.0f}s (status={status_body}) -- "
         "a corrector step whose :RB never echoes its :SP hangs exactly here, at the bridge's "

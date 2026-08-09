@@ -1,6 +1,9 @@
 # Image for the Bluesky bridge service (osprey.services.bluesky_bridge): a
-# FastAPI process owning the Bluesky RunEngine + ophyd-async devices, reached
-# by the `scan` MCP server over HTTP.
+# FastAPI process owning the queue facade, reached by the `scan` MCP server
+# over HTTP. The same image also runs the `queueserver` compose service
+# (`start-re-manager`), which spawns the RunEngine worker that owns the
+# ophyd-async devices — one image, two entrypoints, so the worker namespace
+# and the bridge always agree on the osprey code they share.
 #
 # osprey install strategy (two cache-friendly layers):
 #   * deps layer  — primes the pinned framework release (+ its dependencies)
@@ -39,8 +42,32 @@ RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
 # while the toolchain is still available; the `.dockerignore` COPY sibling keeps
 # the glob matching when no manifest is staged, so this cache only busts when
 # the manifest content changes.
+#
+# `bluesky-queueserver` (the RE Manager itself, providing `start-re-manager`)
+# arrives transitively via the framework's `bluesky-queueserver-api` client
+# dependency, but transitively means unpinned: it is installed again here at an
+# exact version so the manager the image runs and the client the bridge talks
+# to are a version pair chosen deliberately, not whatever resolved that day.
+#
+# This literal is MANUALLY MAINTAINED and lock-checked — dependabot does not
+# see it (there is no docker ecosystem configured, and it would not parse an
+# ARG regardless). `test_bluesky_compose_render.py` asserts it equals the
+# version uv.lock resolves, so a lockfile bump that leaves this behind fails
+# CI rather than silently shipping a manager/client version skew.
+#
+# The closing `pip check` is SKIPPED on dev builds, and only here. On a `--dev`
+# build this layer holds the last RELEASED framework (the unreleased pin misses
+# PyPI and falls back to an unpinned prime, above) alongside the WORKING TREE's
+# dependency pins from osprey-local-requirements.txt. Those two disagree by
+# construction whenever a pin has moved since the last release — mid-cycle,
+# that is the normal state — so a strict check here fails every dev build for a
+# mismatch this image does not ship: the wheel layer below installs the local
+# wheel, whose own metadata is what the local pins belong to, and runs its own
+# unconditional `pip check` on the result. Non-dev builds install exactly the
+# pinned release and keep the strict check.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
+ARG BLUESKY_QUEUESERVER_VERSION="0.0.25"
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 RUN [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
     && apt-get update \
@@ -52,9 +79,11 @@ RUN [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is requi
             else \
                 exit 1 ; \
             fi ; } \
+    && pip install --no-cache-dir "bluesky-queueserver==$BLUESKY_QUEUESERVER_VERSION" \
     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
            pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
        fi \
+    && { [ "$OSPREY_DEV" = "1" ] || pip check ; } \
     && apt-get purge -y build-essential python3-dev \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx

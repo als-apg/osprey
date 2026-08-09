@@ -135,7 +135,9 @@ def validate(target: Path) -> None:
     multiple=True,
     metavar="KEY.PATH=VALUE",
     help="Inline scalar/list override baked into the emitted profile (repeatable). "
-    "RHS parsed as YAML.",
+    "RHS parsed as YAML. Top-level shorthands: provider, model, "
+    "channel_finder_mode, connector (the control system to talk to — mock, "
+    "epics, virtual_accelerator, doocs).",
 )
 @click.option(
     "--force",
@@ -163,6 +165,7 @@ def new(
     \b
       $ osprey profile new my-profile --preset control-assistant
       $ osprey profile new my-profile --preset hello-world --set model=sonnet
+      $ osprey profile new my-profile --preset control-assistant --set connector=epics
     """
     try:
         target, skipped_keys = _materialize_profile_directory(

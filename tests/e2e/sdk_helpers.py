@@ -191,8 +191,16 @@ def init_project(
     model: str = "haiku",
     channel_finder_mode: str | None = None,
     tier: int | None = None,
+    connector: str = "mock",
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
+
+    ``connector`` is pinned to ``mock`` rather than inherited from the preset:
+    the control-assistant preset defaults to ``virtual_accelerator``, which
+    needs the deployed VA container to answer Channel Access — this harness
+    runs projects without their containers, so the preset's production default
+    would turn every channel read/write into a connection timeout. Tests that
+    deploy a real stack build through their own fixtures, not this helper.
 
     Tier selection follows a per-mode default: tier 1 is in_context-only, while
     ``hierarchical``/``middle_layer`` require tier 3. When ``tier`` is left
@@ -245,6 +253,8 @@ def init_project(
         f"provider={provider}",
         "--set",
         f"model={model}",
+        "--set",
+        f"connector={connector}",
     ]
     if effective_tier is not None:
         args.extend(["--tier", str(effective_tier)])

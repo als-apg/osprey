@@ -569,7 +569,9 @@ def test_bluesky_wires_va_ca_env_and_ordering_only_when_va_co_deployed() -> None
 
     without_va = _render_bluesky_template(va_deployed=False)
     assert "EPICS_CA_NAME_SERVERS:" not in without_va
-    assert "depends_on:" not in without_va
+    # Scoped to the VA specifically, not to `depends_on:` as a whole: the
+    # queueserver service always waits on Redis, so a file-wide check for
+    # `depends_on:` would fail on every render regardless of the VA.
     assert "virtual-accelerator" not in without_va
 
 
@@ -720,15 +722,22 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     # write to), and together these two absent-assertions are what would
     # catch a regression back to it.
     #
-    # ":/data" pins the volume MOUNT (the actual root cause — e.g. a
-    # regressed "bluesky_tiled_catalog:/data" line, which has no trailing
-    # slash so a bare "/data/" check would miss it entirely).
-    # "/data/" pins the COMMAND paths (catalog.db, files, duckdb target).
-    # Bare "/data" isn't usable for either: it false-positives on
+    # "bluesky_tiled_catalog:/data" pins the volume MOUNT (the actual root
+    # cause — the line has no trailing slash, so a bare "/data/" check would
+    # miss it entirely). The named volume has to be part of the needle: Redis
+    # legitimately mounts at ":/data", so a bare ":/data" check would fire on
+    # every render.
+    # The three per-argument needles pin the COMMAND paths (catalog.db,
+    # files, duckdb target). A single bare "/data/" check would be shorter
+    # but now false-positives on the CURVE certificate bind sources
+    # ("../../data/bluesky_curve/..."), which have nothing to do with Tiled.
+    # Bare "/data" isn't usable anywhere here: it also false-positives on
     # "duckdb:////storage/data.duckdb", whose filename legitimately
     # contains "data" as a substring of "storage".
-    assert ":/data" not in rendered
-    assert "/data/" not in rendered
+    assert "bluesky_tiled_catalog:/data" not in rendered
+    assert "serve catalog /data/" not in rendered
+    assert "-w /data/" not in rendered
+    assert "duckdb:////data/" not in rendered
 
     # The duckdb writable target must use exactly FOUR slashes (Task 1.5
     # fix) for an absolute path, never three (which SQLAlchemy resolves as
@@ -824,7 +833,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
     mcp_config = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
     assert "bluesky" in mcp_config["mcpServers"], (
         "the scan MCP server must be enabled (claude_code.servers.bluesky.enabled: "
-        f"true) so list_plans/launch_run are reachable: {mcp_config['mcpServers'].keys()}"
+        f"true) so list_plans/queue_add are reachable: {mcp_config['mcpServers'].keys()}"
     )
 
     # -- VA + bridge + Tiled compose services --------------------------------

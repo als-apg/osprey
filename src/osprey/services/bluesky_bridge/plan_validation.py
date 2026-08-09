@@ -1,11 +1,10 @@
 """Authoring-time validator for a session-tier bluesky plan-file BODY.
 
-An agent authoring a new plan (task 2.3's ``write_plan``/
-``validate_plan`` MCP tools) never gets its file exec'd directly —
+An agent authoring a new plan (the ``write_plan``/``validate_plan`` MCP
+tools) never gets its file exec'd directly —
 that would hand arbitrary code execution to whatever produced the body. This
 module is the gate a body must pass before anything downstream (the session
-directory layer's LOAD gate, task 2.4; the launch gate, task 2.5) will treat
-it as real: :func:`validate_plan` runs three ordered stages, each of
+directory layer's LOAD gate; the enqueue gate) will treat it as real: :func:`validate_plan` runs three ordered stages, each of
 which can reject outright before the next ever runs:
 
 1. **Static AST allowlist** (:func:`_static_allowlist_check`) — a submodule-
@@ -32,13 +31,14 @@ which can reject outright before the next ever runs:
    (:mod:`osprey.services.bluesky_bridge.devices.mock`). This is an
    **authoring-quality gate** ("does the body actually run"), not a
    containment boundary — containment comes from stages 1-2 above and the
-   downstream load/launch gates that key off this module's validation
+   downstream load and enqueue gates that key off this module's validation
    record, not from anything the dry-run subprocess itself prevents.
 
 Every :class:`ValidationResult` (pass or fail) carries a ``content_hash``
-computed by :func:`hash_plan_body`, the single normalization tasks 2.2/2.4/2.5
-reuse so a validation record recorded against one hash of a body's content is
-found again by a later re-hash of the same content, byte for byte.
+computed by :func:`hash_plan_body`, the single normalization the record store
+and both gates reuse, so a validation record recorded against one hash of a
+body's content is found again by a later re-hash of the same content, byte for
+byte.
 """
 
 from __future__ import annotations
@@ -293,8 +293,8 @@ def _ca_pattern_scan(code: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Content hash — the one helper tasks 2.2/2.4/2.5 reuse to re-key/re-check a
-# validation record against a plan file's current content.
+# Content hash — the one helper the record store and both gates reuse to
+# re-key/re-check a validation record against a plan file's current content.
 # ---------------------------------------------------------------------------
 def hash_plan_body(body: str) -> str:
     """SHA-256 content hash of a plan-file BODY, over a normalized encoding.
@@ -306,8 +306,8 @@ def hash_plan_body(body: str) -> str:
     BOM, or adds/drops trailing blank lines still hashes identically. This is
     the one place that normalization happens; every caller that needs to
     check "does this file content have a passing validation record"
-    (task 2.2's store, task 2.4's load gate, task 2.5's launch gate) must
-    hash through this function rather than re-deriving its own encoding.
+    (the validation-record store, the load gate, the enqueue gate) must hash
+    through this function rather than re-deriving its own encoding.
     """
     normalized = body.replace("\r\n", "\n").replace("\r", "\n")
     normalized = normalized.lstrip("﻿").rstrip("\n") + "\n"
@@ -408,17 +408,23 @@ def _render_dry_run_script(
 ) -> str:
     """Render the subprocess script that drives the dry-run to completion.
 
-    Loads the plan body as a standalone module, wraps it in a `PlanSpec`, and
-    drives it through `BlueskyPlanRunner` (the same real bluesky-plan-runner the
-    bridge itself uses, mirroring its own contract-test usage) against mock
-    devices built for the device names found in ``sample_args``. Writes a
-    JSON result to ``result_path`` in a ``finally`` so the parent always has
-    something to read even if construction itself raised.
+    Loads the plan body as a standalone module, validates ``sample_args``
+    against its ``PARAMS`` schema, and drives the resulting generator through a
+    bluesky ``RunEngine`` against mock devices built for the device names found
+    in ``sample_args``. Writes a JSON result to ``result_path`` in a ``finally``
+    so the parent always has something to read even if construction itself
+    raised.
+
+    The RunEngine is driven here rather than through any shared runner class:
+    the bridge process runs no plans at all (execution belongs to the
+    queueserver worker), so this subprocess is the one place in the codebase
+    that still starts a RunEngine, and it owns that wiring directly instead of
+    keeping a general-purpose runner alive for a single caller.
     """
     return f"""\
 import json
 import sys
-import time
+import threading
 import traceback
 from pathlib import Path
 
@@ -448,36 +454,48 @@ try:
     sys.modules[_MODULE_NAME] = module
     spec.loader.exec_module(module)
 
+    import asyncio
+
+    from bluesky import RunEngine
     from pydantic import BaseModel as _BaseModel
 
     from osprey.services.bluesky_bridge.devices.mock import build_devices
-    from osprey.services.bluesky_bridge.plan_types import PlanSpec
-    from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner
 
     params_cls = getattr(module, "PARAMS", None)
     if params_cls is None:
         class params_cls(_BaseModel):
             pass
 
-    plan_spec = PlanSpec(name=_PLAN_NAME, plan=module.build_plan, schema=params_cls)
+    # `context_managers=[]` disables the RunEngine's default SIGINT handling,
+    # which only works on the main thread -- required because `RE(...)` is
+    # driven from the worker thread below, not this one.
+    RE = RunEngine(context_managers=[])
 
-    def _device_source():
-        return build_devices(motor_names=_MOTOR_NAMES, detector_names=_DETECTOR_NAMES)
+    # `build_devices` is `async def`, and the devices it builds bind to
+    # whichever loop connects them -- which must be `RE.loop`, the loop bluesky
+    # drives all signal I/O on, not a throwaway one.
+    devices = asyncio.run_coroutine_threadsafe(
+        build_devices(motor_names=_MOTOR_NAMES, detector_names=_DETECTOR_NAMES), RE.loop
+    ).result(timeout=30.0)
 
-    runner = BlueskyPlanRunner(devices=_device_source, plans={{_PLAN_NAME: plan_spec}})
-    ok = runner.reinitialize({{"plan_name": _PLAN_NAME, "plan_args": _SAMPLE_ARGS}})
-    if not ok:
-        raise RuntimeError(runner.error_message or "plan resolution failed")
+    params = params_cls.model_validate(_SAMPLE_ARGS)
+    plan_gen = module.build_plan(dict(devices), params)
 
-    runner.start_run_thread()
-    deadline = time.monotonic() + _DEADLINE_S
-    while runner.is_run_active() and time.monotonic() < deadline:
-        time.sleep(0.02)
+    failure = {{}}
 
-    if runner.is_run_active():
+    def _drive():
+        try:
+            RE(plan_gen)
+        except Exception as exc:
+            failure["exc"] = exc
+
+    thread = threading.Thread(target=_drive, name="plan-dry-run", daemon=True)
+    thread.start()
+    thread.join(_DEADLINE_S)
+    if thread.is_alive():
         raise TimeoutError("dry-run plan did not complete within the timeout")
-    if runner.current_state != "completed":
-        raise RuntimeError(runner.error_message or f"dry-run ended in state {{runner.current_state!r}}")
+    if "exc" in failure:
+        raise failure["exc"]
 
     result["success"] = True
 except Exception as exc:

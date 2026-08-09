@@ -43,8 +43,8 @@ appears in the prompt below.
 Grading is two-part (see PLAN.md's acceptance gate for this task):
 
   (a) A DETERMINISTIC structural floor -- :func:`_assert_orbit_response_scan_ran`
-      -- asserting the tool trace contains ``set_draft`` ->
-      ``launch_run`` -> ``get_run_data`` IN THAT ORDER, and that the
+      -- asserting the tool trace contains ``set_draft`` -> ``queue_add`` ->
+      ``queue_start`` -> ``get_run_data`` IN THAT ORDER, and that the
       staged ``set_draft`` call's ``plan_args_patch`` carry both a
       non-empty ``correctors`` list and a non-empty ``detectors`` list (the
       ``orm`` plan's own device-class contract, see ``plans_core/orm.py``'s
@@ -135,7 +135,8 @@ HEALTH_TIMEOUT_SEC = 300.0
 
 # MCP tool names, decoupled from any plan name -- see module docstring.
 SET_DRAFT = "mcp__bluesky__set_draft"
-LAUNCH_RUN = "mcp__bluesky__launch_run"
+QUEUE_ADD = "mcp__bluesky__queue_add"
+QUEUE_START = "mcp__bluesky__queue_start"
 GET_RUN_DATA = "mcp__bluesky__get_run_data"
 
 
@@ -239,9 +240,15 @@ def _is_orbit_response_draft(trace: ToolTrace) -> bool:
 
 def _assert_orbit_response_scan_ran(result: SDKWorkflowResult) -> None:
     """The deterministic tool-trace contract: the agent staged an orbit-
-    response-class scan draft, launched it, and read its data back, IN
-    THAT ORDER. Runs unconditionally (never skip-gated) -- only the judge
-    grade in the live test is gated on judge-provider credentials.
+    response-class scan draft, queued it, started the queue, and read its data
+    back, IN THAT ORDER. Runs unconditionally (never skip-gated) -- only the
+    judge grade in the live test is gated on judge-provider credentials.
+
+    Execution is two steps, so the floor asserts both. ``queue_add`` alone puts
+    an item in the queue and moves nothing; only ``queue_start`` drains it. A
+    floor that stopped at the add would pass for an agent that composed a scan
+    and never ran it -- and this test's whole subject is a measurement actually
+    being taken.
 
     Decoupled from any literal plan name -- see :func:`_is_orbit_response_draft`.
     """
@@ -256,15 +263,22 @@ def _assert_orbit_response_scan_ran(result: SDKWorkflowResult) -> None:
         f"{[t.input for t in traces if t.name == SET_DRAFT]}"
     )
 
-    launch_idx = _first_index_after(traces, draft_idx, lambda t: t.name == LAUNCH_RUN)
-    assert launch_idx is not None, (
+    add_idx = _first_index_after(traces, draft_idx, lambda t: t.name == QUEUE_ADD)
+    assert add_idx is not None, (
         "agent staged an orbit-response-class scan draft but never called "
-        f"launch_run afterward. Tools called: {[t.name for t in traces]}"
+        f"queue_add afterward to queue it. Tools called: {[t.name for t in traces]}"
     )
 
-    read_idx = _first_index_after(traces, launch_idx, lambda t: t.name == GET_RUN_DATA)
+    start_idx = _first_index_after(traces, add_idx, lambda t: t.name == QUEUE_START)
+    assert start_idx is not None, (
+        "agent queued the scan but never called queue_start afterward, so "
+        "nothing ever ran -- an item sitting in the queue is not a "
+        f"measurement. Tools called: {[t.name for t in traces]}"
+    )
+
+    read_idx = _first_index_after(traces, start_idx, lambda t: t.name == GET_RUN_DATA)
     assert read_idx is not None, (
-        "agent launched the scan but never called get_run_data afterward "
+        "agent started the scan but never called get_run_data afterward "
         f"to read the measurement back. Tools called: {[t.name for t in traces]}"
     )
 
@@ -460,8 +474,9 @@ async def test_orm_dual_fault_agentic_localizes_both_faults(
 
 def _synthetic_dual_fault_trace() -> list[ToolTrace]:
     """A hand-built tool trace shaped like a real dual-fault agentic run:
-    one orbit-response-class set_draft (correctors + detectors), then a
-    launch at that revision, then a data read -- in order."""
+    one orbit-response-class set_draft (correctors + detectors), the queue_add
+    that pins that revision, the queue_start that drains it, then a data read
+    -- in order."""
     return [
         ToolTrace(
             name=SET_DRAFT,
@@ -477,9 +492,14 @@ def _synthetic_dual_fault_trace() -> list[ToolTrace]:
             result='{"revision": 1, "changed": ["correctors", "detectors"], "plan_name": "orm"}',
         ),
         ToolTrace(
-            name=LAUNCH_RUN,
+            name=QUEUE_ADD,
             input={"draft_revision": 1},
-            result='{"id": "run-1", "status": "completed"}',
+            result='{"run_id": "run-1", "revision": 1, "item": {"item_uid": "item-1"}}',
+        ),
+        ToolTrace(
+            name=QUEUE_START,
+            input={},
+            result='{"started": true, "msg": ""}',
         ),
         ToolTrace(name=GET_RUN_DATA, input={"run_id": "run-1"}, result="{...}"),
     ]
@@ -488,7 +508,7 @@ def _synthetic_dual_fault_trace() -> list[ToolTrace]:
 @pytest.mark.harness_benchmark  # offline grading-contract check; no model-under-test session
 def test_structural_floor_accepts_orbit_response_class_sequence() -> None:
     """Floor is decoupled from any literal plan_name -- only the device-class
-    shape (correctors + detectors) and the draft -> launch -> read order
+    shape (correctors + detectors) and the draft -> add -> start -> read order
     matter."""
     result = SDKWorkflowResult(tool_traces=_synthetic_dual_fault_trace())
     _assert_orbit_response_scan_ran(result)  # must not raise
@@ -509,9 +529,14 @@ def test_structural_floor_rejects_non_orbit_response_plan() -> None:
             result='{"revision": 1, "changed": ["axes", "num"], "plan_name": "grid_scan"}',
         ),
         ToolTrace(
-            name=LAUNCH_RUN,
+            name=QUEUE_ADD,
             input={"draft_revision": 1},
-            result='{"id": "run-2", "status": "completed"}',
+            result='{"run_id": "run-2", "revision": 1, "item": {"item_uid": "item-2"}}',
+        ),
+        ToolTrace(
+            name=QUEUE_START,
+            input={},
+            result='{"started": true, "msg": ""}',
         ),
         ToolTrace(name=GET_RUN_DATA, input={"run_id": "run-2"}, result="{...}"),
     ]
@@ -521,9 +546,26 @@ def test_structural_floor_rejects_non_orbit_response_plan() -> None:
 
 @pytest.mark.harness_benchmark  # offline grading-contract check; no model-under-test session
 def test_structural_floor_rejects_out_of_order_sequence() -> None:
-    """draft/launch/read out of trace order (e.g. a read before the scan
-    was ever launched) must NOT satisfy the floor."""
+    """draft/add/start/read out of trace order (e.g. a read before the queue
+    was ever started) must NOT satisfy the floor."""
     traces = list(reversed(_synthetic_dual_fault_trace()))
+    with pytest.raises(AssertionError):
+        _assert_orbit_response_scan_ran(SDKWorkflowResult(tool_traces=traces))
+
+
+@pytest.mark.harness_benchmark  # offline grading-contract check; no model-under-test session
+@pytest.mark.parametrize("missing", [QUEUE_ADD, QUEUE_START])
+def test_structural_floor_requires_both_queue_steps(missing: str) -> None:
+    """Non-vacuity control for the two-step execution contract.
+
+    Dropping EITHER queue step must fail the floor. ``queue_start`` matters
+    most: an agent that composes a scan and queues it has moved nothing, so a
+    floor satisfied by the add alone would pass a run in which no measurement
+    was ever taken -- the one thing this scenario exists to detect. Reversing
+    the whole trace (above) does not prove this, because it perturbs every
+    step at once.
+    """
+    traces = [t for t in _synthetic_dual_fault_trace() if t.name != missing]
     with pytest.raises(AssertionError):
         _assert_orbit_response_scan_ran(SDKWorkflowResult(tool_traces=traces))
 

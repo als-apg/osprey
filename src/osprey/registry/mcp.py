@@ -311,9 +311,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             bsky.LIST_PLANS,
             bsky.LIST_RUNS,
             bsky.GET_RUN_DATA,
-            # Draft tools (task 2.1) never touch hardware — editing the shared
-            # plan draft only stages what a future launch_run/Launch plan click
-            # might run, so like the read tools above they need no approval
+            # Draft tools never touch hardware — editing the shared
+            # plan draft only stages what a future queue_add or in-panel
+            # Add-to-queue click might queue, so like the read tools above they need no approval
             # prompt and carry no _WRITES_CHECK hook. clear_draft is
             # nonetheless auto-classified side-effecting by
             # agent_runner.write_tools (matches bsky.DESTRUCTIVE_MARKERS'
@@ -323,28 +323,48 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             bsky.GET_DRAFT,
             bsky.SET_DRAFT,
             bsky.CLEAR_DRAFT,
+            # Queue reads: queue_list reads the queue the manager
+            # holds, queue_status reads whether this deployment can execute at
+            # all. Neither mutates anything, and queue_status in particular is
+            # what an agent should call BEFORE composing a plan — putting an
+            # approval prompt on that question would train operators to click
+            # through prompts that never precede motion.
+            *bsky.QUEUE_READ_TOOLS,
         ],
-        # launch_run starts a real scan; stop_run is the safe direction
-        # and must never be kill-switch-blocked, so it carries approval only.
-        # write_plan/validate_plan (task 2.3) reach NO hardware
+        # queue_add and queue_start are the arming pair (bsky.ARMING_TOOLS):
+        # adding hands an item to a queue that may already be draining, and
+        # starting drains it — both carry _WRITES_CHECK plus approval.
+        # queue_stop (halt the queue after the running item) and stop_run
+        # (abort the plan already in motion) are the safe direction and must
+        # never be kill-switch-blocked, so they carry approval only; queue_stop's
+        # one arming case (cancel=true, which withdraws a pending halt) is gated
+        # in-tool and again at the bridge, because attaching _WRITES_CHECK here
+        # would also block a PLAIN stop whenever writes are disabled — exactly
+        # when halting matters most. stop_run has no arming case at all: it is
+        # ungated end to end, at the tool and at the bridge.
+        # write_plan/validate_plan reach NO hardware
         # either way: write_plan only writes a file (never imports/execs
         # it), and validate_plan's dry run drives mock devices only, in a
         # subprocess with EPICS_CA_* neutralized — both work identically whether
         # control_system.writes_enabled is on or off, so like stop_run neither
         # carries _WRITES_CHECK. They get their own (distinct, independently
-        # allowlistable) short-names rather than reusing launch_run/stop_run's
+        # allowlistable) short-names rather than reusing the queue tools'
         # tier, since an operator may want to permit authoring/validating plan
-        # bodies without also auto-approving launch_run/stop_run, or vice versa.
+        # bodies without also auto-approving queue_add/queue_start, or vice versa.
         permissions_ask=[
-            bsky.LAUNCH_RUN,
+            *bsky.QUEUE_CONTROL_TOOLS,
             bsky.STOP_RUN,
             bsky.WRITE_PLAN,
             bsky.VALIDATE_PLAN,
         ],
         hooks_pre=[
+            *(
+                HookRule(matcher=bsky.matcher(tool), hooks=[_WRITES_CHECK, _APPROVAL])
+                for tool in bsky.ARMING_TOOLS
+            ),
             HookRule(
-                matcher=bsky.matcher(bsky.LAUNCH_RUN),
-                hooks=[_WRITES_CHECK, _APPROVAL],
+                matcher=bsky.matcher(bsky.QUEUE_STOP),
+                hooks=[_APPROVAL],
             ),
             HookRule(
                 matcher=bsky.matcher(bsky.STOP_RUN),

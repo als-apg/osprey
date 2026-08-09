@@ -13,6 +13,7 @@ import yaml
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.bluesky.server_context import (
+    _TIMEOUT,
     BridgeContext,
     _http_get_json,
     _http_post_json,
@@ -184,6 +185,43 @@ def test_http_post_json_unreachable_raises_error_envelope(tmp_path, monkeypatch)
             _http_post_json("/runs/abc/launch", {}, headers={"X-Launch-Token": "t"})
 
     assert "bluesky_bridge_unreachable" in str(exc_info.value)
+
+    reset_server_context()
+
+
+def test_http_post_json_uses_the_shared_timeout_by_default(tmp_path, monkeypatch):
+    """The shared 15s is what every single-call bridge route gets.
+
+    Negative control for the per-call override below: without this, a test that
+    only asserts the override could pass even if the override had leaked into
+    ``_TIMEOUT`` and slowed every tool's failure on a dead bridge to minutes.
+    """
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    initialize_server_context()
+
+    response = httpx.Response(200, json={}, request=httpx.Request("POST", "http://x"))
+    with patch("httpx.post", return_value=response) as post:
+        _http_post_json("/queue/start", {})
+
+    assert post.call_args.kwargs["timeout"] == _TIMEOUT
+
+    reset_server_context()
+
+
+def test_http_post_json_accepts_a_per_call_timeout_override(tmp_path, monkeypatch):
+    """A route whose server-side work composes many manager calls needs longer
+    than the shared default, and must be able to say so per request rather than
+    by raising the default for everyone. ``stop_run``'s abort is that route."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    initialize_server_context()
+
+    response = httpx.Response(200, json={}, request=httpx.Request("POST", "http://x"))
+    with patch("httpx.post", return_value=response) as post:
+        _http_post_json("/queue/abort", {}, timeout=120.0)
+
+    assert post.call_args.kwargs["timeout"] == 120.0
 
     reset_server_context()
 

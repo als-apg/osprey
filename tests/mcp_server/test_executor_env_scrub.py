@@ -5,7 +5,7 @@ Covers ``scrub_sensitive_env`` (the pure filtering function) and the
 prevents agent-generated code running in the local-execution sandbox from
 reading write-arming secrets (e.g. ``BLUESKY_LAUNCH_TOKEN``) and calling a
 write-gated endpoint directly, bypassing the ``writes_enabled`` re-check
-inside ``launch_run``.
+inside the Bluesky queue's arming tools.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch

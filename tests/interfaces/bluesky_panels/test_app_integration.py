@@ -1,7 +1,7 @@
-"""Integration tests for the COMPOSED bluesky panels sidecar app (task 4.1).
+"""Integration tests for the COMPOSED bluesky panels sidecar app.
 
 The per-router unit tests in this directory (``test_read_proxy.py``,
-``test_launch.py``, ``test_health.py``) each mount
+``test_queue_relay.py``, ``test_health.py``) each mount
 a single router onto a locally-built ``FastAPI()`` instance. This module
 instead exercises the package-level ``osprey.interfaces.bluesky_panels.app:app``
 -- the object actually served in production -- to catch wiring bugs that a
@@ -15,8 +15,8 @@ context, each test overwrites ``app.state.client`` with an
 ``httpx.AsyncClient(transport=httpx.MockTransport(...))`` and
 ``app.state.bridge_url`` with a fixed test URL, since every route reads those
 two attributes off ``request.app.state`` at request time (not at import or
-lifespan time) -- see ``read_proxy._forward_get``, ``launch.launch_run``,
-and ``health._probe_bridge_http``. The lifespan's own ``finally: await
+lifespan time) -- see ``read_proxy._forward_get`` and the queue relay's write
+routes. The lifespan's own ``finally: await
 client.aclose()`` still closes the ORIGINAL client object it created (it
 holds a local reference, not ``app.state.client``), so no double-close or
 leak occurs when a test swaps the app-state client out from under it.
@@ -40,8 +40,8 @@ _BRIDGE_URL = "http://bridge.test"
 
 @pytest.fixture(autouse=True)
 def _isolate_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Mirrors test_launch.py's isolation fixture: point config resolution at
-    # a config.yml that does not exist, so ambient repo/user config can never
+    # Mirrors test_queue_relay.py's isolation fixture: point config resolution
+    # at a config.yml that does not exist, so ambient repo/user config can never
     # leak a real launch token (or bridge URL) into these tests.
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
     monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
@@ -54,10 +54,6 @@ def _wire_mock_bridge(handler: Callable[[httpx.Request], httpx.Response]) -> Non
     """
     app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     app.state.bridge_url = _BRIDGE_URL
-
-
-def _refusing_handler(request: httpx.Request) -> httpx.Response:
-    raise AssertionError(f"bridge must not be called: {request.method} {request.url}")
 
 
 # ---------------------------------------------------------------------------
@@ -140,50 +136,42 @@ def test_get_run_data_round_trips_through_composed_app() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Launch end-to-end on the composed app
+# Enqueue end-to-end on the composed app
 # ---------------------------------------------------------------------------
 
 
-def test_launch_armed_end_to_end_on_composed_app(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enqueue_armed_end_to_end_on_composed_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The token is resolved in-process, reaches the bridge, and never comes back.
+
+    Composed-app coverage of the sidecar's one arming-relevant hop. The
+    per-route token rules live in ``test_queue_relay.py``; what this pins is
+    that they survive router composition -- that the app actually served
+    resolves the token off the environment and attaches it, rather than the
+    property holding only on a hand-built single-router app.
+    """
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", TOKEN)
     calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
-        if request.method == "POST" and request.url.path == "/runs":
-            return httpx.Response(200, json={"id": RUN_ID, "status": "pending"})
-        if request.method == "POST" and request.url.path == f"/runs/{RUN_ID}/launch":
+        if request.method == "POST" and request.url.path == "/queue/items":
             assert request.headers.get("x-launch-token") == TOKEN
-            return httpx.Response(200, json={"id": RUN_ID, "status": "running"})
+            return httpx.Response(200, json={"run_id": RUN_ID, "revision": 7})
         raise AssertionError(f"unexpected bridge call: {request.method} {request.url}")
 
     with TestClient(app) as client:
         _wire_mock_bridge(handler)
-        response = client.post("/runs/launch", json={"plan_name": "orm", "plan_args": {}})
+        response = client.post("/queue/items", json={"draft_revision": 7})
 
     assert response.status_code == 200
-    data = response.json()
-    assert data["run_id"] == RUN_ID
-    assert data["status"] == "running"
+    assert response.json()["run_id"] == RUN_ID
 
     # The token must never leak into the response body or headers.
     assert TOKEN not in response.text
     for header_name, header_value in response.headers.items():
         assert TOKEN not in header_value, f"token leaked in header {header_name!r}"
 
-    assert len(calls) == 2
-
-
-def test_launch_unarmed_on_composed_app_is_inert() -> None:
-    with TestClient(app) as client:
-        _wire_mock_bridge(_refusing_handler)
-        response = client.post("/runs/launch", json={"plan_name": "orm", "plan_args": {}})
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "status": "writes_not_armed",
-        "detail": "writes are not armed on this deployment",
-    }
+    assert len(calls) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -213,29 +201,55 @@ def _served_routes() -> dict[str, set[str]]:
     }
 
 
-def test_no_route_ends_with_stop() -> None:
-    for path in _served_routes():
-        assert not path.endswith("/stop"), f"composed app must not expose a stop route: {path}"
+def test_no_per_run_stop_route() -> None:
+    # The route this forbids is a per-run stop (``POST /runs/{run_id}/stop``):
+    # it would let the browser halt one operator's scan without going through
+    # the agent's own tooling, which is why the sidecar has never relayed it.
+    #
+    # ``POST /queue/stop`` is exempt, and is the opposite direction: it halts
+    # the QUEUE after the running item finishes, and the bridge leaves a plain
+    # stop UNGATED precisely because halting is always allowed. Only its
+    # ``cancel: true`` form -- which withdraws a human's pending stop and lets
+    # the queue keep draining toward hardware -- is an arming action, and the
+    # bridge gates that one on the launch token. The sidecar relays both
+    # verbatim and reads ``cancel`` itself never (see queue_relay.py).
+    run_paths = [path for path in _served_routes() if path.startswith("/runs")]
+    # Non-vacuity: narrowing this loop to /runs means an empty /runs surface
+    # would make it pass without checking anything.
+    assert run_paths, "no /runs routes to check — this guard has gone vacuous"
+    for path in run_paths:
+        assert not path.endswith("/stop"), f"composed app must not expose a per-run stop: {path}"
 
 
-def test_only_post_under_runs_is_launch() -> None:
+def test_no_post_route_under_runs() -> None:
+    # /runs is a READ surface on the sidecar: the run list, one run, and its
+    # data. Nothing starts a scan through it. The single relay that once did
+    # (POST /runs/launch, composing the bridge's pending-run create + launch)
+    # is gone with the bridge primitives it called -- those answer an
+    # unconditional 410 use_the_queue now, so the relay could only ever hand
+    # the operator a dead route. Enqueueing goes through POST /queue/items and
+    # the queue's own arming gates.
+    #
     # PATCH/DELETE /draft are draft-scratch edits, not run launches, so they
-    # deliberately live outside /runs and are exempt from this check; see
-    # test_write_surface_is_exactly_launch_and_draft below for the full
+    # deliberately live outside /runs; see
+    # test_write_surface_is_exactly_draft_and_queue below for the full
     # cross-router write-surface invariant.
+    run_paths = {path for path in _served_routes() if path.startswith("/runs")}
+    # Non-vacuity: an empty /runs surface would satisfy the check below without
+    # checking anything (the same guard test_no_per_run_stop_route carries).
+    assert run_paths, "no /runs routes to check — this guard has gone vacuous"
     post_run_paths = {
         path
         for path, methods in _served_routes().items()
         if path.startswith("/runs") and "POST" in methods
     }
-    assert post_run_paths == {"/runs/launch"}, (
-        "composed app must expose exactly one POST route under /runs "
-        f"(/runs/launch), found: {post_run_paths}"
+    assert post_run_paths == set(), (
+        f"composed app must expose no POST route under /runs, found: {post_run_paths}"
     )
 
 
 def test_draft_routes_registered_on_composed_app() -> None:
-    # Task 3.1 (sidecar-draft-relay): GET/PATCH/DELETE /draft plus the SSE
+    # The draft relay: GET/PATCH/DELETE /draft plus the SSE
     # relay at /draft/events must be wired onto the composed app.
     paths = app.openapi()["paths"]
     assert "/draft" in paths
@@ -244,13 +258,27 @@ def test_draft_routes_registered_on_composed_app() -> None:
     assert set(paths["/draft/events"].keys()) == {"get"}
 
 
-def test_write_surface_is_exactly_launch_and_draft() -> None:
+def test_write_surface_is_exactly_draft_and_queue() -> None:
     # The full non-GET/HEAD/OPTIONS route surface across every router
-    # composed onto the sidecar app. /runs/launch is the sole run-launch
-    # path (gated by the launch token + writes-enabled, see test_launch.py);
-    # PATCH/DELETE /draft are draft-scratch writes relayed verbatim to the
-    # bridge -- they never arm or launch a run. No other write verb may exist
-    # anywhere in the composed app.
+    # composed onto the sidecar app. PATCH/DELETE /draft are draft-scratch
+    # writes relayed verbatim to the bridge -- they never arm or launch a run.
+    # No other write verb may exist anywhere in the composed app.
+    #
+    # The six /queue writes are the sidecar's relay of the bridge's queue
+    # surface (see test_queue_relay.py), and are the ONLY way anything this
+    # sidecar serves can put work in front of hardware. They add no policy
+    # here: the launch token is resolved in-process and attached to every one
+    # of them, and which of them actually ARM anything -- /queue/start always,
+    # /queue/stop only on cancel:true, /queue/abort never -- is the bridge's
+    # decision to make and enforce, not a copy kept in the sidecar.
+    #
+    # /queue/abort is a write in the HTTP sense only: it is the emergency halt
+    # for a plan already moving hardware, the bridge gates it on nothing, and
+    # it is listed here for the same reason as the rest -- so a new write route
+    # cannot appear without someone justifying it in this list.
+    #
+    # Enumerated deliberately: a new write route must fail this test until
+    # someone justifies it in this list.
     write_paths = {
         (path, method)
         for path, operations in app.openapi()["paths"].items()
@@ -258,9 +286,14 @@ def test_write_surface_is_exactly_launch_and_draft() -> None:
         if method not in ("get", "head", "options")
     }
     assert write_paths == {
-        ("/runs/launch", "post"),
         ("/draft", "patch"),
         ("/draft", "delete"),
+        ("/queue/items", "post"),
+        ("/queue/items/{uid}/move", "post"),
+        ("/queue/items/{uid}", "delete"),
+        ("/queue/start", "post"),
+        ("/queue/stop", "post"),
+        ("/queue/abort", "post"),
     }, f"unexpected write surface: {write_paths}"
 
 
@@ -282,7 +315,9 @@ def test_design_system_and_fonts_are_served() -> None:
 
 def test_panel_mounts_are_registered_on_composed_app() -> None:
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
-    for mount_path in ("/plan", "/results"):
+    # /results is the deprecated alias of /bluesky (same bundle, one release);
+    # both must be reachable on the composed app, not just the new name.
+    for mount_path in ("/plan", "/bluesky", "/results"):
         assert mount_path in mounted_paths
 
 

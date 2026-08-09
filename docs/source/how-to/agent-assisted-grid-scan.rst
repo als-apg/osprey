@@ -4,24 +4,24 @@ Agent-Assisted Grid Scan Tutorial
 
 How to ask the OSPREY agent to set up an n-dimensional ``grid_scan``, watch
 the **PLAN** panel fill in live as it works, review and adjust the result by
-hand, then Launch and watch points land in **SCAN RESULTS** — all on the
-Virtual Accelerator.
+hand, then add it to the queue and watch points land in **BLUESKY** — all on
+the Virtual Accelerator.
 
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book
 
-   - Flipping one config line so the demo's scan can actually run
    - Asking the agent for a 2-D corrector grid scan in operator language
    - How the PLAN panel binds to the agent's shared draft and flashes the
      fields it fills
    - Adjusting a field by hand mid-draft — and why that's safe with no arming
-   - What launching actually runs, and where points show up
+   - Why running is two steps — add to the queue, then start it — and where
+     points show up
 
    **Prerequisites:** the Control Assistant tutorial project (see
    :doc:`/getting-started/control-assistant`) with the bluesky scan stack
-   enabled, and the Virtual Accelerator container (see
-   :doc:`use-virtual-accelerator`).
+   enabled. The Virtual Accelerator ships as part of that stack and is the
+   tutorial's default connector — see :doc:`use-virtual-accelerator`.
 
 Overview
 ========
@@ -31,29 +31,26 @@ The agent composes a Bluesky scan plan through three drafting tools
 single **shared draft** held on the Bluesky bridge. The human's PLAN panel
 binds to that same draft: every field the agent sets is broadcast over SSE
 and glows in the panel as it lands, and any field the human edits by hand
-flows back into the same draft the agent sees. Pressing **Launch plan**
-launches exactly the draft revision the panel last showed — nothing the
-agent or the human can't see.
+flows back into the same draft the agent sees. Pressing **Add to queue**
+queues exactly the draft revision the panel last showed — nothing the agent
+or the human can't see — and a second, deliberate **Start queue** is what
+begins real motion.
 
 Prerequisites
 =============
 
-The mock connector (the tutorial's default) can't run a scan — it doesn't
-settle-wait a corrector's readback against its setpoint, which every scan
-plan needs between grid points. Point the tutorial at the Virtual
-Accelerator instead, which does:
+Nothing to configure. The Control Assistant preset ships the whole scan stack
+enabled — the bluesky MCP server, the PLAN and BLUESKY panels, the queue
+server, and the Virtual Accelerator soft-IOC — and ``virtual_accelerator`` is
+its default connector, so correctors move and BPMs respond out of the box.
+Build and deploy the tutorial project as usual and you are ready.
 
-.. code-block:: bash
+.. note::
 
-   osprey config set-control-system virtual_accelerator
-   osprey deploy up
-
-That's the only configuration change — the second command re-stages it so the
-already-running services pick it up. The soft-IOC itself ships as part of the
-stack, so there is no separate container to start; see
-:doc:`use-virtual-accelerator` for the details. Everything else (the bluesky
-MCP server, the PLAN and SCAN RESULTS panels) ships enabled in the Control
-Assistant preset.
+   If your project has been pointed at the ``mock`` connector, scans are
+   **browse-only** there: plans compose and validate, but the queue refuses to
+   hold them, and the panels say so in a banner naming the command that flips
+   back. See :doc:`use-virtual-accelerator`.
 
 Ask the agent
 ==============
@@ -90,7 +87,7 @@ the panel binds to the waiting draft automatically.
    An *unbound* panel never silently jumps to a plan you weren't already
    looking at — binding always takes your click or selection. Once bound, the
    panel does follow the draft if the agent switches it to a different
-   plan, so what you are looking at always matches what a Launch would send.
+   plan, so what you are looking at always matches what an Add would queue.
 
 Once bound, a **Draft bound** indicator appears next to a **Discard**
 button, and every field the agent set (or sets from here) glows briefly as
@@ -104,41 +101,62 @@ shared draft (a small delta patch, not a full replace), so the agent's next
 ``get_draft`` sees exactly what you changed. Draft editing — by either
 side — never requires arming.
 
-Launch
-======
+Add it to the queue
+===================
 
-Once the plan validates, click **Launch plan**, then **Confirm launch**.
-This launches the *exact draft revision the panel just showed you*: the
-panel flushes any pending edit and pins that revision to the request, and
-the bridge refuses the launch if the draft has moved on since (someone else
+Once the plan validates, click **Add to queue**, then **Confirm add**. This
+queues the *exact draft revision the panel just showed you*: the panel
+flushes any pending edit and pins that revision to the request, and the
+bridge refuses the request if the draft has moved on since (someone else
 edited it, or it was cleared). You get a clear "the draft changed since you
-last saw it — refreshed, review and launch again" message instead of a
-mismatched launch. The same pin also makes a double-click harmless — a
-revision that has already been launched is rejected rather than run twice.
+last saw it — refreshed, review and add again" message instead of a
+mismatched item. The same pin also makes a double-click harmless — a revision
+that has already been queued is rejected rather than queued twice.
+
+Adding does not run anything. The item sits in the queue until someone starts
+it.
+
+Start the queue
+===============
+
+Switch to the **BLUESKY** tab. Your item is listed under **Queue**; click
+**Start queue** to begin. That is the moment hardware moves, and it runs the
+queue *as it stands* — every pending item in order, not only the one you just
+added. Read the list before you click.
 
 .. note::
 
-   Draft editing needs no arming, but launching still does. The human and
-   agent launch paths are gated differently, and it is worth knowing which
-   you are on: this click is checked against the **launch token** only, and
-   when that token is unset the panel reports an inert *"writes not armed"*
-   rather than launching. The agent's own ``launch_run`` additionally
-   requires ``control_system.writes_enabled``. Neither path can launch an
-   unarmed stack; only the agent path also honours the writes switch.
+   Composing costs nothing and needs no arming; starting does. **Start queue**
+   is checked against the **launch token**, and on a stack that is not armed
+   the bridge refuses the start and the panel shows its explanation in a
+   banner rather than starting anything. The agent's equivalent
+   (``queue_start``) is denied outright when
+   ``control_system.writes_enabled`` is false. Neither path can start an
+   unarmed stack; only the agent path also honours the writes switch. Adding
+   to an *idle* queue from the panel needs neither — see
+   :doc:`run-scan-queue`.
 
 Results
 =======
 
-Switch to the **SCAN RESULTS** tab. Points appear as the scan runs, one per
-grid position, with a table and a live chart of each detector's readings
-against row order. A 5×5 grid over two correctors settles quickly on the
-Virtual Accelerator — you should see all 25 points land within a few
-seconds of confirming the launch.
+Stay on the **BLUESKY** tab: the lower half is the selected run's results.
+Points appear as the scan runs, one per grid position, with a table and a
+live chart of each detector's readings against row order. A 5×5 grid over two
+correctors settles quickly on the Virtual Accelerator — you should see all 25
+points land within a few seconds of starting the queue.
+
+The same tab carries the two halts: **Stop after current item** lets the
+running scan finish and stops the queue there, and **Abort running plan**
+stops the scan that is moving hardware right now. Both are always available,
+even on a stack with writes disabled.
 
 .. seealso::
 
+   :doc:`run-scan-queue`
+      The queue in full: arming, session plans, refusals, stopping.
+
    :doc:`use-virtual-accelerator`
-      Starting and configuring the Virtual Accelerator container.
+      Configuring the Virtual Accelerator the tutorial runs against.
 
    :doc:`/getting-started/control-assistant`
       The tutorial project this guide runs against.

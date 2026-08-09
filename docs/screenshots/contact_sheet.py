@@ -1057,11 +1057,11 @@ PANEL_SURFACES: list[PanelSurface] = [
         "plan", "Plan — Bluesky scan plans", "/plan/", "bluesky", wait_selector="#plan-tree"
     ),
     PanelSurface(
-        "results",
-        "Results — Bluesky run viewer",
-        "/results/",
         "bluesky",
-        wait_selector="#run-picker",
+        "Bluesky — scan queue & run results",
+        "/bluesky/",
+        "bluesky",
+        wait_selector="#queue-card",
     ),
 ]
 

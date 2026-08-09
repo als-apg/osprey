@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse
-tools: channel_write, execute, setup_patch, entry_create, launch_run
+tools: channel_write, execute, setup_patch, entry_create, queue_add, queue_start, queue_stop, stop_run
 safety_layer: 2
 ---
 
@@ -207,7 +207,7 @@ def _bridge_get_json(base_url: str, path: str, timeout: float = 3.0):
 
     Fail-open (same pattern as `_focus_artifact` below): an unreachable
     bridge, a 404, a network hiccup, or a malformed response must never block
-    the launch-approval prompt — every caller here treats `None` as "render
+    the approval prompt — every caller here treats `None` as "render
     less detail", never as a reason to raise.
     """
     try:
@@ -252,8 +252,8 @@ def _sanitize_label(text) -> str:
 def _revision_match_line(pinned, current_revision) -> str:
     """One line stating whether the live draft still matches the pinned revision.
 
-    `launch_run` pins the `draft_revision` the agent staged; the human
-    approving the launch must see whether the shared draft has moved on since
+    `queue_add` pins the `draft_revision` the agent staged; the human
+    approving the enqueue must see whether the shared draft has moved on since
     then. A match is stated plainly; any mismatch (including a missing pin)
     renders LOUD and warns that what follows is the *current* draft, not
     necessarily what the agent saw.
@@ -313,7 +313,7 @@ def _describe_plan_provenance(base_url: str, plan_name: str) -> list[str]:
         lines.append(
             "Validation status: PASSED (content hash matches a recorded validation run)"
             if source_info.get("validated")
-            else "Validation status: NO PASSING RECORD — would be refused/quarantined at launch"
+            else "Validation status: NO PASSING RECORD — would be refused at enqueue"
         )
     else:
         lines.append("Validation status: not applicable (operator-supplied plan)")
@@ -327,40 +327,175 @@ def _describe_plan_provenance(base_url: str, plan_name: str) -> list[str]:
     return lines
 
 
-def _describe_launch_run(tool_input: dict, config: dict) -> list[str]:
-    """Render the launch-approval prompt's draft/plan detail lines.
+# How many queued items a start-approval prompt names individually before it
+# summarises the rest. A start drains the WHOLE queue, so the approver needs
+# the list; an unbounded list would let a large queue push the warning lines
+# off the top of the prompt.
+_MAX_LISTED_QUEUE_ITEMS = 10
 
-    `launch_run` carries only a pinned `draft_revision` (no run record exists
-    yet — the bridge mints the run *from* the draft at launch). So this fetches
-    the shared plan draft (`GET /draft`) and renders exactly what would launch:
-    the plan name and args currently staged, whether the draft still matches
-    the pinned revision, and — for a non-empty draft — the plan's
-    provenance/validation/source (see :func:`_describe_plan_provenance`).
+# The manager's one quiescent state. Deliberately a single token tested
+# NEGATIVELY (see `_queue_activity_lines`): everything that is not this word —
+# including a state this hook has never heard of, and a missing value — counts
+# as "the queue may be under way" and earns a warning. The inverse spelling (a
+# replica of the manager's active-state list) would fail OPEN on any state
+# added upstream, which is the wrong direction for a line that tells a human
+# whether approving an enqueue is approving an execution.
+_IDLE_MANAGER_STATE = "idle"
+
+
+def _queue_snapshot(base_url: str):
+    """`GET /queue`, or `None` on any failure. Fail-open like every fetch here."""
+    snapshot = _bridge_get_json(base_url, "/queue")
+    return snapshot if isinstance(snapshot, dict) else None
+
+
+def _queue_activity_lines(snapshot) -> list[str]:
+    """State whether the queue is already draining toward hardware.
+
+    This is the fact the tool call itself cannot show. Adding to an idle queue
+    stages work for a later, separately-approved start; adding to a draining
+    one hands the item to the RunEngine with no further human action, and the
+    approval prompt is the only place a human can tell those apart.
+
+    Three tiers, most specific first. The two precise headlines are classified
+    from what was OBSERVED — a running item, or autostart reported on. The
+    third is a single-token NEGATIVE test, ``manager_state != "idle"``, which
+    catches every other way the queue can be under way (``starting_queue`` most
+    importantly: a start is already in flight but no item is running yet, so
+    the observed tests alone would have shown the calm headline on the one line
+    whose whole job is telling a human that an enqueue is really an execution).
+
+    Testing for the ONE idle token rather than replicating the manager's set of
+    six active states is the difference between failing closed and failing
+    open: if the manager ever renames or adds an active state, an unknown token
+    is simply "not idle" and still warns, whereas a stale copy of the active
+    list would silently classify it as safe. This hook runs standalone, in a
+    different process/venv, and cannot import OSPREY, so that direction matters.
+    A missing ``manager_state`` counts as not-idle for the same reason — the
+    calm sentence must never render around an unknown state.
+
+    The raw ``manager_state`` is printed in every tier so the approver sees the
+    manager's own word for it either way.
+    """
+    if snapshot is None:
+        return ["Queue state: unavailable (the bridge could not be reached)."]
+
+    status = snapshot.get("status")
+    status = status if isinstance(status, dict) else {}
+    raw_state = status.get("manager_state")
+    state = _sanitize_label(raw_state)
+    pending = status.get("items_in_queue")
+    running = snapshot.get("running_item")
+
+    if isinstance(running, dict) and running:
+        headline = (
+            f"⚠️  A PLAN IS ALREADY RUNNING (manager state: {state}) — the queue is "
+            f"draining, so an item added now executes with no further approval."
+        )
+    elif status.get("queue_autostart_enabled"):
+        headline = (
+            f"⚠️  AUTOSTART IS ENABLED on the manager (state: {state}) — OSPREY never "
+            f"enables it, so something armed this queue out of band. An item added "
+            f"now can execute with no further approval."
+        )
+    elif raw_state != _IDLE_MANAGER_STATE:
+        headline = (
+            f"⚠️  THE QUEUE IS NOT IDLE (manager state: {state}) — it may already be "
+            f"draining; an item added now may execute with no further approval."
+        )
+    else:
+        headline = f"No plan is currently running (manager state: {state})."
+
+    lines = [headline]
+    if pending is not None:
+        lines.append(f"Items already queued: {pending}")
+    if status.get("queue_stop_pending"):
+        lines.append("A stop is PENDING: the queue halts after the running item finishes.")
+    return lines
+
+
+def _queue_item_lines(snapshot, base_url: str) -> list[str]:
+    """Name what a start would actually run, and flag anything agent-authored in it.
+
+    A start drains every pending item, not only the one the agent just added,
+    so the approver has to see the whole list. Session/unreviewed plans are
+    called out as a group from a single `GET /plans` — per-plan source fetches
+    would multiply the prompt's bridge calls by the queue length.
+    """
+    items = snapshot.get("items") if snapshot else None
+    items = [item for item in (items or []) if isinstance(item, dict)]
+    running = snapshot.get("running_item") if snapshot else None
+
+    lines: list[str] = []
+    if isinstance(running, dict) and running:
+        lines.append(f"Currently running: {_sanitize_label(running.get('name'))}")
+
+    if not items:
+        lines.append("Pending items: none — starting an empty queue runs nothing.")
+        return lines
+
+    lines.append(f"Pending items ({len(items)}), in execution order:")
+    for index, item in enumerate(items[:_MAX_LISTED_QUEUE_ITEMS], start=1):
+        rendered = f"  {index}. {_sanitize_label(item.get('name'))}"
+        kwargs = item.get("kwargs")
+        if kwargs:
+            rendered += f" {json.dumps(kwargs)}"
+        lines.append(rendered)
+    if len(items) > _MAX_LISTED_QUEUE_ITEMS:
+        lines.append(f"  … and {len(items) - _MAX_LISTED_QUEUE_ITEMS} more.")
+
+    plans = _bridge_get_json(base_url, "/plans") or []
+    untrusted = {
+        plan["name"]
+        for plan in plans
+        if isinstance(plan, dict)
+        and isinstance(plan.get("name"), str)
+        and plan.get("provenance") in ("session", "unreviewed")
+    }
+    queued_untrusted = sorted({item.get("name") for item in items if item.get("name") in untrusted})
+    if queued_untrusted:
+        names = ", ".join(_sanitize_label(name) for name in queued_untrusted)
+        lines.append(f"⚠️  AGENT-AUTHORED, NOT REVIEWED BY A HUMAN — this start would run: {names}")
+    return lines
+
+
+def _describe_queue_add(tool_input: dict, config: dict) -> list[str]:
+    """Render the enqueue-approval prompt's draft/plan/queue detail lines.
+
+    `queue_add` carries only a pinned `draft_revision` (no run record exists
+    yet — the bridge mints the run *from* the draft at enqueue). So this
+    fetches the shared plan draft (`GET /draft`) and renders exactly what would
+    be queued: the plan name and args currently staged, whether the draft still
+    matches the pinned revision, the plan's provenance/validation/source (see
+    :func:`_describe_plan_provenance`), and whether the queue is already
+    draining — which is what decides whether approving this enqueue is
+    approving an execution.
 
     Fail-open is guaranteed three ways: every bridge call goes through
     `_bridge_get_json` (any fetch/parse failure → `None`), a valid-but-misshaped
-    `GET /draft` body is caught by the `isinstance` guard here (→ empty list,
-    plain reason), and `main` wraps the whole call in a final try/except. The
-    launch-approval prompt must always render, degraded if need be, never
-    blocked.
+    `GET /draft` body is caught by the `isinstance` guard here (→ queue lines
+    only), and `main` wraps the whole call in a final try/except. The
+    approval prompt must always render, degraded if need be, never blocked.
     """
     base_url = _resolve_bridge_url(config)
+    lines = _queue_activity_lines(_queue_snapshot(base_url))
+
     snapshot = _bridge_get_json(base_url, "/draft")
     if not isinstance(snapshot, dict):
         # Bridge unreachable, a malformed body, or an unexpected shape — fail
-        # open with no draft detail; the plain tool/policy reason still asks.
-        return []
+        # open with no draft detail; the queue lines and plain reason remain.
+        return lines
 
     pinned = tool_input.get("draft_revision")
     current_revision = snapshot.get("revision")
     draft = snapshot.get("draft")
 
-    lines: list[str] = [_revision_match_line(pinned, current_revision)]
+    lines.append(_revision_match_line(pinned, current_revision))
 
     if not isinstance(draft, dict) or not draft.get("plan_name"):
         lines.append(
             "Draft: EMPTY — no plan is staged in the shared draft; there is "
-            "nothing to launch (the bridge would refuse this launch)."
+            "nothing to queue (the bridge would refuse this enqueue)."
         )
         return lines
 
@@ -373,6 +508,89 @@ def _describe_launch_run(tool_input: dict, config: dict) -> list[str]:
 
     lines.extend(_describe_plan_provenance(base_url, plan_name))
     return lines
+
+
+def _describe_queue_start(tool_input: dict, config: dict) -> list[str]:
+    """Render the start-approval prompt: everything this start would run.
+
+    `queue_start` takes no arguments, so without these lines the approver would
+    be asked to approve motion with no statement of what moves. A start drains
+    the whole queue in order, so the whole queue is the answer.
+    """
+    base_url = _resolve_bridge_url(config)
+    snapshot = _queue_snapshot(base_url)
+    lines = [
+        "Starting the queue runs EVERY pending item below, in order — "
+        "not only the most recently added one."
+    ]
+    if snapshot is None:
+        lines.append(
+            "Queue contents: unavailable (the bridge could not be reached) — "
+            "approving means starting a queue nobody here can see."
+        )
+        return lines
+    lines.extend(_queue_item_lines(snapshot, base_url))
+    return lines
+
+
+def _describe_queue_stop(tool_input: dict, config: dict) -> list[str]:
+    """Render the stop-approval prompt, whose two directions are opposites.
+
+    A plain stop halts the queue after the running item finishes. ``cancel:
+    true`` WITHDRAWS a pending stop, which resumes draining toward hardware —
+    the arming direction, and the one an approver must not skim past.
+    """
+    base_url = _resolve_bridge_url(config)
+    snapshot = _queue_snapshot(base_url)
+    if tool_input.get("cancel"):
+        lines = [
+            "⚠️  WITHDRAWS A PENDING STOP — this does not halt anything. It cancels a "
+            "halt someone already requested and lets the queue keep draining toward "
+            "hardware."
+        ]
+    else:
+        lines = [
+            "Requests a stop: the queue halts AFTER the running item finishes. It does "
+            "NOT abort the item already in motion — if that item must stop NOW, the "
+            "stop_run tool is what aborts it, and this approval is not that."
+        ]
+    lines.extend(_queue_activity_lines(snapshot))
+    return lines
+
+
+def _describe_stop_run(tool_input: dict, config: dict) -> list[str]:
+    """Render the abort-approval prompt: what an abort costs, and what is running.
+
+    This is the emergency halt for a plan already moving hardware, so the
+    prompt has to be honest in BOTH directions. It is not a routine stop — the
+    remaining points are discarded and the hardware stays wherever the scan
+    left it — and it is also not something to hesitate over when a machine
+    needs stopping. Naming what is running is what lets the approver tell which
+    situation they are in.
+    """
+    base_url = _resolve_bridge_url(config)
+    snapshot = _queue_snapshot(base_url)
+    lines = [
+        "⚠️  ABORTS THE PLAN THAT IS RUNNING NOW — this is the emergency stop, not a "
+        "queue halt. The running plan's remaining points are discarded, the data "
+        "already collected is kept, and the hardware is left wherever the scan moved "
+        "it (an abort returns nothing to a starting position)."
+    ]
+    lines.extend(_queue_activity_lines(snapshot))
+    return lines
+
+
+# Tool short-name -> the describer that renders its approval detail. Keyed by
+# the same names `osprey.bluesky_tool_names` registers (QUEUE_ADD/QUEUE_START/
+# QUEUE_STOP/STOP_RUN); this hook is deployed standalone and cannot import
+# them, so the drift guard in tests/registry/test_gate_wiring.py pins these
+# literals against the constants.
+_QUEUE_DESCRIBERS = {
+    "queue_add": _describe_queue_add,
+    "queue_start": _describe_queue_start,
+    "queue_stop": _describe_queue_stop,
+    "stop_run": _describe_stop_run,
+}
 
 
 def _gallery_base_url(config: dict) -> str:
@@ -584,9 +802,9 @@ def main():
         channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
         if channel_list:
             reason_parts.append(f"Channels: {channel_list}")
-    elif short_name == "launch_run":
+    elif short_name in _QUEUE_DESCRIBERS:
         try:
-            reason_parts.extend(_describe_launch_run(tool_input, config))
+            reason_parts.extend(_QUEUE_DESCRIBERS[short_name](tool_input, config))
         except Exception:
             pass
 

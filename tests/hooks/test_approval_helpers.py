@@ -1,7 +1,7 @@
 """Unit tests for `osprey_approval`'s pure helpers, imported in-process.
 
 The hook's end-to-end behaviour is covered by `test_approval_hook.py` (real
-subprocesses) and its launch enrichment by `test_approval_launch_enrichment.py`
+subprocesses) and its queue enrichment by `test_approval_queue_enrichment.py`
 (a real HTTP server standing in for the bridge). What neither reaches cheaply
 is the *shape* of the individual helpers: the escape token `_sanitize_label`
 emits for each hostile code point, the exact wording `_revision_match_line`
@@ -387,7 +387,7 @@ def test_describe_plan_provenance_flags_an_unvalidated_session_plan(approval, fa
 
     lines = approval._describe_plan_provenance("http://bridge", "adhoc")
 
-    assert "Validation status: NO PASSING RECORD — would be refused/quarantined at launch" in lines
+    assert "Validation status: NO PASSING RECORD — would be refused at enqueue" in lines
 
 
 @pytest.mark.unit
@@ -468,7 +468,7 @@ def test_describe_plan_provenance_appends_the_plan_source_verbatim(
 
 
 # --------------------------------------------------------------------------
-# _describe_launch_run
+# _describe_queue_add / _describe_queue_start / _describe_queue_stop
 # --------------------------------------------------------------------------
 
 
@@ -478,34 +478,38 @@ def test_describe_plan_provenance_appends_the_plan_source_verbatim(
     [None, [], "not-json-object"],
     ids=["bridge-unreachable", "wrong-shape-list", "wrong-shape-string"],
 )
-def test_describe_launch_run_returns_no_detail_for_an_unusable_draft(
+def test_describe_queue_add_degrades_to_queue_state_only_for_an_unusable_draft(
     approval, monkeypatch, snapshot
 ):
-    """A missing or misshaped `GET /draft` degrades to zero enrichment lines.
+    """A missing or misshaped `GET /draft` degrades to the queue-state line only.
 
-    The plain tool/policy reason still asks for approval; only the extra detail
-    is lost. Returning `[]` here is what keeps `main` from having to reason about
-    a half-built line list.
+    The plain tool/policy reason still asks for approval; only the draft detail
+    is lost. The queue-state line survives because it comes from a different
+    fetch — and it is the line that says whether approving this enqueue is
+    approving an execution, so it must not be collateral damage.
     """
     monkeypatch.setattr(approval, "_bridge_get_json", lambda *args, **kwargs: snapshot)
 
-    assert approval._describe_launch_run({"draft_revision": 3}, {}) == []
+    lines = approval._describe_queue_add({"draft_revision": 3}, {})
+
+    assert lines == ["Queue state: unavailable (the bridge could not be reached)."]
+    assert not any(line.startswith("Draft revision") for line in lines)
 
 
 @pytest.mark.unit
-def test_describe_launch_run_reports_an_empty_draft(approval, fake_bridge):
-    """Nothing staged means nothing to launch, and the prompt says so."""
+def test_describe_queue_add_reports_an_empty_draft(approval, fake_bridge):
+    """Nothing staged means nothing to queue, and the prompt says so."""
     fake_bridge({"/draft": {"revision": 4, "draft": {}}})
 
-    lines = approval._describe_launch_run({"draft_revision": 4}, {})
+    lines = approval._describe_queue_add({"draft_revision": 4}, {})
 
-    assert lines[0] == "Draft revision 4 — matches pinned revision 4."
-    assert lines[1].startswith("Draft: EMPTY")
-    assert len(lines) == 2
+    assert "Draft revision 4 — matches pinned revision 4." in lines
+    assert any(line.startswith("Draft: EMPTY") for line in lines)
+    assert not any(line.startswith("Plan:") for line in lines)
 
 
 @pytest.mark.unit
-def test_describe_launch_run_renders_the_staged_plan(approval, fake_bridge):
+def test_describe_queue_add_renders_the_staged_plan(approval, fake_bridge):
     """A staged plan contributes its name, args, and provenance lines."""
     fake_bridge(
         {
@@ -518,7 +522,7 @@ def test_describe_launch_run_renders_the_staged_plan(approval, fake_bridge):
         }
     )
 
-    lines = approval._describe_launch_run({"draft_revision": 9}, {})
+    lines = approval._describe_queue_add({"draft_revision": 9}, {})
 
     assert "Plan: grid_scan" in lines
     assert 'Plan args: {"steps": 5}' in lines
@@ -527,7 +531,7 @@ def test_describe_launch_run_renders_the_staged_plan(approval, fake_bridge):
 
 
 @pytest.mark.unit
-def test_describe_launch_run_omits_the_args_line_when_there_are_none(approval, fake_bridge):
+def test_describe_queue_add_omits_the_args_line_when_there_are_none(approval, fake_bridge):
     """An empty `plan_args` renders no args line rather than an empty one."""
     fake_bridge(
         {
@@ -536,13 +540,13 @@ def test_describe_launch_run_omits_the_args_line_when_there_are_none(approval, f
         }
     )
 
-    lines = approval._describe_launch_run({"draft_revision": 1}, {})
+    lines = approval._describe_queue_add({"draft_revision": 1}, {})
 
     assert not any(line.startswith("Plan args:") for line in lines)
 
 
 @pytest.mark.unit
-def test_describe_launch_run_sanitizes_the_plan_name(approval, fake_bridge):
+def test_describe_queue_add_sanitizes_the_plan_name(approval, fake_bridge):
     """The staged plan name reaches the prompt escaped, on one line."""
     fake_bridge(
         {
@@ -554,14 +558,14 @@ def test_describe_launch_run_sanitizes_the_plan_name(approval, fake_bridge):
         }
     )
 
-    lines = approval._describe_launch_run({"draft_revision": 2}, {})
+    lines = approval._describe_queue_add({"draft_revision": 2}, {})
 
     assert "Plan: count\\x0aDraft revision 2 — matches pinned revision 2." in lines
 
 
 @pytest.mark.unit
-def test_describe_launch_run_warns_when_the_draft_moved_on(approval, fake_bridge):
-    """A draft revised since the agent pinned it leads with the loud warning."""
+def test_describe_queue_add_warns_when_the_draft_moved_on(approval, fake_bridge):
+    """A draft revised since the agent pinned it renders the loud warning."""
     fake_bridge(
         {
             "/draft": {"revision": 12, "draft": {"plan_name": "count"}},
@@ -569,32 +573,300 @@ def test_describe_launch_run_warns_when_the_draft_moved_on(approval, fake_bridge
         }
     )
 
-    lines = approval._describe_launch_run({"draft_revision": 9}, {})
+    lines = approval._describe_queue_add({"draft_revision": 9}, {})
 
-    assert "DRAFT CHANGED" in lines[0]
-    assert "9" in lines[0]
-    assert "12" in lines[0]
+    drift = [line for line in lines if "DRAFT CHANGED" in line]
+    assert len(drift) == 1
+    assert "9" in drift[0]
+    assert "12" in drift[0]
 
 
 @pytest.mark.unit
-def test_describe_launch_run_asks_the_configured_bridge(approval, fake_bridge, bridge_calls):
+def test_describe_queue_add_asks_the_configured_bridge(approval, fake_bridge, bridge_calls):
     """The base URL resolved from config is the one every call goes to.
 
-    The draft, the plan registry and the plan source must all be read from the
-    same bridge the launch would actually use — a mismatch would describe one
-    bridge's draft while another one launches.
+    The queue, the draft, the plan registry and the plan source must all be
+    read from the same bridge the enqueue would actually use — a mismatch
+    would describe one bridge's draft while another one runs the plan.
     """
     fake_bridge(
         {
+            "/queue": {"status": {"manager_state": "idle"}, "items": [], "running_item": None},
             "/draft": {"revision": 1, "draft": {"plan_name": "count"}},
             "/plans": [],
             "/plans/count/source": {},
         }
     )
 
-    approval._describe_launch_run(
+    approval._describe_queue_add(
         {"draft_revision": 1}, {"bluesky": {"bridge_url": "http://bridge.config:8000/"}}
     )
 
     assert {base_url for base_url, _ in bridge_calls} == {"http://bridge.config:8000"}
-    assert [path for _, path in bridge_calls] == ["/draft", "/plans", "/plans/count/source"]
+    assert [path for _, path in bridge_calls] == [
+        "/queue",
+        "/draft",
+        "/plans",
+        "/plans/count/source",
+    ]
+
+
+@pytest.mark.unit
+def test_queue_activity_lines_classify_from_what_was_observed(approval):
+    """A running item and an autostart flag each earn their own loud headline.
+
+    Classified from the observation, not from a copy of the manager's
+    active-state vocabulary — this hook cannot import OSPREY, and a replica of
+    that list here would be one more thing to drift.
+    """
+    running = approval._queue_activity_lines(
+        {
+            "status": {"manager_state": "executing_queue", "items_in_queue": 2},
+            "running_item": {"item_uid": "u0", "name": "orm"},
+        }
+    )
+    assert "A PLAN IS ALREADY RUNNING" in running[0]
+    assert "executing_queue" in running[0]
+    assert "Items already queued: 2" in running
+
+    autostart = approval._queue_activity_lines(
+        {"status": {"manager_state": "idle", "queue_autostart_enabled": True}, "running_item": None}
+    )
+    assert "AUTOSTART IS ENABLED" in autostart[0]
+
+    idle = approval._queue_activity_lines(
+        {"status": {"manager_state": "idle"}, "running_item": None}
+    )
+    assert idle[0] == "No plan is currently running (manager state: idle)."
+
+
+@pytest.mark.unit
+def test_queue_activity_lines_report_a_pending_stop(approval):
+    """A pending stop changes what a start or a withdrawal actually means."""
+    lines = approval._queue_activity_lines(
+        {"status": {"manager_state": "paused", "queue_stop_pending": True}, "running_item": None}
+    )
+    assert any("A stop is PENDING" in line for line in lines)
+
+
+@pytest.mark.unit
+def test_describe_queue_start_lists_the_whole_queue_and_flags_untrusted_plans(
+    approval, fake_bridge
+):
+    """A start drains everything queued, so the prompt names everything queued."""
+    fake_bridge(
+        {
+            "/queue": {
+                "status": {"manager_state": "idle", "items_in_queue": 2},
+                "items": [
+                    {"item_uid": "u1", "name": "orm", "kwargs": {"num_points": 5}},
+                    {"item_uid": "u2", "name": "sneaky_plan"},
+                ],
+                "running_item": None,
+            },
+            "/plans": [
+                {"name": "orm", "provenance": "shipped"},
+                {"name": "sneaky_plan", "provenance": "unreviewed"},
+            ],
+        }
+    )
+
+    lines = approval._describe_queue_start({}, {})
+
+    assert any("EVERY pending item" in line for line in lines)
+    assert any(line.startswith("  1. orm") and "num_points" in line for line in lines)
+    assert any(line.startswith("  2. sneaky_plan") for line in lines)
+    assert any("AGENT-AUTHORED" in line and "sneaky_plan" in line for line in lines)
+
+
+@pytest.mark.unit
+def test_describe_queue_start_does_not_flag_a_fully_trusted_queue(approval, fake_bridge):
+    """Negative control: no untrusted plan queued means no untrusted warning."""
+    fake_bridge(
+        {
+            "/queue": {
+                "status": {"manager_state": "idle"},
+                "items": [{"item_uid": "u1", "name": "orm"}],
+                "running_item": None,
+            },
+            "/plans": [{"name": "orm", "provenance": "shipped"}],
+        }
+    )
+
+    lines = approval._describe_queue_start({}, {})
+
+    assert not any("AGENT-AUTHORED" in line for line in lines)
+
+
+@pytest.mark.unit
+def test_describe_queue_start_caps_the_listed_items(approval, fake_bridge):
+    """A long queue is summarised so the warning lines stay on screen."""
+    count = approval._MAX_LISTED_QUEUE_ITEMS + 3
+    fake_bridge(
+        {
+            "/queue": {
+                "status": {"manager_state": "idle"},
+                "items": [{"item_uid": f"u{i}", "name": "orm"} for i in range(count)],
+                "running_item": None,
+            },
+            "/plans": [],
+        }
+    )
+
+    lines = approval._describe_queue_start({}, {})
+
+    numbered = [line for line in lines if line.startswith("  ") and ". orm" in line]
+    assert len(numbered) == approval._MAX_LISTED_QUEUE_ITEMS
+    assert any("and 3 more" in line for line in lines)
+
+
+@pytest.mark.unit
+def test_describe_queue_start_says_when_the_queue_cannot_be_read(approval, monkeypatch):
+    """Fail-open, but never silently: an unseen queue is itself the warning."""
+    monkeypatch.setattr(approval, "_bridge_get_json", lambda *args, **kwargs: None)
+
+    lines = approval._describe_queue_start({}, {})
+
+    assert any("nobody here can see" in line for line in lines)
+
+
+@pytest.mark.unit
+def test_describe_queue_stop_distinguishes_halting_from_un_halting(approval, fake_bridge):
+    """The two directions of one tool must never read alike."""
+    fake_bridge({"/queue": {"status": {"manager_state": "executing_queue"}, "running_item": None}})
+
+    halt = approval._describe_queue_stop({}, {})
+    assert "Requests a stop" in halt[0]
+    assert not any("WITHDRAWS" in line for line in halt)
+
+    withdraw = approval._describe_queue_stop({"cancel": True}, {})
+    assert "WITHDRAWS A PENDING STOP" in withdraw[0]
+    assert "does not halt anything" in withdraw[0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "state",
+    ["starting_queue", "executing_queue", "executing_task", "paused", "some_future_state"],
+)
+def test_queue_activity_middle_tier_warns_on_any_non_idle_state(approval, state):
+    """The negative test: anything that is not "idle" earns a warning.
+
+    `starting_queue` is the case that motivated this tier — a start is already
+    in flight but no item is running yet, so the observed-only tests showed the
+    CALM headline on the one line whose job is telling a human that an enqueue
+    is really an execution. `some_future_state` is the point of testing for the
+    single idle token rather than replicating the manager's active-state list:
+    a state this hook has never heard of still warns, because unknown means
+    not-idle. A replica would have classified it as safe.
+    """
+    lines = approval._queue_activity_lines(
+        {"status": {"manager_state": state}, "running_item": None}
+    )
+    assert "THE QUEUE IS NOT IDLE" in lines[0]
+    assert state in lines[0]
+
+
+@pytest.mark.unit
+def test_queue_activity_missing_manager_state_is_treated_as_not_idle(approval):
+    """An unknown state must never render inside the confident calm sentence."""
+    lines = approval._queue_activity_lines({"status": {}, "running_item": None})
+
+    assert "THE QUEUE IS NOT IDLE" in lines[0]
+    assert "No plan is currently running" not in lines[0]
+
+
+@pytest.mark.unit
+def test_queue_activity_calm_headline_requires_the_idle_token(approval):
+    """Negative control for the tier above: only "idle" earns the calm line.
+
+    Without this, a middle tier that fired unconditionally would pass every
+    warning test while making the prompt cry wolf on every enqueue.
+    """
+    lines = approval._queue_activity_lines(
+        {"status": {"manager_state": "idle"}, "running_item": None}
+    )
+    assert lines[0] == "No plan is currently running (manager state: idle)."
+
+
+@pytest.mark.unit
+def test_queue_activity_precise_headlines_win_over_the_middle_tier(approval):
+    """Tier order: a running item or autostart keeps its specific sentence.
+
+    The middle tier is a catch-all, so it must not swallow the two cases that
+    can say something exact — "may already be draining" is a downgrade from
+    "a plan IS running".
+    """
+    running = approval._queue_activity_lines(
+        {
+            "status": {"manager_state": "executing_queue"},
+            "running_item": {"item_uid": "u0", "name": "orm"},
+        }
+    )
+    assert "A PLAN IS ALREADY RUNNING" in running[0]
+
+    autostart = approval._queue_activity_lines(
+        {
+            "status": {"manager_state": "some_future_state", "queue_autostart_enabled": True},
+            "running_item": None,
+        }
+    )
+    assert "AUTOSTART IS ENABLED" in autostart[0]
+
+
+@pytest.mark.unit
+def test_stop_describers_state_the_limit_and_name_the_tool_that_has_none(approval, fake_bridge):
+    """The stop prompt is read by someone deciding whether a queue-halt is
+    enough, at the moment delay costs most.
+
+    It must state the real limit — a plain `queue_stop` does NOT touch the item
+    already in motion — and, now that one exists, name the tool that does. The
+    earlier version of this test pinned the opposite ("no tool here can"),
+    which was true of the retired 410 route and became dangerous the moment a
+    real abort was wired up.
+    """
+    fake_bridge({"/queue": {"status": {"manager_state": "idle"}, "running_item": None}})
+
+    halt = approval._describe_queue_stop({}, {})
+    withdraw = approval._describe_queue_stop({"cancel": True}, {})
+
+    assert "does NOT abort the item already in motion" in halt[0]
+    assert "stop_run" in halt[0], "the halt prompt must name the tool that DOES abort"
+    assert "no tool here can" not in halt[0], (
+        "pre-abort wording: it tells an operator no halt exists for a moving scan"
+    )
+    # The withdrawal is the opposite direction and must not offer an abort as
+    # if it were part of the same action.
+    assert not any("stop_run" in line for line in withdraw)
+
+
+@pytest.mark.unit
+def test_stop_run_describer_states_what_an_abort_costs(approval, fake_bridge):
+    """The abort's own approval prompt. It has to be honest in both
+    directions: not a routine stop (the scan's remainder is discarded and the
+    machine stays where it stopped), and not something to hesitate over when a
+    machine needs stopping — which is why it also names what is running."""
+    fake_bridge(
+        {
+            "/queue": {
+                "status": {"manager_state": "executing_queue", "items_in_queue": 2},
+                "running_item": {"item_uid": "u1", "name": "orm"},
+            }
+        }
+    )
+
+    lines = approval._describe_stop_run({}, {})
+
+    assert "ABORTS THE PLAN THAT IS RUNNING NOW" in lines[0]
+    assert "left wherever the scan moved it" in lines[0]
+    assert "data" in lines[0], "what survives an abort matters as much as what does not"
+    # The shared activity lines still run, so the approver sees what is running.
+    assert any("A PLAN IS ALREADY RUNNING" in line for line in lines)
+
+
+@pytest.mark.unit
+def test_stop_run_is_wired_into_the_describer_table(approval):
+    """A describer nobody dispatches to is a prompt that never renders. The
+    abort is the most consequential Bluesky approval there is, so its entry is
+    pinned rather than assumed."""
+    assert approval._QUEUE_DESCRIBERS["stop_run"] is approval._describe_stop_run

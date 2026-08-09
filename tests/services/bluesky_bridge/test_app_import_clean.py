@@ -1,9 +1,10 @@
 """Guards `app.py`'s `_BRIDGE_ONLY_MODULES` invariant (FR8): importing
 `osprey.services.bluesky_bridge.app` must never pull in `bluesky`, `ophyd`,
 `ophyd_async`, or `tiled`. The bluesky stack is a core dependency, so this is
-an import-hygiene boundary, not an install-size one: keeping those heavy
-imports out of the lifecycle core's import path keeps the bridge's startup
-import fast and the lifecycle/FakePlanRunner seam clean.
+an import-hygiene boundary, not an install-size one. The bridge runs no plans
+— the queueserver worker does — so nothing in this process has any business
+importing the RunEngine stack, and the Channel Access client libraries have no
+business here either: every device lives in the worker.
 
 This MUST run in a fresh subprocess. The dev venv has all four packages
 installed, and other tests in this suite legitimately import them, so by
@@ -17,6 +18,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
+
+import pytest
 
 from osprey.services.bluesky_bridge.app import _BRIDGE_ONLY_MODULES
 
@@ -55,4 +58,18 @@ def test_importing_app_does_not_import_bridge_only_modules() -> None:
         f"importing osprey.services.bluesky_bridge.app leaked a top-level "
         f"import of {module!r} (child exit {result.returncode}):\n{result.stderr}"
         for module, result in failures.items()
+    )
+
+
+@pytest.mark.parametrize("module", ["pyepics", "epics"])
+def test_importing_app_does_not_import_channel_access_clients(module: str) -> None:
+    """The Channel Access client libraries are not in `_BRIDGE_ONLY_MODULES` but
+    must stay out of the bridge's import path all the same: devices — and every
+    CA connection — belong to the queueserver worker, so a top-level `epics`
+    import here would mean this process had grown a way to talk to hardware.
+    """
+    result = _run_import_check(module)
+    assert result.returncode == 0, (
+        "importing osprey.services.bluesky_bridge.app leaked a top-level "
+        f"import of {module!r} (child exit {result.returncode}):\n{result.stderr}"
     )

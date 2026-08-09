@@ -6,7 +6,7 @@ is centralized here so its non-obvious rationale lives in exactly one place.
 
 Imports ophyd-async (a core dependency), so like the rest of ``devices/`` keep
 it out of the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``plan_runner.py``, ``security.py``), which stays import-clean of ophyd.
+``security.py``), which stays import-clean of ophyd.
 """
 
 from __future__ import annotations

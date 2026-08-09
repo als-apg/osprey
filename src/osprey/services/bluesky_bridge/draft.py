@@ -1,6 +1,5 @@
 """Server-held shared plan draft: the agent's and the human's collaborative
-scratch pad for composing one Bluesky scan plan before launch (PROPOSAL.md
-"Bridge draft module").
+scratch pad for composing one Bluesky scan plan before it is queued.
 
 One in-process singleton draft (`{plan_name, plan_args, updated_by,
 updated_at}`) plus a process-lifetime monotonic revision counter, guarded by
@@ -168,7 +167,7 @@ class LaunchRejected:
 # that can itself become `None`.
 #
 # `_last_launched_revision` lives alongside `_revision` under the same lock:
-# it is the revision most recently launched via `POST /draft/run` (0 = none
+# it is the revision most recently enqueued via `POST /queue/items` (0 = none
 # launched this process). `check_launchable` refuses to re-launch a revision
 # equal to it, so a replayed launch can't fire a second hardware scan; a
 # `PATCH` that bumps `_revision` past it re-arms launch. Like `_revision` it
@@ -277,7 +276,7 @@ def _broadcast_locked(frame: dict[str, Any]) -> None:
     """Push *frame* to every subscriber queue. MUST be called while holding `_lock`.
 
     On a full queue, this disconnects that subscriber instead of silently
-    dropping the frame (PROPOSAL.md "Slow consumers"): the queue is drained
+    dropping the frame: the queue is drained
     and a `_DISCONNECT` sentinel is enqueued in its place, so the SSE
     generator wakes up, closes the stream, and the client reconnects to a
     fresh hello resync — never a client that silently missed frames.
@@ -324,13 +323,13 @@ async def _unsubscribe(queue: asyncio.Queue[Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Launch state: the substrate for `POST /draft/run` (the bridge's launch
-# primitive). The draft lock is NEVER held across `registry.add`/`do_launch`,
-# so the launch flow is deliberately split into lock-guarded steps with the
-# mint/launch happening between them, outside the lock:
+# Launch state: the substrate for `POST /queue/items` (the bridge's enqueue
+# primitive). The draft lock is NEVER held across the enqueue itself, so the
+# flow is deliberately split into lock-guarded steps with the mint/enqueue
+# happening between them, outside the lock:
 #
 #   snapshot = await check_launchable(draft_revision)   # under _lock; RESERVES
-#   ... mint + launch the run in a threadpool ...       # NO lock held
+#   ... mint the run id + enqueue the item ...          # NO lock held
 #   await record_and_broadcast_launch(run_id, rev)      # under _lock; consumes
 #   # ...or, on ANY failure after a successful check:
 #   await release_launch(rev)                           # under _lock; releases
@@ -566,9 +565,9 @@ async def patch_draft(body: PatchDraftRequest) -> dict[str, Any]:
         changed = _diff_keys(old_args, new_args)
 
         if not plan_name_changing and not changed:
-            # True no-op (PROPOSAL.md: "A PATCH that changes nothing is a
-            # no-op: no revision bump, no frame"). `current_plan_name` here
-            # is `_draft.plan_name`, unchanged.
+            # True no-op: a PATCH that changes nothing bumps no revision and
+            # broadcasts no frame. `current_plan_name` here is
+            # `_draft.plan_name`, unchanged.
             return {"revision": _revision, "changed": [], "plan_name": current_plan_name}
 
         new_plan_name = body.plan_name if body.plan_name is not None else current_plan_name

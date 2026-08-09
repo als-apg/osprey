@@ -2,8 +2,9 @@
 
 Turns a raw profile mapping into the typed dataclasses — validating the
 per-server and per-section shapes that only the parser can see (MCP
-command/url/port exclusivity, mapping-vs-scalar sections) and rejecting
-top-level keys the schema does not define. :func:`load_profile` is the
+command/url/port exclusivity, mapping-vs-scalar sections) and rejecting keys
+the schema does not define, both at the top level and inside the closed
+``environment:`` and ``bluesky:`` blocks. :func:`load_profile` is the
 plain single-file entry point; the preset/override/``--set`` layering path in
 :mod:`osprey.cli.build_profile_resolve` reuses :func:`_parse_profile` after it has
 assembled its own raw dict.
@@ -12,10 +13,12 @@ assembled its own raw dict.
 from __future__ import annotations
 
 import difflib
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 from osprey.errors import BuildProfileError
 
 from .build_profile_document import _normalize_profile_aliases, _read_profile_document
@@ -141,6 +144,11 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "app_template",
         "data",
         "deploy_services",
+        # Shorthand for config's `control_system.type`, consumed by
+        # _apply_connector_shorthand before the profile is parsed. Listed here
+        # because a materialized or hand-written profile may spell it, and
+        # because this frozenset doubles as the "valid keys are:" list.
+        "connector",
         "provider",
         "model",
         "channel_finder_mode",
@@ -183,6 +191,16 @@ _KNOWN_PROFILE_KEYS = frozenset(
 _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
 
 
+# Keys recognized inside the ``bluesky:`` block, derived from the dataclass the
+# block is parsed into rather than listed by hand: every field below is read by
+# _parse_profile, so the check can never drift from what the parser honors when
+# a field is added or renamed. Rejected like the top-level schema — a dropped
+# `tiled_enabld:` would ship a bridge without the catalog the facility asked
+# for, and a knob a release removed (e.g. `demo_runner:`) has to announce its
+# removal instead of being silently ignored.
+_KNOWN_BLUESKY_KEYS = frozenset(f.name for f in fields(BlueskyConfig))
+
+
 def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
     """Parse the raw ``environment:`` block into an :class:`EnvironmentConfig`.
 
@@ -206,12 +224,7 @@ def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
             f"Profile 'environment' must be a mapping (got {type(block).__name__})"
         )
 
-    unknown = sorted(set(block) - _KNOWN_ENVIRONMENT_KEYS)
-    if unknown:
-        raise BuildProfileError(
-            f"Unknown environment key(s): {', '.join(unknown)} "
-            f"(must be one of {sorted(_KNOWN_ENVIRONMENT_KEYS)})"
-        )
+    _reject_unknown_block_keys(block, _KNOWN_ENVIRONMENT_KEYS, "environment")
 
     python = block.get("python")
     if python is not None and not isinstance(python, str):
@@ -235,6 +248,37 @@ def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
     )
 
 
+def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], label: str) -> None:
+    """Reject unrecognized keys in a closed profile block, naming every one at once.
+
+    The shared body behind every closed-schema check, so an operator meets one
+    wording whichever block they mistyped.
+
+    Args:
+        keys: The keys present in the block being checked.
+        known_keys: The block's closed key set.
+        label: What the block is called in the message (``profile`` for the
+            top level, otherwise the block's own key, e.g. ``bluesky``).
+
+    Raises:
+        BuildProfileError: If any key is unrecognized. The message names every
+            offender, its closest known spelling, and the full valid set.
+    """
+    unknown = sorted(set(keys) - known_keys)
+    if not unknown:
+        return
+
+    known = sorted(known_keys)
+    named = []
+    for key in unknown:
+        close = difflib.get_close_matches(key, known, n=1)
+        named.append(f"{key!r} (did you mean {close[0]!r}?)" if close else repr(key))
+    raise BuildProfileError(
+        f"Unknown {label} key(s): {', '.join(named)}. "
+        f"Remove or correct them — valid keys are: {', '.join(known)}."
+    )
+
+
 def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     """Reject unknown top-level profile keys, naming every one at once.
 
@@ -247,22 +291,78 @@ def _reject_unknown_keys(raw: dict[str, Any]) -> None:
             consumed, though both stay allowlisted for pre-resolution callers).
 
     Raises:
-        BuildProfileError: If any key is unrecognized. The message names every
-            offender, its closest known spelling, and the full valid set.
+        BuildProfileError: If any key is unrecognized.
     """
-    unknown = sorted(set(raw.keys()) - _KNOWN_PROFILE_KEYS)
-    if not unknown:
-        return
+    _reject_unknown_block_keys(raw.keys(), _KNOWN_PROFILE_KEYS, "profile")
 
-    known = sorted(_KNOWN_PROFILE_KEYS)
-    named = []
-    for key in unknown:
-        close = difflib.get_close_matches(key, known, n=1)
-        named.append(f"{key!r} (did you mean {close[0]!r}?)" if close else repr(key))
-    raise BuildProfileError(
-        f"Unknown profile key(s): {', '.join(named)}. "
-        f"Remove or correct them — valid keys are: {', '.join(known)}."
-    )
+
+# The top-level shorthand for the control-system connector, and the literal
+# dotted `config:` key it resolves to. `connector: epics` is the short spelling
+# of `config: {control_system.type: epics}` — one place in the schema sets the
+# connector, so the two can never disagree in the rendered project.
+CONNECTOR_PROFILE_KEY = "connector"
+CONNECTOR_CONFIG_KEY = "control_system.type"
+
+
+def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
+    """Fold a top-level ``connector:`` shorthand into the ``config:`` block.
+
+    Applied to the merged CLI layers
+    (:func:`~osprey.cli.build_profile_resolve.merge_cli_overrides`) and again
+    here at parse time, so no entry path — preset, ``-O`` file, ``--set`` pair,
+    ``extends`` parent, or a hand-written profile loaded directly — can carry
+    the shorthand and have it silently ignored. Idempotent: a mapping without
+    the key is returned unchanged.
+
+    The value is validated against the built-in connector types the rest of the
+    CLI offers (:data:`~osprey.connectors.types.CLI_CONTROL_SYSTEM_TYPES`).
+    A custom connector is addressed by its dotted module path, which the
+    shorthand does not cover — write ``config: {control_system.type: ...}``
+    for those.
+
+    Args:
+        raw: Raw profile mapping, mutated in place like the alias
+            normalization it sits beside.
+
+    Returns:
+        The same mapping, with the shorthand consumed.
+
+    Raises:
+        BuildProfileError: If the value is not one of the built-in connector
+            types, or ``config:`` is not a mapping to fold it into.
+    """
+    if CONNECTOR_PROFILE_KEY not in raw:
+        return raw
+
+    value = raw.pop(CONNECTOR_PROFILE_KEY)
+    known = sorted(CLI_CONTROL_SYSTEM_TYPES)
+    if not isinstance(value, str) or not value.strip():
+        raise BuildProfileError(
+            f"Profile key 'connector' must name a connector type (got {value!r}) — "
+            f"one of: {', '.join(known)}."
+        )
+    value = value.strip()
+    if value not in CLI_CONTROL_SYSTEM_TYPES:
+        # Case-insensitive first: difflib scores 'EPICS' against 'epics' at
+        # zero, so the likeliest mistake would otherwise get no suggestion.
+        close = [name for name in known if name.lower() == value.lower()] or (
+            difflib.get_close_matches(value, known, n=1)
+        )
+        suggestion = f" (did you mean {close[0]!r}?)" if close else ""
+        raise BuildProfileError(
+            f"Unknown connector {value!r}{suggestion}. Valid connectors are: "
+            f"{', '.join(known)}. A custom connector is set by its dotted module "
+            f"path instead: config: {{{CONNECTOR_CONFIG_KEY}: mypackage.MyConnector}}."
+        )
+
+    config = raw.setdefault("config", {})
+    if not isinstance(config, dict):
+        raise BuildProfileError(
+            f"Profile 'config' must be a mapping to carry the 'connector' shorthand "
+            f"(got {type(config).__name__})"
+        )
+    config[CONNECTOR_CONFIG_KEY] = value
+    return raw
 
 
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
@@ -275,6 +375,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """
     _normalize_profile_aliases(raw, "profile")
     _reject_unknown_keys(raw)
+    _apply_connector_shorthand(raw)
     mcp_servers: dict[str, McpServerDef] = {}
     for name, sdef in raw.get("mcp_servers", {}).items():
         if not isinstance(sdef, dict):
@@ -383,6 +484,10 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if bluesky_raw is not None:
         if not isinstance(bluesky_raw, dict):
             raise BuildProfileError("Profile 'bluesky' must be a mapping")
+        # Checked on the merged block: extends parents, -O layers and --set
+        # pairs have all been folded in by the time the parser runs, so a key
+        # a parent declares is not an unknown key seen from its child.
+        _reject_unknown_block_keys(bluesky_raw, _KNOWN_BLUESKY_KEYS, "bluesky")
         excluded_plans = bluesky_raw.get("excluded_plans", [])
         if not isinstance(excluded_plans, list) or not all(
             isinstance(p, str) for p in excluded_plans
@@ -395,7 +500,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
             tiled_port=bluesky_raw.get("tiled_port", 8091),
-            demo_runner=bluesky_raw.get("demo_runner", False),
             plan_dir=bluesky_raw.get("plan_dir"),
             excluded_plans=excluded_plans,
         )

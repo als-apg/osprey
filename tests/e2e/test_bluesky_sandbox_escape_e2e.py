@@ -6,8 +6,9 @@ that exact validated content is what actually launches.
 Deploys the VA-backed turn-key scan-stack (``tests/e2e/_orm_stack.py`` -- the
 same real Virtual Accelerator + bluesky-bridge container pair
 ``test_orm_roundtrip.py`` uses) and drives the session-authoring HTTP surface
-(``POST /plans/session``, ``POST /plans/validate``, ``POST /runs`` ->
-``launch``) end to end against it, then reads a real corrector setpoint back
+(``POST /plans/session``, ``POST /plans/validate``, then the queue path
+``PATCH /draft`` -> ``POST /queue/items`` -> ``POST /queue/start``) end to end
+against it, then reads a real corrector setpoint back
 over Channel Access -- from this test process, independent of the bridge --
 to prove a rejected write never lands, not merely that the bridge's own HTTP
 responses claim it didn't.
@@ -21,7 +22,8 @@ independent CA read that never goes through the bridge at all.
 CRITICAL INTEGRATION CONTRACT (see ``plan_validation.py``'s module docstring
 and the P5 Phase 2 research digest): the bytes ``validate_plan``
 hashes for its validation record must be byte-identical to what the session
-directory's load gate (task 2.4) and the launch gate (task 2.5) re-hash from
+directory's load gate and the ENQUEUE gate (validation.py, called
+from the queue's ``POST /queue/items``) re-hash from
 disk. ``POST /plans/session`` writes the body once; ``POST /plans/validate``
 re-reads and hashes that SAME file -- never a body passed separately -- so
 "validated bytes == file bytes" is structural here, not a test convention
@@ -111,7 +113,7 @@ SCAN_TIMEOUT_SEC = 120.0
 # Three correctors total: one reserved exclusively as the escape/residual
 # probe TARGET (never launched in this test, by either the negative
 # or the obfuscation-residual case), two driven for real by the positive
-# author -> validate -> launch -> read round trip. Disjoint by
+# author -> validate -> enqueue -> read round trip. Disjoint by
 # construction, so a run-order change can never let the positive scan's
 # legitimate write be mistaken for evidence the negative case's write landed.
 CORRECTOR_COUNT = 3
@@ -237,7 +239,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 _POSITIVE_PLAN_BODY = '''"""Session-authored positive plan body for the sandbox-escape e2e
 (tests/e2e/test_bluesky_sandbox_escape_e2e.py) -- mirrors plans_core/
 orm.py's PARAMS/build_plan, proving the author -> validate ->
-launch -> read path works end to end for a legitimately-authored
+enqueue -> read path works end to end for a legitimately-authored
 session plan, in the same deployed stack the negative case runs against.
 """
 
@@ -316,6 +318,50 @@ def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict
             return resp.status, json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
+def _patch(path: str, body: dict) -> tuple[int, Any]:
+    """A PATCH against the bridge (the shared draft is the only PATCH surface)."""
+    req = urllib.request.Request(  # noqa: S310
+        f"{BRIDGE_URL}{path}",
+        data=json.dumps(body).encode("utf-8"),
+        method="PATCH",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:  # noqa: S310
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
+def _refusal_code(body: Any) -> Any:
+    """The machine-readable code off a refusal body (``{"detail": {"code": ...}}``).
+
+    ``None`` for any other shape, so an assertion reports the drifted body
+    rather than a ``KeyError`` from inside this helper.
+    """
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return detail.get("code") if isinstance(detail, dict) else None
+
+
+def _enqueue_session_plan(plan_name: str, plan_args: dict) -> tuple[int, Any]:
+    """Stage ``plan_name`` in the shared draft and try to enqueue it.
+
+    The queue path takes plan name and args from the server-side draft snapshot
+    at a pinned revision, never from the enqueue body — so reaching the enqueue
+    gate at all means going through the draft first.
+    """
+    status, patched = _patch(
+        "/draft",
+        {
+            "plan_name": plan_name,
+            "plan_args_patch": plan_args,
+            "client_id": "sandbox-escape-e2e",
+        },
+    )
+    assert status == 200, f"PATCH /draft failed for {plan_name!r}: {status} {patched}"
+    return _post("/queue/items", {"draft_revision": patched["revision"]})
 
 
 def _wait_for_health(url: str, timeout: float) -> None:
@@ -514,18 +560,53 @@ def test_sandbox_escape_is_caught_and_no_write_reaches_the_ioc(
             f"validation -- the session-tier load gate did not refuse it: {sorted(names)}"
         )
 
-    # --- gate (c): launch 409s (the launch-validation gate, task 2.5) ---
-    status, body = _post("/runs", {"plan_name": _ESCAPE_PLAN_NAME, "plan_args": {}})
-    assert status == 200, f"POST /runs failed: {status} {body}"
-    run_id = body["id"]
-
+    # --- gate (c): the execution gate refuses it ---
+    # The gate that mattered here was never "this URL 409s" — it was "an
+    # unvalidated plan cannot reach hardware". Execution moved from the bridge
+    # to the queue server, so this asserts BOTH halves of that move: the retired
+    # direct-execute route is gone and says so machine-readably, and the path
+    # that replaced it refuses the same plan for the same reason.
     token = _minted_token(deployed_sandbox_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
-    assert status == 409, (
-        f"expected 409 launching an unvalidated session plan, got {status}: {body}"
+
+    # (c1) the retired route is an unconditional 410 -- never a silent 404, and
+    # never something a caller could mistake for "this run does not exist".
+    status, body = _post("/runs/not-a-real-run-id/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 410, f"expected 410 Gone from the retired launch route, got {status}: {body}"
+    assert _refusal_code(body) == "use_the_queue", (
+        f"the retired route must say where the capability went: {body}"
     )
-    assert "validation record" in body.get("detail", ""), (
-        f"409 detail doesn't name the validation-record gate: {body}"
+
+    # (c2) the queue path cannot even be ENTERED with this plan. `POST
+    # /queue/items` takes the plan from the shared draft at a pinned revision,
+    # never from its own body, and the draft resolves a plan name against the
+    # SAME trust-resolved catalog gate (b) just proved this plan is absent
+    # from. So the escape plan is refused one step earlier than it used to be —
+    # it is not composable, let alone queueable.
+    #
+    # This is a stronger statement than the 409 it replaces, and it is the
+    # honest one for THIS plan: `session_plan_unvalidated` at enqueue is
+    # reachable only for a plan that WAS validated and then had its bytes
+    # change underneath the pin, which is a different scenario and is covered
+    # against a real queue server by
+    # tests/e2e/test_bluesky_queue_e2e.py::test_5_session_plan_with_stale_validation_is_refused_at_enqueue.
+    status, body = _patch(
+        "/draft",
+        {
+            "plan_name": _ESCAPE_PLAN_NAME,
+            "plan_args_patch": {},
+            "client_id": "sandbox-escape-e2e",
+        },
+    )
+    assert status == 422, (
+        f"an unvalidated session plan must not even be stageable in the draft, got {status}: {body}"
+    )
+
+    # And nothing named it ever reached the queue -- the refusals are not
+    # merely status codes on a surface that quietly accepted the work anyway.
+    status, queue = _get("/queue")
+    assert status == 200, f"GET /queue failed: {status} {queue}"
+    assert not any(item.get("name") == _ESCAPE_PLAN_NAME for item in queue["items"]), (
+        f"the escape plan is sitting in the queue despite every gate: {queue['items']}"
     )
 
     # --- the IOC probe: the IOC itself confirms nothing ever landed, whether
@@ -589,8 +670,8 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
 
 
 # ---------------------------------------------------------------------------
-# Positive: author -> validate -> launch -> read, over the same
-# deployed stack. May flake on the launch->read leg (bounded scan timing);
+# Positive: author -> validate -> enqueue -> drain -> read, over the same
+# deployed stack. May flake on the drain->read leg (bounded scan timing);
 # the negative case above stays strict.
 # ---------------------------------------------------------------------------
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
@@ -644,13 +725,18 @@ def test_session_plan_author_validate_launch_read_round_trip(
         "span_a": SPAN_A,
         "num": NUM_POINTS,
     }
-    status, body = _post("/runs", {"plan_name": _POSITIVE_PLAN_NAME, "plan_args": plan_args})
-    assert status == 200, f"POST /runs failed: {status} {body}"
-    run_id = body["id"]
+    # Execution is the queue's: stage the plan in the shared draft, enqueue at
+    # the pinned revision (which mints the run id), then arm the queue. Same
+    # guarantees the retired two-step mint-then-launch flow had — the pinned
+    # revision and the launch token — with the plan running in the queue
+    # server's worker rather than in the bridge process.
+    status, body = _enqueue_session_plan(_POSITIVE_PLAN_NAME, plan_args)
+    assert status == 200, f"POST /queue/items failed: {status} {body}"
+    run_id = body["run_id"]
 
     token = _minted_token(deployed_sandbox_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
-    assert status == 200, f"launch failed: {status} {body}"
+    status, body = _post("/queue/start", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"POST /queue/start failed: {status} {body}"
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     status_body: dict = {}

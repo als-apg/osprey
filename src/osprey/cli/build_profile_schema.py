@@ -202,15 +202,6 @@ class BlueskyConfig:
     port: int = 8090
     tiled_enabled: bool = False
     tiled_port: int = 8091
-    demo_runner: bool = False
-    """Opt-in only for the deploy-smoke-demo / tutorial case: wires the
-    container's bridge process to a real bluesky RunEngine against mock
-    ophyd-async devices (``devices/mock.py``) via app.py's guarded startup
-    hook (task 2.14a), instead of the Phase 1 no-op ``FakePlanRunner`` default.
-    MUST stay False for any facility wiring real EPICS hardware — turning
-    this on would silently override real device/plan wiring with an
-    in-memory mock runner.
-    """
     plan_dir: str | None = None
     """Optional host directory of facility plan files (Task 1.4),
     bind-mounted read-only into the bridge container and surfaced to the

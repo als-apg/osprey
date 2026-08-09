@@ -92,7 +92,10 @@ def init_project(
 
     Uses the Click test runner so we don't need a real shell. ``provider`` is
     keyword-only and required — see the helper in ``tests/e2e/sdk_helpers``
-    for rationale.
+    for rationale. The connector is pinned to ``mock`` for the same reason
+    that helper pins it: this harness runs projects without their containers,
+    and the preset's ``virtual_accelerator`` default needs the deployed VA to
+    answer Channel Access.
     """
     runner = CliRunner()
     args = [
@@ -107,6 +110,8 @@ def init_project(
         f"provider={provider}",
         "--set",
         f"model={model}",
+        "--set",
+        "connector=mock",
     ]
     result = runner.invoke(build, args)
     assert result.exit_code == 0, f"osprey build failed: {result.output}"

@@ -320,7 +320,7 @@ class TestControlAssistantPersonas:
         overrides — a representative base override survives both merges."""
         for name in ("control-assistant-readonly", "control-assistant-readwrite"):
             profile = resolve_preset(name)
-            assert profile.config.get("control_system.type") == "mock"
+            assert profile.config.get("control_system.type") == "virtual_accelerator"
 
     def test_personas_differ_only_on_writes_enabled(self) -> None:
         readonly = resolve_preset("control-assistant-readonly")

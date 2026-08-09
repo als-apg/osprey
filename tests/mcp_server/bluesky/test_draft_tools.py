@@ -1,12 +1,13 @@
-"""Tests for the shared plan draft MCP tools (task 2.1):
+"""Tests for the shared plan draft MCP tools:
 ``get_draft`` / ``set_draft`` / ``clear_draft``.
 
-The real bridge draft module (`bluesky_bridge/draft.py`) is being built in
-parallel — these tests mock the HTTP boundary
+These tests mock the HTTP boundary
 (``osprey.mcp_server.bluesky.tools.draft._http_get_json`` /
 ``_http_patch_json`` / ``_http_delete_json``) so they exercise only this
-tool module's payload shaping and error-envelope mapping against the
-PROPOSAL.md rev-4 bridge contract, with no bridge process needed.
+tool module's payload shaping and error-envelope mapping against the bridge's
+draft contract, with no bridge process needed. The bridge side of that contract
+is covered by ``tests/services/bluesky_bridge`` and, end to end, by
+``tests/services/test_draft_roundtrip.py``.
 """
 
 from __future__ import annotations
@@ -206,7 +207,7 @@ async def test_clear_draft_non_200_maps_to_generic_bridge_error():
 
 # =========================================================================
 # Registry: draft tools are silent-allow, no hooks_pre, permissions_ask
-# unchanged (task 2.1's registry edit)
+# unchanged by the draft tools
 # =========================================================================
 
 
@@ -224,7 +225,9 @@ def test_draft_tools_are_silent_allow_no_hooks():
 def test_permissions_ask_unchanged_by_draft_tools():
     bluesky_def = FRAMEWORK_SERVERS["bluesky"]
     assert bluesky_def.permissions_ask == [
-        "launch_run",
+        "queue_add",
+        "queue_start",
+        "queue_stop",
         "stop_run",
         "write_plan",
         "validate_plan",
