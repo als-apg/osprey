@@ -217,10 +217,13 @@ async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) ->
     await _assert_approval_hook_fires(
         project,
         # Directive prompt: explicit tool name + concrete channel address so the
-        # agent doesn't burn turns on channel-finder navigation. The approval
-        # hook fires before the underlying write executes — whether the channel
-        # is writable or not is irrelevant to the hook contract.
+        # agent doesn't burn turns on channel-finder navigation. The channel MUST
+        # be writable in the preset's channel_limits.json: the limits hook sits
+        # AHEAD of the approval hook in the PreToolUse chain, and its deny on a
+        # read-only channel short-circuits the chain before approval ever runs
+        # (correct safety behavior — but then this test observes no hook events).
+        # BTS:MAG:HCM:01:CURRENT:SP is a writable corrector (±5 A) in the preset.
         "Use the mcp__controls__channel_write tool to write the value 0.0 to "
-        "the channel 'SR:DIAG:BPM:01:GOLDEN:X'.",
+        "the channel 'BTS:MAG:HCM:01:CURRENT:SP'.",
         expected_write_tool="mcp__controls__channel_write",
     )
