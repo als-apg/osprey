@@ -100,7 +100,7 @@ dependencies = [
     # Natural language processing
     "nltk>=3.10.0",
     # ARIEL Web Interface (FastAPI server)
-    "fastapi>=0.140.0",
+    "fastapi>=0.141.1",
     "uvicorn[standard]>=0.51.0",
     # OIDC client + JOSE (token verification) for the multi-user web-terminal
     # auth sidecar. Declared explicitly rather than relied on as fastmcp's
