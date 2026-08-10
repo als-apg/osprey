@@ -920,6 +920,12 @@ async def dashboard_runs() -> list[dict[str, Any]]:
                 "tool_count": len(run.get("tool_calls", [])),
                 "error": run.get("error"),
                 "num_turns": run.get("num_turns"),
+                # The OSPREY-forced telemetry session UUID (see sdk_runner), i.e.
+                # the value the OTEL emitter tags this run's records with as
+                # session.id. Carried so the dashboard can deep-link a run to its
+                # own telemetry; None for runs that predate the forcing or that
+                # never reached the SDK.
+                "session_id": run.get("session_id"),
                 "has_stream": run_id in _queues,
             }
         )

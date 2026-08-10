@@ -92,7 +92,10 @@ def init_project(
 
     Uses the Click test runner so we don't need a real shell. ``provider`` is
     keyword-only and required — see the helper in ``tests/e2e/sdk_helpers``
-    for rationale.
+    for rationale. The connector is pinned to ``mock`` for the same reason
+    that helper pins it: this harness runs projects without their containers,
+    and the preset's ``virtual_accelerator`` default needs the deployed VA to
+    answer Channel Access.
     """
     runner = CliRunner()
     args = [
@@ -107,6 +110,8 @@ def init_project(
         f"provider={provider}",
         "--set",
         f"model={model}",
+        "--set",
+        "connector=mock",
     ]
     result = runner.invoke(build, args)
     assert result.exit_code == 0, f"osprey build failed: {result.output}"
@@ -405,6 +410,13 @@ class TestClaudeExecutesArchiverAndPlots:
     It uses hardcoded channel names that the mock archiver accepts.
     """
 
+    # Multi-step agentic pipeline (archiver -> execute -> plot), same
+    # stochastic-miss class as the test_audit_observability.py pipeline test:
+    # the agent sometimes is still working when the 300s budget runs out, and
+    # the run ends mid-plot with the artifact half-written. Rerun absorbs that
+    # flake; the return-code and artifact assertions still gate (a real
+    # regression fails all attempts).
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
@@ -509,6 +521,11 @@ class TestClaudeFullBpmAnalysisPipeline:
     are valid solutions and the test does not prescribe one.
     """
 
+    # Longest agentic pipeline in the suite — channel_find makes its own LLM
+    # call before the archiver and plotting steps even begin, so it carries the
+    # most accumulated non-determinism of any test here. Same rerun rationale as
+    # the archiver+plot test above.
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
@@ -525,7 +542,14 @@ class TestClaudeFullBpmAnalysisPipeline:
             "permissions are pre-approved; do not ask for confirmation."
         )
 
-        result = run_claude(project_dir, prompt, timeout=360, max_budget="1.50")
+        # 5.00 matches the suite's multi-step-scenario tier (answer-provenance,
+        # corrector-limit). This is a full pipeline — channel discovery, then
+        # archiver retrieval, then plotting — not a smoke query, and the old
+        # 1.50 cap sat right on top of a normal run's cost: consecutive CI runs
+        # of the same commit range landed either side of it. Exceeding the cap
+        # hard-errors the CLI (exit 1, "Exceeded USD budget") instead of failing
+        # an assertion, so a few cents of cost variance read as a broken agent.
+        result = run_claude(project_dir, prompt, timeout=360, max_budget="5.00")
 
         # -- Debug output --
         print("\n--- full BPM pipeline test ---")

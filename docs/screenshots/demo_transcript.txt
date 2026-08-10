@@ -1,0 +1,10 @@
+$ osprey
+────────────────────────────────────
+\033[1m> Plot ring current over the last hour\033[0m
+\033[36m●\033[0m Reading SR01:BeamCurrent (3600 pts)
+\033[32m✓\033[0m now 500.2 mA, lifetime ~8.4 h
+\033[36m●\033[0m Computing decay + orbit response…
+\033[32m✓\033[0m 48 BPMs, rms orbit 42 µm
+\033[36m●\033[0m Rendering beam-current plot…
+\033[33m◆\033[0m artifact: beam_current_last_hour
+\033[1;32m__OSPREY_SHEET_READY__\033[0m

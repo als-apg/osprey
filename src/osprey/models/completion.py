@@ -167,6 +167,14 @@ def get_chat_completion(
     if not provider_class:
         raise ValueError(f"Unknown provider: {provider}")
 
+    # Resolve before validating: a provider may supply its own endpoint from an
+    # env override or its declared default_base_url, and rejecting the call for a
+    # "missing" base_url it was about to fill in makes that default unreachable.
+    # Checking the raw config value instead is only correct while some other
+    # source happens to set it — which is how this stayed invisible until an env
+    # override was removed.
+    base_url = provider_class.effective_base_url(base_url)
+
     # Validate requirements using provider metadata
     if provider_class.requires_api_key and not api_key:
         raise ValueError(f"API key required for {provider}")

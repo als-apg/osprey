@@ -1,10 +1,11 @@
 """Project virtual-environment creation and ``.env`` templating helpers.
 
 The single place the built project's Python environment is set up (one venv,
-one install pass over ``osprey`` + profile deps) plus the ``.env`` /
-``.env.template`` writers. Kept flat under ``cli/`` so
-:func:`_resolve_osprey_spec`'s source-tree fallback (``parents[3]``) still
-resolves to the repo root for editable/source checkouts.
+one install pass over ``osprey`` + profile deps) plus the ``.env`` writer.
+``.env.example`` — the one file documenting the whole variable set — is
+rendered from ``templates/project/env.example.j2``, not written here. Kept flat
+under ``cli/`` so :func:`_resolve_osprey_spec`'s source-tree fallback
+(``parents[3]``) still resolves to the repo root for editable/source checkouts.
 """
 
 from __future__ import annotations
@@ -30,10 +31,10 @@ logger = get_logger("build")
 class CredentialStatus:
     """Whether one provider's API-key env var is available to the built project.
 
-    ``source`` is a human-readable origin (``"project .env"``, ``"shell
-    environment"``, ``".env in <dir>"``) and is ``None`` when the key is not
-    set. The key's *value* is deliberately never carried — this record is built
-    to be logged.
+    ``source`` is a human-readable origin (``"project .env"``, ``"profile
+    .env"``, ``"shell environment"``) and is ``None`` when the key is not set.
+    The key's *value* is deliberately never carried — this record is built to
+    be logged.
     """
 
     provider: str
@@ -45,8 +46,8 @@ class CredentialStatus:
 def _dotenv_keys(path: Path) -> dict[str, str]:
     """Parse *path* into a dict, dropping empty values. Unreadable → ``{}``.
 
-    Empty values matter: ``.env.template`` ships bare ``VAR=`` lines, and a key
-    with no value authenticates nothing.
+    Empty values matter: ``.env.example`` ships bare ``VAR=`` lines that get
+    copied into a real ``.env``, and a key with no value authenticates nothing.
     """
     if not path.is_file():
         return {}
@@ -62,7 +63,7 @@ def _dotenv_keys(path: Path) -> dict[str, str]:
 
 
 def detect_provider_credentials(
-    project_path: Path, *, cwd: Path | None = None
+    project_path: Path, *, profile_dir: Path | None = None
 ) -> list[CredentialStatus]:
     """Resolve every keyed provider's API-key env var to a found/not-found status.
 
@@ -70,33 +71,37 @@ def detect_provider_credentials(
     project can authenticate:
 
     1. the built project's ``.env`` — what ships with the project;
-    2. the build's working-directory ``.env`` — ``osprey.utils.config`` loads
-       this into ``os.environ`` as an import side effect, so it is a real
-       source even though nothing in the build reads it explicitly;
+    2. the build profile's ``.env`` — the durable facility record the project's
+       own ``.env`` is derived from, so a key present there reaches the project
+       on the next build even when this one has not written it yet;
     3. the shell environment.
+
+    The directory the build was *invoked* from is deliberately not a source: an
+    ambient ``.env`` beside the working directory is not something the built
+    project carries, and reporting it as a found credential described the build
+    host rather than the project.
 
     Keyless providers (ollama, vllm, ds4, asksage) are excluded — they have no
     API-key env var to report on.
 
     Args:
         project_path: Root of the built project.
-        cwd: Directory whose ``.env`` acts as source 2. Defaults to the process
-            working directory.
+        profile_dir: Directory of the build profile, whose ``.env`` acts as
+            source 2. ``None`` (or a profile with no ``.env``) skips it.
 
     Returns:
         One :class:`CredentialStatus` per keyed provider, in registry order.
     """
     from osprey.models.provider_registry import PROVIDER_API_KEYS
 
-    cwd = Path.cwd() if cwd is None else cwd
-    project_env = _dotenv_keys(project_path / ".env")
-    cwd_env_path = cwd / ".env"
-    # Skip when the build ran from inside the project: same file, already read.
-    cwd_env = (
-        {}
-        if cwd_env_path.resolve() == (project_path / ".env").resolve()
-        else _dotenv_keys(cwd_env_path)
-    )
+    project_env_path = project_path / ".env"
+    project_env = _dotenv_keys(project_env_path)
+    profile_env: dict[str, str] = {}
+    if profile_dir is not None:
+        profile_env_path = profile_dir / ".env"
+        # Skip when the profile's .env *is* the project's: same file, already read.
+        if profile_env_path.resolve() != project_env_path.resolve():
+            profile_env = _dotenv_keys(profile_env_path)
 
     statuses: list[CredentialStatus] = []
     for provider, var in PROVIDER_API_KEYS.items():
@@ -104,8 +109,8 @@ def detect_provider_credentials(
             continue
         if var in project_env:
             source: str | None = "project .env"
-        elif var in cwd_env:
-            source = f".env in {cwd}"
+        elif var in profile_env:
+            source = "profile .env"
         elif os.environ.get(var):
             source = "shell environment"
         else:
@@ -117,7 +122,7 @@ def detect_provider_credentials(
 
 
 def report_provider_credentials(
-    project_path: Path, provider: str, *, cwd: Path | None = None
+    project_path: Path, provider: str, *, profile_dir: Path | None = None
 ) -> list[CredentialStatus]:
     """Log a provider-credentials summary, leading with the selected provider.
 
@@ -133,14 +138,14 @@ def report_provider_credentials(
     Args:
         project_path: Root of the built project.
         provider: The provider this project was built for.
-        cwd: Passed through to :func:`detect_provider_credentials`.
+        profile_dir: Passed through to :func:`detect_provider_credentials`.
 
     Returns:
         The statuses that were reported.
     """
     from osprey.models.provider_registry import PROVIDER_API_KEYS
 
-    statuses = detect_provider_credentials(project_path, cwd=cwd)
+    statuses = detect_provider_credentials(project_path, profile_dir=profile_dir)
     selected = next((s for s in statuses if s.provider == provider), None)
 
     if selected is None:
@@ -154,7 +159,24 @@ def report_provider_credentials(
     else:
         logger.warning("  ✗ Provider: %s — %s NOT SET", provider, selected.var)
         logger.warning("      The build will complete, but the agent cannot reach the model.")
-        logger.warning("      Add %s to %s or export it.", selected.var, project_path / ".env")
+        # Name the PROFILE .env, not the project's. A key hand-added to the
+        # project .env is dropped by the next build: derive_project_env(
+        # mode="build") keeps only build-derived, runtime-written, and
+        # profile-carried keys, and a project-only key is none of those. This
+        # is the one message an operator sees when a key is missing, so
+        # pointing it at the project .env would steer them to the fastest way
+        # to silently lose the secret. Exporting is offered only as what it
+        # actually is — a host-local run, not something the build records.
+        if profile_dir is not None:
+            logger.warning(
+                "      Add %s to %s — the profile owns this project's secrets — "
+                "or export it for a host-local run.",
+                selected.var,
+                profile_dir / ".env",
+            )
+        else:
+            # No profile to name (legacy preset-built project).
+            logger.warning("      Add %s to %s.", selected.var, project_path / ".env")
 
     others = [s for s in statuses if s is not selected]
     found_others = [s.var for s in others if s.found]
@@ -181,35 +203,17 @@ def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None
         from osprey.utils.dotenv import merge_env_preserving_existing
 
         merged = merge_env_preserving_existing(
-            src.read_text(encoding="utf-8"), dst.read_text(encoding="utf-8")
+            src.read_text(encoding="utf-8"),
+            dst.read_text(encoding="utf-8"),
+            # The rendered side here is a profile fragment, not the build's own
+            # render, so it cannot un-write the build-derived keys.
+            build_derived_keys=frozenset(),
         )
         dst.write_text(merged, encoding="utf-8")
         logger.info("  ✓ Merged %s → .env (existing values preserved)", env_file)
         return
     shutil.copy2(src, dst)
     logger.info("  ✓ Copied %s → .env", env_file)
-
-
-def _generate_env_template(project_path: Path, env_config: Any) -> None:
-    """Generate a .env.template file from the profile's env configuration."""
-    lines: list[str] = []
-    if env_config.required:
-        lines.append("# Required")
-        for var in env_config.required:
-            lines.append(f"{var}=")
-    if env_config.defaults:
-        if lines:
-            lines.append("")
-        lines.append("# Defaults")
-        for var, value in env_config.defaults.items():
-            lines.append(f"{var}={value}")
-    lines.append("")  # Trailing newline
-
-    env_path = project_path / ".env.template"
-    env_path.write_text("\n".join(lines), encoding="utf-8")
-    logger.info("  ✓ Generated .env.template")
-    if not (project_path / ".env").exists():
-        logger.info("  Hint: Copy .env.template to .env and fill in required values")
 
 
 def _resolve_osprey_spec(osprey_install: str) -> tuple[str, str]:
@@ -240,7 +244,15 @@ def _resolve_osprey_spec(osprey_install: str) -> tuple[str, str]:
             return src_path, f"editable: {src_path}"
 
         if dist is not None:
-            spec = f"osprey-framework=={dist.version}"
+            from osprey.version import get_release_version, is_release, unreleased_pin_reason
+
+            if not is_release():
+                raise BuildProfileError(
+                    f"Cannot pin osprey-framework: {unreleased_pin_reason()} "
+                    "Set `osprey_install` in your profile to a source path or an "
+                    "explicit PEP 508 spec, or build from a released osprey."
+                )
+            spec = f"osprey-framework=={get_release_version()}"
             return spec, spec
 
         # Metadata unavailable (rare: e.g. running osprey directly from a
@@ -733,6 +745,17 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
     return pinned
 
 
+# Ceiling on the project-venv dependency install.
+#
+# This install pulls osprey's whole transitive tree into a fresh venv — around
+# 1.4 GB installed, from ~2.2 GB of wheels, on a cold cache. How long that takes
+# is a property of the network, not of the project, so the cap has to bound an
+# installer that is *stuck* rather than one that is merely slow. A tight cap
+# turns an ordinary cold-cache download into an abort that fires intermittently
+# and reads as flakiness rather than as a limit set too low.
+_VENV_INSTALL_TIMEOUT_S = 1800
+
+
 def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     """Create the project venv and install osprey + profile deps.
 
@@ -846,7 +869,24 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
 
     spinner = Spinner("dots", text=f"  Installing osprey ({osprey_label}) + {dep_count} deps...")
     with Live(spinner, transient=True):
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=_VENV_INSTALL_TIMEOUT_S
+            )
+        except subprocess.TimeoutExpired as e:
+            # A bare TimeoutExpired escapes to build_cmd's catch-all and prints
+            # "Unexpected error", naming neither the step nor a way forward.
+            raise BuildProfileError(
+                f"installing osprey + {dep_count} deps into the project venv did not "
+                f"finish within {_VENV_INSTALL_TIMEOUT_S // 60} minutes.\n"
+                "        This install downloads osprey's full dependency tree (over a "
+                "gigabyte on a cold cache), so a slow or interrupted connection is the "
+                "usual cause.\n"
+                "        Re-running the build resumes from what already downloaded — "
+                "completed packages are served from the local cache.\n"
+                "        On a slow or restricted link, point the build at a closer "
+                "package mirror (UV_INDEX_URL, or PIP_INDEX_URL without uv)."
+            ) from e
 
     if result.returncode == 0:
         logger.info("  ✓ Installed osprey + %d profile deps into project venv", dep_count)

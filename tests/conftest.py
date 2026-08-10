@@ -6,6 +6,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 
 import logging
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -26,13 +27,64 @@ _PRISTINE_LOGGING = {
 }
 
 # ===================================================================
+# Collection-time environment pollution guard
+# ===================================================================
+#
+# Importing a test module can import third-party code that loads a .env at
+# import time — litellm calls dotenv.load_dotenv() on import, and python-dotenv
+# walks UP from its package directory, so on a developer machine it can find an
+# ancestor checkout's .env and inject real credentials, PROJECT_ROOT, and TZ
+# into os.environ before the first test runs. CI has no ancestor .env, so
+# whatever those variables change locally is invisible there.
+#
+# Only that injection is undone. A blanket restore would also strip the
+# coordination variables some test modules legitimately export at import time
+# (tests/va/* set EPICS_CA_SERVER_PORT et al. so the soft-IOC subprocesses they
+# spawn share their ports), so a key is removed only when it BOTH appeared
+# during collection AND carries exactly the value an ancestor .env defines.
+
+_PRE_COLLECTION_ENV = dict(os.environ)
+
+
+def _ancestor_dotenv_values() -> dict[str, str]:
+    """Every assignment an ancestor .env could have injected, keyed by var."""
+    from dotenv import dotenv_values
+
+    injected: dict[str, str] = {}
+    for directory in (_REPO_ROOT, *_REPO_ROOT.parents):
+        candidate = directory / ".env"
+        if candidate.is_file():
+            injected.update({k: v for k, v in dotenv_values(candidate).items() if v is not None})
+    return injected
+
+
+def pytest_collection_finish(session):
+    """Undo ancestor-.env injection performed by imports during collection."""
+    import time
+
+    added = set(os.environ) - set(_PRE_COLLECTION_ENV)
+    if added:
+        injected = _ancestor_dotenv_values()
+        for key in added:
+            if key in injected and os.environ[key] == injected[key]:
+                del os.environ[key]
+    # Re-sync the C library's cached zone with the (possibly restored) TZ.
+    # Collection can leave the two disagreeing (TZ injected, cache not), and
+    # then the first test to call tzset() flips tzname mid-suite and reads as
+    # a leaker to _no_host_timezone_leak below.
+    time.tzset()
+
+
+# ===================================================================
 # Environment guard
 # ===================================================================
 #
-# Declared first in this module on purpose: autouse fixtures at the same scope
-# are set up in declaration order, so this one is set up before every other
-# fixture and torn down after all of them — including `monkeypatch`, whose undo
-# therefore lands *inside* the snapshot window instead of after it.
+# Ordering note: autouse fixtures of equal scope are set up in *alphabetical*
+# order, not declaration order — `pytest --setup-plan <test>` prints the real
+# sequence. So `_no_host_timezone_leak` is the outermost function-scoped fixture
+# here (leading underscore), not this one, and anything that must sit outside
+# that guard's snapshot window has to be session-scoped rather than merely
+# declared earlier.
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -48,6 +100,7 @@ def restore_environ():
 
     ``OSPREY_CONFIG`` and ``CONFIG_FILE`` are additionally cleared on the way in,
     so a developer who exports either in their shell still gets a pristine run.
+    ``TZ`` is handled once per session instead -- see ``_clear_dotenv_timezone``.
     """
     saved = dict(os.environ)
 
@@ -88,6 +141,60 @@ def reset_state_between_tests():
     # Reset after test
     reset_registry()
     reset_config_cache()
+
+
+# ===================================================================
+# Host-timezone leak guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _clear_dotenv_timezone():
+    """Drop a ``.env``-injected ``TZ`` once, before any test runs.
+
+    litellm calls a bare ``load_dotenv()`` at import, and the bare form searches
+    *parent* directories -- so a worktree with no ``.env`` of its own still
+    inherits the checkout's. That publishes ``TZ`` into ``os.environ`` during
+    collection without a matching ``time.tzset()``, leaving the variable and the
+    C library's cached zone disagreeing. The first test to call ``tzset()`` then
+    reconciles them mid-test, and ``_no_host_timezone_leak`` reports the change
+    against whichever test happened to make the call. It only bites where the
+    host zone differs from the ``.env`` one, which is why CI -- which has no
+    ``.env`` at all -- never sees it.
+
+    Session scope is load-bearing: the clear has to land outside every
+    function-scoped fixture's window, including the guard's own. Autouse
+    fixtures of equal scope are ordered alphabetically, so ``_no_host_timezone``
+    sets up first and tears down last; doing this per test would fall inside
+    that window and read as a leak.
+    """
+    if os.environ.pop("TZ", None) is not None:
+        time.tzset()
+    yield
+
+
+@pytest.fixture(autouse=True, scope="function")
+def _no_host_timezone_leak():
+    """Fail the test that leaves the process on a different host timezone.
+
+    Finalizers run LIFO: a bare ``request.addfinalizer(time.tzset)`` runs
+    *before* monkeypatch restores ``TZ``, leaving every later test on the
+    wrong host zone. This fixture's teardown runs after monkeypatch's own,
+    which is exactly the ordering the bug turns on.
+    """
+    import os as _os
+    import time as _time
+
+    before = (_os.environ.get("TZ"), _time.tzname)
+
+    yield
+
+    after = (_os.environ.get("TZ"), _time.tzname)
+    assert after == before, (
+        f"test leaked the host timezone: TZ/tzname was {before} before the test "
+        f"and {after} after. Undo the monkeypatch *before* calling time.tzset() "
+        f"so the C library re-reads the restored TZ, not the patched one."
+    )
 
 
 # ===================================================================

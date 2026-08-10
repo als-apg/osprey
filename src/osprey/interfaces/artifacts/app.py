@@ -10,8 +10,9 @@ import asyncio
 import json
 import re
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
+from itertools import chain
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -21,7 +22,10 @@ from pydantic import BaseModel
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
-from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
+from osprey.utils.timeseries import (
+    downsample_channel_map,
+    extract_channel_series,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -266,69 +270,19 @@ body {{
 <body>
 <script type="application/json" id="md-source">{md_json}</script>
 <div class="osprey-md-rendered" id="md-rendered"></div>
-<script>
-// Renders markdown from the embedded JSON source using marked + hljs + KaTeX.
-// Content originates from trusted local artifact files; marked.parse() and
-// katex.renderToString() both produce sanitized HTML output.
-(function() {{
-  var esc = function(s) {{
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
-            .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }};
-  var renderer = {{
-    code: function(args) {{
-      var src = args.text || '';
-      var lang = args.lang || '';
-      var highlighted = esc(src);
-      if (typeof hljs !== 'undefined' && src) {{
-        try {{
-          if (lang && hljs.getLanguage(lang)) {{
-            highlighted = hljs.highlight(src, {{ language: lang }}).value;
-          }} else {{
-            highlighted = hljs.highlightAuto(src).value;
-          }}
-        }} catch(e) {{}}
-      }}
-      return '<pre><code class="hljs' + (lang ? ' language-' + lang : '') +
-             '">' + highlighted + '</code></pre>';
-    }}
-  }};
-  marked.use({{ gfm: true, breaks: false, renderer: renderer }});
+<script type="module">
+// Renders markdown from the embedded JSON source through the gallery's
+// shared marked + hljs + KaTeX pipeline (md-render.js) — one algorithm for
+// the preview pane and this standalone page. Module scripts defer, so the
+// classic vendor <script> tags above have populated the marked/hljs/katex
+// globals by the time this runs.
+import {{ configureMarked, renderMathInMarkdown }} from '/static/js/md-render.js';
 
-  function renderMath(text) {{
-    if (typeof katex === 'undefined') return marked.parse(text);
-    var placeholders = [], idx = 0;
-    function ph(html) {{
-      var key = '\\x00MATH' + (idx++) + '\\x00';
-      placeholders.push({{ key: key, html: html }});
-      return key;
-    }}
-    function rk(expr, dm) {{
-      try {{
-        return katex.renderToString(expr.trim(), {{
-          displayMode: dm, throwOnError: false, strict: false
-        }});
-      }} catch(e) {{
-        return '<span class="katex-error">' + esc(expr) + '</span>';
-      }}
-    }}
-    text = text.replace(/\\$\\$([\\s\\S]+?)\\$\\$/g, function(_, e) {{ return ph(rk(e, true)); }});
-    text = text.replace(/(?<!\\$)(?<!\\d)\\$(?!\\$)(.+?)(?<!\\$)\\$(?!\\d)/g,
-      function(_, e) {{ return ph(rk(e, false)); }});
-    var html;
-    try {{ html = marked.parse(text); }}
-    catch(e) {{ html = '<p>' + esc(text) + '</p>'; }}
-    for (var i = 0; i < placeholders.length; i++) {{
-      html = html.replace(placeholders[i].key, placeholders[i].html);
-    }}
-    return html;
-  }}
-
-  var src = JSON.parse(document.getElementById('md-source').textContent);
-  // Safe: marked.parse() and katex.renderToString() produce sanitized HTML
-  // from trusted local artifact content (not user input from the web).
-  document.getElementById('md-rendered').innerHTML = renderMath(src);  // trusted content
-}})();
+configureMarked();
+const src = JSON.parse(document.getElementById('md-source').textContent);
+// Safe: marked.parse() and katex.renderToString() produce sanitized HTML
+// from trusted local artifact content (not user input from the web).
+document.getElementById('md-rendered').innerHTML = renderMathInMarkdown(src);  // trusted content
 </script>
 </body>
 </html>"""
@@ -430,6 +384,126 @@ class _SSEBroadcaster:
 
 
 MAX_TIMESERIES_FILE_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+def _union_timestamp_axis(series: dict[str, dict]) -> Collection:
+    """Every timestamp any channel carries, deduplicated — the table's row axis.
+
+    Shared by both response formats so ``format=chart``'s ``summary.row_count``
+    always matches ``format=table``'s ``total_rows``.
+    """
+    stamps = chain.from_iterable(data.get("timestamps", []) for data in series.values())
+    try:
+        return set(stamps)
+    except TypeError:
+        # An unhashable timestamp (a JSON array, say) cannot go in a set;
+        # dedupe by equality instead. `stamps` is one-shot, so rebuild it.
+        unique: list = []
+        for stamp in chain.from_iterable(data.get("timestamps", []) for data in series.values()):
+            if stamp not in unique:
+                unique.append(stamp)
+        return unique
+
+
+def _raise_duplicate_sample(channel: str, stamp: object) -> None:
+    """Reject two samples sharing one (timestamp, channel) cell."""
+    raise HTTPException(
+        status_code=500,
+        detail=(
+            f"Channel {channel!r} has more than one sample at timestamp {stamp!r}; "
+            "a table view has exactly one cell per channel per timestamp "
+            "and cannot represent both without silently discarding one."
+        ),
+    )
+
+
+class _EqualityMatchLookup:
+    """A channel's ``timestamp -> value`` lookup for unhashable timestamps.
+
+    Matches by ``==`` rather than by hash; duplicates are rejected eagerly in
+    the constructor, matching the hashable path.
+    """
+
+    __slots__ = ("_pairs",)
+
+    def __init__(self, channel: str, timestamps: list, values: list) -> None:
+        # strict=False: a timestamps/values length mismatch is tolerated, as
+        # on the fast path.
+        self._pairs = list(zip(timestamps, values, strict=False))
+        for i, (stamp, _val) in enumerate(self._pairs):
+            if any(stamp == earlier for earlier, _ in self._pairs[:i]):
+                _raise_duplicate_sample(channel, stamp)
+
+    def get(self, key: object, default: object = None) -> object:
+        for stamp, value in self._pairs:
+            if stamp == key:
+                return value
+        return default
+
+
+def _pivot_channel_series_to_table(
+    series: dict[str, dict],
+    *,
+    offset: int,
+    limit: int,
+) -> tuple[list[str], list, list[list], int]:
+    """Pivot per-channel series into aligned rows for table display.
+
+    Unions every channel's own timestamps into one sorted axis and looks up
+    each channel's value at each shared timestamp, leaving ``None`` where
+    that channel has no sample. Presentation-only; only the requested page's
+    rows are materialized. The returned ``columns`` is the very list each row
+    was indexed with — a header taken from any other response can disagree
+    with these rows.
+
+    Args:
+        series: Per-channel series as returned by ``extract_channel_series``.
+        offset: Index of the first row to return.
+        limit: Maximum rows to return.
+
+    Returns:
+        Tuple of (columns, index, data, total_rows) -- the channel names in
+        column order, the requested page's timestamps, its rows with one value
+        (or ``None``) per column, and the full row count the page was taken
+        from.
+
+    Raises:
+        HTTPException: if any channel has more than one sample at the same
+            timestamp label.
+    """
+    columns = list(series.keys())
+    value_by_channel: dict[str, dict | _EqualityMatchLookup] = {}
+    for ch, data in series.items():
+        timestamps = data.get("timestamps", [])
+        values = data.get("values", [])
+        # A dict of n pairs holds fewer than n entries iff a key repeated.
+        try:
+            by_ts: dict = dict(zip(timestamps, values, strict=False))
+        except TypeError:
+            # Unhashable timestamps can't key a dict; match by equality instead.
+            value_by_channel[ch] = _EqualityMatchLookup(ch, timestamps, values)
+            continue
+        if len(by_ts) != min(len(timestamps), len(values)):
+            # Re-walk the pairs to name the first repeated timestamp.
+            seen: set = set()
+            for ts, _val in zip(timestamps, values, strict=False):
+                if ts in seen:
+                    _raise_duplicate_sample(ch, ts)
+                seen.add(ts)
+        value_by_channel[ch] = by_ts
+
+    all_timestamps = _union_timestamp_axis(series)
+    try:
+        index = sorted(all_timestamps)
+    except TypeError:
+        # Mutually-incomparable timestamp types (e.g. int vs str) can't sort
+        # by `<`; a deterministic string order beats a 500.
+        index = sorted(all_timestamps, key=str)
+
+    total_rows = len(index)
+    page = index[offset : min(offset + limit, total_rows)]
+    rows = [[value_by_channel[ch].get(ts) for ch in columns] for ts in page]
+    return columns, page, rows, total_rows
 
 
 def create_app(workspace_root: Path | None = None) -> FastAPI:
@@ -651,28 +725,40 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
 
         raw = json.loads(filepath.read_bytes())
-        frame, query_meta = extract_timeseries_frame(raw)
-        columns = frame.get("columns", [])
-        index = frame.get("index", [])
-        rows = frame.get("data", [])
-        total_rows = len(index)
+        series, query_meta = extract_channel_series(raw)
 
         if format == "chart":
-            ds_index, ds_rows = lttb_downsample(index, rows, max_points)
+            channels_out = [
+                {
+                    "channel": record["channel"],
+                    "timestamps": record["timestamps"],
+                    "values": record["values"],
+                    "total_points": record["original_points"],
+                    "returned_points": record["returned_points"],
+                    "numeric": record["numeric"],
+                }
+                for record in downsample_channel_map(series, max_points)
+            ]
+            # Cross-channel totals are computed server-side: per-channel point
+            # sums disagree with the unioned row axis, and `row_count` is not
+            # derivable client-side at all.
             return {
-                "columns": columns,
-                "index": ds_index,
-                "data": ds_rows,
-                "total_rows": total_rows,
-                "downsampled": len(ds_index) < total_rows,
-                "returned_points": len(ds_index),
+                "channels": channels_out,
                 "metadata": query_meta,
+                "summary": {
+                    "total_points": sum(ch["total_points"] for ch in channels_out),
+                    "returned_points": sum(ch["returned_points"] for ch in channels_out),
+                    "downsampled": any(
+                        ch["returned_points"] < ch["total_points"] for ch in channels_out
+                    ),
+                    "row_count": len(_union_timestamp_axis(series)),
+                },
             }
 
-        # format == "table"
-        end = min(offset + limit, total_rows)
-        sliced_index = index[offset:end]
-        sliced_data = rows[offset:end]
+        # format == "table": pivot per-channel series onto a unioned row axis.
+        columns, sliced_index, sliced_data, total_rows = _pivot_channel_series_to_table(
+            series, offset=offset, limit=limit
+        )
         return {
             "columns": columns,
             "index": sliced_index,

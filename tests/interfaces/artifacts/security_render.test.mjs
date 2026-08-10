@@ -36,7 +36,6 @@ import { qs, byId } from '../_support/dom.mjs';
 import {
   setArtifacts,
   setSelectedArtifact,
-  setActiveFilter,
   setFocusedArtifact,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import {
@@ -130,21 +129,12 @@ async function resetTypeRegistry() {
 
 // =========================================================================
 // RENDER path — render.js's sidebar (tree / activity / gallery layouts) +
-// filter-bar chip labels.
+// tree-section header labels.
 // =========================================================================
 
 describe('RENDER path (render.js) — hostile metadata in sidebar renders', () => {
   function mountSidebarFixture() {
     document.body.innerHTML = `
-      <nav class="filter-bar" id="filter-bar">
-        <div class="filter-bar-inner">
-          <button class="filter-chip active" data-filter="all">ALL</button>
-          <button class="filter-chip" data-filter="pinned" title="Pinned items" hidden>
-            Pinned <span class="chip-count"></span>
-          </button>
-          <span class="filter-chip-separator" id="filter-type-chips"></span>
-        </div>
-      </nav>
       <input id="search" />
       <aside class="browse-sidebar" id="browse-sidebar">
         <div class="sidebar-body" id="sidebar-body"></div>
@@ -172,7 +162,6 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
 
   beforeEach(() => {
     mountSidebarFixture();
-    setActiveFilter('all');
     setSelectedArtifact(null);
   });
 
@@ -247,23 +236,23 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
     }
   );
 
-  test('initFilterBar: a hostile registry label is escaped as text in the chip innerHTML sink, typeIcon SVG survives', async () => {
+  test('a hostile registry label is escaped as text in the tree-section header innerHTML sink, typeIcon SVG survives', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ categories: { evilchip: { label: HOSTILE.DQ_ATTR } } }),
+      json: () => Promise.resolve({ categories: { evilcat: { label: HOSTILE.DQ_ATTR } } }),
     }));
     await initTypeRegistry();
 
     setArtifacts([
-      { id: 'c1', title: 'Chip Test', filename: 'c.png', artifact_type: 'evilchip', category: 'evilchip', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
+      { id: 'c1', title: 'Section Test', filename: 'c.png', artifact_type: 'evilcat', category: 'evilcat', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
     ]);
     const renderer = createSidebarRenderer(makeSidebarCallbacks());
-    renderer.initFilterBar();
+    renderer.renderSidebar();
 
-    const chip = document.querySelector('.filter-chip[data-filter="evilchip"]');
-    expect(chip).not.toBeNull();
-    if (chip === null) throw new Error('unreachable: chip asserted non-null above');
+    const header = document.querySelector('.tree-section-header[data-type="evilcat"]');
+    expect(header).not.toBeNull();
+    if (header === null) throw new Error('unreachable: header asserted non-null above');
     expectNoLiveInjection(document.body);
-    expect(chip.querySelector('.chip-icon svg')).not.toBeNull();
+    expect(header.querySelector('.tree-section-icon svg')).not.toBeNull();
   });
 });
 
@@ -456,15 +445,24 @@ describe('TYPES path (types.js) — typeBadge / thumbnailHtml / id-encoding', ()
 // =========================================================================
 
 describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
-  /** Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`). */
-  function makeChartData(overrides = {}) {
+  /**
+   * Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`) --
+   * one entry per channel. `overrides.columns` replaces the channel's name.
+   */
+  function makeChartData({ columns = [HOSTILE.DQ_IMG], ...overrides } = {}) {
     return {
-      columns: [HOSTILE.DQ_IMG],
-      index: ['2026-07-01T00:00:00Z'],
-      data: [[1.0]],
-      total_rows: 1,
-      downsampled: false,
-      returned_points: 1,
+      channels: [
+        {
+          channel: columns[0],
+          timestamps: ['2026-07-01T00:00:00Z'],
+          values: [1.0],
+          total_points: 1,
+          returned_points: 1,
+          numeric: true,
+        },
+      ],
+      metadata: {},
+      summary: { total_points: 1, returned_points: 1, downsampled: false, row_count: 1 },
       ...overrides,
     };
   }
@@ -501,6 +499,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       newPlot: vi.fn((el) => { el.data = []; }),
       restyle: vi.fn(),
       relayout: vi.fn(),
+      update: vi.fn(),
     });
     stubScriptLoad();
   });
@@ -515,7 +514,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData()) }));
       const el = document.createElement('div');
 
-      await renderTimeseriesTable(el, 'ts1', [HOSTILE.DQ_IMG], 0);
+      await renderTimeseriesTable(el, 'ts1', 0);
 
       expectNoLiveInjection(el);
       expect(el.innerHTML).not.toContain(HOSTILE.DQ_IMG);
@@ -525,7 +524,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
   });
 
   describe('renderTimeseriesView', () => {
-    test('a hostile column name round-trips through the data-ch-name/title attribute sinks with no breakout', async () => {
+    test('a hostile column name round-trips through the data-ch-name/title/aria-label attribute sinks with no breakout', async () => {
       vi.stubGlobal('fetch', vi.fn((url) => {
         if (url.includes('format=chart')) return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
         return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
@@ -546,6 +545,9 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       // markup above never contained the raw breakout.
       expect(toggle.dataset.chName).toBe(HOSTILE.DQ_IMG);
       expect(toggle.getAttribute('title')).toBe(HOSTILE.DQ_IMG);
+      // `aria-label` is a third double-quoted sink for the same agent-supplied
+      // channel name -- the double-quote in DQ_IMG is the breakout character.
+      expect(toggle.getAttribute('aria-label')).toBe(HOSTILE.DQ_IMG);
     });
 
     test('the info-bar channel badge escapes a hostile column name, no live element', async () => {

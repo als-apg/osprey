@@ -19,7 +19,7 @@
       --text: var(--wt-welcome-text);
       --text-dim: var(--wt-welcome-link);
       --text-bright: var(--wt-welcome-link-hover);
-      --accent: var(--color-amber-light);
+      --accent: var(--color-accent-secondary-light);
       --danger: var(--color-error);
       --glow: var(--wt-welcome-text-glow);
       /* The CRT phosphor-glow aesthetic is a dark-terminal effect. Rather

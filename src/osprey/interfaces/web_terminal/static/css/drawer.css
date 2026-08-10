@@ -63,27 +63,19 @@
 
 /* ---- Drawer Resize Handle ---- */
 
+/* The handle's look and drag behaviour are the design system's shared
+   `.osprey-splitter` (base.css + js/splitter.js) — the same grip pill, cursor,
+   hover treatment, keyboard handling and ARIA semantics as every other
+   resizable pane in the product. All that is drawer-specific is where the
+   handle sits: the drawer is `position: fixed`, so its divider is pinned to
+   the left edge rather than being a flex child between two panes. */
 .drawer-resize-handle {
   position: absolute;
   top: 0;
   left: -3px;
   width: 6px;
   height: 100%;
-  cursor: col-resize;
   z-index: 10;
-  background: transparent;
-  transition: background var(--wt-transition-fast);
-}
-
-.drawer-resize-handle:hover,
-.drawer-resize-handle.dragging {
-  background: var(--accent-tint-25);
-  box-shadow: 0 0 6px var(--accent-tint-30);
-}
-
-body.drawer-resizing {
-  cursor: col-resize !important;
-  user-select: none;
 }
 
 /* ---- Drawer Header ---- */
@@ -167,6 +159,23 @@ body.drawer-resizing {
 
 .drawer-tab-panel.active {
   display: flex;
+}
+
+/* ---- Tab Subtitle ----
+   A standing one-liner naming what the tab is. Muted and non-interactive on
+   purpose: always available to a first-time operator, never competing with the
+   content for attention. `flex-shrink: 0` keeps it from being squeezed out
+   when the gallery below it fills the panel. */
+
+.drawer-tab-subtitle {
+  margin: 0;
+  padding: 10px 12px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
 }
 
 /* ---- Drawer Close ---- */
@@ -363,7 +372,7 @@ body.drawer-resizing {
   padding: 1px 4px;
   border-radius: var(--radius-xs);
   font-size: var(--text-base);
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   word-break: break-all;
 }
 
@@ -399,7 +408,7 @@ body.drawer-resizing {
 }
 
 .mcp-env-key {
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   font-weight: var(--weight-medium);
   flex-shrink: 0;
 }

@@ -1,14 +1,23 @@
 """E2E Tests for LLM Provider Integration.
 
 Tests the LiteLLM-based provider system with real API calls across a
-provider × model matrix. Tests are conditionally run based on available API keys.
+provider × model matrix. Within the matrix, tests are conditionally run based
+on available API keys.
 
 Test Matrix:
 - Providers: anthropic, openai, google, ollama, cborg, amsc-i2, als-apg
 - Models: Multiple tiers per provider (haiku/sonnet, mini/4o, mistral/gptoss)
 - Tasks: completion, structured output, ReAct agent with tools
 
-Run with: pytest tests/e2e/test_llm_providers.py -v
+OPT-IN: the whole module is skipped unless OSPREY_LLM_MATRIX_ENABLE=1. Unlike
+every other e2e file (which picks ONE provider by preference order), this
+matrix activates a paid lane for EVERY provider whose key is in the
+environment — a developer with several keys exported pays on all of them, and
+a stale key turns into a red suite. The mocked per-adapter suite in
+tests/models/ keeps all regression coverage; run this matrix deliberately
+after touching src/osprey/models/providers/ or adding a provider.
+
+Run with: OSPREY_LLM_MATRIX_ENABLE=1 pytest tests/e2e/test_llm_providers.py -v
 """
 
 import os
@@ -17,6 +26,18 @@ from typing import Any
 import pytest
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+
+# Explicit opt-in gate (mirrors tests/va/e2e's OSPREY_VA_E2E_ENABLE convention:
+# the module must always collect cleanly and skip cleanly with the flag unset).
+_MATRIX_ENABLED = os.environ.get("OSPREY_LLM_MATRIX_ENABLE") == "1"
+
+pytestmark = pytest.mark.skipif(
+    not _MATRIX_ENABLED,
+    reason=(
+        "set OSPREY_LLM_MATRIX_ENABLE=1 to run the paid provider × model matrix "
+        "(makes real API calls on every provider whose key is in the environment)"
+    ),
+)
 
 # =============================================================================
 # MODEL MATRIX CONFIGURATION
@@ -152,7 +173,7 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
         (
             "als-apg",
             ["ALS_APG_API_KEY"],
-            "https://llm.gianlucamartino.com",
+            os.environ.get("ALS_APG_BASE_URL") or "https://llm.gianlucamartino.com",
             "claude-haiku-4-5-20251001",
         ),
     ]
@@ -227,36 +248,39 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
     return available
 
 
-# Cache at import time
-_AVAILABLE_PROVIDERS = get_available_providers_raw()
+# Cache at import time. All three probes short-circuit when the matrix is
+# disabled so a default collection fires no network requests at all.
+_AVAILABLE_PROVIDERS = get_available_providers_raw() if _MATRIX_ENABLED else {}
 
 # Cache Ollama models
 _AVAILABLE_OLLAMA_MODELS: list[str] = []
-try:
-    import httpx
+if _MATRIX_ENABLED:
+    try:
+        import httpx
 
-    resp = httpx.get(
-        f"{os.environ.get('OLLAMA_HOST', 'http://localhost:11434')}/api/tags", timeout=2.0
-    )
-    if resp.status_code == 200:
-        _AVAILABLE_OLLAMA_MODELS = [m["name"] for m in resp.json().get("models", [])]
-except Exception:
-    # Ollama is optional; ignore connectivity errors during model discovery
-    pass
+        resp = httpx.get(
+            f"{os.environ.get('OLLAMA_HOST', 'http://localhost:11434')}/api/tags", timeout=2.0
+        )
+        if resp.status_code == 200:
+            _AVAILABLE_OLLAMA_MODELS = [m["name"] for m in resp.json().get("models", [])]
+    except Exception:
+        # Ollama is optional; ignore connectivity errors during model discovery
+        pass
 
 # Cache vLLM models
 _AVAILABLE_VLLM_MODELS: list[str] = []
-try:
-    import httpx
+if _MATRIX_ENABLED:
+    try:
+        import httpx
 
-    resp = httpx.get(
-        f"{os.environ.get('VLLM_BASE_URL', 'http://localhost:8000/v1')}/models", timeout=2.0
-    )
-    if resp.status_code == 200:
-        _AVAILABLE_VLLM_MODELS = [m["id"] for m in resp.json().get("data", [])]
-except Exception:
-    # vLLM is optional; ignore connectivity errors during model discovery
-    pass
+        resp = httpx.get(
+            f"{os.environ.get('VLLM_BASE_URL', 'http://localhost:8000/v1')}/models", timeout=2.0
+        )
+        if resp.status_code == 200:
+            _AVAILABLE_VLLM_MODELS = [m["id"] for m in resp.json().get("data", [])]
+    except Exception:
+        # vLLM is optional; ignore connectivity errors during model discovery
+        pass
 
 
 def skip_if_provider_unavailable(provider_name: str):

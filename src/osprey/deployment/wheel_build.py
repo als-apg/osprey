@@ -86,9 +86,9 @@ def preflight_dev_mode():
 # below): the wheel's own base dependency list, which the Dockerfiles' deps
 # layer installs with the build toolchain still present. Without it the deps
 # layer primes only the RELEASED PyPI pin's dependencies, and any base dep the
-# local wheel adds that the release lacks (e.g. a native sdist like softioc)
-# would have to compile in the later toolchain-less wheel-install layer — and
-# fail.
+# local wheel adds that the release lacks (e.g. a native sdist like
+# accelerator-toolbox) would have to compile in the later toolchain-less
+# wheel-install layer — and fail.
 LOCAL_REQUIREMENTS_FILENAME = "osprey-local-requirements.txt"
 
 

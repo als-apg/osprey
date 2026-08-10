@@ -1,16 +1,22 @@
-"""The Bluesky bridge's FastAPI app: wires the run registry, launch gate, and
-runner seam (``runs.py``, ``security.py``, ``plan_runner.py``) into HTTP routes.
+"""The Bluesky bridge's FastAPI app: the HTTP surface in front of the queue.
 
-Two processes, one machine (see PLAN.md's Technical Architecture): this app
-runs in a separate container from OSPREY's own venv, reachable only over
-HTTP plus the ``X-Launch-Token`` header. It stays import-clean of bluesky/
-ophyd/tiled in Phase 1 — ``_runner_factory`` defaults to the no-op
-``FakePlanRunner`` so this app is runnable and manually smoke-testable
-(``GET /health``, even a real ``launch``) before the bluesky-backed
-``PlanRunner`` exists. Real wiring swaps the factory via ``set_runner_factory``:
-either a facility's own deploy code, or this module's own opt-in
-``_lifespan`` hook — real EPICS devices (``BLUESKY_EPICS_SUBSTRATE``) or the
-built-in deploy smoke demo (``BLUESKY_DEMO_RUNNER``) — see below.
+Two processes, one machine: this app runs in a separate container from
+OSPREY's own venv, reachable only over HTTP plus the ``X-Launch-Token``
+header.
+
+The bridge does not run plans. Execution belongs to the queueserver worker
+(``qserver_startup.py``), which owns the RunEngine and every device; this
+process composes and validates plans, enqueues them through ``queue.py``,
+projects the manager's own item state back out as run records (``runs.py``),
+and serves the data the document plane buffers. That division is what keeps
+this module import-clean of bluesky/ophyd/tiled (``_BRIDGE_ONLY_MODULES``) —
+there is no in-process runner left to import them for.
+
+The direct-execute routes that predate the queue (``POST /runs``,
+``POST /runs/{id}/launch``, ``POST /draft/run``, ``POST /runs/{id}/stop``)
+still answer, with a single machine-readable ``use_the_queue`` refusal naming
+the route that replaced each of them — a removed route would 404 and tell a
+caller nothing about where its capability went.
 """
 
 from __future__ import annotations
@@ -20,43 +26,22 @@ import asyncio
 import logging
 import os
 import re
-from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query
 
-from . import draft, live_rows
+from . import document_plane, draft, live_rows, queue, runs
 from .models import (
-    DraftRunRequest,
     PlanSessionWriteRequest,
     PlanValidateRequest,
-    RunRequest,
 )
-from .plan_runner import FakePlanRunner, PlanRunner
 from .plan_types import Provenance
 from .plan_validation import hash_plan_body, validate_plan
-from .runner_wiring import (
-    _BRIDGE_ONLY_MODULES,
-    _DEMO_RUNNER_ENV,
-    _EPICS_LIKE_CONNECTOR_TYPES,
-    _EPICS_SUBSTRATE_ENV,
-    _TILED_API_KEY_ENV,
-    _TILED_URI_ENV,
-    _build_tiled_writer_factory,
-    _is_demo_runner_enabled,
-    _is_epics_substrate_enabled,
-    _resolve_control_system_type,
-)
-from .runs import Run, do_launch, registry
-from .security import verify_launch_token
+from .queue_backend import QueueBackendError
 from .session_dir import resolve_session_plan_dir
-from .validation import (
-    _assert_limits_readable_if_writable,
-    _launch_validation_gate,
-    _request_field,
-    _validate_launchable_request,
-)
+from .session_upload import get_session_uploader, upload_after_validation
+from .validation import _assert_limits_readable_if_writable
 from .validation_record import validation_records
 
 if TYPE_CHECKING:
@@ -64,231 +49,124 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.app")
 
-# The `PlanRunner` implementation `do_launch` builds for every launch.
-_runner_factory: Callable[[], PlanRunner] = FakePlanRunner
+# Root package names this module — and therefore the bridge's import path —
+# must never pull in. The bluesky stack lives in the queueserver worker's
+# process, not here; `test_app_import_clean.py` enforces the boundary by
+# importing this app in a subprocess and checking `sys.modules`.
+_BRIDGE_ONLY_MODULES = {"bluesky", "ophyd", "ophyd_async", "tiled"}
 
-# Task 2.1: the bridge's single long-lived OSPREY connector — one Channel
-# Access client for the process's whole lifetime, constructed by `_lifespan`
-# only when `_is_epics_substrate_enabled()`, and disconnected exactly once on
-# shutdown. `None` whenever the EPICS substrate isn't enabled, or before
-# `_lifespan` has constructed it, or after shutdown has torn it down. Wired
-# into the runner factory by task 2.2's `_epics_runner_factory` closure,
-# which builds every scan device against this one connector.
-_connector: Any | None = None
+# The durable catalog the worker's `TiledWriter` persists runs into; read here
+# only to serve `GET /runs/{id}/data` once a run's live buffer is gone. The
+# worker names the same two variables for its writing half
+# (`qserver_startup.py`) — the two halves are wired by the compose spec, which
+# is the one place both are set.
+_TILED_URI_ENV = "BLUESKY_TILED_URI"
+_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
+
+# The refusal code every retired direct-execute route answers with. One code
+# for all of them: the answer is always "this capability moved to the queue",
+# and the per-route sentence in `detail` says which route took it over.
+_USE_THE_QUEUE = "use_the_queue"
 
 
-def get_connector() -> Any | None:
-    """The bridge's single long-lived OSPREY connector, or `None` if unset.
+def _use_the_queue(detail: str) -> HTTPException:
+    """The machine-readable refusal a retired direct-execute route raises.
 
-    `None` whenever the EPICS substrate isn't enabled, before `_lifespan` has
-    constructed it, or after shutdown has disconnected it. A later task's
-    `_epics_runner_factory` closure reads this to build connector-backed
-    devices.
+    Same ``{"code", "detail"}`` body shape as every queue refusal
+    (``queue.py``), so a caller branches on ``detail.code`` uniformly rather
+    than special-casing these four routes. 410 Gone, not 404: the route is
+    still here and still answering — what is gone is the in-process execution
+    it used to perform.
     """
-    return _connector
+    return HTTPException(status_code=410, detail={"code": _USE_THE_QUEUE, "detail": detail})
 
 
-def set_runner_factory(factory: Callable[[], PlanRunner]) -> None:
-    """Override the `PlanRunner` implementation `do_launch` builds.
+# The bridge's single `QueueBackend` — one queueserver client handle for the
+# whole process, built lazily on first use so no route ever constructs its own.
+# `None` until then; on a browse-only deployment the backend it builds holds no
+# manager at all (`QSERVER_ZMQ_CONTROL_ADDRESS` unset).
+_queue_backend: Any | None = None
 
-    A real bluesky-backed factory (`_lifespan` below, or a facility's own
-    deploy wiring) calls this instead of reaching into the private module
-    global directly.
+
+def get_queue_backend() -> Any:
+    """The bridge's single `QueueBackend`, built from the compose env on first use.
+
+    Every route that speaks to the queue server comes through here, so the
+    process holds exactly one 0MQ handle. The import is deliberately lazy:
+    `app.py`'s module-level import graph stays exactly as it was.
     """
-    global _runner_factory
-    _runner_factory = factory
+    global _queue_backend
+    if _queue_backend is None:
+        from .queue_backend import QueueBackend
+
+        _queue_backend = QueueBackend.from_env()
+    return _queue_backend
 
 
-async def _wire_epics_substrate_runner() -> Any | None:
-    """Wire the real EPICS-substrate ``BlueskyPlanRunner`` (tasks 2.1/2.2/3.1/3.4).
+def set_queue_backend(backend: Any | None) -> None:
+    """Override the backend `get_queue_backend` returns.
 
-    The body of ``_lifespan``'s EPICS-substrate branch: guard-import the
-    bluesky extra, run the fail-OPEN limits preflight, construct and connect
-    the bridge's single long-lived OSPREY connector, and register a runner
-    factory whose devices are all connector-mediated.
-
-    Returns the connected connector for ``_lifespan`` to store in the module
-    global ``_connector`` (so shutdown can disconnect it exactly once), or
-    ``None`` when the bluesky stack is not importable — the
-    ``FakePlanRunner`` fallback, mirroring ``list_plans``'s guarded/lazy-import
-    pattern.
+    Passing `None` clears it, so the next `get_queue_backend()` rebuilds from
+    the environment as it stands then.
     """
+    global _queue_backend
+    _queue_backend = backend
+
+
+async def _open_environment_at_startup() -> None:
+    """Bring the qserver worker environment up at startup, off the serve path.
+
+    Environment ownership is the bridge's: on a deployment whose capability
+    says it can execute, `ensure_environment`
+    opens the worker (bounded retry — device connect can take tens of
+    seconds, which is why this runs as a background task rather than blocking
+    readiness); on a browse-only deployment it opens nothing, and a closed
+    environment is the healthy steady state. Failures are logged, never
+    fatal: the start route re-runs `ensure_environment_for_execute` on every
+    armed start, so a slow or failed startup open self-heals there.
+
+    Opening the environment builds the worker namespace from the startup
+    module, which knows nothing about session plans — so every open is also
+    the moment the validated session set has to go back in. `sync_namespace`
+    (`session_upload.py`) re-uploads whatever is missing; it is idempotent,
+    and a no-op when the environment stayed closed or nothing is validated
+    (the normal shape of a fresh start, where the in-memory validation
+    records are empty anyway).
+    """
+    from .queue_backend import QueueBackendError
+
     try:
-        from .devices import connector as connector_devices
-        from .devices._specs_from_env import specs_from_env
-        from .plan_runner_bluesky import BlueskyPlanRunner
-    except ImportError as exc:
-        root_name = (getattr(exc, "name", None) or "").split(".")[0]
-        if root_name not in _BRIDGE_ONLY_MODULES:
-            raise
-        logger.warning(
-            "%s is enabled but the bluesky stack is not importable "
-            "(%s not found); falling back to FakePlanRunner",
-            _EPICS_SUBSTRATE_ENV,
-            exc.name,
-        )
-        return None
-
-    # Task 3.1: fail-OPEN startup guard, before any connector/CA work
-    # begins — refuses startup only for the one unsafe combination
-    # (writable + limits checking enabled + limits database
-    # unreadable). See `_assert_limits_readable_if_writable`'s
-    # docstring for the full condition and why every other
-    # combination starts normally.
-    _assert_limits_readable_if_writable()
-
-    # Task 3.4: construct the single long-lived OSPREY connector this
-    # bridge holds for its whole process lifetime, built from the
-    # project's `control_system.type` (Connector = the single
-    # control-system interface) rather than a hardcoded
-    # `virtual_accelerator` — one config line now flips the whole
-    # Bluesky stack between the mock connector and real Channel Access.
-    # `osprey.connectors.factory` and `epics_connector` are
-    # import-safe even in a base install (pyepics is imported lazily
-    # inside `EPICSConnector.connect()`), but the import stays inside
-    # this already-guarded path regardless.
-    #
-    # For the EPICS-like types (`virtual_accelerator`/`epics`), the
-    # `type_config` stays gateway-less (no "gateways" key) exactly as
-    # before — this makes `connect()` skip the block that sets
-    # process-wide `EPICS_CA_*` env, so the compose-inherited
-    # `EPICS_CA_NAME_SERVERS` (pointing at the virtual accelerator or
-    # real hardware) survives untouched (FR8/CF-1) — and it needs no
-    # running CA server, so this is safe to do unconditionally at
-    # startup. `control_system.type: virtual_accelerator` therefore
-    # yields the exact same `type_config` this branch always built.
-    #
-    # For `mock`, the connector-mediated devices below (built by
-    # `connector_devices.build_devices` from the real corrector/BPM
-    # channel names) construct fine against the mock connector, but a
-    # scan will NOT complete on it: the mock connector accepts writes,
-    # yet its readbacks simulate a non-tracking base value rather than
-    # tracking the setpoint, so a settle-verified corrector move
-    # (`ConnectorSettable.set`) never sees its target and times out.
-    # This is intentional — mock mode is for browsing/UI only; running
-    # an actual scan requires a setpoint-tracking control system
-    # (`virtual_accelerator` or `epics`), selected via
-    # `control_system.type`.
-    from osprey.connectors.factory import (
-        ConnectorFactory,
-        register_builtin_connectors,
-    )
-
-    control_system_type = _resolve_control_system_type()
-    if control_system_type in _EPICS_LIKE_CONNECTOR_TYPES:
-        connector_type_config: dict[str, Any] = {
-            "type": control_system_type,
-            "connector": {control_system_type: {"timeout": 5.0}},
-        }
-    else:
-        # "mock" (the fail-safe default), or any other resolved type
-        # the bridge doesn't special-case: forward the type name
-        # through with no type-specific config (mock needs none) so
-        # an unrecognized value surfaces as `ConnectorFactory`'s own
-        # clear "Unknown control system type" error rather than being
-        # silently mis-wired to a connector the operator didn't ask for.
-        connector_type_config = {
-            "type": control_system_type,
-            "connector": {control_system_type: {}},
-        }
-
-    register_builtin_connectors()  # idempotent (CF-3); must run before create
-    connector = await ConnectorFactory.create_control_system_connector(connector_type_config)
-    logger.info(
-        "%s is enabled: connected the bridge's single long-lived OSPREY connector "
-        "(control_system.type=%s, %s)",
-        _EPICS_SUBSTRATE_ENV,
-        control_system_type,
-        type(connector).__name__,
-    )
-
-    motors, detectors = specs_from_env(os.environ)
-
-    def _epics_runner_factory() -> BlueskyPlanRunner:
-        # `connector_devices.build_devices` is `async def` (it builds
-        # connector-mediated devices) — `BlueskyPlanRunner._resolve_devices`
-        # bridges that for us; passing the bare lambda here, not its
-        # result. Every read and write these devices perform is
-        # connector-mediated (`read_channel`/`write_channel_checked`) —
-        # there is no raw Channel Access anywhere in this path. The closure
-        # binds THE one long-lived connector constructed above, not a
-        # re-fetch of the (possibly reassigned-on-shutdown) module global.
-        #
-        # `plans` is left unset (`None`), so `BlueskyPlanRunner.reinitialize`
-        # resolves plan names through `_default_plan_registry()` —
-        # `get_facility_plans().plans` (task 2.4), which re-scans and
-        # re-gates the session/facility layers on every call. A
-        # validated session or facility plan is therefore launchable
-        # on this connector-mediated path exactly like the demo
-        # runner factory; an unvalidated (or
-        # validated-then-edited) one is simply absent from the
-        # registry the next time this factory's runner resolves it —
-        # fail-closed, with no separate gate needed here.
-        return BlueskyPlanRunner(
-            devices=lambda: connector_devices.build_devices(motors, detectors, connector),
-            tiled_writer_factory=_build_tiled_writer_factory(),
-        )
-
-    set_runner_factory(_epics_runner_factory)
-    if not motors and not detectors:
-        # Substrate enabled but neither env var yielded a device: the
-        # runner will connect nothing and every scan will have no data.
-        # Almost always a misconfiguration (unset/empty
-        # BLUESKY_EPICS_MOTORS / _DETECTORS), so surface it loudly.
-        logger.warning(
-            "%s is enabled but no devices were configured "
-            "(BLUESKY_EPICS_MOTORS / BLUESKY_EPICS_DETECTORS are empty or unset); "
-            "the substrate runner will connect nothing",
-            _EPICS_SUBSTRATE_ENV,
-        )
-    else:
-        logger.info(
-            "%s is enabled: wired the EPICS substrate BlueskyPlanRunner "
-            "(%d motor(s), %d detector(s))",
-            _EPICS_SUBSTRATE_ENV,
-            len(motors),
-            len(detectors),
-        )
-    return connector
+        await get_queue_backend().ensure_environment()
+        await get_session_uploader().sync_namespace()
+    except QueueBackendError as exc:
+        logger.warning("worker environment did not open at startup: %s", exc)
+    except Exception:
+        logger.exception("startup environment open failed unexpectedly")
 
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Opt-in guarded startup: wire a real bluesky-backed `BlueskyPlanRunner`.
+    """Bring up the process-wide plumbing the bridge owns, and tear it down once.
 
-    Two mutually-exclusive opt-in branches, both gated on bluesky/ophyd-async
-    being importable (mirrors ``list_plans``'s guarded/lazy-import pattern so
-    the Phase-1 "app.py import-clean of bluesky" invariant holds whether the
-    extra is absent or neither flag is set — either way ``_runner_factory``
-    stays at its ``FakePlanRunner`` default):
+    Three things, none of which involves running a plan (execution belongs to
+    the queueserver worker):
 
-    - `_is_epics_substrate_enabled()`: real EPICS devices (Channel Access
-      clients of whatever IOC the deploy points at — a virtual accelerator or
-      real hardware), built from an explicit PV list
-      (`devices/_specs_from_env.py`). This is what a facility deploy (or the
-      Phase 3 scenario benchmark) actually runs against.
-    - `_is_demo_runner_enabled()`: mock ophyd-async devices, no CA at all —
-      the ``osprey deploy`` smoke demo only ("does a run at all").
-
-    If both flags are set, the EPICS substrate wins: an operator who asked
-    for real EPICS must never silently get routed to the mock demo instead.
-
-    Task 2.1: when the EPICS substrate branch runs, this also constructs and
-    connects the bridge's single long-lived OSPREY connector (module global
-    `_connector`, readable via `get_connector()`) — one Channel Access client
-    for the whole process lifetime. Task 2.2 wires that same connector into
-    `_epics_runner_factory`, so every scan device it builds is
-    connector-mediated. The connector is disconnected exactly once after
-    `yield`, on shutdown.
-
-    Task 3.1: before any of that connector/CA work, the EPICS-substrate
-    branch calls `_assert_limits_readable_if_writable`, which fail-OPEN
-    refuses startup (raises) only if writes are enabled, limits checking is
-    enabled, and the limits database can't be read — every other combination
-    (including writes disabled entirely) starts normally.
+    - The write-safety startup guard. `_assert_limits_readable_if_writable`
+      fail-OPEN refuses startup (raises) only if writes are enabled, limits
+      checking is enabled, and the limits database can't be read — every other
+      combination, including writes disabled entirely, starts normally. It runs
+      unconditionally here. It used to sit inside the retired EPICS-substrate
+      runner branch, which meant a deployment that never set
+      `BLUESKY_EPICS_SUBSTRATE` was never checked at all; the posture it guards
+      against is a property of the project config, not of how the bridge
+      happens to be wired, so gating it on a wiring flag was always the wrong
+      shape.
+    - The document plane: the 0MQ proxy the queueserver's Publisher connects
+      to, and the dispatcher that turns that stream into live rows.
+      Unconfigured is a no-op; see `document_plane.start_from_env`.
+    - The worker environment, opened in the background, and the queue
+      plumbing's single teardown.
     """
-    global _connector
-
     from osprey.utils.logger import configure_logging
 
     # The bridge is launched as `uvicorn ...:app`, so it passes through no
@@ -297,54 +175,43 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # importing this module into a logging side effect.
     configure_logging()
 
-    epics_substrate_enabled = _is_epics_substrate_enabled()
-    demo_runner_enabled = _is_demo_runner_enabled()
-    if epics_substrate_enabled and demo_runner_enabled:
-        logger.warning(
-            "both %s and %s are set; %s takes precedence (wiring the real EPICS "
-            "substrate runner, not the mock demo)",
-            _EPICS_SUBSTRATE_ENV,
-            _DEMO_RUNNER_ENV,
-            _EPICS_SUBSTRATE_ENV,
-        )
+    # The one startup posture the bridge refuses to come up in (writable +
+    # limits checking on + an unreadable limits database), before anything
+    # else is brought up.
+    _assert_limits_readable_if_writable()
 
-    if epics_substrate_enabled:
-        _connector = await _wire_epics_substrate_runner()
-    elif demo_runner_enabled:
-        try:
-            from .devices.mock import build_devices
-            from .plan_runner_bluesky import BlueskyPlanRunner
-        except ImportError as exc:
-            root_name = (getattr(exc, "name", None) or "").split(".")[0]
-            if root_name not in _BRIDGE_ONLY_MODULES:
-                raise
-            logger.warning(
-                "%s is enabled but the bluesky stack is not importable "
-                "(%s not found); falling back to FakePlanRunner",
-                _DEMO_RUNNER_ENV,
-                exc.name,
-            )
-        else:
+    # The document plane's 0MQ proxy — the binding element the queueserver's
+    # Publisher connects to, and the RemoteDispatcher that turns that stream
+    # back into live rows. Unconfigured is a no-op; see
+    # `document_plane.start_from_env`.
+    document_plane.start_from_env()
 
-            def _demo_runner_factory() -> BlueskyPlanRunner:
-                # `build_devices` is `async def` (it connects ophyd-async
-                # devices) — `BlueskyPlanRunner._resolve_devices` bridges that
-                # for us; passing the bare callable here, not its result.
-                return BlueskyPlanRunner(
-                    devices=lambda: build_devices(),
-                    tiled_writer_factory=_build_tiled_writer_factory(),
-                )
+    # Environment ownership — kick the startup open in the
+    # background (never blocking readiness) and tear the queue plumbing down
+    # exactly once on shutdown. Only when no backend was injected before
+    # startup: a pre-set backend means a test (or bespoke deploy wiring) owns
+    # the backend's whole lifecycle — environment AND close — and an
+    # unasked-for probe or a shutdown close() of another owner's handle would
+    # be interference, not help. In production nothing runs before the
+    # lifespan, so the backend is always un-built here, the open always
+    # happens, and whatever `get_queue_backend()` lazily builds while serving
+    # is this lifespan's to close.
+    backend_injected_before_startup = _queue_backend is not None
+    env_open_task: asyncio.Task[None] | None = None
+    if not backend_injected_before_startup:
+        env_open_task = asyncio.create_task(_open_environment_at_startup())
 
-            set_runner_factory(_demo_runner_factory)
-            logger.info(
-                "%s is enabled: wired the mock-devices demo BlueskyPlanRunner (deploy smoke demo)",
-                _DEMO_RUNNER_ENV,
-            )
     yield
 
-    if _connector is not None:
-        await _connector.disconnect()
-        _connector = None
+    if env_open_task is not None:
+        env_open_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await env_open_task
+    await queue.shutdown()
+    document_plane.shutdown()
+    if _queue_backend is not None and not backend_injected_before_startup:
+        await _queue_backend.close()
+        set_queue_backend(None)
 
 
 app = FastAPI(title="OSPREY Bluesky Bridge", lifespan=_lifespan)
@@ -354,189 +221,195 @@ app = FastAPI(title="OSPREY Bluesky Bridge", lifespan=_lifespan)
 # SSE broadcaster all belong together, and don't need anything else this
 # module owns. First `include_router` precedent in this app; every other
 # route here is still an inline `@app.<verb>`. `POST /draft/run` is NOT part
-# of that router: launching needs the run registry, launch gate, and runner
-# factory this module owns, so it lives below as an inline route consuming
-# `draft.py`'s launch-state primitives.
+# of that router: it is one of the retired direct-execute routes this module
+# answers with a `use_the_queue` refusal, below.
 app.include_router(draft.router)
+
+# The queue surface (`GET /queue`, `POST /queue/items`, move/remove, token-
+# gated `POST /queue/start`, `POST /queue/stop`, `GET /queue/events` SSE) is
+# its own self-contained module for the same reason the draft is: its arming
+# lock, SSE poller, and last-status cache belong together. It reaches back
+# into this module only through `get_queue_backend()`, the process's single
+# backend accessor.
+app.include_router(queue.router)
+
+
+async def _capability_dict() -> dict[str, Any]:
+    """This deployment's capability record as the JSON object `/health` publishes.
+
+    `QueueBackend.capability` is already fail-closed for every situation it can
+    name — an unreadable project config, a connector that cannot drive Channel
+    Access, an unconfigured manager, an unanswering one — each with its own
+    reason code. This wrapper covers the remainder: if building the backend or
+    asking it raises anything at all, the answer is still "no", reported as
+    ``manager_unreachable``, which is precisely what that code means here (the
+    bridge could not confirm a working queue server). The underlying error goes
+    in ``detail`` so the operator sees the real cause rather than a shrug, and
+    the route still answers 200 — the container healthcheck must not go red
+    over a capability probe.
+    """
+    from .queue_backend import REASON_MANAGER_UNREACHABLE
+
+    try:
+        return (await get_queue_backend().capability()).to_dict()
+    except Exception as exc:
+        logger.warning("capability probe failed; reporting cannot-execute: %s", exc)
+        return {
+            "can_execute": False,
+            "reason": REASON_MANAGER_UNREACHABLE,
+            "detail": f"The bridge could not determine whether plans can execute: {exc}",
+        }
 
 
 @app.get("/health")
-def health() -> dict:
-    return {"status": "ok"}
+async def health() -> dict:
+    """Liveness, plus whether this deployment can actually execute plans.
+
+    The capability record rides on the existing status surface rather than a
+    route of its own, so no consumer has to learn a second endpoint to find out
+    what the bridge in front of it can do:
+
+    ``{"status": "ok", "capability": {"can_execute", "reason", "detail"}}``
+
+    ``can_execute`` is the answer; ``reason`` is one of the machine-readable
+    ``REASON_*`` codes in `queue_backend.py`, which panels and MCP tools branch
+    on; ``detail`` is the operator-facing sentence, and for a browse-only mock
+    deployment it names the exact command that flips it. ``status: "ok"`` means
+    only that this process is up — it is deliberately independent of
+    ``can_execute``, because a browse-only deployment is a healthy deployment.
+    """
+    return {"status": "ok", "capability": await _capability_dict()}
+
+
+async def _manager_view() -> tuple[Any, list[Any], list[Any]]:
+    """The three manager documents every run record is projected from.
+
+    Fetched together so one route answer is one consistent picture: the running
+    item, the pending queue, and the history. `runs.py` does the projection —
+    this function is only the I/O.
+    """
+    backend = get_queue_backend()
+    queue_state = await backend.items()
+    history = await backend.history()
+    return (
+        queue_state.get("running_item"),
+        list(queue_state.get("items") or []),
+        list(history.get("items") or []),
+    )
 
 
 @app.post("/runs")
-def create_run(request: RunRequest) -> dict:
-    """Record a launch *intent*. Never touches the runner seam."""
-    return registry.add(request).to_dict()
+def create_run() -> dict:
+    """Retired: the bridge no longer mints launch intents of its own.
+
+    A run id used to be minted here and launched in a second call. Both halves
+    now belong to `POST /queue/items`, which mints the id AND enqueues in one
+    armed, race-checked step — there is no intermediate state left for this
+    route to create.
+    """
+    raise _use_the_queue(
+        "The bridge no longer records launch intents separately from execution. "
+        "Enqueue the draft with POST /queue/items, which mints the run id and "
+        "returns it."
+    )
 
 
 @app.get("/runs")
-def list_runs(limit: int = 20) -> list[dict]:
-    """This bridge process's tracked runs, newest first (in-memory only)."""
-    return [run.to_dict() for run in registry.list(limit=limit)]
+async def list_runs(limit: int = 20) -> list[dict]:
+    """Runs OSPREY has enqueued, most relevant first: running, pending, then history.
+
+    Derived live from the queue server rather than from any state this process
+    keeps, so the answer survives a bridge restart and cannot drift from what
+    the manager is actually holding. Items enqueued out-of-band carry no OSPREY
+    run id and are absent here; `GET /queue` shows the manager's queue whole.
+    """
+    try:
+        running_item, queue_items, history_items = await _manager_view()
+    except QueueBackendError as exc:
+        # The queue surface owns this mapping; duplicating it here is exactly
+        # how two halves of one wire contract drift apart.
+        raise queue._http_error(exc) from exc
+    return runs.list_records(
+        running_item=running_item,
+        queue_items=queue_items,
+        history_items=history_items,
+        limit=limit,
+    )
 
 
 @app.get("/runs/{run_id}")
-def get_run(run_id: str) -> dict:
-    """Run status, plus (when present) the intent's ``plan_name``/``plan_args``.
+async def get_run(run_id: str) -> dict:
+    """One run's record, including its plan name and the params it was enqueued with.
 
-    ``Run.to_dict()`` itself carries neither field — both are read straight
-    off the stored intent here via ``_request_field``, so callers that need
-    to know *what* is being launched (e.g. task 2.6's launch-approval hook,
-    resolving a bare ``run_id`` into a plan to render) don't need a second
-    route.
+    404 when the manager knows no such run — which is also the honest answer
+    for a run whose history the manager has since rotated away. Note that
+    `GET /runs/{id}/data` can still serve a run this route 404s: run *data* is
+    durable in Tiled long after the manager has forgotten the item.
     """
-    run = registry.get(run_id)
-    out = run.to_dict()
-    request = run.request
-    plan_name = _request_field(request, "plan_name")
-    if plan_name is not None:
-        out["plan_name"] = plan_name
-        out["plan_args"] = _request_field(request, "plan_args", {})
-    return out
+    try:
+        running_item, queue_items, history_items = await _manager_view()
+    except QueueBackendError as exc:
+        raise queue._http_error(exc) from exc
+    record = runs.find_record(
+        run_id,
+        running_item=running_item,
+        queue_items=queue_items,
+        history_items=history_items,
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"unknown run {run_id!r}")
+    return record
 
 
 @app.post("/runs/{run_id}/launch")
-def launch_run(run_id: str, x_launch_token: str = Header(default="")) -> dict:
-    """Launch a pending run as a real scan. Token-gated (see `security.py`).
+def launch_run(run_id: str) -> dict:
+    """Retired: launching a pre-minted run in-process is gone.
 
-    Callable only by holders of `BLUESKY_LAUNCH_TOKEN` — in practice, the
-    `launch_run` MCP tool, whose own invocation already required a human
-    approval prompt (PreToolUse) plus an in-tool `writes_enabled` re-check.
-    `_launch_validation_gate` runs inside `do_launch`'s own lock, before any
-    runner is built (task 2.5) — a session/unreviewed plan with no current
-    passing validation record 409s here rather than surfacing downstream as a
-    confusing "unknown plan" resolution failure.
+    Execution is the queueserver worker's, and the only way into it is the
+    queue. The two-step mint-then-launch flow this route completed collapsed
+    into `POST /queue/items` (enqueue) plus the token-gated `POST /queue/start`
+    (arm and drain).
     """
-    verify_launch_token(x_launch_token)
-    run = registry.get(run_id)
-    launched_run = do_launch(run, _runner_factory, validator=_launch_validation_gate)
-    # Only recorded once do_launch actually succeeds (it raises 409/500
-    # otherwise) — a rejected launch attempt must not mark the run as
-    # launched by anything.
-    if launched_run.launched_by is None:
-        launched_run.launched_by = "agent"
-    return launched_run.to_dict()
-
-
-def _mint_and_launch_draft_snapshot(snapshot: draft.LaunchSnapshot) -> Run:
-    """Blocking mint + launch of a draft snapshot (runs in a threadpool).
-
-    Order preserves two guarantees:
-
-    - **Mint nothing on a validation-gate rejection**:
-      `_validate_launchable_request` runs BEFORE `registry.add`, so a
-      session plan whose current on-disk content lost its passing record
-      409s with the registry untouched — unlike the two-step launch path,
-      where the intent record pre-exists the gate by client action.
-    - **Never an eternal pre-launch record**: once the run IS minted, any
-      failure — `do_launch`'s own 500s, or the re-run gate catching a file
-      edited in the window since the pre-mint check — stamps ``run.error``
-      before re-raising, so the record reports ``error`` rather than sitting
-      in a pre-launch state forever. `do_launch`'s validator stays wired
-      (same defense-in-depth as the launch route); its rejection is the one
-      failure `do_launch` raises without stamping the run itself.
-    """
-    request = RunRequest(plan_name=snapshot.plan_name, plan_args=snapshot.plan_args)
-
-    _validate_launchable_request(request)
-
-    run = registry.add(request)
-    try:
-        do_launch(run, _runner_factory, validator=_launch_validation_gate)
-    except Exception as exc:
-        with registry.lock:
-            if not run.error:
-                run.error = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
-        raise
-    # Only stamped once do_launch actually succeeds — mirrors `launch_run`'s
-    # "a rejected launch attempt must not mark the run as launched" rule.
-    if run.launched_by is None:
-        run.launched_by = "draft"
-    return run
+    raise _use_the_queue(
+        "Plans now execute in the queue server, not in the bridge. Enqueue the "
+        "draft with POST /queue/items, then arm the queue with POST /queue/start."
+    )
 
 
 @app.post("/draft/run")
-async def launch_draft_run(
-    request: DraftRunRequest, x_launch_token: str = Header(default="")
-) -> dict:
-    """Launch the shared plan draft at a pinned revision — the bridge's single
-    launch-from-draft primitive (panel Launch and the agent's `launch_run`
-    both land here). Token-gated exactly like `launch_run`.
+def launch_draft_run() -> dict:
+    """Retired: launching the shared draft directly is gone.
 
-    Sequence, and why each step sits where it does:
-
-    1. `verify_launch_token` before ANY state is touched — an unarmed (503)
-       or bad-token (403) caller never consumes launchability, mints nothing,
-       and never even reads the draft.
-    2. `draft.check_launchable` snapshots the draft and all three launch
-       checks in one critical section under the draft lock, and — on
-       success — RESERVES the revision in-flight, so a concurrent second
-       POST at the same revision 409s instead of racing this one to a
-       duplicate hardware scan (the reservation is taken at the head of the
-       unlocked launch window, not committed at its tail). A typed
-       :class:`draft.LaunchRejected` becomes a 409 whose ``detail`` carries
-       ``code`` (``stale_draft_revision`` / ``draft_revision_already_launched``,
-       same dict-detail convention as `PATCH /draft`'s 409s) plus the current
-       ``revision`` as a fresh resync baseline. Nothing is minted.
-    3. Mint + launch in a threadpool via `_mint_and_launch_draft_snapshot`
-       (`do_launch` and the validation gate are blocking; the existing
-       launch route gets its threadpool from being a sync ``def`` route,
-       which this route can't be — it awaits the draft primitives). The draft
-       lock is NOT held here, by construction: `check_launchable` and
-       `record_and_broadcast_launch` are separate lock acquisitions with
-       the launch in between. On ANY exit without a minted-and-launched run
-       (gate 409, do_launch 500, even cancellation — hence ``finally`` with
-       a success flag, not ``except``), `draft.release_launch` drops the
-       reservation without recording it, so a failed launch never consumes
-       the revision.
-    4. Only after a successful launch, `draft.record_and_broadcast_launch`
-       consumes the reservation, arms the duplicate-launch guard for this
-       revision, and emits the ``launched`` SSE frame in one critical
-       section.
+    `POST /queue/items` is the replacement and keeps everything this route
+    guaranteed — the pinned `draft_revision` and the reservation that stops two
+    callers racing the same revision onto hardware — while putting the plan in a
+    durable, serialized queue instead of a thread in this process. The launch
+    token still gates every enqueue that can actually start something: one onto
+    a draining queue, or onto a queue armed to autostart.
     """
-    verify_launch_token(x_launch_token)
-
-    checked = await draft.check_launchable(request.draft_revision)
-    if isinstance(checked, draft.LaunchRejected):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": checked.code,
-                "detail": checked.detail,
-                "revision": checked.revision,
-            },
-        )
-
-    run: Run | None = None
-    try:
-        run = await asyncio.to_thread(_mint_and_launch_draft_snapshot, checked)
-    finally:
-        if run is None:
-            await draft.release_launch(checked.revision)
-
-    await draft.record_and_broadcast_launch(run_id=run.id, revision=checked.revision)
-    return run.to_dict()
+    raise _use_the_queue(
+        "The shared draft is no longer launched directly. Enqueue it with "
+        "POST /queue/items (same pinned draft_revision and launch token), then "
+        "arm the queue with POST /queue/start."
+    )
 
 
 @app.post("/runs/{run_id}/stop")
 def stop_run(run_id: str) -> dict:
-    """Abort a running plan. Not token-gated — halting is always allowed.
+    """Retired: stopping is a queue operation now.
 
-    Coordinates with `do_launch`'s unlocked runner-build window under
-    `registry.lock`: if a launch is concurrently mid-build (``launching``
-    set, ``runner``/``launched`` not yet published), this just records
-    ``stopped`` and `do_launch` itself stops the just-started runner once
-    it re-checks `stopped` at publish time — see `runs.py`.
+    This route could only ever stop a plan running inside the bridge process,
+    and none do. There are two replacements, and which one a caller wants
+    depends on what they need stopped: `POST /queue/stop` halts the queue AFTER
+    the running item finishes, and `POST /queue/abort` aborts the item already
+    in motion. Neither is token-gated, on the same principle — halting is
+    always allowed.
     """
-    run = registry.get(run_id)
-    with registry.lock:
-        scanner_to_stop = run.runner if run.launched else None
-        run.stopped = True
-    if scanner_to_stop is not None:
-        scanner_to_stop.stop_run_thread()
-    return run.to_dict()
+    raise _use_the_queue(
+        "Plans run in the queue server, not in the bridge. Halt the queue after the "
+        "running item with POST /queue/stop, or abort the running plan now with "
+        "POST /queue/abort."
+    )
 
 
 @app.get("/plans")
@@ -560,7 +433,7 @@ def list_plans() -> list:
 
 
 # ---------------------------------------------------------------------------
-# Session-plan authoring + validation (task 2.3)
+# Session-plan authoring + validation
 # ---------------------------------------------------------------------------
 # A valid Python identifier: the sanitized name doubles as the on-disk file
 # stem (`<name>.py`) and the `PLAN_METADATA["name"]` value, so this also rules
@@ -568,7 +441,15 @@ def list_plans() -> list:
 # Anchored with `\Z`, NOT `$` — `$` matches at end-of-string OR just before a
 # single trailing "\n", so `"foo\n"` would otherwise pass this check while
 # still not being a valid identifier.
-_PLAN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
+#
+# A LEADING UNDERSCORE is excluded, which makes this narrower than "identifier":
+# the queueserver manager's permissions forbid `:^_` plans (private names are
+# never exposed), so `_foo` would author and upload perfectly well and then be
+# permanently unenqueueable — the worker would hold it while `plans_allowed`
+# never listed it, and the session-plan gate would refuse it forever with
+# "its upload did not land". Refusing the name up front turns a permanent
+# mystery refusal into one legible 400 at authoring time.
+_PLAN_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*\Z")
 
 # A generous bound well above any real plan name — exists only so an
 # absurdly long name fails closed here (400) rather than surfacing as an
@@ -591,9 +472,12 @@ _MAX_PLAN_NAME_LENGTH = 100
 def _sanitize_plan_name(name: str) -> str:
     """Validate ``name`` as a safe plan name, or raise 400.
 
-    Enforced as a Python identifier (not merely "no path separators") because
-    the same string is written into the generated ``PLAN_METADATA["name"]``
-    block as a plain literal and used verbatim as the on-disk file stem.
+    Enforced as a Python identifier that does not begin with an underscore
+    (not merely "no path separators") because the same string is written into
+    the generated ``PLAN_METADATA["name"]`` block as a plain literal, used
+    verbatim as the on-disk file stem, and — for a session plan — becomes the
+    name the queueserver worker exposes, where a leading underscore is
+    permanently unenqueueable (see `_PLAN_NAME_RE`).
     Length-checked FIRST, before the regex echoes ``name`` back in the error
     detail — an oversized name fails closed on its length alone rather than
     being quoted in full into an HTTPException detail.
@@ -606,7 +490,10 @@ def _sanitize_plan_name(name: str) -> str:
     if not _PLAN_NAME_RE.match(name):
         raise HTTPException(
             status_code=400,
-            detail=f"invalid plan name {name!r}: must be a valid Python identifier",
+            detail=(
+                f"invalid plan name {name!r}: must be a valid Python identifier "
+                f"that does not begin with an underscore"
+            ),
         )
     return name
 
@@ -626,8 +513,8 @@ def write_session_plan(request: PlanSessionWriteRequest) -> dict:
 
     Returns the plan name and `hash_plan_body` of the EXACT bytes written —
     the same bytes `POST /plans/validate` re-reads and hashes, and the same
-    bytes task 2.4/2.5's gates re-hash from disk when checking for a passing
-    validation record.
+    bytes the load and enqueue gates re-hash from disk when checking for a
+    passing validation record.
     """
     name = _sanitize_plan_name(request.name)
     metadata = {
@@ -652,8 +539,17 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
     Reads the file `POST /plans/session` wrote (never a separately-passed
     body) so "validated bytes == file bytes" is structural, not a caller
     convention. Runs `validate_plan`'s three ordered stages; on a
-    pass, records the content hash in `validation_records` so task 2.4's load
-    gate and task 2.5's launch gate will admit this exact file content.
+    pass, records the content hash in `validation_records` so the session-layer
+    load gate and the enqueue gate will admit this exact file content.
+
+    A pass is also the ONLY thing that puts a session plan in the queueserver
+    worker's namespace: `upload_after_validation` (`session_upload.py`) runs
+    the qserver script upload for exactly the bytes that just passed. It
+    reports rather than raises, and its outcome rides along as ``upload`` —
+    a deployment with no queue server validates plans perfectly well and
+    simply has nowhere to upload them, so an upload that did not happen must
+    never turn a PASS into an error. It is not a safety gap either: enqueue
+    and queue-start re-check namespace presence and refuse on their own.
 
     Raises 404 if no session plan named ``request.name`` has been written.
     """
@@ -669,18 +565,21 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
         sample_args=request.sample_args,
         dry_run_timeout=request.dry_run_timeout,
     )
+    upload: dict[str, Any] = {"uploaded": False, "reason": None, "detail": None}
     if result.passed:
         validation_records.record(result.content_hash)
+        upload = await upload_after_validation(name)
 
     return {
         "passed": result.passed,
         "reasons": result.reasons,
         "content_hash": result.content_hash,
+        "upload": upload,
     }
 
 
 # ---------------------------------------------------------------------------
-# Plan source rendering (task 2.6): backs the launch-approval hook's
+# Plan source rendering: backs the launch-approval hook's
 # human-legible plan excerpt — the human backstop for the plan validator's
 # documented, accepted obfuscation residual (see `plan_validation.py`'s
 # module docstring). Read-only: never execs anything, only reads file text
@@ -740,8 +639,8 @@ def get_plan_source(
     name: str,
     max_chars: int = Query(default=_SOURCE_TRUNCATE_CHARS, ge=1, le=_SOURCE_TRUNCATE_CHARS_MAX),
 ) -> dict:
-    """Truncated source text for one plan — the launch-approval hook's data
-    source for rendering what a `launch_run` call would actually run.
+    """Truncated source text for one plan — the approval hook's data source
+    for showing a human what the plan they are approving would actually run.
 
     ``max_chars`` bounds the returned source text. The default stays at the
     approval hook's skim size (the hook embeds the response verbatim in its
@@ -752,7 +651,7 @@ def get_plan_source(
 
     A session-tier file is looked up directly: its filename IS its name (see
     `write_session_plan`). Its ``validated`` flag reflects the SAME
-    `hash_plan_body`/`validation_records` check the load/launch gates use,
+    `hash_plan_body`/`validation_records` check the load and enqueue gates use,
     computed fresh from the file's CURRENT content — never cached — so a
     re-authored file that invalidates a prior pass is reported honestly, even
     if that leaves it quarantined out of `GET /plans` entirely.
@@ -837,15 +736,16 @@ def _from_tiled(
 ) -> dict[str, Any] | None:
     """Serve `get_run_data` from the durable Tiled catalog once a run's live buffer is gone.
 
-    Two situations fall through the live path in `get_run_data` and land here: a registry
-    miss after a bridge restart (the whole in-memory registry — including `run.run_uid` —
-    is gone, so the search below keys on `osprey_run_id`, the durable stamp `do_launch`
-    writes into the start doc, never the lost `run_uid`), and a registry hit whose buffer
-    was evicted past `live_rows._MAX_RUNS`.
+    Two situations fall through the live path in `get_run_data` and land here: a run with
+    no live buffer at all (a bridge restart drops every buffer, so a run that started
+    before it — even one still executing — has nothing in memory), and one whose buffer was
+    evicted past `live_rows._MAX_RUNS`. The search keys on `osprey_run_id`, the durable
+    stamp the enqueue path threads into the item metadata and the worker records onto the
+    start document.
 
     Returns `None` when Tiled is unconfigured (`BLUESKY_TILED_URI` unset — logged, not an
     error) or when no run in the catalog matches `run_id`; the caller turns either into a
-    404, exactly like an unknown live `run_uid` today.
+    404.
 
     `tiled` is imported here, never at module level, so `app.py` stays import-clean of it
     (`_BRIDGE_ONLY_MODULES`) even when Tiled *is* configured for this deploy.
@@ -906,52 +806,46 @@ def _from_tiled(
 def get_run_data(
     run_id: str, max_rows: int = 100, offset: int | None = None, tail: bool = False
 ) -> dict:
-    """Read a bounded window of a run's recorded data — dual-source (task 3.3).
+    """Read a bounded window of a run's recorded data — dual-source.
 
     Row-bounded by design — this never returns an unbounded table. Prefers the
-    in-process live-row buffer (see `live_rows.py`) whenever it has one:
-    ``partial: true`` while the run is still filling in (before its stop doc
-    lands), permanently readable once it's marked completed (see
+    live-row buffer the document plane fills (see `live_rows.py`) whenever it
+    has one: ``partial: true`` while the run is still filling in (before its
+    stop doc lands), permanently readable once it's marked completed (see
     `live_rows.py`'s retention bound). ``row_count`` is the *true* total rows
     the run has produced so far, even if that's more than what's physically
     stored — ``truncated`` reflects whether this response's window omits any
     of them.
 
-    Falls back to `_from_tiled` (task 3.2) whenever there is no live buffer to
-    serve — this is the SAME branch for two different situations: a registry
-    miss (the whole in-memory registry, including `run.run_uid`, is gone after
-    a bridge restart — so the fallback searches Tiled by `run_id` directly,
-    never a `run_uid` that no longer exists to look up), and a registry hit
-    whose buffer was evicted past `live_rows._MAX_RUNS`. The fallback trigger
-    is always ``buf is None`` — a present-but-empty buffer (``partial: true``,
-    zero rows) is a real in-flight run and stays on the live path; checking
-    "falsy rows" instead would incorrectly divert a running plan to Tiled
-    before it has ever written anything there.
+    ``run_id`` is looked up in the buffer directly, with no indirection through
+    any record this process keeps. That one lookup covers both keyings by
+    construction: the document plane buffers a queue-executed run under its
+    OSPREY run id, while a run reaching a bare recorder with no such id is
+    buffered under the RunEngine's own uid (`live_rows.LiveRowRecorder`), and
+    either identity is a key a caller can pass here.
 
-    Raises 409 if the registry has the run but it has no `run_uid` yet (never
-    launched, or launched but the scan hasn't emitted a start doc) — there is
-    nothing to read from either source, so Tiled is never consulted for this
-    case. Raises 404 when neither source has the run — the MCP `get_run_data`
-    tool maps 404 to `unknown_run`, and a 200-empty response would make a
+    Falls back to `_from_tiled` whenever there is no live buffer to serve. The
+    fallback trigger is always ``buf is None`` — a present-but-empty buffer
+    (``partial: true``, zero rows) is a real in-flight run and stays on the
+    live path; checking "falsy rows" instead would incorrectly divert a running
+    plan to Tiled before it has ever written anything there. A run still
+    executing after a bridge restart legitimately has no buffer and is served
+    from Tiled; that is correct, not a gap.
+
+    Raises 404 when neither source has the run — the MCP `get_run_data` tool
+    maps 404 to `unknown_run`, and a 200-empty response would make a
     nonexistent run look like a valid empty scan.
-    """
-    try:
-        run = registry.get(run_id)
-    except HTTPException:
-        run = None
 
-    buf = None
-    run_uid: str | None = None
-    if run is not None:
-        run_uid = run.run_uid
-        if run_uid is None:
-            raise HTTPException(
-                status_code=409, detail=f"run {run_id!r} has not started; no data yet"
-            )
-        buf = live_rows.get(run_uid)
+    ``run_uid`` is the RunEngine's own uid. Present on the Tiled path (it is on
+    the stored start document) and ``None`` on the live path, where the bridge
+    holds a buffer but no record of the uid the worker's RunEngine minted. The
+    key is always present, so a consumer never has to tell "unknown" apart from
+    "this response shape omits it".
+    """
+    buf = live_rows.get(run_id)
 
     if buf is not None:
-        result: dict[str, Any] = {"run_uid": run_uid}
+        result: dict[str, Any] = {"run_uid": None}
         result.update(
             _window(buf["columns"], buf["rows"], buf["total_seen"], max_rows, offset, tail)
         )

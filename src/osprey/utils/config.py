@@ -2,20 +2,42 @@
 
 Loads a single YAML config file, resolves environment variables,
 and provides dot-path access to values.
+
+**Importing this module does not read ``.env`` and does not touch
+``os.environ``.** Building a :class:`ConfigBuilder` does (see its ``load_env``
+argument), and that is deliberate — but it must be an *application* that asks
+for a config, never the mere act of importing an ``osprey`` module. Loading
+``.env`` at import time made a library consumer's environment depend on which
+directory the process happened to start in, gave non-credential keys
+``override=True`` semantics they were never scoped for, and silently undid
+callers' own ``os.environ`` writes depending on import order.
+
+Applications load ``.env`` explicitly at startup: the CLI in
+``osprey.cli.main``, MCP servers via :func:`osprey.mcp_env.load_dotenv_from_project`,
+and the Claude Code launch paths via
+:func:`osprey.build.claude_code_resolver.inject_provider_env`.
 """
 
 import copy
 import logging
 import os
 import re
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 import yaml
 
+# Safe at module level despite this module's no-osprey-imports rule below:
+# ``workspace`` imports nothing from osprey itself, so there is no cycle.
+from osprey.utils.workspace import (
+    SIMULATION_STATE_DIR_CONFIG_KEY,
+    anchored_path,
+    dotted_config_str,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from datetime import datetime
     from zoneinfo import ZoneInfo
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
@@ -126,6 +148,53 @@ EXECUTION_METHOD_SUBPROCESS = "subprocess"
 _container_method_warned = False
 
 
+#: Directory the build owns end to end: every file under it is rendered from the
+#: profile/preset and checksummed into the manifest.
+BUILD_OWNED_DATA_DIR = "data"
+
+#: Directory runtime state belongs in — excluded from the manifest checksums and
+#: preserved across ``osprey build --force``.
+RUNTIME_STATE_DIR = "_agent_data"
+
+#: Config keys whose value names a path something writes to *at run time*.
+#: These must stay out of ``data/``: that tree is build-owned and checksummed by
+#: :func:`osprey.cli.templates.manifest.calculate_file_checksums`, so a runtime
+#: write landing there reads as project drift and is erased by the next
+#: ``osprey build --force``.
+RUNTIME_WRITE_PATH_KEYS = (
+    SIMULATION_STATE_DIR_CONFIG_KEY,
+    "services.channel_finder.pipelines.hierarchical.feedback.store_path",
+)
+
+
+def find_runtime_write_paths_under_data(
+    config: "Mapping[str, Any]", project_root: Path
+) -> list[tuple[str, str]]:
+    """Find configured runtime-write paths that resolve inside ``<root>/data/``.
+
+    Args:
+        config: Loaded ``config.yml`` mapping.
+        project_root: Directory relative paths in the config resolve against.
+
+    Returns:
+        ``(config_key, configured_value)`` pairs for every offending key, in
+        :data:`RUNTIME_WRITE_PATH_KEYS` order. Empty when the config is clean.
+    """
+    data_root = (project_root / BUILD_OWNED_DATA_DIR).resolve()
+    offenders: list[tuple[str, str]] = []
+
+    for key in RUNTIME_WRITE_PATH_KEYS:
+        value = dotted_config_str(config, key)
+        if value is None:
+            continue
+
+        resolved = anchored_path(value, project_root).resolve()
+        if resolved == data_root or data_root in resolved.parents:
+            offenders.append((key, value))
+
+    return offenders
+
+
 def _describe_config_source(source: str | None) -> str:
     """Describe where an execution method came from, for log messages.
 
@@ -218,6 +287,44 @@ def resolve_execution_method(
     )
 
 
+def load_project_dotenv() -> None:
+    """Load ``./.env`` into ``os.environ``, overriding existing values.
+
+    This is the ``.env`` → environ passthrough the framework depends on: it
+    feeds the ``${VAR}`` references Claude Code expands in ``.mcp.json`` at MCP
+    server launch time (``EPICS_CA_ADDR_LIST``, ``PHOEBUS_BRIDGE_URL``,
+    ``BLUESKY_*``), and it makes ``.env`` the source of truth for API keys over
+    a stale shell export. Every key in the file is passed through, not a
+    declared subset — narrowing it would drop Channel Access addressing with no
+    error.
+
+    ``override=True`` and the breadth of the copy are exactly why this must be
+    called deliberately. Call it from process entry points only; never at
+    import time, and never from library code that a host application merely
+    imports. Missing file, missing ``python-dotenv``, and an unreadable file
+    are all non-fatal.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        logger.warning("python-dotenv not available, skipping .env file loading")
+        return
+
+    dotenv_path = Path.cwd() / ".env"
+    try:
+        if not dotenv_path.exists():
+            logger.debug(f"No .env file found at {dotenv_path}")
+            return
+        load_dotenv(dotenv_path, override=True)
+        logger.debug(f"Loaded .env file from {dotenv_path}")
+    except OSError as e:
+        # e.g. a 0600 .env owned by another uid mounted into a non-root
+        # container (dispatch worker on a uid-mismatched host). Provider
+        # env should already be in os.environ by the time config is built,
+        # so degrade gracefully instead of crash-looping the process.
+        logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
+
+
 class ConfigBuilder:
     """Loads a YAML config, resolves ``${VAR}`` env-var placeholders, and
     pre-computes a ``configurable`` dict for framework and standalone use.
@@ -266,25 +373,7 @@ class ConfigBuilder:
             FileNotFoundError: If config.yml is not found and no path is provided.
         """
         if load_env:
-            try:
-                from dotenv import load_dotenv
-
-                dotenv_path = Path.cwd() / ".env"
-                if dotenv_path.exists():
-                    load_dotenv(
-                        dotenv_path, override=True
-                    )  # .env file is source of truth for API keys
-                    logger.debug(f"Loaded .env file from {dotenv_path}")
-                else:
-                    logger.debug(f"No .env file found at {dotenv_path}")
-            except ImportError:
-                logger.warning("python-dotenv not available, skipping .env file loading")
-            except OSError as e:
-                # e.g. a 0600 .env owned by another uid mounted into a non-root
-                # container (dispatch worker on a uid-mismatched host). Provider
-                # env should already be in os.environ by the time config is built,
-                # so degrade gracefully instead of crash-looping the process.
-                logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
+            load_project_dotenv()
 
         if config_path is None:
             cwd_config = Path.cwd() / "config.yml"
@@ -325,8 +414,35 @@ class ConfigBuilder:
 
         self.raw_config, self._unexpanded_config = self._load_config()
 
+        self._warn_on_runtime_write_paths_under_data()
+
         # Pre-compute nested structures for efficient runtime access
         self.configurable = self._build_configurable()
+
+    def _warn_on_runtime_write_paths_under_data(self) -> None:
+        """Warn when a runtime writer is pointed at the build-owned ``data/`` tree.
+
+        Advisory only: the misconfiguration still works until the next
+        ``osprey build --force`` wipes ``data/`` and takes the runtime state
+        with it, so this warns rather than raising.
+        """
+        configured_root = self.raw_config.get("project_root")
+        project_root = (
+            Path(configured_root) if configured_root else self.config_path.parent
+        ).expanduser()
+
+        for key, value in find_runtime_write_paths_under_data(self.raw_config, project_root):
+            logger.warning(
+                "Runtime-write path '%s' = %r resolves inside the build-owned "
+                "'%s/' tree (%s). That directory is re-rendered and checksummed on "
+                "every build, so runtime writes there show up as project drift and "
+                "are erased by 'osprey build --force'. Point it at '%s/' instead.",
+                key,
+                value,
+                BUILD_OWNED_DATA_DIR,
+                self.config_path,
+                RUNTIME_STATE_DIR,
+            )
 
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
         """Load and validate a YAML configuration file."""
@@ -497,6 +613,54 @@ class ConfigBuilder:
             return default
 
 
+def load_project_config(config_path: str | Path, *, wrap_errors: bool = False) -> dict[str, Any]:
+    """Load a built project's ``config.yml`` the way the deploy path loads it.
+
+    The single entry point every project-facing command and deployment step
+    uses to read a project's effective config: :class:`ConfigBuilder`, with the
+    loader's own INFO chatter quieted. Going through one function is what keeps
+    those consumers agreeing on what the config *says* — a caller that
+    hand-rolled ``yaml.safe_load`` would resolve ``${VAR}`` without the ``.env``
+    passthrough ConfigBuilder performs (see :func:`load_project_dotenv`), and
+    would miss the module flags and derived fields ConfigBuilder computes. It
+    could then report on — or render from — a config the deploy would never
+    have produced.
+
+    This lives here, next to ``ConfigBuilder``, rather than in a CLI helper
+    module: the deployment layer is one of its consumers and imports nothing
+    from :mod:`osprey.cli` at module scope, so a CLI home would have made this
+    the first such edge.
+
+    Existence checks stay at the call site. ``ConfigBuilder``'s own
+    ``FileNotFoundError`` advises setting ``CONFIG_FILE``, which is the wrong
+    instruction for a ``--project`` verb, so a caller that needs its own
+    "no project here" message must check before calling (see
+    :func:`osprey.cli.scaffold_cmd._load_config`).
+
+    Args:
+        config_path: Path to the project's ``config.yml``.
+        wrap_errors: When True, re-raise any load failure as ``RuntimeError``
+            naming the config path. Deployment entry points use this so an
+            operator sees which file failed rather than a bare YAML error.
+
+    Returns:
+        The env-var-expanded config mapping (``ConfigBuilder.raw_config``).
+
+    Raises:
+        RuntimeError: If the load fails and *wrap_errors* is True.
+    """
+    from osprey.utils.log_filter import quiet_logger
+
+    try:
+        with quiet_logger(["registry", "CONFIG"]):
+            config: dict[str, Any] = ConfigBuilder(str(config_path)).raw_config
+    except Exception as e:
+        if not wrap_errors:
+            raise
+        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+    return config
+
+
 _default_config: ConfigBuilder | None = None
 _default_configurable: dict[str, Any] | None = None
 _config_cache: dict[str, ConfigBuilder] = {}
@@ -547,7 +711,13 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     resolved_path = str(Path(config_path).resolve())
 
     if resolved_path not in _config_cache:
-        logger.info(f"Loading configuration from explicit path: {resolved_path}")
+        # Log honestly: a missing file is about to raise in ConfigBuilder, and
+        # many callers swallow that — a cheerful "Loading configuration from
+        # explicit path" would then be the only (misleading) trace in the log.
+        if Path(resolved_path).is_file():
+            logger.info(f"Loading configuration from explicit path: {resolved_path}")
+        else:
+            logger.warning(f"Config file not found: {resolved_path} — load will fail")
         _config_cache[resolved_path] = ConfigBuilder(resolved_path)
 
     if set_as_default:
@@ -801,6 +971,32 @@ def get_facility_timezone() -> "ZoneInfo":
     return zone
 
 
+@overload
+def localize_facility(dt: "datetime") -> "datetime": ...
+
+
+@overload
+def localize_facility(dt: None) -> None: ...
+
+
+def localize_facility(dt: "datetime | None") -> "datetime | None":
+    """Read a naive datetime as facility-local wall-clock; pass an aware one through.
+
+    A naive datetime is stamped with the facility zone -- never the box ``$TZ``,
+    which ``astimezone`` would silently impose. :func:`get_facility_timezone`
+    degrades to UTC when the zone is unset or unreadable.
+
+    Args:
+        dt: A datetime in either state, or ``None``.
+
+    Returns:
+        The same instant, timezone-aware, or ``None`` for ``None`` input.
+    """
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=get_facility_timezone())
+    return dt
+
+
 def _warn_on_tz_drift(tz_name: str) -> None:
     """Warn once if the container ``$TZ`` disagrees with an explicit system.timezone.
 
@@ -835,23 +1031,17 @@ def to_facility_iso(value: Any) -> "str | None":
 
     The single shared timestamp-egress transform for agent- and operator-facing
     output (the ARIEL MCP ``serialize_entry``/``entry_get`` and the ARIEL web
-    responses). Centralizing it here is deliberate: the input side was already
-    mirrored (``parse_date_filters`` / ``_localize_facility``), and the original
-    web/MCP output drift came from a copy-pasted localizer, so both paths now call
-    one function. An aware datetime is converted to the facility zone; a naive
-    datetime is assumed to already be facility-local wall-clock and is stamped with
-    the facility zone (mirroring the parse-side ``_localize_facility`` contract —
-    never the box ``$TZ``, which ``astimezone`` would otherwise impose); ``None``
-    passes through; anything else degrades to ``str(value)`` so callers never crash
-    on an unexpected shape (e.g. a value already serialized upstream).
+    responses). An aware datetime is converted to the facility zone; a naive
+    datetime is treated as facility-local wall-clock via :func:`localize_facility`
+    (never the box ``$TZ``); ``None`` passes through; anything else degrades to
+    ``str(value)`` so callers never crash on an unexpected shape.
     """
     if value is None:
         return None
     if hasattr(value, "astimezone"):  # a datetime
-        tz = get_facility_timezone()
-        if value.tzinfo is None:
-            return str(value.replace(tzinfo=tz).isoformat())
-        return str(value.astimezone(tz).isoformat())
+        # localize_facility stamps the naive case; astimezone converts aware
+        # values into the facility zone for display.
+        return str(localize_facility(value).astimezone(get_facility_timezone()).isoformat())
     return str(value)
 
 
@@ -890,9 +1080,9 @@ def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
     return _get_configurable(config_path, set_as_default=set_as_default)
 
 
-# Eager-init config on import; deferred init is OK if config.yml is absent.
-try:
-    if "sphinx" not in sys.modules and not os.environ.get("SPHINX_BUILD"):
-        _get_config()
-except FileNotFoundError:
-    pass
+# No eager _get_config() here, deliberately. Building the default config at
+# import time loaded `.env` into os.environ as a side effect of importing any
+# osprey module (osprey/utils/__init__.py imports this one), which is the
+# behaviour the module docstring rules out. The first real get_config_value()
+# call builds it instead; entry points that need `.env` in the environment
+# load it themselves.

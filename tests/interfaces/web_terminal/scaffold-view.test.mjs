@@ -41,6 +41,10 @@ import {
  *   detailView: HTMLElement,
  *   untrackedBannerEl: HTMLElement,
  *   filterChipsEl: HTMLElement,
+ *   filterPanelEl: HTMLElement,
+ *   filterToggleEl: HTMLElement,
+ *   clearFilterEl: HTMLElement,
+ *   collapsedCategories: Set<string>,
  *   summaryEl: HTMLElement,
  *   searchInput: HTMLInputElement,
  *   categoriesEl: HTMLElement,
@@ -59,12 +63,18 @@ function makeGallery(overrides = {}) {
     filterCategory: null,
     filterProjectOwned: false,
     searchQuery: '',
+    filterOpen: false,
+    collapsedCategories: new Set(),
+    seenCategories: new Set(),
     pinnedCategories: [],
     summary: { total: 0, framework: 0, userOwned: 0 },
     galleryView: document.createElement('div'),
     detailView: document.createElement('div'),
     untrackedBannerEl: document.createElement('div'),
     filterChipsEl: document.createElement('div'),
+    filterPanelEl: document.createElement('div'),
+    filterToggleEl: document.createElement('button'),
+    clearFilterEl: document.createElement('button'),
     summaryEl: document.createElement('div'),
     searchInput: (() => {
       const wrapper = document.createElement('div');
@@ -236,10 +246,94 @@ describe('createScaffoldGalleryView', () => {
 
     view.renderCategories();
 
-    const headers = [...gallery.categoriesEl.querySelectorAll('.prompts-category-header span:first-child')]
+    const headers = [...gallery.categoriesEl.querySelectorAll('.prompts-category-label')]
       .map((el) => el.textContent);
     expect(headers[0]).toBe('HOOKS');
     expect(gallery.categoriesEl.querySelectorAll('.prompts-card').length).toBe(3);
+  });
+
+  test('unpinned categories start collapsed; pinned ones start open', () => {
+    const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: ['hooks'] });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderCategories();
+
+    const sections = [...gallery.categoriesEl.querySelectorAll('.prompts-category-section')];
+    const state = sections.map((s) => [
+      qs(s, '.prompts-category-label').textContent,
+      qs(s, '.prompts-category-body').classList.contains('collapsed'),
+    ]);
+    expect(state).toEqual([['HOOKS', false], ['AGENTS', true], ['SYSTEM PROMPT', true]]);
+  });
+
+  test('a single-category gallery never seeds its only section collapsed', () => {
+    // Safety (hooks only) and Config (mcp-json + settings-json, both `config`)
+    // would otherwise open on a lone header above an empty panel.
+    const gallery = makeGallery({
+      artifacts: [{ name: 'a', displayCategory: 'hooks', status: 'framework' }],
+      pinnedCategories: [],
+    });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderCategories();
+
+    expect(qs(gallery.categoriesEl, '.prompts-category-body').classList.contains('collapsed'))
+      .toBe(false);
+  });
+
+  test('collapsed sections still render their cards (hidden, not skipped)', () => {
+    const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: [] });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderCategories();
+
+    // Every section collapsed, yet all three cards exist in the DOM.
+    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(3);
+    expect(gallery.categoriesEl.querySelectorAll('.prompts-card').length).toBe(3);
+  });
+
+  test('clicking a category header toggles that section only', () => {
+    const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: ['hooks'] });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderCategories();
+    qs(gallery.categoriesEl, '.prompts-category-header').dispatchEvent(new Event('click'));
+
+    const sections = [...gallery.categoriesEl.querySelectorAll('.prompts-category-section')];
+    // HOOKS was open and is now collapsed; the others are untouched.
+    expect(qs(sections[0], '.prompts-category-body').classList.contains('collapsed')).toBe(true);
+    expect(qs(sections[1], '.prompts-category-body').classList.contains('collapsed')).toBe(true);
+    expect(gallery.collapsedCategories.has('hooks')).toBe(true);
+  });
+
+  test('starting a search opens every section so matches cannot hide', () => {
+    const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: [] });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderCategories();  // unfiltered: everything seeded collapsed
+    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(3);
+
+    gallery.searchQuery = 'a';
+    view.renderCategories();
+
+    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(0);
+  });
+
+  test('the Filter disclosure opens and closes the panel holding search + chips', () => {
+    const gallery = makeGallery({ artifacts: ARTIFACTS });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderFilterToggle();
+    expect(gallery.filterPanelEl.classList.contains('open')).toBe(false);
+    expect(gallery.filterToggleEl.getAttribute('aria-expanded')).toBe('false');
+
+    gallery.filterToggleEl.dispatchEvent(new Event('click'));
+    expect(gallery.filterOpen).toBe(true);
+    expect(gallery.filterPanelEl.classList.contains('open')).toBe(true);
+    expect(gallery.filterToggleEl.getAttribute('aria-expanded')).toBe('true');
+
+    gallery.filterToggleEl.dispatchEvent(new Event('click'));
+    expect(gallery.filterPanelEl.classList.contains('open')).toBe(false);
   });
 
   test('renderCategories shows the empty state when nothing matches', () => {
@@ -289,15 +383,51 @@ describe('createScaffoldGalleryView', () => {
     expect(gallery.filterProjectOwned).toBe(true);
   });
 
-  test('renderSummary renders the totals line', () => {
+  test('renderSummary renders the inventory line and hides the clear button', () => {
     const gallery = makeGallery({ summary: { total: 5, framework: 3, userOwned: 2 } });
     const view = createScaffoldGalleryView(gallery);
 
     view.renderSummary();
 
     expect(gallery.summaryEl.textContent).toContain('5 artifacts');
-    expect(gallery.summaryEl.textContent).toContain('3 framework');
     expect(gallery.summaryEl.textContent).toContain('2 project-owned');
+    expect(gallery.clearFilterEl.style.display).toBe('none');
+  });
+
+  test('an active filter is legible on the meta line even with the panel shut', () => {
+    // The whole point of collapsing the controls: a narrowed list must never
+    // read as a short one.
+    const gallery = makeGallery({
+      artifacts: ARTIFACTS,
+      summary: { total: 3, framework: 2, userOwned: 1 },
+      filterCategory: 'agents',
+      searchQuery: 'one',
+    });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderSummary();
+
+    expect(gallery.summaryEl.textContent).toBe('1 of 3 · agents · "one"');
+    expect(gallery.clearFilterEl.style.display).not.toBe('none');
+  });
+
+  test('the meta line\'s clear button drops every filter and re-renders', () => {
+    const gallery = makeGallery({
+      artifacts: ARTIFACTS,
+      summary: { total: 3, framework: 2, userOwned: 1 },
+      filterCategory: 'agents',
+      filterProjectOwned: true,
+      searchQuery: 'one',
+    });
+    const view = createScaffoldGalleryView(gallery);
+
+    view.renderSummary();
+    gallery.clearFilterEl.dispatchEvent(new Event('click'));
+
+    expect(gallery.filterCategory).toBeNull();
+    expect(gallery.filterProjectOwned).toBe(false);
+    expect(gallery.searchQuery).toBe('');
+    expect(gallery.summaryEl.textContent).toContain('3 artifacts');
   });
 
   test('renderUntrackedBanner hides itself when there are no untracked files', () => {

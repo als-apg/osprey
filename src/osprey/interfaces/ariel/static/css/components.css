@@ -58,15 +58,15 @@
   color: var(--text-primary);
 }
 
-.btn-amber {
-  background: var(--color-amber);
+.btn-accent-secondary {
+  background: var(--color-accent-secondary);
   color: var(--bg-primary);
-  border-color: var(--color-amber);
+  border-color: var(--color-accent-secondary);
 }
 
-.btn-amber:hover:not(:disabled) {
-  background: var(--color-amber-light);
-  box-shadow: var(--shadow-glow-amber);
+.btn-accent-secondary:hover:not(:disabled) {
+  background: var(--color-accent-secondary-light);
+  box-shadow: var(--shadow-glow-accent-secondary);
 }
 
 .btn-sm {
@@ -247,7 +247,7 @@ textarea.input {
 }
 
 .entry-card-meta .entry-id {
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   font-weight: 500;
 }
 
@@ -265,8 +265,8 @@ textarea.input {
 }
 
 .entry-card-content b {
-  color: var(--color-amber-light);
-  background: var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-15);
   font-weight: 700;
   padding: 1px 3px;
   border-radius: 3px;
@@ -344,9 +344,9 @@ textarea.input {
   background: var(--accent-tint-10);
 }
 
-.tag-amber {
-  color: var(--color-amber-light);
-  background: var(--amber-tint-08);
+.tag-accent-secondary {
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
 }
 
 /* === Status Indicator === */
@@ -370,7 +370,7 @@ textarea.input {
 
 /* === Answer Box (RAG results) === */
 .answer-box {
-  background: linear-gradient(135deg, var(--accent-tint-10), var(--amber-tint-04));
+  background: linear-gradient(135deg, var(--accent-tint-10), var(--accent-secondary-tint-04));
   border: 1px solid var(--color-accent);
   border-radius: var(--ariel-radius-lg);
   padding: var(--ariel-space-5);
@@ -403,7 +403,7 @@ textarea.input {
 }
 
 .answer-box-sources a {
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 /* === Diagnostics Bar === */
@@ -596,7 +596,7 @@ textarea.input {
 .pipeline-tool-name {
   font-family: var(--font-mono);
   font-weight: 500;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
 }
 
 .pipeline-tool-args,
@@ -649,7 +649,7 @@ textarea.input {
 
 .pipeline-step-badge-user_query { color: var(--color-info); border: 1px solid var(--color-info); background: var(--color-info-bg); }
 .pipeline-step-badge-reasoning { color: var(--color-accent-light); border: 1px solid var(--color-accent); background: var(--accent-tint-10); }
-.pipeline-step-badge-tool_call { color: var(--color-amber-light); border: 1px solid var(--color-amber); background: var(--amber-tint-15); }
+.pipeline-step-badge-tool_call { color: var(--color-accent-secondary-light); border: 1px solid var(--color-accent-secondary); background: var(--accent-secondary-tint-15); }
 .pipeline-step-badge-tool_result { color: var(--color-warning); border: 1px solid var(--color-warning); background: var(--color-warning-bg); }
 .pipeline-step-badge-final_answer { color: var(--color-success); border: 1px solid var(--color-success); background: var(--color-success-bg); }
 
@@ -657,8 +657,8 @@ textarea.input {
   font-family: var(--font-mono);
   font-size: var(--ariel-text-xs);
   font-weight: 500;
-  color: var(--color-amber);
-  background: var(--amber-tint-15);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-15);
   padding: 1px var(--ariel-space-2);
   border-radius: var(--ariel-radius-sm);
 }
@@ -953,7 +953,7 @@ textarea.input {
 .advanced-title {
   font-size: var(--ariel-text-sm);
   font-weight: 600;
-  color: var(--color-amber-light);
+  color: var(--color-accent-secondary-light);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }
@@ -991,14 +991,14 @@ textarea.input {
 
 .advanced-section-header {
   padding: var(--ariel-space-2) var(--ariel-space-3);
-  background: var(--amber-tint-08);
+  background: var(--accent-secondary-tint-08);
   border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .advanced-section-header .section-title {
   font-size: var(--ariel-text-xs);
   font-weight: 600;
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
 }

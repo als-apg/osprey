@@ -20,13 +20,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
-from osprey.interfaces.web_terminal.app import create_app, resolve_web_theme_id
+from osprey.interfaces.web_terminal.app import (
+    create_app,
+    resolve_web_theme_id,
+    resolve_web_theme_pinned_mode,
+)
 
 # A synthetic manifest mirroring the real baked tokens.js THEMES: the
-# `osprey` family (dark/light) plus a `high-contrast` family (dark/light).
+# `main` family (dark/light) plus a `high-contrast` family (dark/light).
 _ENTRIES = [
-    ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="osprey"),
-    ThemeManifestEntry(id="light", label="Light", mode="light", family="osprey"),
+    ThemeManifestEntry(id="dark", label="Dark", mode="dark", family="main"),
+    ThemeManifestEntry(id="light", label="Light", mode="light", family="main"),
     ThemeManifestEntry(
         id="high-contrast-dark", label="High Contrast Dark", mode="dark", family="high-contrast"
     ),
@@ -35,7 +39,7 @@ _ENTRIES = [
     ),
 ]
 _DEFAULTS = {
-    "osprey": {"dark": "dark", "light": "light"},
+    "main": {"dark": "dark", "light": "light"},
     "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
 }
 
@@ -47,8 +51,8 @@ class TestResolveWebThemeId:
         """A family name resolves to that family's dark id (the SSR default)."""
         assert resolve_web_theme_id("high-contrast", _ENTRIES, _DEFAULTS) == "high-contrast-dark"
 
-    def test_osprey_family_resolves_to_dark(self):
-        assert resolve_web_theme_id("osprey", _ENTRIES, _DEFAULTS) == "dark"
+    def test_main_family_resolves_to_dark(self):
+        assert resolve_web_theme_id("main", _ENTRIES, _DEFAULTS) == "dark"
 
     def test_concrete_id_passes_through(self):
         """A concrete id (e.g. pinning a specific mode) is used as-is."""
@@ -84,7 +88,7 @@ class TestResolveWebThemeId:
         would silently fall through to OS-auto instead of honoring config.
         """
         valid_ids = {entry.id for entry in _ENTRIES}
-        for configured in ("osprey", "high-contrast", "dark", "high-contrast-light", "bogus"):
+        for configured in ("main", "high-contrast", "dark", "high-contrast-light", "bogus"):
             assert resolve_web_theme_id(configured, _ENTRIES, _DEFAULTS) in valid_ids
 
 
@@ -134,7 +138,7 @@ class TestRenderedDataTheme:
         finally:
             next(gen, None)
 
-    def test_unknown_config_renders_osprey_dark_fallback(self, workspace_dir):
+    def test_unknown_config_renders_main_dark_fallback(self, workspace_dir):
         gen = _make_client(workspace_dir, "nonsense")
         client = next(gen)
         try:
@@ -143,21 +147,27 @@ class TestRenderedDataTheme:
         finally:
             next(gen, None)
 
-    def test_looks_up_web_theme_key_with_osprey_default(self, workspace_dir):
-        """The lifespan reads exactly `web.theme` with default 'osprey'."""
+    def test_looks_up_web_theme_key_with_main_default(self, workspace_dir):
+        """The lifespan resolves the theme from `web.theme` with default 'main'.
+
+        The lifespan reads other `web.*` keys too (e.g. the chat-pool bounds),
+        so this asserts the theme *contract* — that `web.theme` is queried with
+        the 'main' default and the rendered result reflects it — rather than
+        that the theme read is the lifespan's only config lookup.
+        """
         with (
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_config",
                 return_value={"watch_dir": str(workspace_dir)},
             ),
             patch(
-                "osprey.utils.config.get_config_value", return_value="osprey"
+                "osprey.utils.config.get_config_value", return_value="main"
             ) as mock_get_config_value,
             TestClient(create_app(shell_command="echo")) as client,
         ):
             body = client.get("/").text
 
-        mock_get_config_value.assert_called_once_with("web.theme", "osprey")
+        mock_get_config_value.assert_any_call("web.theme", "main")
         assert 'data-theme="dark"' in body
 
     def test_missing_config_yml_fails_open_to_dark(self, workspace_dir):
@@ -176,13 +186,146 @@ class TestRenderedDataTheme:
             body = client.get("/").text
             assert 'data-theme="dark"' in body
 
-    def test_switcher_element_mounted(self, workspace_dir):
-        """The binary theme-toggle button is replaced by <osprey-theme-switcher>."""
-        gen = _make_client(workspace_dir, "osprey")
+    def test_display_menu_mounted(self, workspace_dir):
+        """The hub header mounts the display menu (dot + popover card).
+
+        The always-visible ``<osprey-theme-switcher>`` and the old binary
+        ``#theme-toggle`` button are both gone from the hub page — theme
+        controls live inside the display-menu card (standalone fleet pages
+        such as session.html keep the shared switcher component).
+        """
+        gen = _make_client(workspace_dir, "main")
         client = next(gen)
         try:
             body = client.get("/").text
-            assert "<osprey-theme-switcher></osprey-theme-switcher>" in body
+            assert 'id="display-menu-btn"' in body
+            assert 'id="display-menu-card"' in body
+            assert 'id="mode-toggle"' in body
+            assert "<osprey-theme-switcher>" not in body
             assert 'id="theme-toggle"' not in body
+        finally:
+            next(gen, None)
+
+
+# ---- The mode pin: family vs concrete id ----
+
+
+class TestResolveWebThemePinnedMode:
+    """A configured value either states a mode or leaves it to the OS."""
+
+    def test_concrete_id_pins_its_own_mode(self):
+        assert resolve_web_theme_pinned_mode("high-contrast-light", _ENTRIES) == "light"
+        assert resolve_web_theme_pinned_mode("dark", _ENTRIES) == "dark"
+
+    def test_family_pins_nothing(self):
+        """A family states a palette only — light/dark stays the operator's OS call."""
+        assert resolve_web_theme_pinned_mode("high-contrast", _ENTRIES) is None
+        assert resolve_web_theme_pinned_mode("main", _ENTRIES) is None
+
+    def test_unknown_value_pins_nothing(self):
+        """An unknown value falls back; a fallback must not pose as stated intent."""
+        assert resolve_web_theme_pinned_mode("nonsense", _ENTRIES) is None
+        assert resolve_web_theme_pinned_mode("", _ENTRIES) is None
+
+
+class TestRenderedThemeMode:
+    """`data-theme-mode` is server-rendered only when the deployment pinned one."""
+
+    def test_concrete_id_renders_the_pin(self, workspace_dir):
+        gen = _make_client(workspace_dir, "high-contrast-light")
+        client = next(gen)
+        try:
+            body = client.get("/").text
+            assert 'data-theme="high-contrast-light"' in body
+            assert 'data-theme-mode="light"' in body
+        finally:
+            next(gen, None)
+
+    def test_family_renders_no_pin_attribute(self, workspace_dir):
+        """Absence is the signal that tells the hub to stay on 'auto'.
+
+        A `data-theme-mode=""` would be read as "unrecognized" and coerced back
+        to auto by theme-manager.js, but emitting it at all muddies a contract
+        whose whole meaning is presence vs absence.
+        """
+        gen = _make_client(workspace_dir, "high-contrast")
+        client = next(gen)
+        try:
+            body = client.get("/").text
+            assert 'data-theme="high-contrast-dark"' in body
+            assert "data-theme-mode" not in body
+        finally:
+            next(gen, None)
+
+    def test_unknown_config_renders_no_pin_attribute(self, workspace_dir):
+        gen = _make_client(workspace_dir, "nonsense")
+        client = next(gen)
+        try:
+            body = client.get("/").text
+            assert "data-theme-mode" not in body
+        finally:
+            next(gen, None)
+
+
+# ---- OSPREY_WEB_THEME: per-container override of web.theme ----
+
+
+class TestThemeEnvOverride:
+    """Several containers can share one baked config image and still differ.
+
+    Mirrors the `OSPREY_WEB_APP_NAME` > `web.app_name` precedence the same
+    lifespan already applies to the deployment label.
+    """
+
+    def test_env_var_outranks_config(self, workspace_dir, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_THEME", "high-contrast-light")
+        gen = _make_client(workspace_dir, "main")
+        client = next(gen)
+        try:
+            body = client.get("/").text
+            assert 'data-theme="high-contrast-light"' in body
+            assert 'data-theme-mode="light"' in body
+        finally:
+            next(gen, None)
+
+    def test_env_var_accepts_a_family(self, workspace_dir, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_THEME", "high-contrast")
+        gen = _make_client(workspace_dir, "main")
+        client = next(gen)
+        try:
+            body = client.get("/").text
+            assert 'data-theme="high-contrast-dark"' in body
+            assert "data-theme-mode" not in body
+        finally:
+            next(gen, None)
+
+    def test_blank_env_var_falls_through_to_config(self, workspace_dir, monkeypatch):
+        """An empty env var is 'unset', not 'the empty theme'."""
+        monkeypatch.setenv("OSPREY_WEB_THEME", "   ")
+        gen = _make_client(workspace_dir, "high-contrast")
+        client = next(gen)
+        try:
+            assert 'data-theme="high-contrast-dark"' in client.get("/").text
+        finally:
+            next(gen, None)
+
+    def test_absent_env_var_uses_config(self, workspace_dir, monkeypatch):
+        monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
+        gen = _make_client(workspace_dir, "high-contrast")
+        client = next(gen)
+        try:
+            assert 'data-theme="high-contrast-dark"' in client.get("/").text
+        finally:
+            next(gen, None)
+
+    def test_unknown_env_var_warns_and_falls_back(self, workspace_dir, monkeypatch):
+        """A typo'd env var must not take the page somewhere unthemed."""
+        monkeypatch.setenv("OSPREY_WEB_THEME", "nonsense")
+        gen = _make_client(workspace_dir, "high-contrast")
+        client = next(gen)
+        try:
+            body = client.get("/").text
+            assert 'data-theme="dark"' in body
+            assert "data-theme-mode" not in body
         finally:
             next(gen, None)

@@ -8,6 +8,10 @@
        before any stylesheet. Live theme changes are handled by the
        theme-manager FOLLOWER role in app.js. -->
   <script src="/design-system/js/theme-boot.js"></script>
+  <!-- UI-mode boot: applies data-ui-mode (expert/simple) pre-paint, same
+       zero-dependency in-<head> contract as theme-boot. Live Expert<->Simple
+       switches are handled by the message listener in app.js. -->
+  <script src="/design-system/js/mode-boot.js"></script>
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
   <!-- Fonts (self-hosted, no external CDN) -->
@@ -49,6 +53,10 @@
         <span class="stat-value">—</span>
         <span class="stat-unit">m</span>
       </div>
+      <!-- Simple mode: one plain-language status line replaces the dense stat
+           chips above. Hidden in Expert (default); shown under
+           html[data-ui-mode="simple"]. Populated from state in render.js. -->
+      <span id="lattice-simple-status" class="lattice-simple-status"></span>
     </div>
     <div class="topbar-actions">
       <button id="btn-layout" class="action-btn" title="Toggle panel layout">
@@ -120,6 +128,15 @@
         </div>
       </div>
     </aside>
+
+    <!-- Draggable divider between the control sidebar and the figure area.
+         `.osprey-splitter` is the design system's shared grip-pill (base.css);
+         the drag, keyboard and collapse behaviour are wired in js/ui.js from
+         /design-system/js/splitter.js. The header chevron toggles the same
+         splitter, so the two controls cannot disagree about the state. -->
+    <div id="sidebar-resizer" class="osprey-splitter" role="separator"
+         aria-orientation="vertical" aria-label="Resize control sidebar"
+         tabindex="0" title="Drag to resize · double-click to collapse"></div>
 
     <!-- Figure Grid -->
     <main id="figure-area">

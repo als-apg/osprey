@@ -112,6 +112,10 @@ def _build_oversize_preview(file_path, size: int) -> dict:
         preview["tail"] = text[-256:] if len(text) > 512 else ""
         return preview
 
+    # Unwrap the legacy OSPREY metadata envelope (still present on old files).
+    if isinstance(data, dict) and "_osprey_metadata" in data and "data" in data:
+        data = data["data"]
+
     # Archiver-style wrapper: {"query": ..., "dataframe": {split-orient}}.
     df_block = data.get("dataframe") if isinstance(data, dict) else None
     if (
@@ -134,6 +138,34 @@ def _build_oversize_preview(file_path, size: int) -> dict:
             {"index": index[i] if i < len(index) else None, "values": rows[i]}
             for i in range(max(min(5, len(rows)), len(rows) - 5), len(rows))
         ]
+        return preview
+
+    # Archiver payload from archiver_read: {"query": ..., "series": {channel:
+    # {timestamps, values}}}. Guarded on every entry carrying `timestamps` so
+    # an unrelated top-level `series` key falls through to generic handling.
+    series = data.get("series") if isinstance(data, dict) else None
+    if (
+        isinstance(series, dict)
+        and series
+        and all(isinstance(v, dict) and "timestamps" in v for v in series.values())
+    ):
+        per_channel = {}
+        total = 0
+        for channel, entry in series.items():
+            timestamps = entry.get("timestamps") or []
+            values = entry.get("values") or []
+            total += len(timestamps)
+            per_channel[channel] = {
+                "points": len(timestamps),
+                "first": [timestamps[0], values[0]] if timestamps and values else None,
+                "last": [timestamps[-1], values[-1]] if timestamps and values else None,
+            }
+        preview["shape"] = "timeseries_series"
+        preview["channels"] = list(series.keys())
+        preview["row_count"] = total
+        preview["per_channel"] = per_channel
+        if isinstance(data.get("query"), dict):
+            preview["query"] = data["query"]
         return preview
 
     if isinstance(data, dict):

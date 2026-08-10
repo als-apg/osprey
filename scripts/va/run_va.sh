@@ -11,9 +11,13 @@
 # use that project's channel_limits.json-scoped scenarios instead.
 #
 # Builds the image if it doesn't already exist (set OSPREY_VA_REBUILD=1 to
-# force a rebuild, e.g. after editing src/osprey/services/virtual_accelerator/**
-# or docker/virtual-accelerator/Containerfile). Runs in the foreground --
-# Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
+# force a rebuild, e.g. after editing src/osprey/services/virtual_accelerator/**,
+# docker/virtual-accelerator/Containerfile, or the `virtual-accelerator` extra
+# in pyproject.toml). Runs in the foreground -- Ctrl-C (or
+# `docker stop`) shuts the IOC down cleanly.
+#
+# The image is linux/amd64 (see the Containerfile for why), so on an Apple
+# Silicon host it runs emulated.
 #
 # After it reports ready, point a project at it with:
 #   control_system:
@@ -40,6 +44,16 @@ if [[ ! -f "${DATA_DIR}/machine.json" ]]; then
     echo "FATAL: no machine.json under ${DATA_DIR}" >&2
     echo "DATA_DIR must be a project's data/simulation/ directory." >&2
     exit 1
+fi
+
+# `osprey sim apply` writes the active-scenario state under the project's
+# _agent_data/ (data/ is build-owned and re-rendered), so mount that too when
+# DATA_DIR really is a project's data/simulation. Without it the IOC falls back
+# to reading the state next to machine.json and never sees a scenario switch.
+STATE_DIR="$(cd "${DATA_DIR}/../.." >/dev/null 2>&1 && pwd)/_agent_data/simulation"
+STATE_MOUNT=()
+if [[ -d "${STATE_DIR}" ]]; then
+    STATE_MOUNT=(-v "${STATE_DIR}:/state/simulation:ro" -e "VA_STATE_DIR=/state/simulation")
 fi
 
 RUNTIME="${OSPREY_VA_RUNTIME:-}"
@@ -76,8 +90,18 @@ if [[ "${OSPREY_VA_REBUILD:-0}" == "1" ]] || ! "${RUNTIME}" image inspect "${IMA
     cp "${VA_DIR}/Containerfile" "${STAGING_DIR}/docker/virtual-accelerator/Containerfile"
     find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 
-    echo "--- Building ${IMAGE} (native arch) ---"
+    # The serving stack needs no staging step: `lume-pva-apg[ca,pva]` is an
+    # exact pin in osprey's `virtual-accelerator` extra, so the image resolves
+    # it by name from PyPI along with everything else the extra carries. The
+    # context is therefore exactly the four things copied above.
+
+    # osprey's version comes from git (hatch-vcs) and the staged context has no
+    # .git, so the host resolves it and passes it in; see the Containerfile.
+    OSPREY_VERSION="$("${WORKTREE_ROOT}/.venv/bin/python" -c 'import osprey; print(osprey.__version__)')"
+
+    echo "--- Building ${IMAGE} (linux/amd64) ---"
     "${RUNTIME}" build \
+        --build-arg "OSPREY_VERSION=${OSPREY_VERSION}" \
         -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
 else
     echo "Reusing existing image ${IMAGE} (set OSPREY_VA_REBUILD=1 to force a rebuild)"
@@ -91,7 +115,14 @@ echo "    export EPICS_CA_NAME_SERVERS=localhost:${CA_PORT}"
 echo "    export EPICS_CA_AUTO_ADDR_LIST=NO"
 echo "--- Ctrl-C stops the container. ---"
 
+# The server port is passed explicitly, from the same CA_PORT the publish maps:
+# a CA search reply carries the server's own port number, so a container bound
+# to one port and published on another hands clients an unreachable address
+# with no useful error. (The image derives EPICS_CAS_SERVER_PORT from this.)
 "${RUNTIME}" run --rm --name "${CONTAINER}" \
+    --platform linux/amd64 \
+    -e "EPICS_CA_SERVER_PORT=${CA_PORT}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
     -v "${DATA_DIR}:/data/simulation:ro" \
+    "${STATE_MOUNT[@]}" \
     "${IMAGE}"

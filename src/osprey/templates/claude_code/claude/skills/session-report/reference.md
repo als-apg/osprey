@@ -492,28 +492,61 @@ const fontFamily = getComputedStyle(document.documentElement)
 
 ### Line Chart (Trend Analysis)
 
+Chart data comes from `archiver_downsample`, which returns:
+
+```json
+{"datasets": [{"channel": "SR:DCCT", "timestamps": ["2026-07-30T12:00:00+00:00", ...],
+               "values": [500.1, ...], "numeric": true}, ...]}
+```
+
+**Every channel carries its own `timestamps`.** Channels are archived at
+independent cadences and are not aligned to a shared axis, so there is no
+top-level `labels` array to assign. Do **not** write `data: { labels: ... }`:
+with more than one channel it silently draws every series against the first
+channel's x-values, which is wrong in a way nothing in the rendered report
+reveals. Give each dataset its own `{x, y}` points instead.
+
 ```javascript
+// One color per channel; extend the palette if a report plots more.
+const palette = ['#0891b2', '#c2410c', '#7c3aed', '#15803d', '#b91c1c'];
+
 new Chart(canvas, {
   type: 'line',
   data: {
-    labels: timestamps,
-    datasets: [{
-      label: 'Channel Value',
-      data: values,
-      borderColor: isDark ? '#22d3ee' : '#0891b2',
-      backgroundColor: isDark ? 'rgba(34, 211, 238, 0.1)' : 'rgba(8, 145, 178, 0.1)',
-      fill: true,
-      tension: 0.3,
-      pointRadius: 2,
-    }]
+    datasets: result.datasets
+      // Enum/status channels (numeric: false) cannot share a numeric y-axis —
+      // give them their own chart rather than mixing them in here.
+      .filter(d => d.numeric)
+      .map((d, i) => ({
+        label: d.channel,
+        // Each dataset supplies its own x values as epoch milliseconds.
+        data: d.timestamps.map((t, j) => ({ x: Date.parse(t), y: d.values[j] })),
+        borderColor: palette[i % palette.length],
+        fill: false,
+        tension: 0.3,
+        pointRadius: 2,
+      }))
   },
   options: {
     responsive: true,
+    // Data is already in Chart.js's internal {x, y} form and sorted by x.
+    parsing: false,
     plugins: {
       legend: { labels: { color: textColor, font: { family: fontFamily } } },
     },
     scales: {
-      x: { ticks: { color: textColor, font: { family: fontFamily } }, grid: { color: gridColor } },
+      // Epoch milliseconds on a linear axis. Chart.js's `time` scale would
+      // need a separate date-adapter script, which a self-contained report
+      // should not depend on.
+      x: {
+        type: 'linear',
+        ticks: {
+          color: textColor,
+          font: { family: fontFamily },
+          callback: v => new Date(v).toLocaleTimeString(),
+        },
+        grid: { color: gridColor },
+      },
       y: { ticks: { color: textColor, font: { family: fontFamily } }, grid: { color: gridColor } },
     }
   }

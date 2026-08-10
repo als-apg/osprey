@@ -37,7 +37,7 @@ async def test_feedback_hook_captures_search_results(feedback_project):
     """The feedback capture hook should write results to pending_reviews.json.
 
     After a channel-finder search that returns results, the PostToolUse hook
-    should silently create data/feedback/pending_reviews.json with valid items.
+    should silently create _agent_data/feedback/pending_reviews.json with valid items.
 
     Cost budget: $0.50
     """
@@ -66,7 +66,7 @@ async def test_feedback_hook_captures_search_results(feedback_project):
     assert len(cf_calls) >= 1, f"Expected channel-finder tool call but got: {result.tool_names}"
 
     # pending_reviews.json should exist with captured items
-    store_path = feedback_project / "data" / "feedback" / "pending_reviews.json"
+    store_path = feedback_project / "_agent_data" / "feedback" / "pending_reviews.json"
     assert store_path.exists(), f"Expected {store_path} to exist after channel-finder search"
 
     data = json.loads(store_path.read_text())

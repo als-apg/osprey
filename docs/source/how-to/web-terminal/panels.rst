@@ -17,12 +17,23 @@ Enable OSPREY's built-in panels in ``config.yml``:
        channel-finder: true
        lattice: true
 
+Where the panel rail lives
+--------------------------
+
+Open panels line up in the **panel rail**, which sits along the left edge by
+default. If your team prefers the panel buttons along the top — where the
+tabs lived before the redesign — set ``web.rail_position: top`` in
+``config.yml``, or switch from the panel ``+`` menu (or the command palette)
+at any time. The choice is remembered per browser, and each user's own pick
+wins over the configured default. (For the full pre-redesign appearance, pair
+this with the retro theme — see :doc:`theming`.)
+
 Panels backed by a URL
 ----------------------
 
 An entry under ``web.panels`` can also declare a **URL-backed panel** — a tab
 that shows another web service inside the terminal. This is how the EVENTS
-dashboard and the Bluesky PLAN / RESULTS tabs ship in the
+dashboard and the Bluesky PLAN / BLUESKY tabs ship in the
 ``control-assistant`` preset (a build that includes those stacks registers
 the entries for you):
 
@@ -38,6 +49,37 @@ the entries for you):
 
 The hub shows the service as a tab and proxies requests to it from the same
 origin, so the browser never needs direct access to the backing port.
+
+The Bluesky panels
+------------------
+
+Two tabs cover a scan end to end, both served by the ``bluesky-panels``
+sidecar:
+
+**PLAN** (``/plan/``) is where a plan is composed. It binds to the same shared
+draft the OSPREY agent edits, so a field the agent sets glows in the form as it
+lands, and a field you change by hand flows back to the agent. **Add to queue**
+puts the exact revision on screen into the scan queue.
+
+**BLUESKY** (``/bluesky/``) is the queue and the results. Its top half lists
+what the queue server is holding, with **Start queue**, **Stop after current
+item** and **Abort running plan**; its bottom half shows the selected run's
+table and live chart. :doc:`/how-to/bluesky/queue` covers what those controls
+do.
+
+.. note::
+
+   **BLUESKY was called RESULTS**, and it now holds the queue as well as the
+   results the old tab showed. The sidecar still serves the same bundle at
+   ``/results/`` **for one release**, so existing bookmarks and panel entries
+   keep resolving; the alias goes away after that, so move any
+   ``web.panels.results.*`` entry of your own to ``web.panels.bluesky.*``.
+
+   In the ``control-assistant`` preset that rename is already made. It changes
+   the preset's resolved content, so an **already-deployed project will report
+   staleness** on its next ``osprey deploy up``. That advisory is correct
+   rather than noise — unlike a cosmetic re-pin, this one renames a tab a user
+   sees — and the remedy is the rebuild the advisory prints.
 
 Adding your own panel
 ---------------------

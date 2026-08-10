@@ -17,8 +17,15 @@ Build & Deploy a Project
       :link: build-profiles
       :link-type: doc
 
-      Assemble facility-specific assistants from templates with config overrides,
-      file overlays, and custom MCP servers.
+      Build a facility-specific assistant from a profile you own — convention
+      directories, taking ownership of framework artifacts, personas, and secrets.
+
+   .. grid-item-card:: Deploy a Facility
+      :link: deploy-a-facility
+      :link-type: doc
+
+      The end-to-end walkthrough: one facility repo from ``osprey profile new``
+      through the CI scaffolding to a running three-service stack.
 
    .. grid-item-card:: Configure LLM Providers
       :link: configure-providers
@@ -61,6 +68,14 @@ Run & Operate the Agent
       The browser cockpit for the Osprey agent — launching it, theming every
       OSPREY interface at once, and adding your own themed side panels.
 
+   .. grid-item-card:: Multi-User Support
+      :link: multi-user
+      :link-type: doc
+
+      Serve a whole team from one host — a landing page plus a private
+      containerized Web Terminal per user, in read-only and write-capable
+      capability tiers.
+
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
       :link-type: doc
@@ -82,12 +97,12 @@ Run & Operate the Agent
       Turn external events — webhooks and cron ticks — into headless Osprey agent
       runs, deployed as containers or run locally.
 
-   .. grid-item-card:: Deploy a Chat Bridge
-      :link: deploy-chat-bridge
+   .. grid-item-card:: Chat Bridges
+      :link: chat-bridges/index
       :link-type: doc
 
-      Let your team ask the Osprey agent questions from a Nextcloud Talk room and
-      get answers, plots, and files back in the same room.
+      Let your team ask the Osprey agent questions from Nextcloud Talk or Google
+      Chat and get answers, plots, and files back in the same conversation.
 
    .. grid-item-card:: Monitor the Agent
       :link: monitor-agent
@@ -166,12 +181,13 @@ Bundled Services & Tutorials
       Run the Control Assistant tutorial against a containerized PyAT soft-IOC that
       serves real EPICS Channel Access with live storage-ring physics.
 
-   .. grid-item-card:: Agent-Assisted Grid Scan Tutorial
-      :link: agent-assisted-grid-scan
+   .. grid-item-card:: Bluesky Scans
+      :link: bluesky/index
       :link-type: doc
 
-      Ask the Osprey agent to compose an n-dimensional grid scan, watch it fill
-      the PLAN panel live, then Execute and watch points land in SCAN RESULTS.
+      Run measurement scans through a durable queue — compose with the Osprey
+      agent, review in the PLAN panel, start and stop in BLUESKY, and add
+      scan plans of your own.
 
 .. seealso::
 
@@ -182,15 +198,17 @@ Bundled Services & Tutorials
    :hidden:
 
    build-profiles
+   deploy-a-facility
    configure-providers
    run-open-models
    deploy-project
    containerize-project
    web-terminal/index
+   multi-user
    use-cli-chat
    non_interactive_query
    event-dispatch
-   deploy-chat-bridge
+   chat-bridges/index
    monitor-agent
    configure-health-checks
    add-connector
@@ -200,5 +218,5 @@ Bundled Services & Tutorials
    use-channel-finder
    ariel/index
    use-virtual-accelerator
-   agent-assisted-grid-scan
+   bluesky/index
    /cli-reference/index

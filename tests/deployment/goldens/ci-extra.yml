@@ -1,0 +1,18 @@
+# Demo Facility's own pipeline jobs.
+#
+# .gitlab-ci.yml is emitted by `osprey deploy scaffold` and will be overwritten
+# the next time it runs. This file never is — put anything facility-specific
+# here: extra tests, an IOC smoke check, a notification hook. It is included
+# after the scaffolded pipeline, so it can also override a job by redefining it
+# under the same name.
+#
+# Example:
+#
+#   ioc-smoke-test:
+#     stage: validate
+#     image: python:3.11-slim
+#     script:
+#       - ./ci/ioc_smoke_test.sh
+
+# Placeholder so the include always parses. Delete it when you add a job.
+.facility-jobs-go-here: {}

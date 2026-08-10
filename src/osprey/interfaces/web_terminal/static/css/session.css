@@ -314,7 +314,7 @@
       border-radius: 50%;
       background: var(--text-muted);
     }
-    .tl-entry.tl-prompt::before { background: var(--color-amber); }
+    .tl-entry.tl-prompt::before { background: var(--color-accent-secondary); }
     .tl-entry.tl-reasoning::before { background: var(--color-accent-light); }
     .tl-entry.tl-tool_call::before { background: #a78bfa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-python */
     .tl-entry.tl-tool_result::before { background: #60a5fa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-workspace */
@@ -573,8 +573,8 @@
       border-left: 3px solid transparent;
     }
     .chat-msg.user {
-      border-left-color: var(--color-amber);
-      background: var(--amber-tint-06);
+      border-left-color: var(--color-accent-secondary);
+      background: var(--accent-secondary-tint-06);
     }
     .chat-msg.assistant {
       border-left-color: var(--color-accent-light);
@@ -590,7 +590,7 @@
       align-items: center;
       gap: var(--space-2);
     }
-    .chat-msg.user .chat-role { color: var(--color-amber); }
+    .chat-msg.user .chat-role { color: var(--color-accent-secondary); }
     .chat-msg.assistant .chat-role { color: var(--color-accent-light); }
     .chat-ts {
       font-size: var(--text-xs);

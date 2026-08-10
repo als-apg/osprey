@@ -23,7 +23,26 @@ def test_default_injection_is_empty_config():
     html = render_dashboard_html()
     assert '"facility_name": ""' in html
     assert '"pv_strip_prefix": ""' in html
+    assert '"telemetry_url": ""' in html
     assert "/* OSPREY_CONFIG_PLACEHOLDER */" not in html
+
+
+def test_injects_the_browser_facing_telemetry_url():
+    """The telemetry store's browser URL reaches the dashboard config verbatim."""
+    html = render_dashboard_html(telemetry_url="http://localhost:5080")
+    assert '"telemetry_url": "http://localhost:5080"' in html
+
+
+def test_absent_telemetry_url_is_the_no_store_signal():
+    """A deployment without the store injects an empty string, not a default.
+
+    The dashboard reads empty as "hide the per-run telemetry link". Substituting
+    a plausible default here would produce a link to a host that is not serving
+    anything -- worse than no link, because it looks deliberate.
+    """
+    html = render_dashboard_html(facility_name="Test")
+    assert '"telemetry_url": ""' in html
+    assert "localhost:5080" not in html
 
 
 def test_dashboard_is_de_alsed():

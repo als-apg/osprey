@@ -366,7 +366,7 @@ export async function loadDraft(draftId) {
       banner.className = 'text-muted';
       banner.dataset.draftId = draftId;
       banner.style.cssText =
-        'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--color-amber); font-size: 0.85rem;';
+        'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--color-accent-secondary); font-size: 0.85rem;';
       banner.textContent = 'Draft loaded from Claude — review and submit';
       form.prepend(banner);
     }

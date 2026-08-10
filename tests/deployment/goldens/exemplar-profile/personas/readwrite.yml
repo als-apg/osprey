@@ -1,0 +1,36 @@
+# Profile (readwrite) — persona profile, a delta over ../profile.yml
+#
+# Sitting in personas/ beside profile.yml IS the inheritance: the
+# build merges this file over that profile — including any edit you
+# make there — so the keys below are this persona's only differences
+# and there is no `extends:` to write. See the resolved whole with:
+#   osprey profile validate profile/personas/readwrite.yml
+#
+# Provenance — what this persona was materialized from:
+#   source preset: control-assistant-readwrite
+#   preset content hash: sha256:b281e2e1f0d294a3264424b50096663c51f041d17c0f7b20ae56ac4acc6413f6
+#   emitted by OSPREY 2026.6.2.post870+gf916b9103
+
+name: Profile (readwrite)
+
+# Attached project: the persona builds per-user terminal images only and
+# connects to the shared web tier + scan services the hosting control-assistant
+# project deploys on the same host. No services are scaffolded (empty
+# `deployed_services`, no services/) — the bluesky/VA/panels/dispatch injector
+# blocks inherited from the base are all gated on this flag and skip cleanly.
+deploy_services: false
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY: each entry is a literal `key.path` written into config.yml
+# after the template renders. Nested YAML under `config:` would deep-merge into
+# and clobber the base's rendered config subtree, so keep every override flat.
+config:
+  # The single axis this persona differs on. Inherited true from the tutorial
+  # base's template default, but pinned explicitly here: this key IS the tier
+  # boundary, so it must not drift silently if the base's default ever changes.
+  control_system.writes_enabled: true
+  # Attached persona: the hosting project owns the web-terminal tier (nginx,
+  # landing, per-user containers). Without this override the inherited roster
+  # would make a persona-dir deploy try to host a second web tier on the same
+  # host ports.
+  modules.web_terminals.enabled: false

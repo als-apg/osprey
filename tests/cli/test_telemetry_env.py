@@ -287,6 +287,63 @@ def test_creds_failloud_on_unresolved_var(creds):
         _build_telemetry_env({"enabled": True, "backend": "openobserve", "openobserve": creds})
 
 
+@pytest.mark.parametrize(
+    "creds",
+    [
+        {"user": "${ZO_ROOT_USER_EMAIL}", "password": "p"},
+        {"user": "u", "password": "${ZO_ROOT_USER_PASSWORD}"},
+    ],
+)
+def test_creds_deferred_at_build_time_omit_header(creds, recwarn):
+    """``defer_unresolved_creds`` downgrades the hard failure to a warning.
+
+    A build renders a project whose telemetry credentials are supplied by the
+    *deployment* (the worker re-resolves them against its own .env at
+    agent-spawn — see dispatch_api). Aborting the build there would force every
+    such project to hand the builder production secrets. The header is omitted
+    rather than encoded from a placeholder, so nothing bogus is baked.
+    """
+    env = _build_telemetry_env(
+        {"enabled": True, "backend": "openobserve", "openobserve": creds},
+        defer_unresolved_creds=True,
+    )
+
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
+    # Telemetry itself stays configured — only the auth header is deferred.
+    assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+    assert any("unresolved" in str(w.message) for w in recwarn)
+
+
+def test_creds_deferred_flag_does_not_excuse_missing_creds():
+    """Deferral covers an unresolved ${VAR}, not an absent credential.
+
+    A blank/missing credential is a config error at every stage — there is no
+    later resolution step that could fill it in.
+    """
+    with pytest.raises(ValueError):
+        _build_telemetry_env(
+            {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}},
+            defer_unresolved_creds=True,
+        )
+
+
+def test_creds_default_still_fails_loud_for_runtime():
+    """The default is unchanged: spawn-time callers must still fail loud.
+
+    The dispatch worker re-resolves at agent-spawn with the deployment's own
+    .env; there is no later stage, so an unresolved cred there is terminal for
+    telemetry and must not be papered over.
+    """
+    with pytest.raises(ValueError):
+        _build_telemetry_env(
+            {
+                "enabled": True,
+                "backend": "openobserve",
+                "openobserve": {"user": "${ZO_ROOT_USER_EMAIL}", "password": "p"},
+            }
+        )
+
+
 def test_config_headers_merge_auth_wins():
     """Config headers are merged; computed auth wins on key collision."""
     env = _build_telemetry_env(

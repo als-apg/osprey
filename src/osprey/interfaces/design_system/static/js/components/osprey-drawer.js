@@ -102,18 +102,18 @@
  *     at connect — not reactive, matching how old web_terminal/drawer.js's
  *     `initDrawerResize()` wired whatever markup existed at page-init):
  *     inert unless both the attribute is present AND a `.drawer-resize-handle`
- *     descendant exists to wire. Persists to the exact `localStorage` key
- *     old web_terminal/drawer.js used (`osprey-drawer-width`), read/written
- *     with the same `parseInt`/`Math.round`/`String` mechanics. The 320px /
- *     90vw clamp is extracted as a pure, viewport-parameterized function
- *     (`_clampDrawerWidth`) so it is unit-testable without a DOM, and — a
- *     deliberate refinement over the old code, which only enforced the
- *     320px floor on restore and left the 90vw ceiling unchecked there — is
- *     applied uniformly on both restore and drag. A drag left in progress
- *     when the drawer closes or disconnects is aborted (listeners and
- *     dragging-state classes removed) WITHOUT persisting: an in-progress,
- *     never-released drag was never a deliberate choice of width, and
- *     persisting it would silently corrupt the next restore.
+ *     descendant exists to wire. The drag itself is the design system's
+ *     shared splitter — the same module behind every other resizable pane in
+ *     the product — configured `anchor: 'end'` (the drawer is right-anchored,
+ *     so dragging left widens it) and `sizing: 'box'` (it is `position: fixed`,
+ *     not a flex item). It persists to the exact `localStorage` key old
+ *     web_terminal/drawer.js used (`osprey-drawer-width`), and the 320px /
+ *     90vw clamp is applied uniformly on both restore and drag, with the
+ *     ceiling resolved per clamp so a window resize cannot leave it stale. A
+ *     drag left in progress when the drawer closes or disconnects is discarded
+ *     WITHOUT persisting: an in-progress, never-released drag was never a
+ *     deliberate choice of width, and persisting it would silently corrupt the
+ *     next restore.
  *   - Tabbed panels: switching updates `.drawer-tab`/`.drawer-tab-panel`
  *     `.active` classes exactly as old web_terminal/drawer.js did (own CSS
  *     is unaffected — no attribute-based selectors introduced for this).
@@ -131,6 +131,8 @@
  */
 
 // ---- Module state ----
+
+import { initSplitter } from '/design-system/js/splitter.js';
 
 const BACKDROP_ID = 'drawer-backdrop';
 
@@ -163,20 +165,9 @@ const DRAWER_WIDTH_STORAGE_KEY = 'osprey-drawer-width';
 const DRAWER_WIDTH_MIN_PX = 320;
 const DRAWER_WIDTH_MAX_VIEWPORT_FRACTION = 0.9;
 
-/**
- * Clamp a candidate drawer width (px) to the 320px / 90vw bounds reused
- * verbatim from old web_terminal/drawer.js. Pure and viewport-parameterized
- * (no `window` read inside) so it is unit-testable without a DOM.
- * @param {number} width
- * @param {number} viewportWidth
- * @returns {number}
- */
-function _clampDrawerWidth(width, viewportWidth) {
-  return Math.max(
-    DRAWER_WIDTH_MIN_PX,
-    Math.min(viewportWidth * DRAWER_WIDTH_MAX_VIEWPORT_FRACTION, width)
-  );
-}
+// Clamping now lives in the shared splitter, which resolves both bounds on
+// every clamp rather than capturing them — the 90vw ceiling moves with the
+// window, and a value captured at construction would go stale.
 
 // ---- Public API ----
 
@@ -200,16 +191,9 @@ export class OspreyDrawer extends HTMLElement {
     /** Registered unsaved-changes guards; all must return true to proceed. */
     /** @type {Array<() => boolean>} */
     this._unsavedGuards = [];
-    /** The `.drawer-resize-handle` descendant, once `_wireResizable` finds one. */
-    /** @type {HTMLElement|null} */
-    this._resizeHandle = null;
-    /** @type {((event: MouseEvent) => void)|null} */
-    this._resizeMouseDownHandler = null;
-    /** Only set while a drag is actually in progress. */
-    /** @type {((event: MouseEvent) => void)|null} */
-    this._resizeMoveHandler = null;
-    /** @type {(() => void)|null} */
-    this._resizeUpHandler = null;
+    /** The shared splitter driving the resize handle, once `_wireResizable` finds one. */
+    /** @type {import('../splitter.js').SplitterApi|null} */
+    this._splitter = null;
     /** True only inside the synchronous toggleAttribute() call that close() makes after its own guard check already passed -- tells attributeChangedCallback the closing branch's guard check was already done, so it isn't repeated. */
     /** @type {boolean} */
     this._committingClose = false;
@@ -542,124 +526,65 @@ export class OspreyDrawer extends HTMLElement {
 
   /**
    * Wire the resize handle if, and only if, the `resizable` attribute is
-   * present AND a `.drawer-resize-handle` descendant exists to wire.
-   * Checked once here (connect time, retried once on the connectedCallback
-   * microtask and again on open — see those callers) rather than
-   * reactively — old web_terminal/drawer.js's initDrawerResize() likewise
-   * wired whatever markup existed once, at page-init. Idempotent: a no-op
-   * once already wired. A complete no-op when `resizable` is absent: no
-   * handle lookup side effect, no listeners.
+   * present AND a `.drawer-resize-handle` descendant exists to wire. Checked
+   * once here (connect time, retried once on the connectedCallback microtask
+   * and again on open — see those callers) rather than reactively. Idempotent:
+   * a no-op once already wired, and a complete no-op when `resizable` is
+   * absent — no handle lookup side effect, no listeners.
+   *
+   * The drag is the design system's shared splitter, the same module behind
+   * every other resizable pane in the product. Three of its options carry what
+   * is specific to a drawer:
+   *
+   * - `anchor: 'end'` — the drawer is right-anchored, so dragging *left*
+   *   widens it;
+   * - `sizing: 'box'` — the drawer is `position: fixed`, not a flex item, so a
+   *   flex-basis on it would write nothing observable;
+   * - a function-valued `max` — the ceiling is 90vw, which moves when the
+   *   window resizes, so a number captured at construction would go stale and
+   *   let the drawer be dragged past its limit.
    */
   _wireResizable() {
-    if (this._resizeHandle) return;
+    if (this._splitter) return;
     if (!this.hasAttribute('resizable')) return;
     const handle = this.querySelector('.drawer-resize-handle');
     if (!(handle instanceof HTMLElement)) return;
-    this._resizeHandle = handle;
-    this._resizeMouseDownHandler = (event) => this._beginResizeDrag(event);
-    handle.addEventListener('mousedown', this._resizeMouseDownHandler);
-  }
-
-  /** Undo whatever _wireResizable installed. Idempotent — safe unconditionally. */
-  _unwireResizable() {
-    this._abortResizeDrag();
-    if (this._resizeHandle && this._resizeMouseDownHandler) {
-      this._resizeHandle.removeEventListener('mousedown', this._resizeMouseDownHandler);
-    }
-    this._resizeHandle = null;
-    this._resizeMouseDownHandler = null;
+    this._splitter = initSplitter({
+      handle,
+      pane: this,
+      storageKey: DRAWER_WIDTH_STORAGE_KEY,
+      axis: 'x',
+      anchor: 'end',
+      sizing: 'box',
+      min: () => DRAWER_WIDTH_MIN_PX,
+      max: () => window.innerWidth * DRAWER_WIDTH_MAX_VIEWPORT_FRACTION,
+      // A drawer already has a close button, so "collapse" here means snap
+      // back to the narrowest useful width rather than vanish.
+      collapsedSize: DRAWER_WIDTH_MIN_PX,
+    });
   }
 
   /**
-   * Apply a persisted width from the same localStorage key old drawer.js
-   * used, clamped to the current bounds. A Storage read that throws (e.g.
-   * disabled storage) is non-fatal: the rest of open's side effects (inert,
-   * focus trap, drawer:open) must still run, so this just logs and falls
-   * back to the drawer's default (unpersisted) width.
+   * Undo whatever _wireResizable installed. Idempotent — safe unconditionally.
+   *
+   * `destroy()` deliberately does not persist: a drawer closed or disconnected
+   * mid-drag was never a deliberate choice of width, and persisting it would
+   * corrupt the next restore. It also clears `data-splitter-dragging`, which
+   * would otherwise suppress the drawer's own close transition.
+   */
+  _unwireResizable() {
+    if (this._splitter) this._splitter.destroy();
+    this._splitter = null;
+  }
+
+  /**
+   * Apply the persisted width, clamped to the current bounds. A Storage read
+   * that throws (e.g. disabled storage) is swallowed inside the splitter and
+   * falls back to the drawer's default width, because the rest of open's side
+   * effects (inert, focus trap, drawer:open) must still run.
    */
   _restorePersistedWidth() {
-    let saved;
-    try {
-      saved = localStorage.getItem(DRAWER_WIDTH_STORAGE_KEY);
-    } catch (error) {
-      console.warn('osprey-drawer: could not read the persisted width; using the default', error);
-      return;
-    }
-    if (!saved) return;
-    const width = parseInt(saved, 10);
-    if (Number.isNaN(width)) return;
-    this._applyWidth(_clampDrawerWidth(width, window.innerWidth));
-  }
-
-  /** @param {number} width */
-  _applyWidth(width) {
-    this.style.width = `${width}px`;
-    this.style.maxWidth = 'none';
-  }
-
-  /** @param {MouseEvent} event */
-  _beginResizeDrag(event) {
-    if (!this._resizeHandle) return;
-    this._abortResizeDrag(); // guard against a stray second mousedown mid-drag; discard, don't persist, an unfinished prior drag
-    const handle = this._resizeHandle;
-    const startX = event.clientX;
-    const startWidth = this.getBoundingClientRect().width;
-
-    document.body.classList.add('drawer-resizing');
-    handle.classList.add('dragging');
-
-    this._resizeMoveHandler = (moveEvent) => {
-      // Drawer is on the right, so dragging left increases width.
-      const dx = startX - moveEvent.clientX;
-      this._applyWidth(_clampDrawerWidth(startWidth + dx, window.innerWidth));
-    };
-    this._resizeUpHandler = () => this._endResizeDrag();
-
-    document.addEventListener('mousemove', this._resizeMoveHandler);
-    document.addEventListener('mouseup', this._resizeUpHandler);
-    event.preventDefault();
-  }
-
-  /**
-   * Remove the document-level drag listeners and dragging-state classes.
-   * Shared by a natural drag end (mouseup, which persists) and an abort
-   * (close/disconnect mid-drag, which must not). Idempotent — a no-op if
-   * no drag is active.
-   */
-  _teardownResizeDragListeners() {
-    if (!this._resizeMoveHandler && !this._resizeUpHandler) return false;
-    if (this._resizeMoveHandler) document.removeEventListener('mousemove', this._resizeMoveHandler);
-    if (this._resizeUpHandler) document.removeEventListener('mouseup', this._resizeUpHandler);
-    this._resizeMoveHandler = null;
-    this._resizeUpHandler = null;
-    if (this._resizeHandle) this._resizeHandle.classList.remove('dragging');
-    document.body.classList.remove('drawer-resizing');
-    return true;
-  }
-
-  /**
-   * End an active resize drag naturally (mouseup) and persist the
-   * resulting width to the same localStorage key old drawer.js used.
-   * Idempotent — a no-op if no drag is active. A Storage write that
-   * throws (e.g. quota, disabled storage) is non-fatal: just logged.
-   */
-  _endResizeDrag() {
-    if (!this._teardownResizeDragListeners()) return;
-    try {
-      localStorage.setItem(DRAWER_WIDTH_STORAGE_KEY, String(Math.round(this.getBoundingClientRect().width)));
-    } catch (error) {
-      console.warn('osprey-drawer: could not persist the resized width', error);
-    }
-  }
-
-  /**
-   * Abort an active resize drag (drawer closing or disconnecting
-   * mid-drag): remove listeners/classes WITHOUT persisting -- an
-   * in-progress, never-released drag was never a deliberate choice of
-   * width. Idempotent — a no-op if no drag is active.
-   */
-  _abortResizeDrag() {
-    this._teardownResizeDragListeners();
+    if (this._splitter) this._splitter.restoreSize();
   }
 
   // ---- Open/close side effects (the single source of truth) ----
@@ -676,7 +601,7 @@ export class OspreyDrawer extends HTMLElement {
     // found nothing yet.
     this._ensureStaticAria();
     this._wireResizable();
-    if (this._resizeHandle) this._restorePersistedWidth();
+    this._restorePersistedWidth();
     _syncGlobalOpenState();
     this._installFocusTrap();
     this._moveFocusIn();
@@ -690,7 +615,11 @@ export class OspreyDrawer extends HTMLElement {
   /** Everything that must happen once this drawer is closed. */
   _applyClosedSideEffects() {
     this._removeFocusTrap();
-    this._abortResizeDrag();
+    // Tear the splitter down rather than merely stopping a drag: destroy()
+    // discards an unreleased drag without persisting it and clears
+    // `data-splitter-dragging`, which would otherwise suppress this drawer's
+    // own close transition. _applyOpenSideEffects re-wires on the way back in.
+    this._unwireResizable();
     _syncGlobalOpenState();
     const target = this._returnFocusTarget;
     this._returnFocusTarget = null;

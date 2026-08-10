@@ -51,19 +51,19 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="claude-md",
             template_path="CLAUDE.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md system prompt (control-system persona)",
+            description="CLAUDE.md project instructions (control-system persona)",
         ),
         BuildArtifact(
             canonical_name="claude-md-ariel",
             template_path="CLAUDE.ariel.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md system prompt (ARIEL logbook research persona)",
+            description="CLAUDE.md project instructions (ARIEL logbook research persona)",
         ),
         BuildArtifact(
             canonical_name="claude-md-channel-finder",
             template_path="CLAUDE.channel-finder.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md system prompt (channel-finder assistant persona)",
+            description="CLAUDE.md project instructions (channel-finder assistant persona)",
         ),
         BuildArtifact(
             canonical_name="mcp-json",
@@ -170,6 +170,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Control system safety rules (protocol-aware)",
         ),
         BuildArtifact(
+            canonical_name="rules/test-ioc-safety",
+            template_path="claude/rules/test-ioc-safety.md.j2",
+            output_path=".claude/rules/test-ioc-safety.md",
+            description="Test-IOC port isolation rules (rendered only for EPICS-family control systems)",
+        ),
+        BuildArtifact(
             canonical_name="rules/timezone",
             template_path="claude/rules/timezone.md.j2",
             output_path=".claude/rules/timezone.md",
@@ -246,7 +252,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/panels-context",
             template_path="claude/hooks/osprey_panels_context.py",
             output_path=".claude/hooks/osprey_panels_context.py",
-            description="SessionStart hook that injects the web terminal panel inventory into agent context",
+            description="SessionStart hook that injects the web surface (simple/expert) and panel inventory into agent context",
         ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
@@ -278,6 +284,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/skills/demo-gallery/SKILL.md",
             output_path=".claude/skills/demo-gallery/SKILL.md",
             description="Artifact Gallery demo showcase skill",
+        ),
+        BuildArtifact(
+            canonical_name="skills/demo-ui",
+            template_path="claude/skills/demo-ui/SKILL.md",
+            output_path=".claude/skills/demo-ui/SKILL.md",
+            description="Scripted web-workspace UI demonstration skill",
         ),
         BuildArtifact(
             canonical_name="skills/sim-scenarios",
@@ -352,6 +364,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="nextcloud_bridge",
             output_path="services/nextcloud_bridge",
             description="Nextcloud Talk bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/gchat_bridge",
+            template_path="gchat_bridge",
+            output_path="services/gchat_bridge",
+            description="Google Chat bridge compose template + image context",
             template_root="services",
             is_directory=True,
         ),

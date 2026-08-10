@@ -22,7 +22,8 @@ class TestFullSweep:
     def test_full_manifest_is_live_over_ca(self, va_container):
         addresses = sweep_check.all_manifest_addresses()
         assert len(addresses) > 1000, (
-            f"sanity check: expected the full ~1,290-channel manifest, got {len(addresses)}"
+            "sanity check: expected the full manifest (a few thousand addresses), "
+            f"got {len(addresses)}"
         )
 
         result = sweep_check.sweep(addresses, timeout=45.0)

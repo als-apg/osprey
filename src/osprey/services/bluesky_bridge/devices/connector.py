@@ -27,7 +27,7 @@ and the RunEngine actually consume.
 
 Imports ophyd-async (a core dependency), so this module (like the rest of
 ``devices/``) is kept out of the bridge lifecycle core's import path
-(``app.py``, ``runs.py``, ``plan_runner.py``, ``security.py``), which stays
+(``app.py``, ``runs.py``, ``security.py``), which stays
 import-clean of ophyd.
 """
 

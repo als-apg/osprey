@@ -5,13 +5,9 @@
 ## Quick Start
 
 ```bash
-{% if provider_api_keys | selectattr('var', 'in', env) | list -%}
-# API keys were automatically configured from your environment
-{% else -%}
-# Setup environment
-cp .env.example .env
-# Edit .env with your API keys
-{% endif -%}
+# This project's .env was derived from the build profile that produced it.
+# To add or change an API key, edit the profile's .env and rebuild — a value
+# set there survives every rebuild. See .env.example for the full variable list.
 
 # Install dependencies
 uv sync

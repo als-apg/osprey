@@ -239,13 +239,13 @@ class TestHeaderAppName:
             with TestClient(app) as c:
                 assert app.state.app_name == "Control Room A"
                 body = c.get("/").text
-                assert "header-app-name" in body
+                assert "header-deployment" in body
                 assert "Control Room A" in body
 
     def test_app_name_absent_when_unset(self, client):
         # The shared `client` fixture supplies no `web` section.
         body = client.get("/").text
-        assert "header-app-name" not in body
+        assert "header-deployment" not in body
 
     def test_env_var_overrides_config(self, workspace_dir):
         # OSPREY_WEB_APP_NAME wins over web.app_name so containers sharing one

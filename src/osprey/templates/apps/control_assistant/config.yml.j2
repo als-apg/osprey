@@ -108,7 +108,7 @@ api:
         opus: claudeopus41
     als-apg:
       api_key: ${ALS_APG_API_KEY}
-      base_url: https://llm.gianlucamartino.com/v1
+      base_url: ${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com/v1}
       models:
         haiku: claude-haiku-4-5-20251001
         sonnet: claude-sonnet-4-6
@@ -378,8 +378,7 @@ control_system:
     # host<->container CA configuration confirmed to work across container
     # runtimes (broadcast discovery does not reliably cross the
     # macOS<->container VM boundary). See
-    # src/osprey/services/virtual_accelerator/probe/README.md for the
-    # empirical finding.
+    # scripts/va/probe_pcaspy/README.md for the empirical finding.
     #
     # The gateway port is deliberately not written out: with it unset the
     # connector follows services.virtual_accelerator.port, so moving the
@@ -566,7 +565,12 @@ channel_finder:
       # Injects prior paths as hints so the LLM can resolve repeated queries faster
       feedback:
         enabled: true
-        store_path: data/feedback/hierarchical_feedback.json
+        store_path: _agent_data/feedback/hierarchical_feedback.json
+                                      # Written at run time, so it lives under
+                                      # _agent_data/ — everything in data/ is
+                                      # rebuilt from the profile and checksummed
+                                      # into the manifest, and `osprey build
+                                      # --force` clears it.
 {% endif %}
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database)
@@ -1001,13 +1005,18 @@ claude_code:
 # as needed.
 
 web:
-  # Default web UI theme: a theme FAMILY (e.g. "osprey", "high-contrast") or a
-  # concrete theme id (e.g. "high-contrast-light") to pin a specific mode. A
-  # user's in-browser choice (switcher selection, ?theme=, localStorage) always
-  # overrides this default; an unknown value falls back to "osprey", which is
-  # also what applies while this stays commented. Independent of `cli.theme`
-  # above (console-only) — the two never share a value.
-  # theme: osprey
+  # Default web UI theme. Two forms, and the difference matters:
+  #   - a theme FAMILY ("main", "desy", "high-contrast", "retro") sets the
+  #     palette and leaves light/dark to each viewer's OS preference;
+  #   - a concrete theme id ("desy-light", "high-contrast-light") additionally
+  #     PINS light or dark as this deployment's default.
+  # A user's in-browser choice (display menu, ?theme=, localStorage) always
+  # overrides this default; an unknown value warns and falls back to "main",
+  # which is also what applies while this stays commented. In a multi-user
+  # deployment, a roster entry's `theme:` (rendered as OSPREY_WEB_THEME)
+  # overrides this per user. Independent of `cli.theme` above (console-only) —
+  # the two never share a value.
+  # theme: main
 {%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if default_panel is defined and default_panel %}
@@ -1099,5 +1108,6 @@ web:
 #       the host network namespace, so each companion panel needs its own port
 #       family; families left unset fall back to the registry defaults.
 #
-# See the deploy skill's facility-config reference and
-# docs/how-to/web-terminal/multi-user.rst for the full schema.
+# See docs/how-to/web-terminal/multi-user.rst for the full schema. The build
+# interview (/osprey-build-interview) fills these in when you tell it the
+# deployment serves several operators.

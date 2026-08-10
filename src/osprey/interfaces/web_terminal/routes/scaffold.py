@@ -1,4 +1,12 @@
-"""Scaffold gallery routes."""
+"""Scaffold gallery routes.
+
+The two refusals that most of these routes share — a claim the profile will
+not take, and an ownership store that will not take the write — are translated
+into 409s by app-level handlers (see
+:func:`~osprey.interfaces.web_terminal.app.register_scaffold_conflict_handlers`),
+so they are deliberately not caught here. What each route does catch is the
+translation that is specific to it.
+"""
 
 from __future__ import annotations
 
@@ -137,6 +145,10 @@ async def save_scaffold_override(name: str, body: ScaffoldOverrideRequest, reque
         raise HTTPException(status_code=404, detail=str(e)) from e
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        # A directory-shaped artifact has no body to save; that is a bad
+        # request, not a server fault.
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.delete("/api/scaffold/{name:path}/override")
@@ -145,7 +157,13 @@ async def delete_scaffold_override(name: str, request: Request):
     delete_file = request.query_params.get("delete_file", "false").lower() == "true"
     service = _scaffold_service(request)
     try:
-        return service.unoverride(name, delete_file=delete_file)
+        outcome = service.unoverride(name, delete_file=delete_file)
+        if outcome.get("status") == "still-supplied-by-profile":
+            # Nothing was released, so this must not read as success. A 409
+            # carries the reason into the gallery's error banner, which is the
+            # only place the operator would otherwise have seen "done".
+            raise HTTPException(status_code=409, detail=outcome["message"])
+        return outcome
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except FileNotFoundError as e:

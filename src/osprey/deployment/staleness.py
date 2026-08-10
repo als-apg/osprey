@@ -33,9 +33,11 @@ _MANIFEST_FILENAME = ".osprey-manifest.json"
 
 
 def _installed_version() -> str:
-    from osprey.cli.templates.manifest import get_framework_version
+    # The release lineage, matching what the manifest stores. Comparing running
+    # versions would flag every commit in a development checkout as drift.
+    from osprey.cli.templates.manifest import get_framework_release_version
 
-    return get_framework_version()
+    return get_framework_release_version()
 
 
 def _load_manifest(project_dir: Path) -> dict[str, Any] | None:
@@ -79,19 +81,40 @@ def staleness_reasons(project_dir: Path) -> list[str]:
     stored_hash = creation.get("preset_hash")
     if stored_hash:
         build_args = manifest.get("build_args") or {}
+        # `profile_path_abs` is preferred over `profile_path`: the latter is the
+        # string the user typed, and a relative one re-resolves against the
+        # deploy's working directory, where it names nothing. Manifests written
+        # before `profile_path_abs` existed still fall back to it. Resolved once
+        # — the comparison below and the message further down must name the same
+        # file, or the advisory would report a hash it did not compute.
+        hashed_profile = build_args.get("profile_path_abs") or build_args.get("profile_path")
         current_hash = None
         try:
             from osprey.cli import build_profile
 
-            if build_args.get("preset"):
+            if hashed_profile:
+                # The profile comes first, including for a `--preset` build:
+                # that build rendered from the profile it materialized, so the
+                # profile is what the project must be compared against. Judging
+                # it by the bundled preset instead would stay silent on a hand
+                # edit to that profile — the very change the advisory exists to
+                # catch, since editing the profile is how a facility changes
+                # its project.
+                current_hash = build_profile.compute_profile_hash(Path(hashed_profile))
+            elif build_args.get("preset"):
+                # A preset-built project from before profile-always builds, or
+                # one whose profile path could not be recorded.
                 current_hash = build_profile.compute_preset_hash(build_args["preset"])
-            elif build_args.get("profile_path"):
-                current_hash = build_profile.compute_profile_hash(Path(build_args["profile_path"]))
         except Exception:
             current_hash = None
         if current_hash is not None and current_hash != stored_hash:
-            source = build_args.get("preset") or build_args.get("profile_path") or "profile"
-            reasons.append(f"preset '{source}' has changed since this project was rendered")
+            # Name what was actually compared. Saying "preset X has changed" for
+            # a project whose *profile* was edited would send the reader to the
+            # wrong file — and under profile-always builds that is the common
+            # case, since a preset build renders from a materialized profile.
+            source = hashed_profile or build_args.get("preset") or "profile"
+            kind = "profile" if hashed_profile else "preset"
+            reasons.append(f"{kind} '{source}' has changed since this project was rendered")
 
     return reasons
 

@@ -1,0 +1,334 @@
+# Profile — OSPREY build profile
+#
+# Emitted from the bundled `control-assistant` preset as a fully explicit,
+# standalone profile: everything the preset configures is written out
+# below and is yours to edit. Nothing is inherited at build time.
+#
+#  YOU EDIT THIS                IS RENDERED INTO             WHICH RUNS AS
+#
+#  +----------------+  osprey   +----------------+  osprey   +-----------------+
+#  |    PROFILE     |  build    |    PROJECT     |  deploy   |   DEPLOYMENT    |
+#  |                |           |                |           |                 |
+#  |  profile.yml   +---------->|  config.yml    +---------->|  agent CLI/web  |
+#  |  data/         |           |  services/     |  up -d    |  + service      |
+#  |  rules/ …      |           |  .mcp.json     |           |    containers   |
+#  |  personas/     |           |  .env  ...     |           | (docker/podman) |
+#  +----------------+           +----------------+           +-----------------+
+#   durable source of            regenerable — a              osprey deploy down
+#   truth; keep + edit           --force rebuild              stops it; deploy
+#                                overwrites it                up recreates it
+#
+#        ^                                                          |
+#        +--- the loop: edit profile -> rebuild -> redeploy --------+
+#
+# Provenance — what this profile was materialized from:
+#   source preset: control-assistant
+#   preset content hash: sha256:807a488a6d709eb2caec040fcbee659dbf7521bd3033e43c8fb50b35c8f3af27
+#   emitted by OSPREY 2026.6.2.post870+gf916b9103
+#
+# Build mechanics — how the build runs, rather than what gets deployed.
+# These keys are never added for you; one appears below only where the
+# source preset set it:
+#   claude_md_template, dependencies, environment, lifecycle, osprey_install, python_env
+#
+# Build a project from this profile, then deploy it:
+#   osprey build <PROJECT_NAME> profile/profile.yml
+#   cd <PROJECT_NAME> && osprey deploy up -d
+
+name: Demo Facility
+
+# Which packaged project skeleton `osprey build` renders (config.yml,
+# README, Dockerfile). "control_assistant" is the full skeleton. Its data
+# files (channel databases, benchmarks, facility knowledge, logbook seeds)
+# are copied into a materialized profile's data/ directory, and that copy
+# — not the packaged one — is what the build uses from then on.
+app_template: control_assistant
+
+# Default LLM provider and model. Override here or via `osprey build`'s
+# --set provider=... / --set model=... flags, which are written into the
+# profile this preset materializes. The persona projects auto-rendered at
+# deploy time build from deltas over that same profile, so they pick the
+# change up from the file rather than from a replayed command line.
+provider: anthropic
+model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
+
+# Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
+channel_finder_mode: hierarchical
+
+# ── Artifact selection ───────────────────────────────────────────────────────
+# Each list entry is a short name resolved from the osprey artifact library.
+# Remove entries you do not need; add facility-specific artifacts via overlay.
+
+hooks:
+  - hook-log          # Append every tool call to a structured JSONL audit log
+  - hook-config       # Inject project config.yml path into every tool call env
+  - approval          # Gate hardware-write tool calls on human approval prompt
+  - writes-check      # Pre-write safety check: confirm channel is writable
+  - limits            # Enforce per-channel min/max limits before writes
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Warn when context window approaches threshold
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+  - config-drift      # Warn at session start when config.yml drifted from generated artifacts
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Inject the web terminal panel inventory into agent context
+
+rules:
+  - safety              # Core safety rules: never write without approval
+  - error-handling      # Standard error handling and retry guidance
+  - artifacts           # Rules for saving diagnostic and tuning artifacts
+  - facility            # Facility-level conventions (naming, units, logbook)
+  - workflows           # Approved workflow patterns (scan, ramp, restore)
+  - timezone            # Always localise timestamps to facility timezone
+  - python-execution    # Rules governing Python executor sandbox usage
+  - data-visualization  # Rules for producing control-room-ready plots
+  - control-system-safety  # EPICS PV safety: alarm limits, soft-IOC guards
+
+skills:
+  - diagnose        # Run a structured fault-diagnosis workflow
+  - setup-mode      # Toggle between interactive and automated operating modes
+  - session-report  # Summarise session actions and outcomes to the logbook
+  - demo-gallery    # Launch guided capability demonstrations
+  - demo-ui         # Run a scripted demo of the agent driving the web workspace
+
+agents:
+  - channel-finder          # Semantic search over channel databases (hierarchical)
+  - data-visualizer         # Produce strip charts and correlation plots
+  - facility-knowledge      # Look up facility documentation, procedures, and device specs
+  - pyat-specialist         # Lattice/optics computation sub-agent (pyAT)
+
+output_styles:
+  - control-operator  # Terse, actionable output style for control-room operators
+
+web_panels:
+  - channel-finder  # Interactive channel-finder web UI
+  - okf             # KNOWLEDGE tab — browse the facility knowledge bundle
+  - system-health   # SYSTEM tab — framework health dashboard (sidecar-backed)
+
+# ── Virtual Accelerator soft-IOC ─────────────────────────────────────────────
+# A PyAT-backed EPICS Channel Access server standing in for the real machine.
+# This block is an injector trigger: it renders `services.virtual_accelerator`,
+# copies the packaged compose template into the built project, and appends the
+# service to `deployed_services`. Point `control_system.type` at it below and
+# the agent drives it exactly as it would drive live hardware.
+virtual_accelerator:
+  # Channel Access port the soft-IOC serves on. The connector's gateway port
+  # follows this value, so changing it here moves both the container and the
+  # connector that talks to it.
+  port: 5064
+
+# ── Facility-owned compose services ──────────────────────────────────────────
+# One entry per directory under `services/`. `template:` is profile-relative
+# (or `osprey.<name>` for a packaged one); everything under `config:` is
+# written into the built project's `services.<name>` block. Declaring a
+# service here also appends it to `deployed_services`, and any entry whose
+# directory carries a Dockerfile gets its own image-build job in the pipeline.
+services:
+  facility-mcp:
+    template: services/facility-mcp
+    config:
+      port: 8200
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# These key.path entries are written into config.yml after the template renders.
+# Uncomment and set values appropriate for your facility.
+config:
+  # This facility drives the deployed VA soft-IOC end to end: correctors move,
+  # BPMs read, and every write goes through the same approval/limits layers a
+  # live machine would. Use "epics" once the connector points at real hardware,
+  # or "mock" for a browse-only stack that touches nothing.
+  control_system.type: virtual_accelerator
+  # The system-health MCP server is off-by-default in the framework registry
+  # (default_enabled=False); opt in so operators can run read-only stack checks.
+  claude_code.servers.health.enabled: true
+  system.timezone: America/Los_Angeles
+  # Facility display name, woven into the agent prompts (CLAUDE.md, the
+  # channel-finder agent) and the web-terminal landing page.
+  facility.name: Demo Facility
+  # Exactly the three services this facility runs. Set explicitly because the
+  # packaged control_assistant skeleton also declares `postgresql` — declared
+  # is not deployed, and this list is what `osprey deploy up` reads.
+  # `virtual_accelerator` and `facility-mcp` are appended by their injectors
+  # above; naming openobserve here is what keeps postgresql out.
+  deployed_services:
+    - openobserve
+  # Container-name prefix for the web stack: names are `<prefix>-nginx` /
+  # `<prefix>-web-<user>`, so this MUST be a non-empty valid Docker name start
+  # ([a-zA-Z0-9]). Keep it short and distinct from the project name (used for
+  # image tags). Set to your own facility abbreviation when you copy this preset.
+  facility.prefix: demo
+  # Landing-URL origin for the multi-user web stack: render refuses to build
+  # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.
+  # 127.0.0.1 matches the single-trusted-host tutorial posture; set your
+  # browser-reachable hostname when deploying anywhere else.
+  deploy.fqdn: 127.0.0.1
+  # This MUST stay ONE literal dotted key — `modules.web_terminals` addressing
+  # the whole module subtree with a nested value. A nested `modules:` mapping
+  # under `config:` would wholesale-replace the rendered `modules` subtree,
+  # silently dropping any sibling module: config_writer applies each dotted key
+  # verbatim, setting only the addressed leaf (see utils/config_writer.py).
+  #
+  # How the host gets its images is NOT set here — it is `deploy.image_source`
+  # below, and the build writes that value into this subtree's `image_source`
+  # for you. Saying it in both places is rejected: they are free to disagree,
+  # and the disagreement decides whether the host builds images or pulls them.
+  #
+  # Each persona's `project` equals its `project_path` basename — the invariant
+  # persona auto-render relies on to land the rendered project exactly where the
+  # catalog mounts it.
+  #
+  # The `build_profile` values below are PRESET names, and are consumed only
+  # here, at materialization: `osprey profile new` renders each one into a
+  # delta at `personas/<name>.yml` beside the emitted profile and rewrites this
+  # catalog to point at that file. Deploy-time auto-render reads only the
+  # rewritten value, and accepts nothing else — a persona is built from a delta
+  # over this profile, never from a preset of its own.
+  modules.web_terminals:
+    enabled: true
+    nginx_port: 9080            # public-facing reverse proxy / landing page
+    # Per-user port families: user i gets base + i in each family. Every
+    # companion panel gets its own family (the containers share the host
+    # network namespace, so per-user offsets are what prevent collisions);
+    # families omitted here fall back to registry defaults (registry/web.py).
+    # All families sit above the tutorial's own service ports (5064, 8020,
+    # 8090/8091/8095) so the two stacks never collide on one host.
+    web_base_port: 9091           # first per-user web-terminal port
+    artifact_base_port: 9291      # first per-user artifact-gallery port
+    ariel_base_port: 9391         # first per-user ARIEL search port
+    lattice_base_port: 9491       # first per-user lattice-dashboard port
+    channel_finder_base_port: 9591  # first per-user channel-finder panel port
+    default_persona: readonly   # roster entries with no persona resolve here
+    users:
+      # One web terminal per entry. `index` pins the user's port offsets
+      # (each `*_base_port` above + index), so removing an entry never shifts
+      # another user's ports; `persona` names a catalog entry below. A bare
+      # string (`- alice`) is also accepted: it takes its list position as
+      # index and falls back to `default_persona`.
+      - name: alice
+        index: 0
+        persona: readonly
+      - name: bob
+        index: 1
+        persona: readwrite
+    personas:
+      readonly:
+        project: demo-facility-readonly
+        project_path: ../demo-facility-readonly
+        build_profile: personas/readonly.yml
+      readwrite:
+        project: demo-facility-readwrite
+        project_path: ../demo-facility-readwrite
+        build_profile: personas/readwrite.yml
+
+# ── Environment variables ────────────────────────────────────────────────────
+# The one channel for deploy-scoped variables: the pipeline and the emitted
+# scripts reference these NAMES, never their values, and never declare a
+# variable of their own. Values live in `.env` locally and in masked CI
+# variables in the pipeline — `.env.example` (rendered from this list) is the
+# schema both read.
+env:
+  required:
+    # Credential the pipeline pushes images with; named by
+    # `deploy.registry.token_env_var` below.
+    - DEMO_REGISTRY_TOKEN
+    #
+    # The deploy host's SSH key is deliberately NOT here. The pipeline reads it
+    # from a fixed CI variable (`OSPREY_DEPLOY_SSH_KEY`) that authenticates the
+    # job itself; it is never part of the deployment's environment, so listing
+    # it would put a CI credential into `.env.example` as a deployment secret.
+
+# ── Deployment coordinates ───────────────────────────────────────────────────
+# Where this profile's project is built, pushed, and run. Read only by the
+# scaffolding verbs (`osprey deploy scaffold`), never by the build: nothing
+# here changes what the agent is, only where it lands.
+deploy:
+  # CI platform whose pipeline `osprey deploy scaffold` renders.
+  ci: gitlab
+  # Where the pipeline pushes images. Host-and-path, no scheme — it appears
+  # verbatim in an image name.
+  registry:
+    url: registry.example.org/accelerator/demo-facility
+    token_env_var: DEMO_REGISTRY_TOKEN
+  # The server the containers run on. `name` must be ssh-resolvable for the
+  # operator; `project_path` is where the facility repo is checked out there.
+  host:
+    name: demo-deploy
+    fqdn: demo-deploy.example.org
+    user: osprey
+    project_path: /opt/demo-facility
+  # The deploy host builds its own web-terminal images from the rendered
+  # persona projects; only the facility's own service image comes from the
+  # registry. The single home for this fact — the build writes it into the
+  # rendered config's `modules.web_terminals.image_source`.
+  image_source: local
+
+data: data
+# Minimum OSPREY release that understands this profile's keys. Builds below it abort.
+requires_osprey_version: '>=2026.8.0'
+# What this profile was materialized from. Emitted, not hand-written: a
+# build compares it against the installed preset and mentions it when the
+# preset has moved on. Advisory only — this profile is the source of truth.
+provenance:
+  preset: control-assistant
+  preset_hash: sha256:807a488a6d709eb2caec040fcbee659dbf7521bd3033e43c8fb50b35c8f3af27
+# true builds its own services stack; false attaches to another project's.
+deploy_services: true
+# Named web-terminal layouts, as label -> list of panel ids.
+panel_presets: {}
+
+# --- Channel-database tier ---------------------------------------------------
+# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
+# Left unset the build picks a paradigm-aware default, which is why it stays
+# commented: pinning it here would override that default on every rebuild.
+# Tier 1 ships the in_context paradigm only.
+#
+# tier: 3
+
+# --- Default web-terminal panel ----------------------------------------------
+# Panel id opened when the web terminal loads. Must be a built-in, an entry in
+# the web_panels list above, or a custom panel backed by a web.panels.<id>.url
+# config override.
+#
+# default_panel: artifacts
+
+# --- Facility MCP servers ----------------------------------------------------
+# The facility's own MCP servers, injected into the project's .mcp.json next to
+# the framework ones. This one is served by the `facility-mcp` container
+# declared under `services:` above — the port is the same fact in both places
+# because the container publishes it and the agent dials it.
+mcp_servers:
+  facility:
+    port: 8200
+    transport: http
+    permissions:
+      allow: [machine_status]
+
+# --- Artifacts gallery: custom categories ------------------------------------
+# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
+# tool passes as category="<key>" when it saves an artifact; label and color
+# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
+# block also accepts host/port/auto_launch overrides for the gallery server.
+#
+# artifact_server:
+#   categories:
+#     optics:
+#       label: Optics
+#       color: "#4C9AFF"
+
+# --- Nextcloud bridge --------------------------------------------------------
+# Answers questions asked from a Nextcloud Talk room. The trigger name must
+# match one declared in the dispatch triggers file.
+#
+# nextcloud_bridge:
+#   trigger: nextcloud-question
+
+# --- Google Chat bridge ------------------------------------------------------
+# Answers questions asked from a Google Chat space or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Google credentials and destinations are runtime env, not profile keys:
+# declare GCHAT_SA_KEY, GCHAT_SUBSCRIPTION and GCHAT_APP_ID under `env.required`
+# (plus GCS_BUCKET / GCS_PROJECT to deliver plots and files as links).
+#
+# gchat_bridge:
+#   trigger: gchat-question

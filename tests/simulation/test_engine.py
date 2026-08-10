@@ -391,17 +391,17 @@ class TestExprRefTextureSemantics:
 
 
 class TestActiveScenarioStateFile:
-    """Plain-text state file next to the machine file, mtime-based re-read."""
+    """Plain-text state file under the state dir, mtime-based re-read."""
 
     def test_missing_file_means_nominal(self, machine_file):
         engine = SimulationEngine.from_file(machine_file)
         assert engine.active_scenario() == "nominal"
 
-    def test_state_file_read_on_mtime_change(self, machine_file):
+    def test_state_file_read_on_mtime_change(self, machine_file, state_dir):
         engine = SimulationEngine.from_file(machine_file)
         assert engine.active_scenario() == "nominal"
 
-        state_file = machine_file.parent / "active_scenario"
+        state_file = state_dir / "active_scenario"
         state_file.write_text("quad-drift\n")
         os.utime(state_file, ns=(10**9, 10**9))
         assert engine.active_scenario() == "quad-drift"
@@ -411,29 +411,29 @@ class TestActiveScenarioStateFile:
         os.utime(state_file, ns=(2 * 10**9, 2 * 10**9))
         assert engine.active_scenario() == "nominal"
 
-    def test_unknown_name_falls_back_to_nominal_with_warning(self, machine_file, caplog):
+    def test_unknown_name_falls_back_to_nominal_with_warning(self, machine_file, state_dir, caplog):
         engine = SimulationEngine.from_file(machine_file)
-        state_file = machine_file.parent / "active_scenario"
+        state_file = state_dir / "active_scenario"
         state_file.write_text("bogus-scenario\n")
         os.utime(state_file, ns=(10**9, 10**9))
         with caplog.at_level("WARNING"):
             assert engine.active_scenario() == "nominal"
         assert "bogus-scenario" in caplog.text
 
-    def test_external_switch_clears_writes(self, machine_file):
+    def test_external_switch_clears_writes(self, machine_file, state_dir):
         engine = SimulationEngine.from_file(machine_file)
         engine.write("T:Q1:CUR:SP", 10.0)
 
-        state_file = machine_file.parent / "active_scenario"
+        state_file = state_dir / "active_scenario"
         state_file.write_text("quad-drift\n")
         os.utime(state_file, ns=(10**9, 10**9))
         assert engine.read("T:Q1:CUR:SP").value == 28.4
 
-    def test_set_active_scenario_writes_canonical_state_file(self, machine_file):
+    def test_set_active_scenario_writes_canonical_state_file(self, machine_file, state_dir):
         engine = SimulationEngine.from_file(machine_file)
         engine.set_active_scenario("vac-leak")
         # Writes always target the canonical multi-scenario file (nominal implicit).
-        state_file = machine_file.parent / "active_scenarios"
+        state_file = state_dir / "active_scenarios"
         assert state_file.read_text().strip() == "vac-leak"
         assert engine.active_scenarios() == ("nominal", "vac-leak")
 
@@ -471,9 +471,9 @@ class TestSameScenarioReset:
         engine.set_active_scenario("quad-drift")
         assert engine.read("T:Q1:CUR:SP").value == 28.4  # write cleared
 
-    def test_state_file_reassert_clears_writes(self, machine_file):
+    def test_state_file_reassert_clears_writes(self, machine_file, state_dir):
         engine = SimulationEngine.from_file(machine_file)
-        state_file = machine_file.parent / "active_scenario"
+        state_file = state_dir / "active_scenario"
         state_file.write_text("quad-drift\n")
         os.utime(state_file, ns=(10**9, 10**9))
         assert engine.active_scenario() == "quad-drift"

@@ -22,18 +22,29 @@
       their own: once a browser is on a user's own `/u/<user>/` origin, the
       per-user app reverse-proxies its own panels (routes/proxy.py) to those
       three families internally, so nginx never needs to know about them.
-    tls_enabled: bool, required (Task 1.3/1.4's gated seam; defaults to False)
-      When true, emit a `listen 443 ssl` listener inside `server{}` plus
+    tls_enabled: bool, required (defaults to False)
+      When true, emit TWO server blocks: a redirect-only one on nginx_port
+      whose entire content is `return 301 https://$host$request_uri;`, and the
+      real content server on `listen 443 ssl` with
       `ssl_certificate`/`ssl_certificate_key` pointing at tls_cert/tls_key.
-      When false, nothing TLS-related is emitted — v1's plain-http posture.
+      When false, nothing TLS-related is emitted and the single server listens
+      on nginx_port — the plain-http posture.
     tls_cert, tls_key: str | None
       Absolute paths inside the nginx container. Only read when tls_enabled
       is true; render.py already refuses to render (ValueError) if
       tls_enabled is true but either path is missing.
-    auth_method: str, required (Task 1.3/1.4's gated seam; defaults to "none")
+    auth_method: str, required (defaults to "none")
       When anything other than "none", emit an `auth_request` directive in
-      every proxied `/u/<user>/` location plus the single internal target
-      location it subrequests. When "none", nothing auth-related is emitted.
+      every proxied `/u/<user>/` location, the per-user internal target
+      location each of them subrequests, and the public `/auth/` surface the
+      sidecar serves the login flow from. When "none", nothing auth-related is
+      emitted and this template renders exactly what it rendered before
+      authentication existed.
+    auth_port: int, required when auth_method != "none" (defaults to 9070)
+      The loopback port the auth sidecar listens on. Reached at bind_host, the
+      same way every per-user app is: the sidecar shares the host network
+      namespace with nginx (see docker-compose.web.yml.j2) and publishes
+      nothing routable of its own.
 
   Render output: this file is expected at `nginx/nginx.conf` (relative to the
   rendered docker-compose.web.yml.j2), matching the
@@ -104,53 +115,143 @@
   proxied locations, and avoids a second render path for the 0-user case).
 
   ----------------------------------------------------------------------------
-  GATED AUTH/TLS SEAM (forward-looking, inert by default)
+  AUTH/TLS, OFF BY DEFAULT
 
-  v1 ships with no authentication and no TLS — this is an intentional, tracked
-  scope cut (see PROPOSAL.md's OC-1/M1), not an oversight. Rather than leave
-  the config schema silent about it, `web_terminals.tls`/`web_terminals.auth`
-  (Task 1.4) are read now and this template renders the matching nginx
-  directives GATED OFF by default, so a facility can opt in later without a
-  template rewrite:
+  A deployment that sets neither `web_terminals.auth` nor `web_terminals.tls`
+  renders exactly what this template rendered before either existed: plain
+  http, no `auth_request`, every `/u/<user>/` open to anyone who can reach the
+  port. Both features are opt-in, and each is gated independently:
 
-  - `tls_enabled` (default False) emits nothing. When true, it adds a
-    `listen 443 ssl` listener plus `ssl_certificate`/`ssl_certificate_key`
-    referencing the configured cert/key paths — render.py refuses to render
-    at all if either path is missing, so this template never has to guard
-    against an incoherent pair.
-  - `auth_method` (default "none") emits nothing. When set to anything else,
-    every proxied `/u/<user>/` location gets an `auth_request` subrequest to
-    a single internal `/_osprey_auth` location. That target is a FAIL-CLOSED
-    placeholder (`return 403;` — there is no auth-service port in the schema
-    yet, see lint.py's `_TLS_LISTEN_PORT` comment): setting `auth.method`
-    without wiring a real backend must lock every user out, never silently
-    authorize them. A real deployment replaces this stub with a `proxy_pass`
-    to its chosen auth backend (e.g. oauth2-proxy) when this seam graduates
-    past the inert placeholder.
+  - `tls_enabled` (default False) emits nothing. When true, the plain port
+    becomes a redirect-only server and a second `listen 443 ssl` server —
+    carrying `ssl_certificate`/`ssl_certificate_key` from the configured
+    paths — becomes the sole content server. render.py refuses to render at
+    all if either path is missing, so this template never has to guard against
+    an incoherent pair.
+  - `auth_method` (default "none") emits nothing. When set to a real method,
+    every proxied `/u/<user>/` location gets an `auth_request` naming that
+    user's own internal `/_osprey_auth/<user>` location, which asks the
+    sidecar `GET /verify?user=<user>` over loopback. The username in that
+    subrequest is fixed at render time from the roster, so the identity being
+    authorized is structural — a request cannot influence which user it is
+    checked against. The public `/auth/` prefix (login page, credential POST,
+    OIDC callback, logout) stays outside `auth_request`, as does the landing
+    page at `= /`; everything else under a user prefix is gated.
+
+  Fail-closed is the invariant that survives every partial state: a sidecar
+  that is down, unconfigured, or answering 503 denies the subrequest, and
+  nginx turns a denied subrequest into a refusal rather than a pass-through.
+  Misconfiguration locks operators out; it never quietly lets strangers in.
 
   Both the default (off) render and an enabled render (tls on with a
-  self-signed cert fixture + a stub auth method) MUST pass `nginx -t` — the
-  enabled path is validated by actually running nginx, not by string-matching
-  the template output.
+  self-signed cert fixture + auth on) MUST pass `nginx -t` — the enabled path
+  is validated by actually running nginx, not by string-matching the template
+  output.
 #}
 map $http_upgrade $connection_upgrade {
     default upgrade;
     '' close;
 }
+{% if auth_method != "none" %}
+# Is this request a browser NAVIGATION, or something a program issued?
+#
+# It decides what a denied `auth_request` looks like. A person typing a URL or
+# clicking a link should land on the login page; a `fetch()`, an EventSource,
+# or a WebSocket handshake should get a bare 401 it can act on. Redirecting
+# those instead would hand a JSON caller a page of login HTML (a parse error
+# somewhere far from the cause) and put an EventSource into a silent reconnect
+# loop against a login page that never becomes the stream it wanted.
+#
+# The source is the Upgrade and Accept headers concatenated, which is a
+# deliberate trick: browsers send `Accept: text/html,…` first on a navigation,
+# so anchoring at the start matches exactly those — while any WebSocket
+# handshake prefixes the upgrade token, pushing `text/html` off the anchor and
+# scoring 0 no matter what its Accept header claims. `fetch()` defaults to
+# `*/*`, XHR to `*/*`, and EventSource to `text/event-stream`; none match.
+map $http_upgrade$http_accept $osprey_auth_wants_login_page {
+    default 0;
+    "~*^text/html" 1;
+    "~*^application/xhtml\+xml" 1;
+}
 
+# The return-to path, or nothing. An allowlist, and it has to be one.
+#
+# `$uri` is nginx's DECODED path, which is the safe form for matching (it is
+# what routed the request) and the DANGEROUS form for emitting: `%0d%0a` in a
+# request path has already become a real CR LF by the time this is read, and
+# `return 302` copies a variable into the Location header verbatim. Emitting
+# `$uri` directly let one crafted link append arbitrary response headers —
+# a Set-Cookie planting an attacker's session on this very origin, reachable
+# by anyone, and most effective on a logged-out victim, which is exactly who
+# follows a login link. A `%26` likewise arrived as a real `&` and appended a
+# second `user=` parameter, which a query parser reading the last value would
+# have taken over the one this deployment rendered.
+#
+# So nothing decoded is emitted unless it matches the shape of a legitimate
+# terminal path. The character class admits no CR, no LF, no `&`, no `?`, no
+# space — deep links keep working, and everything else collapses to the empty
+# default, which the login page treats as "no return-to". `\z` rather than
+# `$`: PCRE's `$` also matches immediately BEFORE a trailing newline, so a
+# path ending in `%0a` would otherwise still be emitted, newline and all.
+map $uri $osprey_auth_next {
+    default "";
+    "~^/u/[A-Za-z0-9._-]+/[A-Za-z0-9._~/-]*\z" $uri;
+}
+{% endif -%}
+{% if tls_enabled %}
+# TLS is on, so the plain port serves NOTHING but the way to the secure one.
+# A single server listening on both ports would answer the same content over
+# cleartext — and any session cookie it set there would cross the network in
+# the clear, which is the whole thing TLS was turned on to prevent. Splitting
+# the listeners means there is no plain-http code path left to issue one.
+#
+# The redirect target is `$host` — the name the client actually asked for —
+# and NOT the render-time external origin, deliberately. A deployment is
+# reachable under more names than the one config knows about (an alias, an
+# internal DNS name, a bare IP), and rewriting the host on the way to https
+# would bounce those clients to a name they may not resolve or whose
+# certificate they cannot match. `external_origin` is for values that must be
+# fixed at render time (env-baked links, an IdP-registered redirect_uri); a
+# per-request redirect is not one of them.
 server {
     listen {{ nginx_port }};
     listen [::]:{{ nginx_port }};
-{% if tls_enabled %}
-    # Gated TLS seam (Task 1.3): web_terminals.tls.enabled is true.
+    server_name _;
+
+    return 301 https://$host$request_uri;
+}
+{% endif %}
+server {
+{%- if tls_enabled %}
+    # The sole content server: with TLS on, everything below is reachable only
+    # over the encrypted listener.
     listen 443 ssl;
     listen [::]:443 ssl;
     ssl_certificate {{ tls_cert }};
     ssl_certificate_key {{ tls_key }};
+{% else %}
+    listen {{ nginx_port }};
+    listen [::]:{{ nginx_port }};
 {% endif %}
     server_name _;
 
     root /usr/share/nginx/html;
+{%- if auth_method != "none" %}
+
+    # Server level on purpose, so it covers EVERY redirect this server can
+    # emit — the login redirect, the `/u/<user>` bookmark 301s, and whatever
+    # is added later — not just the one location that first needed it.
+    #
+    # Left at its default, nginx turns a relative redirect target into an
+    # absolute URL built from `$host` plus ITS OWN listening port. That is
+    # wrong for precisely the topology `auth.allow_insecure_http` exists to
+    # support: with a facility TLS terminator in front, a browser on
+    # `https://facility/u/alice` gets walked to `http://facility:9080/u/alice/`
+    # — cleartext, where a Secure cookie will not follow and a non-Secure one
+    # would be exposed — while advertising the internal port on the way. A
+    # relative Location keeps whatever origin the client already had.
+    absolute_redirect off;
+{%- endif %}
 
     # Exact match: ONLY the root serves the landing page. Any other path
     # outside a /u/<user>/ mount is a hard 404 — a prefix-catch-all here would
@@ -172,8 +273,32 @@ server {
     # the request reaches the upstream.
     location /u/{{ svc.user }}/ {
 {% if auth_method != "none" %}
-        # Gated auth seam (Task 1.3): web_terminals.auth.method is "{{ auth_method }}".
-        auth_request /_osprey_auth;
+        # Authentication is on (web_terminals.auth.method is "{{ auth_method }}"):
+        # every request that reaches this location — page load, panel API call,
+        # WebSocket handshake, SSE stream — is authorized first by the internal
+        # subrequest below, which asks the sidecar about {{ svc.user }} and nobody
+        # else. A denied subrequest means nginx never opens the upstream
+        # connection at all, so an unauthenticated request never touches this
+        # user's container.
+        auth_request /_osprey_auth/{{ svc.user }};
+
+        # Who a denied subrequest should prompt for. Carried in a variable
+        # because the handler below is shared by every user; the value is
+        # still a render-time literal, so it names this location's user and
+        # cannot be steered by the request. Variables survive the internal
+        # redirect into the named location.
+        set $osprey_auth_user {{ svc.user }};
+        # `=` matters: without it the named location's body would be served
+        # under the original 401 status, and a browser does not follow the
+        # Location header of a 401. With it, the handler's own status (302 or
+        # 401) becomes the response's.
+        #
+        # This intercepts only nginx's OWN 401 from the auth_request above.
+        # A 401 from the upstream app passes through untouched, because
+        # proxy_intercept_errors is off by default and this deployment leaves
+        # it off — the app's own API errors are its business, not the
+        # perimeter's.
+        error_page 401 = @osprey_auth_401;
 {% endif %}
         proxy_pass http://{{ bind_host }}:{{ svc.web }}/;
         proxy_http_version 1.1;
@@ -183,6 +308,17 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+{%- if auth_method != "none" %}
+        # The browser's cookies stop here. One cookie jar serves this whole
+        # origin, so an operator with several users unlocked would otherwise
+        # hand {{ svc.user }}'s container a session cookie naming all of them —
+        # and these containers run agent-generated code, which makes anything
+        # readable inside one a credential that has effectively left the
+        # perimeter. Nothing is lost by cutting it: the web-terminal app sets
+        # and reads no cookies at all, and the only thing that needs this one
+        # is the sidecar, which is reached by a different route.
+        proxy_set_header Cookie "";
+{%- endif %}
         proxy_buffering off;
         proxy_read_timeout 3600s;
     }
@@ -191,18 +327,102 @@ server {
     location = /u/{{ svc.user }} {
         return 301 /u/{{ svc.user }}/;
     }
+{% if auth_method != "none" %}
+
+    # {{ svc.user }}'s own auth target — the only thing the `auth_request` above
+    # can reach. There is one of these per roster user, and the `?user=` it asks
+    # the sidecar about is a RENDER-TIME LITERAL: no part of the client's
+    # request (path, header, cookie) selects which user is being authorized, so
+    # the sidecar never has to reconstruct the identity from $request_uri or
+    # X-Original-URI — the two places a crafted URL could otherwise smuggle a
+    # different username in. `internal` keeps the path unreachable from outside.
+    location = /_osprey_auth/{{ svc.user }} {
+        internal;
+        proxy_pass http://{{ bind_host }}:{{ auth_port }}/verify?user={{ svc.user }};
+        # Load-bearing, not an optimization. An auth subrequest inherits the
+        # parent request's headers, so without these two directives a POST's
+        # Content-Length is announced to the sidecar, which reads no body and
+        # replies immediately — leaving the announced bytes unsent and the
+        # subrequest hanging until it times out. Every authenticated POST (chat
+        # message, file write, approval) would stall. `proxy_pass_request_body
+        # off` suppresses the body; clearing Content-Length stops nginx
+        # advertising a body it will not send.
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # This subrequest sits in front of EVERY gated request, so its worst
+        # case is the deployment's worst case. Answering it is a signature
+        # check against process-local state over loopback — microseconds — so
+        # nginx's 60s defaults describe nothing this can legitimately do, and
+        # would let one wedged sidecar hold every open terminal's next request
+        # for a minute before failing it. Failing in seconds turns that into a
+        # visible error instead of a hang.
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 5s;
+    }
+{% endif -%}
 {% endfor %}
 {% if auth_method != "none" %}
-    # Gated auth seam (Task 1.3): the single internal target every proxied
-    # `/u/<user>/` location's auth_request subrequests. Placeholder only —
-    # there is no auth-service port in the schema yet (lint.py) — and
-    # FAIL-CLOSED (`return 403;`) by design: setting `auth.method` without
-    # wiring a real backend must lock every user out, never silently
-    # authorize them. A real deployment replaces this stub with a
-    # `proxy_pass` to its chosen auth backend (e.g. oauth2-proxy).
-    location = /_osprey_auth {
-        internal;
-        return 403;
+
+    # The public login surface — the ONE place under this origin that answers
+    # without a session, because it is where a session comes from. Everything
+    # the sidecar serves publicly lives under this prefix: the login page and
+    # its assets, the credential POST, the OIDC callback, and logout. No
+    # `auth_request` here, by necessity: gating the login page behind a session
+    # is a locked door whose key is inside the room.
+    #
+    # `/verify` is NOT reachable through this prefix — it is not under /auth/,
+    # and the per-user targets that call it are `internal`. The landing page at
+    # `= /` likewise stays public and ungated (it is the identity chooser, and
+    # it is what the nginx container's own healthcheck probes); the per-user
+    # apps' `/health` routes sit behind their user's gate on purpose, so an
+    # expired session makes an open terminal's probe 401 and reload.
+    # What a denied `auth_request` turns into, for every user. Reached only by
+    # the `error_page 401` above — it is a named location, so nothing routes
+    # here from outside.
+    #
+    # `if` is safe here in a way it famously is not elsewhere in nginx: a
+    # location-level `if` containing nothing but `return` is one of the two
+    # constructs documented as fully defined behaviour. There is no
+    # proxy_pass, no rewrite, and no second directive inside it.
+    location @osprey_auth_401 {
+        # The return-to is `$osprey_auth_next` — the ALLOWLISTED form of the
+        # path (see the map above) — and never `$uri` itself. Neither is
+        # `$request_uri` the answer: it is injection-safe, being still
+        # percent-encoded, but it carries whatever the client typed, including
+        # a leading `//` that a browser reads as an absolute URL and follows
+        # off-site. One variable is unsafe to emit, the other is unsafe to
+        # trust; the map is what makes a value both.
+        #
+        # The query string is dropped with all of this — a deliberate trade,
+        # since the terminal's own state does not live in one. The sidecar
+        # still treats `next` as untrusted input.
+        if ($osprey_auth_wants_login_page) {
+            return 302 /auth/login?user=$osprey_auth_user&next=$osprey_auth_next;
+        }
+        # Programs get the status, not a page: a bare 401 is what the app's
+        # WebSocket/SSE close handlers probe for to decide the session died.
+        return 401;
+    }
+
+    location /auth/ {
+        proxy_pass http://{{ bind_host }}:{{ auth_port }}/auth/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Stated outright rather than left to defaults or to whatever the
+        # terminal locations above need. The login flow is a handful of short
+        # request/response round trips against a loopback service — it has no
+        # long-poll, no stream, and nothing to keep open — so a sidecar that
+        # is wedged should surface as a prompt error in seconds, not as a
+        # browser tab that hangs for a minute on a dead upstream.
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 15s;
+        proxy_read_timeout 15s;
     }
 {% endif %}
 }

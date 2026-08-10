@@ -4,7 +4,7 @@ Covers ``osprey.services.bluesky_bridge.substrate_devices`` -- the single
 source shared by ``osprey deploy up`` (``container_lifecycle.
 _ensure_bluesky_substrate_env``) and ``tests/e2e/_orm_stack.py`` -- plus, in
 ``TestEnsureScanSubstrateEnv`` below, the ``container_lifecycle`` deploy-path
-wiring itself (called directly, Docker-free, per task 3.5's test plan).
+wiring itself, called directly (Docker-free).
 """
 
 from __future__ import annotations
@@ -269,13 +269,15 @@ class TestEnsureScanSubstrateEnv:
         assert env[MOTORS_ENV]
         assert env[DETECTORS_ENV]
 
-    def test_mock_control_system_stays_on_demo_runner(self, tmp_path) -> None:
+    def test_mock_control_system_never_arms_the_substrate(self, tmp_path) -> None:
         """A ``control_system.type: mock`` deploy must NOT arm the EPICS
         substrate, even when a VA container is co-deployed alongside bluesky
-        (control-assistant always bundles VA). Arming substrate here would win
-        over the bridge's demo runner and leave it resolving scan devices that
-        only the mock demo provides -- the regression that broke the demo-runner
-        Tiled roundtrip. See ``container_lifecycle._ensure_bluesky_substrate_env``.
+        (control-assistant always bundles VA). ``control_system.type`` is the
+        single source of truth for what the deployment may drive: arming the
+        substrate off the mere presence of a VA container would hand the
+        queueserver worker real Channel Access devices for a deployment the
+        capability surface reports as browse-only.
+        See ``container_lifecycle._ensure_bluesky_substrate_env``.
         """
         from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
@@ -288,8 +290,8 @@ class TestEnsureScanSubstrateEnv:
 
         _ensure_bluesky_substrate_env(config, env_path=env_path)
 
-        # No .env written at all -- the substrate stays disarmed and the bridge
-        # falls through to its demo runner.
+        # No .env written at all -- the substrate stays disarmed, and the worker
+        # builds no devices, which is the browse-only signal by design.
         assert not env_path.exists()
 
     def test_no_write_without_virtual_accelerator_deployed(self, tmp_path) -> None:

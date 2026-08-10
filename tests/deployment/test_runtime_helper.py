@@ -41,6 +41,95 @@ def test_runtime_env_pins_default_project_name_for_falsy_config() -> None:
     assert runtime_env({}, base_env={})["COMPOSE_PROJECT_NAME"] == "unnamed-project"
 
 
+# ---------------------------------------------------------------------------
+# COMPOSE_IGNORE_ORPHANS -- opt-in, and the default matters as much as the
+# opt-in.
+#
+# A web-terminal deploy issues TWO compose invocations against ONE
+# COMPOSE_PROJECT_NAME: the backend services (-f build/services/*.yml) and the
+# web stack (-f docker-compose.web.yml). Each therefore sees the other's
+# containers as orphans of the shared project and prints a warning naming every
+# one of them, twice per deploy. The warning is not actionable there: its
+# suggested remedy, `--remove-orphans`, would delete the OTHER stack, which is
+# exactly why provision.py forbids that flag on both paths --
+# ignore_orphans=True silences it at the source.
+#
+# The single-stack paths are the mirror image: plain `deploy up` reconciles
+# with `up --remove-orphans`, `clean` with `down --remove-orphans`, and docker
+# compose HARD-ERRORS on the combination ("cannot combine
+# COMPOSE_IGNORE_ORPHANS and --remove-orphans"). A default-on env var breaks
+# every one of those deploys outright, so the default-off pin below is a
+# regression guard, not a formality.
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_env_does_not_set_ignore_orphans_by_default() -> None:
+    """Single-stack deploys pass --remove-orphans; the env var would hard-error."""
+    env = runtime_env({"project_name": "proj-a"}, base_env={})
+    assert "COMPOSE_IGNORE_ORPHANS" not in env
+
+
+def test_runtime_env_suppresses_the_orphan_warning_on_request() -> None:
+    """The two-invocations-one-project design makes orphans expected, not news."""
+    env = runtime_env({"project_name": "proj-a"}, base_env={}, ignore_orphans=True)
+    assert env["COMPOSE_IGNORE_ORPHANS"] == "1"
+
+
+def test_runtime_env_never_mutates_the_base_env() -> None:
+    """Both pins land on a copy -- the caller's env is untouched."""
+    base: dict[str, str] = {}
+    runtime_env({"project_name": "proj-a"}, base_env=base, ignore_orphans=True)
+    assert base == {}
+
+
+# ---------------------------------------------------------------------------
+# with_plain_progress -- `--progress plain` for docker only.
+#
+# Compose's default `auto` progress picks its TTY renderer on an interactive
+# terminal, which redraws frames with cursor-up and no erase-to-end-of-line.
+# Long project/service names wrap, the renderer's line arithmetic goes wrong,
+# and frames paint over each other into unreadable garbage. `plain` is
+# append-only and cannot garble. Docker only: `--progress` is a docker compose
+# v2 flag, and a podman deploy may resolve `podman compose` to a provider that
+# rejects it -- a hard failure in exchange for cosmetics is a bad trade, and
+# non-interactive runs (CI, systemd) already default to plain anyway.
+#
+# It takes a RESOLVED argv rather than a config on purpose: every deploy call
+# site reaches its runtime through the `get_runtime_command` name bound in its
+# own module, and that binding is the seam the deploy tests monkeypatch. A
+# helper that resolved the runtime itself would bypass those patches and run
+# live runtime detection inside unit tests.
+# ---------------------------------------------------------------------------
+
+
+def test_with_plain_progress_forces_plain_progress_on_docker() -> None:
+    assert runtime_helper.with_plain_progress(["docker", "compose"]) == [
+        "docker",
+        "compose",
+        "--progress",
+        "plain",
+    ]
+
+
+def test_with_plain_progress_leaves_podman_untouched() -> None:
+    assert runtime_helper.with_plain_progress(["podman", "compose"]) == ["podman", "compose"]
+
+
+def test_with_plain_progress_tolerates_an_empty_argv() -> None:
+    """Never index [0] blind -- a runtime stub may hand back an empty list."""
+    assert runtime_helper.with_plain_progress([]) == []
+
+
+def test_with_plain_progress_does_not_resolve_a_runtime_itself(monkeypatch) -> None:
+    """The seam guard: it must never call get_runtime_command on its own."""
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("with_plain_progress must not resolve the runtime")
+
+    monkeypatch.setattr(runtime_helper, "get_runtime_command", _boom)
+    assert runtime_helper.with_plain_progress(["docker", "compose"])[:2] == ["docker", "compose"]
+
+
 def test_runtime_env_layers_onto_base_env_without_mutating_it() -> None:
     """The pin is added to a copy; the caller's base_env dict is untouched."""
     base_env = {"PATH": "/usr/bin", "SOME_VAR": "1"}

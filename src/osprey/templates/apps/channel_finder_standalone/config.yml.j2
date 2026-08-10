@@ -76,7 +76,7 @@ api:
         opus: gpt-oss:120b
     als-apg:
       api_key: ${ALS_APG_API_KEY}
-      base_url: https://llm.gianlucamartino.com/v1
+      base_url: ${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com/v1}
       models:
         haiku: claude-haiku-4-5-20251001
         sonnet: claude-sonnet-4-6
@@ -202,7 +202,9 @@ channel_finder:
       # Feedback loop: records successful navigation paths for identical queries.
       feedback:
         enabled: true
-        store_path: data/feedback/hierarchical_feedback.json
+        store_path: _agent_data/feedback/hierarchical_feedback.json
+                                      # Runtime state — data/ is build-owned
+                                      # and cleared by `osprey build --force`.
 {% endif %}
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database) — best for

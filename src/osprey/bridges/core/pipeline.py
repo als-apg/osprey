@@ -51,7 +51,7 @@ from typing import Any
 import httpx
 
 from . import retry, retry_queue
-from .artifacts import fetch_artifact
+from .artifacts import FetchedArtifact, fetch_artifact
 from .capabilities import pair_supports
 from .config import CoreConfig
 from .dedup import DedupStore
@@ -120,18 +120,19 @@ _PRIOR_FETCH_TIMEOUT = 30.0
 
 def _default_fetch_prior_artifact(
     cfg: CoreConfig, run_id: str | None, descriptor: Mapping[str, Any], max_bytes: int
-) -> bytes | None:
-    """Fetch one prior artifact's bytes via the worker byte route; ``None`` on any
-    failure. An adapter whose channel republishes artifacts at a stable URL (and
-    stamps ``public_url`` on the descriptor via ``deliver_files``) injects its own
+) -> FetchedArtifact | None:
+    """Fetch one prior artifact via the worker byte route; ``None`` on any failure.
+
+    Returns the served Content-Type alongside the bytes, because the descriptor's
+    ``delivered_mime`` is only a prediction of what a fetch would produce. An
+    adapter whose channel republishes artifacts at a stable URL (and stamps
+    ``public_url`` on the descriptor via ``deliver_files``) injects its own
     fetcher with a fallback for artifacts the worker has since swept."""
     entry_id = descriptor.get("entry_id")
     if not run_id or not isinstance(entry_id, str) or not entry_id or max_bytes <= 0:
         return None
     with httpx.Client(timeout=_PRIOR_FETCH_TIMEOUT, trust_env=cfg.trust_env) as http:
-        return fetch_artifact(
-            http, cfg, run_id=run_id, artifact_id=entry_id, max_bytes=max_bytes, require_png=False
-        )
+        return fetch_artifact(http, cfg, run_id=run_id, artifact_id=entry_id, max_bytes=max_bytes)
 
 
 @dataclass
@@ -143,8 +144,10 @@ class PipelineDeps:
     ``(ops, dedup, message_id, entry, result)`` on a retryable terminal failure.
     ``probe_capability`` is the per-dispatch ``input_files`` probe, called
     ``(cfg, "input_files")``; ``fetch_prior_artifact`` recovers one prior IMAGE
-    artifact's bytes, called ``(cfg, run_id, descriptor, max_bytes)``. All three are
-    injectable so tests run no network I/O.
+    artifact, called ``(cfg, run_id, descriptor, max_bytes)`` and returning a
+    :class:`~osprey.bridges.core.artifacts.FetchedArtifact` (bytes plus the type they
+    were served under) or ``None``. All three are injectable so tests run no network
+    I/O.
     """
 
     cfg: CoreConfig
@@ -154,7 +157,7 @@ class PipelineDeps:
     history: HistoryStore | None = None
     park: Callable[..., Any] = retry_queue.park
     probe_capability: Callable[..., bool] = pair_supports
-    fetch_prior_artifact: Callable[..., bytes | None] = _default_fetch_prior_artifact
+    fetch_prior_artifact: Callable[..., FetchedArtifact | None] = _default_fetch_prior_artifact
 
 
 def _run_id_persister(dedup: DedupStore, message_id: str) -> Callable[[str], None]:
@@ -546,10 +549,25 @@ def _reinject_prior_images(
     injected: list[dict[str, Any]] = []
     remaining = REINJECT_MAX_TOTAL_BYTES
     for ti, ai, run_id, desc in reversed(selected):
-        data = deps.fetch_prior_artifact(deps.cfg, run_id, desc, remaining)
-        if data is None:
+        fetched = deps.fetch_prior_artifact(deps.cfg, run_id, desc, remaining)
+        if fetched is None:
             _flag_expired(turns, ti, ai)
             continue
+        # ``delivered_mime`` only PREDICTED an image (it is stamped at run
+        # completion, before any conversion runs); the byte route's Content-Type
+        # is what was actually served. An artifact whose conversion failed comes
+        # back as its original, non-image bytes — re-injecting those as the image
+        # the agent is told to look at is worse than not re-injecting them, and
+        # the descriptor rides ``conversation_so_far`` either way.
+        mime = fetched.content_type or desc.get("delivered_mime")
+        if mime not in IMAGE_MIMES:
+            logger.warning(
+                "prior artifact served as %s, not the predicted %s; not re-injected",
+                mime,
+                desc.get("delivered_mime"),
+            )
+            continue
+        data = fetched.data
         digest = hashlib.sha256(data).digest()
         if digest in seen:
             continue  # already attached to this message (or an earlier prior)
@@ -557,7 +575,7 @@ def _reinject_prior_images(
         injected.append(
             {
                 "filename": desc.get("filename"),
-                "mime": desc.get("delivered_mime"),
+                "mime": mime,
                 "content_b64": base64.b64encode(data).decode("ascii"),
                 "ingest": False,
             }

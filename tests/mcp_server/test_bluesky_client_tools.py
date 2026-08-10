@@ -46,18 +46,32 @@ def _unreachable(*_args, **_kwargs):
 async def test_get_run_request_response_mapping(monkeypatch):
     captured = {}
 
+    record = {
+        "id": "run-1",
+        "status": "running",
+        "plan_name": "orm",
+        "plan_args": {"num_points": 5},
+        "item_uid": "u1",
+        "progress": {
+            "rows_seen": 3,
+            "expected_points": 10,
+            "fraction": 0.3,
+            "complete": False,
+        },
+    }
+
     def fake_get(path, **kwargs):
         captured["path"] = path
-        return 200, {"id": "run-1", "status": "running", "completion": 0.42}
+        return 200, record
 
     monkeypatch.setattr(f"{_MOD}._http_get_json", fake_get)
 
     result = await _fn("get_run")(run_id="run-1")
 
     assert captured["path"] == "/runs/run-1"
-    data = extract_response_dict(result)
-    assert data["status"] == "running"
-    assert data["completion"] == 0.42
+    # Relayed whole: the tool reshapes nothing, so a key the bridge adds
+    # reaches the agent without a code change here.
+    assert extract_response_dict(result) == record
 
 
 async def test_get_run_unreachable(monkeypatch):
@@ -66,39 +80,82 @@ async def test_get_run_unreachable(monkeypatch):
         await _fn("get_run")(run_id="run-1")
 
 
-def test_get_run_docstring_names_every_key_run_to_dict_can_emit():
+def test_get_run_docstring_names_every_key_the_run_record_can_emit(monkeypatch):
     """The docstring IS the contract: it's the only description of the JSON
-    run record an agent ever sees, and nothing in the bridge/MCP path is
-    typed to catch drift between it and `Run.to_dict` (`runs.py`) — this is
-    exactly how `tiled_degraded` (FR5) slipped through unseen originally.
-    Exercises `to_dict` across pending/healthy-launched/errored-launched runs
-    and asserts every key any of them can emit is literally named (quoted)
-    in `get_run`'s docstring, so a future key added to `to_dict` without
-    a docstring update fails here rather than staying silently invisible.
+    run record an agent ever sees, and nothing in the bridge/MCP path is typed
+    to catch drift between it and `runs.record_from_item` — this is exactly how
+    `tiled_degraded` slipped through unseen originally. Exercises the record
+    builder across every status it can report, in both the has-it and lacks-it
+    direction for each optional key, and asserts every key any of them can emit
+    is literally named (quoted) in `get_run`'s docstring, so a future key added
+    to the record without a docstring update fails here rather than staying
+    silently invisible.
     """
-    from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
-    from osprey.services.bluesky_bridge.runs import Run
+    from osprey.services.bluesky_bridge import document_plane, runs
 
-    intent_run = Run(id="r", request={})
+    # `progress` is the one optional key sourced from outside the item, so the
+    # document plane is stubbed rather than driven — this test is about which
+    # keys the record can carry, not about how progress is computed.
+    monkeypatch.setattr(
+        document_plane,
+        "progress",
+        lambda run_id: {
+            "rows_seen": 3,
+            "expected_points": 10,
+            "fraction": 0.3,
+            "complete": False,
+        },
+    )
 
-    healthy_runner = FakePlanRunner()
-    healthy_runner.start_run_thread()
-    healthy_runner.simulate_progress(0.5)
-    healthy_runner.tiled_degraded = False
-    healthy_run = Run(id="r", request={}, launched=True, runner=healthy_runner, launched_by="agent")
-
-    errored_runner = FakePlanRunner()
-    errored_runner.start_run_thread()
-    errored_runner.simulate_error("device timeout")
-    errored_run = Run(id="r", request={}, launched=True, runner=errored_runner)
+    pending = {
+        "item_uid": "u1",
+        "name": "orm",
+        "kwargs": {"num_points": 5},
+        "meta": {"osprey_run_id": "r1"},
+    }
+    finished = {
+        **pending,
+        "result": {"run_uids": ["abc-123"], "exit_status": "completed"},
+    }
+    failed = {**finished, "result": {"exit_status": "failed", "msg": "device timeout"}}
+    # An item enqueued out of band: no osprey_run_id, so no progress lookup —
+    # covers the absent-optional direction rather than only the present one.
+    bare = {"name": "orm", "kwargs": {}}
 
     all_keys: set[str] = set()
-    for run in (intent_run, healthy_run, errored_run):
-        all_keys.update(run.to_dict().keys())
+    for item, status in (
+        (pending, runs.STATUS_PENDING),
+        (pending, runs.STATUS_RUNNING),
+        (finished, runs.STATUS_COMPLETED),
+        (finished, runs.STATUS_STOPPED),
+        (failed, runs.STATUS_ERROR),
+        (bare, runs.STATUS_PENDING),
+    ):
+        all_keys.update(runs.record_from_item(item, status).keys())
+
+    # Guard against the assertion going vacuous if the record ever stops
+    # carrying its optional keys: every documented key must actually appear.
+    assert {"id", "status", "plan_name", "plan_args"} <= all_keys
+    assert {"item_uid", "run_uid", "error", "progress"} <= all_keys
 
     doc = read_tools.get_run.__doc__ or ""
     missing = {key for key in all_keys if f'"{key}"' not in doc}
-    assert not missing, f"get_run docstring is missing keys Run.to_dict emits: {missing}"
+    assert not missing, f"get_run docstring is missing keys the run record emits: {missing}"
+
+
+def test_get_run_docstring_does_not_still_promise_retired_keys():
+    """The inverse drift: a key the record can no longer emit must not linger.
+
+    ``completion``/``tiled_degraded``/``launched_by`` were on the old record.
+    A docstring that still promises them sends the agent looking for fields
+    that will never arrive — the same failure as a missing key, pointed the
+    other way, and one the test above cannot catch.
+    """
+    doc = read_tools.get_run.__doc__ or ""
+    for retired in ("completion", "tiled_degraded", "launched_by"):
+        assert f'"{retired}"' not in doc, (
+            f"get_run docstring still promises the retired key {retired!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

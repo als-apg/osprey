@@ -158,6 +158,9 @@ async def show_panel(panel_id: str) -> str:
     """Make a panel visible in the Web Terminal tab bar.
 
     Use this when the user asks to show, reveal, or enable a panel tab.
+    In the Simple web UI, showing a panel while the page is chat-only also
+    brings up the workspace column on that panel — use ``show_panel``
+    after producing an artifact so the operator can see it.
 
     Panel IDs are provided in your context at session start; call
     ``list_panels`` to refresh the live state if needed.  Do NOT guess

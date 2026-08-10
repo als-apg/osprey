@@ -34,6 +34,7 @@ import { debounce } from "/design-system/js/dom.js";
 import "/design-system/js/components/osprey-theme-switcher.js";
 import { el, isFallback, readPanelParams, STRUCTURE_MARKER } from "./helpers.js";
 import { initTree, renderTree, highlightActive, highlightStructure, selectConcept } from "./tree.js";
+import { initSidebarResize } from "./resize.js";
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme and
 // follow live `osprey-theme-change` messages. theme-boot.js already applied
@@ -41,7 +42,24 @@ import { initTree, renderTree, highlightActive, highlightStructure, selectConcep
 // (replacing the legacy `theme:set` the panel's earlier TODO expected).
 initTheme({ role: "follower" });
 
+// Live Expert<->Simple switch broadcast by the hub (same-origin postMessage),
+// the mode-axis sibling of the osprey-theme-change follower wired by initTheme
+// above. mode-boot.js already stamped the initial data-ui-mode pre-paint; this
+// is the runtime flip. The Simple layout is pure CSS gated on the attribute
+// (see style.css), so stamping <html> is all the switch needs — nothing to
+// re-render.
+window.addEventListener("message", (e) => {
+  if (e.origin !== window.location.origin) return;
+  if (e.data && e.data.type === "osprey-mode-change" && e.data.mode) {
+    const mode = e.data.mode === "simple" ? "simple" : "expert";
+    document.documentElement.setAttribute("data-ui-mode", mode);
+  }
+});
+
 applyEmbedded();
+
+// Draggable sidebar/reader splitter (expert layout; hidden in simple mode).
+initSidebarResize();
 
 /**
  * @typedef {Object} ConceptFrontmatter
@@ -401,6 +419,16 @@ function requireEl(id) {
   if (structureLink) {
     structureLink.addEventListener("click", function (ev) {
       ev.preventDefault();
+      loadStructure();
+    });
+  }
+
+  // Simple-mode "Browse all pages" affordance — with the expert sidebar tree
+  // hidden, this is the reading-focused mode's route back to the structure
+  // overview (the plain doc list). Harmless in Expert (the button is hidden).
+  const browseAllBtn = document.getElementById("browse-all");
+  if (browseAllBtn) {
+    browseAllBtn.addEventListener("click", function () {
       loadStructure();
     });
   }

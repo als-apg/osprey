@@ -101,19 +101,18 @@ def enable_linger(config: dict, run_env: dict[str, str]) -> None:
 def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     """Best-effort, advisory post-up smoke check via the scaffolded ``scripts/verify.sh``.
 
-    An ``osprey-build-deploy``-scaffolded project ships ``scripts/verify.sh``
-    (see the ``osprey-build-deploy`` skill's ``templates/core/scripts/
-    verify.sh``): a health-check script parameterized per-facility with a
-    probe for each enabled module. Historically it was operator-run-by-hand
-    only; this makes ``osprey deploy up`` run it automatically as the last
-    step of the post-up hook, once ``compose up -d`` has already succeeded
-    and containers are running, so an operator gets an immediate health
-    signal without a separate manual step.
+    A project built from a profile carrying ``project/scripts/verify.sh``
+    ships that file as ``<project_root>/scripts/verify.sh`` (the profile's
+    ``project/`` mirror copies it verbatim): a health-check script
+    parameterized per-facility with a probe for each enabled module.
+    Historically it was operator-run-by-hand only; this makes ``osprey deploy
+    up`` run it automatically as the last step of the post-up hook, once
+    ``compose up -d`` has already succeeded and containers are running, so an
+    operator gets an immediate health signal without a separate manual step.
 
     Silently skipped (no log line at all) when ``<project_root>/scripts/
-    verify.sh`` doesn't exist — an older project scaffolded before this file
-    existed, or a non-``osprey-build-deploy`` project, must deploy exactly as
-    before.
+    verify.sh`` doesn't exist — a profile that carries no such script must
+    deploy exactly as before.
 
     The script's own convention (see its header) is to ALWAYS exit 0 —
     verification is advisory, never deploy-blocking — but this runs it via
@@ -168,7 +167,7 @@ def reload_nginx_config(web_cmd: list[str], run_env: dict[str, str]) -> None:
     warns rather than failing a deploy that did reconcile.
     """
     reload_cmd = web_cmd + ["exec", "-T", "nginx", "nginx", "-s", "reload"]
-    logger.info(f"Running command:\n    {' '.join(reload_cmd)}")
+    logger.debug(f"Running command:\n    {' '.join(reload_cmd)}")
     result = subprocess.run(reload_cmd, env=run_env, capture_output=True, text=True)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
@@ -178,46 +177,121 @@ def reload_nginx_config(web_cmd: list[str], run_env: dict[str, str]) -> None:
         )
 
 
-def warn_if_web_stack_unreachable(config: dict, attempts: int = 5, delay: float = 2.0) -> None:
+def _host_port_answers(url: str, attempts: int, delay: float) -> bool:
+    """Poll ``url`` from this host; ``True`` as soon as anything answers.
+
+    Any HTTP status counts — a 502 from nginx still proves the host can reach
+    the listening socket, which is the only thing being tested here.
+    """
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=3):
+                return True
+        except urllib.error.HTTPError:
+            return True  # any HTTP response at all proves host-side reachability
+        except OSError:
+            if attempt + 1 < attempts:
+                time.sleep(delay)
+    return False
+
+
+def warn_if_web_stack_unreachable(
+    config: dict,
+    attempts: int = 5,
+    delay: float = 2.0,
+    *,
+    web_cmd: list[str] | None = None,
+    run_env: dict[str, str] | None = None,
+) -> None:
     """Advisory post-up probe: is nginx actually reachable from THIS host?
 
     The whole web tier runs ``network_mode: host`` with loopback-only
     upstreams (the security baseline). On a Linux host that binds
     ``nginx_port`` on the machine itself — but on Docker Desktop
-    (macOS/Windows) "host" is the hypervisor's Linux VM, and unless Docker
-    Desktop's opt-in host-networking setting is enabled, nothing ever
-    listens on the real host: ``compose up`` succeeds, every healthcheck
-    passes (they probe from *inside* the VM), and the landing page is
-    unreachable in any browser. This probe is the only signal that
-    distinguishes that state from a working deploy.
+    (macOS/Windows) "host" is the hypervisor's Linux VM, and the port reaches
+    the real machine only through Docker Desktop's host-network forwarder:
+    ``compose up`` succeeds, every healthcheck passes (they probe from
+    *inside* the VM), and the landing page is unreachable in any browser.
+    This probe is the only signal that distinguishes that state from a
+    working deploy.
+
+    SELF-HEAL, and why it comes before the settings hint. That forwarder
+    registers a VM-side socket by *watching* for the listen event. A
+    container that came back up under ``restart: unless-stopped`` while
+    Docker Desktop was still starting — after an update, a reboot, or the
+    Apply & Restart that enabling the setting itself performs — opens its
+    socket unobserved and stays invisible to the host indefinitely. Nothing
+    about its compose definition changed, so every subsequent ``up -d``
+    leaves it ``Running``, reconciles nothing, and reports the same failure
+    forever. Bouncing the container re-opens the socket while the forwarder
+    is watching, which fixes it. Because that state is indistinguishable
+    from "the setting is off" without a second experiment, and because the
+    restart is cheap and repairs the far more common cause, this tries the
+    restart first and only blames the setting if the port is *still* dark
+    afterwards. Gated to Docker Desktop: on Linux the port is bound on the
+    machine directly, so an unreachable one means something else entirely
+    and a blind restart would be noise.
 
     Advisory like :func:`run_verify_script`: the containers themselves are
     healthy, so an unreachable host port warns loudly (with the Docker
     Desktop remedy where that's the likely cause) but never fails a deploy
     that did, in fact, reconcile.
+
+    :param web_cmd: The web stack's compose argv (from
+        :func:`provision.web_stack_compose_cmd`), used for the self-heal
+        restart. ``None`` — the lifecycle callers that never had one — keeps
+        the warn-only behaviour.
+    :param run_env: Environment for that restart, the same
+        ``COMPOSE_PROJECT_NAME``-pinned env the caller's other compose calls
+        use.
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     nginx_port = web_terminals.get("nginx_port")
     if not isinstance(nginx_port, int):
         return
     url = f"http://127.0.0.1:{nginx_port}/"
-    for attempt in range(attempts):
+    if _host_port_answers(url, attempts, delay):
+        return
+
+    on_docker_desktop = (
+        sys.platform in ("darwin", "win32") and get_runtime_command(config)[0] == "docker"
+    )
+
+    if on_docker_desktop and web_cmd:
+        restart_cmd = web_cmd + ["restart"]
+        logger.key_info(
+            "%s is not reachable from this host yet. On Docker Desktop this is "
+            "usually a stale host-network port registration; bouncing the web "
+            "stack to re-register it:\n    %s",
+            url,
+            " ".join(restart_cmd),
+        )
         try:
-            with urllib.request.urlopen(url, timeout=3):
+            # Output is inherited, not captured, like every other compose call
+            # on this path: a restart of the whole web tier is visible work and
+            # the operator should watch it happen.
+            subprocess.run(restart_cmd, env=run_env)
+        except OSError as exc:
+            logger.warning("Could not restart the web stack: %s", exc)
+        else:
+            if _host_port_answers(url, attempts, delay):
+                logger.key_info("%s is reachable now.", url)
                 return
-        except urllib.error.HTTPError:
-            return  # any HTTP response at all proves host-side reachability
-        except OSError:
-            if attempt + 1 < attempts:
-                time.sleep(delay)
+
     hint = ""
-    if sys.platform in ("darwin", "win32") and get_runtime_command(config)[0] == "docker":
+    if on_docker_desktop:
         hint = (
             " On Docker Desktop the web stack's network_mode: host binds "
-            "inside the Docker Linux VM, not on this machine, unless host "
-            "networking is enabled: Docker Desktop -> Settings -> Resources "
-            "-> Network -> 'Enable host networking', then Apply & Restart "
-            "and re-run `osprey deploy up`."
+            "inside the Docker Linux VM and reaches this machine only through "
+            "Docker Desktop's host-network forwarder"
+            + (
+                ", and restarting the stack did not re-register it. Check that host "
+                "networking is enabled"
+                if web_cmd
+                else ", which is off unless host networking is enabled"
+            )
+            + ": Docker Desktop -> Settings -> Resources -> Network -> 'Enable "
+            "host networking', then Apply & Restart and re-run `osprey deploy up`."
         )
     logger.warning(
         f"Web-terminal containers are up, but {url} is not reachable from "

@@ -93,17 +93,20 @@ describe('<osprey-theme-switcher>', () => {
       const select = qs(el, '.theme-switcher-family', HTMLSelectElement);
       const values = Array.from(select.options).map((o) => o.value);
 
-      expect(values).toEqual(['apex', 'osprey', 'high-contrast']);
+      expect(values).toEqual(['main', 'desy', 'high-contrast', 'retro']);
     });
 
-    test('derives a human family label by title-casing the family id', () => {
+    test('labels each family, preferring a declared label over the derivation', () => {
+      // 'main'/'high-contrast'/'retro' declare none, so they title-case; 'desy'
+      // declares $extensions.family_label ("DESY") because title-casing an
+      // acronym gives "Desy".
       const el = document.createElement('osprey-theme-switcher');
       document.body.appendChild(el);
 
       const select = qs(el, '.theme-switcher-family', HTMLSelectElement);
       const labels = Array.from(select.options).map((o) => o.textContent);
 
-      expect(labels).toEqual(['Apex', 'Osprey', 'High Contrast']);
+      expect(labels).toEqual(['Main', 'DESY', 'High Contrast', 'Retro']);
     });
 
     test('renders an in-family mode toggle button', () => {
@@ -172,7 +175,7 @@ describe('<osprey-theme-switcher>', () => {
 
     test('picking a family preserves the current mode preference (setFamily, not setTheme)', () => {
       ThemeManager.initTheme({ role: 'hub' });
-      ThemeManager.setTheme('light'); // explicit light mode, family osprey
+      ThemeManager.setTheme('light'); // explicit light mode, family main
       const el = document.createElement('osprey-theme-switcher');
       document.body.appendChild(el);
 

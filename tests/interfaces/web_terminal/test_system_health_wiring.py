@@ -9,8 +9,8 @@ half of that wiring:
 - ``require_section`` is False, so the tab launches even with no ``health``
   section (the framework ships a usable default);
 - the proxy state-attr map, the ``/api/system-health-server`` config endpoint,
-  and the panel-manager.js descriptor (with an EXPLICIT ``healthEndpoint`` so
-  the sidecar-liveness LED actually polls) are all present;
+  and the panel-catalog.js descriptor (with an EXPLICIT ``healthEndpoint`` so
+  the sidecar is actually polled) are all present;
 - the control-assistant preset lists the tab without disturbing the separate
   Bluesky ``health`` panel.
 
@@ -179,18 +179,24 @@ async def test_system_health_server_config_endpoint_returns_proxy_path():
     assert result == {"url": None, "available": False}
 
 
-def test_panel_manager_registers_system_health_tab_with_explicit_health_endpoint():
-    """panel-manager.js must register the SYSTEM tab with an explicit health poll.
+def test_panel_catalog_registers_system_health_tab_with_explicit_health_endpoint():
+    """The shipped panel catalog must register SYSTEM with an explicit health poll.
 
-    Since commit 8ae9e282 an omitted/null ``healthEndpoint`` SKIPS polling and
-    pins the tab healthy; the SYSTEM tab's LED must reflect real sidecar
-    liveness, so the descriptor MUST carry ``healthEndpoint: '/health'``.
+    An omitted/null ``healthEndpoint`` SKIPS polling and pins the panel healthy,
+    which would leave the SYSTEM rail entry permanently enabled even with its
+    sidecar down — so the descriptor MUST carry ``healthEndpoint: '/health'``.
+    (The rail no longer draws a per-entry LED; the poll now feeds only the
+    coarse ``.disabled`` state, and the detailed readout is the ``web_panels``
+    health category. The explicit endpoint matters either way.)
+
+    Reads ``panel-catalog.js``, which owns the shipped ``PANELS`` array —
+    ``panel-manager.js`` imports it and holds only the state machine.
     """
     pm_path = os.path.join(
         os.path.dirname(inspect.getfile(web_terminal_app)),
         "static",
         "js",
-        "panel-manager.js",
+        "panel-catalog.js",
     )
     with open(pm_path, encoding="utf-8") as fh:
         js = fh.read()

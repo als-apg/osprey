@@ -10,6 +10,7 @@ every project.
    :icon: book
 
    - What the generated ``Dockerfile`` / ``.dockerignore`` are and who owns them
+   - How to keep a customized Dockerfile across rebuilds
    - Building and running the image (ports, secrets, volumes)
    - The three build-arg extension points for site-specific installs
    - Path relocation with ``osprey claude regen --runtime-root``
@@ -30,13 +31,24 @@ recipe at the project root:
 - ``.dockerignore`` — keeps secrets (``.env``) and host-specific state
   (``.venv``, ``.git``, ``_agent_data/``) out of the image.
 
-Both files are **generated once and then yours**: edit them freely, but keep
-``.dockerignore`` in place — the build depends on it, and it is what keeps
-your ``.env`` secrets out of the image. ``osprey claude regen`` never touches
-either file. To get a fresh copy, rebuild the project with
-``osprey build --force`` — note that this overwrites any edits you made to
-the Dockerfile and ``.dockerignore`` (only ``.env``, ``_agent_data/``, and
-``.git`` survive a force rebuild).
+Both files are **generated, then yours to edit in place**: change them freely,
+but keep ``.dockerignore`` — the build depends on it, and it is what keeps your
+``.env`` secrets out of the image. ``osprey claude regen`` never touches either
+file.
+
+An edit made in the project lasts only until the next ``osprey build --force``,
+which re-renders both from the framework (only ``.env``, ``_agent_data/`` and
+``.git`` survive a force rebuild). To make a customization durable, put your
+version in the build profile's ``project/`` mirror instead:
+
+.. code-block:: text
+
+   my-profile/
+     project/
+       Dockerfile          # copied verbatim onto the project root, every build
+
+The mirror is applied after the framework render, so your copy wins each time.
+See :doc:`build-profiles` for the profile's convention directories.
 
 .. note::
 
@@ -182,11 +194,13 @@ The file is yours — common edits:
 
 - **Layer a site image on top**: build the generated image as a base, then
   ``FROM`` it in a small site Dockerfile that adds credentials helpers,
-  enterprise ``managed-settings.json``, or extra processes.
+  enterprise settings, or extra processes.
 - **Change the entrypoint**: the default ``CMD`` runs
   ``osprey web --host 0.0.0.0 --port 8087 --project /app/<project>``;
   override it to run a process supervisor if you add sidecars.
-- **Template-level override**: a build profile's app bundle can ship its own
+- **Carry the edit in the profile**: put your Dockerfile in the profile's
+  ``project/`` mirror (above) so every rebuild lands it again.
+- **Template-level override**: an app bundle can ship its own
   ``apps/<bundle>/Dockerfile.j2``, which takes precedence over the framework
   template at build time — use this when every project built from a bundle
   needs the same customization.

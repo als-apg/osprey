@@ -125,39 +125,34 @@ def test_resolved_tier_defaults_from_paradigm() -> None:
     assert BuildProfile(name="x", channel_finder_mode="hierarchical").resolved_tier() == 3
 
 
-# --- overlay --------------------------------------------------------------
+# --- convention directories -----------------------------------------------
 
 
-def test_missing_overlay_source_is_rejected(tmp_path: Path) -> None:
-    """An overlay source that does not exist under the profile dir fails."""
-    profile = BuildProfile(name="x", overlay={"files/absent.md": "docs/absent.md"})
-    (error,) = _errors(profile, tmp_path)
-    assert error.startswith("Overlay source not found: files/absent.md")
-    assert str(tmp_path / "files/absent.md") in error
+def test_wellformed_convention_dirs_validate(tmp_path: Path) -> None:
+    """A profile whose convention directories are well shaped passes."""
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "facility-ops.md").write_text("# ops", encoding="utf-8")
+    (tmp_path / "project" / "docs").mkdir(parents=True)
+    (tmp_path / "project" / "docs" / "runbook.md").write_text("# run", encoding="utf-8")
+    BuildProfile(name="x").validate(tmp_path)
 
 
-def test_present_overlay_source_validates(tmp_path: Path) -> None:
-    """An overlay source that exists produces no failure."""
-    (tmp_path / "note.md").write_text("hi", encoding="utf-8")
-    BuildProfile(name="x", overlay={"note.md": "docs/note.md"}).validate(tmp_path)
+def test_misshapen_convention_source_is_rejected(tmp_path: Path) -> None:
+    """A loose file where a directory-shaped convention expects a directory."""
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "skills" / "loose.md").write_text("hi", encoding="utf-8")
+    (error,) = _errors(BuildProfile(name="x"), tmp_path)
+    assert "skills/loose.md" in error
+    assert "one directory per skill" in error
 
 
-def test_absolute_overlay_destination_is_rejected(tmp_path: Path) -> None:
-    """Overlay destinations are project-relative; an absolute path escapes it."""
-    (tmp_path / "note.md").write_text("hi", encoding="utf-8")
-    profile = BuildProfile(name="x", overlay={"note.md": "/etc/note.md"})
-    assert _errors(profile, tmp_path) == [
-        "Overlay destination must be relative without '..': /etc/note.md"
-    ]
-
-
-def test_parent_traversal_overlay_destination_is_rejected(tmp_path: Path) -> None:
-    """A '..' component in an overlay destination writes outside the project."""
-    (tmp_path / "note.md").write_text("hi", encoding="utf-8")
-    profile = BuildProfile(name="x", overlay={"note.md": "../note.md"})
-    assert _errors(profile, tmp_path) == [
-        "Overlay destination must be relative without '..': ../note.md"
-    ]
+def test_reserved_mirror_path_is_rejected_naming_its_channel(tmp_path: Path) -> None:
+    """The project/ mirror may not write a path the build itself owns."""
+    (tmp_path / "project").mkdir()
+    (tmp_path / "project" / ".mcp.json").write_text("{}", encoding="utf-8")
+    (error,) = _errors(BuildProfile(name="x"), tmp_path)
+    assert "project/.mcp.json" in error
+    assert "`mcp_servers:`" in error
 
 
 # --- mcp_servers ----------------------------------------------------------
@@ -379,24 +374,28 @@ def test_non_list_panel_presets_entry_is_rejected(tmp_path: Path) -> None:
     ]
 
 
-# --- categories -----------------------------------------------------------
+# --- artifact_server ------------------------------------------------------
 
 
 def test_non_mapping_category_is_rejected(tmp_path: Path) -> None:
     """A category that is not a mapping is reported once, then skipped."""
-    profile = _parse_profile({"name": "x", "categories": {"ops": ["label", "color"]}})
+    profile = _parse_profile(
+        {"name": "x", "artifact_server": {"categories": {"ops": ["label", "color"]}}}
+    )
     assert _errors(profile, tmp_path) == ["Category 'ops' must be a mapping with label and color"]
 
 
 def test_category_missing_label_is_rejected(tmp_path: Path) -> None:
     """A category needs a string 'label'."""
-    profile = BuildProfile(name="x", categories={"ops": {"color": "#aabbcc"}})
+    profile = BuildProfile(name="x", artifact_server={"categories": {"ops": {"color": "#aabbcc"}}})
     assert _errors(profile, tmp_path) == ["Category 'ops' missing or invalid 'label'"]
 
 
 def test_category_with_non_hex_color_is_rejected(tmp_path: Path) -> None:
     """Category colors must be #RRGGBB hex."""
-    profile = BuildProfile(name="x", categories={"ops": {"label": "Ops", "color": "red"}})
+    profile = BuildProfile(
+        name="x", artifact_server={"categories": {"ops": {"label": "Ops", "color": "red"}}}
+    )
     assert _errors(profile, tmp_path) == [
         "Category 'ops' missing or invalid 'color' (must be #RRGGBB)"
     ]
@@ -404,9 +403,25 @@ def test_category_with_non_hex_color_is_rejected(tmp_path: Path) -> None:
 
 def test_well_formed_category_validates(tmp_path: Path) -> None:
     """A label + #RRGGBB color pair passes."""
-    BuildProfile(name="x", categories={"ops": {"label": "Ops", "color": "#A1B2C3"}}).validate(
-        tmp_path
-    )
+    BuildProfile(
+        name="x", artifact_server={"categories": {"ops": {"label": "Ops", "color": "#A1B2C3"}}}
+    ).validate(tmp_path)
+
+
+def test_artifact_server_unknown_subkey_rejected(tmp_path: Path) -> None:
+    """Only host/port/auto_launch/categories are supported under artifact_server."""
+    profile = BuildProfile(name="x", artifact_server={"prot": "http"})
+    assert _errors(profile, tmp_path) == [
+        "artifact_server.prot is not a supported key "
+        "(must be one of ['auto_launch', 'categories', 'host', 'port'])"
+    ]
+
+
+def test_artifact_server_scalar_overrides_validate(tmp_path: Path) -> None:
+    """host/port/auto_launch overrides pass through validation."""
+    BuildProfile(
+        name="x", artifact_server={"host": "0.0.0.0", "port": 9086, "auto_launch": False}
+    ).validate(tmp_path)
 
 
 # --- dispatch numeric bounds ----------------------------------------------

@@ -71,6 +71,22 @@ def machine_file(tmp_path):
     return path
 
 
+@pytest.fixture
+def state_dir(tmp_path, monkeypatch):
+    """Per-test scenario-state directory, standing in for ``_agent_data/simulation/``.
+
+    Connectors resolve it from the ambient config, which under pytest would be
+    the repo checkout; point it at ``tmp_path`` so activating a scenario here
+    cannot write into the working tree.
+    """
+    from osprey.simulation import engine as engine_module
+
+    path = tmp_path / "_agent_data" / "simulation"
+    path.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(engine_module, "default_state_dir", lambda: path)
+    return path
+
+
 class TestMockConnectorSimulation:
     """MockConnector with a simulation_file configured."""
 
@@ -173,8 +189,8 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_scenario_override_visible_through_connector(self, machine_file):
-        (machine_file.parent / "active_scenario").write_text("quad-drift\n")
+    async def test_scenario_override_visible_through_connector(self, machine_file, state_dir):
+        (state_dir / "active_scenario").write_text("quad-drift\n")
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
@@ -237,7 +253,8 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        assert df["BEAM:CURRENT"].mean() == pytest.approx(500.0, rel=0.1)
+        current = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
+        assert current.mean() == pytest.approx(500.0, rel=0.1)
 
         await connector.disconnect()
 
@@ -251,13 +268,16 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        assert (df["T:Q1:CUR:SP"] == 42.0).all()
+        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        # Guard against an empty selection making .all() vacuously True.
+        assert len(sp) > 0
+        assert (sp == 42.0).all()
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_scenario_step_and_pointwise_expr(self, machine_file):
-        (machine_file.parent / "active_scenario").write_text("quad-drift\n")
+    async def test_scenario_step_and_pointwise_expr(self, machine_file, state_dir):
+        (state_dir / "active_scenario").write_text("quad-drift\n")
         connector = MockArchiverConnector()
         await connector.connect({"simulation_file": str(machine_file)})
 
@@ -267,8 +287,10 @@ class TestMockArchiverSimulation:
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
 
-        sp = df["T:Q1:CUR:SP"].to_numpy()
-        trans = df["T:TRANS"].to_numpy()
+        sp_rows = df.loc[df["channel"] == "T:Q1:CUR:SP"].sort_values("timestamp")
+        trans_rows = df.loc[df["channel"] == "T:TRANS"].sort_values("timestamp")
+        sp = sp_rows["value"].to_numpy()
+        trans = trans_rows["value"].to_numpy()
         t = np.linspace(0, 1, len(sp))
 
         # Step at t=0.35 to the override-consistent value
@@ -290,21 +312,33 @@ class TestMockArchiverSimulation:
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
-        assert (df["T:Q1:CUR:SP"] == 42.0).all()
-        assert df["BEAM:CURRENT"].mean() == pytest.approx(500.0, rel=0.1)
+        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        # Guard against an empty selection making .all() vacuously True.
+        assert len(sp) > 0
+        assert (sp == 42.0).all()
+        current = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
+        assert current.mean() == pytest.approx(500.0, rel=0.1)
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_string_channel_series(self, machine_file):
+    async def test_mixed_numeric_and_string_channels_both_present(self, machine_file):
+        """A single request mixing a numeric channel and a string (enum/status)
+        channel returns rows for both — neither is dropped or coerced."""
         connector = MockArchiverConnector()
         await connector.connect({"simulation_file": str(machine_file)})
 
         df = await connector.get_data(
-            pv_list=["T:MODE"],
+            pv_list=["T:Q1:CUR:SP", "T:MODE"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 0, 10, 0),
         )
-        assert (df["T:MODE"] == "CW").all()
+        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
+        mode = df.loc[df["channel"] == "T:MODE", "value"]
+
+        assert len(sp) > 0
+        assert len(mode) > 0
+        assert (sp == 42.0).all()
+        assert (mode == "CW").all()
 
         await connector.disconnect()

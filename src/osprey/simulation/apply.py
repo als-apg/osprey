@@ -24,8 +24,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from osprey.connectors.types import MOCK
-from osprey.simulation.engine import SimulationEngine
-from osprey.simulation.machine import DEFAULT_SCENARIO, parse_machine
+from osprey.simulation.engine import (
+    SimulationEngine,
+    resolve_active_scenarios,
+    resolve_state_dir,
+)
+from osprey.simulation.machine import parse_machine
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
@@ -77,6 +81,28 @@ def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | Non
     return machine_path, active_type, type_key, mock_key
 
 
+def _require_simulation_file(config: dict, project_dir: Path, scope: str) -> Path:
+    """Resolve the simulation-model file, or raise the not-simulation-backed error.
+
+    Both entry points into a built project -- :func:`apply_scenarios` and
+    :func:`compute_scenario_physics_env` -- refuse the same way on the same two
+    branches (the mock type, whose one key is simply unset, versus a non-mock
+    type, whose own key and the mock fallback were both tried). ``scope`` is the
+    trailing clause naming what is refusing, so each caller keeps its own wording.
+    """
+    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, project_dir)
+    if machine_path is None:
+        if active_type == MOCK:
+            raise ValueError(
+                f"Project {project_dir} has no mock 'simulation_file' configured; {scope}"
+            )
+        raise ValueError(
+            f"Project {project_dir} has no simulation_file configured for "
+            f"control_system.type '{active_type}' (tried {type_key} and {mock_key}); {scope}"
+        )
+    return machine_path
+
+
 def _run_coro(make_coro: Callable[[], Coroutine]):
     """Run an async coroutine to completion from this sync function.
 
@@ -114,8 +140,9 @@ def apply_scenarios(
     """Compose and activate scenarios for a built project; optionally seed its logbook.
 
     Args:
-        project_dir: Root of the built project (holds ``config.yml`` and
-            ``data/simulation/``).
+        project_dir: Root of the built project (holds ``config.yml``, the
+            build-owned ``data/simulation/`` model, and the scenario state
+            under ``_agent_data/simulation/``).
         names: Scenario names to activate (``nominal`` is always implicit).
         seed_logbook: When True (and the project has an ``ariel`` config),
             purge and reseed the ARIEL logbook from the active scenarios'
@@ -134,19 +161,14 @@ def apply_scenarios(
     project_dir = Path(project_dir)
     config = load_config(str(project_dir / "config.yml"))
 
-    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, project_dir)
-    if machine_path is None:
-        if active_type == MOCK:
-            raise ValueError(
-                f"Project {project_dir} has no mock 'simulation_file' configured; "
-                f"`sim apply` only applies to simulation-backed projects (guards a real DB)."
-            )
-        raise ValueError(
-            f"Project {project_dir} has no simulation_file configured for "
-            f"control_system.type '{active_type}' (tried {type_key} and {mock_key}); "
-            f"`sim apply` only applies to simulation-backed projects (guards a real DB)."
-        )
-    engine = SimulationEngine.from_file(machine_path)
+    machine_path = _require_simulation_file(
+        config,
+        project_dir,
+        "`sim apply` only applies to simulation-backed projects (guards a real DB).",
+    )
+    engine = SimulationEngine.from_file(
+        machine_path, state_dir=resolve_state_dir(config, project_dir)
+    )
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
     # zone each seeded logbook entry's relative time-of-day resolves into, and it
@@ -208,6 +230,90 @@ _BPM_ERROR_FIELD_ORDER = (
 )
 
 
+def compute_scenario_physics_env(
+    project_dir: Path | str,
+    names: Sequence[str],
+) -> dict[str, str]:
+    """Resolve the active scenarios' ``physics`` faults into VA_* env vars -- pure.
+
+    The compute/validate half of :func:`render_scenario_physics_env`: it reads
+    the project's config and machine description, resolves the active set, and
+    renders the ``VA_*`` values, but has *no* filesystem effect. Every way this
+    step can fail -- non-simulation-backed project, unknown scenario name, two
+    active scenarios faulting the same device -- raises here, before anything
+    is written, so a caller that validates first (``osprey sim apply``) can
+    abort with zero writes anywhere (FR1).
+
+    Args:
+        project_dir: Root of the built project (holds ``config.yml`` and
+            ``data/simulation/``).
+        names: Scenario names to activate (``nominal`` is always implicit),
+            resolved the same nominal-first, deduped way
+            :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
+            resolves them.
+
+    Returns:
+        The ``VA_*`` vars the active set calls for, empty if no active scenario
+        declares a ``physics`` block. Hand this to
+        :func:`write_scenario_physics_env` to make it live.
+
+    Raises:
+        ValueError: If the project is not simulation-backed (mirrors
+            :func:`apply_scenarios`), a requested scenario name is unknown, or
+            two active scenarios declare a physics fault on the same device.
+    """
+    project_dir = Path(project_dir)
+    config = load_config(str(project_dir / "config.yml"))
+
+    machine_path = _require_simulation_file(
+        config,
+        project_dir,
+        "physics-fault rendering only applies to simulation-backed projects.",
+    )
+    with open(machine_path) as f:
+        machine = json.load(f)
+    model = parse_machine(machine, machine_path)
+
+    resolved = resolve_active_scenarios(names)
+    unknown = [n for n in resolved if n not in model.scenarios]
+    if unknown:
+        raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(model.scenarios)}")
+
+    return _render_physics_vars(model.scenarios, resolved)
+
+
+def write_scenario_physics_env(
+    project_dir: Path | str,
+    rendered: dict[str, str],
+    *,
+    env_path: Path | None = None,
+) -> bool:
+    """Write :func:`compute_scenario_physics_env`'s result into the project ``.env``.
+
+    The write half of :func:`render_scenario_physics_env`, callable on its own
+    so a caller can put every prompt and validation ahead of the first
+    filesystem effect.
+
+    Args:
+        project_dir: Root of the built project; supplies the default
+            ``.env`` location.
+        rendered: The ``VA_*`` vars to reconcile the ``.env`` to, as returned
+            by :func:`compute_scenario_physics_env`.
+        env_path: ``.env`` path to write into (defaults to
+            ``project_dir/.env``, injectable for tests).
+
+    Returns:
+        Whether the ``.env``'s physics block actually *changed* -- rendering a
+        new fault, or clearing a prior render's stale one, both count; a
+        rewrite that reproduces the existing content byte for byte does not.
+        Callers use this to decide whether the running VA is now out of date
+        with the file and needs an ``osprey deploy up`` (FR2).
+    """
+    if env_path is None:
+        env_path = Path(project_dir) / ".env"
+    return _write_physics_env(env_path, rendered)
+
+
 def render_scenario_physics_env(
     project_dir: Path | str,
     names: Sequence[str],
@@ -227,9 +333,14 @@ def render_scenario_physics_env(
     Call this before ``deploy up`` so the VA container picks up the rendered
     values at boot.
 
+    Composes :func:`compute_scenario_physics_env` and
+    :func:`write_scenario_physics_env` back to back; call those two directly
+    instead when something has to happen between validating and writing.
+
     Args:
-        project_dir: Root of the built project (holds ``config.yml`` and
-            ``data/simulation/``).
+        project_dir: Root of the built project (holds ``config.yml``, the
+            build-owned ``data/simulation/`` model, and the scenario state
+            under ``_agent_data/simulation/``).
         names: Scenario names to activate (``nominal`` is always implicit),
             resolved the same nominal-first, deduped way
             :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
@@ -252,37 +363,8 @@ def render_scenario_physics_env(
             :func:`apply_scenarios`), a requested scenario name is unknown, or
             two active scenarios declare a physics fault on the same device.
     """
-    project_dir = Path(project_dir)
-    config = load_config(str(project_dir / "config.yml"))
-
-    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, project_dir)
-    if machine_path is None:
-        if active_type == MOCK:
-            raise ValueError(
-                f"Project {project_dir} has no mock 'simulation_file' configured; "
-                f"physics-fault rendering only applies to simulation-backed projects."
-            )
-        raise ValueError(
-            f"Project {project_dir} has no simulation_file configured for "
-            f"control_system.type '{active_type}' (tried {type_key} and {mock_key}); "
-            f"physics-fault rendering only applies to simulation-backed projects."
-        )
-    with open(machine_path) as f:
-        machine = json.load(f)
-    model = parse_machine(machine, machine_path)
-
-    resolved: list[str] = [DEFAULT_SCENARIO]
-    for name in names:
-        if name != DEFAULT_SCENARIO and name not in resolved:
-            resolved.append(name)
-    unknown = [n for n in resolved if n not in model.scenarios]
-    if unknown:
-        raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(model.scenarios)}")
-
-    rendered = _render_physics_vars(model.scenarios, resolved)
-    if env_path is None:
-        env_path = project_dir / ".env"
-    _write_physics_env(env_path, rendered)
+    rendered = compute_scenario_physics_env(project_dir, names)
+    write_scenario_physics_env(project_dir, rendered, env_path=env_path)
     return rendered
 
 
@@ -376,9 +458,14 @@ def _bpm_error_env_fields(spec: BpmErrorSpec) -> dict[str, float]:
 # The full set of keys `_write_physics_env` owns -- reconciled on every call
 # (set if rendered, removed if not), never left stale from a prior scenario.
 _PHYSICS_ENV_VARS = ("VA_BPM_ERRORS", "VA_CORR_GAIN")
+# The block's header line, owned and reconciled exactly like the keys under it:
+# dropped on the way in and re-emitted only alongside a rendered value, so a
+# re-render reproduces the file byte for byte instead of stacking a fresh
+# header each time (which would make every rewrite look like a change).
+_PHYSICS_ENV_HEADER = "# Scenario physics fault (osprey sim apply / deploy up)"
 
 
-def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> None:
+def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> bool:
     """Reconcile the physics-fault block in ``.env`` to exactly ``rendered``.
 
     Unlike ``_ensure_service_tokens``'s append-only idiom (an existing token is
@@ -390,17 +477,32 @@ def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> None:
     alongside (or instead of) the new one. Every other line (comments,
     unrelated vars) is left untouched. A no-op (no write at all) when there is
     nothing to render and no ``.env`` yet exists to clean up.
+
+    Returns whether the *physics block* changed -- the vars this function owns,
+    before versus after -- not whether bytes moved. The rewrite is
+    unconditional, so "a write happened" is not the signal a caller wants; nor
+    is a whole-file comparison, which would report a change for incidental
+    normalization (a hand-edited ``.env`` with no final newline, say) and make
+    ``osprey sim apply`` announce a physics change that never happened.
+    Re-applying the same scenario reports False; clearing a stale ``VA_*`` line
+    reports True even though ``rendered`` is empty.
     """
     if not rendered and not env_path.is_file():
-        return
+        return False
 
-    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.is_file() else []
+    before = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
+    lines = before.splitlines()
     kept: list[str] = []
+    before_block: dict[str, str] = {}
     for line in lines:
         stripped = line.strip()
+        if stripped == _PHYSICS_ENV_HEADER:
+            continue  # dropped here; re-added below if still active
         if stripped and not stripped.startswith("#") and "=" in stripped:
-            key = stripped.split("=", 1)[0].strip()
+            key, value = stripped.split("=", 1)  # values contain '=' (DEVICE=factor)
+            key = key.strip()
             if key in _PHYSICS_ENV_VARS:
+                before_block[key] = value.strip()
                 continue  # dropped here; re-added below if still active
         kept.append(line)
     while kept and kept[-1] == "":
@@ -409,12 +511,13 @@ def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> None:
     if rendered:
         if kept:
             kept.append("")
-        kept.append("# Scenario physics fault (osprey sim apply / deploy up)")
+        kept.append(_PHYSICS_ENV_HEADER)
         kept.extend(f"{k}={rendered[k]}" for k in _PHYSICS_ENV_VARS if k in rendered)
 
     text = "\n".join(kept) + ("\n" if kept else "")
     env_path.write_text(text, encoding="utf-8")
     os.chmod(env_path, 0o600)
+    return before_block != rendered
 
 
 def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogbookEntry:

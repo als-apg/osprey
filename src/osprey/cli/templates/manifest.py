@@ -8,6 +8,8 @@ catalog-aware generation/validation logic that stays in this module.
 
 import json
 import logging
+import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -63,16 +65,90 @@ REGEN_TRACKED_FILES = [
     ".claude/hooks/osprey_panels_context.py",
     ".claude/rules/python-execution.md",
     ".claude/rules/control-system-safety.md",
+    ".claude/rules/test-ioc-safety.md",
     ".claude/skills/diagnose/SKILL.md",
     ".claude/skills/session-report/SKILL.md",
     ".claude/skills/session-report/reference.md",
     ".claude/skills/setup-mode/SKILL.md",
     ".claude/skills/demo-gallery/SKILL.md",
+    ".claude/skills/demo-ui/SKILL.md",
     ".claude/skills/writing-bluesky-plans/SKILL.md",
     ".claude/skills/operating-bluesky-scans/SKILL.md",
     ".claude/rules/timezone.md",
     ".claude/output-styles/control-operator.md",
 ]
+
+
+def framework_template_hash(
+    claude_code_dir: Path,
+    template_path: str,
+    jinja_env: Any,
+    context: dict[str, Any],
+) -> str | None:
+    """``sha256:`` digest of the framework's own version of one artifact.
+
+    Recorded when an artifact is claimed and recomputed on every regen, so the
+    two must be computed identically or every regen would report drift that is
+    not there. That is the whole reason this lives in one function: the two
+    callers are in different modules and would otherwise be free to differ on
+    the render context, the encoding, or the ``sha256:`` prefix.
+
+    A ``.j2`` template is rendered first — the digest is of what the framework
+    would *write*, not of the template that writes it, so a context change is
+    drift and a comment change in the template is not.
+
+    Args:
+        claude_code_dir: The ``claude_code`` template directory.
+        template_path: The artifact's template path below it.
+        jinja_env: Jinja environment the render goes through.
+        context: Template context for the render.
+
+    Returns:
+        ``sha256:<hex>``, or ``None`` when the template is missing or will not
+        render. Callers treat ``None`` as "no comparison possible" rather than
+        as drift: a template that cannot render is a framework problem, and
+        reporting it as the operator's artifact having drifted would misdirect.
+    """
+    template_file = claude_code_dir / template_path
+    if not template_file.exists():
+        return None
+    try:
+        if template_file.suffix != ".j2":
+            return f"sha256:{sha256_file(template_file)}"
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=template_file.stem, delete=False, encoding="utf-8"
+        ) as tmp:
+            template = jinja_env.get_template(f"claude_code/{template_path}")
+            tmp.write(template.render(**context))
+            tmp_path = Path(tmp.name)
+        digest = f"sha256:{sha256_file(tmp_path)}"
+        tmp_path.unlink(missing_ok=True)
+        return digest
+    except Exception:
+        return None
+
+
+def _stored_artifacts(project_dir: Path | None) -> dict | None:
+    """The artifact selections a built project recorded, or ``None``.
+
+    Read from the project's own ``.osprey-manifest.json`` — what the build that
+    made this project actually selected, and therefore the most specific answer
+    available. ``None`` covers every way there is no answer: no project to ask,
+    no manifest, a manifest too damaged to parse, or one recording no
+    selections. A damaged manifest is not an error here: the callers all have a
+    further fallback, and refusing to regenerate a project because its manifest
+    got truncated would be worse than regenerating from the template's list.
+    """
+    if project_dir is None:
+        return None
+    manifest_path = project_dir / MANIFEST_FILENAME
+    if not manifest_path.exists():
+        return None
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data.get("artifacts") or None
 
 
 def load_template_manifest(
@@ -99,16 +175,9 @@ def load_template_manifest(
     manifest_path = template_root / "apps" / template_name / "manifest.yml"
     if not manifest_path.exists():
         # Fall back to project-local manifest artifacts
-        if project_dir is not None:
-            osprey_manifest_path = project_dir / MANIFEST_FILENAME
-            if osprey_manifest_path.exists():
-                try:
-                    osprey_data = json.loads(osprey_manifest_path.read_text(encoding="utf-8"))
-                    stored_artifacts = osprey_data.get("artifacts")
-                    if stored_artifacts:
-                        return {"artifacts": stored_artifacts}
-                except (json.JSONDecodeError, OSError):
-                    pass
+        stored_artifacts = _stored_artifacts(project_dir)
+        if stored_artifacts:
+            return {"artifacts": stored_artifacts}
         # Fall back to the bundled preset profile (manifest.yml was removed; preset
         # profiles are now the canonical source of artifact declarations per data bundle)
         _preset_name = template_name.replace("_", "-") + ".yml"
@@ -232,16 +301,9 @@ def get_tracked_files(
         Sorted list of output paths that should be tracked during regen.
     """
     # 1. Try project-local manifest first
-    if project_dir is not None:
-        osprey_manifest_path = project_dir / MANIFEST_FILENAME
-        if osprey_manifest_path.exists():
-            try:
-                osprey_data = json.loads(osprey_manifest_path.read_text(encoding="utf-8"))
-                stored_artifacts = osprey_data.get("artifacts")
-                if stored_artifacts:
-                    return sorted(resolve_manifest_outputs({"artifacts": stored_artifacts}))
-            except (json.JSONDecodeError, OSError):
-                pass
+    stored_artifacts = _stored_artifacts(project_dir)
+    if stored_artifacts:
+        return sorted(resolve_manifest_outputs({"artifacts": stored_artifacts}))
 
     # 2. Fall back to template manifest.yml
     tmpl_manifest = load_template_manifest(template_root, template_name)
@@ -251,17 +313,44 @@ def get_tracked_files(
 
 
 def get_framework_version() -> str:
-    """Get current osprey version.
+    """Get the running osprey version, for display in generated projects.
+
+    This is the version a human reads — it carries distance past the last release
+    (``2026.6.2.post783+g83fda5e60``) so a project rendered from a development
+    checkout says so. Anything comparing versions wants
+    :func:`osprey.version.get_release_version` instead; see
+    :func:`get_framework_release_version`.
 
     Returns:
-        Version string (e.g., "0.7.0") or ``"unknown"`` if the version
-        symbol cannot be imported (broken environment / partial install).
-        Manifest readers can branch on the sentinel.
+        Version string, or ``"unknown"`` if the version module cannot be imported
+        (broken environment / partial install). Manifest readers branch on the
+        sentinel.
     """
     try:
-        from osprey import __version__
+        from osprey.version import get_running_version
 
-        return __version__
+        return get_running_version()
+    except (ImportError, AttributeError):
+        return "unknown"
+
+
+def get_framework_release_version() -> str:
+    """Get the release this osprey descends from, for version *comparisons*.
+
+    Stamped into the manifest's ``creation.osprey_version`` and read back by
+    :mod:`osprey.deployment.staleness`, which compares it by string equality. Using
+    the running version on either side would make every commit in a development
+    checkout register as drift — inverting the advisory's rule that "can't compare"
+    must never read as drift into "always reads as drift".
+
+    Returns:
+        Release version string (e.g. ``"2026.6.2"``), or ``"unknown"`` if the
+        version module cannot be imported.
+    """
+    try:
+        from osprey.version import get_release_version
+
+        return get_release_version()
     except (ImportError, AttributeError):
         return "unknown"
 
@@ -280,6 +369,15 @@ def extract_build_args(
     ``build_reproducible_command`` can render the matching CLI form.
 
     Exactly one of ``preset_name`` and ``profile_path`` must be set.
+
+    ``profile_path`` stays the string the user typed — it is what
+    ``reproducible_command`` shows them. ``profile_path_abs`` is recorded
+    separately, from ``context``, and on *every* build: it names the profile
+    directory the project was actually built from (for a ``--preset`` build,
+    the one that invocation materialized), which is what the deploy side
+    follows to write minted secrets back to their source. A relative CLI string
+    re-resolves against whatever directory the deploy runs from, so it is the
+    absolute form readers follow.
 
     Args:
         project_name: Name of the project.
@@ -303,6 +401,9 @@ def extract_build_args(
         build_args["preset"] = preset_name
     if profile_path:
         build_args["profile_path"] = profile_path
+    profile_path_abs = context.get("profile_path_abs")
+    if profile_path_abs:
+        build_args["profile_path_abs"] = str(profile_path_abs)
 
     optional_keys = [
         ("default_provider", "provider"),
@@ -315,21 +416,6 @@ def extract_build_args(
             if isinstance(value, bool) or value:
                 build_args[arg_key] = value
 
-    # Record which of those keys the user EXPLICITLY passed via `--set`
-    # (context["explicit_set_keys"], stamped by build_cmd). The values above
-    # are resolved ones — preset defaults included — so this marker is what
-    # lets persona auto-render forward the user's overrides without ever
-    # clobbering a persona preset with a mere default.
-    explicit_raw = context.get("explicit_set_keys")
-    if isinstance(explicit_raw, (list, tuple)):
-        explicit = [
-            arg_key
-            for _, arg_key in optional_keys
-            if arg_key in explicit_raw and arg_key in build_args
-        ]
-        if explicit:
-            build_args["explicit_overrides"] = explicit
-
     return build_args
 
 
@@ -337,8 +423,15 @@ def build_reproducible_command(build_args: dict[str, Any]) -> str:
     """Render a reproducible ``osprey build`` command from build args.
 
     Branches on ``build_args["source"]``:
-      * ``"preset"``  -> ``osprey build NAME --preset PRESET [--set ...]``
-      * ``"profile"`` -> ``osprey build NAME PROFILE_PATH [--set ...]``
+      * ``"preset"``  -> ``osprey build NAME --preset PRESET``
+      * ``"profile"`` -> ``osprey build NAME PROFILE_PATH``
+
+    No ``--set`` is replayed. Provider, model and channel-finder paradigm are
+    recorded above as the values this build *resolved*, and the profile the
+    command names already carries them — a build overriding one writes it into
+    that profile rather than layering it at build time. Replaying them would
+    put stale copies on a command line that re-reads the source of truth
+    anyway.
 
     Args:
         build_args: Output of :func:`extract_build_args`.
@@ -357,23 +450,25 @@ def build_reproducible_command(build_args: dict[str, Any]) -> str:
         # Defensive fallback: legacy manifests without source/preset/profile_path.
         parts.extend(["--preset", build_args["data_bundle"].replace("_", "-")])
 
-    for key in ("provider", "model", "channel_finder_mode"):
-        if build_args.get(key):
-            parts.extend(["--set", f"{key}={build_args[key]}"])
-
     return " ".join(parts)
 
 
 def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
     """Calculate SHA256 checksums for trackable project files.
 
-    Trackable files are those that come from templates and may change
-    between OSPREY versions. This excludes:
-    - .env files (contain secrets)
-    - _agent_data/ (runtime data)
-    - data/ directories (user data)
-    - __pycache__/ and .pyc files
-    - .git/ directory
+    Trackable files are those the build renders into the project — everything
+    a rebuild reproduces, so a checksum mismatch means the file drifted from
+    its source. ``data/`` is included: it is build-owned (machine models,
+    channel databases, benchmark query sets all come from the profile or the
+    preset), so a runtime writer landing there would show up here as
+    unexplained drift. Runtime state belongs under ``_agent_data/``.
+
+    Excluded:
+    - ``.env`` (secrets, never rendered deterministically)
+    - ``_agent_data/`` (runtime state — the one directory runtime writers own)
+    - ``__pycache__/`` and ``.pyc`` files
+    - ``.git/``
+    - the manifest itself
 
     Args:
         project_dir: Root directory of the project
@@ -390,7 +485,6 @@ def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
         "__pycache__",
         ".pyc",
         "_agent_data",
-        "data",
         ".osprey-manifest.json",  # Don't checksum ourselves
     }
 
@@ -452,8 +546,6 @@ def build_user_owned_manifest(
     if not user_owned:
         return {}
 
-    import tempfile
-
     registry = BuildArtifactCatalog.default()
     result: dict[str, Any] = {}
     claude_code_dir = template_root / "claude_code"
@@ -463,25 +555,9 @@ def build_user_owned_manifest(
         if artifact is None:
             continue
 
-        framework_hash = None
-        template_file = claude_code_dir / artifact.template_path
-        if template_file.exists():
-            try:
-                if template_file.suffix == ".j2":
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=template_file.stem, delete=False, encoding="utf-8"
-                    ) as tmp:
-                        template_rel = f"claude_code/{artifact.template_path}"
-                        template = jinja_env.get_template(template_rel)
-                        rendered = template.render(**context)
-                        tmp.write(rendered)
-                        tmp_path = Path(tmp.name)
-                    framework_hash = f"sha256:{sha256_file(tmp_path)}"
-                    tmp_path.unlink(missing_ok=True)
-                else:
-                    framework_hash = f"sha256:{sha256_file(template_file)}"
-            except Exception:
-                pass  # Best-effort
+        framework_hash = framework_template_hash(
+            claude_code_dir, artifact.template_path, jinja_env, context
+        )
 
         entry: dict[str, Any] = {
             "claimed_at": datetime.now(UTC).isoformat(),
@@ -531,7 +607,9 @@ def generate_manifest(
     )
     reproducible_command = build_reproducible_command(build_args)
     file_checksums = calculate_file_checksums(project_dir)
-    framework_version = get_framework_version()
+    # The release lineage, not the running version — staleness compares this field
+    # by string equality, so a development build must not read as drift.
+    framework_version = get_framework_release_version()
     user_owned_manifest = build_user_owned_manifest(template_root, jinja_env, project_dir, context)
 
     # The 'template' field carries the original preset name (hyphenated) when
@@ -546,19 +624,34 @@ def generate_manifest(
         "data_bundle": template_name,
         "claude_code_only": True,
     }
-    # Stamp a content hash of the resolved preset/profile so `osprey deploy`
-    # can detect a project whose render predates the installed preset — the
+    # Stamp a content hash of what this project was rendered from, so `osprey
+    # deploy` can detect a project whose render predates its source — the
     # osprey_version alone can't, since a --dev checkout keeps one version
-    # string across commits. Best-effort: an unhashable source omits the key
-    # (staleness checks then skip the content comparison) rather than failing
-    # the build.
+    # string across commits.
+    #
+    # That source is the PROFILE, on every build. A `--preset` build renders
+    # from the profile it materialized, not from the bundled preset, so hashing
+    # the preset here would leave a hand edit to that profile invisible to the
+    # staleness advisory — the one edit the advisory most needs to see, since
+    # editing the profile is how a facility is meant to change its project. The
+    # preset a profile came from stays recorded in the profile's own
+    # `provenance:` block, which the build compares separately for its
+    # materialization-time drift advisory. The preset hash remains the fallback
+    # for a build that somehow resolved no profile path.
+    #
+    # Best-effort: an unhashable source omits the key (staleness checks then
+    # skip the content comparison) rather than failing the build.
     try:
         from osprey.cli import build_profile as _build_profile
 
-        if preset_name:
+        # The path the build resolved, never the string the user typed: the two
+        # only agree while the process stays in the invocation directory, and a
+        # profile's data/overlay trees are anchored on it.
+        hashed_profile = build_args.get("profile_path_abs") or profile_path
+        if hashed_profile:
+            preset_hash = _build_profile.compute_profile_hash(Path(hashed_profile))
+        elif preset_name:
             preset_hash = _build_profile.compute_preset_hash(preset_name)
-        elif profile_path:
-            preset_hash = _build_profile.compute_profile_hash(Path(profile_path))
         else:
             preset_hash = None
     except Exception:
@@ -591,3 +684,101 @@ def generate_manifest(
         json.dump(manifest_data, f, indent=2, sort_keys=False)
 
     return manifest_data
+
+
+#: Manifest key recording whether the last deploy persisted the service secrets
+#: it minted into the profile that owns them. Absent means "never asked": a
+#: project built before the key existed, or one no deploy has touched yet.
+SECRETS_SYNCED_KEY = "secrets_synced_to_profile"
+
+
+def load_project_manifest(project_dir: Path) -> dict[str, Any] | None:
+    """Read a built project's ``.osprey-manifest.json``.
+
+    Returns ``None`` when the file is missing, unparseable, or not an object —
+    every reader of build provenance is advisory and must fail open rather than
+    break the operation it is annotating.
+
+    :param project_dir: Project root (the directory holding the manifest).
+    """
+    try:
+        raw = (Path(project_dir) / MANIFEST_FILENAME).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def manifest_profile_path(project_dir: Path) -> Path | None:
+    """The absolute profile file a project was built from, per its manifest.
+
+    Reads ``build_args.profile_path_abs`` — the path ``osprey build`` actually
+    resolved. The ``profile_path`` spelling beside it is the string the user
+    typed and is deliberately *not* used as a fallback here: a relative one
+    re-resolves against whatever directory the deploy runs from, so following it
+    would write a facility's secrets into an arbitrary directory that happens to
+    match. ``None`` for a legacy manifest or no manifest at all; every build
+    records it, a ``--preset`` build naming the profile it materialized.
+
+    :param project_dir: Project root (the directory holding the manifest).
+    """
+    manifest = load_project_manifest(project_dir)
+    build_args = (manifest or {}).get("build_args")
+    if not isinstance(build_args, dict):
+        return None
+    profile_path = build_args.get("profile_path_abs")
+    if not isinstance(profile_path, str) or not profile_path:
+        return None
+    return Path(profile_path)
+
+
+def read_secrets_synced_to_profile(project_dir: Path) -> bool | None:
+    """Whether the last deploy synced this project's secrets to its profile.
+
+    ``None`` when the manifest does not say — a project built before the flag
+    existed, or one that has never been deployed. Callers must treat that as
+    "unknown", never as "not synced": an unanswerable question must not read as
+    a problem.
+
+    :param project_dir: Project root (the directory holding the manifest).
+    """
+    manifest = load_project_manifest(project_dir)
+    value = (manifest or {}).get(SECRETS_SYNCED_KEY)
+    return value if isinstance(value, bool) else None
+
+
+def write_secrets_synced_to_profile(project_dir: Path, synced: bool) -> bool:
+    """Record whether a deploy persisted its minted secrets to the profile.
+
+    Rewrites the manifest in place (temp file + ``os.replace``, so a concurrent
+    reader never sees a half-written manifest). The flag is stamped at deploy
+    time, long after the build wrote the file, and the value can flip back to
+    ``True`` when a later deploy reaches a profile an earlier one could not.
+
+    :param project_dir: Project root (the directory holding the manifest).
+    :param synced: ``True`` when the profile now carries the secrets.
+    :returns: ``False`` when there is no readable manifest to stamp — deploying
+        a project without one is legal, and losing the flag is not worth
+        failing a deploy over.
+    """
+    project_dir = Path(project_dir)
+    manifest = load_project_manifest(project_dir)
+    if manifest is None:
+        return False
+    if manifest.get(SECRETS_SYNCED_KEY) is synced:
+        return True
+    manifest[SECRETS_SYNCED_KEY] = synced
+
+    manifest_path = project_dir / MANIFEST_FILENAME
+    fd, tmp_name = tempfile.mkstemp(dir=project_dir, prefix=MANIFEST_FILENAME, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=2, sort_keys=False)
+        os.replace(tmp_name, manifest_path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+    return True

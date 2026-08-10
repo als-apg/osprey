@@ -25,6 +25,7 @@ from osprey.build.build_tiers import (
 from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
 
+from .build_profile_deploy import DeployConfig
 from .build_profile_presets import _triggers_dir
 from .build_profile_schema import (
     _ENV_VAR_RE,
@@ -33,12 +34,15 @@ from .build_profile_schema import (
     DispatchConfig,
     EnvConfig,
     EnvironmentConfig,
+    GChatBridgeProfileConfig,
     LifecycleConfig,
     McpServerDef,
     NextcloudBridgeProfileConfig,
+    ProfileProvenance,
     ServiceDef,
     VAConfig,
 )
+from .profile_conventions import validate_convention_sources
 
 # VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
 # imported from the build-time kernel (osprey.build.build_tiers) so the
@@ -51,6 +55,25 @@ class BuildProfile:
 
     name: str
     data_bundle: str = "control_assistant"
+    data: str | None = None
+    """Facility data tree this profile carries, as a path relative to the
+    profile directory (``data`` for a materialized profile, ``../data`` for a
+    sibling persona profile that shares its parent's tree; may therefore
+    resolve above the profile dir). When set, the build copies this tree
+    instead of the bundled ``apps/<data_bundle>/data/`` — a full replacement,
+    not a layered fallback. Meaningless for ``--preset`` builds, which have no
+    profile directory to anchor it against; the resolution point for both the
+    validator and the build is :meth:`resolved_data_root`.
+    """
+    deploy: DeployConfig | None = None
+    """Where this project is built, pushed, and run (``deploy:``).
+
+    ``None`` for a profile that declares no deployment coordinates — the
+    default, and correct for anything only ever built locally. The CI
+    scaffolding verbs read it; nothing in the ordinary build path does. Not to
+    be confused with :attr:`deploy_services`, which is about the project's own
+    container stack rather than where that stack lands.
+    """
     deploy_services: bool = True
     """Whether this project scaffolds its own container-services stack.
 
@@ -79,7 +102,6 @@ class BuildProfile:
     DB they overlay overwrites whatever the preset put there.
     """
     config: dict[str, Any] = field(default_factory=dict)
-    overlay: dict[str, str] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
     services: dict[str, ServiceDef] = field(default_factory=dict)
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
@@ -117,16 +139,31 @@ class BuildProfile:
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
     (default: "CLAUDE.md.j2"). Lets a preset pick an alternate persona
-    (e.g. "CLAUDE.ariel.md.j2" for the logbook-research bundle). Internal
-    preset-author primitive — facility profiles override CLAUDE.md via
-    overlay, not via this key.
+    (e.g. "CLAUDE.ariel.md.j2" for the logbook-research bundle). This is the
+    one channel for the rendered CLAUDE.md: the project copy is build-owned, so
+    the ``project/`` mirror rejects a hand-written one.
     """
-    categories: dict[str, dict[str, str]] = field(default_factory=dict)
+    artifact_server: dict[str, Any] = field(default_factory=dict)
+    """Overrides merged into config.yml's ``artifact_server`` block (the
+    artifacts-gallery server). Supported subkeys: ``host``, ``port``,
+    ``auto_launch``, and ``categories`` — custom gallery categories as
+    ``{key: {label, color}}`` that facility MCP tools save artifacts under via
+    ``category="<key>"``.
+    """
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
     bluesky_panels: BlueskyPanelsConfig | None = None
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
+    gchat_bridge: GChatBridgeProfileConfig | None = None
+    provenance: ProfileProvenance | None = None
+    """What ``osprey profile new`` materialized this profile from (``provenance:``).
+
+    ``None`` for a bundled preset and for a hand-written profile, neither of
+    which was materialized from anything. Carried through resolution unchanged:
+    the build reads it to compare against the installed preset, and never
+    rewrites it — the profile records its own origin, not the last build's.
+    """
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -139,6 +176,24 @@ class BuildProfile:
         if self.tier is not None:
             return self.tier
         return default_tier_for_mode(self.channel_finder_mode)
+
+    def resolved_data_root(self, profile_dir: Path) -> Path | None:
+        """Resolve the profile's ``data:`` tree against its profile directory.
+
+        The single anchoring point shared by :meth:`validate` and the build, so
+        the tree the validator checks is the tree the build copies.
+
+        Args:
+            profile_dir: Directory holding the profile file.
+
+        Returns:
+            The resolved data root, or ``None`` when the profile declares no
+            ``data:`` (or declares it with a non-string value, which
+            :meth:`validate` reports).
+        """
+        if not isinstance(self.data, str) or not self.data.strip():
+            return None
+        return (profile_dir / self.data).resolve()
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a panel this profile could render.
@@ -224,6 +279,88 @@ class BuildProfile:
 
         return errors
 
+    def _validate_chat_bridge(
+        self, key: str, trigger: str, ingested: str, profile_dir: Path
+    ) -> list[str]:
+        """Return validation errors for one chat-bridge block (empty when clean).
+
+        Every chat bridge is the same shape — an outbound-only ingester that
+        does nothing but POST questions to the dispatcher's webhook — so they
+        all answer the same three questions: is a trigger named, is there a
+        ``dispatch:`` block to post to, and is that trigger actually declared in
+        the triggers file. Shared here so a new channel inherits the checks
+        rather than re-deriving them.
+
+        Args:
+            key: The profile key being validated, used verbatim in every message
+                (e.g. ``"nextcloud_bridge"``).
+            trigger: The bridge's configured trigger name.
+            ingested: What the bridge forwards, for the missing-dispatch message
+                (e.g. ``"every Talk mention"``).
+            profile_dir: Directory the profile was loaded from, used to resolve a
+                profile-relative triggers file.
+
+        Returns:
+            The errors found, for the caller to fold into its aggregate.
+        """
+        errors: list[str] = []
+
+        if not trigger:
+            errors.append(
+                f"{key}.trigger is required: name the dispatch trigger the "
+                "bridge fires, declared in the dispatch.triggers file"
+            )
+        # The bridge does nothing but POST questions to the dispatcher's
+        # webhook, so a bridge without the dispatch pair would deploy and
+        # then fail every message. Reject it at build time instead.
+        if self.dispatch is None:
+            errors.append(
+                f"{key} requires a 'dispatch:' block: the bridge dispatches "
+                f"{ingested} to the event dispatcher's webhook. Add a dispatch "
+                f"block whose triggers file declares {trigger!r}, or remove the "
+                f"{key} block."
+            )
+        elif trigger and self.dispatch.triggers:
+            # Check the trigger against the SOURCE triggers file, resolved the
+            # same way the dispatch block resolves it (profile-relative first,
+            # then bundled). A bridge pointed at an undeclared trigger builds
+            # and deploys cleanly and then 404s on every message.
+            triggers_file = next(
+                (
+                    candidate
+                    for candidate in (
+                        profile_dir / self.dispatch.triggers,
+                        _triggers_dir() / self.dispatch.triggers,
+                    )
+                    if candidate.is_file()
+                ),
+                None,
+            )
+            # An unresolvable path is already reported by the dispatch block.
+            if triggers_file is not None:
+                # Deferred import: keeps osprey.dispatch out of this module's
+                # import graph for every profile that declares no bridge.
+                from osprey.dispatch.trigger_config import load_triggers
+
+                try:
+                    _, declared_triggers = load_triggers(str(triggers_file))
+                except (OSError, ValueError, yaml.YAMLError) as e:
+                    errors.append(
+                        f"{key}.trigger cannot be checked: dispatch.triggers "
+                        f"file {triggers_file} failed to parse ({e}); fix that file first"
+                    )
+                else:
+                    names = sorted(t.name for t in declared_triggers)
+                    if trigger not in names:
+                        errors.append(
+                            f"{key}.trigger {trigger!r} is not declared in "
+                            f"dispatch.triggers file {self.dispatch.triggers!r} "
+                            f"(declares: {names}). Add a trigger named {trigger!r} to "
+                            f"that file, or set {key}.trigger to one of them."
+                        )
+
+        return errors
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
@@ -234,6 +371,18 @@ class BuildProfile:
         if not isinstance(self.deploy_services, bool):
             errors.append(
                 f"deploy_services must be a boolean (got {type(self.deploy_services).__name__})"
+            )
+
+        # Every reader of `config:` treats it as a mapping of dotted keys — the
+        # renderer, the web-stack lint, the deploy block's duplicate-key probe.
+        # Rejected by name here rather than left to whichever of them a given
+        # command reaches first: a list arrives as an unhandled TypeError deep in
+        # one of those, and a block this malformed has no partial meaning worth
+        # salvaging.
+        if not isinstance(self.config, dict):
+            errors.append(
+                f"config must be a mapping of dotted keys to values "
+                f"(got {type(self.config).__name__})"
             )
 
         if self.tier is not None and self.tier not in (1, 3):
@@ -256,17 +405,27 @@ class BuildProfile:
                 f"(got {self.channel_finder_mode!r})"
             )
 
-        # Validate overlay source paths exist
-        for src, _dst in self.overlay.items():
-            src_path = profile_dir / src
-            if not src_path.exists():
-                errors.append(f"Overlay source not found: {src} (resolved: {src_path})")
+        # The data tree may legitimately sit above the profile dir (persona
+        # profiles share their parent's tree via ``data: ../data``), so only
+        # existence and shape are checked, never containment.
+        if self.data is not None:
+            if not isinstance(self.data, str) or not self.data.strip():
+                errors.append(f"data must be a non-empty directory path (got {self.data!r})")
+            else:
+                data_root = self.resolved_data_root(profile_dir)
+                assert data_root is not None  # narrows for type-checkers
+                if not data_root.exists():
+                    errors.append(f"data directory not found: {self.data} (resolved: {data_root})")
+                elif not data_root.is_dir():
+                    errors.append(f"data must be a directory: {self.data} (resolved: {data_root})")
 
-        # Path traversal guard on overlay destinations
-        for _src, dst in self.overlay.items():
-            normalized = Path(dst)
-            if normalized.is_absolute() or ".." in normalized.parts:
-                errors.append(f"Overlay destination must be relative without '..': {dst}")
+        # Validate the profile's convention directories (shape of each source,
+        # plus the reserved paths the project/ mirror may not write). Reported
+        # as one entry so its own multi-problem message stays intact.
+        try:
+            validate_convention_sources(profile_dir)
+        except BuildProfileError as e:
+            errors.append(str(e))
 
         # Validate MCP server definitions
         for name, server in self.mcp_servers.items():
@@ -355,11 +514,28 @@ class BuildProfile:
             # url-less here — accept it rather than aborting the build.
             if panel == "events" and self.dispatch is not None:
                 continue
-            # The three panel ids' URLs are likewise derived post-build
+            # The bluesky-panel ids' URLs are likewise derived post-build
             # (``_inject_bluesky_panels`` in build_cmd.py, which runs after this
             # validator) from the bluesky_panels sidecar's port — so they are
             # legitimately url-less here when a bluesky_panels block is present.
-            if panel in ("plan", "results", "health") and self.bluesky_panels is not None:
+            # ``results`` is the pre-rename spelling of ``bluesky``, accepted
+            # for one release rather than failing the build of a profile that
+            # predates the rename; the sidecar serves the same bundle at both
+            # /results/ and /bluesky/ for exactly that window.
+            if (
+                panel in ("plan", "bluesky", "results", "health")
+                and self.bluesky_panels is not None
+            ):
+                if panel == "results":
+                    warnings.warn(
+                        "web_panels entry 'results' is deprecated: the RESULTS panel is now "
+                        "BLUESKY. Rename it to 'bluesky' (and any web.panels.results.* config "
+                        "override to web.panels.bluesky.*). The old id keeps working for ONE "
+                        "release — the bluesky-panels sidecar serves the same bundle at "
+                        "/results/ — and is removed after that.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
                 continue
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
@@ -396,18 +572,36 @@ class BuildProfile:
                         f"'web.panels.{member}.url' config override"
                     )
 
-        # Validate custom category definitions
+        # Validate the artifact_server override block (gallery server settings
+        # + custom category definitions)
         import re
 
         _hex_re = re.compile(r"^#[0-9a-fA-F]{6}$")
-        for cat_key, cat_spec in self.categories.items():
-            if not isinstance(cat_spec, dict):
-                errors.append(f"Category '{cat_key}' must be a mapping with label and color")
-                continue
-            if "label" not in cat_spec or not isinstance(cat_spec.get("label"), str):
-                errors.append(f"Category '{cat_key}' missing or invalid 'label'")
-            if "color" not in cat_spec or not _hex_re.match(str(cat_spec.get("color", ""))):
-                errors.append(f"Category '{cat_key}' missing or invalid 'color' (must be #RRGGBB)")
+        if not isinstance(self.artifact_server, dict):
+            errors.append(
+                f"artifact_server must be a mapping (got {type(self.artifact_server).__name__})"
+            )
+        else:
+            _allowed = {"host", "port", "auto_launch", "categories"}
+            for unknown in sorted(set(self.artifact_server) - _allowed):
+                errors.append(
+                    f"artifact_server.{unknown} is not a supported key "
+                    f"(must be one of {sorted(_allowed)})"
+                )
+            raw_categories = self.artifact_server.get("categories", {})
+            if not isinstance(raw_categories, dict):
+                errors.append("artifact_server.categories must be a mapping of category ids")
+                raw_categories = {}
+            for cat_key, cat_spec in raw_categories.items():
+                if not isinstance(cat_spec, dict):
+                    errors.append(f"Category '{cat_key}' must be a mapping with label and color")
+                    continue
+                if "label" not in cat_spec or not isinstance(cat_spec.get("label"), str):
+                    errors.append(f"Category '{cat_key}' missing or invalid 'label'")
+                if "color" not in cat_spec or not _hex_re.match(str(cat_spec.get("color", ""))):
+                    errors.append(
+                        f"Category '{cat_key}' missing or invalid 'color' (must be #RRGGBB)"
+                    )
 
         # Validate dispatch configuration
         if self.dispatch is not None:
@@ -490,62 +684,25 @@ class BuildProfile:
             if not (1 <= sp.port <= 65535):
                 errors.append(f"bluesky_panels.port must be in 1..65535 (got {sp.port})")
 
-        # Validate nextcloud_bridge configuration
+        # Validate the chat bridges — same checks per channel, see _validate_chat_bridge.
         if self.nextcloud_bridge is not None:
-            nb = self.nextcloud_bridge
-            if not nb.trigger:
-                errors.append(
-                    "nextcloud_bridge.trigger is required: name the dispatch trigger the "
-                    "bridge fires, declared in the dispatch.triggers file"
+            errors.extend(
+                self._validate_chat_bridge(
+                    "nextcloud_bridge",
+                    self.nextcloud_bridge.trigger,
+                    "every Talk mention",
+                    profile_dir,
                 )
-            # The bridge does nothing but POST questions to the dispatcher's
-            # webhook, so a bridge without the dispatch pair would deploy and
-            # then fail every message. Reject it at build time instead.
-            if self.dispatch is None:
-                errors.append(
-                    "nextcloud_bridge requires a 'dispatch:' block: the bridge dispatches "
-                    "every Talk mention to the event dispatcher's webhook. Add a dispatch "
-                    f"block whose triggers file declares {nb.trigger!r}, or remove the "
-                    "nextcloud_bridge block."
+            )
+        if self.gchat_bridge is not None:
+            errors.extend(
+                self._validate_chat_bridge(
+                    "gchat_bridge",
+                    self.gchat_bridge.trigger,
+                    "every Chat message",
+                    profile_dir,
                 )
-            elif nb.trigger and self.dispatch.triggers:
-                # Check the trigger against the SOURCE triggers file, resolved the
-                # same way the dispatch block above resolves it (profile-relative
-                # first, then bundled). A bridge pointed at an undeclared trigger
-                # builds and deploys cleanly and then 404s on every message.
-                triggers_file = next(
-                    (
-                        candidate
-                        for candidate in (
-                            profile_dir / self.dispatch.triggers,
-                            _triggers_dir() / self.dispatch.triggers,
-                        )
-                        if candidate.is_file()
-                    ),
-                    None,
-                )
-                # An unresolvable path is already reported by the dispatch block.
-                if triggers_file is not None:
-                    # Deferred import: keeps osprey.dispatch out of this module's
-                    # import graph for every profile that declares no bridge.
-                    from osprey.dispatch.trigger_config import load_triggers
-
-                    try:
-                        _, declared_triggers = load_triggers(str(triggers_file))
-                    except (OSError, ValueError, yaml.YAMLError) as e:
-                        errors.append(
-                            f"nextcloud_bridge.trigger cannot be checked: dispatch.triggers "
-                            f"file {triggers_file} failed to parse ({e}); fix that file first"
-                        )
-                    else:
-                        names = sorted(t.name for t in declared_triggers)
-                        if nb.trigger not in names:
-                            errors.append(
-                                f"nextcloud_bridge.trigger {nb.trigger!r} is not declared in "
-                                f"dispatch.triggers file {self.dispatch.triggers!r} "
-                                f"(declares: {names}). Add a trigger named {nb.trigger!r} to "
-                                f"that file, or set nextcloud_bridge.trigger to one of them."
-                            )
+            )
 
         if errors:
             raise BuildProfileError(

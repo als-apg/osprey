@@ -9,7 +9,7 @@ one per concern:
 - :mod:`osprey.cli.build_profile_schema` — the nested config dataclasses a
   ``profile.yml`` deserializes into (``mcp_servers``, ``lifecycle``, ``env``,
   ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-  ``bluesky_panels``, ``nextcloud_bridge``).
+  ``bluesky_panels``, ``nextcloud_bridge``, ``gchat_bridge``).
 - :mod:`osprey.cli.build_profile_presets` — discovery of the bundled preset and
   trigger YAMLs, plus CLI-spelling normalization.
 - :mod:`osprey.cli.build_profile_merge` — ``extends`` chain resolution, deep
@@ -46,13 +46,29 @@ from .build_profile_presets import (
     _triggers_dir,
     list_presets,
 )
-from .build_profile_resolve import explicit_model_override_keys, resolve_build_profile
+from .build_profile_resolve import (
+    EXTENDS_OVERRIDE_REFUSAL,
+    FACILITY_BUILD_DIRNAME,
+    FACILITY_PROFILE_DIRNAME,
+    PROFILE_FILENAME,
+    ProfileWriteBackGuard,
+    facility_repo_root,
+    materialize_or_reuse_profile,
+    merge_cli_overrides,
+    preset_profile_dir,
+    profile_provenance_preset,
+    resolve_build_document,
+    resolve_build_output_dir,
+    resolve_build_profile,
+    write_back_cli_overrides,
+)
 from .build_profile_schema import (
     BlueskyConfig,
     BlueskyPanelsConfig,
     DispatchConfig,
     EnvConfig,
     EnvironmentConfig,
+    GChatBridgeProfileConfig,
     LifecycleConfig,
     LifecycleStep,
     McpServerDef,
@@ -62,16 +78,22 @@ from .build_profile_schema import (
 )
 
 __all__ = [
+    "EXTENDS_OVERRIDE_REFUSAL",
+    "FACILITY_BUILD_DIRNAME",
+    "FACILITY_PROFILE_DIRNAME",
+    "PROFILE_FILENAME",
     "BlueskyConfig",
     "BlueskyPanelsConfig",
     "BuildProfile",
     "DispatchConfig",
     "EnvConfig",
     "EnvironmentConfig",
+    "GChatBridgeProfileConfig",
     "LifecycleConfig",
     "LifecycleStep",
     "McpServerDef",
     "NextcloudBridgeProfileConfig",
+    "ProfileWriteBackGuard",
     "ServiceDef",
     "VAConfig",
     "_KNOWN_PROFILE_KEYS",
@@ -87,8 +109,15 @@ __all__ = [
     "_triggers_dir",
     "compute_preset_hash",
     "compute_profile_hash",
-    "explicit_model_override_keys",
+    "facility_repo_root",
     "list_presets",
     "load_profile",
+    "materialize_or_reuse_profile",
+    "merge_cli_overrides",
+    "preset_profile_dir",
+    "profile_provenance_preset",
+    "resolve_build_document",
+    "resolve_build_output_dir",
     "resolve_build_profile",
+    "write_back_cli_overrides",
 ]

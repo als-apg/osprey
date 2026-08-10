@@ -187,6 +187,15 @@ src/osprey/templates/apps/control_assistant/data/benchmarks/results/
 # Node.js (dev-only JS toolchain; not part of the Python wheel)
 node_modules/
 
+# Working directory gitlab-ci-local writes when the deploy goldens are checked
+# against a real pipeline parser. Created wherever the check is run from.
+.gitlab-ci-local/
+
+# Version stamp written by the hatch-vcs build hook. Committing it would recreate
+# the stale-literal problem the git-derived version exists to remove. It is still
+# packaged into the wheel and sdist — the hook registers it as a build artifact.
+src/osprey/_version.py
+
 # feature-scaffolding logs (not committed)
 .claude/.logs/.state/
 .claude/.logs/*.jsonl

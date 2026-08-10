@@ -1,8 +1,9 @@
 /* OSPREY Design System — Base
-   Hand-maintained. Shared reset + primitive element defaults for every
-   interface. Interface-specific rules do NOT belong here — this file must
-   never grow a selector scoped to one app. Colors come exclusively from
-   design tokens (tokens.css); this file contains zero color literals. */
+   Hand-maintained. Shared reset, primitive element defaults, and the handful
+   of chrome components every interface draws identically. Interface-specific
+   rules do NOT belong here — this file must never grow a selector scoped to
+   one app. Colors come exclusively from design tokens (tokens.css); this file
+   contains zero color literals. */
 
 /* Theme transition (applied briefly by theme-manager.js during a theme switch) */
 html.theme-transitioning,
@@ -51,14 +52,78 @@ html, body {
   background: var(--neutral-tint-35);
 }
 
-/* apex theme typography (theme-scoped, not app-scoped).
-   --font-display is the body/UI workhorse bound to html/body above, so it must
-   stay sans-serif — pointing it at a serif would render the whole app serif.
-   The apex brand serif (Instrument Serif) is applied to the single brand
-   wordmark only, in web_terminal/terminal.css. @font-face lives in
-   shared_fonts/fonts.css. The osprey (dark/light) and high-contrast themes are
-   untouched — they keep the tokens.css --font-display value. */
-[data-theme="apex-dark"],
-[data-theme="apex-light"] {
-  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+/* Pane splitter — the grip-pill idiom shared by every resizable pane in the
+   product (OKF sidebar/reader, artifact gallery browse view, PLAN
+   plan-list/detail, LATTICE sidebar, settings drawer, event dashboard zones)
+   and matching the hub's dockview sashes: a quiet pill at rest, instant accent
+   fill on hover, drag, or keyboard focus. Behaviour is js/splitter.js, which
+   toggles `.dragging` for the duration of a drag.
+
+   The 5px track is a deliberately small hit target made usable by pointer
+   capture — once the drag starts the pointer may leave the track entirely and
+   still resize. `touch-action: none` stops a touch drag from being stolen by
+   the page's own scrolling.
+
+   Orientation is keyed off `aria-orientation`, which splitter.js sets from its
+   `axis` option — so the accessible name for the geometry and the visual for
+   the geometry can never disagree. `vertical` (the default) is a vertical line
+   between left/right panes; `horizontal` is a horizontal line between
+   top/bottom panes. */
+.osprey-splitter {
+  flex: 0 0 5px;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+  transition: background var(--duration-instant) ease;
+}
+
+.osprey-splitter[aria-orientation="horizontal"] {
+  cursor: row-resize;
+}
+
+/* A pane must never animate the property its own drag is driving: the browser
+   would ease toward a target the pointer has already left, so the pane trails
+   the cursor by the whole transition duration and the drag reads as laggy.
+   splitter.js stamps this attribute for the lifetime of a pointer drag only —
+   discrete collapses (double-click, a host's chevron) are not drags and keep
+   whatever transition their host declares. */
+[data-splitter-dragging] {
+  transition: none !important;
+}
+
+.osprey-splitter:hover,
+.osprey-splitter.dragging,
+.osprey-splitter:focus-visible {
+  background: var(--color-accent);
+  outline: none;
+}
+
+.osprey-splitter::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: background var(--duration-instant) ease,
+              opacity var(--duration-instant) ease;
+}
+
+/* Same pill, laid on its side — one gesture vocabulary, two geometries. */
+.osprey-splitter[aria-orientation="horizontal"]::after {
+  width: 28px;
+  height: 3px;
+}
+
+.osprey-splitter:hover::after,
+.osprey-splitter.dragging::after,
+.osprey-splitter:focus-visible::after {
+  background: var(--color-accent);
+  opacity: 1;
 }

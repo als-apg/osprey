@@ -7,13 +7,14 @@ persona project on demand via ``osprey build``). Called from
 registry-mode deploys never enter this module.
 """
 
-import json
 import os
+import posixpath
 import subprocess
 import sys
 from pathlib import Path
 from typing import cast
 
+from osprey.build.claude_code_resolver import load_provider_spec
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
     resolve_project_name,
@@ -115,7 +116,7 @@ def _persona_image_build_cmd(
     cli_version = _resolve_persona_claude_cli_version(project_path)
     if cli_version:
         cmd.extend(["--build-arg", f"CLAUDE_CLI_VERSION={cli_version}"])
-    cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec()}"])
+    cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec(dev_mode=dev_mode)}"])
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.append(project_path)
@@ -185,7 +186,7 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
         # silently diverge from the tag resolve_personas itself resolved
         # (<project>-<persona>:local) if that contract were ever violated.
         project = cast(str, entry.get("project"))
-        # The bundled preset auto-render builds the project from; carried here so
+        # The persona delta auto-render builds the project from; carried here so
         # auto_render_missing_personas need not re-walk the catalog. Normalized
         # to "" when absent or non-str, which that caller treats as "no usable
         # build_profile" identically to the raw value.
@@ -201,42 +202,270 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
     return referenced
 
 
-def _parent_set_override_args(project_root: Path) -> list[str]:
-    """``--set KEY=VALUE`` argv fragments re-applying the parent project's
-    explicit model-selection overrides to a persona render.
+# A catalog `build_profile` names a profile FILE. Whether the operator instead
+# wrote a bundled preset NAME is told from the STRING alone — never by probing
+# the filesystem — so a mistyped path is reported as a path rather than silently
+# retried as a preset name (and vice versa).
+_PROFILE_FILE_SUFFIXES = (".yml", ".yaml")
 
-    Reads the parent's ``.osprey-manifest.json`` ``build_args``: only keys the
-    user explicitly passed via ``--set`` at parent build time (recorded as
-    ``explicit_overrides`` by ``extract_build_args``) are forwarded — resolved
-    preset defaults never are, so a persona preset keeps its own say over
-    anything the user didn't override. Best-effort by design: an absent,
-    unreadable, or legacy manifest yields ``[]`` (the pre-forwarding argv),
-    never an error — a render must not fail over provenance metadata.
+
+def _is_profile_file_reference(build_profile: str) -> bool:
+    """Whether ``build_profile`` reads as a path rather than a bundled preset name.
+
+    Bundled preset names are bare slugs (``control-assistant``), so any ``/``
+    or any ``.yml``/``.yaml`` suffix means a path. Only ``/`` counts as a
+    separator: catalog values are configuration, written posix-style, and are
+    read on the same machine that renders the personas. Used only to pick which
+    rejection an unusable value earns — a preset name and a path that leaves the
+    profile are different mistakes with different fixes.
     """
-    manifest_path = project_root / ".osprey-manifest.json"
+    return "/" in build_profile or build_profile.endswith(_PROFILE_FILE_SUFFIXES)
+
+
+def persona_build_profile_shape_problem(build_profile: str) -> str | None:
+    """Why ``build_profile`` can never name a persona delta, or ``None`` if it can.
+
+    The single shape rule for a local-mode catalog entry, shared by the two
+    places that enforce it: ``osprey lint`` (the well-formedness gate) and
+    :func:`_resolve_persona_profile` (the deploy path, which ``osprey deploy up``
+    reaches without ever running lint). Sharing the predicate is what keeps the
+    two from disagreeing — a config that lints clean and then fails the deploy is
+    worse than either verdict alone, because the gate promised the problem away.
+
+    Decided from the STRING alone, with no filesystem access at all: lint holds
+    only a config, not the deployed project, so it can never learn where the
+    profile root is or whether a file exists there. That bounds what this can
+    answer — *shape*, not existence — and the deploy path checks existence
+    separately, where it has a root to check against. Path normalization is
+    likewise lexical (``os.path.normpath``, never ``Path.resolve``), so the
+    verdict does not depend on which machine lint runs on.
+
+    Returns:
+        A clause naming what is wrong, phrased to follow "its ``build_profile``"
+        in the caller's own sentence, or ``None`` when the shape is usable. The
+        caller supplies the remedy, since only the deploy path can name the
+        absolute file the value has to resolve to.
+    """
+    from osprey.cli.profile_root import PERSONA_DIRNAME
+
+    if not _is_profile_file_reference(build_profile):
+        return (
+            f"is the bundled preset name {build_profile!r}. A persona project is never "
+            "rendered from a preset: it is rendered from a delta over the profile the "
+            "deployed project was built from, which is what gives it that profile's data "
+            "tree, secrets and conventions."
+        )
+
+    if posixpath.isabs(build_profile):
+        return (
+            f"is the absolute path {build_profile!r}. A persona delta belongs to the "
+            "deployed project's own profile and is named relative to it."
+        )
+
+    # Lexical normalization, so `personas/../ops.yml` is judged on where it
+    # actually lands rather than on the directory name it passes through.
+    if posixpath.dirname(posixpath.normpath(build_profile)) != PERSONA_DIRNAME:
+        return (
+            f"is {build_profile!r}, which is not a direct child of the profile's "
+            f"{PERSONA_DIRNAME}/ directory. A persona file is read as a delta only when "
+            f"its parent directory IS {PERSONA_DIRNAME}/, so anything else would build a "
+            "hollow project from the delta alone, or from a profile this deployment does "
+            "not own."
+        )
+
+    return None
+
+
+def _parent_profile_root(project_root: Path) -> Path | None:
+    """The profile ROOT of the project being deployed, or ``None`` if unknowable.
+
+    Located through the deployed project's own manifest
+    (``build_args.profile_path_abs``, the profile path ``osprey build``
+    resolved) and then through root discovery, so a project that was itself
+    built from a persona delta reports the root one level above ``personas/``
+    rather than the delta's own directory.
+
+    ``None`` means the question cannot be answered — a manifest that records no
+    profile, or one naming a profile that has since moved or been deleted. The
+    caller turns that into its own error: there is no fallback anchor, because
+    guessing one is how a persona ends up rendered from a profile that is not
+    this deployment's. The recorded profile has to still BE there, too: a
+    directory that no longer holds a profile would otherwise be reported as the
+    root, and every persona under it as an individually missing file — one
+    problem told as several, none of them the real one — which is what
+    ``require_profile_file=True`` asks of the shared resolver.
+
+    Every way the answer is no collapses to ``None`` here, deliberately: the
+    caller's error says the same thing for all of them, and a persona delta
+    whose root profile is gone leaves no directory we can honestly call this
+    deployment's profile root either.
+    """
+    from osprey.cli.profile_root import resolve_project_profile
+
+    return resolve_project_profile(project_root, require_profile_file=True).root
+
+
+def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
+    """The one sentence every unusable-``build_profile`` error ends with.
+
+    Names both spellings the operator needs — the catalog value to write and the
+    file it has to resolve to — from one place, so the several ways an entry can
+    be wrong cannot end up recommending different fixes. Ends by naming
+    ``/osprey-build-interview``, because the operator most likely to read this is
+    one whose project predates the persona-delta layout: they have a variant
+    build in some older shape and need it converted, which is a bigger job than
+    editing one catalog value.
+    """
+    from osprey.cli.profile_root import PERSONA_DIRNAME
+
+    delta = profile_root / PERSONA_DIRNAME / f"{persona_name}.yml"
+    return (
+        f"Set modules.web_terminals.personas.{persona_name}.build_profile to "
+        f"'{PERSONA_DIRNAME}/{persona_name}.yml' — the delta at {delta} — which is what "
+        "`osprey profile new` writes for every persona in the catalog. If this "
+        "deployment has no such delta because its variant build predates the layout, "
+        "run /osprey-build-interview: it converts an existing variant into a persona "
+        "delta over the profile this project is built from."
+    )
+
+
+def _resolve_persona_profile(build_profile: str, persona_name: str, profile_root: Path) -> Path:
+    """Resolve a catalog ``build_profile`` to the persona delta it must name.
+
+    A persona project is rendered from a delta over the very profile this
+    deployment was built from — that is what gives the persona the same data
+    tree, the same ``.env`` secrets and the same convention artifacts as its
+    host. So the catalog value is accepted in exactly one shape: a relative path
+    to a direct child of ``<profile root>/personas/``, which is what ``osprey
+    profile new`` writes (``personas/<persona>.yml``).
+
+    The shape rule itself lives in :func:`persona_build_profile_shape_problem`,
+    which ``osprey lint`` enforces on the same values — one predicate, so a
+    config cannot lint clean and then fail here. What this adds is the half lint
+    cannot do: anchoring the accepted relative path on the profile root and
+    checking that the file is actually there.
+
+    :param build_profile: The catalog entry's value, non-empty.
+    :param persona_name: Catalog key, named in every error.
+    :param profile_root: This deployment's profile root
+        (:func:`_parent_profile_root`).
+    :return: The absolute path to the persona delta.
+    :raises ValueError: For any value that is not an existing delta inside
+        ``<profile root>/personas/``, naming both the value and the file the
+        operator has to point at instead.
+    """
+    remedy = _persona_delta_remedy(persona_name, profile_root)
+
+    problem = persona_build_profile_shape_problem(build_profile)
+    if problem is not None:
+        raise ValueError(
+            f"Persona {persona_name!r} cannot be auto-rendered: its build_profile "
+            f"{problem} {remedy}"
+        )
+
+    # Shape is settled above, so what is left is the filesystem half. The
+    # `.resolve()` is both for the message (an operator chasing a missing file
+    # wants the absolute path, not the relative spelling they already wrote) and
+    # for the anchoring check below, which needs the real target.
+    candidate = (profile_root / build_profile).resolve()
+    if not candidate.is_file():
+        raise ValueError(
+            f"Persona {persona_name!r} names the build_profile {build_profile!r}, but no "
+            f"file exists at {candidate}. " + remedy
+        )
+
+    # The property everything else rests on: the file handed to `osprey build`
+    # must anchor BACK at the profile root it was resolved from. The shape rule
+    # is lexical — it is shared with lint, which has no filesystem — and cannot
+    # see a symlink, while `.resolve()` follows one. So a delta symlinked out of
+    # `personas/`, or a symlinked `personas/` directory, would otherwise pass
+    # every check above and then be read by root discovery somewhere else
+    # entirely: as a standalone profile (no data tree, no `.env`, no
+    # conventions), or as a delta over a DIFFERENT facility's profile. Both
+    # build a hollow or wrong persona and report nothing, which is the one
+    # outcome worse than any rejection above.
+    #
+    # Asked of root discovery rather than by comparing directories, because the
+    # danger is the wrong ROOT, not the symlink: a symlinked `personas/` makes
+    # candidate and the expected directory resolve to the SAME place, so a
+    # containment check on the parent passes while the root is still wrong.
+    from osprey.cli.profile_root import PERSONA_DIRNAME, resolve_profile_root
+    from osprey.errors import BuildProfileError
+
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    build_args = manifest.get("build_args") if isinstance(manifest, dict) else None
-    if not isinstance(build_args, dict):
-        return []
-    explicit = build_args.get("explicit_overrides")
-    if not isinstance(explicit, list):
-        return []
-    args: list[str] = []
-    for key in explicit:
-        value = build_args.get(key)
-        if isinstance(key, str) and isinstance(value, str | int) and value:
-            args.extend(["--set", f"{key}={value}"])
-    return args
+        anchored_root, is_delta = resolve_profile_root(candidate)
+    except BuildProfileError as e:
+        # The delta sits in a `personas/` directory with no profile beside it.
+        # That error already names the file that has to exist, and says it
+        # better than a second sentence here could.
+        raise ValueError(
+            f"Persona {persona_name!r} cannot be auto-rendered from {build_profile!r}: {e}"
+        ) from e
+
+    if not is_delta or anchored_root != profile_root:
+        landed = (
+            f"a delta over the profile at {anchored_root}"
+            if is_delta
+            else f"a standalone profile at {anchored_root}"
+        )
+        raise ValueError(
+            f"Persona {persona_name!r} names the build_profile {build_profile!r}, which "
+            f"resolves to {candidate} — {landed}, not a delta over the profile this "
+            f"deployment was built from ({profile_root}). A symlinked delta, or a "
+            f"symlinked {PERSONA_DIRNAME}/ directory, does this: the persona would be "
+            "built without that profile's data tree, secrets and conventions, or over "
+            f"somebody else's. Keep the delta a real file inside {profile_root / PERSONA_DIRNAME}. "
+            + remedy
+        )
+    return candidate
+
+
+def _check_existing_render(persona_name: str, project_path: Path) -> None:
+    """Accept a persona's already-rendered project, or say why it is unusable.
+
+    A render that is already on disk is the operator's — it is never overwritten
+    and never re-rendered — so this is the only chance to notice that it will
+    not actually come up, and both ways it can fail are quiet until the
+    container is already running.
+
+    A directory missing ``config.yml`` or ``Dockerfile`` is a partial or aborted
+    render: it is refused rather than rebuilt over, so an auto-render never has
+    to reason about a half-written tree.
+
+    A complete render still has its model selection checked. The web terminal
+    runs the same resolver strict at startup, so a model the profile has since
+    moved away from would ship a container that crash-loops behind the reverse
+    proxy and surface only as a 502.
+
+    Raises:
+        ValueError: Naming the persona, the directory, and the way out.
+    """
+    missing = [name for name in ("config.yml", "Dockerfile") if not (project_path / name).is_file()]
+    if missing:
+        raise ValueError(
+            f"Persona {persona_name!r} has a partial render at "
+            f"{project_path} (missing {', '.join(missing)}). Remove that "
+            "directory and re-run `osprey deploy up` to re-render it, or "
+            "rebuild it with `osprey build`."
+        )
+
+    try:
+        load_provider_spec(project_path)
+    except ValueError as e:
+        raise ValueError(
+            f"Persona {persona_name!r} render at {project_path} has a "
+            f"model configuration its provider cannot serve:\n  {e}\n"
+            f"Fix {project_path / 'config.yml'}, or remove that "
+            "directory and re-run `osprey deploy up` to re-render it "
+            "from this deployment's profile."
+        ) from e
 
 
 def auto_render_missing_personas(
     config: dict,
     resolved_users: list[dict],
     env: dict[str, str],
-    project_root: Path | None = None,
+    project_root: Path,
 ) -> None:
     """Render each referenced persona whose project directory is absent (local mode).
 
@@ -248,17 +477,36 @@ def auto_render_missing_personas(
     directory does not yet exist, running BEFORE :func:`build_persona_images`
     so the image build finds a complete context.
 
+    Every persona is rendered from a delta inside THIS deployment's own profile
+    — ``<profile root>/personas/<persona>.yml``, located through the deployed
+    project's manifest (:func:`_parent_profile_root`) and validated by
+    :func:`_resolve_persona_profile`. That single anchor is the whole point:
+    the delta merges over the same profile the deployed project was built from,
+    so every persona in the stack shares its data tree, its convention
+    artifacts, and — because the build derives the project ``.env`` from the
+    profile root's ``.env``, and root discovery puts a delta's root one level
+    above ``personas/`` — its secrets. Nothing about the parent's *build
+    invocation* is replayed here: the profile is the source of truth, so what
+    the operator changed is already in the file the delta merges over.
+
+    The rendered profile is always an existing file passed positionally, so a
+    persona subprocess build never takes the ``--preset`` path and therefore
+    never materializes a profile of its own. A persona profile is created by
+    ``osprey profile new``, beside its host, and by nothing else.
+
     Operates on exactly :func:`_referenced_personas`'s distinct set — the same
     personas that will be built — so render and build never diverge. For each:
 
-    * **Directory absent**: render it with ``osprey build <project> --preset
-      <build_profile> -o <parent(project_path)> --skip-deps``. ``osprey build``
-      writes ``<output_dir>/<project_name>``, so rendering ``<project>`` into
-      ``project_path``'s PARENT lands it exactly at ``project_path`` (the demo
-      keeps ``project_path``'s basename equal to the catalog ``project``).
-      ``--skip-deps`` keeps the render network-free — the persona image installs
-      dependencies itself via ``OSPREY_PIP_SPEC`` at build time. A catalog entry
-      with no usable ``build_profile`` cannot be rendered and raises here.
+    * **Directory absent**: render it with ``osprey build <project>
+      <profile root>/personas/<persona>.yml -o <parent(project_path)>
+      --skip-deps``. ``osprey build`` writes ``<output_dir>/<project_name>``, so
+      rendering ``<project>`` into ``project_path``'s PARENT lands it exactly at
+      ``project_path`` (the demo keeps ``project_path``'s basename equal to the
+      catalog ``project``). ``--skip-deps`` keeps the render network-free — the
+      persona image installs dependencies itself via ``OSPREY_PIP_SPEC`` at
+      build time. A catalog entry with no usable ``build_profile``, or one whose
+      value is not a delta in that directory, cannot be rendered and raises
+      here.
     * **Directory present but incomplete** (missing ``config.yml`` OR
       ``Dockerfile``): a partial/aborted render. Raise rather than silently
       rebuild over it — the operator must remove it (or finish it) so an
@@ -272,69 +520,71 @@ def auto_render_missing_personas(
     :param resolved_users: :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
         output for this deploy.
     :param env: Environment for the ``osprey build`` subprocess(es).
-    :param project_root: The deploy (parent) project root. When given, the
-        parent's explicit ``--set`` model-selection overrides — recorded in
-        its ``.osprey-manifest.json`` — are forwarded to every persona render
-        (see :func:`_parent_set_override_args`), so one parent-build override
-        retints the whole stack. ``None`` forwards nothing.
+    :param project_root: The deployed project's root — the directory holding
+        the ``.osprey-manifest.json`` that records which profile this deployment
+        was built from. Required, and only consulted when something actually has
+        to be rendered.
     :raises ValueError: A referenced persona whose project_path is a partial
-        render, or one that must be rendered but whose catalog entry lacks a
-        usable ``build_profile``.
+        render or whose existing render has an unservable model; or, on the
+        render path, a deployment whose profile cannot be located, a catalog
+        entry with no ``build_profile``, and any ``build_profile`` that is not
+        an existing delta inside ``<profile root>/personas/``.
     """
-    forwarded_set_args = _parent_set_override_args(project_root) if project_root is not None else []
+    # Resolved on the first persona that actually needs rendering: a deploy
+    # whose persona projects are all present must not fail over a profile it
+    # never has to read.
+    profile_root: Path | None = None
     for unit in _referenced_personas(config, resolved_users):
         persona_name = unit["persona"]
         project = unit["project"]
         project_path = Path(unit["project_path"])
 
         if project_path.exists():
-            missing = [
-                name for name in ("config.yml", "Dockerfile") if not (project_path / name).is_file()
-            ]
-            if missing:
-                raise ValueError(
-                    f"Persona {persona_name!r} has a partial render at "
-                    f"{project_path} (missing {', '.join(missing)}). Remove that "
-                    "directory and re-run `osprey deploy up` to re-render it, or "
-                    "rebuild it with `osprey build`."
-                )
-            # Complete render is user-owned -- never overwrite it.
+            _check_existing_render(persona_name, project_path)
             continue
+
+        if profile_root is None:
+            profile_root = _parent_profile_root(project_root)
+        if profile_root is None:
+            raise ValueError(
+                f"Persona {persona_name!r} has no rendered project at {project_path} and "
+                "cannot be auto-rendered: the profile this deployment was built from "
+                f"cannot be located, so there is nowhere to read its persona delta from. "
+                f"The manifest in {project_root} records no profile path, or the profile "
+                "it names has moved. Rebuild this project from its profile — `osprey "
+                "build <name> <path-to-profile>/profile.yml` — and re-run `osprey deploy "
+                "up`, or render each persona project yourself with `osprey build`."
+            )
 
         build_profile = unit["build_profile"]
         if not isinstance(build_profile, str) or not build_profile:
             raise ValueError(
-                f"Persona {persona_name!r} has no rendered project at "
-                f"{project_path} and its catalog entry has no usable "
-                "build_profile, so it cannot be auto-rendered. Set "
-                f"modules.web_terminals.personas.{persona_name}.build_profile "
-                "to a bundled preset name, or render the project manually with "
-                "`osprey build`."
+                f"Persona {persona_name!r} has no rendered project at {project_path} and "
+                "its catalog entry has no build_profile, so it cannot be auto-rendered. "
+                + _persona_delta_remedy(persona_name, profile_root)
             )
 
+        # Always an existing profile FILE, passed positionally: `--preset` is
+        # what would make this subprocess materialize a profile of its own.
+        profile_path = _resolve_persona_profile(build_profile, persona_name, profile_root)
+
         # Re-enter the CLI through the RUNNING interpreter, never a bare
-        # "osprey": PATH may resolve to a different install whose bundled
-        # presets diverge from (or predate) this one's.
+        # "osprey": PATH may resolve to a different install whose build
+        # behaviour diverges from (or predates) this one's.
         cmd = [
             sys.executable,
             "-m",
             "osprey",
             "build",
             project,
-            "--preset",
-            build_profile,
+            str(profile_path),
             "-o",
             str(project_path.parent),
             "--skip-deps",
-            *forwarded_set_args,
         ]
         logger.key_info("Auto-rendering persona %r project at %s", persona_name, project_path)
-        if forwarded_set_args:
-            logger.key_info(
-                "  ↳ forwarding parent build overrides: %s",
-                " ".join(forwarded_set_args),
-            )
-        logger.info("Running command:\n    %s", " ".join(cmd))
+        logger.info("  ↳ from %s", profile_path)
+        logger.debug("Running command:\n    %s", " ".join(cmd))
         subprocess.run(cmd, env=env, check=True)
 
 
@@ -442,7 +692,7 @@ def build_persona_images(
                 dev_mode and wheel_staged,
             )
             logger.key_info("Building persona image %s-%s:local:", project, persona_name)
-            logger.info("Running command:\n    %s", " ".join(cmd))
+            logger.debug("Running command:\n    %s", " ".join(cmd))
             subprocess.run(cmd, env=env, check=True)
         finally:
             # Remove BOTH staged artifacts (wheel + requirements manifest) so

@@ -697,21 +697,22 @@ def test_crown_jewel_invariant_accepts_prefix_match_on_existing_allow(
 
 
 def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
-    """``osprey build`` must abort when an overlay agent declares an unbacked tool.
+    """``osprey build`` must abort when a profile agent declares an unbacked tool.
 
-    Uses a synthetic profile with an overlay agent .md that references a
-    tool which is not in any framework MCP server's permissions.allow.
+    Uses a synthetic profile whose ``agents/`` convention directory holds an
+    agent .md referencing a tool that is not in any framework MCP server's
+    permissions.allow.
     """
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
-    overlay_dir = profile_dir / "agents"
-    overlay_dir.mkdir()
-    (overlay_dir / "bogus.md").write_text(
+    agents_dir = profile_dir / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "bogus.md").write_text(
         textwrap.dedent(
             """\
             ---
             name: bogus
-            description: An overlay agent with an unbacked tool — should fail build.
+            description: A profile agent with an unbacked tool — should fail build.
             tools: mcp__nonexistent__phantom_tool
             ---
 
@@ -729,9 +730,6 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
                 "data_bundle": "hello_world",
                 "provider": "anthropic",
                 "model": "claude-haiku-4-5",
-                "overlay": {
-                    "agents/bogus.md": ".claude/agents/bogus.md",
-                },
                 "config": {"control_system.type": "mock"},
             },
             default_flow_style=False,

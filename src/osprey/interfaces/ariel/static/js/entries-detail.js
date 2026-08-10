@@ -80,7 +80,7 @@ function renderEntryDetail(container, entry) {
       <div class="entry-detail-header">
         <h2 class="entry-detail-title">${escapeHtml(subject)}</h2>
         <div class="entry-detail-meta">
-          <span class="entry-id font-mono text-amber">${escapeHtml(entry.entry_id)}</span>
+          <span class="entry-id font-mono text-accent-secondary">${escapeHtml(entry.entry_id)}</span>
           <span class="timestamp font-mono">${formatTimestamp(entry.timestamp)}</span>
           <span>${escapeHtml(entry.author || 'Unknown')}</span>
           <span class="text-muted">${escapeHtml(entry.source_system)}</span>
@@ -258,7 +258,7 @@ export function showImageLightbox(url, filename) {
     <div style="margin-top: 16px; display: flex; align-items: center; gap: 16px;">
       <span style="color: silver; font-size: 0.9rem;">${escapeHtml(filename)}</span>
       <a href="${escapeHtml(url)}" target="_blank" rel="noopener"
-         style="color: var(--color-amber); font-size: 0.85rem; text-decoration: none;">Open in new tab &#x2197;</a>
+         style="color: var(--color-accent-secondary); font-size: 0.85rem; text-decoration: none;">Open in new tab &#x2197;</a>
     </div>
   `;
 

@@ -35,6 +35,7 @@ import {
   hslCss,
   rgbaCss,
   deriveAccentVars,
+  deriveThemeVars,
   evaluateGates,
   slugifyThemeName,
   checkCollision,
@@ -68,6 +69,9 @@ function stateFrom(dark, light) {
 
 /** The osprey family's own accents, as a lab state. */
 const OSPREY_STATE = stateFrom(['#319795', '#4fd1c5'], ['#0a8f8c', '#0d7377']);
+
+/** The same family's own second accent, as a lab state. */
+const OSPREY_SECONDARY = stateFrom(['#d4a574', '#e8c9a0'], ['#a07040', '#7a5530']);
 
 describe('hex/rgb conversion', () => {
   test('parses the six-digit form', () => {
@@ -318,17 +322,39 @@ describe('--color-on-accent picks the most readable candidate', () => {
 });
 
 describe('evaluateGates', () => {
-  test('mirrors validate.py: accent.base vs bg.primary >= 3, accent.on vs accent.base >= 4.5', () => {
-    const gates = evaluateGates(deriveAccentVars(OSPREY_STATE, 'dark', DARK_SCOPE), DARK_SCOPE);
-    expect(gates.map((gate) => [gate.name, gate.threshold])).toEqual([
+  test('mirrors every accent gate in validate.py, in its order and thresholds', () => {
+    const derived = deriveThemeVars(OSPREY_STATE, OSPREY_SECONDARY, 'dark', DARK_SCOPE);
+    expect(evaluateGates(derived, DARK_SCOPE).map((gate) => [gate.name, gate.threshold])).toEqual([
       ['accent.base vs bg.primary', 3.0],
       ['accent.on vs accent.base', 4.5],
+      ['accent-secondary.light vs bg.primary', 4.5],
     ]);
   });
 
-  test('the shipped osprey dark accent clears both gates', () => {
-    const gates = evaluateGates(deriveAccentVars(OSPREY_STATE, 'dark', DARK_SCOPE), DARK_SCOPE);
-    expect(gates.every((gate) => gate.pass)).toBe(true);
+  test('the shipped osprey accents clear every gate, in both modes', () => {
+    /** @type {ReadonlyArray<['dark' | 'light', {bgPrimary: string, textPrimary: string}]>} */
+    const cases = [
+      ['dark', DARK_SCOPE],
+      ['light', LIGHT_SCOPE],
+    ];
+    for (const [mode, scope] of cases) {
+      const derived = deriveThemeVars(OSPREY_STATE, OSPREY_SECONDARY, mode, scope);
+      const gates = evaluateGates(derived, scope);
+      expect(gates.every((gate) => gate.pass), `${mode}: ${JSON.stringify(gates)}`).toBe(true);
+    }
+  });
+
+  test('scores the second accent independently of the accent', () => {
+    // A second accent too pale for the body-text tier fails its own gate while
+    // the accent's two gates are untouched -- the point of a separate role.
+    const pale = stateFrom(['#f3e6d5', '#f7efe4'], ['#f3e6d5', '#f7efe4']);
+    const gates = evaluateGates(
+      deriveThemeVars(OSPREY_STATE, pale, 'light', LIGHT_SCOPE),
+      LIGHT_SCOPE
+    );
+    expect(gates.slice(0, 2).every((gate) => gate.pass)).toBe(true);
+    expect(gates[2].name).toBe('accent-secondary.light vs bg.primary');
+    expect(gates[2].pass).toBe(false);
   });
 
   test('the 3.0 gate is decided at the boundary, not near it', () => {

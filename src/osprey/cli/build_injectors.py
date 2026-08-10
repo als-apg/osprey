@@ -5,7 +5,8 @@ writes the matching ``services.<name>`` block into ``config.yml`` (and
 registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
-``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``).
+``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
+``GChatBridgeProfileConfig``).
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
 and facility-declared service templates.
 """
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.errors import BuildProfileError
+from osprey.utils.config_writer import anchored_append, anchored_put
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
         BlueskyConfig,
         BlueskyPanelsConfig,
         DispatchConfig,
+        GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
         VAConfig,
     )
@@ -245,12 +248,12 @@ def _inject_profile_services(
             config["services"] = {}
         svc_config = {"path": f"./services/{name}"}
         svc_config.update(svc_def.config)
-        config["services"][name] = svc_config
+        anchored_put(config["services"], name, svc_config)
 
         # Add to deployed_services
         deployed = config.get("deployed_services", [])
         if name not in [str(s) for s in deployed]:
-            deployed.append(name)
+            anchored_append(deployed, name)
             config["deployed_services"] = deployed
 
         count += 1
@@ -344,28 +347,36 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # Override with OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE, or set
     # ``services.<name>.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["event_dispatcher"] = {
-        "path": "./services/event_dispatcher",
-        "port": dispatch.dispatcher_port,
-        "facility_name": dispatch.facility_name,
-        "pv_strip_prefix": dispatch.pv_strip_prefix,
-        # Copy the project's triggers.yml into the service build context so the
-        # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
-        # container runtime auto-creates an empty directory at the mount source).
-        "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
-    }
-    config["services"]["dispatch_worker"] = {
-        "path": "./services/dispatch_worker",
-        "worker_count": dispatch.worker_count,
-        "worker_port_base": dispatch.worker_port_base,
-        "workspace_mode": dispatch.workspace_mode,
-        "timeout_sec": dispatch.timeout_sec,
-        "inactivity_sec": dispatch.inactivity_sec,
-    }
+    anchored_put(
+        config["services"],
+        "event_dispatcher",
+        {
+            "path": "./services/event_dispatcher",
+            "port": dispatch.dispatcher_port,
+            "facility_name": dispatch.facility_name,
+            "pv_strip_prefix": dispatch.pv_strip_prefix,
+            # Copy the project's triggers.yml into the service build context so the
+            # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
+            # container runtime auto-creates an empty directory at the mount source).
+            "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
+        },
+    )
+    anchored_put(
+        config["services"],
+        "dispatch_worker",
+        {
+            "path": "./services/dispatch_worker",
+            "worker_count": dispatch.worker_count,
+            "worker_port_base": dispatch.worker_port_base,
+            "workspace_mode": dispatch.workspace_mode,
+            "timeout_sec": dispatch.timeout_sec,
+            "inactivity_sec": dispatch.inactivity_sec,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     for name in ("event_dispatcher", "dispatch_worker"):
         if name not in [str(s) for s in deployed]:
-            deployed.append(name)
+            anchored_append(deployed, name)
     config["deployed_services"] = deployed
 
     # Derive web.panels.events.url from dispatcher_port so the port is a single
@@ -380,10 +391,21 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # facility that pinned its own ``web.panels.events.path``.
     existing_events_url = config.get("web", {}).get("panels", {}).get("events", {}).get("url", "")
     if not existing_events_url:
-        config.setdefault("web", {}).setdefault("panels", {}).setdefault("events", {})
-        events_panel = config["web"]["panels"]["events"]
-        events_panel["url"] = f"http://localhost:{dispatch.dispatcher_port}"
-        events_panel.setdefault("path", "/dashboard")
+        panels = config.setdefault("web", {}).setdefault("panels", {})
+        events_panel = panels.get("events")
+        if events_panel is None:
+            # Put the complete panel in one shot: anchored_put re-anchors a
+            # section comment beneath the new entry, which needs the entry's
+            # full subtree to exist at insertion time.
+            anchored_put(
+                panels,
+                "events",
+                {"url": f"http://localhost:{dispatch.dispatcher_port}", "path": "/dashboard"},
+            )
+        else:
+            anchored_put(events_panel, "url", f"http://localhost:{dispatch.dispatcher_port}")
+            if "path" not in events_panel:
+                anchored_put(events_panel, "path", "/dashboard")
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -462,12 +484,11 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     # first ``osprey deploy up``. Override with OSPREY_BLUESKY_BRIDGE_IMAGE, or
     # set ``services.bluesky.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["bluesky"] = {
+    svc_config: dict[str, Any] = {
         "path": "./services/bluesky",
         "port": bluesky.port,
         "tiled_enabled": bluesky.tiled_enabled,
         "tiled_port": bluesky.tiled_port,
-        "demo_runner": bluesky.demo_runner,
     }
     if bluesky.plan_dir:
         # Only written when configured — its absence is what keeps a
@@ -475,17 +496,18 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         # as before: the compose template's {% if %} guard reads this same
         # key, so an unset plan_dir means no mount and no BLUESKY_PLAN_DIRS
         # env var at all (Task 1.4).
-        config["services"]["bluesky"]["plan_dir"] = bluesky.plan_dir
+        svc_config["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
         # Only written when non-empty — its absence keeps a deploy with no
         # exclusions rendering exactly as before: the compose template's
         # {% if %} guard reads this same key, so an empty list means no
         # BLUESKY_EXCLUDED_PLANS env var at all. The os.pathsep join is done
         # Python-side because the Jinja render context has no `os` module.
-        config["services"]["bluesky"]["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+        svc_config["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+    anchored_put(config["services"], "bluesky", svc_config)
     deployed = config.get("deployed_services", []) or []
     if "bluesky" not in [str(s) for s in deployed]:
-        deployed.append("bluesky")
+        anchored_append(deployed, "bluesky")
     config["deployed_services"] = deployed
 
     with open(config_path, "w") as fh:
@@ -495,7 +517,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     logger.info("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
     logger.info(
         "    Token:      `osprey deploy up` writes BLUESKY_LAUNCH_TOKEN to .env; "
-        "the `scan` MCP server's launch_run tool reads it automatically."
+        "the `bluesky` MCP server's queue tools read it automatically."
     )
     logger.info(
         "    Images:     `osprey deploy up` builds the bluesky-bridge image locally "
@@ -509,12 +531,6 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
             "    Plan dir:   %s mounted read-only into the bridge; its plans "
             "load as the 'facility' trust tier (BLUESKY_PLAN_DIRS)",
             bluesky.plan_dir,
-        )
-    if bluesky.demo_runner:
-        logger.warning(
-            "    Demo mode:  BLUESKY_DEMO_RUNNER is set — the bridge runs a real "
-            "bluesky RunEngine against MOCK devices only. Never enable this for a "
-            "facility wiring real EPICS hardware."
         )
 
 
@@ -563,17 +579,31 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     with open(config_path) as fh:
         config = yaml.load(fh)
 
+    # The compose file bind-mounts the scenario state directory read-only. It is
+    # otherwise created lazily at run time (by `osprey sim apply`), so create it
+    # here too: a missing bind source makes the container runtime materialize it
+    # itself, root-owned, which then locks the host writer out of its own
+    # project. Resolved from the config so it follows a relocated agent-data
+    # root — the same path the compose mount source is rendered from.
+    from osprey.utils.workspace import resolve_simulation_state_dir
+
+    resolve_simulation_state_dir(config, project_path).mkdir(parents=True, exist_ok=True)
+
     # No ``image`` key: the service builds the local VA image on first
     # ``osprey deploy up``. Override with OSPREY_VA_IMAGE, or set
     # ``services.virtual_accelerator.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["virtual_accelerator"] = {
-        "path": "./services/virtual_accelerator",
-        "port": va.port,
-    }
+    anchored_put(
+        config["services"],
+        "virtual_accelerator",
+        {
+            "path": "./services/virtual_accelerator",
+            "port": va.port,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     if "virtual_accelerator" not in [str(s) for s in deployed]:
-        deployed.append("virtual_accelerator")
+        anchored_append(deployed, "virtual_accelerator")
     config["deployed_services"] = deployed
 
     with open(config_path, "w") as fh:
@@ -588,26 +618,61 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     logger.info(
         "    Images:     `osprey deploy up` builds the virtual-accelerator image "
         "locally for your native architecture (first run is slow — the native deps "
-        "PyAT/softioc are compiled from source, so no prebuilt aarch64 wheels are "
+        "are compiled from source, so no prebuilt aarch64 wheels are "
         "needed). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_VA_IMAGE to use a published image."
     )
 
 
+# The RESULTS panel became BLUESKY when that bundle absorbed the queue view, so
+# the panel id, its label, and its mount path all moved together. A profile (or
+# an already-built config.yml) written before the rename still says ``results``;
+# that keeps working for one release because the sidecar serves the SAME bundle
+# at /results/ and /bluesky/ (the alias row in
+# ``interfaces/bluesky_panels/app.py``'s ``_PANEL_MOUNTS``). One release, because
+# the alias mount goes away with it — a rename the operator never hears about is
+# a tab that disappears on an upgrade.
+_RESULTS_PANEL_DEPRECATION = (
+    "web.panels.results is deprecated: the RESULTS panel is now BLUESKY "
+    "(web.panels.bluesky, served at /bluesky/). The `results` id keeps working for "
+    "ONE release — the sidecar serves the same bundle at /results/ — and is removed "
+    "after that. Rename `results` to `bluesky` in the build profile's web_panels "
+    "list and in any web.panels.results.* config override."
+)
+
+
+def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> None:
+    """Fill a partially-specified ``web.panels.<id>`` entry in place.
+
+    Explicit values win: a facility override merged earlier in the build keeps
+    whatever it set, and only the keys it left out are derived. ``url`` is
+    additionally treated as unset when empty, so a blank override cannot leave
+    the panel pointing nowhere.
+    """
+    if not panel_cfg.get("url"):
+        anchored_put(panel_cfg, "url", url)
+    if "path" not in panel_cfg:
+        anchored_put(panel_cfg, "path", path)
+    if "label" not in panel_cfg:
+        anchored_put(panel_cfg, "label", label)
+
+
 def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Path) -> None:
-    """Wire the bluesky-panels sidecar + its three web panels into a built project.
+    """Wire the bluesky-panels sidecar + its web panels into a built project.
 
     1. Copy the bundled ``templates/services/bluesky_panels/`` compose template
        into ``<project>/services/bluesky_panels/``.
     2. Write ``services.bluesky_panels`` config + register it in
        ``deployed_services`` (so ``find_service_config`` resolves it,
        mirroring ``_inject_bluesky``).
-    3. Register the three ``web.panels.<id>`` entries (``plan``,
-       ``results``, ``health``) pointing at the sidecar's root URL,
-       mirroring ``_inject_dispatch``'s ``events`` panel registration: each
-       panel points the proxy at the sidecar ROOT and uses ``path`` to select
-       the panel's static mount, so the panel HTML loads there while its
-       prefix-relative API fetches reach the sidecar root.
+    3. Register the two ``web.panels.<id>`` entries (``plan``, ``bluesky``)
+       pointing at the sidecar's root URL, mirroring ``_inject_dispatch``'s
+       ``events`` panel registration: each panel points the proxy at the
+       sidecar ROOT and uses ``path`` to select the panel's static mount, so
+       the panel HTML loads there while its prefix-relative API fetches reach
+       the sidecar root. A ``results`` entry left in a profile from before the
+       rename is completed and warned about rather than dropped — see
+       ``_RESULTS_PANEL_DEPRECATION``.
     4. Print a post-build hint (image prerequisite).
 
     Thin mirror of :func:`_inject_va`/:func:`_inject_bluesky` for the compose
@@ -648,13 +713,17 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # first ``osprey deploy up``. Override with OSPREY_BLUESKY_PANELS_IMAGE, or
     # set ``services.bluesky_panels.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["bluesky_panels"] = {
-        "path": "./services/bluesky_panels",
-        "port": bluesky_panels.port,
-    }
+    anchored_put(
+        config["services"],
+        "bluesky_panels",
+        {
+            "path": "./services/bluesky_panels",
+            "port": bluesky_panels.port,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     if "bluesky_panels" not in [str(s) for s in deployed]:
-        deployed.append("bluesky_panels")
+        anchored_append(deployed, "bluesky_panels")
     config["deployed_services"] = deployed
 
     # 3. Register the two web.panels.<id> entries. Derive each url from
@@ -671,14 +740,27 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     default_url = f"${{BLUESKY_PANELS_URL:-http://localhost:{bluesky_panels.port}}}"
     panel_specs = (
         ("plan", "/plan/", "PLAN"),
-        ("results", "/results/", "RESULTS"),
+        ("bluesky", "/bluesky/", "BLUESKY"),
     )
+    panels = config.setdefault("web", {}).setdefault("panels", {})
     for panel_id, panel_path, label in panel_specs:
-        panel_cfg = config.setdefault("web", {}).setdefault("panels", {}).setdefault(panel_id, {})
-        if not panel_cfg.get("url"):
-            panel_cfg["url"] = default_url
-        panel_cfg.setdefault("path", panel_path)
-        panel_cfg.setdefault("label", label)
+        panel_cfg = panels.get(panel_id)
+        if panel_cfg is None:
+            # Put the complete panel in one shot: anchored_put re-anchors a
+            # section comment beneath the new entry, which needs the entry's
+            # full subtree to exist at insertion time.
+            anchored_put(panels, panel_id, {"url": default_url, "path": panel_path, "label": label})
+            continue
+        _fill_panel_defaults(panel_cfg, default_url, panel_path, label)
+
+    # Deprecated ``results`` alias: completed, never created. An entry only
+    # exists here when the profile still declares one (a `web.panels.results.*`
+    # override merged earlier in the build, or a config.yml built before the
+    # rename and rebuilt in place), and it keeps resolving because the sidecar
+    # serves the BLUESKY bundle at /results/ as well.
+    if "results" in panels:
+        logger.warning("  ! %s", _RESULTS_PANEL_DEPRECATION)
+        _fill_panel_defaults(panels["results"], default_url, "/results/", "RESULTS")
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -686,8 +768,8 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # 4. Post-build hint.
     logger.info("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
     logger.info(
-        "    Panels:     PLAN, RESULTS — reached through the "
-        "web-terminal proxy at /panel/{plan,results}."
+        "    Panels:     PLAN, BLUESKY — reached through the "
+        "web-terminal proxy at /panel/{plan,bluesky}."
     )
     logger.info(
         "    Images:     `osprey deploy up` builds the bluesky-panels image locally "
@@ -759,13 +841,17 @@ def _inject_nextcloud_bridge(
     # OSPREY_NEXTCLOUD_BRIDGE_IMAGE, or set ``services.nextcloud_bridge.image``
     # here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    config["services"]["nextcloud_bridge"] = {
-        "path": "./services/nextcloud_bridge",
-        "trigger": nextcloud_bridge.trigger,
-    }
+    anchored_put(
+        config["services"],
+        "nextcloud_bridge",
+        {
+            "path": "./services/nextcloud_bridge",
+            "trigger": nextcloud_bridge.trigger,
+        },
+    )
     deployed = config.get("deployed_services", []) or []
     if "nextcloud_bridge" not in [str(s) for s in deployed]:
-        deployed.append("nextcloud_bridge")
+        anchored_append(deployed, "nextcloud_bridge")
     config["deployed_services"] = deployed
 
     with open(config_path, "w") as fh:
@@ -789,4 +875,101 @@ def _inject_nextcloud_bridge(
         "    Images:     `osprey deploy up` builds the nextcloud-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_NEXTCLOUD_BRIDGE_IMAGE to use a published image."
+    )
+
+
+def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: Path) -> None:
+    """Wire the Google Chat bridge service into a built project.
+
+    1. Copy the bundled ``templates/services/gchat_bridge/`` compose template
+       into ``<project>/services/gchat_bridge/``.
+    2. Write ``services.gchat_bridge`` config + register it in
+       ``deployed_services`` (so ``find_service_config`` resolves it,
+       mirroring ``_inject_nextcloud_bridge``).
+    3. Print a post-build hint naming the Google credentials the operator must
+       supply, and the one deployment rule the compose file cannot enforce
+       (one bridge per Pub/Sub subscription).
+
+    Structurally a thin mirror of :func:`_inject_nextcloud_bridge` — the other
+    chat channel — down to the single ``trigger`` key the template reads with no
+    ``| default``. Like it, this must run *after* :func:`_inject_dispatch`,
+    which is what puts ``event_dispatcher`` / ``dispatch_worker`` into
+    ``deployed_services``; the compose template gates both its ``depends_on``
+    and its in-network ``DISPATCHER_URL``/``WORKER_URL`` on their presence there.
+
+    Args:
+        gchat_bridge: Validated bridge configuration from the build profile.
+            ``BuildProfile.validate`` has already established that a
+            ``dispatch:`` block exists and that ``trigger`` names a trigger
+            declared in the resolved triggers file.
+        project_path: Root of the built project.
+    """
+    from ruamel.yaml import YAML
+
+    # 1. Copy the bundled compose template (located the same way as service templates).
+    pkg_services = _locate_pkg_services()
+
+    src_dir = pkg_services / "gchat_bridge"
+    if not src_dir.is_dir():
+        logger.warning("No package template for gchat_bridge service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    dest_dir = dest_services_root / "gchat_bridge"
+    _refresh_service_dir(src_dir, dest_dir, "gchat_bridge", _user_owned_services(project_path))
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found — skipping gchat_bridge config registration")
+        return
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    # ``trigger`` is the one key the compose template reads with NO ``| default``
+    # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
+    # break the render loudly rather than silently firing another facility's
+    # trigger. No ``image`` key: the service builds the local
+    # <project>-gchat-bridge image on first ``osprey deploy up`` (the template's
+    # own ``| default`` supplies that tag). Override with
+    # OSPREY_GCHAT_BRIDGE_IMAGE, or set ``services.gchat_bridge.image`` here, to
+    # use a prebuilt/published image.
+    config.setdefault("services", {})
+    config["services"]["gchat_bridge"] = {
+        "path": "./services/gchat_bridge",
+        "trigger": gchat_bridge.trigger,
+    }
+    deployed = config.get("deployed_services", []) or []
+    if "gchat_bridge" not in [str(s) for s in deployed]:
+        deployed.append("gchat_bridge")
+    config["deployed_services"] = deployed
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    # 3. Post-build hint.
+    logger.info("  ✓ Injected Google Chat bridge (trigger %r)", gchat_bridge.trigger)
+    logger.info(
+        "    Credentials: set GCHAT_SA_KEY (host path to the service-account JSON "
+        "key, mounted read-only at the same path in the container), "
+        "GCHAT_SUBSCRIPTION and GCHAT_APP_ID in the project .env before "
+        "`osprey deploy up`. These are user-supplied — unlike the dispatch "
+        "tokens, deploy does not mint them, and the bridge aborts at boot "
+        "naming whichever is missing."
+    )
+    logger.info(
+        "    Subscription: deploy exactly ONE bridge per Pub/Sub subscription. "
+        "Pub/Sub load-balances a subscription across its consumers, so a second "
+        "deployment on the same name does not duplicate events — it silently "
+        "splits them, and each half answers only what it received. Give every "
+        "deployment its own subscription on the topic."
+    )
+    logger.info(
+        "    Images:     `osprey deploy up` builds the gchat-bridge image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_GCHAT_BRIDGE_IMAGE to use a published image."
     )

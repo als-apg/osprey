@@ -40,14 +40,15 @@
 #
 # THE THRESHOLD, and what is left under it. A bare-name `evidence` regex is
 # accepted only if it appears in <= 25 files under src/osprey (check B3 fails
-# the manifest otherwise). 57 entries sit under that line, topping out at
-# `postgresql` (25 files); they are domain identifiers, not English words, so
-# deleting the reader really would drop the count toward zero. Where an obvious
-# anchored form existed it was preferred instead — e.g.
+# the manifest otherwise). The bare entries are domain identifiers, not English
+# words, so deleting the reader really would drop the count toward zero. Where
+# an obvious anchored form existed it was preferred instead — e.g.
 # claude_code.telemetry.backend cites `telemetry_cfg.get("backend") ==
-# "openobserve"` rather than the bare word. The rest have no clean single reader
-# to anchor on (the value is unpacked from a block, or read in several places
-# with different shapes), and forcing an anchor would mean inventing one.
+# "openobserve"` rather than the bare word, and services.postgresql.path cites
+# the compose generator's `service_config["path"]` read after the bare word
+# crossed the ceiling. The rest have no clean single reader to anchor on (the
+# value is unpacked from a block, or read in several places with different
+# shapes), and forcing an anchor would mean inventing one.
 
 # ---------------------------------------------------------------------------
 # keys — every dotted path the five templates render, with its evidence
@@ -95,12 +96,12 @@ keys:
       value equality here.
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
-  services.openobserve: {evidence: 'openobserve'}
-  services.openobserve.path: {evidence: 'openobserve'}
-  services.openobserve.port: {evidence: 'openobserve'}
+  services.openobserve: {evidence: 'get\("openobserve", \{\}\)'}
+  services.openobserve.path: {evidence: 'service_config\["path"\]'}
+  services.openobserve.port: {evidence: 'services\.openobserve\.port'}
   services.openobserve.retention_days: {evidence: 'retention_days'}
   services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)'}
-  services.postgresql.path: {evidence: 'postgresql'}
+  services.postgresql.path: {evidence: 'service_config\["path"\]'}
   services.postgresql.database_name: {evidence: 'database_name'}
   services.postgresql.username: {covered-by: services.postgresql}
   services.postgresql.port_host: {evidence: 'port_host'}
@@ -299,7 +300,7 @@ keys:
   claude_code.telemetry.backend:
     evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
   claude_code.telemetry.protocol: {evidence: 'http/protobuf'}
-  claude_code.telemetry.openobserve: {evidence: 'openobserve'}
+  claude_code.telemetry.openobserve: {evidence: 'telemetry_cfg\.get\("openobserve"\)'}
   claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve}
   claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve}
   claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve}
@@ -386,11 +387,13 @@ keys:
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)'}
   web.theme:
-    evidence: 'get_config_value\("web\.theme", "osprey"\)'
+    evidence: 'get_config_value\("web\.theme", "main"\)'
     note: >-
       Live in project only; commented in control_assistant; absent from the
-      three others. The default is "osprey" whether the key is live or absent,
+      three others. The default is "main" whether the key is live or absent,
       so no behaviour depends on the form. Deliberately per-template.
+      The shipped default family was renamed from "osprey" to "main"; the
+      evidence tracks the default in app.py, so it moves with that rename.
   web.panels: {evidence: 'web\.panels'}
   web.panels.ariel: {covered-by: web.panels}
   web.panels.ariel.enabled: {covered-by: web.panels.ariel}
@@ -830,7 +833,7 @@ absent_paths:
       distinguish success from failure. Path absence is the only assertion that
       actually tests this deletion. Note the deliberate asymmetry with
       `keeps`: the same ledger item both DELETES this module and KEEPS the
-      control_assistant machine_state_channels.json.j2 asset, so the two
+      control_assistant machine_state_channels.json asset, so the two
       sections guard opposite halves of one change.
 
 # ---------------------------------------------------------------------------
@@ -839,7 +842,7 @@ absent_paths:
 # that would be searched for.
 # ---------------------------------------------------------------------------
 keeps:
-  - path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json.j2
+  - path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json
     assert: exists
     why: >-
       Feeds VA manifest reconciliation via
@@ -875,13 +878,12 @@ notes:
       takes a tier, not a wire id.
   prefix_rule_drift:
     detail: >-
-      src/osprey/templates/skills/osprey-build-deploy/references/facility-config-schema.md
-      (lines 43, 609) states facility.prefix must be lowercase alnum plus
-      hyphens, 2-6 chars, as a hard requirement. Nothing enforces that: the only
-      validation in the tree is a non-emptiness lint at
-      deployment/web_terminals/lint.py `_check_empty_facility_prefix`. The same
-      module DOES define `_USERNAME_CHARSET_RE` and enforce it for usernames and
-      persona names, so the absence for prefix is real rather than an oversight.
+      RESOLVED. The only place stating facility.prefix must be lowercase alnum
+      plus hyphens, 2-6 chars, as a hard requirement was the facility-config
+      schema reference, which has been removed along with the rest of the
+      facility-config surface. Nothing enforces that rule and nothing claims it
+      any more: the only validation in the tree is a non-emptiness lint at
+      deployment/web_terminals/lint.py `_check_empty_facility_prefix`.
     inert: >-
       Stronger than unenforced. facility.prefix reaches only two container-name
       interpolations and the personas path — never an nginx location key or a
@@ -889,12 +891,11 @@ notes:
       get the charset regex. There is NO sink at which violating the
       2-6/lowercase rule breaks anything.
     remedy_direction: >-
-      Soften the schema doc to a convention. Do NOT add a validator, and do NOT
-      let this manifest grow a charset rule for facility.prefix: a new check
-      would reject configurations that work correctly today, converting a
-      cosmetic doc inconsistency into a breaking change. All five templates and
-      both presets already state the enforced rule alongside the Docker
-      constraint. The schema doc is the only outlier and needs an owner.
+      None. Do NOT add a validator, and do NOT let this manifest grow a charset
+      rule for facility.prefix: a new check would reject configurations that
+      work correctly today, converting a cosmetic doc inconsistency into a
+      breaking change. All five templates and both presets already state the
+      enforced rule alongside the Docker constraint.
   legacy_fixture_out_of_scope:
     path: tests/utils/fixtures/legacy_config_all_deleted_keys.yml
     detail: >-

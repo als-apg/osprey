@@ -5,7 +5,7 @@
  * ~/.claude/projects/<encoded>/memory/*.md via the /api/claude-memory
  * route family.
  *
- * Aesthetic: Lab-notebook with amber (primary MEMORY.md) and teal
+ * Aesthetic: Lab-notebook with the secondary accent (primary MEMORY.md) and teal
  * (topic files) accents, monospace typography, geometric icons.
  *
  * API endpoints consumed:
@@ -16,7 +16,8 @@
  *   DELETE /api/claude-memory/{filename}   -> delete file
  */
 
-import { fetchJSON, withPrefix } from './api.js';
+import { fetchJSON, apiRequest } from './api.js';
+import { fmtBytes } from './session-helpers.js';
 import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
 
 // ---- Constants ---- //
@@ -249,7 +250,7 @@ class MemoryGallery {
     body.appendChild(nameRow);
 
     const metaRow = _el('div', 'memory-file-meta');
-    metaRow.textContent = `${file.line_count} lines \u00B7 ${formatSize(file.size)}`;
+    metaRow.textContent = `${file.line_count} lines \u00B7 ${fmtBytes(file.size)}`;
     body.appendChild(metaRow);
 
     card.appendChild(body);
@@ -437,18 +438,11 @@ class MemoryGallery {
     if (!textarea) return;
 
     try {
-      const resp = await fetch(withPrefix(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`), { // prefix-aware
+      const updated = await apiRequest(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: textarea.value }),
+        json: { content: textarea.value },
+        errorPrefix: 'Save failed',
       });
-
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Save failed (HTTP ${resp.status})`);
-      }
-
-      const updated = await resp.json();
       this.editDirty = false;
 
       // Update the file in the list
@@ -474,14 +468,10 @@ class MemoryGallery {
     if (!confirm(`Delete "${this.selectedFile.filename}"? This cannot be undone.`)) return;
 
     try {
-      const resp = await fetch(withPrefix(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`), { // prefix-aware
+      await apiRequest(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
         method: 'DELETE',
+        errorPrefix: 'Delete failed',
       });
-
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Delete failed (HTTP ${resp.status})`);
-      }
 
       this.files = this.files.filter(f => f.filename !== this.selectedFile.filename);
       this.selectedFile = null;
@@ -503,18 +493,11 @@ class MemoryGallery {
     }
 
     try {
-      const resp = await fetch(withPrefix('/api/claude-memory'), { // prefix-aware
+      const newFile = await apiRequest('/api/claude-memory', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename, content: `# ${filename.replace('.md', '')}\n\n` }),
+        json: { filename, content: `# ${filename.replace('.md', '')}\n\n` },
+        errorPrefix: 'Create failed',
       });
-
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Create failed (HTTP ${resp.status})`);
-      }
-
-      const newFile = await resp.json();
       this.files.push(newFile);
       this.renderSummary();
       this.openDetail(newFile);
@@ -563,7 +546,12 @@ export function initMemoryGallery() {
   const memoryPanel = document.getElementById('tab-memory');
   if (!memoryPanel) return;
 
-  const memoryGallery = new MemoryGallery({ container: memoryPanel });
+  // Section container, so the panel can also hold the static subtitle
+  // index.html renders above it (the gallery clears its own container on
+  // build). Falls back to the panel itself for fixtures mounting a bare
+  // `#tab-memory`, matching the scaffold galleries.
+  const memoryContainer = document.getElementById('memory-gallery-section') || memoryPanel;
+  const memoryGallery = new MemoryGallery({ container: memoryContainer });
 
   // Load when tab becomes active
   memoryPanel.addEventListener('drawer:tab-activate', () => {
@@ -581,13 +569,4 @@ export function initMemoryGallery() {
     if (!memoryGallery.editDirty) return true;
     return confirm('You have unsaved memory changes. Discard them?');
   });
-}
-
-// ---- Utility Functions ---- //
-
-/** @param {number} bytes */
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / 1048576).toFixed(1) + ' MB';
 }

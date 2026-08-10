@@ -5,19 +5,16 @@ separating project containers from other Osprey containers.
 """
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
 from rich.table import Table
 
-from osprey.deployment.compose_generator import resolve_user_volume_names
-from osprey.deployment.facility_config import normalize_facility_config
+from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
 from osprey.deployment.staleness import staleness_reasons
 from osprey.deployment.web_terminals.naming import web_container_name
-from osprey.utils.config import ConfigBuilder
-from osprey.utils.log_filter import quiet_logger
+from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.status")
@@ -107,12 +104,7 @@ def show_status(config_path, *, console=None, styles=None):
     if styles is None:
         styles = _DefaultStyles
 
-    try:
-        with quiet_logger(["registry", "CONFIG"]):
-            config = ConfigBuilder(config_path)
-            config = normalize_facility_config(config.raw_config)
-    except Exception as e:
-        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+    config = load_project_config(config_path, wrap_errors=True)
 
     # Advisory render-provenance note: a stale project deploys an out-of-date
     # service set that looks perfectly healthy here, so status is the other
@@ -128,14 +120,12 @@ def show_status(config_path, *, console=None, styles=None):
         [str(service) for service in deployed_services] if deployed_services else []
     )
 
-    # Determine current project name (same logic as _inject_project_metadata)
-    current_project = config.get("project_name")
-    if not current_project:
-        project_root = config.get("project_root", "")
-        if project_root:
-            current_project = os.path.basename(project_root.rstrip("/"))
-    if not current_project:
-        current_project = "unnamed-project"
+    # The same resolver the deploy path pins as COMPOSE_PROJECT_NAME and stamps
+    # into container labels. Status compares that label against this value, so
+    # anything less than the shared resolver mis-classifies a project whose name
+    # compose normalized (e.g. "Demo_Project!" is labelled "demo_project"), and
+    # its own containers show up under "other Osprey containers".
+    current_project = resolve_project_name(config)
 
     # Get all containers using direct runtime ps (not compose-dependent)
     try:

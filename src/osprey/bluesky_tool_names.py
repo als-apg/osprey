@@ -41,10 +41,26 @@ CLEAR_DRAFT = "clear_draft"
 WRITE_PLAN = "write_plan"
 VALIDATE_PLAN = "validate_plan"
 
+# --- Queue tools ----------------------------------------------------------
+# Execution is two steps: ``queue_add`` puts the pinned draft in the queue,
+# ``queue_start`` drains it. Both arm hardware motion (writes-check +
+# approval). ``queue_stop`` carries approval only — a plain stop is the safe
+# direction and must never be kill-switch-blocked, and its one arming case
+# (withdrawing a pending stop) is gated in-tool and at the bridge instead, so
+# that halting keeps working when the kill switch is on. ``queue_list`` and
+# ``queue_status`` are reads (registry ``permissions_allow``).
+QUEUE_LIST = "queue_list"
+QUEUE_STATUS = "queue_status"
+QUEUE_ADD = "queue_add"
+QUEUE_START = "queue_start"
+QUEUE_STOP = "queue_stop"
+
 # --- Run-control tools ----------------------------------------------------
-# ``launch_run`` starts a real scan (writes-check + approval); ``stop_run`` is
-# the safe direction (approval only). Both in registry ``permissions_ask``.
-LAUNCH_RUN = "launch_run"
+# ``stop_run`` is the emergency abort: it stops the plan already in motion
+# (POST /queue/abort), where ``queue_stop`` only halts the queue after the
+# running item finishes. Like ``queue_stop`` it is the safe direction and
+# carries approval ONLY — never ``_WRITES_CHECK`` — so the kill switch can
+# never block a halt; registry ``permissions_ask``.
 STOP_RUN = "stop_run"
 
 # Every registered Bluesky tool name, grouped as the registry gates them.
@@ -63,14 +79,36 @@ AUTHORING_TOOLS: tuple[str, ...] = (
     WRITE_PLAN,
     VALIDATE_PLAN,
 )
-RUN_CONTROL_TOOLS: tuple[str, ...] = (
-    LAUNCH_RUN,
-    STOP_RUN,
+QUEUE_READ_TOOLS: tuple[str, ...] = (
+    QUEUE_LIST,
+    QUEUE_STATUS,
+)
+QUEUE_CONTROL_TOOLS: tuple[str, ...] = (
+    QUEUE_ADD,
+    QUEUE_START,
+    QUEUE_STOP,
+)
+QUEUE_TOOLS: tuple[str, ...] = (
+    *QUEUE_READ_TOOLS,
+    *QUEUE_CONTROL_TOOLS,
+)
+RUN_CONTROL_TOOLS: tuple[str, ...] = (STOP_RUN,)
+
+# The tools that arm hardware motion, and so must carry the kill-switch hook
+# (registry ``_WRITES_CHECK``) on top of the approval prompt. Named as its own
+# group because "which tools are writes-gated" is a safety claim worth
+# asserting directly rather than re-deriving from a hook list: a tool added to
+# the queue group but omitted here would register with an approval prompt and
+# no kill switch, which looks gated and is not.
+ARMING_TOOLS: tuple[str, ...] = (
+    QUEUE_ADD,
+    QUEUE_START,
 )
 ALL_TOOLS: tuple[str, ...] = (
     *READ_TOOLS,
     *DRAFT_TOOLS,
     *AUTHORING_TOOLS,
+    *QUEUE_TOOLS,
     *RUN_CONTROL_TOOLS,
 )
 

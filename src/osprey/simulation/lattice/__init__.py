@@ -3,7 +3,7 @@
 The hand-ported real ALS-U AR ring (:func:`build_ring`), the declarative
 :class:`~osprey.simulation.facility_spec.FacilitySpec` it consumes, and the
 canonical ``.mat`` artifact helpers. This subpackage imports only ``at`` +
-``numpy`` (no ``softioc`` / EPICS stack), so any consumer — dashboard, channels,
+``numpy`` (no EPICS stack), so any consumer — dashboard, channels,
 logbook, the future virtual-accelerator repoint — can import the ring without
 the ``osprey-framework`` control-system extras.
 """

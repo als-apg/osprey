@@ -1,8 +1,8 @@
 """Unit tests for ``.env.production`` generation.
 
 Covers ``osprey.deployment.web_terminals.env_production`` in isolation: the
-module-conditional CI-subset generator and its claude_code provider
-auth-secret coverage.
+module-conditional subset generator and its claude_code provider auth-secret
+coverage.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ import pytest
 from osprey.deployment.web_terminals import env_production
 
 # ---------------------------------------------------------------------------
-# ensure_env_production -- module-conditional CI-subset generator for
-# local-mode web-terminal deploys.
+# ensure_env_production -- module-conditional subset generator for local-mode
+# web-terminal deploys.
 # ---------------------------------------------------------------------------
 
 
@@ -50,11 +50,11 @@ _FULL_CONFIG = {
             "password_env_var": "OLOG_PASSWORD",
         },
         "wiki_search": {"enabled": True, "token_env_var": "CONFLUENCE_ACCESS_TOKEN"},
-        "event_dispatcher": {
-            "enabled": True,
-            "token_env_var": "EVENT_DISPATCHER_TOKEN",
-            "sidecar_token_env_var": "DISPATCH_SIDECAR_TOKEN",
-        },
+        # Enabled, and carrying a legacy token-name knob on purpose: the
+        # generator must ignore both. The dispatcher's tokens are OSPREY's own
+        # service-to-service credentials, minted under fixed names, and no web
+        # terminal ever presents one.
+        "event_dispatcher": {"enabled": True, "token_env_var": "EVENT_DISPATCHER_TOKEN"},
         "ariel": {
             "enabled": True,
             "dsn": "postgresql://ariel:ariel@ariel-postgres:5432/ariel",
@@ -62,21 +62,25 @@ _FULL_CONFIG = {
     },
 }
 
-# Every secret .env.production must NEVER contain, keyed by the config path
-# that names it -- the exclusion list is the security spec for this task.
+# Every secret .env.production must NEVER contain -- the build-time
+# credentials (CI, registry, external-project pulls) and the fixed-name tokens
+# OSPREY's own deployed services authenticate to each other with. This
+# exclusion list is the security spec for the generator.
 _EXCLUDED_ENV = {
     "TEST_CI_TOKEN": "ci-secret",
     "TEST_REGISTRY_TOKEN": "registry-secret",
     "BEAM_VIEWER_DEPLOY_TOKEN": "external-project-secret",
-    "DISPATCH_SIDECAR_TOKEN": "sidecar-secret",
+    "EVENT_DISPATCHER_TOKEN": "dispatcher-secret",
+    "DISPATCH_WORKER_TOKEN": "worker-secret",
 }
 
+# Credentials the agent inside a web terminal presents to systems outside the
+# deploy -- the only kind that earns a place in .env.production.
 _INCLUDED_ENV = {
     "CBORG_API_KEY": "llm-secret",
     "OLOG_USERNAME": "olog-user",
     "OLOG_PASSWORD": "olog-pass",
     "CONFLUENCE_ACCESS_TOKEN": "wiki-secret",
-    "EVENT_DISPATCHER_TOKEN": "dispatcher-secret",
 }
 
 
@@ -125,20 +129,20 @@ def test_env_production_local_mode_generates_from_env(tmp_path):
     assert result == tmp_path / ".env.production"
     generated = env_production.parse_dotenv_file(result)
 
-    # Included: llm key, module-gated olog/wiki/dispatcher, ARIEL_DSN, TZ.
+    # Included: llm key, module-gated olog/wiki credentials, ARIEL_DSN, TZ.
     assert generated["CBORG_API_KEY"] == "llm-secret"
     assert generated["OLOG_USERNAME"] == "olog-user"
     assert generated["OLOG_PASSWORD"] == "olog-pass"
     assert generated["CONFLUENCE_ACCESS_TOKEN"] == "wiki-secret"
-    assert generated["EVENT_DISPATCHER_TOKEN"] == "dispatcher-secret"
     assert generated["ARIEL_DSN"] == "postgresql://ariel:ariel@ariel-postgres:5432/ariel"
     assert generated["TZ"] == "America/Los_Angeles"
 
 
 def test_env_production_never_includes_excluded_secrets(tmp_path):
-    """The security spec: registry token, sidecar token, and external-project
-    tokens must never appear in the generated file -- neither their key nor
-    their value, even though the source .env contains all of them."""
+    """The security spec: CI, registry, and external-project tokens, plus the
+    tokens OSPREY's own services authenticate to each other with, must never
+    appear in the generated file -- neither their key nor their value, even
+    though the source .env contains all of them."""
     _write_dotenv(tmp_path / ".env", {**_INCLUDED_ENV, **_EXCLUDED_ENV})
 
     result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
@@ -151,10 +155,21 @@ def test_env_production_never_includes_excluded_secrets(tmp_path):
         assert excluded_key not in raw_text
         assert excluded_value not in raw_text
 
-    # And the CI/registry token vars named in config are also never copied,
-    # confirming the omission is by construction, not incidental.
-    assert "TEST_CI_TOKEN" not in generated
-    assert "TEST_REGISTRY_TOKEN" not in generated
+
+def test_env_production_omits_service_tokens_even_with_module_enabled(tmp_path):
+    """A native-service token is excluded on its own merits, not because some
+    module happened to be off: _FULL_CONFIG enables event_dispatcher AND still
+    carries a legacy knob naming EVENT_DISPATCHER_TOKEN, the minted values sit
+    in .env, and the generated file must still contain neither the caller-facing
+    token nor the internal dispatcher-to-worker one."""
+    _write_dotenv(tmp_path / ".env", {**_INCLUDED_ENV, **_EXCLUDED_ENV})
+
+    result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+
+    generated = env_production.parse_dotenv_file(result)
+    assert _FULL_CONFIG["modules"]["event_dispatcher"]["enabled"] is True
+    assert "EVENT_DISPATCHER_TOKEN" not in generated
+    assert "DISPATCH_WORKER_TOKEN" not in generated
 
 
 def test_env_production_generated_file_is_mode_0600(tmp_path):
@@ -199,7 +214,6 @@ def test_env_production_module_disabled_omits_its_vars(tmp_path):
             "web_terminals": {"image_source": "local"},
             "olog": {"enabled": False, "username_env_var": "OLOG_USERNAME"},
             "wiki_search": {"enabled": False, "token_env_var": "CONFLUENCE_ACCESS_TOKEN"},
-            "event_dispatcher": {"enabled": False, "token_env_var": "EVENT_DISPATCHER_TOKEN"},
             "ariel": {"enabled": False, "dsn": "postgresql://ariel:ariel@ariel-postgres/ariel"},
         },
     }
@@ -429,6 +443,38 @@ def test_env_production_missing_secret_present_in_shell_env_names_the_fix(tmp_pa
     assert "exported in the current shell" in message
     assert f">> {tmp_path / '.env'}" in message
     # The secret VALUE itself must never appear in the error.
+    assert "exported-in-shell" not in message
+
+
+def test_env_production_missing_secret_hint_points_at_the_profile_env(tmp_path, monkeypatch):
+    """When the project records a profile, the durable remedy names it.
+
+    Handing over only ``>> <project>/.env`` unblocks the deploy in front of the
+    operator but names the one file the next build overwrites, so the secret is
+    lost on the next rebuild. Both routes are named because neither alone is
+    the whole answer: the profile write survives but does not reach this deploy
+    until a rebuild, and the project write reaches it but does not survive.
+    """
+    import json
+
+    profile_dir = tmp_path / "proj-profile"
+    profile_dir.mkdir()
+    (tmp_path / ".osprey-manifest.json").write_text(
+        json.dumps({"build_args": {"profile_path_abs": str(profile_dir / "profile.yml")}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ALS_APG_API_KEY", "exported-in-shell")
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with pytest.raises(RuntimeError, match="ALS_APG_API_KEY") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert f">> {profile_dir / '.env'}" in message
+    # The project .env is still offered, but explicitly as the non-surviving one.
+    assert f">> {tmp_path / '.env'}" in message
+    assert "dropped by the next build" in message
     assert "exported-in-shell" not in message
 
 

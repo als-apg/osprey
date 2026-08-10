@@ -8,7 +8,7 @@
  *
  * Covers accessor correctness (every get/set pair round-trips), fileUrl,
  * the error banner, fetchArtifacts/fetchFocus (success + both failure
- * paths), and getFilteredArtifacts' filter/search/sort combinations over
+ * paths), and getFilteredArtifacts' search/sort combinations over
  * fixture artifacts.
  *
  * NOTE: state.js exports module-singleton state (there's only ever one
@@ -27,8 +27,6 @@ import {
   setSelectedArtifact,
   getFocusedArtifact,
   setFocusedArtifact,
-  getActiveFilter,
-  setActiveFilter,
   getCurrentSessionId,
   setCurrentSessionId,
   getShowAllSessions,
@@ -68,13 +66,6 @@ describe('accessor correctness', () => {
     expect(getFocusedArtifact()).toBe(a);
     setFocusedArtifact(null);
     expect(getFocusedArtifact()).toBeNull();
-  });
-
-  test('getActiveFilter/setActiveFilter round-trip', () => {
-    setActiveFilter('pinned');
-    expect(getActiveFilter()).toBe('pinned');
-    setActiveFilter('plot_html');
-    expect(getActiveFilter()).toBe('plot_html');
   });
 
   test('getCurrentSessionId/setCurrentSessionId round-trip, including null', () => {
@@ -247,33 +238,15 @@ describe('getFilteredArtifacts', () => {
     ];
   }
 
-  test('activeFilter "all" with no search returns everything, pinned first then newest-first', () => {
+  test('no search returns everything, pinned first then newest-first', () => {
     setArtifacts(makeFixtures());
-    setActiveFilter('all');
 
     const result = getFilteredArtifacts('');
     expect(result.map((a) => a.id)).toEqual(['2', '4', '3', '1']);
   });
 
-  test('activeFilter "pinned" returns only pinned artifacts', () => {
-    setArtifacts(makeFixtures());
-    setActiveFilter('pinned');
-
-    const result = getFilteredArtifacts('');
-    expect(result.map((a) => a.id).sort()).toEqual(['2', '4']);
-  });
-
-  test('a type/category filter matches on category OR artifact_type', () => {
-    setArtifacts(makeFixtures());
-    setActiveFilter('visualization');
-
-    const result = getFilteredArtifacts('');
-    expect(result.map((a) => a.id).sort()).toEqual(['1', '3']);
-  });
-
   test('search matches title, filename, description, or artifact_type (case-insensitive)', () => {
     setArtifacts(makeFixtures());
-    setActiveFilter('all');
 
     expect(getFilteredArtifacts('beam').map((a) => a.id)).toEqual(['1']);
     expect(getFilteredArtifacts('channels.json').map((a) => a.id)).toEqual(['2']);
@@ -281,24 +254,14 @@ describe('getFilteredArtifacts', () => {
     expect(getFilteredArtifacts('markdown').map((a) => a.id)).toEqual(['4']);
   });
 
-  test('filter and search compose: search narrows within the active filter', () => {
-    setArtifacts(makeFixtures());
-    setActiveFilter('visualization');
-
-    expect(getFilteredArtifacts('lattice').map((a) => a.id)).toEqual(['3']);
-    expect(getFilteredArtifacts('report').map((a) => a.id)).toEqual([]);
-  });
-
   test('an empty search query (default) is treated as no search filter', () => {
     setArtifacts(makeFixtures());
-    setActiveFilter('all');
     expect(getFilteredArtifacts().length).toBe(4);
   });
 
   test('does not mutate the underlying artifacts array', () => {
     const fixtures = makeFixtures();
     setArtifacts(fixtures);
-    setActiveFilter('all');
 
     getFilteredArtifacts('');
     expect(getArtifacts()).toBe(fixtures);

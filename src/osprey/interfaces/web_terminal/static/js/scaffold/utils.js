@@ -23,17 +23,31 @@ import { escapeHtml } from '/design-system/js/dom.js';
 export const AGENT_MODEL_OPTIONS = ['haiku', 'sonnet', 'opus'];
 
 /**
- * Brief descriptions for each artifact category, shown in the help tooltip.
+ * Help text for each artifact category, shown in the header tooltip.
+ *
+ * These describe the LOADING MECHANICS of each category, deliberately not what
+ * the shipped files happen to say. The content is the operator's to change --
+ * a blurb about "safety boundaries and error-handling protocols" goes stale the
+ * moment someone edits a rule, while "loads at the start of every session"
+ * stays true whatever they write.
+ *
+ * Keyed by DISPLAY category, so the keys must line up with the values in
+ * {@link BEHAVIOR_CATEGORY_OVERRIDES}/{@link BEHAVIOR_CATEGORY_REMAPS} below
+ * rather than with the raw `category` field on an artifact. Both tables live
+ * in this module so that alignment is checkable in one place (a key that
+ * matches no reachable display category renders no help button at all, silently
+ * -- which is exactly how the CLAUDE.md section went without one).
+ *
  * @type {Record<string, string>}
  */
 export const CATEGORY_HELP = {
-  'system instructions': 'The main CLAUDE.md file that defines the AI assistant\'s identity, capabilities, and behavioral guidelines.',
-  agents: 'Sub-agents that Claude delegates specialized tasks to (search, analysis, visualization). Each agent has its own model, tools, and instructions.',
-  config: 'Top-level configuration files: MCP server definitions (.mcp.json) and permissions (settings.json).',
-  hooks: 'Python scripts that run before or after Claude uses a tool. They enforce safety rules, validate inputs, and inject error guidance.',
-  instructions: 'Markdown files loaded as persistent directives. They define safety boundaries, error handling protocols, and artifact conventions.',
-  skills: 'Multi-file bundles that Claude can invoke as structured workflows. Skills support companion files (CSS/JS references, templates).',
-  'output-styles': 'Markdown style guides that shape how Claude writes responses — tone, format, and epistemic discipline for control system communication.',
+  'project instructions': "The project's CLAUDE.md. Read at the start of every session and injected as a message after the system prompt, so it is context the agent reads rather than a rule the system enforces. It stays for the whole session and is re-read after a context compaction.",
+  instructions: 'Markdown files in .claude/rules/. Each one loads at the start of every session, at the same priority as CLAUDE.md, and stays in context throughout. A file with a paths: header loads only when the agent opens a matching file. Like CLAUDE.md, these are read as context, not enforced.',
+  agents: "Subagent definitions in .claude/agents/. Each runs in its own context window with its own instructions, model, and tool list. The agent delegates when a task matches a subagent's description and gets back only that subagent's final answer — the subagent's own work never enters this session.",
+  skills: 'Folders under .claude/skills/, each with a SKILL.md. Only the name and description load at session start; the body loads when the skill runs — invoked by you with /name, or by the agent when the description matches the task. Companion files in the folder are read on demand.',
+  'output-styles': 'Markdown files in .claude/output-styles/. An output style is appended to the system prompt itself. Exactly one is active at a time, selected by the outputStyle setting, and a change takes effect in the next session. Unless the file sets keep-coding-instructions: true, it replaces the built-in software-engineering instructions. Output styles do not reach subagents.',
+  hooks: "Programs wired to session lifecycle events in settings.json. The runtime runs them itself, not the agent, so a PreToolUse hook can block a tool call before it executes, independent of the agent's decision. This is the only layer in this drawer that enforces rather than advises.",
+  config: ".mcp.json declares which MCP servers start with the session; their tools become the agent's tools. settings.json holds the permission lists, the hook wiring, and the model and output-style selection. Both are read at session start; edits apply on the next session.",
 };
 
 // ---- Category Routing ---- //
@@ -42,6 +56,25 @@ export const BEHAVIOR_CATEGORIES = new Set(['agents', 'skills', 'rules', 'output
 export const BEHAVIOR_NAMES = new Set(['claude-md']);        // config category, behavior tab
 export const SAFETY_CATEGORIES = new Set(['hooks']);
 export const CONFIG_NAMES = new Set(['mcp-json', 'settings-json']); // config category, config tab
+
+/**
+ * Behavior-tab display-category tables, consumed by initScaffoldGallery.
+ *
+ * `claude-md` has no "/" in its canonical name, so the service reports it in
+ * the catch-all `config` category; the override gives it a section of its own.
+ * It is deliberately NOT called "system prompt": CLAUDE.md is delivered as a
+ * message after the system prompt, and the one artifact here that really does
+ * modify the system prompt is the output style.
+ *
+ * @type {Record<string, string>}
+ */
+export const BEHAVIOR_CATEGORY_OVERRIDES = { 'claude-md': 'project instructions' };
+
+/** @type {Record<string, string>} */
+export const BEHAVIOR_CATEGORY_REMAPS = { rules: 'instructions' };
+
+/** @type {string[]} */
+export const BEHAVIOR_PINNED_CATEGORIES = ['project instructions', 'instructions'];
 
 // ---- Marked.js Configuration (one-time) ---- //
 
@@ -111,14 +144,14 @@ export function configureMarked() {
  */
 export function iconForCategory(cat) {
   switch ((cat || '').toLowerCase()) {
-    case 'system prompt':   return '📜'; // scroll
-    case 'instructions': return '📋'; // clipboard
-    case 'agents':   return '🤖';  // robot
-    case 'hooks':    return '⚡';         // lightning
-    case 'commands': return '⌘';         // command key
-    case 'config':   return '⚙';         // gear
-    case 'skills':   return '📦';  // package
-    default:         return '📄';   // document
+    case 'project instructions': return '📜'; // scroll
+    case 'instructions':   return '📋';  // clipboard
+    case 'agents':         return '🤖';  // robot
+    case 'hooks':          return '⚡';  // lightning
+    case 'output-styles':  return '🎨';  // palette
+    case 'config':         return '⚙';   // gear
+    case 'skills':         return '📦';  // package
+    default:               return '📄';  // document
   }
 }
 

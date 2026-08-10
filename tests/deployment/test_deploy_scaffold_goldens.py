@@ -1,0 +1,396 @@
+"""The deploy-scaffolding templates, held to the hand-built goldens.
+
+``tests/deployment/goldens/`` holds a reference deployment that was written by
+hand and validated with ``gitlab-ci-local`` before any template existed. It is
+the specification: the templates under ``src/osprey/templates/deploy/`` must
+reproduce it byte for byte when rendered against ``goldens/exemplar-profile/``.
+Only one value cannot be reproduced — the ``osprey-version:`` provenance line,
+which moves with every release — so the renders here pass the literal
+``OSPREY_VERSION`` in its place, exactly as the goldens freeze it.
+
+The security assertions at the bottom are the surviving half of the old
+``.gitlab-ci.yml`` template tests. The legacy pipeline assembled
+``.env.production`` itself, from a heredoc of masked CI variables, and those
+tests policed which tokens the heredoc was allowed to name. This pipeline
+assembles nothing: the deploy host runs ``osprey deploy render-env-production``
+against its own ``profile/.env``, and the single allowlist in
+``osprey.deployment.web_terminals.env_production`` is the only thing that
+decides what lands in that file. What carries over is therefore the absence
+half — no secret may reach a file, or the deploy host's command line, from
+here.
+"""
+
+from __future__ import annotations
+
+import copy
+import re
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+import osprey
+from osprey.cli.build_profile_deploy import (
+    SUPPORTED_CI_PLATFORMS,
+    DeployConfig,
+    parse_deploy_block,
+)
+from osprey.cli.deploy_scaffold_templates import (
+    CI_TEMPLATES,
+    VERIFY_TEMPLATE,
+    build_ci_context,
+    build_verify_context,
+    render,
+    service_image_names,
+)
+
+GOLDENS = Path(__file__).parent / "goldens"
+EXEMPLAR_DIR = GOLDENS / "exemplar-profile"
+
+#: The goldens freeze the version token as this literal, so renders compared
+#: against them pass it in place of the installed version.
+FROZEN_VERSION = "OSPREY_VERSION"
+
+#: The facility repo's directory name — an emission-time input, not a profile
+#: key, and the value every path in the pipeline is keyed off.
+PROJECT_NAME = "demo-facility"
+
+
+@pytest.fixture(scope="module")
+def exemplar() -> dict[str, Any]:
+    """The exemplar profile, as the scaffolder reads it."""
+    return yaml.safe_load((EXEMPLAR_DIR / "profile.yml").read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def exemplar_deploy(exemplar: dict[str, Any]) -> DeployConfig:
+    """The exemplar's parsed ``deploy:`` block."""
+    deploy = parse_deploy_block(exemplar)
+    assert deploy is not None, "the exemplar profile must declare a deploy block"
+    return deploy
+
+
+def render_ci(
+    profile: dict[str, Any],
+    deploy: DeployConfig,
+    profile_dir: Path = EXEMPLAR_DIR,
+    version: str = FROZEN_VERSION,
+) -> str:
+    """Render the pipeline for a profile."""
+    context = build_ci_context(profile, deploy, profile_dir, PROJECT_NAME, version)
+    return render(CI_TEMPLATES[deploy.ci], context)
+
+
+@pytest.fixture(scope="module")
+def rendered_ci(exemplar: dict[str, Any], exemplar_deploy: DeployConfig) -> str:
+    """The pipeline the exemplar renders."""
+    return render_ci(exemplar, exemplar_deploy)
+
+
+@pytest.fixture(scope="module")
+def rendered_verify(exemplar: dict[str, Any]) -> str:
+    """The health check the exemplar renders."""
+    return render(VERIFY_TEMPLATE, build_verify_context(exemplar, FROZEN_VERSION))
+
+
+@pytest.fixture(scope="module")
+def remote_script(rendered_ci: str) -> str:
+    """The body of the deploy job's ``<<REMOTE`` heredoc.
+
+    The heredoc is unquoted, so every ``$NAME`` inside it is expanded by the
+    CI runner and travels to the deploy host as literal text on a command
+    line. That makes it the one place in the pipeline where a masked variable
+    could leak, which is why the security tests read it on its own.
+    """
+    match = re.search(r"<<REMOTE\n(.*?)\n\s*REMOTE\n", rendered_ci, re.DOTALL)
+    assert match, "could not locate the deploy job's remote heredoc"
+    return match.group(1)
+
+
+# ── The goldens ──────────────────────────────────────────────────────────────
+
+
+def test_gitlab_ci_reproduces_the_golden(rendered_ci: str) -> None:
+    """The pipeline template renders the hand-built pipeline exactly."""
+    assert rendered_ci == (GOLDENS / "gitlab-ci.yml").read_text(encoding="utf-8")
+
+
+def test_verify_sh_reproduces_the_golden(rendered_verify: str) -> None:
+    """The health-check template renders the hand-built script exactly."""
+    assert rendered_verify == (GOLDENS / "verify.sh").read_text(encoding="utf-8")
+
+
+def test_installed_version_is_the_only_unfrozen_value(
+    exemplar: dict[str, Any], exemplar_deploy: DeployConfig
+) -> None:
+    """Rendering with the real version differs from the golden in one line.
+
+    Guards the masking itself: if a second value ever moved with the release,
+    normalizing the version token would quietly hide it.
+    """
+    for rendered, name in (
+        (render_ci(exemplar, exemplar_deploy, version=osprey.__version__), "gitlab-ci.yml"),
+        (
+            render(VERIFY_TEMPLATE, build_verify_context(exemplar, osprey.__version__)),
+            "verify.sh",
+        ),
+    ):
+        golden = (GOLDENS / name).read_text(encoding="utf-8").splitlines()
+        differing = [
+            (left, right)
+            for left, right in zip(golden, rendered.splitlines(), strict=True)
+            if left != right
+        ]
+        assert differing == [
+            (f"# osprey-version: {FROZEN_VERSION}", f"# osprey-version: {osprey.__version__}")
+        ], f"{name} has a value other than the version that moves with the release"
+
+
+# ── Template lookup ──────────────────────────────────────────────────────────
+
+
+def test_every_supported_platform_has_a_template() -> None:
+    """``deploy.ci`` accepts exactly the platforms with a shipped pipeline."""
+    assert set(CI_TEMPLATES) == set(SUPPORTED_CI_PLATFORMS)
+    assert CI_TEMPLATES["gitlab"] == "gitlab-ci.yml.j2"
+
+
+# ── Per-service image jobs ───────────────────────────────────────────────────
+
+
+def test_profile_owned_service_gets_an_image_job(rendered_ci: str) -> None:
+    """The facility's own Dockerfile-carrying service earns a build job."""
+    assert "image:facility-mcp:" in rendered_ci
+    assert "extends: .service-image" in rendered_ci
+    assert '"profile/services/$SERVICE"' in rendered_ci
+
+
+def test_packaged_service_directory_gets_no_image_job(
+    exemplar: dict[str, Any], exemplar_deploy: DeployConfig, tmp_path: Path
+) -> None:
+    """A copied packaged service earns no job, Dockerfile or not.
+
+    A materialized profile carries the virtual accelerator's service directory,
+    Dockerfile included, but the framework builds that image from its own
+    upstream. Only what the profile's ``services:`` block declares is the
+    facility's to build.
+    """
+    profile_dir = tmp_path / "profile"
+    (profile_dir / "services" / "facility-mcp").mkdir(parents=True)
+    (profile_dir / "services" / "facility-mcp" / "Dockerfile").write_text("FROM scratch\n")
+    (profile_dir / "services" / "virtual_accelerator").mkdir(parents=True)
+    (profile_dir / "services" / "virtual_accelerator" / "Dockerfile").write_text("FROM scratch\n")
+
+    assert service_image_names(exemplar, profile_dir) == ["facility-mcp"]
+    rendered = render_ci(exemplar, exemplar_deploy, profile_dir=profile_dir)
+    assert "image:facility-mcp:" in rendered
+    assert "virtual_accelerator" not in rendered
+
+
+# ── Pipeline contract ────────────────────────────────────────────────────────
+
+
+def test_pipeline_runs_the_expected_osprey_commands(rendered_ci: str) -> None:
+    """The ``osprey`` invocations are the ones the deployment story promises.
+
+    ``osprey build`` takes no ``-o``: the project lands in ``build/<name>/`` on
+    its own, and both the artifact path and the deploy host's ``--project``
+    resolve to that same directory.
+    """
+    invocations = re.findall(r"^\s*(?:- )?(osprey .+)$", rendered_ci, re.MULTILINE)
+    assert invocations == [
+        "osprey profile validate $OSPREY_PROFILE",
+        "osprey build $OSPREY_PROJECT_NAME $OSPREY_PROFILE --force --skip-lifecycle --skip-deps",
+        "osprey build $OSPREY_PROJECT_NAME $OSPREY_PROFILE --force",
+        "osprey deploy render-env-production --project $OSPREY_BUILD_DIR "
+        "--output $OSPREY_BUILD_DIR/.env.production",
+        "osprey deploy up -d --project $OSPREY_BUILD_DIR",
+    ]
+    assert " -o " not in rendered_ci
+
+
+def test_ci_extra_include_is_guarded_by_exists(rendered_ci: str) -> None:
+    """The facility's own jobs are included, but a deleted file is not fatal."""
+    pipeline = yaml.safe_load(rendered_ci)
+    assert pipeline["include"] == [
+        {"local": "ci-extra.yml", "rules": [{"exists": ["ci-extra.yml"]}]}
+    ]
+
+
+def test_pipeline_pins_the_version_floor_the_profile_declares(rendered_ci: str) -> None:
+    """CI can never run an OSPREY that does not understand the profile."""
+    assert 'pip install --no-cache-dir "osprey-framework>=2026.8.0"' in rendered_ci
+
+
+# ── External projects ────────────────────────────────────────────────────────
+
+
+def test_exemplar_render_carries_no_trace_of_external_projects(rendered_ci: str) -> None:
+    """A profile declaring none must render as though the feature did not exist."""
+    assert "external" not in rendered_ci
+
+
+def test_declared_external_projects_get_their_own_jobs(exemplar: dict[str, Any]) -> None:
+    """Each external project is proved pullable while there is time to rotate."""
+    profile = copy.deepcopy(exemplar)
+    profile["deploy"]["external_projects"] = [
+        {
+            "name": "beamline-tools",
+            "url": "registry.example.org/beamline",
+            "image": "tools:latest",
+            "token_env_var": "BEAMLINE_PULL_TOKEN",
+        }
+    ]
+    deploy = parse_deploy_block(profile)
+    assert deploy is not None
+    rendered = render_ci(profile, deploy)
+
+    assert "external:beamline-tools:" in rendered
+    assert 'docker pull "registry.example.org/beamline/tools:latest"' in rendered
+    assert "BEAMLINE_PULL_TOKEN" in rendered
+    yaml.safe_load(rendered)
+
+
+# ── The health check ─────────────────────────────────────────────────────────
+
+
+def test_probe_group_filter_is_not_named_groups(rendered_verify: str) -> None:
+    """The filter variable must not be ``GROUPS``.
+
+    Bash owns ``GROUPS`` — assigning to it is silently ignored, so the rename
+    would leave every ``wants`` call false. The script exits 0 either way, and
+    a health check that runs no probes reports perfect health.
+    """
+    assert 'PROBE_GROUPS="${*:-services web}"' in rendered_verify
+    assert not re.search(r"^\s*GROUPS=", rendered_verify, re.MULTILINE)
+    assert not re.search(r"\$\{?GROUPS\b", rendered_verify)
+
+
+def test_health_check_probes_every_deployed_service(rendered_verify: str) -> None:
+    """The three services this facility runs each get a probe."""
+    assert "probe_tcp  'virtual-accelerator: Channel Access on 5064' 127.0.0.1 5064" in (
+        rendered_verify
+    )
+    assert "'openobserve: telemetry store on 5080'" in rendered_verify
+    assert "'facility-mcp: machine status on 8200'" in rendered_verify
+
+
+def test_health_check_drops_the_web_group_when_there_are_no_terminals(
+    exemplar: dict[str, Any],
+) -> None:
+    """A single-user deployment gets a script with nothing to explain away."""
+    profile = copy.deepcopy(exemplar)
+    profile["config"]["modules.web_terminals"]["enabled"] = False
+    rendered = render(VERIFY_TEMPLATE, build_verify_context(profile, FROZEN_VERSION))
+
+    assert 'PROBE_GROUPS="${*:-services}"' in rendered
+    assert "Web terminals" not in rendered
+    assert "nginx" not in rendered
+    assert "./scripts/verify.sh services" in rendered
+
+
+def test_health_check_is_advisory(rendered_verify: str) -> None:
+    """It always exits 0 — a failed probe never fails a deploy."""
+    assert rendered_verify.rstrip().endswith("exit 0")
+    assert not re.search(r"^\s*exit [1-9]", rendered_verify, re.MULTILINE)
+    assert not re.search(r"^set -e", rendered_verify, re.MULTILINE)
+
+
+# ── Security: no secret reaches a file or a remote command line ──────────────
+
+
+def test_pipeline_never_assembles_env_production(rendered_ci: str, remote_script: str) -> None:
+    """CI writes no secrets file of its own.
+
+    The legacy pipeline built ``.env.production`` from a heredoc of masked CI
+    variables and COPYed the result into the runtime image. Nothing here may
+    do that again: the only thing that produces the file is the deploy host,
+    running ``render-env-production`` against its own ``profile/.env``.
+
+    The file is therefore *named* exactly once, as that command's destination
+    on the host, and nowhere else — no CI-side assembly, no artifact, no COPY.
+    """
+    assert "ENVEOF" not in rendered_ci
+    assert "cat > .env.production" not in rendered_ci
+
+    mentions = [line.strip() for line in rendered_ci.splitlines() if ".env.production" in line]
+    assert mentions == [
+        "osprey deploy render-env-production --project $OSPREY_BUILD_DIR "
+        "--output $OSPREY_BUILD_DIR/.env.production"
+    ]
+    assert mentions[0] in remote_script
+
+
+def test_the_host_render_never_streams_secrets_to_the_job_log(remote_script: str) -> None:
+    """``render-env-production`` must write to a file, not to stdout.
+
+    Without ``--output`` the command echoes the assembled subset — every
+    credential the deployment runs on — and in this job stdout is the CI log,
+    which is retained, searchable, and visible to everyone with read access to
+    the project. The flag is also what creates the file at mode 0600 from its
+    first byte; a shell redirect would leave it world-readable on the host.
+
+    Pinned as a positive assertion rather than as the absence of a redirect:
+    dropping the flag is a one-token edit whose damage is invisible until a
+    real pipeline runs with real secrets in it.
+    """
+    render_lines = [
+        line.strip()
+        for line in remote_script.splitlines()
+        if "render-env-production" in line and "osprey" in line
+    ]
+    assert len(render_lines) == 1, render_lines
+    assert "--output $OSPREY_BUILD_DIR/.env.production" in render_lines[0]
+    assert ">" not in render_lines[0]
+
+    # The written file must be the one `osprey deploy up` then reads: that verb
+    # resolves .env.production against its --project directory, so any other
+    # destination deploys a stack whose containers have no environment.
+    assert "osprey deploy up -d --project $OSPREY_BUILD_DIR" in remote_script
+
+
+def test_registry_token_is_never_written_to_a_file(
+    rendered_ci: str, exemplar_deploy: DeployConfig
+) -> None:
+    """The registry credential is passed to ``docker login`` and nowhere else."""
+    token = exemplar_deploy.registry.token_env_var
+    uses = [line.strip() for line in rendered_ci.splitlines() if f"${token}" in line]
+    assert uses == [f'- docker login -u "$CI_REGISTRY_USER" -p "${token}" "$REGISTRY_HOST"']
+
+
+def test_no_secret_is_expanded_into_the_remote_command_line(
+    remote_script: str, exemplar: dict[str, Any]
+) -> None:
+    """Nothing the profile declares as a secret crosses the SSH boundary.
+
+    The heredoc is unquoted, so a ``$NAME`` here would be expanded by the
+    runner and land in the deploy host's process arguments — visible to every
+    user on the box. The host reads its own ``profile/.env`` instead.
+    """
+    declared = exemplar["env"]["required"]
+    # A profile that declared nothing would pass this loop without checking
+    # anything, and the exemplar's list is small enough for that to happen by
+    # accident on an edit.
+    assert declared, "the exemplar declares no secrets, so this test proves nothing"
+    for name in declared:
+        assert f"${name}" not in remote_script
+
+
+def test_native_service_tokens_are_absent(rendered_ci: str) -> None:
+    """Tokens the framework mints per deployment never appear in CI.
+
+    The event dispatcher's bearer token and its sidecar counterpart are minted
+    on the deploy host and belong to the running stack, not to the pipeline.
+    """
+    assert "EVENT_DISPATCHER" not in rendered_ci
+    assert "event_dispatcher" not in rendered_ci
+    assert "sidecar_token" not in rendered_ci
+
+
+def test_ssh_key_is_ci_only_and_lands_outside_the_project(rendered_ci: str) -> None:
+    """The deploy key authenticates the job; it is not deployment environment."""
+    assert '- cp "$OSPREY_DEPLOY_SSH_KEY" ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519' in (
+        rendered_ci
+    )
+    assert "OSPREY_DEPLOY_SSH_KEY" not in yaml.safe_load(rendered_ci)["variables"]

@@ -283,21 +283,12 @@ def get_logger(
 
     base_logger = logging.getLogger(component_name)
 
-    try:
-        config_path = f"logging.logging_colors.{component_name}"
-        color = get_config_value(config_path)
-
-        if not color:
-            color = "white"
-
-    except Exception as e:
-        color = "white"
-        # Only show warning in debug mode to reduce noise
-        import os
-
-        if os.getenv("DEBUG_LOGGING"):
-            print(
-                f"WARNING: Failed to load color config for {component_name}: {e}. Using white as fallback."
-            )
-
-    return ComponentLogger(base_logger, component_name, color, state=state)
+    # No config lookup here, deliberately. This used to resolve
+    # ``logging.logging_colors.<component>``, but nothing ever consumed the
+    # result — ComponentLogger.color is write-only and _log() delegates
+    # straight to the stdlib logger. Building a Config to answer it dragged
+    # the whole config machinery — and its ``.env`` load — into all ~70
+    # module-level ``logger = get_logger(...)`` sites, making a bare
+    # ``import osprey.<anything>`` rewrite os.environ. See the module
+    # docstring in osprey.utils.config on where .env loading belongs.
+    return ComponentLogger(base_logger, component_name, "white", state=state)

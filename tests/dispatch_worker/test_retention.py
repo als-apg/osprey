@@ -274,8 +274,18 @@ def test_retention_loop_runs_one_iteration(tmp_path, monkeypatch):
     store = ArtifactStore(workspace_root=tmp_path)
 
     calls: list[float] = []
+    real_sleep = asyncio.sleep
 
     async def fake_sleep(interval):
+        # This patch replaces the PROCESS-global asyncio.sleep, and daemon
+        # threads left running by earlier tests in the same worker (uvicorn
+        # servers tick sleep(0.1), the epics-ca test loop, …) call it too.
+        # Intercept only this loop's own interval and pass everything else
+        # through, so a foreign thread's tick can neither pollute `calls`
+        # nor swallow the cancellation meant for the retention loop.
+        if interval != 123.0:
+            await real_sleep(interval)
+            return
         # Let the first sleep return so one sweep runs, then cancel the loop.
         calls.append(interval)
         if len(calls) >= 2:

@@ -12,13 +12,20 @@ proofs then exercise the whole stack end to end:
   P2 liveness:      the full manifest namespace is reachable over CA.
   P3 read-equiv:    a pyepics (host) read and an ophyd-async (bridge) read of
                      the same PV agree.
-  P4 concurrent:    an EPICS-substrate ``scan`` plan runs to completion while a
-                     concurrent host read observes the same PV consistently —
-                     the loop-affinity falsifier (task 2.1).
+  P4 concurrent:    an EPICS-substrate ``grid_scan`` plan runs to completion
+                     while a concurrent host read observes the same PV
+                     consistently — the loop-affinity falsifier.
   P5 honest divergence: a write to a pre-faulted ``:SP`` verifies (the SP
                      always latches its own readback), but an independent read
                      of the sibling ``:RB`` proves it never moved — and both
                      CA clients (host + bridge) agree on that frozen value.
+
+Plans reach the hardware through the bridge's QUEUE, not a direct-execute
+route: P3/P4 stage the plan in the shared draft, enqueue that exact revision,
+and arm ``POST /queue/start`` with the launch token (``PATCH /draft`` ->
+``POST /queue/items`` -> ``POST /queue/start`` -> poll ``GET /runs/{id}``,
+spelled once in ``tests/e2e/_queue_drive.py``). That is transport only — what
+these proofs assert about the substrate is unchanged.
 
 No preset channel names are hardcoded: every address used below is derived
 from the DEPLOYED project's own ``data/channel_limits.json`` (writable ⟺ a
@@ -63,6 +70,8 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
+from tests.e2e import _queue_drive
+from tests.e2e._deploy_diagnostics import dead_container_logs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
@@ -105,12 +114,17 @@ P3_DETECTOR = "p3_det"
 P4_DETECTOR = "p4_det"
 P5_DETECTOR = "p5_det"
 
-# The bridge's launch route (POST /runs/{id}/launch) fails closed on an unset
+# The bridge's arming route (POST /queue/start) fails closed on an unset
 # BLUESKY_LAUNCH_TOKEN. `osprey deploy up` mints one for the deployed bluesky
 # service, but this e2e supplies its own explicitly (the supported
 # operator-provides-a-token path) so the test knows the token value up front
 # and never has to read it back out of the project .env.
 LAUNCH_TOKEN = "e2e-substrate-equivalence-launch-token"
+
+# Identifies this suite as the draft's writer on every PATCH /draft frame. The
+# draft is a single shared document, so a client id that names the writer is
+# what makes a stray edit attributable.
+_QUEUE_CLIENT_ID = "va-substrate-equivalence-e2e"
 
 BUILD_TIMEOUT_SEC = 300
 DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
@@ -312,8 +326,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
-            "--set",
-            "bluesky.demo_runner=false",
             "--skip-deps",
             "--skip-lifecycle",
             "--output-dir",
@@ -353,9 +365,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         if up.returncode != 0:
             pytest.fail(
                 f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
+                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
+                f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        try:
+            _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         yield DeployedStack(project_dir=project_dir, pairs=pairs, limits=limits)
     finally:
         down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
@@ -363,6 +379,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+
+
+def _dead_container_logs() -> str:
+    """Logs from every container of this deployment that is not running."""
+    return dead_container_logs(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
 def _wait_for_health(url: str, timeout: float) -> None:
@@ -419,21 +440,6 @@ def _get(path: str) -> tuple[int, dict]:
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
-def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(  # noqa: S310
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/json", **(headers or {})},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
-
-
 def _find_column(columns: list[str], device_name: str) -> int:
     """The event-data column for a device -- ophyd-async names a hinted
     child `"<device>-<child>"`; match the device-name prefix rather than the
@@ -459,20 +465,24 @@ def _docker_inspect(container: str, fmt: str) -> str:
 async def _run_scan(
     plan_name: str, plan_args: dict, project_dir: Path, timeout: float = SCAN_TIMEOUT_SEC
 ) -> tuple[str, dict]:
-    """POST /runs -> launch -> poll to a terminal status. Returns (run_id, final_status_body)."""
-    token = _minted_token(project_dir)
-    status, body = _post("/runs", {"plan_name": plan_name, "plan_args": plan_args})
-    assert status == 200, f"POST /runs failed: {status} {body}"
-    run_id = body["id"]
+    """Stage -> enqueue -> armed start -> poll. Returns (run_id, final_status_body).
 
-    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
-    assert status == 200, f"launch failed: {status} {body}"
+    The three writes go through `_queue_drive`, the one copy of the queue flow.
+    The poll stays here, and stays ``async``: P4 runs a host-side CA read
+    concurrently with the scan, so this module's loop must never be blocked
+    while a plan is under way.
+    """
+    token = _minted_token(project_dir)
+    run_id = _queue_drive.stage_and_enqueue(
+        BRIDGE_URL, plan_name, plan_args, client_id=_QUEUE_CLIENT_ID
+    )
+    _queue_drive.start_queue(BRIDGE_URL, token)
 
     deadline = time.monotonic() + timeout
     last_status_body: dict = {}
     while time.monotonic() < deadline:
         _, last_status_body = _get(f"/runs/{run_id}")
-        if last_status_body.get("status") in ("completed", "error", "stopped"):
+        if last_status_body.get("status") in _queue_drive.TERMINAL_STATUSES:
             break
         await asyncio.sleep(0.2)
     return run_id, last_status_body
@@ -720,24 +730,22 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     stop = lo + 0.75 * (hi - lo)
     num = 4
 
+    # Driven step by step rather than through `_run_scan`: the host read below
+    # has to be spawned between the armed start and the first poll, so this
+    # proof needs the start and the polling loop separated.
     token = _minted_token(deployed_stack.project_dir)
-    status, body = _post(
-        "/runs",
+    run_id = _queue_drive.stage_and_enqueue(
+        BRIDGE_URL,
+        "grid_scan",
         {
-            "plan_name": "grid_scan",
-            "plan_args": {
-                "detectors": [P4_DETECTOR],
-                "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
-            },
+            "detectors": [P4_DETECTOR],
+            "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
         },
+        client_id=_QUEUE_CLIENT_ID,
     )
-    assert status == 200, f"POST /runs failed: {status} {body}"
-    run_id = body["id"]
+    _queue_drive.start_queue(BRIDGE_URL, token)
 
-    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
-    assert status == 200, f"launch failed: {status} {body}"
-
-    # Launch the host read in its OWN process immediately after launch, before
+    # Launch the host read in its OWN process immediately after the start, before
     # any polling sleep, so it genuinely overlaps the bridge's in-flight scan (a
     # wrong-loop/dead-monitor connect on the bridge side would stall the scan;
     # see module docstring and task 2.1). Isolating it in a subprocess is what
@@ -763,7 +771,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
         status_body: dict = {}
         while time.monotonic() < deadline:
             _, status_body = _get(f"/runs/{run_id}")
-            if status_body.get("status") in ("completed", "error", "stopped"):
+            if status_body.get("status") in _queue_drive.TERMINAL_STATUSES:
                 break
             await asyncio.sleep(0.2)
         assert status_body.get("status") == "completed", f"P4 scan did not complete: {status_body}"

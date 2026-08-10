@@ -150,6 +150,303 @@ class TestBuildDatabaseSubcommand:
 
 
 # ============================================================================
+# Build-database output anchoring
+# ============================================================================
+
+
+def _write_csv(path):
+    """A minimal well-formed channel CSV."""
+    path.write_text(
+        "address,description,family_name,instances,sub_channel\n"
+        "BEAM:CURRENT,Total beam current,,,\n"
+        "BPM01X,BPM horizontal,BPM,3,X\n"
+    )
+    return path
+
+
+def _make_project(project_dir, profile_file=None):
+    """A project directory whose manifest names ``profile_file`` (or none)."""
+    import json
+
+    project_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {"build_args": {}}
+    if profile_file is not None:
+        manifest["build_args"]["profile_path_abs"] = str(profile_file)
+    (project_dir / ".osprey-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return project_dir
+
+
+def _make_profile(profile_dir, data_key="data"):
+    """A materialized-looking profile with a data tree beside its profile.yml."""
+    (profile_dir / data_key).mkdir(parents=True)
+    profile_file = profile_dir / "profile.yml"
+    profile_file.write_text(f"name: facility\ndata: {data_key}\n", encoding="utf-8")
+    return profile_file
+
+
+def _squashed(output):
+    """Console output with all whitespace removed — rich wraps at any width."""
+    return "".join(output.split())
+
+
+class TestBuildDatabaseOutputAnchoring:
+    """FR-8b: a generated database belongs to the profile, not the project."""
+
+    def test_default_output_lands_in_the_profile_data_tree(self, runner, tmp_path):
+        """With a profile-built project, the database is written into the profile."""
+        profile_file = _make_profile(tmp_path / "my-profile")
+        project = _make_project(tmp_path / "my-project", profile_file)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        written = tmp_path / "my-profile" / "data" / "processed" / "channel_database.json"
+        assert written.exists()
+        assert not (project / "data").exists()
+
+    def test_rebuild_next_step_is_printed(self, runner, tmp_path):
+        """The staleness the write causes is announced with the command that clears it."""
+        profile_file = _make_profile(tmp_path / "my-profile")
+        project = _make_project(tmp_path / "my-project", profile_file)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        printed = _squashed(result.output)
+        assert "stale" in printed
+        assert "--force" in printed
+
+    def test_no_profile_falls_back_to_the_project_data_tree(self, runner, tmp_path):
+        """A preset-built project has no profile to own the database."""
+        project = _make_project(tmp_path / "my-project")
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        assert (project / "data" / "processed" / "channel_database.json").exists()
+
+    def test_no_profile_fallback_warns(self, runner, tmp_path):
+        """The fallback is announced — the file a rebuild overwrites is not silent."""
+        project = _make_project(tmp_path / "my-project")
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        printed = _squashed(result.output)
+        assert "Noprofiledatatreeresolved" in printed
+        assert "overwrites" in printed
+
+    def test_missing_manifest_falls_back(self, runner, tmp_path):
+        """A directory with no manifest at all resolves no profile."""
+        project = tmp_path / "bare-project"
+        project.mkdir()
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        assert (project / "data" / "processed" / "channel_database.json").exists()
+
+    def test_manifest_naming_a_deleted_profile_falls_back(self, runner, tmp_path):
+        """A profile path that no longer exists is a fallback, not a crash."""
+        project = _make_project(tmp_path / "my-project", tmp_path / "gone" / "profile.yml")
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        assert (project / "data" / "processed" / "channel_database.json").exists()
+
+    def test_explicit_output_wins_over_the_profile_default(self, runner, tmp_path):
+        """--output is the author's decision and overrides the profile anchor."""
+        profile_file = _make_profile(tmp_path / "my-profile")
+        project = _make_project(tmp_path / "my-project", profile_file)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+        chosen = tmp_path / "elsewhere" / "db.json"
+
+        result = runner.invoke(
+            channel_finder,
+            [
+                "--project",
+                str(project),
+                "build-database",
+                "--csv",
+                str(csv_file),
+                "--output",
+                str(chosen),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert chosen.exists()
+        assert not (tmp_path / "my-profile" / "data" / "processed").exists()
+
+    def test_persona_delta_anchors_at_the_profile_root(self, runner, tmp_path):
+        """A persona-built project writes into the root's data tree, not personas/."""
+        profile_dir = tmp_path / "my-profile"
+        _make_profile(profile_dir)
+        (profile_dir / "personas").mkdir()
+        persona = profile_dir / "personas" / "reader.yml"
+        persona.write_text("name: reader\n", encoding="utf-8")
+        project = _make_project(tmp_path / "reader-project", persona)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        assert (profile_dir / "data" / "processed" / "channel_database.json").exists()
+        assert not (profile_dir / "personas" / "data").exists()
+
+    def test_custom_data_directory_name_is_honored(self, runner, tmp_path):
+        """The anchor is the profile's declared ``data:`` tree, not a fixed name."""
+        profile_file = _make_profile(tmp_path / "my-profile", data_key="facility-data")
+        project = _make_project(tmp_path / "my-project", profile_file)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        written = tmp_path / "my-profile" / "facility-data" / "processed" / "channel_database.json"
+        assert written.exists()
+
+    def test_inherited_data_tree_is_resolved_through_extends(self, runner, tmp_path):
+        """A ``data:`` the profile inherits is still where the build reads from.
+
+        Resolving only the named file's own keys makes an inherited tree
+        invisible, and the database lands somewhere the build never looks —
+        while the caller still announces it as ready to deploy.
+        """
+        profile_dir = tmp_path / "my-profile"
+        # Deliberately not named ``data``: the old code invented ``<root>/data``
+        # whenever it saw no ``data:`` key, which would mask the inheritance.
+        (profile_dir / "facility-data").mkdir(parents=True)
+        (profile_dir / "base.yml").write_text("name: base\ndata: facility-data\n", encoding="utf-8")
+        profile_file = profile_dir / "profile.yml"
+        profile_file.write_text("extends: ./base.yml\nname: facility\n", encoding="utf-8")
+        project = _make_project(tmp_path / "my-project", profile_file)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        written = profile_dir / "facility-data" / "processed" / "channel_database.json"
+        assert written.exists()
+        assert not (profile_dir / "data").exists()
+        assert not (project / "data").exists()
+
+    def test_profile_without_a_data_tree_falls_back_to_the_project(self, runner, tmp_path):
+        """A profile that declares no ``data:`` has no tree to own the database.
+
+        Inventing ``<profile>/data`` would write into a directory the build
+        does not read, and the rebuild hint would be a lie.
+        """
+        profile_dir = tmp_path / "my-profile"
+        profile_dir.mkdir(parents=True)
+        profile_file = profile_dir / "profile.yml"
+        profile_file.write_text("name: facility\n", encoding="utf-8")
+        project = _make_project(tmp_path / "my-project", profile_file)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        assert (project / "data" / "processed" / "channel_database.json").exists()
+        assert not (profile_dir / "data").exists()
+        printed = _squashed(result.output)
+        assert "Noprofiledatatreeresolved" in printed
+        assert "stale" not in printed  # nothing to deploy, so nothing is promised
+
+    def test_the_manifest_named_profile_is_the_one_read(self, runner, tmp_path):
+        """A sibling ``profile.yml`` must not hijack a differently-named profile.
+
+        Substituting the directory's ``profile.yml`` for the file the manifest
+        names writes one facility's channel database into another's data tree.
+        """
+        profile_dir = tmp_path / "profiles"
+        (profile_dir / "als-data").mkdir(parents=True)
+        (profile_dir / "other-data").mkdir(parents=True)
+        named = profile_dir / "als.yml"
+        named.write_text("name: als\ndata: als-data\n", encoding="utf-8")
+        (profile_dir / "profile.yml").write_text(
+            "name: other\ndata: other-data\n", encoding="utf-8"
+        )
+        project = _make_project(tmp_path / "als-project", named)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        assert (profile_dir / "als-data" / "processed" / "channel_database.json").exists()
+        assert not (profile_dir / "other-data" / "processed").exists()
+
+    def test_a_persona_delta_may_override_the_roots_data_tree(self, runner, tmp_path):
+        """The delta wins the merge, so a ``data:`` it names is the one that counts."""
+        profile_dir = tmp_path / "my-profile"
+        _make_profile(profile_dir)
+        (profile_dir / "persona-data").mkdir()
+        (profile_dir / "personas").mkdir()
+        persona = profile_dir / "personas" / "reader.yml"
+        persona.write_text("name: reader\ndata: persona-data\n", encoding="utf-8")
+        project = _make_project(tmp_path / "reader-project", persona)
+        csv_file = _write_csv(tmp_path / "channels.csv")
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "build-database", "--csv", str(csv_file)],
+        )
+
+        assert result.exit_code == 0
+        assert (profile_dir / "persona-data" / "processed" / "channel_database.json").exists()
+        assert not (profile_dir / "data" / "processed").exists()
+
+    def test_help_documents_the_staleness_sequence(self, runner):
+        """The advisory is intentional, so the help says so rather than the release notes."""
+        result = runner.invoke(channel_finder, ["build-database", "--help"])
+
+        assert result.exit_code == 0
+        printed = _squashed(result.output)
+        assert "stale" in printed
+        assert "--force" in printed
+
+
+# ============================================================================
 # Validate Subcommand Tests
 # ============================================================================
 

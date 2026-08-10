@@ -4,19 +4,21 @@ Pins the archiver-freshness contract: a missing ``channel`` and a missing
 ``archiver:`` block are config-style errors; an unreachable archiver (or a
 raising query) is an error carrying ``str(exc)``; a sample within ``max_age_s``
 is ``ok`` with its age reported; a sample older than the threshold — or an empty
-query window — is a ``warning``; timezone-naive archiver timestamps are read as
-UTC. The archiver connector is acquired lazily via ``ctx.runtime.get_archiver``
-with the ``ctx.config`` archiver block taking precedence, and one test drives the
-real in-tree :class:`MockArchiverConnector` end to end through a real
-:class:`HealthRuntime`.
+query window — is a ``warning``; a frame that breaks the long-format contract is
+*not* laundered into a staleness warning. The archiver connector is acquired
+lazily via ``ctx.runtime.get_archiver`` with the ``ctx.config`` archiver block
+taking precedence, and one test drives the real in-tree
+:class:`MockArchiverConnector` end to end through a real :class:`HealthRuntime`.
 """
 
 from __future__ import annotations
 
+import warnings
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
+import pytest
 
 from osprey.health.models import Status
 from osprey.health.probes import ProbeContext, get_probe
@@ -77,17 +79,29 @@ def _ctx(
     return ProbeContext(runtime=runtime, config=config), runtime  # type: ignore[arg-type]
 
 
-def _frame(newest_age_s: float, value: float = 1.5, *, tz: bool = True) -> pd.DataFrame:
-    """A single-channel frame whose newest sample is ``newest_age_s`` seconds old.
-
-    With ``tz=False`` the index is timezone-*naive UTC* — how the EPICS Archiver
-    Appliance can return timestamps — not naive local time.
-    """
+def _frame(newest_age_s: float, value: float = 1.5) -> pd.DataFrame:
+    """A single-channel long-format frame whose newest sample is ``newest_age_s`` s old."""
     now = datetime.now(UTC)
-    if not tz:
-        now = now.replace(tzinfo=None)
     stamps = [now - timedelta(seconds=newest_age_s + 30), now - timedelta(seconds=newest_age_s)]
-    return pd.DataFrame({"BEAM:CURRENT": [value - 0.1, value]}, index=pd.to_datetime(stamps))
+    return pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(stamps),
+            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "value": [value - 0.1, value],
+        }
+    )
+
+
+def _empty_long_frame() -> pd.DataFrame:
+    """The contract's empty result: the three-column long frame every connector
+    returns for a query that matched no samples."""
+    return pd.DataFrame(
+        {
+            "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
+            "channel": pd.Series(dtype=str),
+            "value": pd.Series(dtype="float64"),
+        }
+    )
 
 
 # --- Registry wiring --------------------------------------------------------
@@ -160,16 +174,30 @@ async def test_stale_sample_is_warning_with_age() -> None:
 
 
 async def test_empty_window_is_warning() -> None:
-    ctx, _runtime = _ctx(_SpyArchiver(pd.DataFrame()))
+    ctx, _runtime = _ctx(_SpyArchiver(_empty_long_frame()))
     result = await run({"channel": "BEAM:CURRENT"}, ctx)
+    assert result.status is Status.WARNING
+    assert "No samples" in result.message
+
+
+async def test_channel_absent_from_a_populated_frame_is_warning() -> None:
+    """A PV with no rows in a frame that carries other channels' samples."""
+    frame = _frame(newest_age_s=10)
+    ctx, _runtime = _ctx(_SpyArchiver(frame))
+    result = await run({"channel": "OTHER:PV"}, ctx)
     assert result.status is Status.WARNING
     assert "No samples" in result.message
 
 
 async def test_all_null_column_is_warning() -> None:
     frame = pd.DataFrame(
-        {"BEAM:CURRENT": [float("nan"), float("nan")]},
-        index=pd.to_datetime([datetime.now(UTC) - timedelta(seconds=s) for s in (60, 30)]),
+        {
+            "timestamp": pd.to_datetime(
+                [datetime.now(UTC) - timedelta(seconds=s) for s in (60, 30)]
+            ),
+            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "value": [float("nan"), float("nan")],
+        }
     )
     ctx, _runtime = _ctx(_SpyArchiver(frame))
     result = await run({"channel": "BEAM:CURRENT"}, ctx)
@@ -185,16 +213,46 @@ async def test_default_max_age_is_600() -> None:
     assert (await run({"channel": "BEAM:CURRENT"}, stale_ctx)).status is Status.WARNING
 
 
-# --- Timezone handling ------------------------------------------------------
+# --- Frame handling ---------------------------------------------------------
 
 
-async def test_naive_timestamps_read_as_utc() -> None:
-    # A naive index (no tzinfo) must not raise and is read as UTC; a recent
-    # naive sample grades fresh rather than crashing on naive/aware subtraction.
-    archiver = _SpyArchiver(_frame(newest_age_s=42, tz=False))
-    ctx, _runtime = _ctx(archiver)
-    result = await run({"channel": "BEAM:CURRENT", "max_age_s": 600}, ctx)
+async def test_non_conforming_frame_is_not_laundered_into_a_staleness_warning() -> None:
+    """A connector that breaks the long-format contract must not read as "no samples".
+
+    A frame without a ``channel`` column is a broken connector; the probe lets
+    it raise so the runner reports an error naming the exception, rather than
+    a misleading staleness warning.
+    """
+    ctx, _runtime = _ctx(_SpyArchiver(pd.DataFrame({"ts": [], "val": []})))
+    with pytest.raises(KeyError):
+        await run({"channel": "BEAM:CURRENT"}, ctx)
+
+
+async def test_nanosecond_timestamps_are_not_truncated_with_a_warning() -> None:
+    """The EPICS connector carries real nanoseconds into the ``timestamp`` column.
+
+    ``Timestamp.to_pydatetime()`` discards them with a UserWarning; the age
+    comparison never needed that conversion.
+    """
+    now = pd.Timestamp.now(tz=UTC).as_unit("ns")
+    stamps = pd.DatetimeIndex(
+        [now - pd.Timedelta(seconds=72), now - pd.Timedelta(seconds=42) + pd.Timedelta(123, "ns")]
+    )
+    assert stamps[-1].nanosecond == 123  # the input really carries sub-µs precision
+    frame = pd.DataFrame(
+        {
+            "timestamp": stamps,
+            "channel": ["BEAM:CURRENT", "BEAM:CURRENT"],
+            "value": [1.4, 1.5],
+        }
+    )
+    ctx, _runtime = _ctx(_SpyArchiver(frame))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = await run({"channel": "BEAM:CURRENT", "max_age_s": 600}, ctx)
+
     assert result.status is Status.OK
+    assert [str(w.message) for w in caught if "nanosecond" in str(w.message)] == []
 
 
 # --- Lazy acquisition and config precedence ---------------------------------
@@ -216,6 +274,64 @@ async def test_timeout_passed_to_get_data() -> None:
     pv_list, _start, _end, timeout = archiver.get_data_calls[0]
     assert pv_list == ["BEAM:CURRENT"]
     assert timeout == 7  # float seconds coerced to the connector's int timeout
+
+
+# --- Global-config fallback (ctx.config is None) -----------------------------
+
+
+async def test_none_config_falls_back_to_global_archiver_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI/standalone: with no per-run config the block comes from the global
+    singleton via ``get_config_value("archiver", ...)`` and the run proceeds."""
+    import osprey.utils.config as config_module
+
+    block = {"type": "mock_archiver"}
+    keys_asked: list[str] = []
+
+    def fake_get_config_value(key: str, default: Any = None) -> Any:
+        keys_asked.append(key)
+        return block
+
+    monkeypatch.setattr(config_module, "get_config_value", fake_get_config_value)
+    archiver = _SpyArchiver(_frame(newest_age_s=10))
+    runtime = _SpyRuntime(archiver)
+    ctx = ProbeContext(runtime=runtime, config=None)  # type: ignore[arg-type]
+
+    result = await run({"channel": "BEAM:CURRENT"}, ctx)
+
+    assert result.status is Status.OK
+    assert keys_asked == ["archiver"]
+    assert runtime.get_archiver_calls == [block]  # the global block reached the runtime
+
+
+def _raising_get_config_value(key: str, default: Any = None) -> Any:
+    raise RuntimeError("config file not found")
+
+
+@pytest.mark.parametrize(
+    "get_config_value",
+    [
+        pytest.param(_raising_get_config_value, id="config-load-raises"),
+        pytest.param(lambda key, default=None: "epics", id="scalar-archiver-value"),
+    ],
+)
+async def test_none_config_with_unusable_global_config_is_error(
+    monkeypatch: pytest.MonkeyPatch, get_config_value: Any
+) -> None:
+    """Config unavailability -- a raising loader or a scalar ``archiver:`` value
+    -- degrades to the misconfiguration error, not a crash."""
+    import osprey.utils.config as config_module
+
+    monkeypatch.setattr(config_module, "get_config_value", get_config_value)
+    runtime = _SpyRuntime(_SpyArchiver())
+    ctx = ProbeContext(runtime=runtime, config=None)  # type: ignore[arg-type]
+
+    result = await run({"channel": "BEAM:CURRENT"}, ctx)
+
+    assert result.status is Status.ERROR
+    assert "no archiver configured" in result.message
+    assert runtime.get_archiver_calls == []
 
 
 # --- Real in-tree MockArchiverConnector end to end --------------------------

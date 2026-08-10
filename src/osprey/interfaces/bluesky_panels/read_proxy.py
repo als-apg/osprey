@@ -1,10 +1,9 @@
 """Read-only GET proxy onto the Bluesky bridge for the bluesky panels sidecar.
 
-Task 1.2 (sidecar-read-proxy) of the Phase-6 "Operator Interfaces" plan. This
-module only defines ``router``; a separate integration task wires it onto the
-app built in ``osprey.interfaces.bluesky_panels.app`` (task 1.1), which already
-publishes the shared ``httpx.AsyncClient`` and resolved bridge base URL onto
-``app.state.client`` / ``app.state.bridge_url``.
+This module defines ``router`` only; ``osprey.interfaces.bluesky_panels.app``
+mounts it and publishes the shared ``httpx.AsyncClient`` and resolved bridge
+base URL onto ``app.state.client`` / ``app.state.bridge_url``, which every
+route here reads at request time.
 
 Every route here is a thin, verbatim passthrough: the bridge's JSON body and
 HTTP status code (including 404/409 error shapes) are relayed unchanged --
@@ -12,11 +11,19 @@ nothing here recomputes ``row_count``/``truncated``/``partial`` or any other
 bridge-owned field. This mirrors the read side of the bridge contract at
 ``osprey.services.bluesky_bridge.app``:
 
+- ``GET /bridge/health`` -> the bridge's ``GET /health``
 - ``GET /plans``
 - ``GET /plans/{name}/source``
 - ``GET /runs`` (``limit`` query param)
 - ``GET /runs/{run_id}``
 - ``GET /runs/{run_id}/data`` (``max_rows``/``offset``/``tail`` query params)
+
+Every path mirrors the bridge's own except the first: the sidecar serves its
+OWN ``GET /health`` (its container healthcheck, in
+``osprey.interfaces.bluesky_panels.app``), so the bridge's health document --
+which carries the ``capability`` record panels read to decide whether to offer
+execution at all -- is relayed one level down at ``/bridge/health`` rather than
+shadowing it. The body is still passed through untouched.
 
 No write verbs are exposed here (no ``POST /runs``, no ``/launch``, no
 ``/stop``) -- this router is GET-only by construction.
@@ -67,6 +74,19 @@ async def _forward_get(request: Request, path: str) -> JSONResponse:
     body = safe_json(response)
 
     return JSONResponse(content=body, status_code=response.status_code)
+
+
+@router.get("/bridge/health")
+async def bridge_health(request: Request) -> JSONResponse:
+    """Relay the bridge's health document, ``capability`` record and all.
+
+    Named ``/bridge/health`` because the sidecar's own ``/health`` is its
+    container healthcheck and answers for this process, not the bridge's. A
+    502 here (bridge unreachable) is itself the honest answer to "can plans
+    execute" -- the caller cannot reach the bridge, so it must not offer
+    execution.
+    """
+    return await _forward_get(request, "/health")
 
 
 @router.get("/plans")

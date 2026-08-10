@@ -164,12 +164,15 @@ class TestLoadCategoriesFromConfig:
 
         class _FakeConfigBuilder:
             def get(self, key, default=None):
-                if key == "categories":
+                if key == "artifact_server":
                     return {
-                        "vacuum_status": {
-                            "label": "Vacuum Status",
-                            "color": "#ef4444",
-                        }
+                        "port": 8086,
+                        "categories": {
+                            "vacuum_status": {
+                                "label": "Vacuum Status",
+                                "color": "#ef4444",
+                            }
+                        },
                     }
                 return default
 

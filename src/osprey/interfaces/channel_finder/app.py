@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+#: Project-relative home of the feedback stores. Both are written while the
+#: agent runs, so they belong under the agent-data root: a project's ``data/``
+#: tree is build-owned, checksummed into the manifest, and cleared by
+#: ``osprey build --force``.
+FEEDBACK_DIR = "_agent_data/feedback"
+
 
 def _create_lifespan(project_cwd: str | None = None):
     """Create a lifespan context manager that initializes the pipeline registry.
@@ -107,7 +113,7 @@ def _create_lifespan(project_cwd: str | None = None):
                 from osprey.services.channel_finder.feedback.store import FeedbackStore
 
                 store_path = feedback_config.get(
-                    "store_path", "data/feedback/hierarchical_feedback.json"
+                    "store_path", f"{FEEDBACK_DIR}/hierarchical_feedback.json"
                 )
                 resolved = Path(store_path)
                 if not resolved.is_absolute():
@@ -122,7 +128,7 @@ def _create_lifespan(project_cwd: str | None = None):
                 PendingReviewStore,
             )
 
-            pr_path = Path("data/feedback/pending_reviews.json")
+            pr_path = Path(f"{FEEDBACK_DIR}/pending_reviews.json")
             if not pr_path.is_absolute():
                 pr_path = Path(app.state.project_cwd) / pr_path
             app.state.pending_review_store = PendingReviewStore(str(pr_path))

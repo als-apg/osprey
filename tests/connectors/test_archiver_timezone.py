@@ -23,12 +23,25 @@ TEMPLATE_SIM = (
 SR07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 
 
+@pytest.fixture(autouse=True)
+def _state_dir(tmp_path, monkeypatch):
+    """Scenario state resolves from the ambient config; keep it inside tmp_path."""
+    from osprey.simulation import engine as engine_module
+
+    path = tmp_path / "_agent_data" / "simulation"
+    path.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(engine_module, "default_state_dir", lambda: path)
+    return path
+
+
 def _vacuum_burst_machine(tmp_path: Path) -> Path:
     """Copy the shipped machine + scenario bundle, pinned to ``vacuum-burst``."""
     machine = tmp_path / "machine.json"
     shutil.copy(TEMPLATE_SIM / "machine.json", machine)
     shutil.copytree(TEMPLATE_SIM / "scenarios", tmp_path / "scenarios")
-    (tmp_path / "active_scenarios").write_text("nominal\nvacuum-burst\n")
+    state_dir = tmp_path / "_agent_data" / "simulation"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "active_scenarios").write_text("nominal\nvacuum-burst\n")
     return machine
 
 
@@ -50,14 +63,19 @@ async def _sr07_window(machine: Path):
     return df, center
 
 
+def _sr07_rows(df):
+    """SR07's own rows from the long-format frame, as a channel-only slice."""
+    return df.loc[df["channel"] == SR07]
+
+
 @pytest.mark.asyncio
 async def test_archiver_spike_materializes_at_facility_wall_clock(tmp_path):
     machine = _vacuum_burst_machine(tmp_path)
     df, center = await _sr07_window(machine)
 
-    series = df[SR07]
-    baseline = float(series.median())
-    peak = float(series.max())
+    sr07 = _sr07_rows(df)
+    baseline = float(sr07["value"].median())
+    peak = float(sr07["value"].max())
     # SR07 baseline pressure ~5e-8; the burst spikes it ~4x. The engine applies
     # unseeded per-channel multiplicative noise to synthesized series (independent
     # of the connector's noise_level, which only gates the generic non-engine
@@ -65,7 +83,7 @@ async def test_archiver_spike_materializes_at_facility_wall_clock(tmp_path):
     assert peak > 2.5 * baseline, f"no SR07 burst: peak {peak:.2e} vs baseline {baseline:.2e}"
 
     # The peak sits at 14:32:08, not some box-local-shifted hour.
-    peak_ts = series.idxmax().to_pydatetime()
+    peak_ts = sr07.loc[sr07["value"].idxmax(), "timestamp"].to_pydatetime()
     assert abs((peak_ts - center).total_seconds()) < 30
 
 
@@ -76,7 +94,8 @@ async def test_archiver_spike_is_box_tz_independent(tmp_path):
     machine = _vacuum_burst_machine(tmp_path)
 
     df_utc, center = await _sr07_window(machine)
-    peak_utc = df_utc[SR07].idxmax().to_pydatetime()
+    sr07_utc = _sr07_rows(df_utc)
+    peak_utc = sr07_utc.loc[sr07_utc["value"].idxmax(), "timestamp"].to_pydatetime()
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("TZ", "Pacific/Kiritimati")  # UTC+14
@@ -87,7 +106,8 @@ async def test_archiver_spike_is_box_tz_independent(tmp_path):
             mp.undo()
             time.tzset()
 
-    peak_far = df_far[SR07].idxmax().to_pydatetime()
+    sr07_far = _sr07_rows(df_far)
+    peak_far = sr07_far.loc[sr07_far["value"].idxmax(), "timestamp"].to_pydatetime()
     # Both peaks land at 14:32:08 facility-wall-clock, within sampling resolution.
     assert abs((peak_utc - center).total_seconds()) < 30
     assert abs((peak_far - center).total_seconds()) < 30

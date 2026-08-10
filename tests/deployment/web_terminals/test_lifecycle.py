@@ -18,7 +18,10 @@ from ruamel.yaml import YAML
 
 from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.web_terminals import lifecycle
+from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME, PW_HASH_VAR_PREFIX
+from osprey.services.auth_sidecar.passwords import verify_password
 from osprey.utils import config_writer
+from osprey.utils.dotenv import parse_dotenv_file
 
 _FORBIDDEN_ARGV_TOKENS = {"prune", "-a", "--all", "system", "network"}
 _GLOB_METACHARACTERS = set("*?[")
@@ -1059,10 +1062,12 @@ def test_nuke_prints_image_plan_before_confirmation(
 
     out = capsys.readouterr().out
     assert "acc-control-control-room:local" in out
-    assert "persona image" in out
+    # "image(s)", not "persona image(s)": the set now also carries the auth
+    # sidecar's own local tag when authentication is on in local mode.
+    assert "image(s)" in out
     # The plan (containing the image line) was printed strictly before input() was read.
     assert prompts, "expected the confirmation prompt to have been read"
-    assert "1 persona image" in prompts[0] or "persona image" in prompts[0]
+    assert "1 image(s)" in prompts[0]
 
 
 def test_nuke_without_confirmation_never_removes_or_inspects_images_when_declined(
@@ -1179,3 +1184,663 @@ other_section:
         {"name": "alice", "index": 0},
         {"name": "carol", "index": 2},
     ]
+
+
+# =============================================================================
+# passwd: rotate one user's login password
+# =============================================================================
+
+
+def _auth_config(users, method="password"):
+    """`_config` plus an `auth` stanza, the only thing the passwd verb adds."""
+    config = _config(users)
+    config["modules"]["web_terminals"]["auth"] = {"method": method}
+    return config
+
+
+def _read_hash(project_root, user_suffix):
+    return parse_dotenv_file(project_root / AUTH_ENV_FILENAME).get(
+        f"{PW_HASH_VAR_PREFIX}{user_suffix}", ""
+    )
+
+
+@pytest.fixture
+def recreate_calls(monkeypatch):
+    """Record calls to the SHARED sidecar-recreate primitive.
+
+    That primitive lives in provision.py, which owns the web stack's compose
+    argv; the argv it emits is pinned by provision's own tests. What belongs
+    here is that this verb delegates to it — and with which arguments — rather
+    than assembling a second copy of the invocation.
+    """
+    from osprey.deployment.web_terminals import provision
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        provision,
+        "force_recreate_auth_sidecar",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    return calls
+
+
+def test_passwd_stores_the_new_hash_and_recreates_the_sidecar(
+    tmp_path, monkeypatch, fake_runtime, recreate_calls
+):
+    """The hash is replaced AND the sidecar is recreated — a stored hash the
+    running sidecar never re-reads would leave the operator with a password
+    that does not work."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice", "bob"]))
+
+    lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert verify_password("alices-new-password", _read_hash(tmp_path, "ALICE"))
+    # Delegation contract: the shared primitive is called exactly once, with
+    # this deploy's config and nothing else — resolving the --env-file fragment
+    # is the primitive's job, not this verb's (one definition, shared with
+    # `up`/`down`).
+    assert len(recreate_calls) == 1
+    (config_arg, *rest), kwargs = recreate_calls[0]
+    assert config_arg["modules"]["web_terminals"]["users"] == ["alice", "bob"]
+    assert rest == [] and kwargs == {}
+
+
+def test_passwd_emits_no_runtime_argv_of_its_own(
+    tmp_path, monkeypatch, fake_runtime, recreate_calls
+):
+    """Changing a password touches no container directly: no per-user terminal
+    is bounced, nothing is removed, and the only runtime action is the delegated
+    single-service recreate."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice", "bob"]))
+
+    lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert fake_runtime == []
+
+
+def _capture_recreate_argv(monkeypatch) -> list[list[str]]:
+    """Record the argv the REAL recreate primitive emits.
+
+    The fragment used to be resolved at this call site and handed to the
+    primitive, so it could be asserted on the delegated call's arguments. It is
+    now resolved inside the primitive's own argv builder (one definition shared
+    with `up`/`down`), so the honest assertion is on the argv that reaches the
+    runtime — a stricter check than the old one, and one that cannot pass while
+    the fragment is dropped on the floor.
+
+    CAUTION for anyone extending a test that uses this: `lifecycle`, `provision`
+    and `postup_hooks` all do a plain `import subprocess`, so they share ONE
+    module object. Patching `provision.subprocess.run` here REPLACES the patch
+    `fake_runtime` installed, which means `fake_runtime`'s own list stays EMPTY
+    in these tests. Assert on the list this returns; an assertion against
+    `fake_runtime` here would be vacuously true.
+    """
+    from osprey.deployment.web_terminals import provision
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
+    monkeypatch.setattr(provision.subprocess, "run", lambda cmd, **kwargs: calls.append(list(cmd)))
+    return calls
+
+
+def test_passwd_carries_the_env_file_fragment_into_the_recreate(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """The recreate resolves the same variables as every other web-stack
+    invocation — omitting the fragment would make this a differently-configured
+    `up`."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("SOMETHING=1\n")
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n")
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+    argv = _capture_recreate_argv(monkeypatch)
+
+    lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert argv[0][:8] == [
+        "docker",
+        "compose",
+        # Global flags precede the -f list; docker only (see
+        # runtime_helper.with_plain_progress).
+        "--progress",
+        "plain",
+        "-f",
+        "docker-compose.web.yml",
+        "--env-file",
+        ".env",
+    ]
+
+
+def test_passwd_before_the_stack_is_deployed_warns_and_does_not_raise(
+    tmp_path, monkeypatch, fake_runtime, caplog
+):
+    """A password can be set before the stack has ever been brought up: with no
+    rendered docker-compose.web.yml there is no container to recreate, and
+    failing here would turn "not deployed yet" into a rotation error. The hash
+    is still stored, and the next `osprey deploy up` puts it in force."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+    argv = _capture_recreate_argv(monkeypatch)  # no compose file written
+
+    with caplog.at_level("WARNING"):
+        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert argv == []
+    assert "docker-compose.web.yml" in caplog.text
+    assert verify_password("alices-new-password", _read_hash(tmp_path, "ALICE"))
+
+
+def test_passwd_recreate_carries_no_env_file_argument_without_a_dotenv(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """No `.env` at the project root means no `--env-file` argument at all —
+    compose rejects one pointing at a file that does not exist."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n")
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+    argv = _capture_recreate_argv(monkeypatch)
+
+    lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert "--env-file" not in argv[0]
+
+
+def test_passwd_refuses_when_authentication_is_off(tmp_path, monkeypatch, fake_runtime):
+    """`auth.method: none` has no password to change — writing a hash would
+    produce a credential nothing ever checks, over a success message."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice"], method="none"))
+
+    with pytest.raises(ValueError, match="none"):
+        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+    assert fake_runtime == []
+
+
+def test_passwd_refuses_when_credentials_are_held_by_the_idp(tmp_path, monkeypatch, fake_runtime):
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice"], method="oidc"))
+
+    with pytest.raises(ValueError, match="identity provider"):
+        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+    assert fake_runtime == []
+
+
+def test_passwd_refuses_an_off_roster_user(tmp_path, monkeypatch, fake_runtime):
+    """An off-roster name keys a variable no rendered sidecar reads, so its
+    "new password" could never be used to log in anywhere."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+
+    with pytest.raises(ValueError, match="not present in modules.web_terminals.users"):
+        lifecycle.rotate_user_password(str(config_path), "mallory", "some-password")
+
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+    assert fake_runtime == []
+
+
+def test_passwd_refuses_before_writing_when_the_runtime_is_down(tmp_path, monkeypatch):
+    """Gate on the runtime BEFORE the write: otherwise the operator is handed a
+    password the deployment was never told about."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (False, "down"))
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+
+    with pytest.raises(RuntimeError, match="down"):
+        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+
+
+def test_passwd_does_not_recreate_when_the_credential_write_failed(
+    tmp_path, monkeypatch, fake_runtime, recreate_calls
+):
+    """A failed write must abort loudly, not recreate a sidecar around an
+    unchanged file and report success."""
+    monkeypatch.chdir(tmp_path)
+
+    def _unwritable(*args, **kwargs):
+        raise RuntimeError("Could not write .env.auth; the password was NOT changed.")
+
+    monkeypatch.setattr(lifecycle, "set_auth_password", _unwritable)
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+
+    with pytest.raises(RuntimeError, match="NOT changed"):
+        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    assert recreate_calls == []
+
+
+def test_passwd_reports_a_failed_recreate_as_a_password_that_DID_change(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """The mirror of the write-failure case, and the harder half to get right.
+
+    By the time the recreate runs the hash is already stored, so a bare failure
+    would reach the CLI's generic handler as "Deployment failed" — and the
+    operator would conclude their old password still works. It does not. The
+    error has to say the password changed and name what puts it in force.
+    """
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+
+    from osprey.deployment.web_terminals import provision
+
+    def _failed_recreate(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, ["docker", "compose", "up"])
+
+    monkeypatch.setattr(provision, "force_recreate_auth_sidecar", _failed_recreate)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    message = str(exc_info.value)
+    assert "WAS changed" in message
+    assert "osprey deploy up" in message
+    # The stored hash really is the new one — the message is not a consolation.
+    assert verify_password("alices-new-password", _read_hash(tmp_path, "ALICE"))
+
+
+def test_passwd_never_logs_or_prints_the_password(
+    tmp_path, monkeypatch, fake_runtime, capsys, caplog
+):
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+
+    with caplog.at_level("DEBUG"):
+        lifecycle.rotate_user_password(str(config_path), "alice", "unmistakable-secret")
+
+    assert "unmistakable-secret" not in capsys.readouterr().out
+    assert "unmistakable-secret" not in caplog.text
+
+
+# =============================================================================
+# Roster removal with authentication on: credential purge + perimeter reconcile
+# =============================================================================
+
+
+@pytest.fixture
+def auth_reconcile_runtime(monkeypatch):
+    """Make the delegated web-stack calls (nginx reload, sidecar recreate) safe
+    to run, and let the existing runtime fixtures record them.
+
+    Deliberately patches NO subprocess: ``lifecycle``, ``provision`` and
+    ``postup_hooks`` all do a plain ``import subprocess``, so they share one
+    module object — ``fake_runtime``/``fake_runtime_prune`` already intercept
+    every one of these calls, and a second patch here would silently replace
+    theirs (including the ``ps -a`` discovery output prune depends on). What
+    does need patching is ``provision``'s own ``get_runtime_command`` binding,
+    which those fixtures do not reach.
+    """
+    from osprey.deployment.web_terminals import provision
+
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
+
+
+def _web_stack_cmds(calls) -> list[list[str]]:
+    """The recorded argv that address the web compose project."""
+    return [cmd for cmd in calls if "docker-compose.web.yml" in cmd]
+
+
+def _renderable_auth_config(users, method="password"):
+    """`_auth_config` that also passes the render gate: authentication over
+    cleartext HTTP is refused at render time unless explicitly allowed, and
+    decommission re-renders the artifacts as part of the verb."""
+    config = _auth_config(users, method=method)
+    config["modules"]["web_terminals"]["auth"]["allow_insecure_http"] = True
+    return config
+
+
+def _seed_env_auth(tmp_path, **hashes) -> None:
+    """Write a .env.auth holding one stored hash per named user suffix."""
+    lines = [f"{PW_HASH_VAR_PREFIX}{suffix}={value}\n" for suffix, value in hashes.items()]
+    (tmp_path / AUTH_ENV_FILENAME).write_text("".join(lines), encoding="utf-8")
+
+
+def test_decommission_purges_the_departed_users_auth_credentials(
+    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+):
+    """A re-added same-name user must be minted a FRESH password, never inherit
+    the departed user's. Leaving the hash behind would silently hand the next
+    holder of that name the previous holder's credential."""
+    monkeypatch.chdir(tmp_path)
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice", BOB="scrypt.bob")
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
+
+    lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
+
+    stored = parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
+    assert f"{PW_HASH_VAR_PREFIX}ALICE" not in stored
+    assert stored[f"{PW_HASH_VAR_PREFIX}BOB"] == "scrypt.bob"  # untouched
+
+
+def test_decommission_reloads_nginx_and_recreates_the_auth_sidecar(
+    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+):
+    """Re-rendering the artifacts is not enough: nginx still serves the previous
+    config, and the sidecar holds the old roster and hashes baked in at its
+    creation. The reload drops the user's routes; the recreate re-reads both and
+    ends their live session now rather than at its natural expiry."""
+    monkeypatch.chdir(tmp_path)
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
+
+    lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
+
+    web_cmds = _web_stack_cmds(fake_runtime)
+    assert any(cmd[-4:] == ["nginx", "nginx", "-s", "reload"] for cmd in web_cmds)
+    recreates = [cmd for cmd in web_cmds if "--force-recreate" in cmd]
+    assert len(recreates) == 1
+    # Service-scoped: a bare --force-recreate would bounce every live terminal.
+    assert recreates[0][-3:] == ["-d", "--force-recreate", "auth"]
+
+
+def test_decommission_with_auth_off_touches_no_auth_state(
+    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+):
+    """`auth.method: none` has no sidecar, no .env.auth and no perimeter to
+    reconcile — the verb must behave exactly as it did before auth existed."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"], method="none"))
+
+    lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
+
+    assert _web_stack_cmds(fake_runtime) == []
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+
+
+def test_prune_purges_off_roster_auth_credentials_and_recreates(
+    tmp_path, monkeypatch, fake_runtime_prune, auth_reconcile_runtime
+):
+    """An orphan was hand-edited off the roster, so nothing re-renders — but
+    their hash is still in .env.auth and would be inherited by the next user of
+    that name. Purge it, then recreate so the sidecar stops honoring it."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    # prune re-renders nothing, so the deployed compose file is the one a
+    # previous `deploy up` left at the project root.
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice", CAROL="scrypt$carol")
+    listing["containers"] = ["dls-web-carol"]
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
+
+    lifecycle.prune_users(str(config_path), assume_yes=True)
+
+    stored = parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
+    assert f"{PW_HASH_VAR_PREFIX}CAROL" not in stored
+    assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"] == "scrypt.alice"  # on-roster, untouched
+    assert [cmd for cmd in _web_stack_cmds(calls) if "--force-recreate" in cmd]
+
+
+def test_prune_with_no_auth_entries_to_purge_recreates_nothing(
+    tmp_path, monkeypatch, fake_runtime_prune, auth_reconcile_runtime
+):
+    """Nothing changed in .env.auth and nothing was re-rendered, so there is
+    nothing to put into force — bouncing the sidecar would drop every live
+    session for no reason."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    # The deployed compose file MUST be present: without it warn-and-no-op
+    # suppresses the argv on its own and this test would pass even with the
+    # nothing-to-put-into-force guard deleted.
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
+    listing["containers"] = ["dls-web-carol"]  # orphan that never had a credential
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
+
+    lifecycle.prune_users(str(config_path), assume_yes=True)
+
+    assert _web_stack_cmds(calls) == []
+
+
+def test_decommission_warns_when_a_departed_users_plaintext_auth_password_survives(
+    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime, caplog
+):
+    """Purging .env.auth is only half the story: `ensure_auth_credentials` also
+    hashes `OSPREY_AUTH_PW_<SUFFIX>` out of the project .env whenever no hash is
+    established, so the purge re-opens that fallback and the next `deploy up`
+    would re-establish the DEPARTED holder's password for a re-added name. .env
+    is operator-owned, so this warns (naming the exact variable) rather than
+    silently editing it."""
+    monkeypatch.chdir(tmp_path)
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
+    (tmp_path / ".env").write_text("SOMETHING=1\nOSPREY_AUTH_PW_ALICE=hunter2\n", encoding="utf-8")
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
+
+    with caplog.at_level("WARNING"):
+        lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
+
+    assert "OSPREY_AUTH_PW_ALICE" in caplog.text
+    assert ".env" in caplog.text
+    assert "hunter2" not in caplog.text  # names the variable, never its value
+
+
+def test_an_unreadable_env_does_not_become_a_recreate_failure(
+    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime, caplog
+):
+    """The plaintext-survival check only READS the project `.env`, so a failure
+    to read it says nothing about the sidecar. It must not be reported as a
+    recreate failure, and above all it must not skip the recreate — the step that
+    actually puts the purge into force."""
+    monkeypatch.chdir(tmp_path)
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
+    (tmp_path / ".env").write_text("SOMETHING=1\n", encoding="utf-8")
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
+
+    def _unreadable(*args, **kwargs):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(lifecycle, "parse_dotenv_file", _unreadable)
+
+    with caplog.at_level("WARNING"):
+        lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
+
+    assert [cmd for cmd in _web_stack_cmds(fake_runtime) if "--force-recreate" in cmd]
+    assert "Permission denied" in caplog.text
+    assert "could not be recreated" not in caplog.text
+
+
+def test_decommission_auth_recreate_failure_is_fatal_after_the_volume_policy_runs(
+    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+):
+    """A failed recreate is fatal — the removed user's session may still be live,
+    which is the whole point of the verb — but it is raised only AFTER the
+    remaining local cleanup completes: every local change already succeeded, and
+    abandoning the volume policy would leave a state more inconsistent than the
+    error reports."""
+    from osprey.deployment.web_terminals import provision
+
+    monkeypatch.chdir(tmp_path)
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
+
+    def _failed_recreate(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, ["docker", "compose", "up"])
+
+    monkeypatch.setattr(provision, "force_recreate_auth_sidecar", _failed_recreate)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    message = str(exc_info.value)
+    assert "purged" in message
+    # Narrow and true: auth_request lives only in the per-user location blocks
+    # and the (advisory, non-raising) reload already dropped alice's. What
+    # survives is an unreconciled sidecar, NOT a live session — an overstated
+    # error an operator later finds untrue costs the next one its credibility.
+    assert "still holds their roster entry and password hash" in message
+    assert "may still be live" not in message
+    assert "osprey deploy up" in message
+    # The claim in that message is a verified fact, not a consolation.
+    assert f"{PW_HASH_VAR_PREFIX}ALICE" not in parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
+    # ...and the deferred raise let the volume policy finish first.
+    assert [cmd for cmd in fake_runtime if cmd[1:3] == ["volume", "rm"]]
+
+
+def test_prune_auth_recreate_failure_is_fatal_too(
+    tmp_path, monkeypatch, fake_runtime_prune, auth_reconcile_runtime
+):
+    """The prune path reaches the same guard — a decommission-only test would
+    miss half of it."""
+    from osprey.deployment.web_terminals import provision
+
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _seed_env_auth(tmp_path, CAROL="scrypt$carol")
+    listing["containers"] = ["dls-web-carol"]
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
+
+    def _failed_recreate(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, ["docker", "compose", "up"])
+
+    monkeypatch.setattr(provision, "force_recreate_auth_sidecar", _failed_recreate)
+
+    with pytest.raises(RuntimeError, match="still holds their roster entry"):
+        lifecycle.prune_users(str(config_path), assume_yes=True)
+
+    assert f"{PW_HASH_VAR_PREFIX}CAROL" not in parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
+
+
+def test_decommission_purge_failure_names_the_user_whose_credential_survives(
+    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+):
+    """An unwritable .env.auth surfaced as a bare PermissionError after the
+    container was already removed, with nothing saying the credential survived
+    and that the perimeter was never reconciled."""
+    monkeypatch.chdir(tmp_path)
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
+
+    def _unwritable(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(lifecycle, "purge_auth_credentials", _unwritable)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
+
+    message = str(exc_info.value)
+    assert "alice" in message
+    assert AUTH_ENV_FILENAME in message
+    assert "still opens a terminal" in message
+    # Decommission targets ONE user, so this purge cleared nobody before it
+    # failed: there is no partial change to put into force, and bouncing every
+    # live session would be gratuitous. The hash is STILL THERE and no recreate
+    # ran. Contrast the multi-user case below, where the recreate MUST run.
+    assert f"{PW_HASH_VAR_PREFIX}ALICE" in parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
+    assert not [cmd for cmd in fake_runtime if "--force-recreate" in cmd]
+    # The nginx reload is NOT skipped with it: the re-rendered config — already
+    # missing alice's route to her removed container — is on disk either way,
+    # and only the reload applies it.
+    assert any(cmd[-4:] == ["nginx", "nginx", "-s", "reload"] for cmd in fake_runtime)
+
+
+def test_prune_partial_purge_failure_still_forces_the_earlier_removals_into_effect(
+    tmp_path, monkeypatch, fake_runtime_prune, auth_reconcile_runtime
+):
+    """The failure this guard exists to prevent, and the reason the purge loop
+    has a guard of its own.
+
+    With several orphans, a purge that succeeds for carol and then raises for
+    dave has ALREADY taken carol's hash out of `.env.auth`. Skipping the
+    recreate there would leave the deployment lying in the operator's favour:
+    the file they would read no longer lists carol, while the running sidecar
+    still holds her hash and still lets her log in — until the next deploy, with
+    nothing saying so. So the recreate runs anyway, and only then is the error
+    raised, naming dave (whose credential really did survive) and NOT carol.
+    """
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _seed_env_auth(tmp_path, CAROL="scrypt$carol", DAVE="scrypt$dave")
+    listing["containers"] = ["dls-web-carol", "dls-web-dave"]
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice"]))
+
+    real_purge = lifecycle.purge_auth_credentials
+
+    def _fails_for_dave(user, project_root):
+        if user == "dave":
+            raise PermissionError(13, "Permission denied")
+        return real_purge(user, project_root)
+
+    monkeypatch.setattr(lifecycle, "purge_auth_credentials", _fails_for_dave)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        lifecycle.prune_users(str(config_path), assume_yes=True)
+
+    message = str(exc_info.value)
+    # Named as removed-and-still-credentialed: only dave.
+    assert "'dave'" in message
+    assert "still opens a terminal" in message
+    assert "were removed and their auth credentials could not be removed" in message
+    # carol appears only as the reassurance that her removal IS in force — never
+    # as one of the users whose credential survived.
+    assert "'carol' WERE removed" in message
+    # The disk state the message describes is the real one.
+    stored = parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
+    assert f"{PW_HASH_VAR_PREFIX}CAROL" not in stored
+    assert f"{PW_HASH_VAR_PREFIX}DAVE" in stored
+    # ...and the partial removal was put into force before the raise.
+    assert [cmd for cmd in calls if "--force-recreate" in cmd]
+
+
+def _auth_persona_config(users, *, method="password", auth_image=None, image_source="local"):
+    """A local-mode persona config with authentication on — the shape that makes
+    the sidecar's own :local tag a nuke candidate."""
+    config = _persona_config(users, project_name="demo-project")
+    config["modules"]["web_terminals"]["image_source"] = image_source
+    auth: dict = {"method": method}
+    if auth_image is not None:
+        auth["image"] = auth_image
+    config["modules"]["web_terminals"]["auth"] = auth
+    return config
+
+
+def test_nuke_auth_sidecar_image_is_removed_when_label_verified(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    """The sidecar's local tag is this deployment's to tear down, on the same
+    label-verified terms as a persona tag — nothing else ever removes it."""
+    calls, _listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_persona_config(["alice"]))
+    image_labels["dls-assistant-auth:local"] = "demo-project"
+    image_labels["acc-control-control-room:local"] = "demo-project"
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    removed = [c[3] for c in calls if c[1:3] == ["image", "rm"]]
+    assert "dls-assistant-auth:local" in removed
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "why"),
+    [
+        ({"method": "none"}, "auth off renders no sidecar at all"),
+        ({"image_source": "registry"}, "registry mode never built a local tag"),
+        ({"auth_image": "reg/auth:1"}, "auth.image pins an externally owned image"),
+    ],
+)
+def test_nuke_auth_sidecar_image_is_not_a_candidate(
+    tmp_path, monkeypatch, fake_runtime_nuke, kwargs, why
+):
+    """Only the exact conditions that PRODUCE the local tag make it a teardown
+    candidate; removing an image this deployment never built is not ours to do."""
+    calls, _listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_persona_config(["alice"], **kwargs))
+    image_labels["dls-assistant-auth:local"] = "demo-project"  # exists and is ours
+    image_labels["acc-control-control-room:local"] = "demo-project"
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    inspected = [c[3] for c in calls if c[1:3] == ["image", "inspect"]]
+    assert "dls-assistant-auth:local" not in inspected, why

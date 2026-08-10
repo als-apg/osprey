@@ -3,7 +3,7 @@
 The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-``bluesky_panels``, ``nextcloud_bridge``) plus the environment-variable name
+``bluesky_panels``, ``nextcloud_bridge``, ``gchat_bridge``) plus the environment-variable name
 pattern their validators share. Parsing, inheritance merging, and validation live in
 :mod:`osprey.cli.build_profile_load`, :mod:`osprey.cli.build_profile_merge`,
 and :mod:`osprey.cli.build_profile_model`, respectively; this module is a
@@ -20,6 +20,24 @@ from typing import Any, Literal
 
 
 @dataclass
+class ProfileProvenance:
+    """What a materialized profile was emitted from (``provenance:``).
+
+    Written by ``osprey profile new`` and never by hand. It is the
+    MACHINE-READABLE record of the profile's source — the emitted header says
+    the same thing in prose, for people — and it is what a later build compares
+    against the installed preset to notice that the preset has moved on since
+    the profile was materialized (FR-6). That comparison is advisory: a profile
+    is the source of truth once it exists, so drift is reported, never enforced.
+    """
+
+    preset: str
+    """Bundled preset name the profile was materialized from."""
+    preset_hash: str
+    """Content hash of that preset as resolved at materialization time."""
+
+
+@dataclass
 class McpServerDef:
     """Definition of an MCP server to inject into a built project."""
 
@@ -28,7 +46,11 @@ class McpServerDef:
     env: dict[str, str] = field(default_factory=dict)
     permissions: dict[str, list[str]] = field(default_factory=dict)
     # permissions: {"allow": ["tool1"], "ask": ["tool2"]}
-    url: str | None = None  # HTTP/SSE transport URL (mutually exclusive with command)
+    url: str | None = None  # Remote transport URL (mutually exclusive with command)
+    # Wire transport for URL servers: "http" (streamable-HTTP, the default) or
+    # "sse" (legacy Server-Sent Events). Stdio servers (command) must not set
+    # it — load_profile rejects that.
+    transport: str = "http"
     # Single port the HTTP MCP service binds AND publishes. Compose maps
     # host:port → container:port 1:1, so consumers can derive every URL
     # variant from this single value. Mutually exclusive with command;
@@ -180,15 +202,6 @@ class BlueskyConfig:
     port: int = 8090
     tiled_enabled: bool = False
     tiled_port: int = 8091
-    demo_runner: bool = False
-    """Opt-in only for the deploy-smoke-demo / tutorial case: wires the
-    container's bridge process to a real bluesky RunEngine against mock
-    ophyd-async devices (``devices/mock.py``) via app.py's guarded startup
-    hook (task 2.14a), instead of the Phase 1 no-op ``FakePlanRunner`` default.
-    MUST stay False for any facility wiring real EPICS hardware — turning
-    this on would silently override real device/plan wiring with an
-    in-memory mock runner.
-    """
     plan_dir: str | None = None
     """Optional host directory of facility plan files (Task 1.4),
     bind-mounted read-only into the bridge container and surfaced to the
@@ -260,6 +273,36 @@ class NextcloudBridgeProfileConfig:
     rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
 
     This default is the ONLY place the ``nextcloud-question`` name is defaulted:
+    the runtime config's ``from_env`` applies no trigger default, so a
+    hand-rolled (non-build) deployment still fails loudly on a missing trigger
+    rather than silently firing a name nobody declared. The value must name a
+    trigger declared in the ``dispatch.triggers`` file.
+    """
+
+
+@dataclass
+class GChatBridgeProfileConfig:
+    """Google Chat bridge configuration for a build profile (opt-in via the
+    ``gchat_bridge:`` key).
+
+    Consumed by the build pipeline's gchat-bridge-injection step
+    (``_inject_gchat_bridge`` in ``build_cmd.py``) to deploy the single
+    ``gchat_bridge`` service — a Pub/Sub subscriber that ingests Google Chat
+    messages and dispatches them through the event-dispatch pair, so the block
+    is only meaningful alongside a ``dispatch:`` block.
+
+    The Google credentials and destinations are deliberately *not* profile
+    fields: ``GCHAT_SA_KEY``, ``GCHAT_SUBSCRIPTION``, ``GCHAT_APP_ID`` and the
+    optional artifact-publishing pair ``GCS_BUCKET``/``GCS_PROJECT`` are
+    user-supplied runtime env (declared via ``env.required``), never baked into
+    a build. Validated by :meth:`BuildProfile.validate`.
+    """
+
+    trigger: str = "gchat-question"
+    """Dispatcher trigger the bridge fires (``POST /webhook/{trigger}``),
+    rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
+
+    This default is the ONLY place the ``gchat-question`` name is defaulted:
     the runtime config's ``from_env`` applies no trigger default, so a
     hand-rolled (non-build) deployment still fails loudly on a missing trigger
     rather than silently firing a name nobody declared. The value must name a

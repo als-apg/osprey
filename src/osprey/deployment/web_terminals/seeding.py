@@ -37,7 +37,6 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
-from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.personas import as_dict, normalize_users, resolve_personas
@@ -120,7 +119,7 @@ def seed_web_terminals(config_path: str | Path, user: str | None = None) -> None
         ValueError: If ``user`` is given but not present in
             ``modules.web_terminals.users``.
     """
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     seed_user_containers(config, user=user)
 
 
@@ -161,7 +160,7 @@ def seed_user_containers(
     path are the same for every user regardless of persona.
 
     Args:
-        config: Parsed, normalizer-wrapped facility config (a ``ConfigBuilder``
+        config: Parsed facility config (a ``ConfigBuilder``
             raw-config dict).
         user: If given, seed only this user's container; a user not present in
             ``modules.web_terminals.users`` raises rather than silently
@@ -199,7 +198,7 @@ def seed_user_containers(
         targets = roster
 
     runtime = get_runtime_command(config)[0]
-    run_env = env if env is not None else runtime_env(config)
+    run_env = env if env is not None else runtime_env(config, ignore_orphans=True)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(config.get("registry"))
     # strict=True: an unresolvable persona reference is a misconfiguration, not a

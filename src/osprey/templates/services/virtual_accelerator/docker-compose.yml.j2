@@ -6,18 +6,31 @@
 # Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 #
-# Native architecture: the service resolves to the host's arch (no platform
-# pin). On arm64 hosts the four native deps (accelerator-toolbox, softioc,
-# epicscorelibs, pvxslibs) have no manylinux_aarch64 wheels, so they compile
-# from sdist during the image build — a one-time cost of a couple of minutes,
-# no x86 emulation involved — see
-# src/osprey/services/virtual_accelerator/probe/README.md.
+# ARCHITECTURE: linux/amd64, and on Apple Silicon that means emulation.
+#
+# The image is amd64-only by construction — Dockerfile pins
+# `FROM --platform=linux/amd64` and hard-fails any other build arch, because
+# pcaspy (the Channel Access server behind the serving stack) publishes no
+# linux/aarch64 wheel at any interpreter. An arm64 image would build cleanly
+# and then have no CA server at all, so the pin is a correctness guard, not a
+# packaging shortcut. Read that Dockerfile's header before touching it.
+#
+# `platform:` below states that out loud rather than leaving it implicit. It
+# is what the build already produces; declaring it means compose stops warning
+# "the requested image's platform (linux/amd64) does not match the detected
+# host platform (linux/arm64/v8)" on every single `deploy up` from an arm64
+# machine — a warning that read as a defect when it was in fact the design.
+# The cost it names is real and unchanged: on Apple Silicon the virtual
+# accelerator runs under QEMU emulation and is correspondingly slower.
+#
+# OSPREY_VA_PLATFORM overrides it, for the one case the pin would otherwise
+# get wrong: a published multi-arch OSPREY_VA_IMAGE that does have a native
+# arm64 variant worth resolving to (`OSPREY_VA_PLATFORM=linux/arm64`).
 
 services:
   virtual-accelerator:
-    # OSPREY_VA_IMAGE now inherits host-arch resolution too: a single-arch amd64
-    # published image on an arm64 host must supply its own `platform` override (VA-8).
     image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default(osprey_labels.project_name ~ '-va:local') }}}
+    platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
@@ -68,24 +81,35 @@ services:
       VA_ENTRYPOINT_MODULE: "${VA_ENTRYPOINT_MODULE:-}"
       VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"
       VA_LATTICE: "${VA_LATTICE:-}"
+      # Where the IOC polls active_scenarios — the second mount below, not the
+      # build-owned data dir.
+      VA_STATE_DIR: /state/simulation
       TZ: {{ system.timezone }}
-    # Bind-mount source is relative to the compose project directory
+    # Bind-mount sources are relative to the compose project directory
     # (build/services/), not this file's own subdir — hence the ../../ prefix
-    # to reach the project root's data/simulation/ (see entrypoint.py's run
-    # contract: the IOC SystemExits without a machine.json here). Read-only —
-    # the IOC only ever reads the simulation model, never writes it.
+    # to reach the project root (see entrypoint.py's run contract: the IOC
+    # SystemExits without a machine.json in the data dir). Both read-only —
+    # the IOC only ever reads.
+    #
+    # Two mounts because the two directories have different owners: the
+    # simulation model in data/ is build-owned (re-rendered and checksummed
+    # every build), while the active-scenario state under the agent-data root
+    # is written at run time by `osprey sim apply` on the host and polled here.
+    # That second source is rendered from agent_data.base_dir rather than
+    # hardcoded, so it follows a project that relocates its agent-data root.
     volumes:
       - ../../data/simulation:/data/simulation:ro
+      - {{ osprey_state_mount_source }}:/state/simulation:ro
     networks:
       - osprey-network
     healthcheck:
       # The IOC serves Channel Access on the configured port, not HTTP, so this
       # can't be an HTTP /health probe like the other services. A real `caget`
-      # isn't available either: softioc's base install pulls in epicscorelibs/
-      # pvxslibs (C libraries only), not a Python CA *client* — cothread/aioca
-      # are gated behind softioc's own "useful"/"dev" extras, and adding one
-      # just for this probe would be exactly the kind of extra-package drift
-      # the `[virtual-accelerator]` extra is meant to avoid. So: a raw TCP
+      # isn't available either: the CA server's base install pulls in
+      # epicscorelibs/pvxslibs (C libraries only), not a Python CA *client*,
+      # and adding one just for this probe would be exactly the kind of
+      # extra-package drift the service's dependency set is meant to avoid.
+      # So: a raw TCP
       # connect to the CA port — enough to prove the IOC's listener is up and
       # accepting connections, short of an actual PV read.
       test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('localhost', {{ (services.virtual_accelerator | default({})).port | default(5064) }})); sys.exit(0 if r == 0 else 1)\""]
@@ -94,8 +118,8 @@ services:
       retries: 5
       # Grace period before failed probes count — generous because a first-time
       # native-arch image build (source-compiling the native deps) plus boot
-      # (PyAT lattice load + softioc iocInit) takes a few seconds longer than
-      # the framework's other native-arch services.
+      # (PyAT lattice load + CA server startup) takes a few seconds longer
+      # than the framework's other native-arch services.
       start_period: 20s
 
 networks:

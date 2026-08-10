@@ -123,13 +123,13 @@
 }
 
 .memory-file-primary {
-  border-left: 2px solid var(--color-amber);
+  border-left: 2px solid var(--color-accent-secondary);
 }
 
 .memory-file-primary:hover {
-  border-color: var(--color-amber);
-  border-left-color: var(--color-amber);
-  background: var(--amber-tint-04);
+  border-color: var(--color-accent-secondary);
+  border-left-color: var(--color-accent-secondary);
+  background: var(--accent-secondary-tint-04);
 }
 
 .memory-file-icon {
@@ -141,7 +141,7 @@
 }
 
 .memory-icon-primary {
-  color: var(--color-amber);
+  color: var(--color-accent-secondary-light);
 }
 
 .memory-file-body {
@@ -180,9 +180,9 @@
 }
 
 .memory-badge-primary {
-  color: var(--color-amber);
-  background: var(--amber-tint-08);
-  border: 1px solid var(--amber-tint-25);
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
+  border: 1px solid var(--accent-secondary-tint-25);
 }
 
 .memory-badge-topic {
@@ -210,7 +210,7 @@
 }
 
 .memory-gauge-warn {
-  background: var(--color-amber);
+  background: var(--color-accent-secondary);
 }
 
 .memory-gauge-over {
@@ -377,8 +377,8 @@
 .prompts-untracked-banner {
   margin: 8px 12px;
   padding: 10px 14px;
-  background: var(--amber-tint-08);
-  border: 1px solid var(--amber-tint-25);
+  background: var(--accent-secondary-tint-08);
+  border: 1px solid var(--accent-secondary-tint-25);
   border-radius: var(--radius-md);
 }
 
@@ -422,7 +422,7 @@
   justify-content: space-between;
   gap: var(--space-2);
   padding: 6px 8px;
-  background: var(--amber-tint-04);
+  background: var(--accent-secondary-tint-04);
   border-radius: var(--radius-sm);
 }
 

@@ -127,6 +127,9 @@ class TemplateManager:
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
         tier: int | None = None,
+        data_root: Path | None = None,
+        profile_env_text: str = "",
+        existing_env_text: str = "",
     ) -> Path:
         """Create complete project from template.
 
@@ -150,6 +153,15 @@ class TemplateManager:
                 ``BuildProfile.resolved_tier``. An explicit tier is honored but
                 validated against the paradigm, so a tier/mode mismatch raises a
                 legible rule error instead of an opaque FileNotFoundError.
+            data_root: Facility data tree to copy instead of the bundle's
+                ``apps/<data_bundle>/data/``, already resolved by
+                ``BuildProfile.resolved_data_root``. A full replacement copied
+                verbatim (no Jinja rendering); ``None`` keeps the bundle tree.
+            profile_env_text: The owning profile's ``.env``. The project's own
+                ``.env`` is derived from it, which is what makes a facility
+                secret survive a rebuild. Empty for a caller with no profile.
+            existing_env_text: The project ``.env`` as it was before this build.
+                Only its runtime-written keys survive the derivation.
 
         Returns:
             Path to created project directory
@@ -195,9 +207,6 @@ class TemplateManager:
 
         current_python = sys.executable
 
-        # Detect environment variables from the system
-        detected_env_vars = scaffolding.detect_environment_variables()
-
         # Fall back to preset profile artifacts when the caller didn't pass any
         # (legacy code path). An explicit empty dict from `osprey build` means the
         # profile deliberately selects nothing, and must not be overridden.
@@ -230,14 +239,24 @@ class TemplateManager:
             # from this so it can't drift from the real registry. sorted() for
             # deterministic rendered output.
             "builtin_panels": sorted(BUILTIN_PANELS),
-            # Add detected environment variables
-            "env": detected_env_vars,
+            # No `env` key: the build reads nothing from `os.environ` for the
+            # rendered project. The profile `.env` is the sole source, applied
+            # by osprey.utils.dotenv.derive_project_env after the render.
             # Provider API-key env vars, derived from the provider registry
             # (single source of truth in osprey.models.provider_registry) so
             # env.j2 / env.example.j2 can't drift from the real provider list.
             # Ordered list of {"provider", "var"} dicts; key-less providers
             # (ollama, vllm, …) are excluded.
             "provider_api_keys": scaffolding.provider_api_key_entries(),
+            # Deploy-minted service credentials, derived from the map the
+            # deploy path mints from, so .env.example documents every one of
+            # them. Ordered list of {"var", "services", "note"} dicts.
+            "service_token_vars": scaffolding.service_token_var_entries(),
+            # The build profile's `env:` block, documented in .env.example.
+            # Defaulted here so a caller that has no profile (programmatic
+            # create_project) still renders the file.
+            "env_required": [],
+            "env_defaults": {},
             **(context or {}),
         }
 
@@ -277,7 +296,13 @@ class TemplateManager:
 
         # 4. Create project structure
         scaffolding.create_project_structure(
-            self.template_root, self.jinja_env, project_dir, data_bundle, ctx
+            self.template_root,
+            self.jinja_env,
+            project_dir,
+            data_bundle,
+            ctx,
+            profile_env_text=profile_env_text,
+            existing_env_text=existing_env_text,
         )
 
         # 5. Copy services: bundle-level services/ dir takes priority, then
@@ -307,7 +332,10 @@ class TemplateManager:
                             self.template_root, project_dir, to_copy
                         )
 
-        # 6. Copy data files from template (no src/ package)
+        # 6. Copy data files from template (no src/ package), or from the
+        # profile's own data tree when one was resolved. Either way this lands
+        # before step 6b's tier materialization and the hierarchy probe in
+        # step 8, both of which read the project's flat data/ paths.
         scaffolding.copy_template_data(
             self.template_root,
             project_dir,
@@ -315,6 +343,7 @@ class TemplateManager:
             data_bundle,
             ctx,
             jinja_env=self.jinja_env,
+            data_root=data_root,
         )
 
         # 6a. Copy machine_data/ if bundle provides it
@@ -326,16 +355,16 @@ class TemplateManager:
                 f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
             )
 
-        # 6a'. Copy docker/ if bundle provides it — carries the
-        # docker/web-terminal-context/ overlay tree (base.md + per-user
-        # extra.md/skills) that web-terminal seeding requires at deploy time.
-        docker_src = bundle_dir / "docker"
-        if docker_src.exists():
-            docker_dst = project_dir / "docker"
-            shutil.copytree(docker_src, docker_dst, dirs_exist_ok=True)
-            console.print(
-                f"  [success]✓[/success] Copied docker overlay tree to [path]{docker_dst}[/path]"
-            )
+        # 6a'. Install the web-terminal persona baseline. base.md is
+        # framework-layer, not bundle-layer: seeding requires it for ANY
+        # project that seeds a user, so every bundle gets it. Per-user
+        # extra.md/skills stay user-authored under the same tree.
+        context_src = self.template_root / "claude_code" / "web-terminal-context"
+        context_dst = project_dir / "docker" / "web-terminal-context"
+        shutil.copytree(context_src, context_dst, dirs_exist_ok=True)
+        console.print(
+            f"  [success]✓[/success] Installed web-terminal context to [path]{context_dst}[/path]"
+        )
 
         # 6b. Flatten the preset's tier-routed channel DBs into the canonical
         # data/channel_databases/<paradigm>.json locations. Must run before the
@@ -403,51 +432,19 @@ class TemplateManager:
 
             cf_config = rendered_config.get("channel_finder", {})
 
-            # Embed hierarchy info for initial creation (mirrors _build_claude_code_context)
+            # Embed hierarchy info for initial creation, through the same
+            # resolution every later re-render uses.
             if cf_config.get("pipeline_mode") == "hierarchical":
-                try:
-                    db_path = (
-                        cf_config.get("pipelines", {})
-                        .get("hierarchical", {})
-                        .get("database", {})
-                        .get("path", "")
-                    )
-                    if db_path:
-                        from osprey.services.channel_finder.databases.hierarchical import (
-                            HierarchicalChannelDatabase,
-                        )
-
-                        resolved = (project_dir / db_path).resolve()
-                        db = HierarchicalChannelDatabase(str(resolved))
-                        ctx["channel_finder_hierarchy"] = {
-                            "hierarchy_levels": db.hierarchy_levels,
-                            "hierarchy_config": db.hierarchy_config,
-                            "naming_pattern": db.naming_pattern,
-                        }
-                except Exception:
-                    import logging
-
-                    logging.getLogger("osprey.cli.templates").warning(
-                        "Could not load hierarchy info during project creation",
-                        exc_info=True,
-                    )
+                hierarchy = claude_code.resolve_hierarchy_context(cf_config, project_dir)
+                if hierarchy is not None:
+                    ctx["channel_finder_hierarchy"] = hierarchy
             ctx.setdefault("channel_finder_hierarchy", None)
 
         # A bundle that renders no config.yml still needs a facility name for the
         # agent/CLAUDE.md prompts rendered below.
         ctx.setdefault("facility_name", project_name)
 
-        # Textbooks root -- resolve relative to project directory
-        _textbooks_dir = project_dir.parent / "data" / "textbooks"
-        ctx["textbooks_root"] = str(_textbooks_dir) if _textbooks_dir.is_dir() else None
-        # Tilde variant for permission matching (models abbreviate /Users/x to ~)
-        import os as _os
-
-        _home = _os.path.expanduser("~")
-        if ctx["textbooks_root"] and ctx["textbooks_root"].startswith(_home):
-            ctx["textbooks_root_tilde"] = "~" + ctx["textbooks_root"][len(_home) :]
-        else:
-            ctx["textbooks_root_tilde"] = None
+        claude_code.apply_textbooks_root(ctx, project_dir)
 
         # Resolve servers and agents via the data-driven registry.
         from osprey.registry.mcp import resolve_agents, resolve_servers

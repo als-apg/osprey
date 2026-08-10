@@ -256,31 +256,43 @@ class TestControlAssistantTurnkeyScanServices:
 
 
 class TestControlAssistantTurnkeyScanPanels:
-    """The three scan-panel web.panels entries are registered with a url."""
+    """Both scan-panel web.panels entries are registered with a url."""
 
     def test_control_assistant_scan_plan_panel(self, turnkey_scan_config: dict) -> None:
         panel = turnkey_scan_config["web"]["panels"]["plan"]
         assert panel["path"] == "/plan/"
         assert panel["url"]
 
-    def test_control_assistant_scan_results_panel(self, turnkey_scan_config: dict) -> None:
-        panel = turnkey_scan_config["web"]["panels"]["results"]
-        assert panel["path"] == "/results/"
+    def test_control_assistant_scan_bluesky_panel(self, turnkey_scan_config: dict) -> None:
+        panel = turnkey_scan_config["web"]["panels"]["bluesky"]
+        assert panel["path"] == "/bluesky/"
         assert panel["url"]
+
+    def test_control_assistant_ships_no_deprecated_results_panel(
+        self, turnkey_scan_config: dict
+    ) -> None:
+        """The shipped preset is the new-build path, so it carries only the new
+        id. The deprecated ``results`` entry is an accommodation for projects
+        built before the rename (kept working by the sidecar's alias mount);
+        re-emitting it here would put the old tab back on every rebuild."""
+        assert "results" not in turnkey_scan_config["web"]["panels"]
 
 
 class TestControlAssistantTurnkeyScanControlSystem:
-    """The preset's config overrides land: mock-by-default + subprocess execution.
+    """The preset's config overrides land: VA-by-default + subprocess execution.
 
-    The VA soft-IOC ships and is deployed as part of the turn-key scan stack,
-    but control_system.type stays "mock" so a fresh tutorial project remains
-    safe out of the box -- flipping the one config line to
-    "virtual_accelerator" is what engages the deployed VA end-to-end (covered
-    by tests/cli/test_va_default_config.py).
+    The VA soft-IOC ships and is deployed unconditionally as part of the
+    turn-key scan stack, and control_system.type defaults to
+    "virtual_accelerator" so a fresh tutorial project drives it end to end
+    out of the box -- flipping the one config line to "mock" is the
+    documented fallback for environments with no containers to depend on
+    (covered by tests/cli/test_va_default_config.py).
     """
 
-    def test_control_assistant_control_system_type_is_mock(self, turnkey_scan_config: dict) -> None:
-        assert turnkey_scan_config["control_system"]["type"] == "mock"
+    def test_control_assistant_control_system_type_is_virtual_accelerator(
+        self, turnkey_scan_config: dict
+    ) -> None:
+        assert turnkey_scan_config["control_system"]["type"] == "virtual_accelerator"
 
     def test_control_assistant_execution_method_is_subprocess(
         self, turnkey_scan_config: dict
@@ -295,7 +307,7 @@ class TestControlAssistantTurnkeyScanControlSystem:
 
 def test_control_assistant_turnkey_scan_preset_validates(turnkey_scan_project: Path) -> None:
     """BuildProfile.validate() passes for the preset as shipped (bare, no
-    overrides) -- the three non-builtin scan-panel ids are accepted because
+    overrides) -- the non-builtin scan-panel ids are accepted because
     the preset's own bluesky_panels block is present."""
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
@@ -379,9 +391,23 @@ class TestEnvironmentSchema:
 
     def test_environment_unknown_key_raises(self) -> None:
         """A typo inside the block is rejected outright rather than dropped —
-        a silently ignored 'package:' would leave the environment incomplete."""
-        with pytest.raises(BuildProfileError, match="Unknown environment key"):
+        a silently ignored 'package:' would leave the environment incomplete.
+
+        The message is the SHARED closed-block shape (``_reject_unknown_block_keys``),
+        the same one the top-level and ``bluesky:`` checks emit: the offender
+        named, its nearest spelling suggested, and the full valid set listed.
+        Asserting the suggestion is what keeps this block on the shared helper —
+        the older bespoke wording ("must be one of [...]") carried no suggestion,
+        so a drift back to it fails here rather than passing quietly.
+        """
+        with pytest.raises(BuildProfileError) as excinfo:
             _parse_profile({"name": "x", "environment": {"package": ["numpy"]}})
+
+        message = str(excinfo.value)
+        assert "Unknown environment key(s)" in message
+        assert "'package'" in message
+        assert "did you mean 'packages'?" in message
+        assert "valid keys are:" in message
 
     def test_environment_python_non_string_raises(self) -> None:
         with pytest.raises(BuildProfileError, match="environment.python must be a string"):

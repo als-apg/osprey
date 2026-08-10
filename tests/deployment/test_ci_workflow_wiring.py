@@ -45,6 +45,7 @@ from typing import Any
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
 
 CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
@@ -56,8 +57,6 @@ GATE_JOB = "all-checks-passed"
 SECRET_TOKEN = "secrets.ALS_APG_API_KEY"
 TILED_TEST_FILE = "tests/e2e/test_tiled_roundtrip.py"
 VA_TEST_FILE = "tests/e2e/test_va_substrate_equivalence.py"
-DEMO_JOB = "multi-user-demo-e2e"
-DEMO_TEST_FILE = "tests/e2e/test_multi_user_demo.py"
 LIFECYCLE_TEST_FILE = "tests/e2e/test_deploy_lifecycle.py"
 ORM_JOB = "orm-roundtrip-e2e"
 ORM_TEST_FILE = "tests/e2e/test_orm_roundtrip.py"
@@ -67,9 +66,27 @@ CATALOG_JOB = "bluesky-catalog-e2e"
 SANDBOX_JOB = "bluesky-sandbox-escape-e2e"
 BENCHMARKS_JOB = "channel-finder-benchmarks"
 BENCHMARKS_TEST_FILE = "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py"
+FLOOR_JOB = "dependency-floor"
 NEXTCLOUD_JOB = "nextcloud-talk-bridge-e2e"
 NEXTCLOUD_TEST_FILE = "tests/e2e/test_nextcloud_talk_bridge_e2e.py"
 NEXTCLOUD_DOCKERFILE = "tests/e2e/fixtures/Dockerfile.nextcloud_talk"
+GCHAT_JOB = "gchat-bridge-e2e"
+GCHAT_TEST_FILE = "tests/e2e/test_gchat_bridge_e2e.py"
+GCHAT_SMOKE_FILE = "tests/e2e/fixtures/test_gchat_fixture_smoke.py"
+GCHAT_EXTRA = "gchat"
+GCHAT_SKIP_GATE_STEP = "Fail the lane on any skipped test"
+PUBSUB_FIXTURE_NAME = "pubsub_emulator"
+
+ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
+PROBE_BASE_VAR = "ALS_APG_PROBE_BASE"
+PROBE_KEY_ENV = "ALS_APG_API_KEY"
+PROBE_TARGET_PATH = "/v1/messages"
+# `ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://…}"` — the `:-default` is optional.
+PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_ENV}(:-[^}}]*)?\}}"')
+# Guards against silent under-discovery: if probe steps are renamed or reshaped
+# so the finder stops matching them, the count check fails loudly instead of
+# passing over an empty list. Raise this when probe lanes are added.
+EXPECTED_MIN_ALS_APG_PROBES = 7
 
 CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
@@ -87,6 +104,11 @@ def _load_workflow() -> dict[str, Any]:
 @pytest.fixture()
 def workflow() -> dict[str, Any]:
     return _load_workflow()
+
+
+@pytest.fixture()
+def pyproject() -> dict[str, Any]:
+    return _load_pyproject()
 
 
 def _jobs(wf: dict[str, Any]) -> dict[str, Any]:
@@ -308,9 +330,11 @@ def _unit_test_install_cmd(wf: dict[str, Any]) -> str:
 
 
 def test_unit_test_job_installs_required_extras(workflow: dict[str, Any]) -> None:
-    """tests/va/* import softioc unguarded and error at collection without the
-    `virtual-accelerator` extra (an empty back-compat alias today, but pinned so
-    older-version builds keep resolving); `dev` carries pytest itself."""
+    """The `virtual-accelerator` extra carries the serving stack the live
+    tests/va suites need — pcaspy, and `lume-pva-apg[ca,pva]` which brings p4p
+    with it. Those suites guard their imports, so without the extra they SKIP
+    rather than error and the lane reports green having never touched Channel
+    Access; `dev` carries pytest itself."""
     cmd = _unit_test_install_cmd(workflow)
     for extra in ("dev", "virtual-accelerator"):
         assert f"--extra {extra}" in cmd, (
@@ -340,6 +364,225 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
         assert any(dep.startswith(stack_dep) for dep in core_deps), (
             f"{stack_dep} must be a core dependency"
         )
+
+
+def test_lume_pyat_is_a_core_dependency() -> None:
+    """`model.pyat` imports lume_pyat at module level — PyATRingModel subclasses
+    LUMEPyATModel — so the VA cannot boot without it. Placement, not just
+    presence, is what this guards: the dev-wheel channel builds the VA image's
+    dependency manifest from the wheel's base `Requires-Dist` only
+    (`wheel_build._wheel_base_requirements` drops every entry gated behind an
+    extra). A pin parked in an optional extra would therefore vanish from
+    `osprey-local-requirements.txt` silently, and the image would build green
+    and fail at runtime on the first model import."""
+    pyproject = tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
+    core_deps = pyproject["project"]["dependencies"]
+    assert any(dep.startswith("lume-pyat") for dep in core_deps), (
+        "lume-pyat must be a core dependency, not an extra"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The serving package is pinned in the `virtual-accelerator` extra, with both
+# transports and the platform marker its Channel Access half needs
+# ---------------------------------------------------------------------------
+#
+# The placement is the opposite of lume-pyat's above, and deliberately so.
+# lume-pyat has to be core because the VA cannot boot without it on any host;
+# the serving stack can only be installed where pcaspy loads, so it belongs in
+# the extra that already carries that constraint. Both Dockerfiles install
+# `[virtual-accelerator]` rather than naming the package, so this extra is the
+# only place either image can learn the pin — which is what these guards
+# protect.
+
+
+#: The one platform with a loadable Channel Access server wheel, and therefore
+#: the marker both serving entries must carry. Spelled with DOUBLE quotes
+#: because this is compared against ``str(Requirement(...).marker)``, which is
+#: packaging's normalised rendering — pyproject.toml itself writes the same
+#: marker with single quotes, and both parse to this.
+LIVE_CA_MARKER = 'sys_platform == "linux" and platform_machine == "x86_64"'
+
+
+def _load_pyproject() -> dict[str, Any]:
+    return tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
+
+
+def _va_extra(pyproject: dict[str, Any]) -> list[str]:
+    return pyproject["project"]["optional-dependencies"]["virtual-accelerator"]
+
+
+def _requirement(deps: list[str], name: str) -> Requirement | None:
+    """The single requirement in ``deps`` naming ``name``, or None.
+
+    Parsed rather than string-matched: every property asserted below (extras,
+    specifier, marker) lives in a different part of the grammar, and a
+    ``startswith`` check would be satisfied by a line that carries none of
+    them.
+    """
+    matches = [req for dep in deps if (req := Requirement(dep)).name == name]
+    assert len(matches) <= 1, f"{name} declared more than once: {matches}"
+    return matches[0] if matches else None
+
+
+def test_lume_pva_is_pinned_in_the_va_extra(pyproject: dict[str, Any]) -> None:
+    """The extra is what puts the serving stack in both VA images: neither
+    Dockerfile names lume-pva-apg, so an entry that is not here reaches no
+    image at all. Core placement would be worse than absent — the `ca` extra
+    requires pcaspy unconditionally, so a core pin would drag the Channel
+    Access server onto every plain `uv sync`, including the macOS hosts the
+    pcaspy marker beside it exists to keep clear of a source build."""
+    assert _requirement(_va_extra(pyproject), "lume-pva-apg") is not None, (
+        "lume-pva-apg must be pinned in the `virtual-accelerator` extra"
+    )
+    assert _requirement(pyproject["project"]["dependencies"], "lume-pva-apg") is None, (
+        "lume-pva-apg must not be a core dependency — see the docstring"
+    )
+
+
+def test_lume_pva_is_pinned_in_the_va_extra__mutation_drops_the_pin() -> None:
+    """Dropping the entry must fail — otherwise the guard is decorative."""
+    mutated = _load_pyproject()
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        dep for dep in _va_extra(mutated) if Requirement(dep).name != "lume-pva-apg"
+    ]
+    with pytest.raises(AssertionError):
+        test_lume_pva_is_pinned_in_the_va_extra(mutated)
+
+
+def test_lume_pva_is_pinned_in_the_va_extra__mutation_also_declares_it_in_core() -> None:
+    """A core declaration must fail even with the extra entry left intact.
+
+    The extra is deliberately NOT disturbed here. Removing it as well would
+    trip the presence half of the assertion and the mutation would pass for a
+    reason that has nothing to do with placement — leaving the core-exclusion
+    half never exercised. Copying instead of moving is what aims this mutation
+    at the assertion it is named for."""
+    mutated = _load_pyproject()
+    copied = [dep for dep in _va_extra(mutated) if Requirement(dep).name == "lume-pva-apg"]
+    assert copied, "no lume-pva-apg in the extra — mutation is stale"
+    mutated["project"]["dependencies"] = [*mutated["project"]["dependencies"], *copied]
+    with pytest.raises(AssertionError, match="must not be a core dependency"):
+        test_lume_pva_is_pinned_in_the_va_extra(mutated)
+
+
+def test_lume_pva_pin_carries_both_transports(pyproject: dict[str, Any]) -> None:
+    """`serving/runner.py` imports pcaspy, lume_pva_apg AND p4p at module
+    scope, and the base package pulls neither transport — pcaspy arrives only
+    through the `ca` extra and p4p only through `pva`. Either one missing is
+    not a degraded serve, it is an ImportError at runner import, long after a
+    green image build."""
+    req = _requirement(_va_extra(pyproject), "lume-pva-apg")
+    assert req is not None and req.extras == {"ca", "pva"}, (
+        f"lume-pva-apg must carry both the `ca` and `pva` extras; got {req}"
+    )
+
+
+@pytest.mark.parametrize("dropped", ["ca", "pva"])
+def test_lume_pva_pin_carries_both_transports__mutation_drops_one(dropped: str) -> None:
+    """Dropping either transport must fail — a guard that only noticed the
+    loss of both would let the p4p-typed value layer go missing silently."""
+    kept = "pva" if dropped == "ca" else "ca"
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        dep.replace("[ca,pva]", f"[{kept}]") if Requirement(dep).name == "lume-pva-apg" else dep
+        for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the extras spelling moved"
+    )
+    with pytest.raises(AssertionError):
+        test_lume_pva_pin_carries_both_transports(mutated)
+
+
+def test_lume_pva_pin_shares_the_pcaspy_platform_marker(pyproject: dict[str, Any]) -> None:
+    """The two entries must be marked identically or the marker on pcaspy is
+    decorative: `lume-pva-apg[ca]` requires pcaspy with no marker of its own,
+    so an unmarked serving pin re-introduces it on exactly the hosts the
+    pcaspy line excludes — verified, not assumed (resolving
+    `lume-pva-apg[ca,pva]` for macOS at 3.13 selects pcaspy 0.8.1, whose only
+    artifact there is the sdist, i.e. the EPICS source build)."""
+    extra = _va_extra(pyproject)
+    pcaspy = _requirement(extra, "pcaspy")
+    lume_pva = _requirement(extra, "lume-pva-apg")
+    # Anchored absolutely, not only to each other. Parity alone would be
+    # satisfied by two entries edited together to some other platform, which
+    # is the one way this pair can drift and still agree.
+    assert pcaspy is not None and str(pcaspy.marker) == LIVE_CA_MARKER, (
+        f"pcaspy must stay marked {LIVE_CA_MARKER!r} — the one platform with a "
+        f"loadable Channel Access server wheel; got {pcaspy.marker}"
+    )
+    assert lume_pva is not None and str(lume_pva.marker) == str(pcaspy.marker), (
+        f"lume-pva-apg must carry pcaspy's marker ({pcaspy.marker}); got {lume_pva.marker}"
+    )
+
+
+def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_unmarks_it() -> None:
+    """An unmarked serving pin must fail."""
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        dep.split(";", 1)[0].strip() if Requirement(dep).name == "lume-pva-apg" else dep
+        for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the marker is already absent"
+    )
+    with pytest.raises(AssertionError):
+        test_lume_pva_pin_shares_the_pcaspy_platform_marker(mutated)
+
+
+def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_moves_both_to_another_platform() -> (
+    None
+):
+    """Retargeting BOTH entries together must fail.
+
+    This is the mutation the parity check alone could not catch: two markers
+    edited in step still agree with each other, so only the absolute anchor
+    rejects them. Darwin is the pointed choice — it is where pcaspy's wheels
+    exist but do not load, so a plausible edit could land here."""
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'darwin'" for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the markers are already not the pinned pair"
+    )
+    with pytest.raises(AssertionError, match="pcaspy must stay marked"):
+        test_lume_pva_pin_shares_the_pcaspy_platform_marker(mutated)
+
+
+def test_lume_pva_pin_is_exact(pyproject: dict[str, Any]) -> None:
+    """Exact-pinned for the same reason as lume-base and lume-pyat: the runner
+    subclass is written against one contract of a package whose extension
+    seams are not yet a stable API, and a floor would let a resolve pick up a
+    surface it was never written against. The version itself is not asserted —
+    only that a bump is a deliberate edit rather than a resolver's choice."""
+    req = _requirement(_va_extra(pyproject), "lume-pva-apg")
+    assert req is not None
+    assert [spec.operator for spec in req.specifier] == ["=="], (
+        f"lume-pva-apg must be exact-pinned; got {req.specifier}"
+    )
+
+
+def test_lume_pva_pin_is_exact__mutation_relaxes_to_a_floor() -> None:
+    """A `>=` floor must fail."""
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        dep.replace("==", ">=") if Requirement(dep).name == "lume-pva-apg" else dep for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the pin is already not exact"
+    )
+    with pytest.raises(AssertionError):
+        test_lume_pva_pin_is_exact(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -492,34 +735,8 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (e) multi-user-demo-e2e lane + the dockerbuild --ignore guard
+# (e) the dockerbuild --ignore guard
 # ---------------------------------------------------------------------------
-
-
-def test_multi_user_demo_job_exists(workflow: dict[str, Any]) -> None:
-    assert DEMO_JOB in _jobs(workflow)
-
-
-def test_multi_user_demo_job_exists__mutation_drops_job() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del mutated["jobs"][DEMO_JOB]
-    with pytest.raises(AssertionError):
-        assert DEMO_JOB in _jobs(mutated)
-
-
-def test_multi_user_demo_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
-    assert not _job_declares_secret(workflow, DEMO_JOB, SECRET_TOKEN)
-
-
-def test_all_checks_passed_needs_multi_user_demo(workflow: dict[str, Any]) -> None:
-    assert DEMO_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-
-
-def test_all_checks_passed_needs_multi_user_demo__mutation_drops_needs_entry() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[GATE_JOB]["needs"].remove(DEMO_JOB)
-    with pytest.raises(AssertionError):
-        assert DEMO_JOB in _jobs(mutated)[GATE_JOB]["needs"]
 
 
 def _dockerbuild_marked_e2e_files() -> list[str]:
@@ -567,7 +784,7 @@ def test_every_dockerbuild_marked_file_is_ignored__mutation_drops_one_ignore() -
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], LIFECYCLE_TEST_FILE)
-    assert _run_step_ignores_all(mutated, [DEMO_TEST_FILE]) == []  # others survive
+    assert _run_step_ignores_all(mutated, [ORM_TEST_FILE]) == []  # others survive
     assert _run_step_ignores_all(mutated, _dockerbuild_marked_e2e_files()) == [LIFECYCLE_TEST_FILE]
 
 
@@ -719,6 +936,61 @@ def test_all_checks_passed_needs_promoted_lanes__mutation_drops_sandbox() -> Non
     assert CATALOG_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the other survives untouched
     with pytest.raises(AssertionError):
         assert _gating_e2e_jobs(mutated) == [ORM_JOB, OVERLAY_JOB, CATALOG_JOB, SANDBOX_JOB]
+
+
+# ---------------------------------------------------------------------------
+# dependency-floor lane: the declared pandas/numpy minimums are actually run
+# ---------------------------------------------------------------------------
+
+
+def test_dependency_floor_job_exists(workflow: dict[str, Any]) -> None:
+    assert FLOOR_JOB in _jobs(workflow)
+
+
+def test_dependency_floor_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][FLOOR_JOB]
+    with pytest.raises(AssertionError):
+        assert FLOOR_JOB in _jobs(mutated)
+
+
+def test_dependency_floor_job_pins_the_versions_pyproject_declares() -> None:
+    """The lane certifies nothing if its pin drifts from the declared floor."""
+    pyproject = tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
+    declared = {
+        dep.split(">=")[0]: dep.split(">=")[1]
+        for dep in pyproject["project"]["dependencies"]
+        if dep.startswith(("pandas>=", "numpy>="))
+    }
+    assert declared, "pyproject no longer declares pandas/numpy floors"
+
+    job = json.dumps(_jobs(_load_workflow())[FLOOR_JOB])
+    for package, floor in declared.items():
+        assert f"{package}=={floor}" in job, (
+            f"{FLOOR_JOB} does not pin {package}=={floor}; pyproject declares >={floor}"
+        )
+
+
+def test_dependency_floor_job_keeps_the_pin_when_running_tests() -> None:
+    """A bare ``uv run`` re-syncs and silently restores the newest pandas,
+    so every ``uv run`` in the job must carry ``--no-sync``.
+    """
+    steps = _jobs(_load_workflow())[FLOOR_JOB]["steps"]
+    uv_runs = [s["run"] for s in steps if "uv run" in s.get("run", "")]
+    assert uv_runs, f"{FLOOR_JOB} has no `uv run` step"
+    for run in uv_runs:
+        assert "uv run --no-sync" in run, f"`uv run` without --no-sync would undo the pin: {run!r}"
+
+
+def test_dependency_floor_gates_the_merge(workflow: dict[str, Any]) -> None:
+    assert FLOOR_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+
+
+def test_dependency_floor_gates_the_merge__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(FLOOR_JOB)
+    with pytest.raises(AssertionError):
+        assert FLOOR_JOB in _jobs(mutated)[GATE_JOB]["needs"]
 
 
 # ---------------------------------------------------------------------------
@@ -910,6 +1182,381 @@ def test_nextcloud_fixture_pins__mutation_tag_drifts_from_dockerfile() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (j) gchat-bridge-e2e lane
+# ---------------------------------------------------------------------------
+
+
+def test_gchat_bridge_job_exists(workflow: dict[str, Any]) -> None:
+    assert GCHAT_JOB in _jobs(workflow)
+
+
+def test_gchat_bridge_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][GCHAT_JOB]
+    with pytest.raises(AssertionError):
+        assert GCHAT_JOB in _jobs(mutated)
+
+
+def _emulator_container_e2e_files() -> list[str]:
+    """Every ``tests/e2e/`` file that reaches the fixed-name Pub/Sub emulator
+    container, found by the fixture's own name.
+
+    The scan token is the FIXTURE name, not the module name, and deliberately
+    so: ``tests/e2e/fixtures/conftest.py`` registers ``pubsub_emulator``
+    directory-wide, so a file there can reach the container by taking it as a
+    test argument without importing anything. ``pubsub_emulator`` is a
+    substring of ``gchat_pubsub_emulator``, so this one token covers the
+    import spelling and the fixture-argument spelling at once.
+
+    Text scan rather than collection, for the same reason as the
+    ``dockerbuild`` scan above: importing these files needs their heavy
+    optional e2e dependencies, and both spellings are always literal.
+    """
+    e2e_dir = CI_YML.parents[2] / "tests" / "e2e"
+    return sorted(
+        p.relative_to(e2e_dir.parents[1]).as_posix()
+        for p in e2e_dir.rglob("test_*.py")
+        if PUBSUB_FIXTURE_NAME in p.read_text(encoding="utf-8")
+    )
+
+
+def test_shared_lane_ignores_every_emulator_container_file(workflow: dict[str, Any]) -> None:
+    """The collision this guard exists for: ``PubSubEmulator.start()`` pre-cleans
+    by ``rm -f``-ing the exact container name it is about to use, and every file
+    below reaches that same name. The shared e2e lane runs ``-n 4 --dist
+    loadfile``, which keeps a file's tests on one worker but runs different
+    FILES concurrently — so two of these landing in that lane means one file's
+    pre-clean kills the other's live emulator mid-test. Ignoring only the
+    bridge module would fix today's pair and leave the hazard armed for the
+    next file to use the fixture, so the guard is over the whole scan."""
+    files = _emulator_container_e2e_files()
+    assert set(files) >= {GCHAT_SMOKE_FILE, GCHAT_TEST_FILE}, (
+        f"emulator-fixture scan found {files} — expected at least the two Google Chat "
+        f"files; the fixture module was renamed or the scan broke"
+    )
+    missing = _run_step_ignores_all(workflow, files)
+    assert missing == [], (
+        f"file(s) using the fixed-name Pub/Sub emulator container not --ignored in the "
+        f"'{E2E_TESTS_JOB}' lane: {missing} — they would run concurrently there and "
+        f"tear down each other's emulator"
+    )
+
+
+def test_shared_lane_ignores_emulator_files__mutation_drops_bridge_ignore() -> None:
+    """Dropping only the bridge module's ignore must fail — the smoke file
+    surviving is exactly the half-fix this guard rejects."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], GCHAT_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [GCHAT_SMOKE_FILE]) == []  # the other survives
+    with pytest.raises(AssertionError):
+        test_shared_lane_ignores_every_emulator_container_file(mutated)
+
+
+def test_shared_lane_ignores_emulator_files__mutation_drops_smoke_ignore() -> None:
+    """And the mirror image: leaving the fixture smoke test in the parallel
+    lane is just as fatal, since it starts the same container by the same name."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], GCHAT_SMOKE_FILE)
+    assert _run_step_ignores_all(mutated, [GCHAT_TEST_FILE]) == []  # the other survives
+    with pytest.raises(AssertionError):
+        test_shared_lane_ignores_every_emulator_container_file(mutated)
+
+
+_XDIST_WORKERS_RE = re.compile(r"(?<!\S)-n\s+\d")
+
+
+def _gchat_pytest_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
+    """The gchat job's pytest invocations, in the order Actions will run them.
+
+    Matched on the full ``uv run pytest`` invocation rather than a bare
+    ``pytest`` substring, so a step that only MENTIONS pytest — in a comment,
+    or in a message naming the command a developer should run locally — is not
+    mistaken for one that runs it. A false positive there would be read as an
+    unguarded emulator user and fail the sequencing check for no reason.
+    """
+    return [s for s in _jobs(wf)[GCHAT_JOB]["steps"] if "uv run pytest " in s.get("run", "")]
+
+
+def _emulator_files_per_step(wf: dict[str, Any]) -> list[list[str]]:
+    """For each pytest step, which emulator-using files it selects."""
+    files = _emulator_container_e2e_files()
+    return [sorted(f for f in files if f in step["run"]) for step in _gchat_pytest_steps(wf)]
+
+
+def test_emulator_files_run_one_per_sequential_step(workflow: dict[str, Any]) -> None:
+    """Having moved both files out of the parallel lane, the job they moved
+    INTO must not reintroduce the same overlap. Two properties make that
+    provable rather than incidental: one file per pytest step (Actions runs
+    steps strictly in order, in separate processes, so two steps can never
+    overlap), and no xdist flags (which would parallelize within a step). A
+    single pytest invocation naming both files would satisfy neither — it puts
+    two module-scoped emulator fixtures in one process, where teardown order
+    decides whether they overlap."""
+    per_step = _emulator_files_per_step(workflow)
+    assert [len(selected) for selected in per_step] == [1] * len(per_step), (
+        f"each pytest step in '{GCHAT_JOB}' must select exactly one emulator-using file; "
+        f"got {per_step}"
+    )
+    assert sorted(f for selected in per_step for f in selected) == (
+        _emulator_container_e2e_files()
+    ), f"'{GCHAT_JOB}' must run every emulator-using file exactly once; got {per_step}"
+    for step in _gchat_pytest_steps(workflow):
+        assert not _XDIST_WORKERS_RE.search(step["run"]), (
+            f"step {step.get('name')!r} runs pytest with xdist workers; the emulator's "
+            f"fixed container name cannot survive parallel workers"
+        )
+        assert "--dist" not in step["run"], (
+            f"step {step.get('name')!r} sets an xdist dist mode; this job must stay serial"
+        )
+
+
+def test_emulator_files_run_one_per_step__mutation_merges_both_into_one_step() -> None:
+    """The tempting simplification — one pytest call listing both files — must
+    fail, because it makes non-overlap depend on fixture teardown order rather
+    than on the job's structure."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _gchat_pytest_steps(mutated)
+    assert len(steps) == 2, f"expected two pytest steps to merge; got {len(steps)}"
+    steps[0]["run"] = steps[0]["run"].replace(
+        GCHAT_SMOKE_FILE, f"{GCHAT_SMOKE_FILE} {GCHAT_TEST_FILE}"
+    )
+    _jobs(mutated)[GCHAT_JOB]["steps"].remove(steps[1])
+    with pytest.raises(AssertionError):
+        test_emulator_files_run_one_per_sequential_step(mutated)
+
+
+def test_emulator_files_run_one_per_step__mutation_adds_xdist_workers() -> None:
+    """Speeding the job up with ``-n 2`` reinstates the collision inside a
+    single step, so the pin must reject it."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _gchat_pytest_steps(mutated)[0]
+    step["run"] = step["run"].replace("-v --tb=short", "-v --tb=short -n 2")
+    with pytest.raises(AssertionError, match="xdist workers"):
+        test_emulator_files_run_one_per_sequential_step(mutated)
+
+
+def _gchat_install_cmd(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, GCHAT_JOB, "Install osprey")["run"]
+
+
+def test_gchat_job_installs_the_gchat_extra(workflow: dict[str, Any]) -> None:
+    """The e2e module drives a REAL ``google-cloud-pubsub`` client against the
+    emulator and guards that with a module-level ``skipif``, so a job that
+    syncs only ``dev`` skips the entire file and reports success — a green
+    check over zero executed tests, confirmed live before this lane existed."""
+    cmd = _gchat_install_cmd(workflow)
+    assert f"--extra {GCHAT_EXTRA}" in cmd, (
+        f"'{GCHAT_JOB}' must `uv sync --extra {GCHAT_EXTRA}`; got: {cmd}"
+    )
+
+
+def test_gchat_job_installs_the_gchat_extra__mutation_drops_extra() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GCHAT_JOB, "Install osprey")
+    step["run"] = step["run"].replace(f" --extra {GCHAT_EXTRA}", "")
+    with pytest.raises(AssertionError):
+        test_gchat_job_installs_the_gchat_extra(mutated)
+
+
+_JUNIT_RE = re.compile(r"--junitxml=(\S+)")
+
+
+def _junit_reports_written(wf: dict[str, Any]) -> list[str]:
+    return [r for step in _gchat_pytest_steps(wf) for r in _JUNIT_RE.findall(step["run"])]
+
+
+def test_gchat_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    """The extra above is the fix; this is the backstop that makes the whole
+    class of failure loud. Every skip condition this lane has — absent
+    container runtime, absent emulator image, absent ``gchat`` extra, absent
+    provider key — is a CI misconfiguration that pytest reports as success, so
+    the job reads the junit reports and fails on any skip (and on an empty
+    collection, which would otherwise pass a zero-skip check trivially). Every
+    pytest step must write a report the gate actually reads: a run whose report
+    nothing inspects is back to skipping its way to green."""
+    reports = _junit_reports_written(workflow)
+    assert len(reports) == len(_gchat_pytest_steps(workflow)), (
+        f"every pytest step in '{GCHAT_JOB}' must write a --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, GCHAT_JOB, GCHAT_SKIP_GATE_STEP)["run"]
+    unread = [r for r in reports if r not in gate]
+    assert unread == [], f"'{GCHAT_SKIP_GATE_STEP}' never reads: {unread}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_gchat_job_fails_on_any_skipped_test__mutation_drops_a_junit_report() -> None:
+    """A pytest step that writes no report is invisible to the gate — the
+    silent-partial-fix shape, one lane guarded and one not."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _gchat_pytest_steps(mutated)[0]
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="must write a --junitxml report"):
+        test_gchat_job_fails_on_any_skipped_test(mutated)
+
+
+def test_gchat_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    """A gate that prints the skip count without exiting non-zero is
+    decorative: the job still reports success over a lane that ran nothing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GCHAT_JOB, GCHAT_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_gchat_job_fails_on_any_skipped_test(mutated)
+
+
+def test_gchat_bridge_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
+    """Same shape as the dispatch-overlay check, for the same reason: the
+    agentic tier in this module runs a REAL agent turn and is marked
+    ``requires_als_apg``, which the root conftest turns into a skip when the
+    key is absent. The zero-skip gate would catch that, but only as "something
+    skipped"; this assertion names the cause, and fails at the one place a
+    reviewer would look for it."""
+    assert _job_declares_secret(workflow, GCHAT_JOB, SECRET_TOKEN)
+
+
+def test_gchat_bridge_job_declares_llm_secret__mutation_strips_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][GCHAT_JOB] = json.loads(
+        json.dumps(mutated["jobs"][GCHAT_JOB]).replace("secrets.ALS_APG_API_KEY", "")
+    )
+    with pytest.raises(AssertionError):
+        assert _job_declares_secret(mutated, GCHAT_JOB, SECRET_TOKEN)
+
+
+def test_all_checks_passed_needs_gchat_bridge(workflow: dict[str, Any]) -> None:
+    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
+    needed job that failed still lets it start; the ``check_pr_lane`` line is
+    what turns the result into an exit code. Both halves are pinned."""
+    assert GCHAT_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{GCHAT_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_gchat_bridge__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(GCHAT_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_gchat_bridge(mutated)
+
+
+def test_all_checks_passed_needs_gchat_bridge__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
+    job) while the line that reads its result is gone — the lane could go red
+    forever inside a green check."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if GCHAT_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert GCHAT_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_gchat_bridge(mutated)
+
+
+# ---------------------------------------------------------------------------
+# ALS-APG endpoint-override drift guard
+# ---------------------------------------------------------------------------
+
+
+def _als_apg_probe_steps(wf: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Every step that preflight-probes the ALS-APG gateway, as
+    ``(job, step name, run text)``.
+
+    Discovery keys on what a probe *does* — POST an authenticated request to
+    ``/v1/messages`` — not on whether it happens to define
+    ``ALS_APG_PROBE_BASE``. That distinction is the whole point: a newly added
+    probe that hardcodes its URL defines no such variable, so keying on the
+    variable would skip exactly the step the guard exists to catch.
+    """
+    found: list[tuple[str, str, str]] = []
+    for job_name, job in _jobs(wf).items():
+        for step in job.get("steps") or []:
+            run = step.get("run")
+            if isinstance(run, str) and PROBE_TARGET_PATH in run and PROBE_KEY_ENV in run:
+                found.append((job_name, step.get("name", "<unnamed>"), run))
+    return found
+
+
+def test_workflow_exports_the_als_apg_base_url_override(workflow: dict[str, Any]) -> None:
+    """The workflow-level ``env:`` block is what lets a single repository
+    variable retarget every LLM-touching job at once. Without it the probes
+    below would each fall back to the baked-in default and the override would
+    silently do nothing — green locally, wrong in CI."""
+    env = workflow.get("env") or {}
+    assert env.get(ALS_APG_BASE_URL_ENV) == "${{ vars.ALS_APG_BASE_URL }}", (
+        f"ci.yml must export {ALS_APG_BASE_URL_ENV} from the repository variable "
+        f"at workflow level; found {env.get(ALS_APG_BASE_URL_ENV)!r}"
+    )
+
+
+def test_workflow_exports_the_als_apg_base_url_override__mutation_drops_export() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    (mutated.get("env") or {}).pop(ALS_APG_BASE_URL_ENV, None)
+    with pytest.raises(AssertionError, match="must export"):
+        test_workflow_exports_the_als_apg_base_url_override(mutated)
+
+
+def test_every_als_apg_probe_honors_the_base_url_override(workflow: dict[str, Any]) -> None:
+    """Each probe must derive its base from ``$ALS_APG_BASE_URL`` (a baked-in
+    default after ``:-`` is fine) and must aim curl at that derived variable.
+
+    Both halves are load-bearing and fail independently: a probe can read the
+    override into ``ALS_APG_PROBE_BASE`` and then still curl a literal URL,
+    which is how a hardcoded endpoint survived review once already. Such a
+    lane fails against a perfectly healthy gateway, and reads as an outage."""
+    probes = _als_apg_probe_steps(workflow)
+    assert len(probes) >= EXPECTED_MIN_ALS_APG_PROBES, (
+        f"expected at least {EXPECTED_MIN_ALS_APG_PROBES} ALS-APG probe steps in ci.yml, "
+        f"found {len(probes)} — discovery has drifted and this guard is now vacuous"
+    )
+    for job_name, step_name, run in probes:
+        where = f"{job_name} / {step_name}"
+        assert PROBE_BASE_ASSIGNMENT.search(run), (
+            f"{where}: ALS-APG probe must derive its base from "
+            f'${{{ALS_APG_BASE_URL_ENV}}} (e.g. ALS_APG_PROBE_BASE="${{{ALS_APG_BASE_URL_ENV}'
+            ':-https://default}"), so the repository variable can retarget it'
+        )
+        target_lines = [line for line in run.splitlines() if PROBE_TARGET_PATH in line]
+        assert target_lines, f"{where}: probe target line vanished"
+        for line in target_lines:
+            assert f"${PROBE_BASE_VAR}" in line, (
+                f"{where}: probe must curl $"
+                + PROBE_BASE_VAR
+                + f", not a literal URL: {line.strip()}"
+            )
+
+
+def test_every_als_apg_probe_honors_the_base_url_override__mutation_hardcodes_base() -> None:
+    """The original bug's exact shape: the assignment stops reading the
+    override and pins a URL instead."""
+    mutated = copy.deepcopy(_load_workflow())
+    job_name, step_name, _ = _als_apg_probe_steps(mutated)[0]
+    step = _find_named_step(mutated, job_name, step_name)
+    step["run"] = PROBE_BASE_ASSIGNMENT.sub(
+        f'{PROBE_BASE_VAR}="https://hardcoded.example"', step["run"], count=1
+    )
+    with pytest.raises(AssertionError, match="must derive its base"):
+        test_every_als_apg_probe_honors_the_base_url_override(mutated)
+
+
+def test_every_als_apg_probe_honors_the_base_url_override__mutation_curls_literal_url() -> None:
+    """The subtler half: the override is still read into the variable — so a
+    reader skimming the assignment sees the right thing — while curl ignores
+    it and hits a literal endpoint."""
+    mutated = copy.deepcopy(_load_workflow())
+    job_name, step_name, _ = _als_apg_probe_steps(mutated)[0]
+    step = _find_named_step(mutated, job_name, step_name)
+    step["run"] = step["run"].replace(
+        f'"${PROBE_BASE_VAR}{PROBE_TARGET_PATH}"', f'"https://hardcoded.example{PROBE_TARGET_PATH}"'
+    )
+    assert PROBE_BASE_ASSIGNMENT.search(step["run"]), "the assignment must survive this mutation"
+    with pytest.raises(AssertionError, match="not a literal URL"):
+        test_every_als_apg_probe_honors_the_base_url_override(mutated)
+
+
+# ---------------------------------------------------------------------------
 # YAML 1.1 `on:` gotcha regression guard
 # ---------------------------------------------------------------------------
 
@@ -921,3 +1568,87 @@ def test_workflow_on_key_parses_to_bool_true_not_string(workflow: dict[str, Any]
     only ever indexes workflow['jobs']."""
     assert True in workflow
     assert "on" not in workflow
+
+
+# ---------------------------------------------------------------------------
+# (h) multi-user login-flow browser test: registered in the lane, and the lane
+# is actually triggered by the code it covers
+# ---------------------------------------------------------------------------
+
+BROWSER_JOB = "visual-theming"
+BROWSER_RUN_STEP = "Run behavioral theming suite"
+BROWSER_FILTER_STEP = "Detect design-system / dispatch dashboard changes"
+AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
+AUTH_SERVING_TEST_FILE = "tests/deployment/web_terminals/test_auth_serving.py"
+AUTH_PERIMETER_PATHS = (
+    "src/osprey/services/auth_sidecar/**",
+    "src/osprey/deployment/web_terminals/**",
+    "src/osprey/templates/modules/web_terminals/**",
+    AUTH_SERVING_TEST_FILE,
+)
+
+
+def _browser_lane_files(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
+
+
+def _browser_lane_filter_paths(wf: dict[str, Any]) -> list[str]:
+    """The `theming` filter's path list, parsed out of the step's `filters` blob.
+
+    dorny/paths-filter takes its filters as a YAML *string*, so the outer
+    safe_load leaves this as text and it has to be parsed a second time —
+    still structurally, never by substring matching.
+    """
+    step = _find_named_step(wf, BROWSER_JOB, BROWSER_FILTER_STEP)
+    return yaml.safe_load(step["with"]["filters"])["theming"]
+
+
+def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
+    """The suite has to be NAMED in the lane's pytest invocation.
+
+    The lane runs an explicit file list, not a directory glob, so a new
+    browser-marked file that nobody adds here is never collected anywhere: the
+    unit lane skips it (no chromium), and this lane never hears of it. It
+    reports green by running nothing at all."""
+    assert AUTH_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+
+
+def test_login_flow_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+    """Removing the file from the invocation must fail the guard — the exact
+    vacuous-green shape above."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
+    assert AUTH_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+
+
+def test_browser_lane_is_triggered_by_the_perimeter_it_covers(workflow: dict[str, Any]) -> None:
+    """Every path the login-flow test actually exercises must arm the lane.
+
+    The filter was written for `interfaces/` and `dispatch/`, but this suite
+    drives the auth sidecar, the rendered nginx config and the shared container
+    fixture — none of which live there. Left unlisted, a PR that changes the
+    login page or the perimeter template skips every gated step in this job,
+    which GitHub reports as a job SUCCESS. The proof would be silently gone at
+    exactly the moment it mattered."""
+    paths = _browser_lane_filter_paths(workflow)
+    missing = [path for path in AUTH_PERIMETER_PATHS if path not in paths]
+    assert missing == [], (
+        f"the '{BROWSER_JOB}' lane is not triggered by {missing}, so a change there would "
+        f"green-skip {AUTH_BROWSER_TEST_FILE} instead of running it"
+    )
+
+
+def test_browser_lane_is_triggered_by_the_perimeter__mutation_drops_the_sidecar_path() -> None:
+    """Dropping the sidecar source from the filter must be reported missing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_FILTER_STEP)
+    filters = yaml.safe_load(step["with"]["filters"])
+    filters["theming"] = [
+        path for path in filters["theming"] if path != "src/osprey/services/auth_sidecar/**"
+    ]
+    step["with"]["filters"] = yaml.safe_dump(filters)
+    paths = _browser_lane_filter_paths(mutated)
+    assert [p for p in AUTH_PERIMETER_PATHS if p not in paths] == [
+        "src/osprey/services/auth_sidecar/**"
+    ]

@@ -21,7 +21,7 @@
  * @module scaffold/edit
  */
 
-import { fetchArtifactsShared, resetFetchCache, withPrefix } from './data.js';
+import { apiRequest } from './data.js';
 
 /**
  * `detailContentEl` grows a `_settingsEditor` property when the
@@ -42,10 +42,7 @@ import { fetchArtifactsShared, resetFetchCache, withPrefix } from './data.js';
  * @typedef {object} ScaffoldGalleryEditHost
  * @property {any} selectedArtifact
  * @property {any[]} artifacts
- * @property {(artifact: any) => boolean} categoryFilter
- * @property {Record<string, string>} categoryOverrides
- * @property {Record<string, string>} categoryRemaps
- * @property {{total: number, framework: number, userOwned: number}} summary
+ * @property {() => Promise<void>} reloadFull
  * @property {string} currentView
  * @property {string} detailMode
  * @property {boolean} editDirty
@@ -55,7 +52,6 @@ import { fetchArtifactsShared, resetFetchCache, withPrefix } from './data.js';
  * @property {HTMLElement|null} detailView
  * @property {(() => void)|null} onDetailClose
  * @property {(artifact: any) => void} openDetail
- * @property {() => void} renderDetailHeader
  * @property {() => void} renderDetailModes
  * @property {() => void} renderDetailContent
  * @property {() => void} renderGallery
@@ -71,18 +67,17 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function takeOwnership() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm('By doing this you take responsibility for this file.')) return;
+    if (!confirm(
+      'Take ownership of this file? A project copy is written into .claude/, and '
+      + 'OSPREY stops overwriting it when artifacts are regenerated — later framework '
+      + 'updates to it will not reach your project. You can release ownership again.'
+    )) return;
 
     try {
-      const resp = await fetch(
-        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`), // prefix-aware
-        { method: 'POST' }
-      );
-
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Scaffold failed (HTTP ${resp.status})`);
-      }
+      await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`, {
+        method: 'POST',
+        errorPrefix: 'Scaffold failed',
+      });
 
       await reloadAndReopen();
     } catch (e) {
@@ -97,7 +92,10 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function releaseToFramework() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm('Your customizations will be removed.')) return;
+    if (!confirm(
+      'Release this file back to the framework? Your project copy is deleted from '
+      + 'disk and the framework version takes over again.'
+    )) return;
 
     await unoverrideArtifact(true);
   }
@@ -105,38 +103,28 @@ export function createScaffoldGalleryEdit(gallery) {
   /** @returns {Promise<void>} */
   async function handleEditFramework() {
     if (!gallery.selectedArtifact) return;
-    if (!confirm('This will create a project copy for editing.')) return;
+    if (!confirm(
+      'Editing this file takes ownership of it: a project copy is written into '
+      + '.claude/, and OSPREY stops overwriting it when artifacts are regenerated.'
+    )) return;
 
     try {
-      const resp = await fetch(
-        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`), // prefix-aware
-        { method: 'POST' }
-      );
+      await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`, {
+        method: 'POST',
+        errorPrefix: 'Scaffold failed',
+      });
 
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Scaffold failed (HTTP ${resp.status})`);
-      }
-
-      // Reload from API (invalidate cache so we get fresh data)
-      resetFetchCache();
-      const data = await fetchArtifactsShared();
-      const allArtifacts = data.artifacts || [];
-      gallery.artifacts = allArtifacts
-        .filter(gallery.categoryFilter)
-        .map(/** @param {any} a */ (a) => ({
-          ...a,
-          displayCategory:
-            gallery.categoryOverrides[a.name] ||
-            gallery.categoryRemaps[a.category] ||
-            a.category,
-        }));
+      // Full reload (fresh cache) via the gallery's single data pipeline,
+      // then reopen this artifact in edit mode.
+      await gallery.reloadFull();
 
       const updated = gallery.artifacts.find((a) => a.name === gallery.selectedArtifact.name);
       if (updated) {
-        gallery.selectedArtifact = updated;
+        // openDetail restores detail-view visibility (reloadFull's gallery
+        // re-render flipped back to the grid); then switch to edit mode
+        // inline — same pattern as detail.js's showCreateDialog.
+        gallery.openDetail(updated);
         gallery.detailMode = 'edit';
-        gallery.renderDetailHeader();
         gallery.renderDetailModes();
         gallery.renderDetailContent();
       }
@@ -202,34 +190,26 @@ export function createScaffoldGalleryEdit(gallery) {
       if (!confirmed) return;
 
       // Scaffold (claim) the file before writing the override
-      const scaffoldResp = await fetch(
-        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`), // prefix-aware
-        { method: 'POST' }
-      );
-      if (!scaffoldResp.ok) {
-        const detail = await scaffoldResp.json().catch(() => ({}));
+      try {
+        await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/claim`, {
+          method: 'POST',
+          errorPrefix: 'Scaffold failed',
+        });
+      } catch (e) {
         if (gallery.errorEl) {
           gallery.errorEl.style.display = 'flex';
-          gallery.errorEl.textContent = `Scaffold failed: ${detail.detail || `HTTP ${scaffoldResp.status}`}`;
+          gallery.errorEl.textContent = `Scaffold failed: ${e instanceof Error ? e.message : String(e)}`;
         }
         return;
       }
     }
 
     try {
-      const resp = await fetch(
-        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override`), // prefix-aware
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content }),
-        }
-      );
-
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Save failed (HTTP ${resp.status})`);
-      }
+      await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override`, {
+        method: 'PUT',
+        json: { content },
+        errorPrefix: 'Save failed',
+      });
 
       gallery.editDirty = false;
       await reloadAndReopen();
@@ -312,21 +292,16 @@ export function createScaffoldGalleryEdit(gallery) {
     if (!gallery.selectedArtifact) return;
 
     if (!skipConfirm) {
-      if (!confirm('Reset to framework default? This will remove your customizations.')) {
+      if (!confirm('Reset to the framework default? Your project copy is deleted from disk.')) {
         return;
       }
     }
 
     try {
-      const resp = await fetch(
-        withPrefix(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override?delete_file=true`), // prefix-aware
-        { method: 'DELETE' }
-      );
-
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({}));
-        throw new Error(detail.detail || `Reset failed (HTTP ${resp.status})`);
-      }
+      await apiRequest(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}/override?delete_file=true`, {
+        method: 'DELETE',
+        errorPrefix: 'Reset failed',
+      });
 
       await reloadAndReopen();
     } catch (e) {
@@ -342,24 +317,9 @@ export function createScaffoldGalleryEdit(gallery) {
   async function reloadAndReopen() {
     const name = gallery.selectedArtifact ? gallery.selectedArtifact.name : null;
 
-    // Invalidate cache and refetch
-    resetFetchCache();
-    const data = await fetchArtifactsShared();
-    const allArtifacts = data.artifacts || [];
-    gallery.artifacts = allArtifacts
-      .filter(gallery.categoryFilter)
-      .map(/** @param {any} a */ (a) => ({
-        ...a,
-        displayCategory:
-          gallery.categoryOverrides[a.name] ||
-          gallery.categoryRemaps[a.category] ||
-          a.category,
-      }));
-
-    // Recompute summary
-    const fw = gallery.artifacts.filter((a) => a.status === 'framework').length;
-    const uo = gallery.artifacts.filter((a) => a.status === 'user-owned').length;
-    gallery.summary = { total: gallery.artifacts.length, framework: fw, userOwned: uo };
+    // Full reload (fresh cache + untracked-file refresh + summary + gallery
+    // re-render) via the gallery's single data pipeline (scaffold/data.js).
+    await gallery.reloadFull();
 
     if (name) {
       const updated = gallery.artifacts.find((a) => a.name === name);

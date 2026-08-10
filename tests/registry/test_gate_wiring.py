@@ -68,7 +68,7 @@ def _registered_server_tool_names() -> set[str]:
     from osprey.mcp_server.bluesky.tools import (  # noqa: F401 — registers tools
         authoring,
         draft,
-        launch,
+        queue,
         read_tools,
         stop,
     )
@@ -129,27 +129,30 @@ def test_permission_surface_equals_constant_name_set() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_permissions_allow_is_exactly_read_plus_draft_constants() -> None:
-    """Silent-allow == the read + draft constant groups (touch no hardware)."""
+def test_permissions_allow_is_exactly_read_plus_draft_plus_queue_read_constants() -> None:
+    """Silent-allow == the read + draft + queue-read constant groups (touch no hardware)."""
     allow = _resolve_bluesky()["permissions_allow"]
-    for tool in (*bsky.READ_TOOLS, *bsky.DRAFT_TOOLS):
-        assert tool in allow, f"{tool!r} (read/draft, silent-allow) missing from permissions_allow"
-    assert set(allow) == set(bsky.READ_TOOLS) | set(bsky.DRAFT_TOOLS)
+    silent = (*bsky.READ_TOOLS, *bsky.DRAFT_TOOLS, *bsky.QUEUE_READ_TOOLS)
+    for tool in silent:
+        assert tool in allow, f"{tool!r} (read/draft/queue-read) missing from permissions_allow"
+    assert set(allow) == set(silent)
 
 
-def test_permissions_ask_is_exactly_authoring_plus_run_control_constants() -> None:
-    """Approval-gated == the authoring + run-control constant groups."""
+def test_permissions_ask_is_exactly_authoring_plus_queue_control_plus_run_control() -> None:
+    """Approval-gated == the authoring + queue-control + run-control constant groups."""
     ask = _resolve_bluesky()["permissions_ask"]
-    for tool in (*bsky.AUTHORING_TOOLS, *bsky.RUN_CONTROL_TOOLS):
-        assert tool in ask, f"{tool!r} (authoring/run-control) missing from permissions_ask"
-    assert set(ask) == set(bsky.AUTHORING_TOOLS) | set(bsky.RUN_CONTROL_TOOLS)
+    gated = (*bsky.AUTHORING_TOOLS, *bsky.QUEUE_CONTROL_TOOLS, *bsky.RUN_CONTROL_TOOLS)
+    for tool in gated:
+        assert tool in ask, f"{tool!r} (authoring/queue-control/run-control) missing from ask"
+    assert set(ask) == set(gated)
 
 
 def test_hook_matchers_resolve_from_constants() -> None:
     """Every pre-hook matcher equals ``matcher(<constant>)`` — no free string.
 
-    And the matcher set is exactly the ask-gated tools (authoring + run-control):
-    the silent-allow read/draft tools carry no pre-hook.
+    And the matcher set is exactly the ask-gated tools (authoring +
+    queue-control + run-control): the silent-allow read/draft/queue-read tools
+    carry no pre-hook.
     """
     bluesky = _resolve_bluesky()
     matchers = {r["matcher"] for r in bluesky["hooks_pre"]}
@@ -160,7 +163,10 @@ def test_hook_matchers_resolve_from_constants() -> None:
             f"hook matcher {m!r} does not equal bsky.matcher(<constant>) — "
             f"a raw matcher string has drifted from the constants"
         )
-    expected = {bsky.matcher(t) for t in (*bsky.AUTHORING_TOOLS, *bsky.RUN_CONTROL_TOOLS)}
+    expected = {
+        bsky.matcher(t)
+        for t in (*bsky.AUTHORING_TOOLS, *bsky.QUEUE_CONTROL_TOOLS, *bsky.RUN_CONTROL_TOOLS)
+    }
     assert matchers == expected
 
 
@@ -183,41 +189,44 @@ def test_write_tools_destructive_markers_is_shared_constant() -> None:
 # rendered source — pinned here by substring so a constant rename that skips
 # the template fails loudly.
 #
-# Inspecting the two sources: only ``osprey_approval.py`` carries a Bluesky
-# tool literal — ``launch_run`` — because it special-cases that one name to
-# render plan/provenance/validation detail at approval time. ``stop_run`` /
+# Inspecting the two sources: only ``osprey_approval.py`` carries Bluesky tool
+# literals — the three queue-control names — because it special-cases each to
+# render what would be queued/run/resumed at approval time. ``stop_run`` /
 # ``write_plan`` / ``validate_plan`` are handled by the hook's GENERIC per-tool
 # policy dispatch (keyed on the short name extracted from an approval prefix),
 # so they carry no literal. ``osprey_writes_check.py`` carries NO Bluesky
 # literal at all: its write-tool set is data-driven from ``hook_config.json``
-# (rendered from the registry HookRule), so launch_run's kill-switch leg is
+# (rendered from the registry HookRule), so the arming tools' kill-switch leg is
 # rename-safe without touching that source. Those are the load-bearing facts
 # this section pins.
 # ---------------------------------------------------------------------------
 
 
-def test_approval_template_source_carries_launch_run_constant() -> None:
-    """The standalone approval hook still literals ``launch_run``.
+def test_approval_template_source_carries_the_queue_control_constants() -> None:
+    """The standalone approval hook still literals every queue-control name.
 
-    ``osprey_approval.py`` branches on ``short_name == "launch_run"`` (and lists
-    it in its frontmatter) to fetch and render plan source / provenance /
-    validation status for the human approver — the documented backstop for a
-    plan body that slips past the automated validator. A rename of the
-    ``LAUNCH_RUN`` constant that leaves this deployed source untouched silently
-    detaches that enrichment; pin the value so the rename must update it too.
+    ``osprey_approval.py`` dispatches on these short names (and lists them in
+    its frontmatter) to fetch and render the draft, the queue contents, the
+    plan's provenance/validation/source, and whether the queue is already
+    draining — the documented backstop for a plan body that slips past the
+    automated validator, and the only place a human learns that an enqueue is
+    really an execution. A rename of any of these constants that leaves this
+    deployed source untouched silently detaches that enrichment; pin the values
+    so the rename must update it too.
     """
     src = _hook_source("osprey_approval.py")
-    assert bsky.LAUNCH_RUN in src, (
-        f"osprey_approval.py no longer contains {bsky.LAUNCH_RUN!r} — the "
-        f"standalone approval hook special-cases this name to render launch "
-        f"detail; a LAUNCH_RUN rename that skips this template detaches it"
+    missing = [tool for tool in bsky.QUEUE_CONTROL_TOOLS if tool not in src]
+    assert not missing, (
+        f"osprey_approval.py no longer contains {missing} — the standalone "
+        f"approval hook special-cases these names to render queue/plan detail; "
+        f"a rename that skips this template detaches the enrichment"
     )
 
 
 def test_writes_check_template_carries_no_bluesky_tool_literal() -> None:
     """The kill switch stays data-driven — no Bluesky tool name is hardcoded.
 
-    ``launch_run``'s writes-check gating flows registry HookRule →
+    The arming tools' writes-check gating flows registry HookRule →
     ``hook_config.json`` → this hook's runtime ``write_tools`` load, never a
     literal here. Pinning the ABSENCE documents why a Bluesky tool rename never
     needs to touch this standalone source (and flags anyone who reintroduces a
@@ -272,29 +281,89 @@ def test_draft_tools_are_silent_allow() -> None:
         assert bsky.matcher(tool) not in gated, f"{tool!r} draft tool must carry no pre-hook"
 
 
-def test_launch_run_carries_both_gates_stop_run_approval_only() -> None:
-    """``launch_run`` = writes-check + approval; ``stop_run`` = approval only.
+def _hook_commands(by_matcher: dict, tool: str) -> list[str]:
+    return [h["command"] for h in by_matcher[bsky.matcher(tool)]["hooks"]]
 
-    Pins how the rules distinguish the two directions: the kill switch
-    (writes-check) gates starting a scan but must NEVER gate stopping one (the
-    safe direction), so ``stop_run`` carries approval alone.
+
+def test_arming_tools_membership_is_pinned_literally() -> None:
+    """``ARMING_TOOLS`` names exactly the two tools that arm hardware motion.
+
+    Every other assertion about the kill switch iterates this tuple, so they
+    all agree with it by construction and none of them can notice a tool
+    LEAVING it — drop ``queue_add`` here and the writes-check simply stops
+    being required for it, silently. This literal is the one place that
+    breaks that circularity.
+
+    A tool removed from this tuple loses the kill switch. Only remove one if
+    it genuinely can no longer put hardware in motion.
+    """
+    assert set(bsky.ARMING_TOOLS) == {"queue_add", "queue_start"}
+
+
+def test_kill_switch_gates_exactly_the_arming_tools() -> None:
+    """``_WRITES_CHECK`` is attached to every ARMING_TOOL and to nothing else.
+
+    Both halves matter and neither implies the other. An arming tool WITHOUT
+    the writes-check registers with an approval prompt and no kill switch —
+    it looks gated and is not, which is precisely how a new write path slips
+    past the deny loop. A non-arming tool WITH it hands the kill switch veto
+    power over the safe direction.
     """
     by_matcher = {r["matcher"]: r for r in _resolve_bluesky()["hooks_pre"]}
 
-    launch = by_matcher[bsky.matcher(bsky.LAUNCH_RUN)]
-    launch_cmds = [h["command"] for h in launch["hooks"]]
-    assert any("osprey_writes_check.py" in c for c in launch_cmds), (
-        "launch_run must be kill-switched"
-    )
-    assert any("osprey_approval.py" in c for c in launch_cmds), "launch_run must be approval-gated"
+    for tool in bsky.ARMING_TOOLS:
+        cmds = _hook_commands(by_matcher, tool)
+        assert any("osprey_writes_check.py" in c for c in cmds), (
+            f"{tool!r} arms hardware motion and MUST carry the writes-check kill switch"
+        )
+        assert any("osprey_approval.py" in c for c in cmds), f"{tool!r} must be approval-gated"
 
-    stop = by_matcher[bsky.matcher(bsky.STOP_RUN)]
-    stop_cmds = [h["command"] for h in stop["hooks"]]
-    assert any("osprey_approval.py" in c for c in stop_cmds), "stop_run must be approval-gated"
-    assert not any("osprey_writes_check.py" in c for c in stop_cmds), (
-        "stop_run must NEVER be writes-check/kill-switch gated — the kill switch "
-        "must not be able to block stopping a run"
+    kill_switched = {
+        rule["matcher"]
+        for rule in _resolve_bluesky()["hooks_pre"]
+        if any("osprey_writes_check.py" in h["command"] for h in rule["hooks"])
+    }
+    assert kill_switched == {bsky.matcher(t) for t in bsky.ARMING_TOOLS}, (
+        "the writes-check kill switch must gate exactly bsky.ARMING_TOOLS"
     )
+
+
+def test_stop_tools_are_approval_only_never_kill_switched() -> None:
+    """``queue_stop`` and ``stop_run`` = approval only, in both directions.
+
+    Halting is the safe direction, so the kill switch must never be able to
+    block it: attaching the writes-check to ``queue_stop`` would make a plain
+    stop fail exactly when writes are disabled — the moment an operator is most
+    likely to want the queue halted. ``queue_stop``'s one arming case
+    (``cancel=true``, which withdraws a pending halt) is gated in-tool and again
+    at the bridge instead, so the arming half is covered without taking the
+    halting half hostage.
+    """
+    by_matcher = {r["matcher"]: r for r in _resolve_bluesky()["hooks_pre"]}
+
+    for tool in (bsky.QUEUE_STOP, bsky.STOP_RUN):
+        cmds = _hook_commands(by_matcher, tool)
+        assert any("osprey_approval.py" in c for c in cmds), f"{tool!r} must be approval-gated"
+        assert not any("osprey_writes_check.py" in c for c in cmds), (
+            f"{tool!r} must NEVER be writes-check/kill-switch gated — the kill switch "
+            f"must not be able to block halting"
+        )
+
+
+def test_queue_read_tools_are_silent_allow() -> None:
+    """``queue_list`` / ``queue_status`` are reads: allow, not ask, no pre-hook.
+
+    ``queue_status`` in particular is the question an agent should ask BEFORE
+    composing anything; prompting for it would train operators to click through
+    prompts that never precede motion.
+    """
+    bluesky = _resolve_bluesky()
+    gated = {r["matcher"] for r in bluesky["hooks_pre"]}
+
+    for tool in bsky.QUEUE_READ_TOOLS:
+        assert tool in bluesky["permissions_allow"], f"{tool!r} (read) must be silent-allow"
+        assert tool not in bluesky["permissions_ask"]
+        assert bsky.matcher(tool) not in gated, f"{tool!r} (read) must carry no pre-hook"
 
 
 # ---------------------------------------------------------------------------

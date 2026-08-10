@@ -241,6 +241,134 @@ def test_web_stack_unreachable_on_linux_warns_without_desktop_hint(monkeypatch, 
     assert "Enable host networking" not in caplog.text
 
 
+# ---------------------------------------------------------------------------
+# Docker Desktop stale-forwarder self-heal.
+#
+# Docker Desktop's host-network forwarder registers a VM-side listen socket by
+# WATCHING for the listen event. A container that came back up via
+# `restart: unless-stopped` while Docker Desktop was still starting (an update,
+# a reboot, an Apply & Restart) opens its socket unobserved and stays invisible
+# to the host forever -- and because its compose definition never changed,
+# every later `up -d` leaves it `Running` and reconciles nothing, so the deploy
+# can never fix itself. Bouncing the container re-opens the socket while the
+# forwarder is watching. That is the common case whenever this probe fails on
+# Docker Desktop, so the restart is tried BEFORE blaming the opt-in setting.
+# ---------------------------------------------------------------------------
+
+
+def _refusing_urlopen(succeed_after: int, calls: list[int]):
+    """urlopen stub that refuses the first ``succeed_after`` calls, then answers."""
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _urlopen(url, timeout):
+        calls.append(1)
+        if len(calls) <= succeed_after:
+            raise OSError("connection refused")
+        return _Resp()
+
+    return _urlopen
+
+
+def test_docker_desktop_unreachable_self_heals_via_restart(monkeypatch, caplog):
+    """A stale forwarder registration is repaired by a restart, with no warning."""
+    probes: list[int] = []
+    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(2, probes))
+    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        postup_hooks.subprocess,
+        "run",
+        lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
+    )
+
+    with caplog.at_level("WARNING"):
+        postup_hooks.warn_if_web_stack_unreachable(
+            _PROBE_CONFIG,
+            attempts=2,
+            delay=0,
+            web_cmd=["docker", "compose", "-f", "docker-compose.web.yml"],
+            run_env={},
+        )
+
+    assert ran == [["docker", "compose", "-f", "docker-compose.web.yml", "restart"]]
+    assert "not reachable" not in caplog.text
+    assert "Enable host networking" not in caplog.text
+
+
+def test_docker_desktop_warns_only_after_restart_fails_to_help(monkeypatch, caplog):
+    """When the bounce does not help, the setting really is the likely cause."""
+    probes: list[int] = []
+    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, probes))
+    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        postup_hooks.subprocess,
+        "run",
+        lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
+    )
+
+    with caplog.at_level("WARNING"):
+        postup_hooks.warn_if_web_stack_unreachable(
+            _PROBE_CONFIG, attempts=2, delay=0, web_cmd=["docker", "compose"], run_env={}
+        )
+
+    assert ran == [["docker", "compose", "restart"]]
+    assert "not reachable" in caplog.text
+    assert "Enable host networking" in caplog.text
+
+
+def test_self_heal_never_fires_on_linux(monkeypatch, caplog):
+    """Linux host networking is real -- an unreachable port means something else."""
+    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, []))
+    monkeypatch.setattr(postup_hooks.sys, "platform", "linux")
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        postup_hooks.subprocess,
+        "run",
+        lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
+    )
+
+    with caplog.at_level("WARNING"):
+        postup_hooks.warn_if_web_stack_unreachable(
+            _PROBE_CONFIG, attempts=2, delay=0, web_cmd=["docker", "compose"], run_env={}
+        )
+
+    assert ran == []
+    assert "not reachable" in caplog.text
+
+
+def test_self_heal_skipped_when_caller_supplies_no_compose_cmd(monkeypatch, caplog):
+    """Lifecycle callers that never had a web_cmd keep the old warn-only behaviour."""
+    monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, []))
+    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        postup_hooks.subprocess,
+        "run",
+        lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
+    )
+
+    with caplog.at_level("WARNING"):
+        postup_hooks.warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert ran == []
+    assert "Enable host networking" in caplog.text
+
+
 def test_web_stack_http_error_counts_as_reachable(monkeypatch, caplog):
     def _http_error(url, timeout):
         raise postup_hooks.urllib.error.HTTPError(url, 502, "Bad Gateway", None, None)

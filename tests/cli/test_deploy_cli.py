@@ -111,12 +111,12 @@ class TestDeployCliValidation:
         """A USER on an action that doesn't consume it is a typo, not a no-op."""
         result = cli_runner.invoke(deploy, ["nuke", "alice"])
         assert result.exit_code != 0
-        assert "does not take a user" in result.output.lower()
+        assert "unexpected extra argument" in result.output.lower()
 
     def test_deploy_cli_stray_user_rejected_for_up(self, cli_runner):
         result = cli_runner.invoke(deploy, ["up", "alice"])
         assert result.exit_code != 0
-        assert "does not take a user" in result.output.lower()
+        assert "unexpected extra argument" in result.output.lower()
 
 
 class TestDeployCliExistingActionsUnaffected:

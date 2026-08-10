@@ -32,7 +32,10 @@ if sys.platform == "win32":
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "2026.6.2"
+    # Only reachable from a broken/partial install. A sentinel rather than a
+    # release number: any literal release named here is stale the moment the
+    # next version ships, and `osprey --version` would report it as fact.
+    __version__ = "0.0.0+unknown"
 
 
 class LazyGroup(click.Group):
@@ -43,6 +46,7 @@ class LazyGroup(click.Group):
         # Map command names to their module paths
         commands = {
             "build": "osprey.cli.build_cmd",
+            "profile": "osprey.cli.profile_cmd",  # Build-profile authoring
             "deploy": "osprey.cli.deploy_cmd",
             "config": "osprey.cli.config_cmd",
             "health": "osprey.cli.health_cmd",
@@ -85,6 +89,8 @@ class LazyGroup(click.Group):
             cmd_func = mod.theme_lab
         elif cmd_name == "scaffold":
             cmd_func = mod.scaffold
+        elif cmd_name == "profile":
+            cmd_func = mod.profile
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -94,6 +100,7 @@ class LazyGroup(click.Group):
         """Return list of available commands (for --help)."""
         return [
             "build",
+            "profile",
             "config",
             "deploy",
             "health",
@@ -116,8 +123,14 @@ class LazyGroup(click.Group):
 
 @click.group(cls=LazyGroup, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="osprey")
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="Show debug output, including every container command run.",
+)
 @click.pass_context
-def cli(ctx):
+def cli(ctx, verbose):
     """Osprey Framework CLI - Capability-Based Agentic Framework.
 
     A unified command-line interface for creating, deploying, and interacting
@@ -133,20 +146,35 @@ def cli(ctx):
                                       Create new project from a bundled preset
       osprey config                   Manage configuration (show, export, set)
       osprey deploy up                Start services
+      osprey -v deploy up             Same, with every command echoed
       osprey claude regen             Regenerate Claude Code artifacts
       osprey web                      Launch web terminal
       osprey theme-lab                Build and preview themes in the browser
       osprey health                   Check system health
       osprey channel-finder           Interactive channel search
     """
+    import logging
+
+    from osprey.utils.config import load_project_dotenv
     from osprey.utils.logger import configure_logging
 
     from .styles import initialize_theme_from_config
 
-    # The CLI is a process entry point: nothing else configures logging, and
-    # importing the framework deliberately does not. Records go to stderr, so
-    # `--json` subcommand output on stdout stays machine-readable.
-    configure_logging()
+    # The CLI is a process entry point: nothing else populates the environment
+    # from `.env`, and importing the framework deliberately does not. Do this
+    # first — logging and theme config below resolve `${VAR}` placeholders, and
+    # subcommands may read os.environ before touching config at all.
+    load_project_dotenv()
+
+    # Likewise a process entry point for logging: nothing else configures it,
+    # and importing the framework deliberately does not. Records go to stderr,
+    # so `--json` subcommand output on stdout stays machine-readable.
+    #
+    # `-v` is the escape hatch for everything demoted to DEBUG so that a normal
+    # run reads as a report rather than a transcript — most visibly the
+    # container commands the deploy path shells out to, which are what someone
+    # needs when reproducing a deploy step by hand.
+    configure_logging(logging.DEBUG if verbose else logging.INFO)
 
     initialize_theme_from_config()
 

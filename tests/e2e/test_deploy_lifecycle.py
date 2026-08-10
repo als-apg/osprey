@@ -159,13 +159,25 @@ def _run_osprey(
     # forcing it to RUNTIME here structurally couples the deploy-side runtime
     # to the assert-side _runtime_cli runtime, regardless of what the ambient
     # environment (or CI job) does or doesn't set.
+    #
+    # OSPREY_PIP_SPEC is the documented operator escape from the unreleased-
+    # version pin refusal (deploy up from a dev checkout cannot honestly pin a
+    # PyPI release). Every image these tests build is a stub Dockerfile that
+    # never declares the build arg, so the spec is inert — but its VALUE must
+    # stay a loud failure: if a future fixture ever consumes it, pip must
+    # refuse rather than silently install a real release.
     return subprocess.run(
         [str(osprey_bin), *args],
         cwd=str(cwd),
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
+        env={
+            **os.environ,
+            "CLAUDECODE": "",
+            "CONTAINER_RUNTIME": RUNTIME,
+            "OSPREY_PIP_SPEC": "osprey-framework==0.0.0+e2e-stub",
+        },
     )
 
 
@@ -929,18 +941,19 @@ HETERO_DEFAULT_TAG = f"{HETERO_DEFAULT_PROJECT}-{HETERO_DEFAULT_PERSONA}:local"
 HETERO_ALT_TAG = f"{HETERO_ALT_PROJECT}-{HETERO_ALT_PERSONA}:local"
 
 # The .env fixture content: one var the generated .env.production MUST carry
-# (the LLM key, copied unconditionally), one it must carry because the
-# enabling module is on (event_dispatcher's own token), and three it must
-# NEVER carry regardless of what's in .env -- the registry token, the
-# event-dispatcher SIDECAR token (as opposed to its own token, which IS
-# copied), and an external-registry-project token. None of these three are
-# ever read by _build_env_production_subset, so this is a regression guard:
-# if a future change ever taught that function to read one of them, this
-# assertion would catch the leak.
+# (the LLM key, copied unconditionally), and three it must NEVER carry
+# regardless of what's in .env -- the registry token, an external-registry-
+# project token, and a service token OSPREY mints for its own containers
+# (EVENT_DISPATCHER_TOKEN). None of the three are ever read by
+# _build_env_production_subset, so this is a regression guard: if a future
+# change ever taught that function to read one of them, the assertion below
+# would catch the leak. The service token is the sharpest of the three,
+# because the enabling module IS on in this fixture -- an enabled module is
+# not, on its own, a licence to hand a web terminal the token its sibling
+# containers authenticate with.
 _HETERO_ENV_CONTENT = (
     "ANTHROPIC_API_KEY=fake-llm-key-value\n"
     "EVENT_DISPATCHER_TOKEN=fake-dispatcher-token-value\n"
-    "DISPATCH_SIDECAR_TOKEN=fake-sidecar-token-value\n"
     "REGISTRY_TOKEN=fake-registry-token-value\n"
     "EXTERNAL_PROJECT_TOKEN=fake-external-token-value\n"
 )
@@ -1003,11 +1016,7 @@ def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> d
         "deploy": {"fqdn": "localhost"},
         "deployed_services": [],
         "modules": {
-            "event_dispatcher": {
-                "enabled": True,
-                "token_env_var": "EVENT_DISPATCHER_TOKEN",
-                "sidecar_token_env_var": "DISPATCH_SIDECAR_TOKEN",
-            },
+            "event_dispatcher": {"enabled": True},
             "web_terminals": {
                 "enabled": True,
                 "image_source": "local",
@@ -1161,17 +1170,16 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path, stub_image
             assert _container_id(name) is not None, f"{name} not created by 'deploy up'"
 
         # --------------------------------------------------------------
-        # .env.production: generated, 0600, module-conditional CI subset --
-        # carries the LLM key and event_dispatcher's OWN token, never the
-        # registry/sidecar/external-project tokens also present in .env.
+        # .env.production: generated, 0600, module-conditional subset --
+        # carries the LLM key, never the registry/external-project tokens or
+        # OSPREY's own minted service tokens, all of which are in .env.
         # --------------------------------------------------------------
         assert env_production_path.is_file(), ".env.production was not generated from .env"
         mode = env_production_path.stat().st_mode & 0o777
         assert mode == 0o600, f".env.production mode {oct(mode)} != 0600"
         content = env_production_path.read_text(encoding="utf-8")
         assert "ANTHROPIC_API_KEY=fake-llm-key-value" in content
-        assert "EVENT_DISPATCHER_TOKEN=fake-dispatcher-token-value" in content
-        for excluded in ("REGISTRY_TOKEN", "DISPATCH_SIDECAR_TOKEN", "EXTERNAL_PROJECT_TOKEN"):
+        for excluded in ("REGISTRY_TOKEN", "EVENT_DISPATCHER_TOKEN", "EXTERNAL_PROJECT_TOKEN"):
             assert excluded not in content, (
                 f"{excluded} leaked into generated .env.production:\n{content}"
             )

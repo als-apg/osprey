@@ -3,9 +3,9 @@ FRAMEWORK_SERVERS' write-gated tools.
 
 Task 1.11 generalized the kill-switch's writes-off deny/remove_ask block in
 ``build_claude_code_context`` to walk ``FRAMEWORK_SERVERS`` for any
-``hooks_pre`` rule gated by ``_WRITES_CHECK``, so a new write server (e.g.
-scan's ``launch_run``) is covered automatically with no per-server code
-change. ``test_killswitch_scan_deny.py`` pins that behavior at the
+``hooks_pre`` rule gated by ``_WRITES_CHECK``, so a new write server (e.g. the
+bluesky queue's arming tools) is covered automatically with no per-server code
+change. ``test_killswitch_bluesky_deny.py`` pins that behavior at the
 ``build_claude_code_context`` context-dict level.
 
 This module is the drift guard proper: it exercises the FULL render pipeline
@@ -16,8 +16,8 @@ and it computes the expected write-gated tool set *dynamically* from
 kinds of drift: a future change that decouples the template from
 ``facility_permissions.deny``/``remove_ask``, and a new
 ``_WRITES_CHECK``-gated tool added to ``FRAMEWORK_SERVERS`` with no matching
-kill-switch coverage — including ``mcp__bluesky__launch_run`` specifically, but
-not limited to it.
+kill-switch coverage — including the bluesky queue's arming tools
+specifically, but not limited to them.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import json
 
 import yaml
 
+from osprey import bluesky_tool_names as bsky
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.claude_code import _MIXED_READ_WRITE_TEMPLATES
 from osprey.cli.templates.manager import TemplateManager
@@ -34,14 +35,20 @@ from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
 _PROJECT_COUNTER = 0
 
 
-def _write_gated_matchers() -> dict[str, str]:
-    """Map {template_name: matcher} for every FRAMEWORK_SERVERS hooks_pre rule
-    gated by _WRITES_CHECK -- the full set the kill switch must cover."""
-    matchers: dict[str, str] = {}
+def _write_gated_matchers() -> dict[str, list[str]]:
+    """Map {template_name: [matcher, ...]} for every FRAMEWORK_SERVERS hooks_pre
+    rule gated by _WRITES_CHECK -- the full set the kill switch must cover.
+
+    A LIST per template, not a single matcher: bluesky alone contributes two
+    write-gated rules (the queue's arming pair), and keeping only the last one
+    would silently leave the other unchecked by the drift guard below — the
+    exact class of gap this module exists to catch.
+    """
+    matchers: dict[str, list[str]] = {}
     for template_name, template_def in FRAMEWORK_SERVERS.items():
         for rule in template_def.hooks_pre:
             if _WRITES_CHECK in rule.hooks:
-                matchers[template_name] = rule.matcher
+                matchers.setdefault(template_name, []).append(rule.matcher)
     return matchers
 
 
@@ -101,36 +108,63 @@ def test_every_write_gated_tool_is_covered_when_writes_off(tmp_path):
     matchers = _write_gated_matchers()
     assert matchers, "no _WRITES_CHECK-gated tool found in FRAMEWORK_SERVERS at all"
 
-    for template_name, matcher in matchers.items():
-        if template_name in _MIXED_READ_WRITE_TEMPLATES:
-            assert matcher not in ask, (
-                f"{matcher!r} ({template_name}) is documented read/write-mixed and "
-                f"must be pulled from ask, but is still present"
-            )
-        else:
-            assert matcher in deny, (
-                f"{matcher!r} ({template_name}) is _WRITES_CHECK-gated but missing "
-                f"from the rendered settings.json deny list with writes disabled"
-            )
+    for template_name, template_matchers in matchers.items():
+        for matcher in template_matchers:
+            if template_name in _MIXED_READ_WRITE_TEMPLATES:
+                assert matcher not in ask, (
+                    f"{matcher!r} ({template_name}) is documented read/write-mixed and "
+                    f"must be pulled from ask, but is still present"
+                )
+            else:
+                assert matcher in deny, (
+                    f"{matcher!r} ({template_name}) is _WRITES_CHECK-gated but missing "
+                    f"from the rendered settings.json deny list with writes disabled"
+                )
 
 
-def test_bluesky_launch_run_specifically_hard_denied_when_writes_off(tmp_path):
-    """The concrete case this drift guard exists for: scan's launch_run."""
+def test_bluesky_arming_tools_specifically_hard_denied_when_writes_off(tmp_path):
+    """The concrete case this drift guard exists for: the queue's arming pair.
+
+    Named explicitly, on top of the dynamic sweep above, so the sweep going
+    vacuous (an empty matcher map, a bluesky server that stopped rendering)
+    cannot quietly take this coverage with it.
+    """
     project_dir = _build_project(tmp_path, writes_enabled=False)
     perms = _rendered_permissions(project_dir)
-    assert "mcp__bluesky__launch_run" in perms["deny"]
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" in perms["deny"]
 
 
-def test_bluesky_launch_run_not_denied_when_writes_on(tmp_path):
+def test_bluesky_arming_tools_not_denied_when_writes_on(tmp_path):
     project_dir = _build_project(tmp_path, writes_enabled=True)
     perms = _rendered_permissions(project_dir)
-    assert "mcp__bluesky__launch_run" not in perms["deny"]
-    assert "mcp__bluesky__launch_run" not in perms.get("remove_ask", [])
+    for tool in bsky.ARMING_TOOLS:
+        assert f"mcp__bluesky__{tool}" not in perms["deny"]
+        assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
+
+
+def test_bluesky_queue_stop_never_denied_even_with_writes_off(tmp_path):
+    """Negative control at the rendered-settings level: halting stays reachable.
+
+    Proves the deny list above is selecting on the arming hook rather than
+    denying the bluesky server wholesale — and that a kill switch which took
+    away the queue's stop would fail here.
+    """
+    project_dir = _build_project(tmp_path, writes_enabled=False)
+    perms = _rendered_permissions(project_dir)
+    assert f"mcp__bluesky__{bsky.QUEUE_STOP}" not in perms["deny"]
+    assert f"mcp__bluesky__{bsky.QUEUE_STOP}" not in perms.get("remove_ask", [])
 
 
 def test_bluesky_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
     """stop_run carries approval only (no _WRITES_CHECK) -- the kill switch
-    must never block stopping a scan, in either direction."""
+    must never block stopping a scan, in either direction.
+
+    This is now load-bearing rather than merely tidy: stop_run is the only
+    surface that ABORTS a plan already moving hardware (POST /queue/abort).
+    Denying it under writes-off would take the emergency halt away at exactly
+    the moment writes were disabled because something was wrong.
+    """
     for writes_enabled in (True, False):
         project_dir = _build_project(tmp_path, writes_enabled=writes_enabled)
         perms = _rendered_permissions(project_dir)

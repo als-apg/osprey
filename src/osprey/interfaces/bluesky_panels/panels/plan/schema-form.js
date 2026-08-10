@@ -62,6 +62,8 @@
  * @module schema-form
  */
 
+import { h } from './hyperscript.js';
+
 /**
  * Sentinel returned by a field's ``collect()`` when it has no value to
  * contribute (blank input, empty chip list, …). Parent collectors drop
@@ -133,39 +135,6 @@ export const OMIT = Symbol('omit');
  *   fields: Record<string, RegisteredField>
  * }} PlanArgsCollector
  */
-
-/**
- * Tiny hyperscript helper: create an element, apply props, append children.
- * Strings/numbers become text nodes (never parsed as HTML).
- *
- * @param {string} tag
- * @param {Record<string, unknown>} [props]
- * @param {...(Node|string|number|null|undefined)} children
- * @returns {HTMLElement}
- */
-function h(tag, props, ...children) {
-  const node = document.createElement(tag);
-  if (props) {
-    for (const [key, value] of Object.entries(props)) {
-      if (value === null || value === undefined || value === false) continue;
-      if (key === 'class') {
-        node.className = String(value);
-      } else if (key === 'text') {
-        node.textContent = String(value);
-      } else if (key in node) {
-        // Property assignment (value, checked, disabled, min, max, step, …).
-        /** @type {any} */ (node)[key] = value;
-      } else {
-        node.setAttribute(key, String(value));
-      }
-    }
-  }
-  for (const child of children) {
-    if (child === null || child === undefined) continue;
-    node.appendChild(typeof child === 'object' ? child : document.createTextNode(String(child)));
-  }
-  return node;
-}
 
 /**
  * Announce a structural form edit (chip/row added or removed) to listeners on

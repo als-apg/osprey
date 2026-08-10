@@ -10,9 +10,8 @@ Covers the in-core sub-agents shipped by the ``control_assistant`` preset:
 - data-visualizer (workspace plotting/LaTeX tools, no facility backend)
 
 Facility-specific sub-agents (literature/wiki/matlab/graph) are no longer
-covered here — they are scaffolded per-facility by the
-``osprey-build-deploy`` skill and live in their respective profile repos.
-Coverage for those agents belongs alongside the profile that ships them.
+covered here — a facility ships them in its own build profile, and coverage
+for them belongs alongside that profile.
 
 These tests use real API calls via the Claude Agent SDK — zero mocking.
 
@@ -142,6 +141,7 @@ class TestAgentDelegation:
     # -------------------------------------------------------------------
 
     @pytest.mark.asyncio
+    @pytest.mark.flaky(reruns=2)
     async def test_logbook_search_delegation(self, delegation_project):
         """Logbook-search agent: delegation contract + (when ARIEL is up) retrieval.
 
@@ -228,6 +228,7 @@ class TestAgentDelegation:
     # -------------------------------------------------------------------
 
     @pytest.mark.asyncio
+    @pytest.mark.flaky(reruns=2)
     async def test_channel_finder_delegation(self, delegation_project):
         """Channel-finder agent: delegation contract for description-to-PV lookup.
 
@@ -302,6 +303,7 @@ class TestAgentDelegation:
     # -------------------------------------------------------------------
 
     @pytest.mark.asyncio
+    @pytest.mark.flaky(reruns=2)
     async def test_data_visualizer_delegation(self, delegation_project):
         """Data-visualizer agent: sandboxed plot creation via workspace MCP tools.
 

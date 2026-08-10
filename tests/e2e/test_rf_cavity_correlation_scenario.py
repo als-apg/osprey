@@ -55,6 +55,7 @@ import pytest
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
+    SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     _default_opus_model,
     activate_scenarios,
     ariel_db_skip_reason,
@@ -154,6 +155,12 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
         max_turns=50,
         max_budget_usd=30.0,
         model=_default_opus_model(project),
+        # rf-thermal's own scenario.json names the cavity-1 thermal excursion
+        # outright, and it sits in the agent's cwd. Unlike a VA-backed physics
+        # fault the bundle cannot be deleted -- it IS the live archiver overlay
+        # the mock connector serves -- so the filesystem-search surface is what
+        # gets closed instead. See SCENARIO_INTEGRITY_DISALLOWED_TOOLS.
+        disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
 
     # --- Tool routing contract -------------------------------------------------

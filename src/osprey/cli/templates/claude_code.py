@@ -2,17 +2,22 @@
 
 import json
 import logging
+import os
 import shutil
 import sys
 import warnings
 from datetime import UTC, datetime
-from pathlib import Path
+from functools import lru_cache
+from pathlib import Path, PurePosixPath
+from typing import Any
 
 import yaml
 
+from osprey.cli.profile_conventions import ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
+from osprey.errors import BuildProfileError
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
@@ -27,6 +32,80 @@ logger = logging.getLogger("osprey.cli.templates")
 # must be denied. Module-level so tests can assert against the same set the
 # renderer actually uses instead of re-declaring it.
 _MIXED_READ_WRITE_TEMPLATES = {"python"}
+
+
+def apply_textbooks_root(ctx: dict, project_dir: Path) -> None:
+    """Set the textbooks-root context keys, absolute and tilde-abbreviated.
+
+    Both keys are written unconditionally — ``None`` when the project ships no
+    textbooks tree — so a template can test them without a guard.
+
+    The tilde variant exists for permission matching: a model asked to read a
+    file under the home directory abbreviates the path to ``~/...``, so a rule
+    written only against the absolute form would not match what it actually
+    requests. ``None`` when the tree is outside the home directory, where the
+    abbreviation never appears.
+
+    Set the same way for both the initial project creation and every later
+    re-render, so a permission rule granted at build time still matches after a
+    regen.
+
+    Args:
+        ctx: Template context, mutated in place.
+        project_dir: The project directory; the tree is its sibling
+            ``data/textbooks``.
+    """
+    textbooks_dir = project_dir.parent / "data" / "textbooks"
+    root = str(textbooks_dir) if textbooks_dir.is_dir() else None
+    home = os.path.expanduser("~")
+    ctx["textbooks_root"] = root
+    ctx["textbooks_root_tilde"] = (
+        "~" + root[len(home) :] if root and root.startswith(home) else None
+    )
+
+
+def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[str, object] | None:
+    """Hierarchy info to embed at render time, or ``None`` if there is none.
+
+    Embedding it means the agent needs no separate ``hierarchy_info()`` tool
+    call. ``None`` covers every way that can legitimately not happen — no
+    database path configured, or a database that will not open — and is the
+    caller's cue to leave ``channel_finder_hierarchy`` as it found it. A failure
+    is warned about, never raised: an unreadable database costs the agent a
+    render-time shortcut, not the build.
+
+    Both the initial project creation and every later Claude Code re-render read
+    the hierarchy through here, so the two cannot embed different levels for the
+    same database.
+
+    Args:
+        channel_finder: The resolved ``channel_finder`` config block. The caller
+            has already established that its pipeline mode is hierarchical.
+        project_dir: Project root the configured database path resolves against.
+    """
+    try:
+        db_path = (
+            channel_finder.get("pipelines", {})
+            .get("hierarchical", {})
+            .get("database", {})
+            .get("path", "")
+        )
+        if not db_path:
+            return None
+
+        from osprey.services.channel_finder.databases.hierarchical import (
+            HierarchicalChannelDatabase,
+        )
+
+        db = HierarchicalChannelDatabase(str((project_dir / db_path).resolve()))
+        return {
+            "hierarchy_levels": db.hierarchy_levels,
+            "hierarchy_config": db.hierarchy_config,
+            "naming_pattern": db.naming_pattern,
+        }
+    except Exception:
+        logger.warning("Could not load hierarchy info for template rendering", exc_info=True)
+        return None
 
 
 def _derive_runtime_interpreter(
@@ -157,33 +236,10 @@ def build_claude_code_context(
 
         ctx["channel_finder_tools"] = list(CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(pipeline_mode, []))
 
-        # Embed hierarchy info at render time so the agent doesn't need
-        # a separate hierarchy_info() tool call.
         if pipeline_mode == "hierarchical":
-            try:
-                db_path = (
-                    channel_finder.get("pipelines", {})
-                    .get("hierarchical", {})
-                    .get("database", {})
-                    .get("path", "")
-                )
-                if db_path:
-                    from osprey.services.channel_finder.databases.hierarchical import (
-                        HierarchicalChannelDatabase,
-                    )
-
-                    resolved = (project_dir / db_path).resolve()
-                    db = HierarchicalChannelDatabase(str(resolved))
-                    ctx["channel_finder_hierarchy"] = {
-                        "hierarchy_levels": db.hierarchy_levels,
-                        "hierarchy_config": db.hierarchy_config,
-                        "naming_pattern": db.naming_pattern,
-                    }
-            except Exception:
-                logger.warning(
-                    "Could not load hierarchy info for template rendering",
-                    exc_info=True,
-                )
+            hierarchy = resolve_hierarchy_context(channel_finder, project_dir)
+            if hierarchy is not None:
+                ctx["channel_finder_hierarchy"] = hierarchy
 
     ctx.setdefault("channel_finder_hierarchy", None)
 
@@ -229,24 +285,29 @@ def build_claude_code_context(
     # User-owned files: regen skips these, users edit in-place
     ctx["user_owned"] = config.get("scaffold", {}).get("user_owned", [])
 
-    # Textbooks root -- resolve relative to project directory (repo root)
-    _textbooks_dir = project_dir.parent / "data" / "textbooks"
-    ctx["textbooks_root"] = str(_textbooks_dir) if _textbooks_dir.is_dir() else None
-    # Tilde variant for permission matching (models abbreviate /Users/x to ~)
-    import os as _os
+    # Declared wiring for the custom hooks the profile ships (claude_code.hooks).
+    # Additive only — settings.json.j2 appends these after the framework's own
+    # entries, which it renders unconditionally.
+    ctx["declared_hooks"] = _build_declared_hook_rules(config, project_dir)
+    ctx["declared_extra_events"] = [
+        event
+        for event in CLAUDE_CODE_HOOK_EVENTS
+        if event in ctx["declared_hooks"] and event not in FRAMEWORK_WIRED_EVENTS
+    ]
 
-    _home = _os.path.expanduser("~")
-    if ctx["textbooks_root"] and ctx["textbooks_root"].startswith(_home):
-        ctx["textbooks_root_tilde"] = "~" + ctx["textbooks_root"][len(_home) :]
-    else:
-        ctx["textbooks_root_tilde"] = None
+    apply_textbooks_root(ctx, project_dir)
 
     # Model provider resolution for Claude Code
     from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
 
     api_providers = config.get("api", {}).get("providers", {})
     try:
-        model_spec = ClaudeCodeModelResolver.resolve(claude_code_config, api_providers)
+        # Build time: telemetry credentials may legitimately be the
+        # deployment's to supply (the runtime re-resolves them at agent-spawn),
+        # so an unresolved ${VAR} omits the auth header instead of aborting.
+        model_spec = ClaudeCodeModelResolver.resolve(
+            claude_code_config, api_providers, defer_unresolved_telemetry_creds=True
+        )
     except ValueError as exc:
         warnings.warn(str(exc), stacklevel=2)
         model_spec = None
@@ -271,8 +332,8 @@ def build_claude_code_context(
     #
     # Generalized over FRAMEWORK_SERVERS rather than hardcoded per server name:
     # any hooks_pre rule gated by _WRITES_CHECK is a hardware/state write and
-    # defaults to a hard deny (covers controls' channel_write and scan's
-    # launch_run automatically, plus any future write server with no code
+    # defaults to a hard deny (covers controls' channel_write and the bluesky
+    # queue's arming tools automatically, plus any future write server with no code
     # change here). python's execute is the one documented exception — it
     # accepts both read_only and write_access kernels, so it is pulled into
     # remove_ask instead (see docstring above); every other writes-check-gated
@@ -363,26 +424,41 @@ def compute_regen_summary(ctx: dict) -> dict:
 
 
 def is_user_owned(rel_path: str, ctx: dict) -> bool:
-    """Check if a file is user-owned (regen should skip it).
+    """Check if a file is user-owned (regen should skip it, prune never unlink it).
 
-    User-owned files are listed in ``scaffold.user_owned`` in config.yml.
-    During init (empty list), nothing is user-owned so all files are written.
-    Agent and skill files are never user-owned (always auto-managed).
+    User-owned entries are listed in ``scaffold.user_owned`` in config.yml —
+    framework artifacts by catalog canonical name (``rules/facility``),
+    convention-derived artifacts by their destination-derived name
+    (``rules/facility-ops``, ``skills/orbit-check``, ``services/foo``). One
+    rule for every artifact class: a directory-shaped entry owns every file
+    beneath it, which is how a profile skill (owned as a whole directory)
+    keeps its non-markdown files too. During init (empty list), nothing is
+    user-owned so all files are written.
+
+    The destination-derived names — this path's own, and every ancestor
+    directory's — come from
+    :func:`~osprey.cli.profile_conventions.ownership_name`, the same rule the
+    build registers ownership under. Spelling the read differently from the
+    write would not raise: it would quietly hand a user-owned artifact back to
+    regen.
 
     Args:
         rel_path: Relative path from project root (e.g. ".claude/rules/safety.md")
         ctx: Template context (must contain "user_owned" key)
     """
-    if rel_path.startswith(".claude/agents/"):
-        return False  # agents always auto-managed
-    if rel_path.startswith(".claude/skills/"):
-        return False  # skills always auto-managed
     user_owned = ctx.get("user_owned", [])
     if not user_owned:
         return False
     registry = BuildArtifactCatalog.default()
     art = registry.get_by_output(rel_path)
-    return art is not None and art.canonical_name in user_owned
+    if art is not None and art.canonical_name in user_owned:
+        return True
+    if ownership_name(rel_path, is_directory=False) in user_owned:
+        return True
+    return any(
+        ownership_name(str(parent), is_directory=True) in user_owned
+        for parent in PurePosixPath(rel_path).parents
+    )
 
 
 def auto_register_user_owned(project_dir: Path, canonical_name: str):
@@ -460,6 +536,314 @@ def _build_framework_hook_rules(
     post_rules.sort(key=lambda x: x[0])
 
     return [r for _, r in pre_rules], [r for _, r in post_rules]
+
+
+#: Claude Code hook events a profile may declare wiring for. The four events
+#: ``settings.json.j2`` renders unconditionally come first; the rest are keys the
+#: template adds only when something declares them.
+CLAUDE_CODE_HOOK_EVENTS: tuple[str, ...] = (
+    "PreToolUse",
+    "PostToolUse",
+    "UserPromptSubmit",
+    "SessionStart",
+    "SessionEnd",
+    "Stop",
+    "SubagentStop",
+    "Notification",
+    "PreCompact",
+)
+
+#: Events the framework already wires, so declared entries are appended to an
+#: array the template renders regardless. Everything else in
+#: :data:`CLAUDE_CODE_HOOK_EVENTS` becomes a new key when declared.
+FRAMEWORK_WIRED_EVENTS: frozenset[str] = frozenset(
+    {"PreToolUse", "PostToolUse", "UserPromptSubmit", "SessionStart"}
+)
+
+#: Claude Code's own default hook timeout, in seconds. A declaration that says
+#: nothing about timeouts gets Claude Code's behavior rather than a shorter
+#: OSPREY-invented one that would kill a slow facility hook mid-flight.
+_DECLARED_HOOK_TIMEOUT = 60
+
+_DECLARED_HOOK_EXAMPLE = (
+    "  config:\n"
+    "    claude_code.hooks.PreToolUse:\n"
+    "      - hook: facility_guard.py\n"
+    '        matcher: "mcp__epics__.*"\n'
+    "    claude_code.hooks.SessionStart:\n"
+    "      - facility_banner.py"
+)
+
+
+@lru_cache(maxsize=1)
+def _framework_hook_filenames() -> frozenset[str]:
+    """Filenames of the built-in hook library, whose wiring the framework owns."""
+    from osprey.cli.templates.artifact_library import list_artifacts, resolve_artifact
+
+    return frozenset(resolve_artifact("hooks", name).name for name in list_artifacts("hooks"))
+
+
+def _declared_hook_filename(ref: str, event: str) -> str:
+    """Validate one declared hook reference and return the bare filename.
+
+    A declaration names a file the profile ships through its ``hooks/`` channel,
+    so the only two accepted spellings are the filename itself
+    (``facility_guard.py``) and the channel-qualified form the exclusion and
+    ownership vocabularies already use (``hooks/facility_guard.py``). Anything
+    that could address a file elsewhere — an absolute path, a ``..`` traversal,
+    another channel's prefix — is refused rather than normalized, because the
+    wiring it would emit points at ``.claude/hooks/<name>`` either way and the
+    mismatch would only surface as a hook that never fires.
+    """
+    text = str(ref).strip()
+    if not text:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} contains an empty hook reference. Name the "
+            f"file the profile ships in its hooks/ directory, e.g.:\n{_DECLARED_HOOK_EXAMPLE}"
+        )
+
+    def _refuse(reason: str) -> BuildProfileError:
+        return BuildProfileError(
+            f"claude_code.hooks.{event} declares {text!r}: {reason}. A declaration may "
+            "only name a hook the profile ships through its hooks/ channel, as "
+            "'facility_guard.py' or 'hooks/facility_guard.py'."
+        )
+
+    if text.startswith(("/", "~")) or PurePosixPath(text).is_absolute():
+        raise _refuse("absolute paths are not accepted")
+    if "\\" in text:
+        raise _refuse("backslashes are not accepted")
+    parts = PurePosixPath(text).parts
+    if ".." in parts:
+        raise _refuse("'..' traversals are not accepted")
+    if len(parts) == 2 and parts[0] == "hooks":
+        name = parts[1]
+    elif len(parts) == 1:
+        name = parts[0]
+    else:
+        raise _refuse("it is not a hook filename")
+    if name in (".", ""):
+        raise _refuse("it is not a hook filename")
+    return name
+
+
+def _build_declared_hook_rules(config: dict, project_dir: Path) -> dict[str, list[dict]]:
+    """Resolve the profile's declared custom-hook wiring into settings.json rules.
+
+    Shipping a hook through the ``hooks/`` channel copies it into
+    ``.claude/hooks/``; it does not make Claude Code run it. ``claude_code.hooks``
+    is the declaration that does — a config key, so it resolves through the same
+    pipeline as ``claude_code.servers`` and ``claude_code.permissions``: persona
+    deltas can override it and the resolved profile is the single source. It is
+    read back from the built project's ``config.yml``, which is why a
+    ``--force`` rebuild and a ``claude regen`` both re-derive the wiring instead
+    of finding it frozen in the project.
+
+    The wiring is strictly additive. Nothing here can remove or alter a
+    framework entry: the template appends these rules to arrays it has already
+    filled, and a declaration naming a built-in hook file is refused outright so
+    the framework stays the only writer of its own wiring. Claude Code runs
+    every entry whose matcher fits, so a declared hook adds a gate and can never
+    relax one — array position is a property of the document, not a precedence.
+
+    Args:
+        config: The built project's parsed ``config.yml``.
+        project_dir: Project root, used to confirm the declared script is
+            actually on disk where the emitted command will look for it.
+
+    Returns:
+        Event name → list of settings.json hook rules, in declaration order.
+
+    Raises:
+        BuildProfileError: On a malformed declaration, an unknown event name, an
+            unsafe or reserved path, a hook the resolved profile does not ship
+            (an excluded one included), or a built-in hook the framework wires.
+    """
+    declared = (config.get("claude_code") or {}).get("hooks")
+    if not declared:
+        return {}
+    if not isinstance(declared, dict):
+        raise BuildProfileError(
+            "claude_code.hooks must map a Claude Code hook event to a list of hook "
+            f"declarations, got {type(declared).__name__}. For example:\n"
+            f"{_DECLARED_HOOK_EXAMPLE}"
+        )
+
+    shipped = {
+        name[len("hooks/") :]
+        for name in config.get("scaffold", {}).get("user_owned", [])
+        if isinstance(name, str) and name.startswith("hooks/")
+    }
+    framework_hooks = _framework_hook_filenames()
+
+    rules: dict[str, list[dict]] = {}
+    for event, entries in declared.items():
+        if event not in CLAUDE_CODE_HOOK_EVENTS:
+            raise BuildProfileError(
+                f"claude_code.hooks declares unknown hook event {event!r}. Valid "
+                f"Claude Code events: {', '.join(CLAUDE_CODE_HOOK_EVENTS)}."
+            )
+        if entries is None:
+            continue
+        if not isinstance(entries, list):
+            raise BuildProfileError(
+                f"claude_code.hooks.{event} must be a list of hook declarations, got "
+                f"{type(entries).__name__}. For example:\n{_DECLARED_HOOK_EXAMPLE}"
+            )
+
+        for raw_entry in entries:
+            entry = _declared_hook_entry(raw_entry, event)
+            name = _declared_hook_filename(entry["hook"], event)
+            _vet_declared_hook(name, event, project_dir, shipped, framework_hooks)
+            rules.setdefault(event, []).append(_declared_hook_rule(entry, event, name))
+
+    return rules
+
+
+def _declared_hook_entry(entry: Any, event: str) -> dict:
+    """Normalize and shape-check one ``claude_code.hooks.<event>`` entry.
+
+    A declaration may be spelled as a bare hook filename or as a mapping
+    carrying one; everything downstream reads the mapping, so the two spellings
+    are collapsed here rather than at each reader.
+
+    Raises:
+        BuildProfileError: If the entry is neither spelling, carries a key the
+            declaration does not accept, or omits ``hook``.
+    """
+    if isinstance(entry, str):
+        entry = {"hook": entry}
+    if not isinstance(entry, dict):
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entries must be a hook filename or a "
+            f"mapping with a 'hook' key, got {type(entry).__name__}. For "
+            f"example:\n{_DECLARED_HOOK_EXAMPLE}"
+        )
+    unknown = set(entry) - {"hook", "matcher", "timeout"}
+    if unknown:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entry has unknown key(s): "
+            f"{', '.join(sorted(unknown))}. Accepted keys: hook, matcher, timeout."
+        )
+    if "hook" not in entry:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entry is missing the required 'hook' "
+            f"key. For example:\n{_DECLARED_HOOK_EXAMPLE}"
+        )
+    return entry
+
+
+def _vet_declared_hook(
+    name: str,
+    event: str,
+    project_dir: Path,
+    shipped: set[str],
+    framework_hooks: frozenset[str],
+) -> None:
+    """Refuse a hook filename a profile may not wire — all four ways it can fail.
+
+    Together these are what keeps the declaration additive: a reserved path and
+    a built-in hook both belong to the framework, and a name the profile does
+    not ship (or that never reached the project) would wire a command at a path
+    with nothing behind it.
+
+    Args:
+        name: The declared hook's filename, already resolved to a bare name.
+        event: The Claude Code event it was declared under, for the message.
+        project_dir: Project root — the emitted command's script must be there.
+        shipped: Hook filenames the resolved profile ships.
+        framework_hooks: Filenames the framework wires from ``hooks:`` itself.
+
+    Raises:
+        BuildProfileError: On a reserved destination, a built-in hook, a hook
+            the resolved profile does not ship, or one absent from the project.
+    """
+    # The EXACT reservations only. `reserved_path_channel` additionally reserves
+    # every convention destination prefix — including `.claude/hooks/` itself,
+    # which is precisely where a declared hook is supposed to live.
+    from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS as reserved
+
+    destination = f".claude/hooks/{name}"
+    owner = reserved.get(destination)
+    if owner is not None:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} declares {name!r}, but {destination} "
+            f"is owned by {owner}. It is not a hook a profile wires."
+        )
+    if name in framework_hooks:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} declares {name!r}, which is a built-in "
+            "OSPREY hook. The framework wires its own hooks from the profile's "
+            "`hooks:` selection — declaring one here would invoke it twice. "
+            "Select or unselect it through `hooks:` instead."
+        )
+    if name not in shipped:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} declares {name!r}, which the resolved "
+            "profile does not ship. Either add it to the profile's hooks/ "
+            f"directory, or — if a persona excludes 'hooks/{name}' — unwire it "
+            "in that same delta by adding this line to the persona's `config:`:"
+            f"\n    claude_code.hooks.{event}: null\n"
+            "Use `null`, not `[]`: persona lists merge additively with the "
+            "profile's, so an empty list adds nothing and leaves the wiring in "
+            "place. `claude_code.hooks: {}` unwires every event at once."
+        )
+    if not (project_dir / ".claude" / "hooks" / name).is_file():
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} declares {name!r}, but "
+            f"{destination} is not present in the project. Wiring a script "
+            "that is not there would fail silently at session start."
+        )
+
+
+def _declared_hook_rule(entry: dict, event: str, name: str) -> dict:
+    """The settings.json hook rule one vetted declaration renders to.
+
+    Args:
+        entry: The normalized declaration (:func:`_declared_hook_entry`).
+        event: The event it was declared under.
+        name: Its hook filename, already vetted by :func:`_vet_declared_hook`.
+
+    Returns:
+        One rule, ready to append to the event's array.
+
+    Raises:
+        BuildProfileError: On a non-positive or non-integer ``timeout``, or a
+            non-string ``matcher``.
+    """
+    timeout = entry.get("timeout", _DECLARED_HOOK_TIMEOUT)
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entry for {name!r} has timeout="
+            f"{timeout!r}; it must be a positive whole number of seconds."
+        )
+    matcher = entry.get("matcher")
+    if matcher is not None and not isinstance(matcher, str):
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entry for {name!r} has a non-string "
+            f"matcher ({type(matcher).__name__})."
+        )
+    if matcher is None and event in ("PreToolUse", "PostToolUse"):
+        # These two events are always rendered with a matcher; "*" is the
+        # match-everything spelling, so an undeclared matcher keeps the
+        # entry's meaning ("on every tool call") explicit in the output.
+        matcher = "*"
+
+    return {
+        "matcher": matcher or "",
+        "hooks": [
+            {
+                "type": "command",
+                # ``python3`` for the same reason the framework rules use it, and
+                # rewritten to the project interpreter by the same
+                # settings.json.j2 filter. Deliberately no ``|| true``: a
+                # facility gate that swallows its own non-zero exit would stop
+                # being a gate.
+                "command": (f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"'),
+                "timeout": timeout,
+            }
+        ],
+    }
 
 
 def create_claude_code_integration(
@@ -662,8 +1046,6 @@ def check_user_owned_drift(
     if not user_owned_meta:
         return []
 
-    import tempfile
-
     registry = BuildArtifactCatalog.default()
     claude_code_dir = template_root / "claude_code"
     drift: list[str] = []
@@ -677,27 +1059,11 @@ def check_user_owned_drift(
         if artifact is None:
             continue
 
-        template_file = claude_code_dir / artifact.template_path
-        if not template_file.exists():
-            continue
-
-        current_hash = None
-        try:
-            if template_file.suffix == ".j2":
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=template_file.stem, delete=False, encoding="utf-8"
-                ) as tmp:
-                    template_rel = f"claude_code/{artifact.template_path}"
-                    template = jinja_env.get_template(template_rel)
-                    rendered = template.render(**ctx)
-                    tmp.write(rendered)
-                    tmp_path = Path(tmp.name)
-                current_hash = f"sha256:{manifest_mod.sha256_file(tmp_path)}"
-                tmp_path.unlink(missing_ok=True)
-            else:
-                current_hash = f"sha256:{manifest_mod.sha256_file(template_file)}"
-        except Exception:
-            continue
+        # Computed exactly as the claim-time hash was — same function — so a
+        # difference here is the framework template changing and nothing else.
+        current_hash = manifest_mod.framework_template_hash(
+            claude_code_dir, artifact.template_path, jinja_env, ctx
+        )
 
         if current_hash and current_hash != stored_hash:
             drift.append(canonical_name)

@@ -3,12 +3,16 @@
 Turns the raw ``modules.web_terminals`` roster into explicit per-user identity:
 normalized ``{"name", "index"}`` entries (:func:`normalize_users`) and fully
 resolved image/project/container-dir identity per user
-(:func:`resolve_personas`). Port arithmetic lives separately in
-:mod:`osprey.deployment.web_terminals.ports`.
+(:func:`resolve_personas`). Also home to the username→env-var-suffix mapping
+(:func:`env_var_suffix`) and its collision detector
+(:func:`env_var_suffix_collisions`), which credential provisioning, the auth
+sidecar and lint share so a user's credentials are keyed identically everywhere.
+Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`.
 """
 
 import os
 import re
+from collections.abc import Iterable
 from typing import Any
 
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
@@ -23,6 +27,18 @@ _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9
 # `claude_code.servers` custom entries (those render through the unrelated
 # per-project `.mcp.json` pipeline, untouched by this module).
 SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
+
+# Usernames become nginx `location` keys and URL path segments (`/<user>/...`), so
+# they're held to a stricter charset than a bare "no reserved collision" check.
+# Public and defined here, alongside `env_var_suffix`, because this module owns
+# what a roster username *is*: lint's scaffold-time rule, render's fail-closed
+# gate and `auth_credentials`' deploy-time gate all import it from here, so the
+# three cannot drift apart.
+#
+# Apply it with `.fullmatch()`, never `.match()`: Python's `$` also matches
+# *before* a trailing newline, so `.match()` accepts "alice\n" — a name that
+# goes on to render into an nginx location key mid-directive.
+USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 def as_dict(value: Any) -> dict[str, Any]:
@@ -58,6 +74,24 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     reads a user's identity off of, rather than re-deriving the field from the raw
     roster the way ``persona`` is.
 
+    An object entry's optional ``theme`` (that user's default web UI theme --
+    a theme family like ``desy`` or a concrete id like ``desy-light``, surfaced
+    downstream as the per-user ``OSPREY_WEB_THEME``) is carried through on
+    exactly the same terms. Validity of the *value* is not checked here: the
+    web terminal resolves it at startup and warns+falls back on an unknown one,
+    and lint reports a non-string separately.
+
+    An object entry's optional ``oidc_subject`` (the value of the configured OIDC
+    claim -- ``sub`` by default -- that identifies this roster user at the IdP) is
+    carried through on the same terms, with one deliberate difference: an *empty*
+    string is dropped along with every non-string, where ``display_name`` and
+    ``theme`` would keep it. This field is an authorization mapping, not a
+    cosmetic one -- carrying ``""`` through would let an identity whose claim is
+    missing or empty match a roster user. Dropping it instead leaves that user
+    with no mapping at all, which the callback answers with 403. Only the
+    *non-secret* side of the mapping ever lives in config.yml; password hashes
+    never do (they live in ``.env.auth``, keyed by :func:`env_var_suffix`).
+
     Malformed entries — anything that isn't a string, and any dict missing a
     string ``name`` or an int ``index`` — are dropped rather than raising
     (well-formedness is lint.py's job). ``bool`` is a subclass of ``int`` in
@@ -73,10 +107,10 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
             than a list (including ``None``) is treated as an empty roster.
 
     Returns:
-        New ``{"name": str, "index": int}`` dicts (plus an optional
-        ``"display_name": str`` key when the entry carried a string one) in
-        config-declaration order. Input dicts are never mutated or returned by
-        reference.
+        New ``{"name": str, "index": int}`` dicts (plus optional
+        ``"display_name"``, ``"theme"`` and ``"oidc_subject"`` string keys when
+        the entry carried them) in config-declaration order. Input dicts are
+        never mutated or returned by reference.
     """
     if not isinstance(users_raw, list):
         return []
@@ -92,8 +126,92 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 display_name = entry.get("display_name")
                 if isinstance(display_name, str):
                     normalized_entry["display_name"] = display_name
+                theme = entry.get("theme")
+                if isinstance(theme, str):
+                    normalized_entry["theme"] = theme
+                oidc_subject = entry.get("oidc_subject")
+                if isinstance(oidc_subject, str) and oidc_subject:
+                    normalized_entry["oidc_subject"] = oidc_subject
                 normalized.append(normalized_entry)
     return normalized
+
+
+def env_var_suffix(username: str) -> str:
+    """Map a roster username to the suffix its per-user env vars are keyed by.
+
+    Uppercase, with ``-`` replaced by ``_`` — so ``alice-b`` keys
+    ``OSPREY_AUTH_PW_HASH_ALICE_B``. This is the single definition of that
+    mapping; credential provisioning, the sidecar's env lookup, and lint all
+    route through it so a username can never be keyed one way at mint time and
+    another at verify time.
+
+    The mapping is intentionally total and lossy: it neither validates the
+    username charset nor rejects anything. Two distinct usernames can therefore
+    collide onto one suffix (``alice-b`` and ``alice_b``), which is exactly what
+    :func:`env_var_suffix_collisions` exists to detect — enforcement is the
+    caller's (a hard raise on the deploy preflight path, an ERROR in lint), not
+    this function's.
+    """
+    return username.upper().replace("-", "_")
+
+
+def env_var_suffix_collisions(usernames: Iterable[str]) -> dict[str, list[str]]:
+    """Find roster usernames that :func:`env_var_suffix` maps onto one suffix.
+
+    Without this check ``alice-b`` and ``alice_b`` would silently share a single
+    ``OSPREY_AUTH_PW_HASH_ALICE_B`` entry — one user's password would open the
+    other's terminal, which is precisely the isolation the auth feature exists to
+    establish.
+
+    A username repeated verbatim in the roster is *not* a collision here: it is
+    one user listed twice (a duplicate-name config error reported separately),
+    not two users sharing a credential. Only distinct names count.
+
+    Args:
+        usernames: Roster usernames — typically ``entry["name"]`` for each
+            :func:`normalize_users` entry. Non-string items are ignored, matching
+            this module's drop-don't-raise convention.
+
+    Returns:
+        ``{suffix: [colliding usernames]}`` for suffixes claimed by two or more
+        distinct usernames; empty when the roster is unambiguous. Suffix keys and
+        the names under each are sorted, so a lint or preflight message built
+        from this is byte-stable across runs.
+    """
+    by_suffix: dict[str, set[str]] = {}
+    for username in usernames:
+        if isinstance(username, str):
+            by_suffix.setdefault(env_var_suffix(username), set()).add(username)
+    return {suffix: sorted(names) for suffix, names in sorted(by_suffix.items()) if len(names) > 1}
+
+
+def roster_user_names(web_terminals: Any) -> list[str]:
+    """The web-terminal user names a ``modules.web_terminals`` subtree declares.
+
+    The whole rule in one place: a module that is not switched on has no roster
+    at all, and the entries of one that is are read through
+    :func:`normalize_users` rather than off the raw list. Both matter to callers
+    who then create directories per user — ``osprey profile new`` seeding a
+    per-user context slot and the build copying into it must agree on the roster
+    down to the last name, or the build looks for a directory nobody made.
+
+    Deliberately takes the *subtree*, not a whole config: its two callers reach
+    it by different routes (a profile's ``config:`` block, which needs
+    ``effective_web_terminals`` to fold the dotted keys; a built project's
+    ``config.yml``, which is already nested), and only what they do with it
+    afterwards is shared.
+
+    Args:
+        web_terminals: The ``modules.web_terminals`` subtree. Anything that is
+            not a mapping is an absent module, so the roster is empty.
+
+    Returns:
+        User names in roster order; empty for a disabled or absent module.
+    """
+    subtree = as_dict(web_terminals)
+    if not subtree.get("enabled"):
+        return []
+    return [entry["name"] for entry in normalize_users(subtree.get("users"))]
 
 
 def effective_image_source(web_terminals: dict[str, Any]) -> str:
@@ -224,12 +342,16 @@ def resolve_personas(
         ``seed_base`` (a bool; anything else is defensively coerced to
         ``True``), and always ``True`` for the zero-migration / lenient-degrade
         paths — it controls whether the shared base context is prepended when
-        seeding this entry's ``CLAUDE.md``. An optional ``"display_name"`` key is
-        added — carried through from :func:`normalize_users` — only when the entry
-        declared a non-empty string one (render emits it as
-        ``OSPREY_WEB_APP_NAME``); it is omitted entirely otherwise, so a roster
-        with no ``display_name`` resolves byte-identically to before this field
-        existed.
+        seeding this entry's ``CLAUDE.md``. Optional ``"display_name"`` and
+        ``"theme"`` keys are added — carried through from
+        :func:`normalize_users` — only when the entry declared a non-empty string
+        one (render emits them as ``OSPREY_WEB_APP_NAME`` and
+        ``OSPREY_WEB_THEME``); each is omitted entirely otherwise, so a roster
+        declaring neither resolves byte-identically to before these fields
+        existed. An optional ``"oidc_subject"`` key rides through on the same
+        terms, so the auth sidecar's roster→identity mapping is read off the same
+        resolved entry as everything else rather than re-derived from the raw
+        roster.
 
     Raises:
         ValueError: See ``strict`` above.
@@ -269,28 +391,30 @@ def resolve_personas(
     default_container_dir = f"/app/{facility_prefix}-assistant"
     default_image = f"{registry_url}/web-terminal:{image_tag}"
 
-    def _with_display_name(entry: dict[str, Any], display_name: Any) -> dict[str, Any]:
-        """Attach an optional ``display_name`` to a resolved entry, mirroring
-        render.py's conditional-``sublabel`` convention: the key is present only
-        for a non-empty string, so an absent/empty one leaves the entry
-        byte-identical to a pre-``display_name`` resolution."""
-        if isinstance(display_name, str) and display_name:
-            entry["display_name"] = display_name
+    def _with_optional_fields(entry: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+        """Attach the optional per-user fields to a resolved entry, mirroring
+        render.py's conditional-``sublabel`` convention: a key is present only
+        for a non-empty string, so a roster declaring none leaves the entry
+        byte-identical to a resolution from before these fields existed."""
+        for field in ("display_name", "theme", "oidc_subject"):
+            value = source.get(field)
+            if isinstance(value, str) and value:
+                entry[field] = value
         return entry
 
     def _zero_migration_entry(
-        name: str, index: int, persona: str | None, display_name: Any
+        name: str, index: int, persona: str | None, source: dict[str, Any]
     ) -> dict[str, Any]:
         """The zero-migration resolution: today's exact pre-persona values, with
         ``persona`` carried through for logging (``None`` when no persona is in
         effect, or the unresolvable reference on the lenient degrade path) and the
-        optional ``display_name`` passed through unchanged. ``extra_mounts`` is
+        optional per-user fields passed through unchanged. ``extra_mounts`` is
         empty here — the zero-migration path has no catalog entry to read
         persona-level host mounts from. ``seed_base`` is ``True`` — the shared
         base-context prepend has always been mandatory for a
         no-persona/zero-migration entry, and opting out is only expressible
         through a catalog entry."""
-        return _with_display_name(
+        return _with_optional_fields(
             {
                 "name": name,
                 "index": index,
@@ -301,19 +425,18 @@ def resolve_personas(
                 "extra_mounts": [],
                 "seed_base": True,
             },
-            display_name,
+            source,
         )
 
     resolved: list[dict[str, Any]] = []
     for entry in normalized:
         name = entry["name"]
         index = entry["index"]
-        display_name = entry.get("display_name")
         persona_ref = persona_ref_by_name.get(name) or default_persona_name
 
         if persona_ref is None:
             # No persona system in effect for this entry — zero-migration path.
-            resolved.append(_zero_migration_entry(name, index, None, display_name))
+            resolved.append(_zero_migration_entry(name, index, None, entry))
             continue
 
         catalog_entry = personas_catalog.get(persona_ref)
@@ -326,7 +449,7 @@ def resolve_personas(
             # Lenient degrade (lifecycle verbs): keep the requested persona name
             # visible for logging, but fall back to the zero-migration values so
             # a stale/bad reference never blocks a lifecycle verb.
-            resolved.append(_zero_migration_entry(name, index, persona_ref, display_name))
+            resolved.append(_zero_migration_entry(name, index, persona_ref, entry))
             continue
 
         project = catalog_entry.get("project")
@@ -364,7 +487,7 @@ def resolve_personas(
         container_project_dir = f"/app/{project}"
 
         resolved.append(
-            _with_display_name(
+            _with_optional_fields(
                 {
                     "name": name,
                     "index": index,
@@ -375,7 +498,7 @@ def resolve_personas(
                     "extra_mounts": extra_mounts,
                     "seed_base": seed_base,
                 },
-                display_name,
+                entry,
             )
         )
 

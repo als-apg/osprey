@@ -4,8 +4,9 @@ Functionality criteria for FR1/FR2/FR10/FR11).
 Deploys the turn-key scan-stack config (task 4.3, ``tests/e2e/_orm_stack.py``
 -- the single source of this deploy shape, also reused by the agentic
 discovery e2e in 5.3/5.4), drives the real ``orm`` plan over the bridge's
-HTTP API (``POST /runs`` -> launch -> poll -> ``GET /runs/{id}/data``), and
-proves two things end to end:
+queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
+``POST /queue/start`` -> poll -> ``GET /runs/{id}/data``, spelled once in
+``tests/e2e/_queue_drive.py``), and proves two things end to end:
 
   (a) the measured response matrix -- built via the SAME
       ``orm_analysis.build_response_matrix`` an MCP-side analysis step would
@@ -62,8 +63,10 @@ from typing import Any
 import numpy as np
 import pytest
 
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
-from tests.e2e import _orm_stack
+from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_diagnostics import dead_container_logs
 
 pytestmark = [
     pytest.mark.e2e,
@@ -77,6 +80,17 @@ pytestmark = [
 ]
 
 BRIDGE_URL = f"http://localhost:{_orm_stack.BRIDGE_PORT}"
+
+#: Compose project this suite deploys under. Container names follow
+#: ``<project>-<service>``, so the failure diagnostics below need the same name
+#: the build is given -- hence one constant rather than two literals.
+PROJECT_NAME = "orm-roundtrip"
+
+
+def _dead_container_logs() -> str:
+    """Logs from every container of this deployment that is not running."""
+    return dead_container_logs(resolve_project_name({"project_name": PROJECT_NAME}))
+
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
@@ -145,21 +159,6 @@ def _get(path: str) -> tuple[int, Any]:
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
-def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(  # noqa: S310
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/json", **(headers or {})},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:  # noqa: S310
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
-
-
 class DeployedOrmStack:
     """Everything the round-trip test needs about the one co-deployed project."""
 
@@ -178,7 +177,7 @@ class DeployedOrmStack:
 def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedOrmStack]:
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
     project_dir = _orm_stack.build_project_subprocess(
-        "orm-roundtrip", output_dir=base, timeout=BUILD_TIMEOUT_SEC
+        PROJECT_NAME, output_dir=base, timeout=BUILD_TIMEOUT_SEC
     )
 
     limits = _channel_limits(project_dir)
@@ -217,9 +216,13 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         if up.returncode != 0:
             pytest.fail(
                 f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
+                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
+                f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        try:
+            _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         yield DeployedOrmStack(project_dir=project_dir, correctors=correctors, bpms=bpms)
     finally:
         down = subprocess.run(
@@ -300,26 +303,21 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
         "num": NUM_POINTS,
     }
 
-    status, body = _post("/runs", {"plan_name": "orm", "plan_args": plan_args})
-    assert status == 200, f"POST /runs failed: {status} {body}"
-    run_id = body["id"]
-
     token = _minted_token(deployed_orm_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
-    assert status == 200, f"launch failed: {status} {body}"
+    run_id, status_body = _queue_drive.run_scan(
+        BRIDGE_URL,
+        "orm",
+        plan_args,
+        token=token,
+        client_id="orm-roundtrip-e2e",
+        timeout=SCAN_TIMEOUT_SEC,
+    )
 
-    # (b) no corrector-step hang: poll to a terminal status within a bounded
-    # deadline. A corrector whose :RB never echoes its :SP (the FR10
-    # regression) blocks the bridge's ConnectorSettable.set() settle-wait
-    # forever -- so a non-"completed" status here, after the deadline, IS the
-    # failure this proves absent, not merely a slow run.
-    deadline = time.monotonic() + SCAN_TIMEOUT_SEC
-    status_body: dict = {}
-    while time.monotonic() < deadline:
-        _, status_body = _get(f"/runs/{run_id}")
-        if status_body.get("status") in ("completed", "error", "stopped"):
-            break
-        time.sleep(0.5)
+    # (b) no corrector-step hang: the poll above ran to a terminal status
+    # within a bounded deadline. A corrector whose :RB never echoes its :SP
+    # (the FR10 regression) blocks the bridge's ConnectorSettable.set()
+    # settle-wait forever -- so a non-"completed" status here, after the
+    # deadline, IS the failure this proves absent, not merely a slow run.
     assert status_body.get("status") == "completed", (
         f"orm scan did not complete within {SCAN_TIMEOUT_SEC:.0f}s (status={status_body}) -- "
         "a corrector step whose :RB never echoes its :SP (the FR10 echo regression) hangs "

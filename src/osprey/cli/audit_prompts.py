@@ -11,7 +11,7 @@ from pydantic import BaseModel
 class AuditFinding(BaseModel):
     """A single finding from the audit."""
 
-    category: str  # permissions, safety, lifecycle, mcp, overlay, config, deps
+    category: str  # permissions, safety, lifecycle, mcp, conventions, config, deps
     severity: str  # info, warning, error
     title: str
     explanation: str
@@ -55,7 +55,10 @@ Every `channel_write` call passes through three hooks in sequence:
 - Writes without the limits hook (bounds checking bypassed)
 - Removed or empty deny entries in permissions
 - Missing approval hooks on write operations
-- Overlay files that replace safety-critical hooks or settings
+- Profile-supplied artifacts that shadow safety-critical hooks or settings — a \
+file in a convention directory (`rules/`, `skills/`, `agents/`, `commands/`, \
+`output-styles/`) that displaces a framework artifact of the same name, or a \
+`project/` mirror entry aimed at a build-owned path
 - MCP server definitions that bypass the framework permission model
 - Lifecycle scripts that run with elevated privileges or download external code
 - Missing or overly permissive environment variable defaults
@@ -67,7 +70,16 @@ examine file contents. Focus on:
 1. **Permissions** — Are safety-critical operations properly gated?
 2. **Safety hooks** — Is the write hook chain intact (writes_check → limits → approval)?
 3. **MCP servers** — Do custom servers follow the framework permission model?
-4. **Overlay files** — Do overlays replace safety-critical components?
+4. **Convention directories** — A profile carries its artifacts in named \
+directories at its root, each with one fixed destination: `rules/`, `skills/`, \
+`agents/`, `commands/`, `output-styles/` land under `.claude/`; \
+`web-terminal-context/<user>/`, `mcp_servers/<name>/` and `services/<name>/` \
+land in their own trees; `project/` mirrors verbatim onto the project root. \
+Does anything there shadow a safety-critical framework artifact? Does the \
+`project/` mirror target a build-owned path — `config.yml`, `.mcp.json`, \
+`.claude/settings.json`, `CLAUDE.md`, `.env`, `.env.example`, \
+`.osprey-manifest.json`? Those each have their own channel and the mirror must \
+not write them.
 5. **Lifecycle scripts** — Do build/deploy scripts introduce risks?
 6. **Configuration** — Are config values safe and complete?
 7. **Dependencies** — Are there concerning or unnecessary dependencies?

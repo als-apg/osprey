@@ -18,10 +18,11 @@ How to run an Osprey project's containerized services with ``osprey deploy``.
 .. tip::
 
    This page is the operator/service-author reference for ``osprey deploy``.
-   For the end-to-end build → ship workflow (CI/CD, release operations), use
-   the ``osprey-build-deploy`` skill that the build interview installs into
-   your profile repo. For the full ``services:`` schema as authored inside a
-   build profile, see :ref:`profile-services`.
+   For the end-to-end walkthrough — facility repository, CI pipeline, stack up
+   — follow :doc:`deploy-a-facility`; the judgment that goes with running it
+   day to day lives in the ``osprey-deploy-ops`` skill. For the full
+   ``services:`` schema as authored inside a build profile, see
+   :ref:`profile-services`.
 
 Overview
 ========
@@ -128,34 +129,37 @@ Keeping a Rendered Project Up to Date
 =====================================
 
 A project directory is a *rendered artifact*: ``osprey build`` writes its
-``config.yml`` and service scaffolding from the preset at build time, and
+``config.yml`` and service scaffolding from the **build profile**, and
 ``osprey deploy up`` deploys exactly what that rendered config describes. If
-the framework or preset gains features after the render, the stale project
+the profile or the framework gains features after the render, the stale project
 still deploys "successfully" — just without them.
 
 To update an existing project, re-run the build with ``--force``::
 
-   osprey build my-project --preset my-preset --force
+   osprey build my-project my-profile/profile.yml --force
    cd my-project && osprey deploy up -d
 
 ``--force`` re-renders everything framework-owned and preserves what you
 own: ``.env`` values (secrets, and the service tokens/passwords your
 existing docker volumes were initialized with), ``_agent_data/``, and the
-project's ``.git`` history. ``data/`` is re-materialized from the preset.
+project's ``.git`` history. ``data/`` is re-materialized from the profile.
+The profile directory itself is never touched by a build.
 Avoid guarding the build behind a directory-existence check
 (``[ -d my-project ] || osprey build ...``) — "exists" is not "current",
-and the guard silently skips exactly the re-render that an updated preset
+and the guard silently skips exactly the re-render that an updated profile
 needs.
 
 Two guards make render drift visible:
 
 * **Staleness advisory** — ``osprey deploy up`` and ``osprey deploy status``
   compare the project's recorded provenance (osprey version and a content
-  hash of the resolved preset, stamped into ``.osprey-manifest.json`` at
-  build time) against the installed framework, and warn when the render is
+  hash of the resolved profile, stamped into ``.osprey-manifest.json`` at
+  build time) against what is on disk now, and warn when the render is
   out of date — ``up`` prints the exact rebuild command, ``status`` a
-  general reminder. The warning never blocks a deploy; projects built
-  before the hash existed get the version comparison only.
+  general reminder. The hash covers the profile's data tree and convention
+  directories as well as ``profile.yml``, so regenerating a channel database
+  or adding a rule trips it too. The warning never blocks a deploy; projects
+  built before the hash existed get the version comparison only.
 * **Endpoint summary** — every ``osprey deploy up`` ends with a summary of
   the published service endpoints, including an explicit ``web terminal
   (not configured in this project)`` line when the config declares no web
@@ -209,19 +213,21 @@ every ``osprey build`` refreshes them from the installed OSPREY version, so
 compose fixes reach your project automatically. Do not edit them in place —
 your changes would be overwritten on the next build.
 
-To customize a service template, claim it first:
+To customize a service template, claim it — which **moves** it into the build
+profile the project was built from, where edits survive:
 
 .. code-block:: bash
 
-   osprey scaffold claim services/postgresql   # freeze for local editing
-   osprey scaffold diff services/postgresql    # compare against the framework
+   osprey scaffold claim services/postgresql   # move it into the profile
+   osprey scaffold diff services/postgresql    # compare yours against the framework
    osprey scaffold unclaim services/postgresql # restore framework management
 
-A claimed service is recorded in ``config.yml`` under ``scaffold.user_owned``
-and skipped by every subsequent build; ``osprey scaffold diff`` shows how far
-your copy has drifted from the current framework template. This is the same
-ownership mechanism used for the Claude Code artifacts (``osprey scaffold
-list`` shows both).
+Edit the moved copy under ``<profile>/services/postgresql/``, then rebuild with
+``--force`` to deploy it. Every build copies it back and marks it yours, so
+later re-renders leave it alone. ``osprey scaffold list`` shows what is
+framework-managed and what is yours; the same mechanism covers the agent
+artifacts (rules, agents, skills, hooks). See :ref:`profile-claim` for the full
+workflow and the artifacts a claim refuses.
 
 Before reaching for a claim, check whether a config key or environment
 variable already covers your need — most service knobs (ports, images,
@@ -255,6 +261,9 @@ default:
    * - nextcloud_bridge
      - ``OSPREY_NEXTCLOUD_BRIDGE_IMAGE``
      - ``services.nextcloud_bridge.image``
+   * - gchat_bridge
+     - ``OSPREY_GCHAT_BRIDGE_IMAGE``
+     - ``services.gchat_bridge.image``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
@@ -290,17 +299,41 @@ Podman Compose via ``--env-file``. Compose uses these values to fill in
 ``${VAR}`` placeholders in the rendered compose files; a variable reaches a
 running container only where a template maps it in.
 
+The project's ``.env`` is **derived from the build profile's**, so that is where
+you set a value:
+
 .. code-block:: bash
 
-   cp .env.example .env
-   # Edit .env with your actual values
+   cp my-profile/.env.example my-profile/.env
+   # Edit my-profile/.env with your actual values, then rebuild
 
-``osprey deploy up`` also *writes* to this file: on first deploy it mints any
+Editing the project copy directly works for the current deploy but does not
+survive a rebuild — the next ``osprey build`` re-derives the file from the
+profile. See :ref:`profile-secrets`.
+
+``osprey deploy up`` also *writes* to these files. On first deploy it mints any
 missing service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``,
 ``ZO_ROOT_USER_PASSWORD``, or ``ARIEL_DB_PASSWORD``) so services never start
-with blank or publicly-known credentials, and restricts the file to owner-only
-permissions. Treat ``.env`` as the project's secret store and keep it out of
-version control.
+with blank or publicly-known credentials, restricts the file to owner-only
+permissions, and then writes those values **back into the profile's** ``.env``
+under a "Minted by deploy" heading. That is what makes the stack reproducible: a
+rebuild from the same profile comes up on the same credentials instead of
+minting a second set the running containers do not trust.
+
+The write-back never overwrites. A value already in the profile wins — it is
+pinned by the docker volume that was initialized with it — and a deploy whose
+own value disagrees says so by variable name (never by value) and keeps using
+its own, leaving you to reconcile the two.
+
+If the profile cannot be reached — it has moved or been deleted, or the project
+was built before this mechanism existed — the deploy still succeeds. The secrets
+stay in the project ``.env``, a warning names the path that failed, and the
+project records that its ``.env`` is the only copy; a later
+``osprey build --force`` repeats that warning before it touches the directory.
+Back that file up.
+
+Keep both ``.env`` files out of version control (the profile's ``.gitignore``
+does this for you).
 
 .. note::
 

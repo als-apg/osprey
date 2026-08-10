@@ -116,7 +116,7 @@ async def validate_plan(
     in-process mock devices only, in a subprocess whose ``EPICS_CA_*``
     variables are neutralized; it never reaches a real device regardless of
     ``control_system.writes_enabled``. A passing validation is recorded by
-    content hash so the plan becomes loadable/launchable (tasks 2.4/2.5);
+    content hash so the plan becomes loadable and enqueueable;
     editing the file afterward changes its hash and drops the record, so it
     must be re-validated.
 
@@ -129,9 +129,15 @@ async def validate_plan(
             plan to completion.
 
     Returns:
-        JSON ``{"passed", "reasons", "content_hash"}``. ``reasons`` is empty
-        on a pass; on a failure it names every rejection from whichever stage
-        stopped the plan.
+        JSON ``{"passed", "reasons", "content_hash", "upload"}``. ``reasons``
+        is empty on a pass; on a failure it names every rejection from
+        whichever stage stopped the plan. ``upload`` is
+        ``{"uploaded", "reason", "detail"}`` and reports whether the bytes that
+        just passed were loaded into the queue worker's namespace — a pass with
+        ``uploaded: false`` is still a genuine pass (a deployment with no queue
+        server has nowhere to upload to), but the plan is not enqueueable until
+        an upload lands, so ``reason``/``detail`` are what to relay if a later
+        queue_add is refused with ``session_plan_not_in_namespace``.
     """
     payload = {"name": name, "sample_args": sample_args, "dry_run_timeout": dry_run_timeout}
     status, resp_body = await anyio.to_thread.run_sync(_http_post_json, "/plans/validate", payload)

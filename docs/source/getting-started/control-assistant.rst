@@ -49,6 +49,9 @@ Create a project from the ``control-assistant`` preset:
    osprey build my-control-assistant --preset control-assistant
    cd my-control-assistant
 
+As in Hello World, this writes ``my-control-assistant-profile/`` beside the
+project and builds from it; provider keys go in that directory's ``.env``.
+
 Like ``hello-world``, this project starts in **mock** mode, so every example
 below is safe to run with no hardware attached; hardware writes are still gated
 behind the human-approval prompt. Unlike
@@ -82,8 +85,8 @@ same safety hooks, then adds production capabilities. The most visible additions
      - A mock archiver serves historical data; the ``data-visualizer`` sub-agent
        turns it into interactive and publication-quality plots.
    * - **Operator skills**
-     - ``/diagnose``, ``/session-report``, ``setup-mode``, and ``demo-gallery``
-       support common control-room workflows.
+     - ``/diagnose``, ``/session-report``, ``setup-mode``, ``demo-gallery``, and
+       ``demo-ui`` support common control-room workflows.
    * - **Web terminal**
      - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
@@ -240,8 +243,11 @@ connection errors, configuration drift) and produces a structured root-cause
 report — it is for diagnosing the *assistant*, not the accelerator.
 
 **Other skills:** ``demo-gallery`` generates a showcase of plot and report
-artifacts to explore the gallery's capabilities, and ``setup-mode`` inspects and
-repairs the project's configuration when something looks misconfigured.
+artifacts to explore the gallery's capabilities, ``demo-ui`` runs a short
+scripted demonstration of the agent driving the web workspace — switching
+panel tabs, focusing artifacts, composing layouts — and ``setup-mode``
+inspects and repairs the project's configuration when something looks
+misconfigured.
 
 .. note::
 
@@ -260,7 +266,11 @@ faster. The strategy is a build-time choice, so select it when you build:
 .. code-block:: bash
 
    osprey build my-control-assistant --preset control-assistant \
-       --set channel_finder_mode=in_context
+       --set channel_finder_mode=in_context --force
+
+``--force`` re-renders the existing project directory. The ``--set`` value is
+written into ``my-control-assistant-profile/profile.yml`` first, so it stays in
+effect for every later build — you can also just edit that file instead.
 
 See :doc:`../how-to/use-channel-finder` for a comparison of the strategies.
 
@@ -294,13 +304,17 @@ Next Steps
 You've built a production-shaped control assistant with channel finding, logbook
 search, historical plotting, and operator skills. Where to go next:
 
+- **Run your first scan**: this project can run real measurement scans — ask
+  the agent for a grid scan, review it in the PLAN panel, and start it from
+  the BLUESKY panel, all against the Virtual Accelerator.
+  :doc:`../how-to/bluesky/run-first-scan` walks through it in ten minutes.
 - **Channel finder in depth**: :doc:`../how-to/use-channel-finder` compares the
   hierarchical, in-context, and middle-layer strategies and explains the database
   format.
 - **Web terminal**: :doc:`../how-to/web-terminal/operate` launches the browser UI and
   its panels with ``osprey web``.
 - **Tailor a preset to your facility**: :doc:`../how-to/build-profiles` shows how
-  to extend ``control-assistant`` with your own overrides and overlays.
+  to turn ``control-assistant`` into a profile you own and edit.
 - **Architecture deep dive**: the :doc:`conceptual-tutorial` and the
   :doc:`Architecture <../architecture/index>` section explain the agent + MCP
   design, the connector system, and the safety mechanisms.
