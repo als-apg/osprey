@@ -122,7 +122,7 @@ dependencies = [
     "pyepics",
     # PostgreSQL (required for native logbook_search capability and checkpointing)
     "psycopg[binary,pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.3.1,<4.0.0",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
@@ -202,7 +202,7 @@ dev = [
     "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
-    "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
 ]
 
@@ -211,7 +211,7 @@ dev = [
 ariel = [
     # PostgreSQL with pgvector for vector similarity search
     "psycopg[pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.3.1,<4.0.0",
 ]
 
 # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
