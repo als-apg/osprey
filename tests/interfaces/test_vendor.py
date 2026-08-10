@@ -5,11 +5,29 @@ from __future__ import annotations
 import hashlib
 import ssl
 import urllib.error
+from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import osprey.interfaces.vendor as vendor_mod
 from osprey.interfaces.vendor import _fetch_one, asset_cdn_url, is_offline, vendor_url
+
+
+@contextmanager
+def _scoped_sleep():
+    """Mock vendor.py's backoff sleep WITHOUT touching the stdlib.
+
+    `patch("osprey.interfaces.vendor.time.sleep")` would mutate the shared
+    `time` module (`vendor_mod.time is time`), so any daemon thread left
+    sleeping in a loop by a neighboring test in the same xdist worker
+    inflates the mock's call_count by thousands. Rebinding the importing
+    module's own `time` name to a stand-in is the actually-scoped spelling.
+    """
+    stand_in = SimpleNamespace(sleep=MagicMock())
+    with patch.object(vendor_mod, "time", stand_in):
+        yield stand_in.sleep
 
 
 class TestIsOffline:
@@ -82,7 +100,7 @@ class TestFetchOneRetry:
         transient = urllib.error.URLError(OSError(101, "Network is unreachable"))
         with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
             uo.side_effect = [transient, _ok_response()]
-            with patch("osprey.interfaces.vendor.time.sleep") as slept:
+            with _scoped_sleep() as slept:
                 _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
         assert dest.read_bytes() == PAYLOAD
         assert uo.call_count == 2
@@ -93,7 +111,7 @@ class TestFetchOneRetry:
         transient = urllib.error.URLError(OSError(101, "Network is unreachable"))
         with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
             uo.side_effect = transient
-            with patch("osprey.interfaces.vendor.time.sleep"):
+            with _scoped_sleep():
                 with pytest.raises(RuntimeError, match="after 3 attempts"):
                     _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
         assert uo.call_count == 3
@@ -104,7 +122,7 @@ class TestFetchOneRetry:
         err = urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None)
         with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
             uo.side_effect = [err, _ok_response()]
-            with patch("osprey.interfaces.vendor.time.sleep"):
+            with _scoped_sleep():
                 _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
         assert uo.call_count == 2
 
@@ -113,7 +131,7 @@ class TestFetchOneRetry:
         err = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
         with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
             uo.side_effect = err
-            with patch("osprey.interfaces.vendor.time.sleep") as slept:
+            with _scoped_sleep() as slept:
                 with pytest.raises(RuntimeError, match="Failed to fetch"):
                     _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
         assert uo.call_count == 1
@@ -124,7 +142,7 @@ class TestFetchOneRetry:
         cert = ssl.SSLCertVerificationError("bad cert")
         with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
             uo.side_effect = urllib.error.URLError(cert)
-            with patch("osprey.interfaces.vendor.time.sleep") as slept:
+            with _scoped_sleep() as slept:
                 with pytest.raises(RuntimeError, match="TLS cert verification failed"):
                     _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
         assert uo.call_count == 1
@@ -134,7 +152,7 @@ class TestFetchOneRetry:
         dest = tmp_path / "x.js"
         with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
             uo.side_effect = [_ok_response()]
-            with patch("osprey.interfaces.vendor.time.sleep") as slept:
+            with _scoped_sleep() as slept:
                 with pytest.raises(RuntimeError, match="SHA256 mismatch"):
                     _fetch_one("https://cdn.example/x.js", dest, "deadbeef" * 8)
         assert uo.call_count == 1
