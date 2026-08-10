@@ -14,15 +14,12 @@ from rich.console import Console
 
 from osprey.deployment import status_display
 
-
-class _FakeConfigBuilder:
-    """Stand-in for ConfigBuilder: show_status only ever reads ``.raw_config``."""
-
-    def __init__(self, config_path):
-        self.raw_config = _CONFIGS[config_path]
-
-
 _CONFIGS: dict[str, dict] = {}
+
+
+def _fake_load_project_config(config_path, **kwargs):
+    """Stand-in for the shared project-config loader keyed by the path passed in."""
+    return _CONFIGS[config_path]
 
 
 def _register_config(config_path, config):
@@ -65,8 +62,8 @@ def _ps_stdout(*containers):
 
 
 @pytest.fixture(autouse=True)
-def _patch_config_builder(monkeypatch):
-    monkeypatch.setattr(status_display, "ConfigBuilder", _FakeConfigBuilder)
+def _patch_config_loader(monkeypatch):
+    monkeypatch.setattr(status_display, "load_project_config", _fake_load_project_config)
     yield
     _CONFIGS.clear()
 
@@ -224,3 +221,29 @@ def test_existing_services_table_still_renders(runtime_calls):
     assert "Service Status" in output
     assert "demo-project-service" in output
     assert "Web Terminal Users" in output
+
+
+def test_project_containers_match_the_normalized_project_name(runtime_calls):
+    """A project whose name compose normalized still owns its own containers.
+
+    Labels are stamped with ``resolve_project_name(config)`` — the normalized
+    form — so status must resolve the same way. Comparing the raw
+    ``project_name`` instead files the project's own containers under "Other
+    Osprey Containers".
+    """
+    config = _base_config(enabled=False)
+    config["project_name"] = "Demo_Project!"
+    _register_config("cfg.yml", config)
+
+    runtime_calls["ps_stdout"] = _ps_stdout(
+        _ps_container(
+            "demo_project-service", "running", labels={"osprey.project.name": "demo_project"}
+        )
+    )
+
+    console = Console(record=True, width=200)
+    status_display.show_status("cfg.yml", console=console)
+    output = console.export_text()
+
+    assert "demo_project-service" in output
+    assert "Other Osprey Containers" not in output

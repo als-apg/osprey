@@ -73,7 +73,8 @@ def test_install_unknown_name_errors(fake_home: Path) -> None:
     combined = (result.output or "") + (result.stderr or "")
     assert "nonexistent-skill" in combined
     assert "osprey-build-interview" in combined
-    assert "osprey-build-deploy" in combined
+    assert "osprey-contribute" in combined
+    assert "osprey-deploy-ops" in combined
 
 
 def test_resource_path_resolves() -> None:
@@ -81,14 +82,6 @@ def test_resource_path_resolves() -> None:
     from importlib.resources import files
 
     skill_md = files("osprey").joinpath("templates/skills/osprey-build-interview/SKILL.md")
-    assert skill_md.is_file()
-
-
-def test_resource_path_for_deploy_skill_resolves() -> None:
-    """The deploy skill is discoverable at the new templates/skills/ location."""
-    from importlib.resources import files
-
-    skill_md = files("osprey").joinpath("templates/skills/osprey-build-deploy/SKILL.md")
     assert skill_md.is_file()
 
 
@@ -110,6 +103,41 @@ def test_install_design_philosophy_skill(fake_home: Path) -> None:
     assert (target / "SKILL.md").is_file()
 
 
+def test_resource_path_for_deploy_ops_skill_resolves() -> None:
+    """The deploy-ops runbook is discoverable under templates/skills/."""
+    from importlib.resources import files
+
+    skill_md = files("osprey").joinpath("templates/skills/osprey-deploy-ops/SKILL.md")
+    assert skill_md.is_file()
+
+
+def test_install_deploy_ops_skill(fake_home: Path) -> None:
+    """The deploy-ops runbook installs into the default global target."""
+    runner = CliRunner()
+    result = runner.invoke(skills, ["install", "osprey-deploy-ops"])
+
+    assert result.exit_code == 0, result.output
+    target = fake_home / ".claude" / "skills" / "osprey-deploy-ops"
+    assert (target / "SKILL.md").is_file()
+
+
+def test_install_help_lists_every_bundled_skill() -> None:
+    """Every allowlist entry is described in the install command's help text.
+
+    The help text is the only place an operator learns a skill exists, so a
+    skill registered in ``_SKILL_SOURCES`` but absent from the docstring is
+    shipped and invisible.
+    """
+    from osprey.cli.skills_cmd import _SKILL_SOURCES
+
+    runner = CliRunner()
+    result = runner.invoke(skills, ["install", "--help"])
+
+    assert result.exit_code == 0, result.output
+    for name in _SKILL_SOURCES:
+        assert name in result.output, f"{name} missing from 'skills install --help'"
+
+
 def test_resource_path_for_creating_panel_skill_resolves() -> None:
     """The creating-an-osprey-panel skill is discoverable under templates/skills/."""
     from importlib.resources import files
@@ -128,42 +156,42 @@ def test_install_creating_panel_skill(fake_home: Path) -> None:
     assert (target / "SKILL.md").is_file()
 
 
-def test_install_deploy_skill_to_custom_target(tmp_path: Path) -> None:
-    """``--target`` installs the deploy skill into a project-local .claude/skills/.
+def test_install_skill_to_custom_target(tmp_path: Path) -> None:
+    """``--target`` installs a skill into a project-local .claude/skills/.
 
-    This is the path osprey-build-interview uses at end of Phase 8 to copy the deploy
-    skill into the freshly generated profile repo.
+    This is how a skill gets scoped to one repo instead of the user's home.
+    A multi-file skill is used deliberately: the copy must bring the whole
+    subtree, not just the SKILL.md at its root.
     """
     target = tmp_path / "build-profile" / ".claude" / "skills"
     runner = CliRunner()
     result = runner.invoke(
         skills,
-        ["install", "osprey-build-deploy", "--target", str(target)],
+        ["install", "osprey-build-interview", "--target", str(target)],
     )
 
     assert result.exit_code == 0, result.output
-    installed = target / "osprey-build-deploy"
+    installed = target / "osprey-build-interview"
     assert (installed / "SKILL.md").is_file()
-    assert (installed / "references" / "setup-interview.md").is_file()
-    assert (installed / "templates" / "core" / "docker-compose.yml").is_file()
+    assert (installed / "references" / "osprey-map.md").is_file()
 
 
 def test_install_target_backs_up_existing(tmp_path: Path) -> None:
     """``--target`` honors the same backup-on-conflict behavior as the default."""
     target = tmp_path / ".claude" / "skills"
-    existing = target / "osprey-build-deploy"
+    existing = target / "osprey-build-interview"
     existing.mkdir(parents=True)
     (existing / "sentinel.txt").write_text("preserve me")
 
     runner = CliRunner()
     result = runner.invoke(
         skills,
-        ["install", "osprey-build-deploy", "--target", str(target)],
+        ["install", "osprey-build-interview", "--target", str(target)],
     )
 
     assert result.exit_code == 0, (result.output, result.stderr)
     assert (existing / "SKILL.md").is_file()
-    backups = list(target.glob("osprey-build-deploy.bak.*"))
+    backups = list(target.glob("osprey-build-interview.bak.*"))
     assert len(backups) == 1
     assert (backups[0] / "sentinel.txt").read_text() == "preserve me"
 
@@ -179,10 +207,11 @@ def test_install_target_expands_tilde(fake_home: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         skills,
-        ["install", "osprey-build-deploy", "--target", "~/my-skills"],
+        ["install", "osprey-build-interview", "--target", "~/my-skills"],
     )
 
     assert result.exit_code == 0, (result.output, result.stderr)
-    installed = fake_home / "my-skills" / "osprey-build-deploy"
+    installed = fake_home / "my-skills" / "osprey-build-interview"
     assert (installed / "SKILL.md").is_file()
+    assert (installed / "references" / "osprey-map.md").is_file()
     assert not (Path.cwd() / "~").exists(), "literal ~ dir leaked into CWD"

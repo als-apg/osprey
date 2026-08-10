@@ -1,4 +1,12 @@
-"""Scaffold gallery routes."""
+"""Scaffold gallery routes.
+
+The two refusals that most of these routes share — a claim the profile will
+not take, and an ownership store that will not take the write — are translated
+into 409s by app-level handlers (see
+:func:`~osprey.interfaces.web_terminal.app.register_scaffold_conflict_handlers`),
+so they are deliberately not caught here. What each route does catch is the
+translation that is specific to it.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +15,6 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from osprey.cli.scaffold_cmd import ScaffoldClaimError
-from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.scaffold_gallery_service import ScaffoldGalleryService
 
 router = APIRouter()
@@ -60,12 +66,7 @@ async def register_untracked_scaffold(body: UntrackedRegisterRequest, request: R
         return service.register_untracked(body.name)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except (FileExistsError, ScaffoldClaimError) as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    except OwnershipStoreError as e:
-        # The volume would not take the write, so nothing was recorded.
-        # Surfacing the reason beats the bare 500 an uncaught store error
-        # would otherwise give.
+    except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
 
@@ -95,12 +96,7 @@ async def create_artifact(body: CreateArtifactRequest, request: Request):
         return service.create_artifact(body.category, body.name, body.content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except (FileExistsError, ScaffoldClaimError) as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    except OwnershipStoreError as e:
-        # The volume would not take the write, so nothing was recorded.
-        # Surfacing the reason beats the bare 500 an uncaught store error
-        # would otherwise give.
+    except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
 
@@ -135,15 +131,7 @@ async def claim_scaffold(name: str, request: Request):
         return service.scaffold_override(name)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except (FileExistsError, ScaffoldClaimError) as e:
-        # A refused claim is a conflict with the state of the project, and the
-        # message names what to do about it — surface it verbatim rather than
-        # letting it become a bare 500.
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    except OwnershipStoreError as e:
-        # The volume would not take the write, so nothing was recorded.
-        # Surfacing the reason beats the bare 500 an uncaught store error
-        # would otherwise give.
+    except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
 
@@ -161,15 +149,6 @@ async def save_scaffold_override(name: str, body: ScaffoldOverrideRequest, reque
         # A directory-shaped artifact has no body to save; that is a bad
         # request, not a server fault.
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except ScaffoldClaimError as e:
-        # Saving over a generated file is refused in the same words a claim on
-        # it would be refused, naming the channel that actually owns it.
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    except OwnershipStoreError as e:
-        # The volume would not take the write, so nothing was recorded.
-        # Surfacing the reason beats the bare 500 an uncaught store error
-        # would otherwise give.
-        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.delete("/api/scaffold/{name:path}/override")
@@ -189,13 +168,6 @@ async def delete_scaffold_override(name: str, request: Request):
         raise HTTPException(status_code=404, detail=str(e)) from e
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except ScaffoldClaimError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    except OwnershipStoreError as e:
-        # The volume would not take the write, so nothing was recorded.
-        # Surfacing the reason beats the bare 500 an uncaught store error
-        # would otherwise give.
-        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.get("/api/scaffold/{name:path}")

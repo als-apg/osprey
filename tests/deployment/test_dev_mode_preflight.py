@@ -218,7 +218,7 @@ class TestPrepareComposeFilesPreflight:
             raise AssertionError("config was loaded before the --dev preflight ran")
 
         monkeypatch.setattr(cg, "preflight_dev_mode", _fail_preflight)
-        monkeypatch.setattr(cg, "ConfigBuilder", _config_must_not_load)
+        monkeypatch.setattr(cg, "load_project_config", _config_must_not_load)
 
         with pytest.raises(DevModeUnavailableError):
             cg.prepare_compose_files(str(tmp_path / "config.yml"), dev_mode=True)
