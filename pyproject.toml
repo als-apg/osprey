@@ -226,7 +226,7 @@ sheets = [
 
 # MongoDB archiver connector backend
 archiver-mongodb = [
-    "pymongo>=4.0",
+    "pymongo>=4.17.0",
 ]
 
 # Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
