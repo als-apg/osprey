@@ -101,7 +101,7 @@ dependencies = [
     "nltk>=3.10.0",
     # ARIEL Web Interface (FastAPI server)
     "fastapi>=0.140.0",
-    "uvicorn[standard]>=0.51.0",
+    "uvicorn[standard]>=0.52.1",
     # OIDC client + JOSE (token verification) for the multi-user web-terminal
     # auth sidecar. Declared explicitly rather than relied on as fastmcp's
     # transitive dependency — the sidecar imports it directly.
