@@ -17,7 +17,11 @@ from osprey.deployment.web_terminals.ports import (
     allocate_ports,
     base_ports_from_config,
 )
-from osprey.deployment.web_terminals.render import _auth_tls_context, render_web_terminals
+from osprey.deployment.web_terminals.render import (
+    AUTH_ENV_DIGEST_LABEL,
+    _auth_tls_context,
+    render_web_terminals,
+)
 
 # The sidecar's own env-var names, imported rather than spelled out: the compose
 # service and the app factory are the two ends of one contract, and a rename on
@@ -2724,6 +2728,77 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
         assert service["env_file"] == ".env.production"
         assert AUTH_ENV_FILENAME not in str(service["env_file"])
         assert not [env for env in _env_names(service) if env.startswith("OSPREY_AUTH")]
+
+
+def test_auth_sidecar_carries_the_env_auth_digest_as_a_label() -> None:
+    """The digest of `.env.auth` is rendered INTO the sidecar's service definition.
+
+    Compose implementations bake env_file content into a container at creation
+    time and only reliably recreate on a service-DEFINITION change — an edit to
+    the file alone recreates nothing on podman-compose. Stamping the content
+    digest as a label turns a file edit into a definition change, the one
+    recreate trigger every implementation honours."""
+    # Act
+    auth = yaml.safe_load(
+        render_web_terminals(_auth_config(), auth_env_digest="a" * 64)["docker-compose.web.yml"]
+    )["services"]["auth"]
+
+    # Assert
+    assert auth["labels"][AUTH_ENV_DIGEST_LABEL] == "a" * 64
+
+
+def test_auth_sidecar_digest_label_is_the_only_thing_a_digest_change_touches() -> None:
+    """Two renders differing only in the digest must differ only in the label:
+    the recreate the label triggers has to be scoped to the sidecar, and any
+    other drift would bounce services that cannot see `.env.auth` at all."""
+    # Act
+    first = yaml.safe_load(
+        render_web_terminals(_auth_config(), auth_env_digest="a" * 64)["docker-compose.web.yml"]
+    )
+    second = yaml.safe_load(
+        render_web_terminals(_auth_config(), auth_env_digest="b" * 64)["docker-compose.web.yml"]
+    )
+
+    # Assert
+    assert first["services"]["auth"] != second["services"]["auth"]
+    first["services"]["auth"].pop("labels")
+    second["services"]["auth"].pop("labels")
+    assert first == second
+
+
+def test_auth_sidecar_digest_label_is_omitted_when_no_digest_is_supplied() -> None:
+    """`render_web_terminals` without a digest (the `osprey scaffold
+    web-terminals render` path, which has no project root to digest) emits no
+    label at all — the deploy path re-renders with a current digest on every
+    `osprey deploy up`, so a label-less scaffold render can never reach a
+    running stack with a stale digest."""
+    # Act
+    auth = _compose(_auth_config())["services"]["auth"]
+
+    # Assert
+    assert "labels" not in auth
+
+
+def test_method_none_render_is_byte_identical_with_and_without_a_digest() -> None:
+    """With authentication off there is no sidecar and no env_file to track:
+    a passed digest must leave the render untouched (and must not leak into
+    any other service's definition)."""
+    # Act
+    plain = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))
+    digested = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG), auth_env_digest="c" * 64)
+
+    # Assert
+    assert plain == digested
+    assert "c" * 64 not in digested["docker-compose.web.yml"]
+
+
+def test_render_refuses_a_non_hex_auth_env_digest() -> None:
+    """The digest is templated verbatim into compose YAML (inside quotes, no
+    escaping), so anything but lowercase sha256 hex could smuggle YAML
+    structure into the service definition. Unreachable from today's producers
+    (hashlib hexdigest or None), but render_web_terminals is a public seam."""
+    with pytest.raises(ValueError, match="sha256 hex digest"):
+        render_web_terminals(_auth_config(), auth_env_digest='x"\n    privileged: true\n    y: "')
 
 
 def test_render_auth_on_refuses_a_roster_name_outside_the_username_charset() -> None:

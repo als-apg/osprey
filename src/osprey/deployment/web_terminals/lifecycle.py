@@ -324,10 +324,12 @@ def prune_users(
         )
 
     # Authentication (no-op when off): an orphan is already off the roster, so
-    # nothing was re-rendered and the sidecar's compose definition is unchanged
-    # — but their hashes can still be sitting in .env.auth, and a re-added
-    # same-name user must not inherit them. Recreates only if a purge actually
-    # changed the file, so a prune with nothing to purge bounces nothing.
+    # this verb re-rendered nothing itself — but their hashes can still be
+    # sitting in .env.auth, and a re-added same-name user must not inherit
+    # them. Recreates only if a purge actually changed the file, so a prune
+    # with nothing to purge bounces nothing; the recreate primitive re-renders
+    # the artifacts first, so the fresh sidecar's digest label matches the
+    # purged file it bakes.
     _reconcile_auth_after_user_removal(config, orphan_users, rerendered=False)
 
 
@@ -565,9 +567,11 @@ def _reconcile_auth_after_user_removal(
             changed, so the recreate is required even if the user had no
             credentials to purge.
             ``False`` (prune, which removes only already-off-roster resources
-            and re-renders nothing) recreates only when a purge actually changed
-            ``.env.auth``, so a prune that found nothing to purge leaves every
-            live terminal and session untouched.
+            and re-renders nothing of its own — the recreate primitive
+            re-renders just before recreating, so the fresh sidecar's digest
+            label matches the purged file) recreates only when a purge actually
+            changed ``.env.auth``, so a prune that found nothing to purge
+            leaves every live terminal and session untouched.
 
     Raises:
         RuntimeError: If a credential purge or the sidecar recreate failed. A
@@ -765,9 +769,11 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
     5. Force-recreate the sidecar through the shared
        :func:`~osprey.deployment.web_terminals.provision.force_recreate_auth_sidecar`,
        so the new password works the moment this returns rather than at the next
-       deploy. That primitive is a warning-and-no-op when nothing has been
-       rendered at this project root, so rotating a password before the stack
-       has ever been deployed still stores the hash rather than failing.
+       deploy. That primitive re-renders the artifacts first, so the recreated
+       sidecar's digest label matches the ``.env.auth`` holding the new hash;
+       it is a warning-and-no-op when nothing has been rendered at this project
+       root, so rotating a password before the stack has ever been deployed
+       still stores the hash rather than failing.
 
     Every one of that user's live sessions dies as a side effect — the session
     cookie carries the generation tag of the hash it was issued against — which

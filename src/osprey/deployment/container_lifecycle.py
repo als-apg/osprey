@@ -416,8 +416,11 @@ def _ensure_service_tokens(
     #   * the dispatch worker additionally gets the file entire, via
     #     `env_file: ../../.env` in its compose template.
     #
-    # Measured on compose v2.34: `h0rse$battery` substitutes to `h0rse`, and
-    # `secret$HOME` to the deploy host's home path with NO warning at all.
+    # Measured on Docker Compose v2.34: `h0rse$battery` substitutes to `h0rse`,
+    # and `secret$HOME` to the deploy host's home path with NO warning at all.
+    # podman-compose eats only the braced `${...}` form — a different mangling
+    # of the same file, which is why the rule is "no `$`" and not "no
+    # interpolating `$`".
     # So the check cannot be per-var — _validate_var below only ever sees the
     # deployed services' _SERVICE_TOKEN_VARS plus _VALIDATE_ONLY_VARS, while
     # the provider API key, the olog password and the wiki-search token all
@@ -1031,11 +1034,14 @@ class EnvInterpolationUnsafeError(RuntimeError):
 def _assert_env_interpolation_safe(var: str, value: str) -> None:
     """Refuse a ``.env`` value docker compose would silently rewrite.
 
-    Compose INTERPOLATES the env-file it is given: a ``$`` followed by an
+    Docker Compose INTERPOLATES the env-file it is given: a ``$`` followed by an
     identifier is expanded as a variable reference, and an unset variable
     expands to the empty string. So a secret containing ``$`` reaches the
     container SHORTER AND DIFFERENT than what was written, with nothing but a
-    ``level=warning ... variable is not set`` line to say so.
+    ``level=warning ... variable is not set`` line to say so. podman-compose
+    mangles a different set (the braced ``${...}`` form only, resolved against
+    the same file's earlier entries), which is a second reason to refuse ``$``
+    rather than to model any one implementation.
 
     That is not hypothetical here. The RE manager's control-socket keys are
     Z85, whose alphabet includes ``$``: a real deploy wrote a valid 40-character
@@ -1547,17 +1553,13 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # BEFORE the minutes-long image build below: a deploy that is doomed to
     # abort on a missing provider secret must say so in seconds, not after
     # the whole project image has been built. deploy_up_web_terminals re-runs
-    # the same (idempotent) steps later, unchanged.
-    #
-    # Its result is CAPTURED and threaded into deploy_up_web_terminals below,
-    # not discarded: preflight is the only step that can tell whether THIS
-    # deploy changed `.env.auth`, and compose bakes an `env_file`'s content into
-    # a container at creation time, so the deploy that changed the file is the
-    # one that has to recreate the auth sidecar. Recomputing it later is not an
-    # option — provisioning is idempotent, so a second run reports no change.
-    web_preflight = None
+    # the same (idempotent) steps later, unchanged. Nothing needs to survive
+    # from here to the `up`: whatever preflight (or a hand-edit) did to
+    # `.env.auth` is digested into the sidecar's rendered service definition
+    # by deploy_up_web_terminals' own re-render, and compose recreates on the
+    # definition change.
     if web_terminals_enabled:
-        web_preflight = preflight_web_terminals(config, env)
+        preflight_web_terminals(config, env)
 
     # Build the <project>:local image the dispatch worker references. The worker
     # has no compose build block (that would race the event-dispatcher on the
@@ -1567,9 +1569,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     _build_project_image(config, dev_mode, env)
 
     if web_terminals_enabled:
-        deploy_up_web_terminals(
-            config, compose_files, dev_mode, env, _env_file_args(), web_preflight
-        )
+        deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args())
         log_endpoint_summary(config, compose_files)
         return
 

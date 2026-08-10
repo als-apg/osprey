@@ -17,7 +17,6 @@ import fnmatch
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path
 
@@ -65,44 +64,7 @@ from osprey.utils.logger import get_logger
 logger = get_logger("deployment.lifecycle")
 
 
-@dataclass(frozen=True)
-class WebTerminalPreflightResult:
-    """What :func:`preflight_web_terminals` established that the rest of the
-    deploy still has to act on.
-
-    A state object rather than a bare bool so a later preflight step can report
-    its own decision without changing every caller's signature — the same reason
-    ``auth_credentials`` returns result dataclasses instead of tuples.
-
-    ``auth_env_changed`` is the deterministic sidecar force-recreate signal: it
-    is ``True`` exactly when this preflight added content to ``.env.auth``
-    (a freshly minted hash, a hash derived from a plaintext password, or a
-    signing secret). Compose bakes ``env_file`` content into a container at
-    CREATION time and podman-compose never recreates a container on a
-    content-only change, so a sidecar that is merely left running — or even
-    restarted — would keep serving the *previous* file's credentials. The deploy
-    that changed the file is therefore the deploy that must recreate the
-    sidecar; deferring it to "the next deploy" would leave a user unable to log
-    in with the password this very deploy just printed.
-
-    CONTRACT FOR THE CONSUMER (``deploy_up``'s web-terminal branch in
-    ``osprey.deployment.container_lifecycle``): pass this object straight into
-    :func:`deploy_up_web_terminals`'s ``preflight`` parameter — that function
-    already unions the sidecar into its single post-``up`` recreate when the
-    flag is set, so the consumer needs no compose invocation of its own. The
-    ``lifecycle`` re-render verbs reach the same conclusion by a different route
-    (``purge_auth_credentials`` returning ``True``) and call
-    :func:`force_recreate_auth_sidecar` directly, since they issue no ``up``.
-
-    ``False`` must leave the deploy exactly as it is today — a no-op redeploy
-    still recreates zero containers, which is what keeps live terminals from
-    being bounced on every deploy.
-    """
-
-    auth_env_changed: bool = False
-
-
-def preflight_web_terminals(config: dict, env: dict[str, str]) -> WebTerminalPreflightResult:
+def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
     """Fail-fast web-terminal preflight, run BEFORE any image build.
 
     ``deploy_up`` invokes this ahead of its (minutes-long) project-image
@@ -127,14 +89,15 @@ def preflight_web_terminals(config: dict, env: dict[str, str]) -> WebTerminalPre
     the same sequence later is a cheap no-op: rendered personas are
     user-owned and skipped, and an existing ``.env.production`` is returned
     as-is. Auth provisioning is idempotent in the same sense — an established
-    hash or secret is never rewritten — which is also why it lives here and
-    NOT in :func:`deploy_up_web_terminals`: a second run would report nothing
-    changed and the force-recreate signal would be lost. Assumes the
-    project-root cwd every other step of ``osprey deploy up`` already relies on.
+    hash or secret is never rewritten. Assumes the project-root cwd every
+    other step of ``osprey deploy up`` already relies on.
 
-    :returns: A :class:`WebTerminalPreflightResult` whose ``auth_env_changed``
-        tells the caller whether this deploy must force-recreate the auth
-        sidecar — see that class for the full contract.
+    Nothing is returned: whatever this preflight (or an operator's hand-edit)
+    did to ``.env.auth`` is picked up by the deploy's own re-render, which
+    stamps the file's content digest into the sidecar's service definition
+    (see :func:`~osprey.deployment.web_terminals.artifacts.write_web_terminal_artifacts`)
+    — compose itself then recreates the sidecar on the definition change, so
+    no authorship signal needs to survive from here to the ``up``.
     """
     project_root = os.getcwd()
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
@@ -149,12 +112,10 @@ def preflight_web_terminals(config: dict, env: dict[str, str]) -> WebTerminalPre
     # print, once) a password for a stack that never comes up. Moving this call
     # below _provision_auth_secrets silently loses that property.
     _require_auth_sidecar_image(web_terminals)
-    return WebTerminalPreflightResult(
-        auth_env_changed=_provision_auth_secrets(web_terminals, project_root)
-    )
+    _provision_auth_secrets(web_terminals, project_root)
 
 
-def _provision_auth_secrets(web_terminals: dict, project_root: str) -> bool:
+def _provision_auth_secrets(web_terminals: dict, project_root: str) -> None:
     """Establish every auth credential this deployment needs, then gate on it.
 
     A no-op when ``modules.web_terminals.auth.method`` is ``none`` (the
@@ -192,11 +153,14 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> bool:
     here as well, ahead of the render that would otherwise be the first to
     notice.
 
+    Whether the mint added content is deliberately NOT reported: the deploy's
+    re-render digests ``.env.auth`` into the sidecar's service definition, so
+    compose itself detects any content change — authored here or hand-edited —
+    without an authorship signal.
+
     :param web_terminals: The already-unwrapped ``modules.web_terminals`` dict.
     :param project_root: Directory holding ``.env``, ``.env.auth`` and
         ``.gitignore``.
-    :returns: Whether ``.env.auth`` gained content — the caller's
-        ``auth_env_changed``.
     :raises RuntimeError: If a credential could not be established (see the
         gate), or if the roster cannot be keyed (charset violation or two
         usernames colliding onto one credential variable, both raised by
@@ -204,7 +168,7 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> bool:
     """
     auth_method = _auth_tls_context(web_terminals)["auth_method"]
     if auth_method == "none":
-        return False
+        return
 
     _warn_if_env_auth_not_gitignored(Path(project_root))
 
@@ -221,7 +185,6 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> bool:
     # exactly as a re-run would rebuild it, unlike the credential-removing
     # verbs (see the function's own docstring for why they scan up front).
     raise_if_env_auth_would_be_interpolated(project_root)
-    return bool(credentials and credentials.changed) or session_secrets.changed
 
 
 def _raise_if_auth_provisioning_incomplete(
@@ -545,16 +508,35 @@ def force_recreate_auth_sidecar(
     Compose bakes ``env_file`` CONTENT into a container at creation time, and
     podman-compose never recreates a container whose service definition is
     unchanged — so after ``.env.auth`` changes, neither a plain ``up -d`` nor a
-    restart puts the new credentials in force. Only a recreate does.
+    restart puts the new credentials in force. Only a recreate does. (The
+    deploy path needs no call here: it re-renders the compose file, whose
+    digest label turns the content change into a service-definition change
+    that compose itself acts on — see
+    :func:`~osprey.deployment.web_terminals.artifacts.write_web_terminal_artifacts`.)
 
-    One function because there are three callers that must all do it identically:
+    One function because its callers — the paths that change ``.env.auth``
+    WITHOUT issuing a plain ``up`` the label could act through — must all do
+    it identically:
 
-    1. the deploy path, whenever preflight reports
-       :attr:`WebTerminalPreflightResult.auth_env_changed`;
-    2. the lifecycle verbs (``decommission_user``/``prune_users``), which purge
+    1. the lifecycle verbs (``decommission_user``/``prune_users``), which purge
        a departed user's entries and must kill that user's sessions at once;
-    3. ``osprey deploy passwd <user>``, so a rotated password takes effect
+    2. ``osprey deploy passwd <user>``, so a rotated password takes effect
        immediately rather than at the next full deploy.
+
+    Re-renders the artifacts (via :func:`write_web_terminal_artifacts`) before
+    the recreate, so the container it creates carries the digest label of the
+    exact ``.env.auth`` it bakes. Without this, every caller above recreates
+    from a compose file rendered BEFORE its file mutation, leaving label !=
+    sha256(baked env): the next ``deploy up`` re-renders the current digest,
+    sees a definition change, and spuriously bounces an already-current sidecar
+    — and, worse, a byte-exact revert of ``.env.auth`` to the pre-mutation
+    content would render a digest MATCHING the stale label, so podman-compose
+    would skip the recreate and silently keep serving the reverted-away
+    credentials. The render is best-effort: if it fails, the recreate still
+    runs against the existing compose file (a recreate always re-bakes the
+    CURRENT file content — only the label lags, at the cost of one spurious
+    bounce at the next deploy), because skipping the recreate over a render
+    error would leave a purged user's password in force.
 
     Scoped to the single ``auth`` service: recreating the whole stack would
     bounce every live terminal for a change none of them can see.
@@ -582,6 +564,22 @@ def force_recreate_auth_sidecar(
             AUTH_ENV_FILENAME,
         )
         return
+    # Restore the label invariant before recreating: the compose file on disk
+    # was rendered BEFORE this caller's .env.auth mutation, so its digest label
+    # describes the file's previous content. See the docstring for both
+    # consequences; best-effort per the same docstring.
+    try:
+        write_web_terminal_artifacts(config)
+    except (ValueError, OSError) as exc:
+        logger.warning(
+            "Could not re-render the web-terminal artifacts before the auth sidecar "
+            "recreate (%s). Recreating against the existing docker-compose.web.yml — "
+            "the recreated container still bakes the current %s, but its digest label "
+            "lags until the next `osprey deploy up` re-renders (costing one extra "
+            "sidecar recreate there).",
+            exc,
+            AUTH_ENV_FILENAME,
+        )
     # Deliberately NOT scanned here, though this is the one line every path
     # that re-bakes .env.auth passes through. A recreate is always the step
     # that puts an ALREADY-APPLIED file change into force, so refusing at this
@@ -618,7 +616,6 @@ def deploy_up_web_terminals(
     dev_mode: bool,
     env: dict[str, str],
     env_file_args: list[str],
-    preflight: WebTerminalPreflightResult | None = None,
 ) -> None:
     """Reconcile the web-terminal stack (plus any co-deployed backend services).
 
@@ -750,12 +747,6 @@ def deploy_up_web_terminals(
         rather than recomputed here so the "no .env" warning stays defined in
         one place and this module needs no import back into
         ``container_lifecycle``.
-    :param preflight: What :func:`preflight_web_terminals` returned for THIS
-        deploy. Its ``auth_env_changed`` adds the auth sidecar to the post-``up``
-        recreate set — the deploy that changed ``.env.auth`` is the deploy that
-        must put those credentials in force. ``None`` (the default) keeps the
-        pre-authentication behavior exactly: nothing is force-recreated beyond
-        podman's own image drift.
     """
     write_web_terminal_artifacts(config)
 
@@ -858,17 +849,11 @@ def deploy_up_web_terminals(
     logger.info(f"Running command:\n    {' '.join(up_cmd)}")
     subprocess.run(up_cmd, env=run_env, check=True)
 
-    # One post-`up` recreate covering both reasons a container can still be
-    # stale: podman's same-tag image drift, and — when preflight changed
-    # `.env.auth` — the auth sidecar, whose env_file content compose baked in at
-    # creation time. Unioned rather than issued separately so a sidecar that
-    # qualifies both ways is recreated once, not twice.
-    _reconcile_web_stack_recreates(
-        config,
-        web_cmd,
-        run_env,
-        force_recreate=(AUTH_SERVICE_NAME,) if preflight and preflight.auth_env_changed else (),
-    )
+    # Post-`up` recreate for podman's same-tag image drift. A changed
+    # `.env.auth` needs nothing here: the render above stamped its content
+    # digest into the sidecar's service definition, so the `up -d` itself
+    # already recreated the sidecar on any content change.
+    _reconcile_web_stack_recreates(config, web_cmd, run_env)
 
     # Hot-reload nginx: `up -d` never restarts a running nginx whose
     # bind-mounted nginx.conf/landing.html CONTENT changed — the container
@@ -900,33 +885,31 @@ def _reconcile_web_stack_recreates(
     config: dict,
     web_cmd: list[str],
     run_env: dict[str, str],
-    force_recreate: tuple[str, ...] = (),
 ) -> None:
-    """Issue the one post-``up`` force-recreate this deploy needs.
+    """Issue the one post-``up`` force-recreate this deploy needs: image drift.
 
-    Two independent reasons a container can be stale after ``up -d``, resolved
-    into a SINGLE service-scoped recreate so no container is bounced twice:
+    **Image drift** (podman only). ``podman-compose`` 1.0.6 treats a
+    container as up-to-date whenever its service definition is unchanged, so
+    a same-tag digest change (a re-pulled ``:latest``, or any moving tag)
+    never triggers a recreate — ``up -d`` leaves the container running the
+    previous image. This inspects, for each service the rendered
+    ``docker-compose.web.yml`` declares, the image ID its ``image:``
+    reference now resolves to versus the image ID its running container was
+    created from. Gated to podman: ``docker compose`` already recreates a
+    service after its image is re-pulled, so a second forced recreate would
+    needlessly bounce a live terminal. Every inspection is advisory — a
+    service whose image or container can't be inspected (missing image,
+    container not yet created) is skipped, never aborting the deploy.
 
-    1. **Image drift** (podman only). ``podman-compose`` 1.0.6 treats a
-       container as up-to-date whenever its service definition is unchanged, so
-       a same-tag digest change (a re-pulled ``:latest``, or any moving tag)
-       never triggers a recreate — ``up -d`` leaves the container running the
-       previous image. This inspects, for each service the rendered
-       ``docker-compose.web.yml`` declares, the image ID its ``image:``
-       reference now resolves to versus the image ID its running container was
-       created from. Gated to podman: ``docker compose`` already recreates a
-       service after its image is re-pulled, so a second forced recreate would
-       needlessly bounce a live terminal. Every inspection is advisory — a
-       service whose image or container can't be inspected (missing image,
-       container not yet created) is skipped, never aborting the deploy.
-    2. **``force_recreate``, from the caller** — today the auth sidecar when
-       preflight changed ``.env.auth``, whose content compose baked into the
-       running container at creation time. This reason is runtime-independent:
-       unlike drift, no compose implementation recreates on an ``env_file``
-       content change, so these services are recreated on docker too and the
-       podman gate above deliberately does not cover them.
+    A stale ``.env.auth`` is NOT this function's problem anymore: the render
+    step digests the file into the auth sidecar's service definition (the
+    ``osprey.auth.env.digest`` label), and a definition change is the recreate
+    trigger every compose implementation honours — verified on Docker Compose
+    v2.34 and podman-compose 1.0.6/1.6.0, whose config hashes both cover
+    service labels. Image drift stays here because no label can express "the
+    same tag now names different bytes".
 
-    An all-match run with no ``force_recreate`` issues no compose command at all.
+    An all-match run issues no compose command at all.
 
     :param config: Raw deploy config (selects the runtime).
     :param web_cmd: The web stack's ``<runtime> compose -f docker-compose.web.yml
@@ -934,12 +917,8 @@ def _reconcile_web_stack_recreates(
         against the same compose project as the preceding ``up``.
     :param run_env: The ``COMPOSE_PROJECT_NAME``-pinned environment shared by
         every web-stack invocation.
-    :param force_recreate: Service keys to recreate regardless of image drift
-        and regardless of runtime. Unioned with the drifted set (order
-        preserved, no duplicates) so a service that qualifies both ways is
-        recreated exactly once.
     """
-    changed: list[str] = list(force_recreate)
+    changed: list[str] = []
 
     runtime = get_runtime_command(config)[0]
     if runtime == "podman":
@@ -961,7 +940,7 @@ def _reconcile_web_stack_recreates(
             service = service or {}
             image = service.get("image")
             container = service.get("container_name")
-            if not image or not container or service_name in changed:
+            if not image or not container:
                 continue
             tag_id = get_image_id(runtime, image, env=run_env)
             running_id = get_container_image_id(runtime, container, env=run_env)

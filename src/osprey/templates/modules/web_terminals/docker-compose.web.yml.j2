@@ -168,9 +168,9 @@
      Keeping secrets out of `environment:` keeps them out of the rendered
      compose file (and out of `docker inspect` output for the per-user
      services). But do NOT read that as "an env_file value is passed through
-     literally" — it is not. Compose interpolates `${...}` in env_file values
-     too, and every `$` followed by an identifier character is replaced with
-     the empty string. That is why the stored hash is separated by `.` rather
+     literally" — it is not. Every compose implementation interpolates `${...}`
+     in env_file values too, and Docker Compose additionally replaces every `$`
+     followed by an identifier character with the empty string. That is why the stored hash is separated by `.` rather
      than the conventional `$` (osprey.services.auth_sidecar.passwords
      `FIELD_SEP`): a `$`-separated hash arrives here with its salt and key
      eaten, verifies against nothing, and refuses every login — silently, and
@@ -270,6 +270,24 @@ services:
        up to explain itself rather than crash-looping. #}
     command: ["uvicorn", "osprey.services.auth_sidecar.app:create_app", "--factory", "--host", "{{ bind_host }}", "--port", "{{ auth_port }}"]
     env_file: .env.auth
+{%- if auth_env_digest %}
+    {#- The sha256 of `.env.auth`'s current content. Compose bakes env_file
+       content into a container at CREATION time, and a service-DEFINITION
+       change is the only recreate trigger every compose implementation honours
+       — podman-compose never recreates on a content-only file change, so
+       without this a hand-edited `.env.auth` (the documented OIDC credential
+       workflow) leaves the sidecar serving the previous file, /health green
+       and everything else 503. The digest turns the edit into a definition
+       change; only the sidecar carries it, so only the sidecar is recreated
+       (podman-compose 1.0.6 hashes the whole file and bounces the project —
+       accepted, versus silently-stale credentials). The label is not a secret:
+       it is a hash of the whole file, never a variable's value. Empty digest
+       means a render outside the deploy path (e.g. `osprey scaffold
+       web-terminals render`), which emits no label; every `osprey deploy up`
+       re-renders with a current one. #}
+    labels:
+      {{ auth_env_digest_label }}: "{{ auth_env_digest }}"
+{%- endif %}
     environment:
       - TZ={{ facility_timezone | default("UTC") }}
       - OSPREY_AUTH_METHOD={{ auth_method }}

@@ -1,18 +1,22 @@
 """Secrets bound for a compose ``env_file:`` must not contain ``$``.
 
-Compose interpolates the *values* it reads from an ``env_file:``, not just the
-compose document. A ``$`` followed by an identifier character is replaced with
-the named variable's value — the empty string when that name is unset — so a
-``$``-bearing secret arrives inside the container truncated. Two variants carry
-no warning at all: ``$$`` collapses to a single ``$``, and a ``$`` followed by a
-name that *is* set on the deploy host splices the host's value in.
+Docker Compose interpolates the *values* it reads from an ``env_file:``, not
+just the compose document. A ``$`` followed by an identifier character is
+replaced with the named variable's value — the empty string when that name is
+unset — so a ``$``-bearing secret arrives inside the container truncated. Two
+variants carry no warning at all: ``$$`` collapses to a single ``$``, and a
+``$`` followed by a name that *is* set on the deploy host splices the host's
+value in. podman-compose mangles a different set — the braced ``${...}`` form
+only, resolved against the same file's earlier entries before the host
+environment — so the identical file can yield a different secret depending on
+which implementation reads it.
 
 The same substitution happens on the OTHER route out of a ``.env``: every
 deploy runs compose with ``--env-file .env``, which makes it the variable source
 for the compose *document*, so an ``environment: - X=${X}`` entry — how most
 services here receive their secrets — resolves through it too. Measured on
-compose v2.34, ``h0rse$battery`` becomes ``h0rse`` and ``secret$HOME`` becomes
-the deploy host's home path, the latter with no warning.
+Docker Compose v2.34, ``h0rse$battery`` becomes ``h0rse`` and ``secret$HOME``
+becomes the deploy host's home path, the latter with no warning.
 
 The failure is invisible from the host. The file on disk is byte-perfect, every
 test that reads the file passes, and only the service that consumes the secret
@@ -26,10 +30,10 @@ mint can reach a container:
 
 The rule is "no ``$`` at all", not "no interpolating ``$``". A trailing ``$``
 survives Docker Compose today, but podman-compose is the documented default for
-facility deploys and its interpolation is not guaranteed to agree; the codebase
-already designs to a ``$``-free invariant (``passwords.FIELD_SEP``, the minted
-alphabets in ``service_tokens``). A rejected-but-harmless secret costs a
-rotation. A missed one is a silent outage.
+facility deploys and substitutes a different set, so no single escaping is
+correct for both; the codebase already designs to a ``$``-free invariant
+(``passwords.FIELD_SEP``, the minted alphabets in ``service_tokens``). A
+rejected-but-harmless secret costs a rotation. A missed one is a silent outage.
 
 Offending values are reported by variable *name* only — never echoed — matching
 ``_raise_invalid_var``'s existing discipline.
@@ -348,6 +352,9 @@ def test_sidecar_recreate_itself_is_never_blocked_by_the_scan(tmp_path, monkeypa
     monkeypatch.setattr(provision, "_force_recreate_services", lambda *a, **k: called.append(a))
     monkeypatch.setattr(provision, "web_stack_compose_cmd", lambda *a, **k: ["compose"])
     monkeypatch.setattr(provision, "runtime_env", lambda *a, **k: {})
+    # The pre-recreate re-render is out of scope here (pinned in
+    # test_provision.py); the stub config is not renderable.
+    monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda *a, **k: [])
 
     provision.force_recreate_auth_sidecar({})
 

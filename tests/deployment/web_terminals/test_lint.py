@@ -1840,6 +1840,7 @@ _AUTH_CODES = frozenset(
         "web_terminals.auth_oidc_missing_issuer",
         "web_terminals.auth_oidc_invalid_client_env",
         "web_terminals.auth_oidc_unresolvable_origin",
+        "web_terminals.auth_oidc_subject_unsafe",
         "web_terminals.auth_credential_collision",
     }
 )
@@ -2223,6 +2224,69 @@ def test_lint_auth_password_mode_reports_no_oidc_findings() -> None:
 
     # Assert
     assert not any(f.code.startswith("web_terminals.auth_oidc") for f in findings)
+
+
+def test_lint_auth_oidc_subject_with_dollar_is_an_error() -> None:
+    """A ``$`` in ``oidc_subject`` is mangled by compose-document interpolation.
+
+    The subject travels through the compose *document* (an ``environment:``
+    entry), not an env_file, so the deploy-time ``$`` scan over the env files
+    never sees it — the interpolated value silently maps the user to an
+    identity the IdP never issues, and that one user can never log in.
+    """
+    # Arrange
+    config = _auth_config(
+        {"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}},
+    )
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "oidc_subject": "user$123@example.org"},
+        {"name": "gmartino", "oidc_subject": "gmartino@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    offenders = [f for f in errors if f.code == "web_terminals.auth_oidc_subject_unsafe"]
+    assert len(offenders) == 1
+    assert "'thellert'" in offenders[0].message
+    assert "gmartino" not in offenders[0].message
+
+
+def test_lint_auth_oidc_clean_subjects_report_no_subject_finding() -> None:
+    """UUIDs and emails — the common subject shapes — pass untouched."""
+    # Arrange
+    config = _auth_config(
+        {"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}},
+    )
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "oidc_subject": "8f14e45f-ceea-4a5c-9c76-01dd8f7f56a2"},
+        {"name": "gmartino", "oidc_subject": "gmartino@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_oidc_subject_unsafe" for f in findings)
+
+
+def test_lint_auth_oidc_subject_check_is_mode_gated() -> None:
+    """A leftover subject from an earlier oidc posture is unread in password
+    mode — the template emits no OIDC settings there, so there is nothing to
+    mangle and nothing to flag."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "oidc_subject": "user$123@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_oidc_subject_unsafe" for f in findings)
 
 
 def test_lint_auth_credential_collision_is_an_error() -> None:

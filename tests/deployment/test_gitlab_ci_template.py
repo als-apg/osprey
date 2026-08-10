@@ -39,20 +39,27 @@ def template_text() -> str:
 
 @pytest.fixture(scope="module")
 def env_production_heredoc(template_text: str) -> str:
-    """Return only the body of the ``.env.production`` heredoc.
+    """Return the combined bodies of every ``.env.production`` heredoc.
 
     The template documents ``ci.token_env_var`` elsewhere (the header comment
     listing required CI/CD variables — legitimately, that token still gates
     build/push), so the token-absence assertions must be scoped to the heredoc
-    body, not the whole file.
+    bodies, not the whole file.
+
+    There are two heredocs by design: an unquoted one for the ``$VAR``
+    references the runner shell must expand from masked CI variables, and a
+    quoted one for config-literal values (``ARIEL_DSN``, ``TZ``) the shell must
+    NOT touch — an unquoted heredoc would expand ``$`` sequences and execute
+    backticks inside a facility's DSN. Both bodies land in ``.env.production``,
+    so both are in scope here.
     """
-    match = re.search(
-        r"cat > \.env\.production << ENVEOF\n(.*?)\n\s*ENVEOF",
+    matches = re.findall(
+        r"cat >>? \.env\.production << '?(?:ENVEOF|LITERALEOF)'?\n(.*?)\n\s*'?(?:ENVEOF|LITERALEOF)",
         template_text,
         re.DOTALL,
     )
-    assert match, "could not locate the .env.production heredoc in the template"
-    return match.group(1)
+    assert len(matches) == 2, "expected the two .env.production heredocs in the template"
+    return "\n".join(matches)
 
 
 def test_ci_token_absent_from_env_production(env_production_heredoc: str) -> None:

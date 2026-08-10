@@ -17,10 +17,12 @@ class DeploymentError(Exception):
 class ComposeInterpolationError(DeploymentError):
     """A secret bound for a compose ``env_file:`` contains ``$``.
 
-    Compose interpolates env_file *values*, so such a secret reaches the
+    Docker Compose interpolates env_file *values*, so such a secret reaches the
     container truncated (or, when the text after ``$`` names a variable set on
     the deploy host, with the host's value spliced in) while the file on disk
-    reads correctly. Nothing downstream can tell the difference between a
+    reads correctly. podman-compose mangles a smaller but different set (the
+    braced ``${...}`` form only), so the two deliver different wrong values from
+    the same file. Nothing downstream can tell the difference between a
     truncated secret and a wrong one, so the symptom is an authentication
     failure pointing nowhere near the cause.
 

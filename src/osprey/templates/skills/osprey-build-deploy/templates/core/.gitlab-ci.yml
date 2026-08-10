@@ -89,11 +89,20 @@ osprey-build:
       # IF MODULE event_dispatcher.enabled
       ${config.modules.event_dispatcher.token_env_var}=${env.${config.modules.event_dispatcher.token_env_var}}
       # END IF
+      ENVEOF
+      # Config-LITERAL values are appended through a QUOTED heredoc, unlike the
+      # $VAR references above (which need the shell to expand the masked CI
+      # variables). Inside an unquoted heredoc the shell also expands and
+      # backtick-executes characters inside these literals — a DSN password
+      # containing `$` reached the file truncated, and a backtick would run as
+      # a command on the CI runner. The quoted delimiter writes the bytes as-is;
+      # OSPREY's deploy-time env-file check then vets them.
+      cat >> .env.production << 'LITERALEOF'
       # IF MODULE ariel.enabled
       ARIEL_DSN=${config.modules.ariel.dsn}
       # END IF
       TZ=${config.facility.timezone}
-      ENVEOF
+      LITERALEOF
 
     - export PYTHONPATH=mcp_servers
 

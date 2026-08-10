@@ -57,21 +57,29 @@ def parse_dotenv_text(text: str) -> dict[str, str]:
 def compose_unsafe_vars(values: Mapping[str, str]) -> list[str]:
     """Names of vars whose value a compose ``env_file:`` would not deliver intact.
 
-    Compose interpolates the *values* it reads from an ``env_file:``, not just
-    the compose document. A ``$`` followed by an identifier character is
-    replaced with the named variable's value — the empty string when that name
-    is unset — so the container receives a truncated secret while the file on
-    disk stays byte-perfect. Two forms carry no warning whatsoever: ``$$``
-    collapses to a single ``$``, and a ``$`` followed by a name that *is* set on
-    the deploy host splices the host's value into the secret.
+    Compose implementations disagree about what they do to an ``env_file:``
+    value, and the deploy does not get to choose which one reads the file:
 
-    The test is "contains ``$``", not "contains an interpolating ``$``".
-    ``trailing$`` and ``$1`` survive Docker Compose, but podman-compose is the
-    documented default for facility deploys and is not guaranteed to agree, and
-    escaping cannot bridge the two: writing ``$$`` yields ``$`` under a runtime
-    that interpolates and a literal ``$$`` under one that does not, so no single
-    file is correct for both. Refusing ``$`` outright is the only
-    runtime-independent rule — and the one the codebase already designs to
+    * Docker Compose (measured on v2.34) interpolates the *values*, not just
+      the compose document. A ``$`` followed by an identifier character is
+      replaced with the named variable's value — the empty string when that
+      name is unset — so the container receives a truncated secret while the
+      file on disk stays byte-perfect. Two forms carry no warning whatsoever:
+      ``$$`` collapses to a single ``$``, and a ``$`` followed by a name that
+      *is* set on the deploy host splices the host's value into the secret.
+    * podman-compose hands the file to python-dotenv, which resolves only the
+      braced ``${...}`` form — and resolves it against an earlier entry in the
+      SAME file ahead of the host environment, so the identical file can yield
+      a different secret than Docker Compose does.
+    * Older podman-compose passes ``--env-file`` to podman, whose parser
+      substitutes nothing at all.
+
+    The test is therefore "contains ``$``", not "contains an interpolating
+    ``$``". Escaping cannot bridge the set: ``$$`` yields ``$`` where values are
+    interpolated and a literal ``$$`` where they are not, so no single file is
+    correct everywhere. Which forms count as a reference is compose's business
+    and may widen. Refusing ``$`` outright is the only rule that stays true —
+    and the one the codebase already designs to
     (``auth_sidecar.passwords.FIELD_SEP``, the minted alphabets in
     :mod:`osprey.deployment.service_tokens`).
 

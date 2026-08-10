@@ -86,16 +86,40 @@ _DEFAULT_SESSION_LIFETIME = 12 * 60 * 60
 _DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
 _DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 
+#: Label key the auth sidecar's service carries the sha256 digest of
+#: ``.env.auth``'s content under (repo label convention: dotted ``osprey.*``
+#: keys, as in the service templates' ``osprey.project.name``). Compose bakes
+#: ``env_file`` content into a container at CREATION time, and a
+#: service-definition change is the only recreate trigger every compose
+#: implementation honours — podman-compose in particular never recreates on a
+#: content-only file change. Stamping the digest into the definition turns an
+#: ``.env.auth`` edit into exactly that trigger. The digest is not a secret:
+#: the file's values are high-entropy mints and IdP-issued credentials, and
+#: only the hash of the whole file — never a variable's value — is emitted.
+AUTH_ENV_DIGEST_LABEL = "osprey.auth.env.digest"
 
-def render_web_terminals(config: Any) -> dict[str, str]:
+
+def render_web_terminals(config: Any, auth_env_digest: str | None = None) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
     Args:
         config: The parsed facility config, read defensively as nested dicts (same
             convention as :func:`osprey.deployment.web_terminals.lint.lint_web_terminals`
             — no assumption that ``config`` is a particular schema/dataclass type).
-            Deterministic: the same config always renders the same three artifacts,
-            with no clock/random inputs.
+            Deterministic: the same inputs always render the same three artifacts,
+            with no clock/random/filesystem inputs — which is why the digest below
+            arrives as a parameter instead of being read from disk here.
+        auth_env_digest: sha256 hex digest of ``.env.auth``'s current content,
+            emitted as the :data:`AUTH_ENV_DIGEST_LABEL` label on the auth
+            sidecar's service so a content change becomes a service-DEFINITION
+            change — the one recreate trigger every compose implementation
+            honours. The deploy path computes it via
+            :func:`osprey.deployment.web_terminals.artifacts.write_web_terminal_artifacts`;
+            ``None`` (the default, and the ``osprey scaffold web-terminals
+            render`` path, which has no project root to digest) emits no label —
+            harmless, because every ``osprey deploy up`` re-renders through the
+            artifacts seam with a current digest before its ``up``, so a
+            label-less render can never reach a running stack stale.
 
     Returns:
         Mapping of output-relative-path to rendered content, for exactly three
@@ -116,8 +140,13 @@ def render_web_terminals(config: Any) -> dict[str, str]:
             :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
             ``strict`` contract — render always resolves strictly), or if
             ``modules.web_terminals.mcp.topology`` is set to anything other than
-            ``per_container_stdio`` (see :func:`_check_mcp_topology`).
+            ``per_container_stdio`` (see :func:`_check_mcp_topology`), or if
+            ``auth_env_digest`` is not a sha256 hex digest — the value is
+            templated verbatim into compose YAML, so anything but lowercase hex
+            is rejected here rather than trusted not to carry YAML structure.
     """
+    if auth_env_digest and not re.fullmatch(r"[0-9a-f]{64}", auth_env_digest):
+        raise ValueError("auth_env_digest must be a sha256 hex digest")
     root = as_dict(config)
     facility = as_dict(root.get("facility"))
     registry = as_dict(root.get("registry"))
@@ -238,6 +267,10 @@ def render_web_terminals(config: Any) -> dict[str, str]:
         # same parsed stanza the nginx seam reads, so the two ends of the
         # auth_request contract can't drift apart.
         "external_origin": external_origin,
+        # Empty string (not None) when no digest was supplied, so the template
+        # can gate the label block on plain truthiness.
+        "auth_env_digest": auth_env_digest or "",
+        "auth_env_digest_label": AUTH_ENV_DIGEST_LABEL,
         **auth_tls_ctx,
     }
 
