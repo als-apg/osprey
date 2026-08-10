@@ -281,6 +281,8 @@ def test_profile_new_bakes_the_literal_key(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    baked = yaml.safe_load((target / "profile.yml").read_text(encoding="utf-8"))
+    # `profile new` writes a facility repository; the profile lives one level
+    # down, in its `profile/` directory.
+    baked = yaml.safe_load((target / "profile" / "profile.yml").read_text(encoding="utf-8"))
     assert CONNECTOR_PROFILE_KEY not in baked
     assert baked["config"][CONNECTOR_CONFIG_KEY] == "doocs"
