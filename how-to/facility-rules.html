@@ -369,6 +369,7 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
@@ -546,6 +547,42 @@ default project has no such rule file), and <code class="docutils literal notran
 <p>A build profile can add rules of its own. Any rule without <code class="docutils literal notranslate"><span class="pre">paths</span></code> frontmatter
 loads unconditionally at session start.</p>
 </section>
+<section id="test-ioc-port-isolation">
+<h2>Test IOC port isolation<a class="headerlink" href="#test-ioc-port-isolation" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">test-ioc-safety</span></code> is a packaged rule the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset selects
+by default (it renders only for EPICS-family control systems). For other
+profiles, add it to the <code class="docutils literal notranslate"><span class="pre">rules:</span></code> list when the project runs an EPICS soft IOC
+for testing:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">rules</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test-ioc-safety</span><span class="w">   </span><span class="c1"># mandatory port isolation for a test soft IOC</span>
+</pre></div>
+</div>
+<p>It renders only for EPICS-family control systems (<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> of
+<code class="docutils literal notranslate"><span class="pre">epics</span></code> or <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>); selected under any other protocol it
+renders empty and the build drops the file.</p>
+<p>The rule exists because EPICS Channel Access broadcasts on UDP by default. A
+<code class="docutils literal notranslate"><span class="pre">softIoc</span></code> started with no port configuration binds to UDP 5064 (server) and
+5065 (beacon) and beacons to the broadcast address — where every real IOC on the
+network sees it. A test PV whose name collides with a production PV can then
+route a read to the wrong value, or a write to real hardware. The rule tells the
+agent to refuse any test-IOC action that does not satisfy all six of:</p>
+<ol class="arabic simple">
+<li><p>CAS ports outside the 5064–5076 production range (default <code class="docutils literal notranslate"><span class="pre">59064</span></code>/<code class="docutils literal notranslate"><span class="pre">59065</span></code>).</p></li>
+<li><p><strong>Both</strong> <code class="docutils literal notranslate"><span class="pre">EPICS_CAS_SERVER_PORT</span></code> and <code class="docutils literal notranslate"><span class="pre">EPICS_CAS_BEACON_PORT</span></code> set —
+setting one leaves the other on its default.</p></li>
+<li><p>Every CA client overriding <code class="docutils literal notranslate"><span class="pre">EPICS_CA_SERVER_PORT</span></code>, stated each time the
+agent hands over a test PV.</p></li>
+<li><p>Every test PV carrying the test prefix (default <code class="docutils literal notranslate"><span class="pre">OSPREY:TEST:</span></code>) — the last
+line of defense if the ports somehow fail to isolate.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">softIoc</span></code> launched only through a startup script that exports the ports
+first, never bare at a shell prompt.</p></li>
+<li><p>DB files within the EPICS parser’s limits — DESC fields at most 39 ASCII
+characters, no multibyte characters, and no <code class="docutils literal notranslate"><span class="pre">$(...)</span></code> even inside comments.</p></li>
+</ol>
+<p>The rule carries the startup-script pattern, the client-side environment, a
+pre-flight validation snippet, and the shutdown sequence, so the agent has a
+concrete correct procedure rather than a prohibition alone.</p>
+</section>
 <section id="changing-a-rule">
 <h2>Changing a rule<a class="headerlink" href="#changing-a-rule" title="Link to this heading">#</a></h2>
 <p>There are two ways to edit a rule.</p>
@@ -649,6 +686,7 @@ unclaim and regen:</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-control-assistant-preset-ships">What the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#test-ioc-port-isolation">Test IOC port isolation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-a-rule">Changing a rule</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#answer-provenance-verify-first">Answer provenance (verify-first)</a></li>
 </ul>

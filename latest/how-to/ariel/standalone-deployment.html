@@ -369,6 +369,7 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../deploy-project.html">Container Deployment</a></li>
@@ -658,24 +659,26 @@ to point at your facility’s logbook system (see
 <p>For changes you want to keep across rebuilds — adding a custom skill,
 overriding a rule, wiring up a real logbook — materialize an editable build
 profile from the <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>my-ariel-profile<span class="w"> </span>--preset<span class="w"> </span>ariel-standalone
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>my-ariel<span class="w"> </span>--preset<span class="w"> </span>ariel-standalone
+<span class="nb">cd</span><span class="w"> </span>my-ariel
 </pre></div>
 </div>
-<p>This writes a <code class="docutils literal notranslate"><span class="pre">my-ariel-profile/</span></code> directory containing a standalone
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — the preset’s full configuration written out explicitly, with
-no <code class="docutils literal notranslate"><span class="pre">extends:</span></code> back to the preset — plus the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree and an
-<code class="docutils literal notranslate"><span class="pre">.env.example</span></code> listing every variable the agent reads. Directories for your
-own artifacts are not created up front: make a <code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code> or
-<code class="docutils literal notranslate"><span class="pre">agents/</span></code> directory when you have something to put in it, and the build
-carries its contents into the project. Edit <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, the data files, and
-those directories, then rebuild whenever you change something:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-ariel<span class="w"> </span>./my-ariel-profile/profile.yml
+<p>This writes a <code class="docutils literal notranslate"><span class="pre">my-ariel/</span></code> git repository whose <code class="docutils literal notranslate"><span class="pre">profile/</span></code> directory holds a
+standalone <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — the preset’s full configuration written out
+explicitly, with no <code class="docutils literal notranslate"><span class="pre">extends:</span></code> back to the preset — plus the preset’s
+<code class="docutils literal notranslate"><span class="pre">data/</span></code> tree and an <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> listing every variable the agent reads.
+Directories for your own artifacts are not created up front: make a <code class="docutils literal notranslate"><span class="pre">rules/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">skills/</span></code> or <code class="docutils literal notranslate"><span class="pre">agents/</span></code> directory when you have something to put in it, and
+the build carries its contents into the project. Edit <code class="docutils literal notranslate"><span class="pre">profile/profile.yml</span></code>,
+the data files, and those directories, then rebuild whenever you change
+something:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-ariel-agent<span class="w"> </span>profile/
 </pre></div>
 </div>
-<p>The profile directory is your facility’s source of truth — commit it to
-your own repo. The rendered project is a regenerable artifact. See
-<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a> for the full schema and the preset → profile →
-project model.</p>
+<p>The rendered project lands in the repository’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> directory, which is
+kept out of git. The profile is your facility’s source of truth — commit it.
+The rendered project is a regenerable artifact. See <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a> for
+the full schema and the preset → profile → project model.</p>
 </section>
 </section>
 </section>

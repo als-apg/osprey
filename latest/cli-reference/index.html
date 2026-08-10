@@ -369,6 +369,7 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../how-to/build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/deploy-project.html">Container Deployment</a></li>
@@ -552,24 +553,40 @@ osprey<span class="w"> </span>profile<span class="w"> </span>presets
 </pre></div>
 </div>
 <dl>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">TARGET_DIR</span> <span class="pre">--preset</span> <span class="pre">NAME</span></code></dt><dd><p>Materialize an editable profile directory from a bundled preset.
-<code class="docutils literal notranslate"><span class="pre">TARGET_DIR</span></code> is created and populated with a standalone <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
-(the preset’s full configuration written out explicitly, no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>),
-the preset’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree copied verbatim, an <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> listing
-every variable the agent reads, an <code class="docutils literal notranslate"><span class="pre">.env</span></code> seeded from your shell (only
-when it held keys for a provider this profile references), a <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>,
-and a <code class="docutils literal notranslate"><span class="pre">README.md</span></code>. Directories for your own artifacts (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">skills/</span></code>, …) are not created up front — make the ones you need. Refuses
-to overwrite an existing directory unless <code class="docutils literal notranslate"><span class="pre">--force</span></code> is given.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">TARGET_DIR</span> <span class="pre">--preset</span> <span class="pre">NAME</span></code></dt><dd><p>Create a <strong>facility repository</strong> from a bundled preset. <code class="docutils literal notranslate"><span class="pre">TARGET_DIR</span></code> is
+the repository this facility’s deployment lives in, and the command writes
+the whole thing:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>TARGET_DIR/
+  profile/       the editable source the facility owns
+  build/         empty; where `osprey build` renders projects
+  ci-extra.yml   the facility&#39;s own CI jobs; never regenerated
+  .gitignore     keeps build/ and the profile&#39;s secrets out of git
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">profile/</span></code> holds a standalone <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (the preset’s full
+configuration written out explicitly, no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>), the preset’s
+<code class="docutils literal notranslate"><span class="pre">data/</span></code> tree copied verbatim, an <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> listing every variable
+the agent reads, an <code class="docutils literal notranslate"><span class="pre">.env</span></code> seeded from your shell (only when it held keys
+for a provider this profile references), its own <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>, and a
+<code class="docutils literal notranslate"><span class="pre">README.md</span></code>. Directories for your own artifacts (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>,
+…) are not created up front — make the ones you need.</p>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> runs at the repository root and nothing is committed. The CI
+pipeline is emitted too, as soon as there is anything to render it from: a
+profile whose <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block is still the commented stub gets the rest of
+the repository, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">scaffold</span></code> adds the pipeline once the
+block is filled in. Refuses to write into an existing directory unless
+<code class="docutils literal notranslate"><span class="pre">--force</span></code> is given.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">PATH</span></code> — Layer a YAML file on top of the preset before
 writing (repeatable, in order).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code> — Inline override baked into the written profile
 (repeatable). RHS is parsed as YAML. Wins over <code class="docutils literal notranslate"><span class="pre">-O</span></code> at the same key.</p>
-<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> — Replace an existing profile directory, deleting its current
-contents including any edits you made there. Only a directory that is a
-materialized profile (contains <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>) or is empty is replaced;
-anything else is refused. Nothing is deleted until the replacement profile
-has fully rendered, so a failed run leaves the old directory untouched.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> — Replace an existing repository’s <code class="docutils literal notranslate"><span class="pre">profile/</span></code> directory,
+deleting its current contents including any edits you made there, and
+overwrite hand-edited deployment files. A target that is neither a facility
+repository (no <code class="docutils literal notranslate"><span class="pre">profile/</span></code> directory) nor empty is refused. <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>
+and the repository’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> are never touched. Nothing is deleted
+until the replacement profile has fully rendered, so a failed run leaves the
+old directory untouched.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span> <span class="pre">TARGET</span></code></dt><dd><p>Check a profile without building anything. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> is a profile
 directory (its <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is used) or a path to a profile file.
@@ -582,9 +599,10 @@ vars. Exits 0 when valid, 2 with the accumulated errors when not.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>presets
-osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>my-profile<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>opus
-osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>my-profile/
-osprey<span class="w"> </span>build<span class="w"> </span>my-agent<span class="w"> </span>my-profile/profile.yml
+osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>my-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>opus
+<span class="nb">cd</span><span class="w"> </span>my-facility
+osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>profile/
+osprey<span class="w"> </span>build<span class="w"> </span>my-agent<span class="w"> </span>profile/<span class="w">            </span><span class="c1"># renders into build/my-agent/</span>
 </pre></div>
 </div>
 </section>
@@ -607,7 +625,10 @@ parsed as YAML so <code class="docutils literal notranslate"><span class="pre">t
 into the profile when it already exists, replacing the value at the dotted key
 path.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--list-presets</span></code> — Print bundled preset names and exit.</p>
-<p><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output-dir</span> <span class="pre">PATH</span></code> — Output directory (default: current directory).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output-dir</span> <span class="pre">PATH</span></code> — Render the project under this directory, overriding
+the default. A profile nested in a facility repository (<code class="docutils literal notranslate"><span class="pre">&lt;repo&gt;/profile/</span></code>)
+renders into <code class="docutils literal notranslate"><span class="pre">&lt;repo&gt;/build/&lt;PROJECT_NAME&gt;/</span></code> whichever directory the command is
+run from; anything else renders under the current directory.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-f,</span> <span class="pre">--force</span></code> — Re-render an existing project directory in place; <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
 <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are preserved. Never touches the profile —
 replace one with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">--force</span></code>.</p>
@@ -622,6 +643,7 @@ at, overriding the paradigm-derived default. Written into the profile like
 <p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code> — Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config, for
 container builds where the build path differs from the runtime path.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
+osprey<span class="w"> </span>build<span class="w"> </span>my-facility<span class="w"> </span>profile/<span class="w">          </span><span class="c1"># from a facility repo → build/my-facility/</span>
 osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="w"> </span>~/profiles/als-dev.yml<span class="w"> </span>--force
 osprey<span class="w"> </span>build<span class="w"> </span>edu<span class="w"> </span>--preset<span class="w"> </span>education<span class="w"> </span>-O<span class="w"> </span>overrides.yml<span class="w"> </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-sonnet-4-6
 osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
@@ -631,38 +653,139 @@ osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
 <section id="osprey-deploy">
 <h2>osprey deploy<a class="headerlink" href="#osprey-deploy" title="Link to this heading">#</a></h2>
 <p>Manage Docker/Podman services for Osprey projects.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>ACTION<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>VERB<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
-<p><strong>Actions:</strong> <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">clean</span></code>, <code class="docutils literal notranslate"><span class="pre">rebuild</span></code>,
-<code class="docutils literal notranslate"><span class="pre">decommission</span></code>, <code class="docutils literal notranslate"><span class="pre">prune</span></code>, <code class="docutils literal notranslate"><span class="pre">nuke</span></code>, <code class="docutils literal notranslate"><span class="pre">seed</span></code>, <code class="docutils literal notranslate"><span class="pre">passwd</span></code>.</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">up</span></code> – Start all configured services.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">down</span></code> – Stop all services.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">restart</span></code> – Restart all services.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">status</span></code> – Show service status.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">build</span></code> – Build/prepare compose files without starting services.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">clean</span></code> – Remove containers and volumes (destructive).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">rebuild</span></code> – Clean, rebuild, and restart services.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">decommission</span> <span class="pre">USER</span></code> – Remove a single user’s web-terminal workspace.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">prune</span></code> – Remove workspaces for users no longer in the user index.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">nuke</span></code> – Tear down the entire multi-user web-terminal stack (destructive).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">seed</span> <span class="pre">[USER]</span></code> – (Re)seed web-terminal workspaces from the user index;
-<code class="docutils literal notranslate"><span class="pre">USER</span></code> targets one user, omit to reseed all.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">passwd</span> <span class="pre">USER</span></code> – Change one web-terminal user’s login password (password
-authentication only). Prompts without echoing, and ends that user’s sessions.</p></li>
-</ul>
-<p><strong>Options (apply to all actions):</strong></p>
+<p>Each verb declares its own options. A flag a verb does not take is a <strong>parse
+error</strong> (exit 2), not a silent no-op — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span> <span class="pre">--dev</span></code> fails
+rather than ignoring the flag. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">VERB</span> <span class="pre">--help</span></code> for one verb’s
+exact set.</p>
+<p>Every verb acts on one project: run it from the project directory, pass
+<code class="docutils literal notranslate"><span class="pre">-p/--project</span></code>, or set <code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code>. The exception is <code class="docutils literal notranslate"><span class="pre">scaffold</span></code>,
+which emits a facility repository’s deployment files and therefore acts on the
+repository rather than on a project built from it.</p>
+<p><strong>Service verbs.</strong> All of these take <code class="docutils literal notranslate"><span class="pre">-p/--project</span></code> and <code class="docutils literal notranslate"><span class="pre">-c/--config</span></code>;
+the third column lists what each one takes on top of those.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 46.0%" />
+<col style="width: 38.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Verb</p></th>
+<th class="head"><p>What it does</p></th>
+<th class="head"><p>Also accepts</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">up</span></code></p></td>
+<td><p>Start all configured services.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">-d/--detached</span></code>, <code class="docutils literal notranslate"><span class="pre">--dev</span></code>, <code class="docutils literal notranslate"><span class="pre">--expose</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">down</span></code></p></td>
+<td><p>Stop all services.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--dev</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">restart</span></code></p></td>
+<td><p>Restart all services.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">-d/--detached</span></code>, <code class="docutils literal notranslate"><span class="pre">--expose</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">status</span></code></p></td>
+<td><p>Show service status.</p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">build</span></code></p></td>
+<td><p>Build/prepare compose files without starting services.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--dev</span></code>, <code class="docutils literal notranslate"><span class="pre">--expose</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">clean</span></code></p></td>
+<td><p>Remove containers and volumes (destructive).</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--dev</span></code>, <code class="docutils literal notranslate"><span class="pre">--expose</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">rebuild</span></code></p></td>
+<td><p>Clean, rebuild, and restart services.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">-d/--detached</span></code>, <code class="docutils literal notranslate"><span class="pre">--dev</span></code>, <code class="docutils literal notranslate"><span class="pre">--expose</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> – Project directory (default: current directory or <code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">-c,</span> <span class="pre">--config</span> <span class="pre">PATH</span></code> – Configuration file (default: <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in project directory).</p>
-<p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detached</span></code> – Run services in detached mode (for <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">rebuild</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detached</span></code> – Run services in detached mode.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> – Copy local osprey package to containers instead of using PyPI version.</p>
-<p><code class="docutils literal notranslate"><span class="pre">--expose</span></code> – Expose services on all network interfaces (<code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code>).</p>
-<p><strong>Lifecycle flags (multi-user web-terminal actions):</strong></p>
-<p><code class="docutils literal notranslate"><span class="pre">--archive</span></code> – Archive a user’s workspace before removing it (<code class="docutils literal notranslate"><span class="pre">decommission</span></code>/<code class="docutils literal notranslate"><span class="pre">prune</span></code> only; mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--purge</span></code>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">--purge</span></code> – Permanently delete a user’s workspace without archiving (<code class="docutils literal notranslate"><span class="pre">decommission</span></code>/<code class="docutils literal notranslate"><span class="pre">prune</span></code> only; mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--archive</span></code>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> – Assume yes to confirmation prompts (<code class="docutils literal notranslate"><span class="pre">decommission</span></code>/<code class="docutils literal notranslate"><span class="pre">prune</span></code>/<code class="docutils literal notranslate"><span class="pre">nuke</span></code>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> – Show what would happen without making changes (<code class="docutils literal notranslate"><span class="pre">prune</span></code> only).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--expose</span></code> – Expose services on all network interfaces (<code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code>). Only
+use this with authentication configured.</p>
+<p><strong>Web-terminal workspace verbs.</strong> These also take <code class="docutils literal notranslate"><span class="pre">-p/--project</span></code> and
+<code class="docutils literal notranslate"><span class="pre">-c/--config</span></code>.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 46.0%" />
+<col style="width: 38.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Verb</p></th>
+<th class="head"><p>What it does</p></th>
+<th class="head"><p>Also accepts</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">decommission</span> <span class="pre">USER</span></code></p></td>
+<td><p>Remove a single user’s web-terminal workspace.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--archive</span></code>, <code class="docutils literal notranslate"><span class="pre">--purge</span></code>, <code class="docutils literal notranslate"><span class="pre">-y/--yes</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">prune</span></code></p></td>
+<td><p>Remove workspaces for users no longer in the user index.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">--archive</span></code>, <code class="docutils literal notranslate"><span class="pre">--purge</span></code>, <code class="docutils literal notranslate"><span class="pre">-y/--yes</span></code>, <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">nuke</span></code></p></td>
+<td><p>Tear down the whole multi-user web-terminal stack. Destructive: it
+removes every user’s workspace, not just the stale ones.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">-y/--yes</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">seed</span> <span class="pre">[USER]</span></code></p></td>
+<td><p>(Re)seed workspaces from the user index; <code class="docutils literal notranslate"><span class="pre">USER</span></code> targets one user, omit
+to reseed all.</p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">passwd</span> <span class="pre">USER</span></code></p></td>
+<td><p>Change one web-terminal user’s login password (password authentication
+only). Prompts without echoing, and ends that user’s sessions.</p></td>
+<td><p>—</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--archive</span></code> – Archive a user’s workspace before removing it (mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--purge</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--purge</span></code> – Permanently delete a user’s workspace without archiving it (mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--archive</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> – Assume yes to confirmation prompts.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> – Show what would happen without making changes.</p>
+<p><strong>Deployment-file verbs.</strong></p>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">scaffold</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit a facility repository’s deployment files from its profile’s <code class="docutils literal notranslate"><span class="pre">deploy:</span></code>
+block: the CI pipeline at the repository root, and the post-deploy health
+check inside the profile’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror, which every build copies to
+<code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code>. Run it from anywhere inside the repository and it
+finds the root on its own; <code class="docutils literal notranslate"><span class="pre">--repo</span></code> names one explicitly. Re-running is
+safe — a file whose content already matches is left untouched, stamp
+included, so an OSPREY upgrade alone produces no diff. A file the scaffolder
+did not write is reported and left alone unless <code class="docutils literal notranslate"><span class="pre">--force</span></code> is given.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">render-env-production</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Render <code class="docutils literal notranslate"><span class="pre">.env.production</span></code> — the env file every per-user web-terminal
+container runs with — from the deploy config and one secrets file. It
+applies no rule of its own, so a file rendered here and one generated by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> cannot disagree. Secret values come only from the
+secrets file, never from the surrounding environment.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--env-file</span> <span class="pre">PATH</span></code> — Secrets file to render from (default: <code class="docutils literal notranslate"><span class="pre">.env</span></code> in the
+project directory).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output</span> <span class="pre">PATH</span></code> — Write the result here, at mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, instead of
+to stdout. Unlike a deploy, which never overwrites an existing
+<code class="docutils literal notranslate"><span class="pre">.env.production</span></code>, an explicit <code class="docutils literal notranslate"><span class="pre">--output</span></code> is taken as an instruction and
+replaces what is there. In CI, pass it: without <code class="docutils literal notranslate"><span class="pre">--output</span></code> the assembled
+secrets go to the job log.</p>
+</dd>
+</dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d
 osprey<span class="w"> </span>deploy<span class="w"> </span>status
 osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w"> </span>--dev
@@ -670,8 +793,12 @@ osprey<span class="w"> </span>deploy<span class="w"> </span>down
 osprey<span class="w"> </span>deploy<span class="w"> </span>decommission<span class="w"> </span>alice<span class="w"> </span>--archive
 osprey<span class="w"> </span>deploy<span class="w"> </span>prune<span class="w"> </span>--dry-run
 osprey<span class="w"> </span>deploy<span class="w"> </span>nuke<span class="w"> </span>--yes
+osprey<span class="w"> </span>deploy<span class="w"> </span>scaffold
+osprey<span class="w"> </span>deploy<span class="w"> </span>render-env-production<span class="w"> </span>--output<span class="w"> </span>.env.production
 </pre></div>
 </div>
+<p>See <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a> for the walkthrough that uses these
+verbs end to end.</p>
 </section>
 <section id="osprey-health">
 <h2>osprey health<a class="headerlink" href="#osprey-health" title="Link to this heading">#</a></h2>
@@ -912,14 +1039,17 @@ Ownership a build derived from the profile is re-registered by the next
 build, so this holds only until then — give the artifact up for good by
 deleting it from the profile’s convention directory.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span> <span class="pre">--config</span> <span class="pre">PATH</span></code></dt><dd><p>Validate the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza of a facility config
-(port-family allocation, reserved service names, duplicate users, persona
-references). Exits non-zero on error-severity findings; warnings do not
-fail the check, so it is safe to wire into a CI gate.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span> <span class="pre">[-p</span> <span class="pre">PATH]</span></code></dt><dd><p>Validate a project’s <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza (port-family
+allocation, reserved service names, duplicate users, persona references).
+Exits non-zero on error-severity findings; warnings do not fail the check,
+so it is safe to wire into a CI gate.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">render</span> <span class="pre">--config</span> <span class="pre">PATH</span> <span class="pre">-o</span> <span class="pre">DIRECTORY</span></code></dt><dd><p>Render the multi-user deployment artifacts (docker-compose overlay, nginx
-routing fragment, static landing page) into <code class="docutils literal notranslate"><span class="pre">-o/--output</span></code>. Lints first by
-default and aborts on errors; <code class="docutils literal notranslate"><span class="pre">--no-lint</span></code> skips the pre-check.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">render</span> <span class="pre">[-p</span> <span class="pre">PATH]</span> <span class="pre">-o</span> <span class="pre">DIRECTORY</span></code></dt><dd><p>Render the project’s multi-user deployment artifacts (docker-compose
+overlay, nginx routing fragment, static landing page) into <code class="docutils literal notranslate"><span class="pre">-o/--output</span></code>.
+Lints first by default and aborts on errors; <code class="docutils literal notranslate"><span class="pre">--no-lint</span></code> skips the
+pre-check.</p>
+<p>Both verbs read the stanza from the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, selected with
+<code class="docutils literal notranslate"><span class="pre">-p/--project</span></code> (default: the current directory).</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
@@ -927,8 +1057,8 @@ osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql<span class="w">      </span><span class="c1"># Freeze a service template</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>agents/channel-finder<span class="w">     </span><span class="c1"># Compare yours vs framework</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>rules/safety<span class="w">           </span><span class="c1"># Restore framework management</span>
-osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>lint<span class="w"> </span>--config<span class="w"> </span>facility-config.yml
-osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>render<span class="w"> </span>--config<span class="w"> </span>facility-config.yml<span class="w"> </span>-o<span class="w"> </span>deploy/
+osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>lint<span class="w">             </span><span class="c1"># lint this project&#39;s stanza</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>render<span class="w"> </span>-o<span class="w"> </span>deploy/
 </pre></div>
 </div>
 </section>
@@ -945,17 +1075,20 @@ non-empty, the prior content is renamed to
 previous version is never lost.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">PATH</span></code> — directory to install into. Tilde is expanded. Use a
 project-local <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code> path to scope the skill to one repo
-(e.g., <code class="docutils literal notranslate"><span class="pre">build-profile/.claude/skills/</span></code>). Omit for the global install.</p>
+(e.g., a facility repository’s <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>). Omit for the global
+install.</p>
 <p>Currently supported skills:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — guided project-profile generation (see
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — guided facility-repository generation (see
 <a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>). Typically installed globally
 so it is available in any Osprey agent session.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-deploy</span></code> — CI/CD setup, deploy-server operations, and
-release workflow for a facility profile repo. Typically installed
-project-locally (into the profile repo’s <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>) by the
-last phase of the <code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> skill, so <code class="docutils literal notranslate"><span class="pre">/osprey-build-deploy</span></code>
-is available wherever the profile repo is cloned.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-deploy-ops</span></code> — the operate-time runbook: emitting the CI and
+health-check files from the profile’s <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block, bringing the stack
+up on the deploy host, and triaging it when a service is down. Typically
+installed project-locally (into the facility repository’s
+<code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>) so it travels with the repository.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">creating-an-osprey-panel</span></code> — author a themed, token-only web-terminal
+panel.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> — walks a contributor through the GitHub Flow
 journey from a working-tree change to a merged PR on <code class="docutils literal notranslate"><span class="pre">main</span></code> (branching,
 atomic commits, push, PR, rebase, merge).</p></li>
@@ -971,7 +1104,7 @@ contributors; install globally to have it available when working on
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-interview
-osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-deploy<span class="w"> </span>--target<span class="w"> </span>build-profile/.claude/skills/
+osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-deploy-ops<span class="w"> </span>--target<span class="w"> </span>.claude/skills/
 </pre></div>
 </div>
 </section>

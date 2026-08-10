@@ -95,10 +95,20 @@ Tips during the interview
 Build your project
 ==================
 
-When the interview is done, the Osprey agent generates a ``build-profile/``
-directory containing your ``profile.yml``, a ``README.md`` explaining what was
-decided and why, and — if you gave signal details — a channel database and the
-safe operating ranges that go with it.
+When the interview is done, the Osprey agent creates a **facility repository** —
+a git repository named after your facility, with your profile nested inside it:
+
+.. code-block:: text
+
+   my-facility/
+     profile/       the source you own: profile.yml, data/, your secrets
+     build/         where `osprey build` renders projects (kept out of git)
+     ci-extra.yml   your own CI jobs; nothing ever regenerates this
+     .gitignore
+
+``profile/profile.yml`` records everything the interview decided. Beside it are
+a ``README.md`` explaining what was chosen and why, and — if you gave signal
+details — a channel database and the safe operating ranges that go with it.
 
 Before handing it over, the agent builds the profile itself and requires that
 build to succeed. If something doesn't render, it fixes the profile and tries
@@ -110,17 +120,21 @@ Then:
 .. code-block:: bash
 
    # skip-ci
-   osprey build my-project build-profile/profile.yml
+   cd my-facility
+   osprey build my-project profile/
 
 One command. OSPREY reads your profile, validates your selections, copies your
-channel database into the right place, and produces a ready-to-use project.
+channel database into the right place, and renders a ready-to-use project into
+``build/my-project/``. You never have to say where the output goes: a profile
+nested in a facility repository always renders into that repository's
+``build/``, from whichever directory you run the command.
 
 To start using it:
 
 .. code-block:: bash
 
    # skip-ci
-   cd my-project && claude
+   cd build/my-project && claude
 
 Or for the web dashboard:
 
@@ -132,53 +146,52 @@ Or for the web dashboard:
 Phase 2: deploy your project
 ============================
 
-The interview settles *what* to build. A separate skill, **osprey-build-deploy**,
-covers *how to ship it*. At the end of the interview the Osprey agent points you
-at it:
+The interview settles *what* to build. Running what was built — putting it on a
+real machine and keeping it there — is the other half, and it has its own
+skill, **osprey-deploy-ops**:
 
 .. code-block:: bash
 
    # skip-ci
-   osprey skills install osprey-build-deploy
+   osprey skills install osprey-deploy-ops
 
-The ``build-profile/`` directory is a durable, git-tracked artifact you'll
-redeploy from many times. When you're ready to ship to a real deploy server
-(GitLab CI/CD, container registry, on-server containers), open the Osprey agent
-**inside the profile repo** and trigger the deploy skill:
+The facility repository is a durable, git-tracked artifact you'll redeploy from
+many times, and both halves of deployment live inside it.
 
-.. code-block:: bash
+First, the deployment coordinates go in the profile itself, under a ``deploy:``
+block: the CI platform you use, the deploy host, and the container registry if
+that host pulls its images. A fresh profile ships this block commented out, so
+filling it in is the one edit that turns a buildable profile into a deployable
+one. Credentials are *named* there, never written there.
 
-   # skip-ci
-   cd build-profile
-   git init && git add -A && git commit -m "Initial profile"
-   claude
-
-In the Osprey agent session:
-
-.. code-block:: text
-
-   /osprey-build-deploy
-
-The deploy skill walks you through:
-
-1. A one-time deploy interview that captures site-specific values (GitLab
-   host, deploy server, container runtime, ports, optional modules) and
-   writes them to ``facility-config.yml``
-2. Scaffolding the deploy infrastructure from that config (``docker-compose.yml``,
-   ``.gitlab-ci.yml``, ``scripts/deploy.sh``, and a template listing the
-   secrets the deploy server needs)
-3. Driving the GitLab pipeline (push → CI builds containers → manual release
-   tag → ``deploy.sh`` on the server)
-4. Post-deploy health checks and ongoing release operations
-
-If you'd rather every operator who clones the profile repo get the deploy skill
-automatically, install a copy into the repo itself:
+Second, one command turns those coordinates into files:
 
 .. code-block:: bash
 
    # skip-ci
-   osprey skills install osprey-build-deploy --target .claude/skills/
+   osprey deploy scaffold
 
-The previous copy is backed up to ``.claude/skills/osprey-build-deploy.bak.<timestamp>/``.
+That writes the CI pipeline at the repository root and a post-deploy health
+check inside the profile. Re-run it whenever the ``deploy:`` block changes — a
+file whose content already matches is left untouched, and a file you hand-edited
+is reported rather than overwritten.
 
-See :doc:`/how-to/build-profiles` for the full build profile reference.
+From there ``osprey deploy up`` brings the stack up and ``osprey deploy status``
+tells you what is running. The ``osprey-deploy-ops`` runbook covers everything
+past that point: triaging a service that is down, deciding when to re-scaffold,
+and reconciling a secret a container volume adopted at first start.
+
+If you'd rather every operator who clones the repository get that runbook
+automatically, install a copy into the repository itself:
+
+.. code-block:: bash
+
+   # skip-ci
+   osprey skills install osprey-deploy-ops --target .claude/skills/
+
+The previous copy is backed up to
+``.claude/skills/osprey-deploy-ops.bak.<timestamp>/``.
+
+See :doc:`/how-to/deploy-a-facility` for a worked example that goes from an
+empty directory to running containers, and :doc:`/how-to/build-profiles` for the
+full build profile reference.

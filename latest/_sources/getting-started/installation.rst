@@ -181,8 +181,8 @@ project you build. Its durable home comes later — see the note below.
    *after* the profile exists does not get in.
 
    Keep the export for host-local runs and for seeding that first build; put the
-   key in ``my-profile/.env`` for anything you want to survive a rebuild. See
-   :ref:`profile-secrets`.
+   key in the profile's own ``.env`` — ``profile/.env`` in a facility repository
+   — for anything you want to survive a rebuild. See :ref:`profile-secrets`.
 
 
 Step 5: Install OSPREY

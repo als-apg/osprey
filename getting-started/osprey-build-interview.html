@@ -519,24 +519,36 @@ provides. “I’m not sure” is a fine answer here too.</p></li>
 </section>
 <section id="build-your-project">
 <h2>Build your project<a class="headerlink" href="#build-your-project" title="Link to this heading">#</a></h2>
-<p>When the interview is done, the Osprey agent generates a <code class="docutils literal notranslate"><span class="pre">build-profile/</span></code>
-directory containing your <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, a <code class="docutils literal notranslate"><span class="pre">README.md</span></code> explaining what was
-decided and why, and — if you gave signal details — a channel database and the
-safe operating ranges that go with it.</p>
+<p>When the interview is done, the Osprey agent creates a <strong>facility repository</strong> —
+a git repository named after your facility, with your profile nested inside it:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
+  profile/       the source you own: profile.yml, data/, your secrets
+  build/         where `osprey build` renders projects (kept out of git)
+  ci-extra.yml   your own CI jobs; nothing ever regenerates this
+  .gitignore
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">profile/profile.yml</span></code> records everything the interview decided. Beside it are
+a <code class="docutils literal notranslate"><span class="pre">README.md</span></code> explaining what was chosen and why, and — if you gave signal
+details — a channel database and the safe operating ranges that go with it.</p>
 <p>Before handing it over, the agent builds the profile itself and requires that
 build to succeed. If something doesn’t render, it fixes the profile and tries
 again rather than passing you a broken one, so what you receive is known to
 build.</p>
 <p>Then:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>build-profile/profile.yml
+<span class="nb">cd</span><span class="w"> </span>my-facility
+osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>profile/
 </pre></div>
 </div>
 <p>One command. OSPREY reads your profile, validates your selections, copies your
-channel database into the right place, and produces a ready-to-use project.</p>
+channel database into the right place, and renders a ready-to-use project into
+<code class="docutils literal notranslate"><span class="pre">build/my-project/</span></code>. You never have to say where the output goes: a profile
+nested in a facility repository always renders into that repository’s
+<code class="docutils literal notranslate"><span class="pre">build/</span></code>, from whichever directory you run the command.</p>
 <p>To start using it:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-<span class="nb">cd</span><span class="w"> </span>my-project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>claude
+<span class="nb">cd</span><span class="w"> </span>build/my-project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>claude
 </pre></div>
 </div>
 <p>Or for the web dashboard:</p>
@@ -547,47 +559,44 @@ osprey<span class="w"> </span>web
 </section>
 <section id="phase-2-deploy-your-project">
 <h2>Phase 2: deploy your project<a class="headerlink" href="#phase-2-deploy-your-project" title="Link to this heading">#</a></h2>
-<p>The interview settles <em>what</em> to build. A separate skill, <strong>osprey-build-deploy</strong>,
-covers <em>how to ship it</em>. At the end of the interview the Osprey agent points you
-at it:</p>
+<p>The interview settles <em>what</em> to build. Running what was built — putting it on a
+real machine and keeping it there — is the other half, and it has its own
+skill, <strong>osprey-deploy-ops</strong>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-deploy
+osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-deploy-ops
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">build-profile/</span></code> directory is a durable, git-tracked artifact you’ll
-redeploy from many times. When you’re ready to ship to a real deploy server
-(GitLab CI/CD, container registry, on-server containers), open the Osprey agent
-<strong>inside the profile repo</strong> and trigger the deploy skill:</p>
+<p>The facility repository is a durable, git-tracked artifact you’ll redeploy from
+many times, and both halves of deployment live inside it.</p>
+<p>First, the deployment coordinates go in the profile itself, under a <code class="docutils literal notranslate"><span class="pre">deploy:</span></code>
+block: the CI platform you use, the deploy host, and the container registry if
+that host pulls its images. A fresh profile ships this block commented out, so
+filling it in is the one edit that turns a buildable profile into a deployable
+one. Credentials are <em>named</em> there, never written there.</p>
+<p>Second, one command turns those coordinates into files:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-<span class="nb">cd</span><span class="w"> </span>build-profile
-git<span class="w"> </span>init<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>add<span class="w"> </span>-A<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Initial profile&quot;</span>
-claude
+osprey<span class="w"> </span>deploy<span class="w"> </span>scaffold
 </pre></div>
 </div>
-<p>In the Osprey agent session:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey-build-deploy
-</pre></div>
-</div>
-<p>The deploy skill walks you through:</p>
-<ol class="arabic simple">
-<li><p>A one-time deploy interview that captures site-specific values (GitLab
-host, deploy server, container runtime, ports, optional modules) and
-writes them to <code class="docutils literal notranslate"><span class="pre">facility-config.yml</span></code></p></li>
-<li><p>Scaffolding the deploy infrastructure from that config (<code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">.gitlab-ci.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">scripts/deploy.sh</span></code>, and a template listing the
-secrets the deploy server needs)</p></li>
-<li><p>Driving the GitLab pipeline (push → CI builds containers → manual release
-tag → <code class="docutils literal notranslate"><span class="pre">deploy.sh</span></code> on the server)</p></li>
-<li><p>Post-deploy health checks and ongoing release operations</p></li>
-</ol>
-<p>If you’d rather every operator who clones the profile repo get the deploy skill
-automatically, install a copy into the repo itself:</p>
+<p>That writes the CI pipeline at the repository root and a post-deploy health
+check inside the profile. Re-run it whenever the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block changes — a
+file whose content already matches is left untouched, and a file you hand-edited
+is reported rather than overwritten.</p>
+<p>From there <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> brings the stack up and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span></code>
+tells you what is running. The <code class="docutils literal notranslate"><span class="pre">osprey-deploy-ops</span></code> runbook covers everything
+past that point: triaging a service that is down, deciding when to re-scaffold,
+and reconciling a secret a container volume adopted at first start.</p>
+<p>If you’d rather every operator who clones the repository get that runbook
+automatically, install a copy into the repository itself:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-deploy<span class="w"> </span>--target<span class="w"> </span>.claude/skills/
+osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-deploy-ops<span class="w"> </span>--target<span class="w"> </span>.claude/skills/
 </pre></div>
 </div>
-<p>The previous copy is backed up to <code class="docutils literal notranslate"><span class="pre">.claude/skills/osprey-build-deploy.bak.&lt;timestamp&gt;/</span></code>.</p>
-<p>See <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the full build profile reference.</p>
+<p>The previous copy is backed up to
+<code class="docutils literal notranslate"><span class="pre">.claude/skills/osprey-deploy-ops.bak.&lt;timestamp&gt;/</span></code>.</p>
+<p>See <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a> for a worked example that goes from an
+empty directory to running containers, and <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the
+full build profile reference.</p>
 </section>
 </section>
 

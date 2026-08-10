@@ -51,6 +51,47 @@ A build profile can add rules of its own. Any rule without ``paths`` frontmatter
 loads unconditionally at session start.
 
 
+Test IOC port isolation
+=======================
+
+``test-ioc-safety`` is a packaged rule the ``control-assistant`` preset selects
+by default (it renders only for EPICS-family control systems). For other
+profiles, add it to the ``rules:`` list when the project runs an EPICS soft IOC
+for testing:
+
+.. code-block:: yaml
+
+   rules:
+     - test-ioc-safety   # mandatory port isolation for a test soft IOC
+
+It renders only for EPICS-family control systems (``control_system.type`` of
+``epics`` or ``virtual_accelerator``); selected under any other protocol it
+renders empty and the build drops the file.
+
+The rule exists because EPICS Channel Access broadcasts on UDP by default. A
+``softIoc`` started with no port configuration binds to UDP 5064 (server) and
+5065 (beacon) and beacons to the broadcast address — where every real IOC on the
+network sees it. A test PV whose name collides with a production PV can then
+route a read to the wrong value, or a write to real hardware. The rule tells the
+agent to refuse any test-IOC action that does not satisfy all six of:
+
+#. CAS ports outside the 5064–5076 production range (default ``59064``/``59065``).
+#. **Both** ``EPICS_CAS_SERVER_PORT`` and ``EPICS_CAS_BEACON_PORT`` set —
+   setting one leaves the other on its default.
+#. Every CA client overriding ``EPICS_CA_SERVER_PORT``, stated each time the
+   agent hands over a test PV.
+#. Every test PV carrying the test prefix (default ``OSPREY:TEST:``) — the last
+   line of defense if the ports somehow fail to isolate.
+#. ``softIoc`` launched only through a startup script that exports the ports
+   first, never bare at a shell prompt.
+#. DB files within the EPICS parser's limits — DESC fields at most 39 ASCII
+   characters, no multibyte characters, and no ``$(...)`` even inside comments.
+
+The rule carries the startup-script pattern, the client-side environment, a
+pre-flight validation snippet, and the shutdown sequence, so the agent has a
+concrete correct procedure rather than a prohibition alone.
+
+
 Changing a rule
 ===============
 

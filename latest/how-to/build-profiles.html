@@ -495,7 +495,7 @@ window.addEventListener("load", load);</script>
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Configure LLM Providers" href="configure-providers.html" />
+    <link rel="next" title="Deploy a Facility" href="deploy-a-facility.html" />
     <link rel="prev" title="How-To Guides" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -804,6 +804,7 @@ window.addEventListener("load", load);</script>
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
@@ -960,13 +961,13 @@ build overwrites what you changed.</p></li>
 <strong>not</strong> change your profile. To see what moved, materialize a fresh profile into
 a scratch directory and diff it:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>/tmp/fresh<span class="w"> </span>--preset<span class="w"> </span>control-assistant
-diff<span class="w"> </span>-u<span class="w"> </span>/tmp/fresh/profile.yml<span class="w"> </span>my-profile/profile.yml
+diff<span class="w"> </span>-u<span class="w"> </span>/tmp/fresh/profile/profile.yml<span class="w"> </span>my-facility/profile/profile.yml
 </pre></div>
 </div>
 </section>
 <section id="creating-a-profile">
 <h2>Creating a profile<a class="headerlink" href="#creating-a-profile" title="Link to this heading">#</a></h2>
-<p>Two commands get you a profile; both produce the same kind of directory.</p>
+<p>Two commands get you a profile. They differ in what surrounds it.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 45.0%" />
@@ -978,21 +979,28 @@ diff<span class="w"> </span>-u<span class="w"> </span>/tmp/fresh/profile.yml<spa
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">my-profile</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
-<td><p>Writes the profile directory and stops. Use it when you want to look at
-and edit the profile before building anything.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">my-facility</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
+<td><p>Writes a <strong>facility repository</strong> and stops: a git repository whose
+<code class="docutils literal notranslate"><span class="pre">profile/</span></code> directory holds the profile, with an empty <code class="docutils literal notranslate"><span class="pre">build/</span></code> for
+rendered projects beside it. Use it when you want to look at and edit
+the profile before building anything.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">my-project</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
-<td><p>Writes <code class="docutils literal notranslate"><span class="pre">my-project-profile/</span></code> beside the project on the <em>first</em> run,
-then builds from it. Every later run reuses that directory as it stands.</p></td>
+<td><p>Writes a bare <code class="docutils literal notranslate"><span class="pre">my-project-profile/</span></code> directory beside the project on
+the <em>first</em> run, then builds from it. Every later run reuses that
+directory as it stands.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>After the profile exists, the everyday command names it directly:</p>
+<p>Either way the profile itself is the same. After it exists, the everyday
+command names it directly:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>my-profile/profile.yml
 </pre></div>
 </div>
+<p>A profile nested in a facility repository is the one case where the build
+chooses the output directory for you: it renders into that repository’s
+<code class="docutils literal notranslate"><span class="pre">build/&lt;PROJECT_NAME&gt;/</span></code>, from whichever directory you run the command.</p>
 <div class="important admonition">
 <p class="admonition-title">Every build reads a profile</p>
 <p>There is no build that renders a project straight out of a bundled preset.
@@ -1005,20 +1013,29 @@ warning, never re-applied.</p>
 </div>
 <section id="what-osprey-profile-new-writes">
 <h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes<a class="headerlink" href="#what-osprey-profile-new-writes" title="Link to this heading">#</a></h3>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
-  profile.yml     the full configuration — edit freely
-  data/           facility content: channel databases, knowledge, lattice
-  .env.example    every variable the agent reads, documented, no values
-  .env            your values (only when your shell had keys to seed)
-  .gitignore      keeps .env out of version control
-  README.md       explains the layout, for whoever opens the directory next
-  triggers.yml    the events the agent runs on (dispatch profiles only)
-  personas/       one delta per web-terminal persona (persona presets only)
-  web-terminal-context/  one seeded directory per operator on the roster
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
+  profile/
+    profile.yml     the full configuration — edit freely
+    data/           facility content: channel databases, knowledge, lattice
+    .env.example    every variable the agent reads, documented, no values
+    .env            your values (only when your shell had keys to seed)
+    .gitignore      keeps .env out of version control
+    README.md       explains the layout, for whoever opens the directory next
+    triggers.yml    the events the agent runs on (dispatch profiles only)
+    personas/       one delta per web-terminal persona (persona presets only)
+    web-terminal-context/  one seeded directory per operator on the roster
+  build/            empty; where `osprey build` renders projects
+  ci-extra.yml      the facility&#39;s own CI jobs; never regenerated
+  .gitignore        keeps build/ and the profile&#39;s secrets out of git
 </pre></div>
 </div>
-<p>The last three appear only when the preset calls for them — a <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>
-profile has none of them.</p>
+<p>The last three files under <code class="docutils literal notranslate"><span class="pre">profile/</span></code> appear only when the preset calls for
+them — a <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> profile has none of them.</p>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> runs at the repository root, and nothing is committed. There is no
+CI pipeline yet: the profile ships its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so
+there are no coordinates to render one from. Fill the block in and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">scaffold</span></code> writes the pipeline — see
+<a class="reference internal" href="deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p>
 <p>Directories for your own artifacts (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, and the rest) are
 <strong>not</strong> created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.</p>
@@ -2055,11 +2072,11 @@ relax the constraint in the profile.</p>
       </div>
     </a>
     <a class="right-next"
-       href="configure-providers.html"
+       href="deploy-a-facility.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Configure LLM Providers</p>
+        <p class="prev-next-title">Deploy a Facility</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -20,6 +20,13 @@ Build & Deploy a Project
       Build a facility-specific assistant from a profile you own — convention
       directories, taking ownership of framework artifacts, personas, and secrets.
 
+   .. grid-item-card:: Deploy a Facility
+      :link: deploy-a-facility
+      :link-type: doc
+
+      The end-to-end walkthrough: one facility repo from ``osprey profile new``
+      through the CI scaffolding to a running three-service stack.
+
    .. grid-item-card:: Configure LLM Providers
       :link: configure-providers
       :link-type: doc
@@ -191,6 +198,7 @@ Bundled Services & Tutorials
    :hidden:
 
    build-profiles
+   deploy-a-facility
    configure-providers
    run-open-models
    deploy-project

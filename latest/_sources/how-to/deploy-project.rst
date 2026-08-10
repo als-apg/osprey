@@ -18,10 +18,11 @@ How to run an Osprey project's containerized services with ``osprey deploy``.
 .. tip::
 
    This page is the operator/service-author reference for ``osprey deploy``.
-   For the end-to-end build → ship workflow (CI/CD, release operations), use
-   the ``osprey-build-deploy`` skill that the build interview installs into
-   your profile repo. For the full ``services:`` schema as authored inside a
-   build profile, see :ref:`profile-services`.
+   For the end-to-end walkthrough — facility repository, CI pipeline, stack up
+   — follow :doc:`deploy-a-facility`; the judgment that goes with running it
+   day to day lives in the ``osprey-deploy-ops`` skill. For the full
+   ``services:`` schema as authored inside a build profile, see
+   :ref:`profile-services`.
 
 Overview
 ========

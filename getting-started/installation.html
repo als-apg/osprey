@@ -594,8 +594,8 @@ on the profile’s own <code class="docutils literal notranslate"><span class="p
 project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it and never re-reads your shell, so a key exported
 <em>after</em> the profile exists does not get in.</p>
 <p>Keep the export for host-local runs and for seeding that first build; put the
-key in <code class="docutils literal notranslate"><span class="pre">my-profile/.env</span></code> for anything you want to survive a rebuild. See
-<a class="reference internal" href="../how-to/build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
+key in the profile’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> — <code class="docutils literal notranslate"><span class="pre">profile/.env</span></code> in a facility repository
+— for anything you want to survive a rebuild. See <a class="reference internal" href="../how-to/build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
 </div>
 </section>
 <section id="step-5-install-osprey">
