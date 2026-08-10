@@ -116,7 +116,7 @@ def fake_runtime(monkeypatch):
 
     monkeypatch.setattr(seeding.subprocess, "run", _fake_run)
     monkeypatch.setattr(seeding, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None: {"FAKE": "env"})
+    monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None, **kw: {"FAKE": "env"})
     return calls, inputs, ready
 
 

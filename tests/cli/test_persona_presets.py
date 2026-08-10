@@ -461,7 +461,7 @@ class TestWebTerminalContextShipped:
 
         monkeypatch.setattr(seeding.subprocess, "run", _fake_run)
         monkeypatch.setattr(seeding, "get_runtime_command", lambda config=None: ["docker"])
-        monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None: {})
+        monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None, **kw: {})
         monkeypatch.chdir(project_dir)
 
         seeding.seed_user_containers(

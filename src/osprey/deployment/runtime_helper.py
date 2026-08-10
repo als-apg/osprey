@@ -120,7 +120,12 @@ def reset_runtime_cache() -> None:
     _runtime_cmd_cache.clear()
 
 
-def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> dict[str, str]:
+def runtime_env(
+    config: dict | None,
+    base_env: dict[str, str] | None = None,
+    *,
+    ignore_orphans: bool = False,
+) -> dict[str, str]:
     """Build the environment for a runtime (docker/podman compose) invocation.
 
     Pins ``COMPOSE_PROJECT_NAME`` to :func:`compose_generator.resolve_project_name`
@@ -133,19 +138,27 @@ def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> 
     command should build its env through this function rather than passing
     ``os.environ`` (or a copy of it) directly.
 
-    Also sets ``COMPOSE_IGNORE_ORPHANS``. That one is structural, not
+    ``ignore_orphans=True`` additionally sets ``COMPOSE_IGNORE_ORPHANS``, and
+    is for the web-terminal call sites only. There it is structural, not
     cosmetic: a web-terminal deploy runs TWO compose invocations against the
     single project this function pins — the backend services under
     ``build/services/*.yml`` and the web stack under
     ``docker-compose.web.yml`` — so each one necessarily sees the other's
     containers as orphans of the shared project, and says so at length, twice
     per deploy. The warning's own suggested remedy (``--remove-orphans``) is
-    the one thing that must never be run here: it would delete the other
+    the one thing that must never be run there: it would delete the other
     stack, which is exactly why both call sites in
     :mod:`~osprey.deployment.web_terminals.provision` forbid the flag. A
     warning whose only advertised fix is destructive, in a situation the
     design guarantees, is pure noise — so it is turned off at the source
     rather than left for every operator to learn to ignore.
+
+    It must stay opt-in because the single-stack paths are the mirror image:
+    plain ``deploy up`` reconciles with ``up --remove-orphans`` and ``clean``
+    tears down with ``down --remove-orphans``, and docker compose hard-errors
+    on the combination ("cannot combine COMPOSE_IGNORE_ORPHANS and
+    --remove-orphans") rather than letting one win. A default-on env var
+    would turn every one of those deploys into that error.
 
     Args:
         config: Configuration dictionary used to resolve the project name.
@@ -153,16 +166,20 @@ def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> 
             i.e. the ``"unnamed-project"`` fallback.
         base_env: Environment to layer the pin onto. Defaults to
             ``os.environ``. Never mutated — a fresh copy is always returned.
+        ignore_orphans: Set ``COMPOSE_IGNORE_ORPHANS=1`` for a compose
+            invocation that shares its project with another one by design.
+            Never combine with a ``--remove-orphans`` argv.
 
     Returns:
-        A new environment dict with ``COMPOSE_PROJECT_NAME`` and
-        ``COMPOSE_IGNORE_ORPHANS`` set.
+        A new environment dict with ``COMPOSE_PROJECT_NAME`` set (and
+        ``COMPOSE_IGNORE_ORPHANS`` when requested).
     """
     from osprey.deployment.compose_generator import resolve_project_name
 
     env = dict(base_env if base_env is not None else os.environ)
     env["COMPOSE_PROJECT_NAME"] = resolve_project_name(config or {})
-    env["COMPOSE_IGNORE_ORPHANS"] = "1"
+    if ignore_orphans:
+        env["COMPOSE_IGNORE_ORPHANS"] = "1"
     return env
 
 

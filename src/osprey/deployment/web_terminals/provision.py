@@ -591,7 +591,7 @@ def force_recreate_auth_sidecar(
     # see auth_credentials.raise_if_env_auth_would_be_interpolated.
     _force_recreate_services(
         web_stack_compose_cmd(config, env_file_args),
-        runtime_env(config, env if env is not None else dict(os.environ)),
+        runtime_env(config, env if env is not None else dict(os.environ), ignore_orphans=True),
         [AUTH_SERVICE_NAME],
     )
 
@@ -790,7 +790,7 @@ def deploy_up_web_terminals(
         # Registry mode has no auto-render; the same before-compose rule holds.
         ensure_env_production(config, project_root)
 
-    run_env = runtime_env(config, env)
+    run_env = runtime_env(config, env, ignore_orphans=True)
 
     # ---- backend services (own compose project directory: build/services/) --
     # Skipped when no real service is deployed -- see docstring for why
@@ -1002,7 +1002,11 @@ def deploy_down_web_terminals(
     down_cmd.append("down")
     logger.debug(f"Running command:\n    {' '.join(down_cmd)}")
     result = subprocess.run(
-        down_cmd, env=runtime_env(config, env), capture_output=True, text=True, check=False
+        down_cmd,
+        env=runtime_env(config, env, ignore_orphans=True),
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode != 0:
         logger.warning(

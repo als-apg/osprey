@@ -198,7 +198,7 @@ def seed_user_containers(
         targets = roster
 
     runtime = get_runtime_command(config)[0]
-    run_env = env if env is not None else runtime_env(config)
+    run_env = env if env is not None else runtime_env(config, ignore_orphans=True)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(config.get("registry"))
     # strict=True: an unresolvable persona reference is a misconfiguration, not a

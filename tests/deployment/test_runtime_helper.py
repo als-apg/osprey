@@ -42,28 +42,43 @@ def test_runtime_env_pins_default_project_name_for_falsy_config() -> None:
 
 
 # ---------------------------------------------------------------------------
-# COMPOSE_IGNORE_ORPHANS -- structural, not cosmetic.
+# COMPOSE_IGNORE_ORPHANS -- opt-in, and the default matters as much as the
+# opt-in.
 #
 # A web-terminal deploy issues TWO compose invocations against ONE
 # COMPOSE_PROJECT_NAME: the backend services (-f build/services/*.yml) and the
 # web stack (-f docker-compose.web.yml). Each therefore sees the other's
 # containers as orphans of the shared project and prints a warning naming every
-# one of them, twice per deploy. The warning is not actionable here: its
+# one of them, twice per deploy. The warning is not actionable there: its
 # suggested remedy, `--remove-orphans`, would delete the OTHER stack, which is
-# exactly why provision.py forbids that flag on both paths.
+# exactly why provision.py forbids that flag on both paths --
+# ignore_orphans=True silences it at the source.
+#
+# The single-stack paths are the mirror image: plain `deploy up` reconciles
+# with `up --remove-orphans`, `clean` with `down --remove-orphans`, and docker
+# compose HARD-ERRORS on the combination ("cannot combine
+# COMPOSE_IGNORE_ORPHANS and --remove-orphans"). A default-on env var breaks
+# every one of those deploys outright, so the default-off pin below is a
+# regression guard, not a formality.
 # ---------------------------------------------------------------------------
 
 
-def test_runtime_env_suppresses_the_shared_project_orphan_warning() -> None:
-    """The two-invocations-one-project design makes orphans expected, not news."""
+def test_runtime_env_does_not_set_ignore_orphans_by_default() -> None:
+    """Single-stack deploys pass --remove-orphans; the env var would hard-error."""
     env = runtime_env({"project_name": "proj-a"}, base_env={})
+    assert "COMPOSE_IGNORE_ORPHANS" not in env
+
+
+def test_runtime_env_suppresses_the_orphan_warning_on_request() -> None:
+    """The two-invocations-one-project design makes orphans expected, not news."""
+    env = runtime_env({"project_name": "proj-a"}, base_env={}, ignore_orphans=True)
     assert env["COMPOSE_IGNORE_ORPHANS"] == "1"
 
 
 def test_runtime_env_never_mutates_the_base_env() -> None:
     """Both pins land on a copy -- the caller's env is untouched."""
     base: dict[str, str] = {}
-    runtime_env({"project_name": "proj-a"}, base_env=base)
+    runtime_env({"project_name": "proj-a"}, base_env=base, ignore_orphans=True)
     assert base == {}
 
 

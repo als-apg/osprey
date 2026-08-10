@@ -690,7 +690,7 @@ def _stub_web_stack(monkeypatch, tmp_path):
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(provision, "runtime_env", lambda config, env: dict(env))
+    monkeypatch.setattr(provision, "runtime_env", lambda config, env, **kw: dict(env))
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
     monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
