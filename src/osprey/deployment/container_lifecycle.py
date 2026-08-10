@@ -17,7 +17,6 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.errors import ComposeInterpolationError
-from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,

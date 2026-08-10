@@ -89,3 +89,40 @@ def test_mock_keeps_current_generic_text(tmp_path):
     assert "epics.caget" not in content
     assert "epics.caput" not in content
     assert "EPICS Channel Access" not in content
+
+
+def _rendered_rules_dir(tmp_path, project_name: str, control_system_type: str | None):
+    _render_safety_rule(tmp_path, project_name, control_system_type)
+    return tmp_path / project_name / ".claude" / "rules"
+
+
+def test_test_ioc_rule_renders_for_epics_family(tmp_path):
+    """test-ioc-safety.md must materialize for both EPICS-family types."""
+    for cs_type in ("epics", "virtual_accelerator"):
+        rules_dir = _rendered_rules_dir(tmp_path / cs_type, f"ioc-{cs_type[:8]}", cs_type)
+        rule = rules_dir / "test-ioc-safety.md"
+        assert rule.exists(), f"test-ioc-safety.md missing for {cs_type}"
+        assert rule.read_text().strip()
+
+
+def test_test_ioc_rule_absent_for_mock(tmp_path):
+    """The template's EPICS-family gate renders empty for mock, and the
+    empty-file cleanup must remove it rather than leave a blank rule."""
+    rules_dir = _rendered_rules_dir(tmp_path, "ioc-mock", None)
+    assert not (rules_dir / "test-ioc-safety.md").exists()
+
+
+def test_control_assistant_preset_selects_test_ioc_rule():
+    """The DOA regression this pins: the rule existed in the artifact catalog
+    but no preset selected it, so it rendered into no built project. The
+    preset's rules list must resolve the rule into the allowed output set."""
+    from importlib.resources import files
+
+    from osprey.cli.templates.manifest import resolve_manifest_outputs
+
+    preset = yaml.safe_load(
+        files("osprey").joinpath("profiles/presets/control-assistant.yml").read_text()
+    )
+    assert "test-ioc-safety" in preset["rules"]
+    outputs = resolve_manifest_outputs({"artifacts": {"rules": preset["rules"]}})
+    assert ".claude/rules/test-ioc-safety.md" in outputs

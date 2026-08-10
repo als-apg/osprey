@@ -800,7 +800,7 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
             operator their old password still works when it does not.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
 
     # Read through the same parser the render and the deploy preflight use, so
